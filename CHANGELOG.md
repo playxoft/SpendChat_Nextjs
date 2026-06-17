@@ -8,10 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - **Project setup**: Next.js 16 (App Router) + TypeScript + Tailwind CSS v4 + shadcn/ui (neutral, minimal theme).
-- **Cloudflare Workers** deployment via `@opennextjs/cloudflare` with `wrangler.toml`; verified the Worker bundle (~2.64 MB gzip) fits the free-tier 3 MB limit.
+- **Cloudflare Workers** deployment via `@opennextjs/cloudflare` with `wrangler.toml`; verified the Worker bundle (~1.97 MB gzip) fits the free-tier 3 MB limit.
 - **Light / dark / system** theme toggle (`next-themes`) on both the marketing site and the app.
 - **Neon Postgres + Drizzle ORM**: indexed schema for `user_settings`, `categories`, and `transactions` (user-scoped composite indexes); initial migration generated.
-- **Neon Auth (Stack Auth)**: email + password sign-up (with verification), sign-in, and password reset; branded `/sign-in` and `/sign-up`; route protection via the app layout.
+- **Neon Auth (`@neondatabase/auth`)**: email + password sign-up and sign-in via custom branded forms + server actions; same-origin `/api/auth` handler; route protection enforced in the app layout via `requireUser()`.
 - **Chat-style tracker** (`/app`): transactions as message bubbles with day dividers, a running monthly balance, and a chat composer for instant entry.
 - **Bulk add**: paste many transactions (`amount, note, category, type, date`) with a live parsed preview before importing.
 - **Transactions** (`/transactions`): filter by date range, type, category, and note search; pagination; CSV download; print-friendly layout.

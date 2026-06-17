@@ -19,10 +19,11 @@ binding = "ASSETS"
 enabled = true
 
 # ---------------------------------------------------------------------------
-# Secrets are NOT stored here. Set them from Doppler before deploying:
+# Secrets are NOT stored here. Set them from Doppler before deploying, e.g.:
 #
-#   doppler secrets get DATABASE_URL --plain | npx wrangler secret put DATABASE_URL
-#   doppler secrets get STACK_SECRET_SERVER_KEY --plain | npx wrangler secret put STACK_SECRET_SERVER_KEY
+#   doppler secrets get NEON_POSTGRES_DATABASE_URL --plain | npx wrangler secret put NEON_POSTGRES_DATABASE_URL
+#   doppler secrets get NEON_AUTH_BASE_URL          --plain | npx wrangler secret put NEON_AUTH_BASE_URL
+#   doppler secrets get NEON_AUTH_COOKIE_SECRET     --plain | npx wrangler secret put NEON_AUTH_COOKIE_SECRET
 #
 # NEXT_PUBLIC_* values are inlined at build time and do not need a secret.
 # ---------------------------------------------------------------------------

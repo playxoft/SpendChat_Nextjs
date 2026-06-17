@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useTransition } from "react";
 import { LogOut, Settings as SettingsIcon } from "lucide-react";
-import { useUser } from "@stackframe/stack";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -12,7 +13,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { cn } from "@/lib/utils";
+import { authClient } from "@/lib/neon-auth-client";
 
 export function UserMenu({
   email,
@@ -21,8 +22,17 @@ export function UserMenu({
   email: string | null;
   compact?: boolean;
 }) {
-  const user = useUser();
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
   const initial = (email ?? "?").charAt(0).toUpperCase();
+
+  function handleSignOut() {
+    startTransition(async () => {
+      await authClient.signOut();
+      router.push("/");
+      router.refresh();
+    });
+  }
 
   return (
     <DropdownMenu>
@@ -51,13 +61,14 @@ export function UserMenu({
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/settings" className={cn("cursor-pointer")}>
+          <Link href="/settings" className="cursor-pointer">
             <SettingsIcon className="size-4" /> Settings
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem
           className="cursor-pointer"
-          onClick={() => user?.signOut()}
+          onClick={handleSignOut}
+          disabled={pending}
         >
           <LogOut className="size-4" /> Sign out
         </DropdownMenuItem>

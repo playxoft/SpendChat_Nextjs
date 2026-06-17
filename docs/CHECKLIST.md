@@ -22,7 +22,7 @@ Status: **implementation complete** — pending live Neon/Doppler credentials an
 | Worker config | `wrangler.toml` |
 | Database | Neon Postgres via Neon HTTP driver |
 | ORM / migrations | Drizzle ORM + Drizzle Kit |
-| Auth | Neon Auth (Stack Auth) — email + password |
+| Auth | Neon Auth (`@neondatabase/auth`) — email + password |
 | Currency | Single currency per user, app-wide, integer minor units |
 | Secrets | Doppler |
 
@@ -41,7 +41,7 @@ Status: **implementation complete** — pending live Neon/Doppler credentials an
 - [x] `open-next.config.ts`
 - [x] `initOpenNextCloudflareForDev()` in `next.config.ts`
 - [x] Scripts: dev, build, preview, deploy, cf-typegen
-- [x] Worker bundle builds and fits free tier (~2.64 MB gzip < 3 MB)
+- [x] Worker bundle builds and fits free tier (~1.97 MB gzip < 3 MB)
 - [ ] Bind custom domain `moneytracker.playxoft.com` (at deploy time)
 
 ## 3. Secrets — Doppler
@@ -59,12 +59,13 @@ Status: **implementation complete** — pending live Neon/Doppler credentials an
 - [ ] Run migration against a live Neon database
 - [ ] (Optional) Postgres RLS
 
-## 5. Authentication — Neon Auth (Stack Auth)
-- [x] `@stackframe/stack` provider scoped to auth/app/handler routes
-- [x] Email + password sign-up / sign-in / reset (Stack components + handler)
-- [x] Branded `/sign-in` + `/sign-up`
-- [x] Route protection via app layout (`requireUser` redirect) + `getAppContext`
-- [x] Sign-out (user menu)
+## 5. Authentication — Neon Auth (`@neondatabase/auth`)
+- [x] `auth` server instance + `authClient` browser client
+- [x] Handler at `app/api/auth/[...path]`
+- [x] Email + password sign-up / sign-in via custom branded forms + server actions
+- [x] Route protection via app layout (`requireUser` redirect) + `getAppContext` — no Node middleware (unsupported by OpenNext on Workers)
+- [x] Sign-out (user menu) via `authClient.signOut()`
+- [ ] Password reset / email verification UI (backend supported; add later)
 
 ## 6. Marketing site (SEO-first) — 6 pages
 - [x] `/` landing (hero, features, steps, FAQ teaser, CTAs)
