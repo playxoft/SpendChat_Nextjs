@@ -1,0 +1,170 @@
+import type { Metadata } from "next";
+import { Suspense } from "react";
+import Link from "next/link";
+import { CalendarPlus, Download, ListPlus } from "lucide-react";
+import { getUserSettings, requireUser } from "@/lib/auth";
+import {
+  countTransactions,
+  getCategories,
+  getSummary,
+  listTransactions,
+} from "@/lib/queries";
+import { parseTxnFilters } from "@/lib/filters";
+import { todayISO } from "@/lib/dates";
+import { formatMoney } from "@/lib/money";
+import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { TransactionFilters } from "@/components/app/transaction-filters";
+import { TransactionsTable } from "@/components/app/transactions-table";
+import { TransactionDialog } from "@/components/app/transaction-dialog";
+import { BulkAddDialog } from "@/components/app/bulk-add-dialog";
+import { PrintButton } from "@/components/app/print-button";
+
+export const dynamic = "force-dynamic";
+
+export const metadata: Metadata = {
+  title: "Transactions",
+  robots: { index: false, follow: false },
+};
+
+const PAGE_SIZE = 50;
+
+type SearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+export default async function TransactionsPage({
+  searchParams,
+}: {
+  searchParams: SearchParams;
+}) {
+  const sp = await searchParams;
+  const one = (k: string): string | null => {
+    const v = sp[k];
+    return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
+  };
+
+  const user = await requireUser();
+  const settings = await getUserSettings(user.id);
+  const categories = await getCategories(user.id);
+  const today = todayISO();
+
+  const filters = parseTxnFilters(one);
+  const page = Math.max(1, Number(one("page")) || 1);
+  const offset = (page - 1) * PAGE_SIZE;
+
+  const [rows, total, summary] = await Promise.all([
+    listTransactions(user.id, { ...filters, limit: PAGE_SIZE, offset }),
+    countTransactions(user.id, filters),
+    getSummary(user.id, filters),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const { currency, locale } = settings;
+
+  const baseParams = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    const val = Array.isArray(v) ? v[0] : v;
+    if (val && k !== "page") baseParams.set(k, val);
+  }
+  const base = baseParams.toString();
+  const exportHref = `/api/transactions/export${base ? `?${base}` : ""}`;
+  const pageHref = (p: number) => {
+    const pr = new URLSearchParams(base);
+    if (p > 1) pr.set("page", String(p));
+    const qs = pr.toString();
+    return qs ? `/transactions?${qs}` : "/transactions";
+  };
+
+  return (
+    <div className="mx-auto max-w-5xl px-4 py-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <div>
+          <h1 className="text-xl font-semibold">Transactions</h1>
+          <p className="text-sm text-muted-foreground">
+            {total} record{total === 1 ? "" : "s"} · Net{" "}
+            {formatMoney(summary.balance, currency, locale)}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <TransactionDialog
+            mode="add"
+            categories={categories}
+            currency={currency}
+            today={today}
+            trigger={
+              <Button variant="ghost" size="icon" aria-label="Add a transaction">
+                <CalendarPlus className="size-4" />
+              </Button>
+            }
+          />
+          <BulkAddDialog
+            today={today}
+            trigger={
+              <Button variant="outline" size="sm">
+                <ListPlus className="size-4" />
+                <span className="hidden sm:inline">Bulk add</span>
+              </Button>
+            }
+          />
+          <Button asChild variant="outline" size="sm">
+            <a href={exportHref}>
+              <Download className="size-4" />
+              <span className="hidden sm:inline">CSV</span>
+            </a>
+          </Button>
+          <PrintButton />
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <Suspense fallback={null}>
+          <TransactionFilters categories={categories} />
+        </Suspense>
+      </div>
+
+      <div className="mt-4 mb-3 hidden print:block">
+        <h2 className="text-lg font-semibold">MoneyTracker — Transactions</h2>
+        <p className="text-sm">
+          {total} records · Net {formatMoney(summary.balance, currency, locale)}
+        </p>
+      </div>
+
+      <div className="mt-4">
+        <TransactionsTable
+          rows={rows}
+          currency={currency}
+          locale={locale}
+          categories={categories}
+          today={today}
+        />
+      </div>
+
+      {totalPages > 1 && (
+        <div className="mt-4 flex items-center justify-between text-sm print:hidden">
+          <span className="text-muted-foreground">
+            Page {page} of {totalPages}
+          </span>
+          <div className="flex gap-2">
+            <Button asChild variant="outline" size="sm">
+              <Link
+                href={pageHref(page - 1)}
+                className={cn(page <= 1 && "pointer-events-none opacity-50")}
+                aria-disabled={page <= 1}
+              >
+                Previous
+              </Link>
+            </Button>
+            <Button asChild variant="outline" size="sm">
+              <Link
+                href={pageHref(page + 1)}
+                className={cn(page >= totalPages && "pointer-events-none opacity-50")}
+                aria-disabled={page >= totalPages}
+              >
+                Next
+              </Link>
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
