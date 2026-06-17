@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { SignIn } from "@stackframe/stack";
+import { SignInForm } from "./sign-in-form";
 
 export const metadata: Metadata = {
   title: "Sign in",
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function SignInPage() {
-  return <SignIn />;
+  return <SignInForm />;
 }

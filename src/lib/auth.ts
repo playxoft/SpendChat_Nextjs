@@ -1,18 +1,34 @@
 import "server-only";
+import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, userSettings } from "@/db/schema";
-import { stackServerApp } from "@/stack/server";
+import { auth } from "@/lib/neon-auth";
 import { DEFAULT_CATEGORIES } from "./categories";
 
+export type SessionUser = {
+  id: string;
+  email: string | null;
+  name: string | null;
+};
+
 /** Current user or null. */
-export async function getCurrentUser() {
-  return stackServerApp.getUser();
+export async function getCurrentUser(): Promise<SessionUser | null> {
+  const { data } = await auth.getSession();
+  const user = data?.user;
+  if (!user) return null;
+  return {
+    id: user.id,
+    email: user.email ?? null,
+    name: user.name ?? null,
+  };
 }
 
 /** Current user, redirecting to sign-in when absent. Use in protected routes. */
-export async function requireUser() {
-  return stackServerApp.getUser({ or: "redirect" });
+export async function requireUser(): Promise<SessionUser> {
+  const user = await getCurrentUser();
+  if (!user) redirect("/sign-in");
+  return user;
 }
 
 /** Create default settings + categories for a user. Idempotent. */

@@ -2,8 +2,9 @@ import type { NextConfig } from "next";
 
 /**
  * Security headers applied to every response.
- * CSP allows inline styles (required by the UI lib) and the Stack Auth API for
- * client-side auth calls. Tighten with a nonce-based policy as a future step.
+ * CSP allows inline styles (required by the UI lib). Auth runs same-origin via
+ * /api/auth, so connect-src 'self' is sufficient. Tighten to a nonce-based
+ * policy as a future step.
  */
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -25,7 +26,7 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://api.stack-auth.com https://*.stack-auth.com",
+      "connect-src 'self'",
       "frame-ancestors 'none'",
       "object-src 'none'",
       "base-uri 'self'",

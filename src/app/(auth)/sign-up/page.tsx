@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { SignUp } from "@stackframe/stack";
+import { SignUpForm } from "./sign-up-form";
 
 export const metadata: Metadata = {
   title: "Create your account",
@@ -8,5 +8,5 @@ export const metadata: Metadata = {
 };
 
 export default function SignUpPage() {
-  return <SignUp />;
+  return <SignUpForm />;
 }

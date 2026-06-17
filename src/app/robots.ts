@@ -12,7 +12,7 @@ export default function robots(): MetadataRoute.Robots {
           "/transactions",
           "/analytics",
           "/settings",
-          "/handler/",
+          "/api/",
           "/sign-in",
           "/sign-up",
         ],

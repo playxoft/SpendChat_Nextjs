@@ -11,8 +11,8 @@ let cached: NeonHttpDatabase<typeof schema> | null = null;
  */
 export function getDb(): NeonHttpDatabase<typeof schema> {
   if (cached) return cached;
-  const url = process.env.DATABASE_URL;
-  if (!url) throw new Error("DATABASE_URL is not set");
+  const url = process.env.NEON_POSTGRES_DATABASE_URL;
+  if (!url) throw new Error("NEON_POSTGRES_DATABASE_URL is not set");
   cached = drizzle(neon(url), { schema });
   return cached;
 }

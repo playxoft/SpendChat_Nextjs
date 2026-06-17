@@ -24,7 +24,7 @@ A minimal, fast, and secure personal **money tracker** — add, view, filter, do
 | Hosting | Cloudflare Workers via [`@opennextjs/cloudflare`](https://opennext.js.org/cloudflare) |
 | Database | [Neon](https://neon.tech) Postgres (serverless HTTP driver) |
 | ORM | Drizzle ORM + Drizzle Kit |
-| Auth | Neon Auth ([Stack Auth](https://stack-auth.com)) — email + password |
+| Auth | Neon Auth ([`@neondatabase/auth`](https://neon.com/docs/auth)) — email + password |
 | Secrets | [Doppler](https://doppler.com) |
 | Validation | Zod + react-hook-form |
 
@@ -60,10 +60,10 @@ Managed by **Doppler** — see [`.env.example`](./.env.example) for the full lis
 
 | Variable | Purpose |
 |----------|---------|
-| `DATABASE_URL` | Neon Postgres connection string |
-| `NEXT_PUBLIC_STACK_PROJECT_ID` | Neon Auth (Stack) project id |
-| `NEXT_PUBLIC_STACK_PUBLISHABLE_CLIENT_KEY` | Neon Auth publishable client key |
-| `STACK_SECRET_SERVER_KEY` | Neon Auth secret server key |
+| `NEON_POSTGRES_DATABASE_URL` | Neon Postgres connection string |
+| `NEON_AUTH_BASE_URL` | Neon Auth URL (Neon console → Project → Auth → Configuration) |
+| `NEON_AUTH_COOKIE_SECRET` | Session cookie signing secret (`openssl rand -base64 32`) |
+| `NEXT_PUBLIC_SITE_URL` | Canonical site URL for SEO/sitemap |
 
 ## 📜 Scripts
 
@@ -93,9 +93,9 @@ Production secrets live in the Doppler `prd` config and are synced to Cloudflare
 src/
   app/
     (marketing)/        # static, SEO-first: landing, features, about, faq, privacy, terms
-    (auth)/             # branded sign-in / sign-up (Stack Auth)
+    (auth)/             # branded sign-in / sign-up (custom forms + server actions)
     (app)/              # authenticated shell: app (chat), transactions, analytics, settings
-    handler/[...stack]/ # Stack Auth callback handler
+    api/auth/[...path]/ # Neon Auth handler
     api/transactions/export/  # CSV export route
     sitemap.ts · robots.ts · manifest.ts · layout.tsx
   actions/              # server actions: transactions, settings, categories
@@ -104,8 +104,7 @@ src/
     marketing/          # header, footer, chat preview
     app/                # chat feed, composer, bulk add, table, filters, nav…
   db/                   # Drizzle schema, client, migrations
-  lib/                  # auth, money, currencies, validation, bulk parser, csv, dates, queries
-  stack/                # Neon Auth (Stack) server app
+  lib/                  # auth helpers, neon-auth (server/client), money, queries, …
 docs/
   CHECKLIST.md          # build checklist (source of truth)
 ```
