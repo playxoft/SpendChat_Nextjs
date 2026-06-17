@@ -1,0 +1,28 @@
+name = "moneytracker"
+main = ".open-next/worker.js"
+compatibility_date = "2025-09-23"
+compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
+
+# Serve the app from the custom domain (requires the playxoft.com zone in this
+# Cloudflare account). Comment out for a quick *.workers.dev preview.
+# NOTE: top-level keys must appear before any [table] headers in TOML.
+routes = [
+  { pattern = "moneytracker.playxoft.com", custom_domain = true },
+]
+
+# Static assets emitted by OpenNext
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+[observability]
+enabled = true
+
+# ---------------------------------------------------------------------------
+# Secrets are NOT stored here. Set them from Doppler before deploying:
+#
+#   doppler secrets get DATABASE_URL --plain | npx wrangler secret put DATABASE_URL
+#   doppler secrets get STACK_SECRET_SERVER_KEY --plain | npx wrangler secret put STACK_SECRET_SERVER_KEY
+#
+# NEXT_PUBLIC_* values are inlined at build time and do not need a secret.
+# ---------------------------------------------------------------------------
