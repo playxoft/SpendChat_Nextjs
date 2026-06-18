@@ -45,22 +45,27 @@ fix(auth): handle expired OTP codes
 chore: bump dependencies
 ```
 
-### Developer Certificate of Origin (DCO)
+## Contributor License Agreement (CLA)
 
-Sign off each commit to certify you wrote the code or have the right to submit it
-under the project license (see the [DCO](https://developercertificate.org/)):
+MoneyTracker is **open core**: the code in this repository is open source under
+Apache-2.0, and Playxoft also offers a commercial/SaaS product built on top of it
+(see [Open core & commercial use](#open-core--commercial-use) below).
 
-```bash
-git commit -s -m "feat: ..."
-```
+Because of this, before your first pull request can be merged you'll be asked to
+sign a **Contributor License Agreement**. The CLA is handled automatically by a
+bot on your PR — it takes a moment and only needs to be done once.
 
-This adds a `Signed-off-by:` line to your commit message.
+By signing, you confirm you wrote the contribution (or have the right to submit
+it) and you grant Playxoft a broad license to use it, including in the commercial
+product. **You keep the copyright to your work** — this is a license grant, not a
+transfer of ownership.
 
-## License
+## Open core & commercial use
 
-By contributing, you agree that your contributions are licensed under the
-[Apache License 2.0](./LICENSE), the same license that covers this project
-(per section 5 of the license).
+The contents of this repository are and will remain open source under
+[Apache-2.0](./LICENSE). Playxoft maintains a separate commercial offering (hosted
+SaaS and/or premium features) built on top of this open core. We will **never
+paywall or remove a feature that has already been released as open source** here.
 
 ## Reporting issues
 
