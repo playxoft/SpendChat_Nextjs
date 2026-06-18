@@ -2,6 +2,7 @@
   "name": "moneytracker",
   "version": "0.1.0",
   "private": true,
+  "license": "Apache-2.0",
   "scripts": {
     "dev": "doppler run -- next dev",
     "build": "doppler run -- next build",
