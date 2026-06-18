@@ -120,4 +120,11 @@ User data is scoped per account, all input is validated, queries are parameteriz
 
 ## 📄 License
 
-TBD.
+Licensed under the [Apache License, Version 2.0](./LICENSE) — see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
+
+Copyright © 2026 Playxoft.
+
+> **Open core:** this repository is open source and stays that way. Playxoft also
+> offers a commercial/SaaS product built on top of it. Contributions are accepted
+> under a CLA — see [`CONTRIBUTING.md`](./CONTRIBUTING.md). Features released here as
+> open source are never paywalled or removed.
