@@ -3,19 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "doppler run -- next dev",
+    "build": "doppler run -- next build",
+    "start": "doppler run -- next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
-    "build:worker": "opennextjs-cloudflare build",
-    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "preview": "doppler run -- opennextjs-cloudflare build && doppler run -- opennextjs-cloudflare preview",
+    "build:worker": "doppler run -- opennextjs-cloudflare build",
+    "deploy": "doppler run --config prd -- opennextjs-cloudflare build && doppler run --config prd -- opennextjs-cloudflare deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:migrate": "doppler run -- drizzle-kit migrate",
+    "db:push": "doppler run -- drizzle-kit push",
+    "db:studio": "doppler run -- drizzle-kit studio"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.4.0",
