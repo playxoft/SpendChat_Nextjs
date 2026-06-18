@@ -2,8 +2,11 @@
 
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/neon-auth";
+import { getAuthErrorMessage } from "@/lib/auth-errors";
 
 export type AuthFormState = { error: string } | null;
+
+const GENERIC = "Couldn't create your account. Please try again.";
 
 export async function signUpWithEmail(
   _prev: AuthFormState,
@@ -20,13 +23,16 @@ export async function signUpWithEmail(
     return { error: "Password must be at least 8 characters." };
   }
 
-  const { error } = await auth.signUp.email({
-    email,
-    name: name || email,
-    password,
-  });
-  if (error) {
-    return { error: error.message || "Couldn't create your account. Please try again." };
+  let errObj: { message?: string } | null = null;
+  try {
+    const res = await auth.signUp.email({ email, name: name || email, password });
+    errObj = (res.error ?? null) as { message?: string } | null;
+  } catch (err) {
+    return { error: getAuthErrorMessage(err, GENERIC) };
+  }
+
+  if (errObj) {
+    return { error: errObj.message || GENERIC };
   }
 
   // Email verification is required — send the user to enter the emailed code.
