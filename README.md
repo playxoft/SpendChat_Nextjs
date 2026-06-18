@@ -120,4 +120,6 @@ User data is scoped per account, all input is validated, queries are parameteriz
 
 ## 📄 License
 
-TBD.
+Licensed under the [Apache License, Version 2.0](./LICENSE) — see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
+
+Copyright © 2026 Playxoft.
