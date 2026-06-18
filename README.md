@@ -47,13 +47,17 @@ pnpm install
 doppler login
 doppler setup            # choose project: moneytracker, config: dev
 
-# 3. Apply database migrations
-doppler run -- pnpm db:migrate
+# 3. Apply database migrations (secrets injected by Doppler automatically)
+pnpm db:migrate
 
-# 4. Start the dev server (secrets injected by Doppler)
-doppler run -- pnpm dev
+# 4. Start the dev server
+pnpm dev
 ```
 App runs at http://localhost:3000.
+
+> The `dev`, `build`, `start`, `preview`, `deploy`, and `db:*` scripts run through
+> `doppler run` automatically, so secrets are injected for you — no need to prefix
+> commands with `doppler run --`.
 
 ### Environment variables
 Managed by **Doppler** — see [`.env.example`](./.env.example) for the full list. Never commit real values.
@@ -73,20 +77,21 @@ Managed by **Doppler** — see [`.env.example`](./.env.example) for the full lis
 | `pnpm build` | Production build |
 | `pnpm preview` | Build + run the Cloudflare Worker locally (OpenNext) |
 | `pnpm deploy` | Build + deploy to Cloudflare Workers |
-| `pnpm db:generate` | Generate Drizzle migrations from schema |
+| `pnpm db:generate` | Generate Drizzle migrations from schema (no secrets) |
 | `pnpm db:migrate` | Apply migrations to Neon |
-| `pnpm lint` / `pnpm typecheck` | Lint / type-check |
+| `pnpm lint` / `pnpm typecheck` | Lint / type-check (no secrets) |
 
-> Run any command needing secrets through `doppler run -- <cmd>`.
+> Secret-injecting scripts use `doppler run` internally. `deploy` uses the Doppler
+> `prd` config; everything else uses your selected config (e.g. `dev`).
 
 ## 🌍 Deployment
 
 Deployed to **Cloudflare Workers** and served at `moneytracker.playxoft.com`.
 
 ```bash
-doppler run --config prd -- pnpm deploy
+pnpm deploy   # builds + deploys using the Doppler `prd` config
 ```
-Production secrets live in the Doppler `prd` config and are synced to Cloudflare. See [`docs/CHECKLIST.md`](./docs/CHECKLIST.md) for the deploy steps.
+Production secrets live in the Doppler `prd` config; runtime secrets are also set on the Worker via `wrangler secret put`. See [`docs/CHECKLIST.md`](./docs/CHECKLIST.md) for the deploy steps.
 
 ## 🗂️ Project structure
 ```
