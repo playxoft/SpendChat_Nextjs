@@ -63,9 +63,10 @@ Status: **implementation complete** — pending live Neon/Doppler credentials an
 - [x] `auth` server instance + `authClient` browser client
 - [x] Handler at `app/api/auth/[...path]`
 - [x] Email + password sign-up / sign-in via custom branded forms + server actions
+- [x] Email verification via `/verify-email` code-entry page (OTP) + resend; sign-up/sign-in route unverified users to it
 - [x] Route protection via app layout (`requireUser` redirect) + `getAppContext` — no Node middleware (unsupported by OpenNext on Workers)
 - [x] Sign-out (user menu) via `authClient.signOut()`
-- [ ] Password reset / email verification UI (backend supported; add later)
+- [ ] Password reset UI (backend supported; add later)
 
 ## 6. Marketing site (SEO-first) — 6 pages
 - [x] `/` landing (hero, features, steps, FAQ teaser, CTAs)

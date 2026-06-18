@@ -29,5 +29,6 @@ export async function signUpWithEmail(
     return { error: error.message || "Couldn't create your account. Please try again." };
   }
 
-  redirect("/app");
+  // Email verification is required — send the user to enter the emailed code.
+  redirect(`/verify-email?email=${encodeURIComponent(email)}`);
 }
