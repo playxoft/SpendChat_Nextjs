@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   date,
@@ -9,6 +10,9 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+/** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
+const uuidV7 = sql`uuidv7()`;
 
 /** Income vs. expense. Used by both categories and transactions. */
 export const txnTypeEnum = pgEnum("txn_type", ["income", "expense"]);
@@ -29,7 +33,7 @@ export const userSettings = pgTable("user_settings", {
 export const categories = pgTable(
   "categories",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidV7),
     userId: text("user_id").notNull(),
     name: text("name").notNull(),
     kind: txnTypeEnum("kind").notNull(),
@@ -49,7 +53,7 @@ export const categories = pgTable(
 export const transactions = pgTable(
   "transactions",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuid("id").primaryKey().default(uuidV7),
     userId: text("user_id").notNull(),
     type: txnTypeEnum("type").notNull(),
     // Amount stored as a positive integer in the currency's minor units (e.g. cents).
