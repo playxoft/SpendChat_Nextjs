@@ -59,5 +59,3 @@ export async function deleteAllTransactions(confirm: string): Promise<ActionResu
   revalidatePath("/analytics");
   return { ok: true };
 }
-
-export type { SettingsInput };
