@@ -52,8 +52,8 @@ Apache-2.0, and Playxoft also offers a commercial/SaaS product built on top of i
 (see [Open core & commercial use](#open-core--commercial-use) below).
 
 Because of this, before your first pull request can be merged you'll be asked to
-sign a **Contributor License Agreement**. The CLA is handled automatically by a
-bot on your PR — it takes a moment and only needs to be done once.
+sign our [**Contributor License Agreement**](./CLA.md). The CLA is handled
+automatically by a bot on your PR — it takes a moment and only needs to be done once.
 
 By signing, you confirm you wrote the contribution (or have the right to submit
 it) and you grant Playxoft a broad license to use it, including in the commercial
