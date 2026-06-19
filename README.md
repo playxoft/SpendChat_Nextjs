@@ -2,7 +2,7 @@
 
 A minimal, fast, and secure personal **money tracker** — add, view, filter, download, and print your income and expenses. Free to use.
 
-🌐 **Live:** [moneytracker.playxoft.com](https://moneytracker.playxoft.com)
+🌐 **Live demo:** coming soon — will be deployed to [moneytracker.playxoft.com](https://moneytracker.playxoft.com)
 
 ---
 
@@ -120,9 +120,13 @@ User data is scoped per account, all input is validated, queries are parameteriz
 
 ## 📄 License
 
-Licensed under the [Apache License, Version 2.0](./LICENSE) — see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
+Licensed under the [GNU Affero General Public License v3.0](./LICENSE) (AGPL-3.0) — see [`LICENSE`](./LICENSE) and [`NOTICE`](./NOTICE).
 
 Copyright © 2026 Playxoft.
+
+> **Why AGPL?** AGPL-3.0 is a strong copyleft license: anyone who runs a modified
+> version of MoneyTracker as a network service must make their source available
+> under the same terms. This keeps the project and its improvements open.
 
 > **Open core:** this repository is open source and stays that way. Playxoft also
 > offers a commercial/SaaS product built on top of it. Contributions are accepted

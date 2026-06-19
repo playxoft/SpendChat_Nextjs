@@ -2,7 +2,11 @@
   "name": "moneytracker",
   "version": "0.1.0",
   "private": true,
-  "license": "Apache-2.0",
+  "license": "AGPL-3.0-only",
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "doppler run -- next dev",
     "build": "doppler run -- next build",

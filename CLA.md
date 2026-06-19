@@ -27,7 +27,7 @@ reproduce, prepare derivative works of, publicly display, publicly perform,
 sublicense, and distribute your Contribution and such derivative works.
 
 This license expressly permits Playxoft to use your Contribution in **both** the
-open-source Project (under the Apache License 2.0) **and** in proprietary or
+open-source Project (under the GNU Affero General Public License v3.0) **and** in proprietary or
 commercial offerings, and to **relicense or sublicense** the Project (including
 your Contribution) under different terms in the future.
 
