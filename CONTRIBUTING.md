@@ -48,7 +48,7 @@ chore: bump dependencies
 ## Contributor License Agreement (CLA)
 
 MoneyTracker is **open core**: the code in this repository is open source under
-Apache-2.0, and Playxoft also offers a commercial/SaaS product built on top of it
+AGPL-3.0, and Playxoft also offers a commercial/SaaS product built on top of it
 (see [Open core & commercial use](#open-core--commercial-use) below).
 
 Because of this, before your first pull request can be merged you'll be asked to
@@ -63,12 +63,12 @@ transfer of ownership.
 ## Open core & commercial use
 
 The contents of this repository are and will remain open source under
-[Apache-2.0](./LICENSE). Playxoft maintains a separate commercial offering (hosted
+[AGPL-3.0](./LICENSE). Playxoft maintains a separate commercial offering (hosted
 SaaS and/or premium features) built on top of this open core. We will **never
 paywall or remove a feature that has already been released as open source** here.
 
 ## Reporting issues
 
 Open a GitHub issue with steps to reproduce, what you expected, and what happened.
-For security issues, please **do not** open a public issue — contact the
-maintainers privately instead.
+For security issues, please **do not** open a public issue — follow the private
+reporting process in [`SECURITY.md`](./SECURITY.md) instead.

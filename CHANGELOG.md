@@ -23,7 +23,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Money stored as integer minor units to avoid floating-point drift.
 
 ### Changed
+- **License**: switched to **AGPL-3.0** (network copyleft) to keep the open core open; the project briefly carried Apache-2.0 during setup.
 - Removed the initial IntelliJ Java stub (`src/Main.java`, `.iml`, `.idea/`) in favor of the Next.js app.
+- Removed leftover Next.js starter assets (`public/*.svg`).
+
+### Open source readiness
+- Added `SECURITY.md` with a private vulnerability-reporting process.
+- Added GitHub issue templates (bug / feature), a pull-request template, and an issue-template config.
+- Added a CI workflow (`.github/workflows/ci.yml`) running `pnpm lint` and `pnpm typecheck` on pushes and PRs.
+- Pinned the toolchain via `packageManager` (pnpm) and `engines.node` (>=20) in `package.json`.
 
 ### Notes
 - Requires a Neon project (Postgres + Neon Auth) and Doppler-provided secrets to run. See `README.md`.
