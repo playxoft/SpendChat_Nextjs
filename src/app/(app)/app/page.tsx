@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { CalendarPlus, ListPlus } from "lucide-react";
 import { requireUser, getUserSettings } from "@/lib/auth";
-import { getCategories, getSummary, listTransactionsAsc } from "@/lib/queries";
+import { getCategories, getProfiles, getSummary, listTransactionsAsc } from "@/lib/queries";
 import { monthLabel, monthRange, todayISO } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -22,7 +22,11 @@ export const metadata: Metadata = {
 export default async function ChatPage() {
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
-  const categories = await getCategories(user.id);
+  const [categories, profiles] = await Promise.all([
+    getCategories(user.id),
+    getProfiles(user.id),
+  ]);
+  const activeProfileId = profiles[0]?.id;
 
   const today = todayISO();
   const { start, end } = monthRange(today);
@@ -54,6 +58,8 @@ export default async function ChatPage() {
             <TransactionDialog
               mode="add"
               categories={categories}
+              profiles={profiles}
+              activeProfileId={activeProfileId}
               currency={currency}
               today={today}
               trigger={
@@ -90,10 +96,17 @@ export default async function ChatPage() {
           locale={locale}
           today={today}
           categories={categories}
+          profiles={profiles}
         />
       </div>
 
-      <TransactionComposer categories={categories} currency={currency} today={today} />
+      <TransactionComposer
+        categories={categories}
+        currency={currency}
+        today={today}
+        profiles={profiles}
+        activeProfileId={activeProfileId}
+      />
       <ScrollToBottom count={rows.length} />
     </div>
   );

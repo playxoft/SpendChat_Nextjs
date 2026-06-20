@@ -23,7 +23,7 @@ export function ChatPreview() {
           amountLabel="+$2,000.00"
           categoryName="Salary"
           categoryIcon="💼"
-          note="June salary"
+          title="June salary"
           timeLabel="9:02 AM"
         />
         <TransactionBubble
@@ -31,7 +31,7 @@ export function ChatPreview() {
           amountLabel="−$12.50"
           categoryName="Food & Dining"
           categoryIcon="🍽️"
-          note="Lunch with the team"
+          title="Lunch with the team"
           timeLabel="1:14 PM"
         />
         <TransactionBubble

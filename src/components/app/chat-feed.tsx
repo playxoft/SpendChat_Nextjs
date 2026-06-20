@@ -2,7 +2,7 @@ import { MessageSquarePlus } from "lucide-react";
 import { DayDivider } from "./day-divider";
 import { TransactionItem } from "./transaction-item";
 import { dayDividerLabel } from "@/lib/dates";
-import type { Category } from "@/db/schema";
+import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 
 function timeLabel(value: Date | string, locale: string): string {
@@ -16,12 +16,14 @@ export function ChatFeed({
   locale,
   today,
   categories,
+  profiles = [],
 }: {
   rows: TransactionRow[];
   currency: string;
   locale: string;
   today: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  profiles?: Pick<Profile, "id" | "name" | "icon">[];
 }) {
   if (rows.length === 0) {
     return (
@@ -58,6 +60,7 @@ export function ChatFeed({
                 currency={currency}
                 locale={locale}
                 categories={categories}
+                profiles={profiles}
                 today={today}
                 timeLabel={timeLabel(r.createdAt, locale)}
               />
