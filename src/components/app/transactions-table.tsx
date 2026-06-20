@@ -142,7 +142,9 @@ function Row({
             type: row.type,
             amount: minorToInputString(row.amountMinor, currency),
             categoryId: row.categoryId,
-            note: row.note ?? "",
+            profileId: row.profileId,
+            title: row.title ?? "",
+            description: row.description ?? "",
             occurredOn: row.occurredOn,
           }}
         />

@@ -16,6 +16,7 @@ import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Kbd } from "@/components/ui/kbd";
 import {
   Select,
   SelectContent,
@@ -26,7 +27,9 @@ import {
 import { cn } from "@/lib/utils";
 import { addTransaction, updateTransaction } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
-import type { Category } from "@/db/schema";
+import { useShortcut } from "@/hooks/use-shortcut";
+import { comboFor } from "@/lib/shortcuts";
+import type { Category, Profile } from "@/db/schema";
 
 const NONE = "none";
 
@@ -35,25 +38,31 @@ export type TransactionValues = {
   type: "income" | "expense";
   amount: string;
   categoryId: string | null;
-  note: string;
+  profileId: string | null;
+  title: string;
+  description: string;
   occurredOn: string;
 };
 
 export function TransactionDialog({
   mode,
   categories,
+  profiles = [],
   currency,
   today,
   defaultValues,
+  activeProfileId,
   trigger,
   open,
   onOpenChange,
 }: {
   mode: "add" | "edit";
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  profiles?: Pick<Profile, "id" | "name" | "icon">[];
   currency: string;
   today: string;
   defaultValues?: TransactionValues;
+  activeProfileId?: string;
   trigger?: ReactNode;
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
@@ -67,7 +76,9 @@ export function TransactionDialog({
     type: "expense",
     amount: "",
     categoryId: null,
-    note: "",
+    profileId: activeProfileId ?? profiles[0]?.id ?? null,
+    title: "",
+    description: "",
     occurredOn: today,
   };
   const [values, setValues] = useState<TransactionValues>(defaultValues ?? emptyValues);
@@ -83,10 +94,18 @@ export function TransactionDialog({
 
   const cats = categories.filter((c) => c.kind === values.type);
   const symbol = getCurrency(currency).symbol;
+  const toggleCombo = comboFor("tracker.toggle-type");
 
   function setType(type: "income" | "expense") {
     setValues((v) => ({ ...v, type, categoryId: null }));
   }
+
+  // ⌘/Ctrl+E toggles expense/income while the dialog is open.
+  useShortcut(
+    toggleCombo,
+    () => setValues((v) => ({ ...v, type: v.type === "expense" ? "income" : "expense", categoryId: null })),
+    { enabled: !!isOpen, allowInInput: true },
+  );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -104,7 +123,9 @@ export function TransactionDialog({
         type: values.type,
         amount,
         categoryId: values.categoryId,
-        note: values.note.trim() || undefined,
+        profileId: values.profileId || undefined,
+        title: values.title.trim() || undefined,
+        description: values.description.trim() || undefined,
         occurredOn: values.occurredOn,
       };
       const res =
@@ -135,7 +156,7 @@ export function TransactionDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="inline-flex w-full rounded-lg border bg-muted/50 p-0.5 text-sm">
+          <div className="inline-flex w-full items-center rounded-lg border bg-muted/50 p-0.5 text-sm">
             {(["expense", "income"] as const).map((t) => (
               <button
                 key={t}
@@ -152,6 +173,7 @@ export function TransactionDialog({
                 {t}
               </button>
             ))}
+            <Kbd combo={toggleCombo} className="mr-1.5 ml-1 hidden sm:inline-flex" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -182,37 +204,70 @@ export function TransactionDialog({
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <Label>Category</Label>
-            <Select
-              value={values.categoryId ?? NONE}
-              onValueChange={(v) =>
-                setValues((prev) => ({ ...prev, categoryId: v === NONE ? null : v }))
-              }
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Category" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NONE}>No category</SelectItem>
-                {cats.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.icon ? `${c.icon} ` : ""}
-                    {c.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className={cn("grid gap-3", profiles.length > 0 ? "grid-cols-2" : "grid-cols-1")}>
+            <div className="space-y-1.5">
+              <Label>Category</Label>
+              <Select
+                value={values.categoryId ?? NONE}
+                onValueChange={(v) =>
+                  setValues((prev) => ({ ...prev, categoryId: v === NONE ? null : v }))
+                }
+              >
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Category" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={NONE}>No category</SelectItem>
+                  {cats.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.icon ? `${c.icon} ` : ""}
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {profiles.length > 0 && (
+              <div className="space-y-1.5">
+                <Label>Profile</Label>
+                <Select
+                  value={values.profileId ?? profiles[0]?.id}
+                  onValueChange={(v) => setValues((prev) => ({ ...prev, profileId: v }))}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Profile" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {profiles.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.icon ? `${p.icon} ` : ""}
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="note">Note</Label>
+            <Label htmlFor="title">Title</Label>
+            <Input
+              id="title"
+              placeholder="Add title"
+              value={values.title}
+              onChange={(e) => setValues((v) => ({ ...v, title: e.target.value }))}
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="description">Description</Label>
             <Textarea
-              id="note"
+              id="description"
               rows={2}
-              placeholder="Optional note"
-              value={values.note}
-              onChange={(e) => setValues((v) => ({ ...v, note: e.target.value }))}
+              placeholder="Optional description"
+              value={values.description}
+              onChange={(e) => setValues((v) => ({ ...v, description: e.target.value }))}
             />
           </div>
 
