@@ -15,6 +15,27 @@
       "when": 1781781429242,
       "tag": "0001_amused_energizer",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1781977385444,
+      "tag": "0002_purple_giant_girl",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781977398599,
+      "tag": "0003_backfill_profiles_titles",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1781977449258,
+      "tag": "0004_bored_slayback",
+      "breakpoints": true
     }
   ]
 }

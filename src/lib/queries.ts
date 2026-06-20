@@ -1,13 +1,14 @@
 import "server-only";
-import { and, asc, desc, eq, gte, ilike, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, transactions } from "@/db/schema";
+import { categories, profiles, transactions } from "@/db/schema";
 
 export type TxnFilters = {
   from?: string;
   to?: string;
   type?: "income" | "expense";
   categoryId?: string;
+  profileId?: string;
   search?: string;
   limit?: number;
   offset?: number;
@@ -17,12 +18,18 @@ export type TransactionRow = {
   id: string;
   type: "income" | "expense";
   amountMinor: number;
+  title: string | null;
+  description: string | null;
+  /** Deprecated alias of `title`; kept until all UI reads `title`. */
   note: string | null;
   occurredOn: string;
   createdAt: Date;
   categoryId: string | null;
   categoryName: string | null;
   categoryIcon: string | null;
+  profileId: string;
+  profileName: string | null;
+  profileIcon: string | null;
 };
 
 function buildConditions(userId: string, f: TxnFilters) {
@@ -31,7 +38,16 @@ function buildConditions(userId: string, f: TxnFilters) {
   if (f.to) conds.push(lte(transactions.occurredOn, f.to));
   if (f.type) conds.push(eq(transactions.type, f.type));
   if (f.categoryId) conds.push(eq(transactions.categoryId, f.categoryId));
-  if (f.search) conds.push(ilike(transactions.note, `%${f.search}%`));
+  if (f.profileId) conds.push(eq(transactions.profileId, f.profileId));
+  if (f.search) {
+    const like = `%${f.search}%`;
+    conds.push(
+      or(
+        ilike(transactions.title, like),
+        ilike(transactions.description, like),
+      )!,
+    );
+  }
   return and(...conds);
 }
 
@@ -39,12 +55,18 @@ const txnSelection = {
   id: transactions.id,
   type: transactions.type,
   amountMinor: transactions.amountMinor,
-  note: transactions.note,
+  title: transactions.title,
+  description: transactions.description,
+  // Alias so legacy callers reading `.note` still resolve to the title.
+  note: transactions.title,
   occurredOn: transactions.occurredOn,
   createdAt: transactions.createdAt,
   categoryId: transactions.categoryId,
   categoryName: categories.name,
   categoryIcon: categories.icon,
+  profileId: transactions.profileId,
+  profileName: profiles.name,
+  profileIcon: profiles.icon,
 };
 
 export async function listTransactions(
@@ -56,6 +78,7 @@ export async function listTransactions(
     .select(txnSelection)
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
+    .leftJoin(profiles, eq(transactions.profileId, profiles.id))
     .where(buildConditions(userId, f))
     .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt))
     .limit(f.limit ?? 100)
@@ -135,8 +158,11 @@ export type MonthlyPoint = { month: string; income: number; expense: number };
 export async function getMonthlyTrend(
   userId: string,
   fromISO: string,
+  profileId?: string,
 ): Promise<{ month: string; type: "income" | "expense"; total: number }[]> {
   const db = getDb();
+  const conds = [eq(transactions.userId, userId), gte(transactions.occurredOn, fromISO)];
+  if (profileId) conds.push(eq(transactions.profileId, profileId));
   const rows = await db
     .select({
       month: sql<string>`to_char(${transactions.occurredOn}, 'YYYY-MM')`,
@@ -144,7 +170,7 @@ export async function getMonthlyTrend(
       total: sql<string>`coalesce(sum(${transactions.amountMinor}), 0)`,
     })
     .from(transactions)
-    .where(and(eq(transactions.userId, userId), gte(transactions.occurredOn, fromISO)))
+    .where(and(...conds))
     .groupBy(sql`to_char(${transactions.occurredOn}, 'YYYY-MM')`, transactions.type)
     .orderBy(asc(sql`to_char(${transactions.occurredOn}, 'YYYY-MM')`));
   return rows.map((r) => ({ month: r.month, type: r.type, total: Number(r.total) }));
@@ -157,4 +183,13 @@ export async function getCategories(userId: string) {
     .from(categories)
     .where(eq(categories.userId, userId))
     .orderBy(asc(categories.kind), asc(categories.name));
+}
+
+export async function getProfiles(userId: string) {
+  const db = getDb();
+  return db
+    .select()
+    .from(profiles)
+    .where(eq(profiles.userId, userId))
+    .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt));
 }

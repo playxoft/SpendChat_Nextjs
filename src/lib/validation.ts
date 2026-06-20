@@ -18,7 +18,11 @@ export const transactionInputSchema = z.object({
   type: txnTypeSchema,
   amount: amountSchema,
   categoryId: z.string().uuid().nullish(),
-  note: z.string().trim().max(280).optional().default(""),
+  profileId: z.string().uuid().nullish(),
+  title: z.string().trim().max(120).optional().default(""),
+  description: z.string().trim().max(2000).optional().default(""),
+  // Deprecated alias for `title`; accepted until every caller passes `title`.
+  note: z.string().trim().max(280).optional(),
   occurredOn: dateSchema,
 });
 // `input` type accounts for fields with defaults being optional for callers.
@@ -42,6 +46,34 @@ export type SettingsInput = z.infer<typeof settingsSchema>;
 export const categoryInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(40),
   kind: txnTypeSchema,
-  icon: z.string().trim().max(8).optional(),
+  icon: z.string().trim().max(16).optional(),
+  color: z.string().trim().max(32).optional(),
 });
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
+
+export const updateCategorySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1, "Name is required").max(40).optional(),
+  icon: z.string().trim().max(16).nullish(),
+  color: z.string().trim().max(32).nullish(),
+});
+export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
+
+export const profileInputSchema = z.object({
+  name: z.string().trim().min(1, "Name is required").max(40),
+  icon: z.string().trim().max(16).optional(),
+  color: z.string().trim().max(32).optional(),
+});
+export type ProfileInput = z.infer<typeof profileInputSchema>;
+
+export const updateProfileSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string().trim().min(1, "Name is required").max(40).optional(),
+  icon: z.string().trim().max(16).nullish(),
+  color: z.string().trim().max(32).nullish(),
+});
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+export const reorderProfilesSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(100),
+});

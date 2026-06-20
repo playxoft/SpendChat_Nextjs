@@ -6,7 +6,12 @@ import { z } from "zod";
 import { getDb } from "@/db";
 import { categories } from "@/db/schema";
 import { requireUser } from "@/lib/auth";
-import { categoryInputSchema, type CategoryInput } from "@/lib/validation";
+import {
+  categoryInputSchema,
+  updateCategorySchema,
+  type CategoryInput,
+  type UpdateCategoryInput,
+} from "@/lib/validation";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -24,6 +29,33 @@ export async function addCategory(input: CategoryInput): Promise<ActionResult> {
       kind: parsed.data.kind,
       icon: parsed.data.icon || null,
     });
+  } catch {
+    return { ok: false, error: "A category with that name already exists" };
+  }
+  revalidatePath("/settings");
+  revalidatePath("/app");
+  return { ok: true };
+}
+
+export async function updateCategory(input: UpdateCategoryInput): Promise<ActionResult> {
+  const user = await requireUser();
+  const parsed = updateCategorySchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid category" };
+  }
+  const { id, name, icon, color } = parsed.data;
+
+  const patch: Record<string, unknown> = { updatedAt: new Date() };
+  if (name !== undefined) patch.name = name;
+  if (icon !== undefined) patch.icon = icon || null;
+  if (color !== undefined) patch.color = color || null;
+
+  const db = getDb();
+  try {
+    await db
+      .update(categories)
+      .set(patch)
+      .where(and(eq(categories.id, id), eq(categories.userId, user.id)));
   } catch {
     return { ok: false, error: "A category with that name already exists" };
   }

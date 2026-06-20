@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select,
   SelectContent,
@@ -56,20 +57,18 @@ export function TransactionFilters({
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <Input
-        type="date"
-        aria-label="From date"
+      <DatePicker
         value={from}
         max={to || undefined}
-        onChange={(e) => update({ from: e.target.value || undefined })}
+        placeholder="From"
+        onChange={(iso) => update({ from: iso || undefined })}
         className="w-[9.5rem]"
       />
-      <Input
-        type="date"
-        aria-label="To date"
+      <DatePicker
         value={to}
         min={from || undefined}
-        onChange={(e) => update({ to: e.target.value || undefined })}
+        placeholder="To"
+        onChange={(iso) => update({ to: iso || undefined })}
         className="w-[9.5rem]"
       />
       <Select value={type} onValueChange={(v) => update({ type: v === "all" ? undefined : v })}>
@@ -103,11 +102,11 @@ export function TransactionFilters({
       <div className="relative">
         <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input
-          placeholder="Search notes"
+          placeholder="Search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           className="w-44 pl-8"
-          aria-label="Search notes"
+          aria-label="Search transactions"
         />
       </div>
       {hasFilters && (

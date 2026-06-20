@@ -1,0 +1,128 @@
+"use client";
+
+import * as React from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import {
+  addMonths,
+  eachDayOfInterval,
+  endOfMonth,
+  endOfWeek,
+  format,
+  isAfter,
+  isBefore,
+  isSameDay,
+  isSameMonth,
+  startOfMonth,
+  startOfWeek,
+} from "date-fns";
+import { cn } from "@/lib/utils";
+import { parseISODate, toISODate } from "@/lib/dates";
+
+const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+/**
+ * A small, dependency-free month calendar. Values are passed and returned as
+ * `YYYY-MM-DD` strings parsed in local time, so the selected day always matches
+ * what the user clicked (the bug the native date input had).
+ */
+export function Calendar({
+  selected,
+  onSelect,
+  min,
+  max,
+  className,
+}: {
+  selected?: string | null;
+  onSelect: (iso: string) => void;
+  min?: string;
+  max?: string;
+  className?: string;
+}) {
+  const selectedDate = selected ? parseISODate(selected) : null;
+  const [view, setView] = React.useState<Date>(() =>
+    startOfMonth(selectedDate ?? new Date()),
+  );
+
+  // Jump the visible month to follow an externally-changed selection
+  // (adjust-state-during-render pattern — no effect needed).
+  const [syncedSelected, setSyncedSelected] = React.useState(selected ?? null);
+  if ((selected ?? null) !== syncedSelected) {
+    setSyncedSelected(selected ?? null);
+    if (selected) setView(startOfMonth(parseISODate(selected)));
+  }
+
+  const minDate = min ? parseISODate(min) : null;
+  const maxDate = max ? parseISODate(max) : null;
+  const today = new Date();
+
+  const days = eachDayOfInterval({
+    start: startOfWeek(startOfMonth(view)),
+    end: endOfWeek(endOfMonth(view)),
+  });
+
+  function isDisabled(d: Date) {
+    if (minDate && isBefore(d, minDate)) return true;
+    if (maxDate && isAfter(d, maxDate)) return true;
+    return false;
+  }
+
+  return (
+    <div className={cn("w-64 select-none", className)}>
+      <div className="mb-2 flex items-center justify-between">
+        <button
+          type="button"
+          aria-label="Previous month"
+          onClick={() => setView((v) => addMonths(v, -1))}
+          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <ChevronLeft className="size-4" />
+        </button>
+        <div className="text-sm font-medium">{format(view, "MMMM yyyy")}</div>
+        <button
+          type="button"
+          aria-label="Next month"
+          onClick={() => setView((v) => addMonths(v, 1))}
+          className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+        >
+          <ChevronRight className="size-4" />
+        </button>
+      </div>
+
+      <div className="grid grid-cols-7 gap-0.5">
+        {WEEKDAYS.map((w) => (
+          <div
+            key={w}
+            className="py-1 text-center text-[11px] font-medium text-muted-foreground"
+          >
+            {w}
+          </div>
+        ))}
+        {days.map((d) => {
+          const inMonth = isSameMonth(d, view);
+          const isSel = selectedDate ? isSameDay(d, selectedDate) : false;
+          const isToday = isSameDay(d, today);
+          const disabled = isDisabled(d);
+          return (
+            <button
+              key={d.toISOString()}
+              type="button"
+              disabled={disabled}
+              onClick={() => onSelect(toISODate(d))}
+              className={cn(
+                "flex h-8 items-center justify-center rounded-md text-sm tabular-nums transition-colors",
+                !inMonth && "text-muted-foreground/40",
+                disabled && "cursor-not-allowed opacity-30 hover:bg-transparent",
+                isSel
+                  ? "bg-foreground font-medium text-background"
+                  : "hover:bg-muted",
+                !isSel && isToday && "ring-1 ring-foreground/30",
+              )}
+            >
+              {d.getDate()}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}

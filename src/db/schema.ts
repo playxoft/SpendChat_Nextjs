@@ -3,6 +3,7 @@ import {
   bigint,
   date,
   index,
+  integer,
   pgEnum,
   pgTable,
   text,
@@ -29,6 +30,30 @@ export const userSettings = pgTable("user_settings", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+/**
+ * A "profile" groups transactions like a chat thread (Personal, Company, Home…).
+ * Every user has at least one ("Personal"), created on bootstrap. Single currency
+ * per user still applies — profiles do not carry their own currency.
+ */
+export const profiles = pgTable(
+  "profiles",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    userId: text("user_id").notNull(),
+    name: text("name").notNull(),
+    icon: text("icon"),
+    color: text("color"),
+    // Manual ordering for the sidebar (drag-to-sort).
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("profiles_user_sort_idx").on(t.userId, t.sortOrder),
+    uniqueIndex("profiles_user_name_uq").on(t.userId, t.name),
+  ],
+);
 
 export const categories = pgTable(
   "categories",
@@ -61,7 +86,14 @@ export const transactions = pgTable(
     categoryId: uuid("category_id").references(() => categories.id, {
       onDelete: "set null",
     }),
-    note: text("note"),
+    // Which profile (thread) this transaction belongs to. Backfilled to "Personal".
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "restrict" }),
+    // Short headline for the transaction (was `note`).
+    title: text("title"),
+    // Longer free-text body shown on expand / in the detail dialog.
+    description: text("description"),
     occurredOn: date("occurred_on").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -75,10 +107,14 @@ export const transactions = pgTable(
     index("transactions_user_type_idx").on(t.userId, t.type),
     // Chat feed ordering (newest first by entry time).
     index("transactions_user_created_idx").on(t.userId, t.createdAt.desc()),
+    // Filter a user's transactions by profile (thread).
+    index("transactions_user_profile_idx").on(t.userId, t.profileId),
   ],
 );
 
 export type UserSettings = typeof userSettings.$inferSelect;
+export type Profile = typeof profiles.$inferSelect;
+export type NewProfile = typeof profiles.$inferInsert;
 export type Category = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;
 export type Transaction = typeof transactions.$inferSelect;
