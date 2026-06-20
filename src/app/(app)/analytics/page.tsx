@@ -1,7 +1,13 @@
 import type { Metadata } from "next";
 import { getUserSettings, requireUser } from "@/lib/auth";
-import { getCategoryBreakdown, getMonthlyTrend, getSummary } from "@/lib/queries";
-import { monthLabel, monthRange, todayISO } from "@/lib/dates";
+import {
+  getCategoryBreakdown,
+  getMonthlyTrend,
+  getProfiles,
+  getSummary,
+} from "@/lib/queries";
+import { parseTxnFilters } from "@/lib/filters";
+import { formatDateLabel, monthLabel, monthRange, todayISO } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
@@ -11,6 +17,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { AnalyticsFilters } from "@/components/app/analytics-filters";
+import { CategoryPieChart } from "@/components/app/category-pie-chart";
 
 export const dynamic = "force-dynamic";
 
@@ -29,20 +37,35 @@ function lastNMonths(n: number, today: string): string[] {
   return out;
 }
 
-export default async function AnalyticsPage() {
+export default async function AnalyticsPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const get = (k: string): string | null => {
+    const v = sp[k];
+    return Array.isArray(v) ? (v[0] ?? null) : (v ?? null);
+  };
+
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
   const { currency, locale } = settings;
 
   const today = todayISO();
   const { start, end } = monthRange(today);
+  const parsed = parseTxnFilters(get);
+  const range = { from: parsed.from ?? start, to: parsed.to ?? end };
+  const filters = { from: range.from, to: range.to, profileId: parsed.profileId };
+
   const months = lastNMonths(6, today);
   const fromISO = `${months[0]}-01`;
 
-  const [summary, breakdown, trendRows] = await Promise.all([
-    getSummary(user.id, { from: start, to: end }),
-    getCategoryBreakdown(user.id, "expense", { from: start, to: end }),
-    getMonthlyTrend(user.id, fromISO),
+  const [summary, breakdown, trendRows, profiles] = await Promise.all([
+    getSummary(user.id, filters),
+    getCategoryBreakdown(user.id, "expense", filters),
+    getMonthlyTrend(user.id, fromISO, parsed.profileId),
+    getProfiles(user.id),
   ]);
 
   const series = months.map((mm) => ({ month: mm, income: 0, expense: 0 }));
@@ -53,23 +76,34 @@ export default async function AnalyticsPage() {
     if (r.type === "income") series[i].income = r.total;
     else series[i].expense = r.total;
   }
-
-  const maxBreak = Math.max(...breakdown.map((b) => b.total), 1);
   const maxTrend = Math.max(...series.flatMap((s) => [s.income, s.expense]), 1);
+
+  const pieData = breakdown.map((b) => ({
+    name: b.categoryName ?? "Uncategorized",
+    value: b.total,
+    icon: b.categoryIcon,
+  }));
+
+  const rangeLabel = `${formatDateLabel(range.from, locale)} – ${formatDateLabel(range.to, locale)}`;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
-      <div>
-        <h1 className="text-xl font-semibold">Analytics</h1>
-        <p className="text-sm text-muted-foreground">{monthLabel(today, locale)} overview</p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Analytics</h1>
+          <p className="text-sm text-muted-foreground">{rangeLabel}</p>
+        </div>
+      </div>
+
+      <AnalyticsFilters profiles={profiles} today={today} />
+
+      <div className="hidden print:block">
+        <h2 className="text-lg font-semibold">MoneyTracker — Analytics</h2>
+        <p className="text-sm">{rangeLabel}</p>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
-        <StatCard
-          label="Income"
-          value={formatMoney(summary.income, currency, locale)}
-          positive
-        />
+        <StatCard label="Income" value={formatMoney(summary.income, currency, locale)} positive />
         <StatCard label="Expenses" value={formatMoney(summary.expense, currency, locale)} />
         <StatCard
           label="Net"
@@ -81,36 +115,10 @@ export default async function AnalyticsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Spending by category</CardTitle>
-          <CardDescription>This month&apos;s expenses</CardDescription>
+          <CardDescription>Expenses for the selected range</CardDescription>
         </CardHeader>
         <CardContent>
-          {breakdown.length === 0 ? (
-            <p className="py-6 text-center text-sm text-muted-foreground">
-              No expense data for this month yet.
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {breakdown.map((b) => (
-                <li key={b.categoryId ?? "none"}>
-                  <div className="flex items-center justify-between text-sm">
-                    <span className="inline-flex items-center gap-2">
-                      <span aria-hidden>{b.categoryIcon ?? "💸"}</span>
-                      {b.categoryName ?? "Uncategorized"}
-                    </span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {formatMoney(b.total, currency, locale)}
-                    </span>
-                  </div>
-                  <div className="mt-1 h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className="h-full rounded-full bg-foreground/70"
-                      style={{ width: `${(b.total / maxBreak) * 100}%` }}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
+          <CategoryPieChart data={pieData} currency={currency} locale={locale} />
         </CardContent>
       </Card>
 

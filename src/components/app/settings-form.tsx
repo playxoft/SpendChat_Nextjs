@@ -43,6 +43,22 @@ export function SettingsForm({
   const [th, setTh] = useState<Theme>((theme as Theme) ?? "system");
   const [pending, startTransition] = useTransition();
 
+  // Re-baseline (and reset edits) whenever the saved settings change.
+  const [baseline, setBaseline] = useState({ currency, locale, theme });
+  if (
+    baseline.currency !== currency ||
+    baseline.locale !== locale ||
+    baseline.theme !== theme
+  ) {
+    setBaseline({ currency, locale, theme });
+    setCur(currency);
+    setLoc(locale);
+    setTh((theme as Theme) ?? "system");
+  }
+
+  const dirty =
+    cur !== baseline.currency || loc !== baseline.locale || th !== baseline.theme;
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     startTransition(async () => {
@@ -50,6 +66,14 @@ export function SettingsForm({
       if (res.ok) toast.success("Settings saved");
       else toast.error(res.error);
     });
+  }
+
+  function handleCancel() {
+    setCur(baseline.currency);
+    setLoc(baseline.locale);
+    const baseTheme = (baseline.theme as Theme) ?? "system";
+    setTh(baseTheme);
+    setTheme(baseTheme); // undo the live theme preview
   }
 
   return (
@@ -114,9 +138,14 @@ export function SettingsForm({
         value; only how they&apos;re displayed changes.
       </p>
 
-      <Button type="submit" disabled={pending}>
-        Save changes
-      </Button>
+      <div className="flex items-center justify-end gap-2">
+        <Button type="button" variant="ghost" onClick={handleCancel} disabled={!dirty || pending}>
+          Cancel
+        </Button>
+        <Button type="submit" disabled={!dirty || pending}>
+          Save changes
+        </Button>
+      </div>
     </form>
   );
 }

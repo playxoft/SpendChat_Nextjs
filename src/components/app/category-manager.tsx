@@ -5,14 +5,15 @@ import { Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { cn } from "@/lib/utils";
-import { addCategory, deleteCategory } from "@/actions/categories";
+import { addCategory, deleteCategory, updateCategory } from "@/actions/categories";
 import type { Category } from "@/db/schema";
 
 export function CategoryManager({ categories }: { categories: Category[] }) {
   const [kind, setKind] = useState<"expense" | "income">("expense");
   const [name, setName] = useState("");
-  const [icon, setIcon] = useState("");
+  const [icon, setIcon] = useState("🏷️");
   const [pending, startTransition] = useTransition();
 
   const expense = categories.filter((c) => c.kind === "expense");
@@ -25,15 +26,11 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
       return;
     }
     startTransition(async () => {
-      const res = await addCategory({
-        name: name.trim(),
-        kind,
-        icon: icon.trim() || undefined,
-      });
+      const res = await addCategory({ name: name.trim(), kind, icon });
       if (res.ok) {
         toast.success("Category added");
         setName("");
-        setIcon("");
+        setIcon("🏷️");
       } else {
         toast.error(res.error);
       }
@@ -45,6 +42,13 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
       const res = await deleteCategory(id);
       if (res.ok) toast.success("Category removed");
       else toast.error(res.error);
+    });
+  }
+
+  function handleIcon(id: string, value: string) {
+    startTransition(async () => {
+      const res = await updateCategory({ id, icon: value });
+      if (!res.ok) toast.error(res.error);
     });
   }
 
@@ -69,13 +73,13 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
             </button>
           ))}
         </div>
-        <Input
-          value={icon}
-          onChange={(e) => setIcon(e.target.value)}
-          placeholder="🙂"
-          aria-label="Icon"
-          className="w-14 text-center"
-          maxLength={4}
+        <EmojiPicker
+          onSelect={setIcon}
+          trigger={
+            <Button type="button" variant="outline" size="icon" aria-label="Pick an icon">
+              <span className="text-base">{icon}</span>
+            </Button>
+          }
         />
         <Input
           value={name}
@@ -95,12 +99,14 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
           title="Expense"
           items={expense}
           onRemove={handleRemove}
+          onIcon={handleIcon}
           pending={pending}
         />
         <CategoryGroup
           title="Income"
           items={income}
           onRemove={handleRemove}
+          onIcon={handleIcon}
           pending={pending}
         />
       </div>
@@ -112,11 +118,13 @@ function CategoryGroup({
   title,
   items,
   onRemove,
+  onIcon,
   pending,
 }: {
   title: string;
   items: Category[];
   onRemove: (id: string) => void;
+  onIcon: (id: string, value: string) => void;
   pending: boolean;
 }) {
   return (
@@ -129,16 +137,28 @@ function CategoryGroup({
           {items.map((c) => (
             <li
               key={c.id}
-              className="flex items-center justify-between rounded-lg border px-3 py-1.5 text-sm"
+              className="flex items-center justify-between rounded-lg border px-2 py-1.5 text-sm"
             >
-              <span className="inline-flex items-center gap-2">
-                <span aria-hidden>{c.icon ?? "•"}</span>
+              <span className="inline-flex items-center gap-1.5">
+                <EmojiPicker
+                  onSelect={(v) => onIcon(c.id, v)}
+                  trigger={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Change icon for ${c.name}`}
+                    >
+                      <span className="text-base">{c.icon ?? "🏷️"}</span>
+                    </Button>
+                  }
+                />
                 {c.name}
               </span>
               <Button
                 variant="ghost"
-                size="icon"
-                className="size-7 text-muted-foreground hover:text-destructive"
+                size="icon-sm"
+                className="text-muted-foreground hover:text-destructive"
                 aria-label={`Remove ${c.name}`}
                 onClick={() => onRemove(c.id)}
                 disabled={pending}
