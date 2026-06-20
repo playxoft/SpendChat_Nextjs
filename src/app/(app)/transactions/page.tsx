@@ -6,6 +6,7 @@ import { getUserSettings, requireUser } from "@/lib/auth";
 import {
   countTransactions,
   getCategories,
+  getProfiles,
   getSummary,
   listTransactions,
 } from "@/lib/queries";
@@ -44,10 +45,14 @@ export default async function TransactionsPage({
 
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
-  const categories = await getCategories(user.id);
+  const [categories, profiles] = await Promise.all([
+    getCategories(user.id),
+    getProfiles(user.id),
+  ]);
   const today = todayISO();
 
   const filters = parseTxnFilters(one);
+  const composerProfileId = filters.profileId ?? profiles[0]?.id;
   const page = Math.max(1, Number(one("page")) || 1);
   const offset = (page - 1) * PAGE_SIZE;
 
@@ -88,6 +93,8 @@ export default async function TransactionsPage({
           <TransactionDialog
             mode="add"
             categories={categories}
+            profiles={profiles}
+            activeProfileId={composerProfileId}
             currency={currency}
             today={today}
             trigger={
@@ -98,6 +105,9 @@ export default async function TransactionsPage({
           />
           <BulkAddDialog
             today={today}
+            categories={categories}
+            profiles={profiles}
+            activeProfileId={composerProfileId}
             trigger={
               <Button variant="outline" size="sm">
                 <ListPlus className="size-4" />
@@ -117,7 +127,7 @@ export default async function TransactionsPage({
 
       <div className="mt-4">
         <Suspense fallback={null}>
-          <TransactionFilters categories={categories} />
+          <TransactionFilters categories={categories} profiles={profiles} />
         </Suspense>
       </div>
 
@@ -134,6 +144,7 @@ export default async function TransactionsPage({
           currency={currency}
           locale={locale}
           categories={categories}
+          profiles={profiles}
           today={today}
         />
       </div>

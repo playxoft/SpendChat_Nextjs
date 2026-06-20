@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { CalendarPlus, ListPlus } from "lucide-react";
 import { requireUser, getUserSettings } from "@/lib/auth";
 import { getCategories, getProfiles, getSummary, listTransactionsAsc } from "@/lib/queries";
+import { parseActiveProfile } from "@/lib/filters";
 import { monthLabel, monthRange, todayISO } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -19,20 +20,34 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default async function ChatPage() {
+export default async function ChatPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const sp = await searchParams;
+  const profileParam = Array.isArray(sp.profile) ? sp.profile[0] : sp.profile;
+
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
   const [categories, profiles] = await Promise.all([
     getCategories(user.id),
     getProfiles(user.id),
   ]);
-  const activeProfileId = profiles[0]?.id;
+  const filterProfileId = parseActiveProfile(profileParam ?? null);
+  // Which profile new transactions land in (falls back to the first profile).
+  const composerProfileId = filterProfileId ?? profiles[0]?.id;
 
   const today = todayISO();
   const { start, end } = monthRange(today);
   const [rows, summary] = await Promise.all([
-    listTransactionsAsc(user.id, { from: start, to: end, limit: 300 }),
-    getSummary(user.id, { from: start, to: end }),
+    listTransactionsAsc(user.id, {
+      from: start,
+      to: end,
+      limit: 300,
+      profileId: filterProfileId,
+    }),
+    getSummary(user.id, { from: start, to: end, profileId: filterProfileId }),
   ]);
 
   const { currency, locale } = settings;
@@ -59,7 +74,7 @@ export default async function ChatPage() {
               mode="add"
               categories={categories}
               profiles={profiles}
-              activeProfileId={activeProfileId}
+              activeProfileId={composerProfileId}
               currency={currency}
               today={today}
               trigger={
@@ -70,6 +85,10 @@ export default async function ChatPage() {
             />
             <BulkAddDialog
               today={today}
+              categories={categories}
+              profiles={profiles}
+              activeProfileId={composerProfileId}
+              currency={currency}
               trigger={
                 <Button variant="outline" size="sm">
                   <ListPlus className="size-4" />
@@ -105,7 +124,7 @@ export default async function ChatPage() {
         currency={currency}
         today={today}
         profiles={profiles}
-        activeProfileId={activeProfileId}
+        activeProfileId={composerProfileId}
       />
       <ScrollToBottom count={rows.length} />
     </div>

@@ -1,8 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { MoreHorizontal, Pencil, Trash2 } from "lucide-react";
-import { toast } from "sonner";
+import { useState } from "react";
 import {
   Table,
   TableBody,
@@ -11,26 +9,20 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { TransactionDialog } from "./transaction-dialog";
+import { TransactionDetailDialog } from "./transaction-detail-dialog";
 import { amountToneClass } from "./transaction-bubble";
-import { deleteTransaction } from "@/actions/transactions";
 import { formatMoney, minorToInputString, signedMinor } from "@/lib/money";
 import { formatDateLabel } from "@/lib/dates";
 import { cn } from "@/lib/utils";
-import type { Category } from "@/db/schema";
+import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 
 type SharedProps = {
   currency: string;
   locale: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  profiles: Pick<Profile, "id" | "name" | "icon">[];
   today: string;
 };
 
@@ -53,9 +45,9 @@ export function TransactionsTable({
           <TableRow>
             <TableHead className="w-32">Date</TableHead>
             <TableHead>Category</TableHead>
-            <TableHead className="hidden sm:table-cell">Note</TableHead>
+            <TableHead>Title</TableHead>
+            <TableHead className="hidden md:table-cell">Description</TableHead>
             <TableHead className="text-right">Amount</TableHead>
-            <TableHead className="w-10 print:hidden" />
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -73,82 +65,77 @@ function Row({
   currency,
   locale,
   categories,
+  profiles,
   today,
 }: SharedProps & { row: TransactionRow }) {
   const [editing, setEditing] = useState(false);
-  const [pending, startTransition] = useTransition();
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const amountLabel = formatMoney(signedMinor(row.type, row.amountMinor), currency, locale, {
     signed: true,
   });
 
-  function handleDelete() {
-    startTransition(async () => {
-      const res = await deleteTransaction(row.id);
-      if (res.ok) toast.success("Transaction deleted");
-      else toast.error(res.error);
-    });
-  }
-
   return (
-    <TableRow>
-      <TableCell className="whitespace-nowrap text-muted-foreground">
-        {formatDateLabel(row.occurredOn, locale)}
-      </TableCell>
-      <TableCell>
-        <span className="inline-flex items-center gap-1.5">
-          <span aria-hidden>{row.categoryIcon ?? "💸"}</span>
-          {row.categoryName ?? "Uncategorized"}
-        </span>
-      </TableCell>
-      <TableCell className="hidden max-w-50 truncate text-muted-foreground sm:table-cell">
-        {row.note ?? ""}
-      </TableCell>
-      <TableCell
-        className={cn("text-right font-medium tabular-nums", amountToneClass(row.type))}
+    <>
+      <TableRow
+        onClick={() => setDetailOpen(true)}
+        className="cursor-pointer"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") setDetailOpen(true);
+        }}
       >
-        {amountLabel}
-      </TableCell>
-      <TableCell className="print:hidden">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="size-7" aria-label="Row options">
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem className="cursor-pointer" onClick={() => setEditing(true)}>
-              <Pencil className="size-4" /> Edit
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              className="cursor-pointer text-destructive focus:text-destructive"
-              onClick={handleDelete}
-              disabled={pending}
-            >
-              <Trash2 className="size-4" /> Delete
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <TableCell className="whitespace-nowrap text-muted-foreground">
+          {formatDateLabel(row.occurredOn, locale)}
+        </TableCell>
+        <TableCell>
+          <span className="inline-flex items-center gap-1.5">
+            <span aria-hidden>{row.categoryIcon ?? "💸"}</span>
+            {row.categoryName ?? "Uncategorized"}
+          </span>
+        </TableCell>
+        <TableCell className="max-w-40 truncate">{row.title ?? ""}</TableCell>
+        <TableCell className="hidden max-w-56 truncate text-muted-foreground md:table-cell">
+          {row.description ?? ""}
+        </TableCell>
+        <TableCell
+          className={cn("text-right font-medium tabular-nums", amountToneClass(row.type))}
+        >
+          {amountLabel}
+        </TableCell>
+      </TableRow>
 
-        <TransactionDialog
-          mode="edit"
-          open={editing}
-          onOpenChange={setEditing}
-          categories={categories}
-          currency={currency}
-          today={today}
-          defaultValues={{
-            id: row.id,
-            type: row.type,
-            amount: minorToInputString(row.amountMinor, currency),
-            categoryId: row.categoryId,
-            profileId: row.profileId,
-            title: row.title ?? "",
-            description: row.description ?? "",
-            occurredOn: row.occurredOn,
-          }}
-        />
-      </TableCell>
-    </TableRow>
+      <TransactionDetailDialog
+        row={row}
+        currency={currency}
+        locale={locale}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        onEdit={() => {
+          setDetailOpen(false);
+          setEditing(true);
+        }}
+      />
+
+      <TransactionDialog
+        mode="edit"
+        open={editing}
+        onOpenChange={setEditing}
+        categories={categories}
+        profiles={profiles}
+        currency={currency}
+        today={today}
+        defaultValues={{
+          id: row.id,
+          type: row.type,
+          amount: minorToInputString(row.amountMinor, currency),
+          categoryId: row.categoryId,
+          profileId: row.profileId,
+          title: row.title ?? "",
+          description: row.description ?? "",
+          occurredOn: row.occurredOn,
+        }}
+      />
+    </>
   );
 }

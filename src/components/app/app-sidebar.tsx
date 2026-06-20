@@ -5,20 +5,29 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { Separator } from "@/components/ui/separator";
+import { ProfileList } from "./profile-list";
 import { UserMenu } from "./user-menu";
 import { isActive, navItems } from "./nav-items";
+import type { Profile } from "@/db/schema";
 
-export function AppSidebar({ email }: { email: string | null }) {
+export function AppSidebar({
+  email,
+  profiles,
+}: {
+  email: string | null;
+  profiles: Pick<Profile, "id" | "name" | "icon">[];
+}) {
   const pathname = usePathname();
 
   return (
     <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r bg-background md:flex print:hidden">
-      <div className="flex h-14 items-center px-5">
+      <div className="flex h-14 shrink-0 items-center px-5">
         <Link href="/app" aria-label="Tracker">
           <Logo />
         </Link>
       </div>
-      <nav className="flex-1 space-y-1 px-3 py-2">
+      <nav className="shrink-0 space-y-1 px-3 py-2">
         {navItems.map((item) => {
           const active = isActive(pathname, item.href, item.exact);
           return (
@@ -39,7 +48,11 @@ export function AppSidebar({ email }: { email: string | null }) {
           );
         })}
       </nav>
-      <div className="flex items-center gap-1 border-t p-3">
+
+      <Separator className="my-1" />
+      <ProfileList profiles={profiles} />
+
+      <div className="flex shrink-0 items-center gap-1 border-t p-3">
         <UserMenu email={email} />
         <ThemeToggle />
       </div>
