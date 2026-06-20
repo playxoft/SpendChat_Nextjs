@@ -168,4 +168,13 @@
   .print-area {
     display: block !important;
   }
+  /* Thin, subtle gridlines on printed tables (rows + columns). */
+  .print-area table {
+    border-collapse: collapse !important;
+    width: 100%;
+  }
+  .print-area th,
+  .print-area td {
+    border: 1px solid rgba(0, 0, 0, 0.15) !important;
+  }
 }

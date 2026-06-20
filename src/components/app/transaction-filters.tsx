@@ -13,12 +13,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { Category } from "@/db/schema";
+import type { Category, Profile } from "@/db/schema";
 
 export function TransactionFilters({
   categories,
+  profiles = [],
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  profiles?: Pick<Profile, "id" | "name" | "icon">[];
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -26,6 +28,7 @@ export function TransactionFilters({
 
   const type = sp.get("type") ?? "all";
   const category = sp.get("category") ?? "all";
+  const profile = sp.get("profile") ?? "all";
   const from = sp.get("from") ?? "";
   const to = sp.get("to") ?? "";
   const qParam = sp.get("q") ?? "";
@@ -53,7 +56,12 @@ export function TransactionFilters({
   }, [q]);
 
   const hasFilters =
-    type !== "all" || category !== "all" || !!from || !!to || !!qParam;
+    type !== "all" ||
+    category !== "all" ||
+    profile !== "all" ||
+    !!from ||
+    !!to ||
+    !!qParam;
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
@@ -71,6 +79,25 @@ export function TransactionFilters({
         onChange={(iso) => update({ to: iso || undefined })}
         className="w-[9.5rem]"
       />
+      {profiles.length > 0 && (
+        <Select
+          value={profile}
+          onValueChange={(v) => update({ profile: v === "all" ? undefined : v })}
+        >
+          <SelectTrigger className="w-36" aria-label="Profile">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All profiles</SelectItem>
+            {profiles.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {p.icon ? `${p.icon} ` : ""}
+                {p.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
       <Select value={type} onValueChange={(v) => update({ type: v === "all" ? undefined : v })}>
         <SelectTrigger className="w-32" aria-label="Type">
           <SelectValue />
