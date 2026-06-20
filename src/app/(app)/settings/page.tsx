@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/card";
 import { SettingsForm } from "@/components/app/settings-form";
 import { CategoryManager } from "@/components/app/category-manager";
+import { ShortcutList } from "@/components/app/shortcut-list";
 import { DangerZone } from "@/components/app/danger-zone";
 
 export const dynamic = "force-dynamic";
@@ -52,6 +53,16 @@ export default async function SettingsPage() {
         </CardHeader>
         <CardContent>
           <CategoryManager categories={categories} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Keyboard shortcuts</CardTitle>
+          <CardDescription>Work faster with these shortcuts.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <ShortcutList />
         </CardContent>
       </Card>
 
