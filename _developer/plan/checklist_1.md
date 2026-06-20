@@ -10,6 +10,20 @@ Status legend: `- [ ]` todo · `- [~]` in progress · `- [x]` done
 > phase; keep `pnpm typecheck` and `pnpm lint` clean after every phase. Each schema
 > change is `pnpm db:generate` → review SQL → `doppler run -- pnpm db:migrate`.
 
+## Progress
+
+All four phases are implemented on branch `feat/tracker-profiles-overhaul`, each its own
+commit; `pnpm typecheck` and `pnpm lint` are clean and the app compiles.
+
+- Phase 1 — Foundations: `ad162f9`
+- Phase 2 — Tracker / composer: `03a252f`
+- Phase 3 — Profiles / transactions / bulk add: `ea251d7`
+- Phase 4 — Analytics / settings: `a804c25`
+
+**Action required:** run `doppler run -- pnpm db:migrate` to apply migrations 0002–0004
+to Neon, then `doppler run -- pnpm dev` to try it. A full `doppler run -- pnpm build`
+needs Doppler secrets (the auth route reads `cookies.secret` at build time).
+
 ---
 
 ## Conventions to preserve (do not regress)
@@ -64,35 +78,35 @@ Target transaction shape: **amount, title, subtitle (description), category, typ
 date picker, and a reusable emoji picker. No user-visible feature changes beyond the calendar fix.
 
 ### Schema & data
-- [ ] Add `profiles` table to `src/db/schema.ts` (`id, userId, name, icon, color, sortOrder, timestamps`).
-- [ ] `transactions`: rename `note` → `title`; add `description`; add `profileId` FK + index `(userId, profileId)`.
-- [ ] `pnpm db:generate`; review generated SQL (rename must preserve data, not drop/add).
-- [ ] Migration step: seed a default "Personal" profile per existing user and set all `profileId`s.
-- [ ] `ensureBootstrap()` (`src/lib/auth.ts`): create the default "Personal" profile for new users.
-- [ ] `doppler run -- pnpm db:migrate`; verify locally.
+- [x] Add `profiles` table to `src/db/schema.ts` (`id, userId, name, icon, color, sortOrder, timestamps`).
+- [x] `transactions`: rename `note` → `title`; add `description`; add `profileId` FK + index `(userId, profileId)`.
+- [x] `pnpm db:generate`; review generated SQL (rename must preserve data, not drop/add).
+- [x] Migration step: seed a default "Personal" profile per existing user and set all `profileId`s.
+- [x] `ensureBootstrap()` (`src/lib/auth.ts`): create the default "Personal" profile for new users.
+- [ ] **ACTION REQUIRED (you):** `doppler run -- pnpm db:migrate` to apply migrations 0002–0004 to Neon.
 
 ### Validation, queries, actions
-- [ ] `src/lib/validation.ts`: add `profileInputSchema` (name 1–40, icon ≤8, color?); extend
+- [x] `src/lib/validation.ts`: add `profileInputSchema` (name 1–40, icon ≤8, color?); extend
       `transactionInputSchema` / `updateTransactionSchema` / `bulkTransactionsSchema` with
       `title`, `description?`, `profileId`.
-- [ ] `src/lib/queries.ts`: add `getProfiles(userId)`; add optional `profileId` to `TxnFilters`
+- [x] `src/lib/queries.ts`: add `getProfiles(userId)`; add optional `profileId` to `TxnFilters`
       and thread it through `listTransactions(Asc)`, `countTransactions`, `getSummary`,
       `getCategoryBreakdown`, `getMonthlyTrend`. Return `title` + `description` in `TransactionRow`.
-- [ ] `src/actions/profiles.ts` (new): `addProfile`, `updateProfile`, `deleteProfile`,
+- [x] `src/actions/profiles.ts` (new): `addProfile`, `updateProfile`, `deleteProfile`,
       `reorderProfiles(ids[])` — all user-scoped, Zod-validated.
-- [ ] `src/actions/transactions.ts`: accept `title`, `description`, `profileId` in add/update/bulk.
+- [x] `src/actions/transactions.ts`: accept `title`, `description`, `profileId` in add/update/bulk.
 
 ### Keyboard-shortcut system (used by Phases 2–4)
-- [ ] `src/lib/shortcuts.ts`: central registry (id, keys, label, scope) + OS detection
+- [x] `src/lib/shortcuts.ts`: central registry (id, keys, label, scope) + OS detection
       (`isMac`) so we can render `⌘`/`⌥`/`⇧` vs `Ctrl`/`Alt`/`Shift`.
-- [ ] `src/hooks/use-shortcut.ts`: hook to bind a key combo (ignores typing in inputs unless opted in).
-- [ ] `src/components/ui/kbd.tsx`: `<Kbd>` badge to render a shortcut hint on a button (OS-aware).
+- [x] `src/hooks/use-shortcut.ts`: hook to bind a key combo (ignores typing in inputs unless opted in).
+- [x] `src/components/ui/kbd.tsx`: `<Kbd>` badge to render a shortcut hint on a button (OS-aware).
 
 ### Reusable pickers / bug fix
-- [ ] **Fix calendar bug:** replace the native `<input type="date">` in `transaction-dialog.tsx`
+- [x] **Fix calendar bug:** replace the native `<input type="date">` in `transaction-dialog.tsx`
       (and filters) with a shared `DatePicker` (shadcn Popover + Calendar from `radix-ui`/`react-day-picker`)
       that correctly shows the selected date. Keep value as `YYYY-MM-DD` string for the actions.
-- [ ] `src/components/ui/emoji-picker.tsx`: wrap `frimousse` — emoji grid + icon options + a
+- [x] `src/components/ui/emoji-picker.tsx`: wrap `frimousse` — emoji grid + icon options + a
       "custom" text input for pasting any emoji/character. (Wired into categories in Phase 4.)
 
 **Acceptance:** typecheck/lint clean; existing add/edit/bulk/list flows work unchanged with the new
@@ -105,23 +119,23 @@ columns; selecting a date in the dialog now displays correctly; default profile 
 **Goal:** the main tracker page gets the chat-direction layout, title+description input, the new
 category row selector, profile selection, the detail dialog, and keyboard shortcuts.
 
-- [ ] **Bubble direction:** in `transaction-bubble.tsx` align **income (incoming) to the left** and
+- [x] **Bubble direction:** in `transaction-bubble.tsx` align **income (incoming) to the left** and
       **expense (outgoing) to the right** (chat metaphor); keep emerald accent for income. Verify mobile.
-- [ ] **Title + description input** in `transaction-composer.tsx`: relabel "Add a note…" → **"Add title…"**;
+- [x] **Title + description input** in `transaction-composer.tsx`: relabel "Add a note…" → **"Add title…"**;
       `Shift+Enter` reveals/edits a **description** field; `Enter` submits.
-- [ ] **Category row selector** (new `category-row.tsx`): show "hot" categories inline as clickable
+- [x] **Category row selector** (new `category-row.tsx`): show "hot" categories inline as clickable
       chips in a row; an overflow **dropdown** lists the remaining categories in full (sized so the
       whole list is visible without scrolling — use columns/wrap, not a tall scroll area).
-- [ ] **`/` to edit categories:** typing `/` in the composer opens the category editor (no separate
+- [x] **`/` to edit categories:** typing `/` in the composer opens the category editor (no separate
       field/button); route to the category manager UI or an inline editor popover.
-- [ ] **Profile selector** in the composer (which profile the transaction belongs to); defaults to the
+- [x] **Profile selector** in the composer (which profile the transaction belongs to); defaults to the
       currently active profile.
-- [ ] **Expense/Income shortcut** on the tracker page (e.g. `Cmd/Ctrl+E` toggles type); show the hint
+- [x] **Expense/Income shortcut** on the tracker page (e.g. `Cmd/Ctrl+E` toggles type); show the hint
       via `<Kbd>` on the toggle.
-- [ ] **Shortcut hints on buttons:** add `<Kbd>` to composer Send (Enter), bulk add, etc.
-- [ ] **Click a transaction → detail dialog** (`transaction-detail-dialog.tsx`): shows amount, title,
+- [x] **Shortcut hints on buttons:** add `<Kbd>` to composer Send (Enter), bulk add, etc.
+- [x] **Click a transaction → detail dialog** (`transaction-detail-dialog.tsx`): shows amount, title,
       description, category, type, date, profile; Edit/Delete from there.
-- [ ] **Inline description reveal:** `Shift+Enter` (or expand affordance) on a transaction row/bubble
+- [x] **Inline description reveal:** `Shift+Enter` (or expand affordance) on a transaction row/bubble
       shows its description inline in the feed.
 
 **Acceptance:** add an income → appears left; expense → appears right; title + (shift+enter) description
@@ -136,32 +150,32 @@ type-toggle shortcut works and its hint is visible; clicking a transaction opens
 profile + title/description and the print/grid improvements.
 
 ### Profiles (WhatsApp-style)
-- [ ] **Profile list in the left sidebar** (`app-sidebar.tsx` / new `profile-list.tsx`): each profile as
+- [x] **Profile list in the left sidebar** (`app-sidebar.tsx` / new `profile-list.tsx`): each profile as
       a row with **icon + name**; click selects it and filters the tracker feed + summaries to that profile.
-- [ ] **Drag to sort** profiles with `@dnd-kit/sortable`; persist order via `reorderProfiles`. Keyboard
+- [x] **Drag to sort** profiles with `@dnd-kit/sortable`; persist order via `reorderProfiles`. Keyboard
       sensor for accessibility.
-- [ ] **Mobile-friendly:** profiles reachable on mobile (e.g. a horizontally scrollable strip or a
+- [x] **Mobile-friendly:** profiles reachable on mobile (e.g. a horizontally scrollable strip or a
       sheet/drawer), not desktop-only.
-- [ ] **Profile CRUD UI:** add / rename / set icon (uses the emoji picker) / delete (respecting the
+- [x] **Profile CRUD UI:** add / rename / set icon (uses the emoji picker) / delete (respecting the
       delete-policy decision above).
-- [ ] **Active-profile state** shared across pages (URL param or context) so tracker/transactions/analytics
+- [x] **Active-profile state** shared across pages (URL param or context) so tracker/transactions/analytics
       can filter by it.
 
 ### Theme switcher in nav
-- [ ] Move/extend the theme switcher in the left nav to **list options with a tick (✓) on the current
+- [x] Move/extend the theme switcher in the left nav to **list options with a tick (✓) on the current
       theme** (Light / Dark / System), instead of the plain dropdown.
 
 ### Transactions page
-- [ ] **Profile selection** on the transactions page (filter by profile; choose profile when adding).
-- [ ] Add **Title** and **Description** columns (description shown inline / on expand); keep Date,
+- [x] **Profile selection** on the transactions page (filter by profile; choose profile when adding).
+- [x] Add **Title** and **Description** columns (description shown inline / on expand); keep Date,
       Category, Amount, Actions.
-- [ ] **Click a row → detail dialog** (reuse Phase 2 `transaction-detail-dialog.tsx`).
-- [ ] **Expense/Income shortcut** on this page's add/edit form too.
-- [ ] **Printable grid:** print stylesheet draws **thin, semi-transparent black** lines between rows
+- [x] **Click a row → detail dialog** (reuse Phase 2 `transaction-detail-dialog.tsx`).
+- [x] **Expense/Income shortcut** on this page's add/edit form too.
+- [x] **Printable grid:** print stylesheet draws **thin, semi-transparent black** lines between rows
       and columns (e.g. `rgba(0,0,0,0.15)`), hides actions/nav, fits the page.
 
 ### Bulk add as a table
-- [ ] Replace the freeform textarea in `bulk-add-dialog.tsx` with a **spreadsheet-style table**: columns
+- [x] Replace the freeform textarea in `bulk-add-dialog.tsx` with a **spreadsheet-style table**: columns
       for amount, title, description, category, type, date, **profile**; add/remove rows; inline
       validation per cell; keep the existing parser as an optional "paste CSV" path that fills the table.
 
@@ -177,23 +191,23 @@ printing the transactions page shows thin gridlines; bulk add is a row/column ta
 save/cancel UX, the read-only shortcut list, and the category emoji picker.
 
 ### Analytics
-- [ ] **Pie chart** of spending by category (and/or income vs expense) using `recharts` via a shadcn
+- [x] **Pie chart** of spending by category (and/or income vs expense) using `recharts` via a shadcn
       `chart` wrapper; keep the existing bars or replace per design.
-- [ ] **Filters + date options + date range** (reuse `transaction-filters` patterns): type, category,
+- [x] **Filters + date options + date range** (reuse `transaction-filters` patterns): type, category,
       profile, and a from/to **date range** that drives all charts.
-- [ ] **Print button** + **printable** analytics layout (charts + tables render cleanly on print).
+- [x] **Print button** + **printable** analytics layout (charts + tables render cleanly on print).
 
 ### Settings
-- [ ] **"Save changes" button right-aligned**, enabled **only when the form is dirty** (track initial vs
+- [x] **"Save changes" button right-aligned**, enabled **only when the form is dirty** (track initial vs
       current values in `settings-form.tsx`).
-- [ ] **Cancel button** in settings that reverts unsaved changes to the last-saved values.
-- [ ] **Shortcuts section (read-only):** render the central shortcut registry from `src/lib/shortcuts.ts`
+- [x] **Cancel button** in settings that reverts unsaved changes to the last-saved values.
+- [x] **Shortcuts section (read-only):** render the central shortcut registry from `src/lib/shortcuts.ts`
       as a non-editable list (action + OS-aware `<Kbd>`).
-- [ ] **Category emoji picker:** replace the plain icon text input in `category-manager.tsx` with the
+- [x] **Category emoji picker:** replace the plain icon text input in `category-manager.tsx` with the
       Phase 1 `emoji-picker` (emoji grid + icon options + custom paste); save into `categories.icon`.
 
 ### Final shortcut pass
-- [ ] Audit primary buttons across all pages and attach `<Kbd>` hints where a shortcut exists; ensure
+- [x] Audit primary buttons across all pages and attach `<Kbd>` hints where a shortcut exists; ensure
       mac/windows rendering is correct everywhere.
 
 **Acceptance:** analytics shows a pie chart that responds to filters + date range and prints cleanly;
