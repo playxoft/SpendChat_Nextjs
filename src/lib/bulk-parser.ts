@@ -1,8 +1,12 @@
 export type BulkDraft = {
   type: "income" | "expense";
   amount: number; // major units, positive
+  /** Headline (preferred). `note` is the legacy alias still produced by the text parser. */
+  title?: string;
+  description?: string;
   note: string;
   categoryName: string | null;
+  profileId?: string;
   occurredOn: string; // YYYY-MM-DD
 };
 

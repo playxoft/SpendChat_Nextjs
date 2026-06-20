@@ -5,6 +5,20 @@ export function todayISO(): string {
   return new Date(d.getTime() - tz).toISOString().slice(0, 10);
 }
 
+/** Parse a YYYY-MM-DD string into a local-time Date (no timezone drift). */
+export function parseISODate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, (m ?? 1) - 1, d ?? 1);
+}
+
+/** Format a Date back to YYYY-MM-DD in local time. */
+export function toISODate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 /** First and last day (YYYY-MM-DD) of the month containing `dateISO`. */
 export function monthRange(dateISO: string): { start: string; end: string } {
   const [y, m] = dateISO.split("-").map(Number);

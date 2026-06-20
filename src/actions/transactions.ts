@@ -1,11 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { categories, transactions } from "@/db/schema";
-import { getUserSettings, requireUser } from "@/lib/auth";
+import { categories, profiles, transactions } from "@/db/schema";
+import { ensureBootstrap, getUserSettings, requireUser } from "@/lib/auth";
 import { toMinorUnits } from "@/lib/money";
 import {
   transactionInputSchema,
@@ -39,6 +39,42 @@ async function ownedCategoryId(userId: string, categoryId?: string | null) {
   return cat?.id ?? null;
 }
 
+/**
+ * Resolve the profile a transaction belongs to. Validates ownership of the
+ * requested profile, falling back to the user's first (default) profile.
+ */
+async function resolveProfileId(userId: string, profileId?: string | null): Promise<string> {
+  const db = getDb();
+  if (profileId) {
+    const owned = await db.query.profiles.findFirst({
+      where: and(eq(profiles.id, profileId), eq(profiles.userId, userId)),
+      columns: { id: true },
+    });
+    if (owned) return owned.id;
+  }
+  const first = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.userId, userId))
+    .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt))
+    .limit(1);
+  if (first[0]) return first[0].id;
+  // No profile yet (shouldn't happen post-bootstrap) — create the default.
+  await ensureBootstrap(userId);
+  const created = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.userId, userId))
+    .limit(1);
+  return created[0]!.id;
+}
+
+/** Pick the title, accepting the deprecated `note` alias. */
+function pickTitle(data: { title?: string; note?: string }): string | null {
+  const t = (data.title ?? "").trim() || (data.note ?? "").trim();
+  return t ? t : null;
+}
+
 export async function addTransaction(input: TransactionInput): Promise<ActionResult> {
   const user = await requireUser();
   const parsed = transactionInputSchema.safeParse(input);
@@ -47,6 +83,7 @@ export async function addTransaction(input: TransactionInput): Promise<ActionRes
   const settings = await getUserSettings(user.id);
   const data = parsed.data;
   const categoryId = await ownedCategoryId(user.id, data.categoryId);
+  const profileId = await resolveProfileId(user.id, data.profileId);
 
   const db = getDb();
   await db.insert(transactions).values({
@@ -54,7 +91,9 @@ export async function addTransaction(input: TransactionInput): Promise<ActionRes
     type: data.type,
     amountMinor: toMinorUnits(data.amount, settings.currency),
     categoryId,
-    note: data.note?.trim() ? data.note.trim() : null,
+    profileId,
+    title: pickTitle(data),
+    description: data.description?.trim() ? data.description.trim() : null,
     occurredOn: data.occurredOn,
   });
 
@@ -72,6 +111,7 @@ export async function updateTransaction(
   const settings = await getUserSettings(user.id);
   const data = parsed.data;
   const categoryId = await ownedCategoryId(user.id, data.categoryId);
+  const profileId = await resolveProfileId(user.id, data.profileId);
 
   const db = getDb();
   await db
@@ -80,7 +120,9 @@ export async function updateTransaction(
       type: data.type,
       amountMinor: toMinorUnits(data.amount, settings.currency),
       categoryId,
-      note: data.note?.trim() ? data.note.trim() : null,
+      profileId,
+      title: pickTitle(data),
+      description: data.description?.trim() ? data.description.trim() : null,
       occurredOn: data.occurredOn,
       updatedAt: new Date(),
     })
@@ -124,6 +166,14 @@ export async function addBulkTransactions(drafts: BulkDraft[]): Promise<ActionRe
   const catMap = new Map<string, string>();
   for (const c of userCats) catMap.set(`${c.kind}:${c.name.toLowerCase()}`, c.id);
 
+  // Resolve a profile per draft, defaulting to the user's first profile.
+  const defaultProfileId = await resolveProfileId(user.id, undefined);
+  const ownedProfiles = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.userId, user.id));
+  const profileIds = new Set(ownedProfiles.map((p) => p.id));
+
   const values = [];
   for (const d of drafts) {
     const parsed = transactionInputSchema
@@ -133,12 +183,16 @@ export async function addBulkTransactions(drafts: BulkDraft[]): Promise<ActionRe
     const categoryId = d.categoryName
       ? (catMap.get(`${d.type}:${d.categoryName.toLowerCase()}`) ?? null)
       : null;
+    const profileId =
+      d.profileId && profileIds.has(d.profileId) ? d.profileId : defaultProfileId;
     values.push({
       userId: user.id,
       type: d.type,
       amountMinor: toMinorUnits(d.amount, settings.currency),
       categoryId,
-      note: d.note?.trim() ? d.note.trim() : null,
+      profileId,
+      title: pickTitle({ title: d.title, note: d.note }),
+      description: d.description?.trim() ? d.description.trim() : null,
       occurredOn: d.occurredOn,
     });
   }

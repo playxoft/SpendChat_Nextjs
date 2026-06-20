@@ -12,6 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -172,12 +173,11 @@ export function TransactionDialog({
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="date">Date</Label>
-              <Input
+              <DatePicker
                 id="date"
-                type="date"
                 max={today}
                 value={values.occurredOn}
-                onChange={(e) => setValues((v) => ({ ...v, occurredOn: e.target.value }))}
+                onChange={(iso) => setValues((v) => ({ ...v, occurredOn: iso }))}
               />
             </div>
           </div>

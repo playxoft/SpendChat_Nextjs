@@ -2,7 +2,7 @@ import "server-only";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, userSettings } from "@/db/schema";
+import { categories, profiles, userSettings } from "@/db/schema";
 import { auth } from "@/lib/neon-auth";
 import { DEFAULT_CATEGORIES } from "./categories";
 
@@ -51,6 +51,18 @@ export async function ensureBootstrap(userId: string) {
           icon: c.icon,
         })),
       )
+      .onConflictDoNothing();
+  }
+
+  // Every user has at least one profile ("Personal") to attach transactions to.
+  const existingProfile = await db.query.profiles.findFirst({
+    where: eq(profiles.userId, userId),
+    columns: { id: true },
+  });
+  if (!existingProfile) {
+    await db
+      .insert(profiles)
+      .values({ userId, name: "Personal", icon: "👤", sortOrder: 0 })
       .onConflictDoNothing();
   }
 }
