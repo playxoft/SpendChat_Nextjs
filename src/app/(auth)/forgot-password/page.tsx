@@ -1,18 +1,17 @@
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/auth";
-import { SignUpForm } from "./sign-up-form";
+import { ForgotPasswordForm } from "./forgot-password-form";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Create your account",
-  description: "Create a free MoneyTracker account.",
+  title: "Reset your password",
+  description: "Reset the password for your MoneyTracker account.",
   robots: { index: false, follow: false },
 };
 
-export default async function SignUpPage() {
-  // Already signed in? Skip the form and go straight to the app.
+export default async function ForgotPasswordPage() {
   if (await getCurrentUser()) redirect("/app");
-  return <SignUpForm />;
+  return <ForgotPasswordForm />;
 }

@@ -28,7 +28,7 @@ export function SignUpForm() {
             type="text"
             autoComplete="name"
             placeholder="Your name"
-            className="h-11"
+            className="h-10"
           />
         </div>
         <div className="space-y-1.5">
@@ -40,7 +40,7 @@ export function SignUpForm() {
             autoComplete="email"
             required
             placeholder="you@example.com"
-            className="h-11"
+            className="h-10"
           />
         </div>
         <div className="space-y-1.5">
@@ -53,13 +53,13 @@ export function SignUpForm() {
             required
             minLength={8}
             placeholder="At least 8 characters"
-            className="h-11"
+            className="h-10"
           />
         </div>
 
         {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 
-        <Button type="submit" className="h-11 w-full" disabled={pending}>
+        <Button type="submit" className="h-10 w-full" disabled={pending}>
           {pending ? "Creating account…" : "Create account"}
         </Button>
       </form>
