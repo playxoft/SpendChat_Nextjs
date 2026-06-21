@@ -28,6 +28,10 @@ export function EmojiPickerPanel({
     <div className={cn("flex w-66 flex-col", className)}>
       <Frimousse.Root
         className="isolate flex h-72 w-full flex-col"
+        // Self-hosted Emojibase data (public/emojibase). Pins the v16 format
+        // frimousse expects — the CDN default now serves v17, which fails to
+        // parse and hangs on "Loading…" — and avoids a third-party request.
+        emojibaseUrl="/emojibase"
         onEmojiSelect={({ emoji }) => onSelect(emoji)}
       >
         <Frimousse.Search
