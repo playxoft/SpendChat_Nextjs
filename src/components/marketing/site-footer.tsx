@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { GithubIcon } from "@/components/icons/github";
 import { Logo } from "@/components/logo";
 import { siteConfig } from "@/lib/site";
 
@@ -7,8 +8,9 @@ const groups = [
     title: "Product",
     links: [
       { href: "/features", label: "Features" },
+      { href: "/docs", label: "Docs" },
+      { href: "/blog", label: "Blog" },
       { href: "/app", label: "Open app" },
-      { href: "/sign-up", label: "Get started" },
     ],
   },
   {
@@ -16,6 +18,7 @@ const groups = [
     links: [
       { href: "/about", label: "About" },
       { href: "/faq", label: "FAQ" },
+      { href: "/sign-up", label: "Get started" },
     ],
   },
   {
@@ -35,6 +38,14 @@ export function SiteFooter() {
         <div className="space-y-3">
           <Logo />
           <p className="max-w-xs text-sm text-muted-foreground">{siteConfig.tagline}</p>
+          <a
+            href={siteConfig.links.github}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <GithubIcon className="size-4" /> Open source on GitHub
+          </a>
         </div>
         {groups.map((g) => (
           <div key={g.title}>
@@ -57,7 +68,7 @@ export function SiteFooter() {
       <div className="border-t">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 px-4 py-6 text-sm text-muted-foreground sm:flex-row">
           <p>
-            © {year} {siteConfig.name}. Free to use.
+            © {year} {siteConfig.name}. Open source under {siteConfig.license}.
           </p>
           <p>Built for {siteConfig.domain}</p>
         </div>

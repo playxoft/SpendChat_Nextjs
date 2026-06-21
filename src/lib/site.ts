@@ -20,17 +20,19 @@ export const siteConfig = {
     "free expense tracker",
     "finance app",
   ],
+  /** AGPL-3.0; source is public. */
+  license: "AGPL-3.0",
   links: {
     twitter: "https://twitter.com/",
-    github: "https://github.com/",
+    github: "https://github.com/rnithin133/MoneyTracker_Nextjs",
   },
 } as const;
 
-/** Marketing site navigation. */
+/** Marketing site navigation. Kept short so the capsule nav stays mobile-friendly. */
 export const marketingNav = [
   { href: "/features", label: "Features" },
-  { href: "/about", label: "About" },
-  { href: "/faq", label: "FAQ" },
+  { href: "/docs", label: "Docs" },
+  { href: "/blog", label: "Blog" },
 ] as const;
 
 /** Authenticated app navigation. */
