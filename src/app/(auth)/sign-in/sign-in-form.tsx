@@ -29,6 +29,7 @@ export function SignInForm() {
             autoComplete="email"
             required
             placeholder="you@example.com"
+            className="h-11"
           />
         </div>
         <div className="space-y-1.5">
@@ -40,12 +41,13 @@ export function SignInForm() {
             autoComplete="current-password"
             required
             placeholder="••••••••"
+            className="h-11"
           />
         </div>
 
         {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 
-        <Button type="submit" className="w-full" disabled={pending}>
+        <Button type="submit" className="h-11 w-full" disabled={pending}>
           {pending ? "Signing in…" : "Sign in"}
         </Button>
       </form>
