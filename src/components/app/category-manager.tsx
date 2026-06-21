@@ -37,7 +37,7 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
         <p className="text-sm text-muted-foreground">
           {categories.length} categor{categories.length === 1 ? "y" : "ies"}
         </p>
-        <Button type="button" size="sm" onClick={() => setEditorOpen(true)}>
+        <Button type="button" onClick={() => setEditorOpen(true)}>
           <Plus className="size-4" /> Add category
         </Button>
       </div>

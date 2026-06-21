@@ -107,8 +107,9 @@ export default async function TransactionsPage({
             currency={currency}
             today={today}
             trigger={
-              <Button variant="ghost" size="sm" className="gap-1.5" aria-label="Add a transaction">
+              <Button size="sm" className="gap-1.5">
                 <CalendarPlus className="size-4" />
+                Add transaction
                 <Kbd combo={comboFor("action.add")} className="hidden sm:inline-flex" />
               </Button>
             }

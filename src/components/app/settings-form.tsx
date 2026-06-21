@@ -37,7 +37,7 @@ export function SettingsForm({
   locale: string;
   theme: string;
 }) {
-  const { setTheme } = useTheme();
+  const { theme: liveTheme, setTheme } = useTheme();
   const [cur, setCur] = useState(currency);
   const [loc, setLoc] = useState(locale);
   const [th, setTh] = useState<Theme>((theme as Theme) ?? "system");
@@ -54,6 +54,14 @@ export function SettingsForm({
     setCur(currency);
     setLoc(locale);
     setTh((theme as Theme) ?? "system");
+  }
+
+  // Mirror the live theme (next-themes) so this selector always agrees with the
+  // sidebar toggle and the actually-applied theme, whichever one changed it.
+  const [syncedTheme, setSyncedTheme] = useState<string | undefined>(undefined);
+  if (liveTheme && liveTheme !== syncedTheme) {
+    setSyncedTheme(liveTheme);
+    setTh(liveTheme as Theme);
   }
 
   const dirty =

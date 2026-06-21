@@ -15,14 +15,22 @@ export function Kbd({ combo, className }: { combo: string; className?: string })
 
   return (
     <span className={cn("inline-flex items-center gap-0.5", className)} aria-hidden="true">
-      {keys.map((k, i) => (
-        <kbd
-          key={`${k}-${i}`}
-          className="inline-flex h-5 min-w-5 items-center justify-center rounded border border-foreground/30 bg-muted px-1.5 text-xs leading-none font-semibold text-foreground shadow-[0_1px_0_var(--border)]"
-        >
-          {k}
-        </kbd>
-      ))}
+      {keys.map((k, i) => {
+        // Symbol glyphs (⇧ ⌘ ⌥ ⌃ ↵ `) render visually tiny next to letters, so
+        // give them a noticeably larger font than alphanumeric keys.
+        const isSymbol = /^[^A-Za-z0-9]$/.test(k);
+        return (
+          <kbd
+            key={`${k}-${i}`}
+            className={cn(
+              "inline-flex h-[22px] min-w-[22px] items-center justify-center rounded border border-foreground/30 bg-muted px-1.5 leading-none font-semibold text-foreground shadow-[0_1px_0_var(--border)]",
+              isSymbol ? "text-base" : "text-xs",
+            )}
+          >
+            {k}
+          </kbd>
+        );
+      })}
     </span>
   );
 }
