@@ -39,6 +39,9 @@ export const metadata: Metadata = {
     googleBot: { index: true, follow: true, "max-image-preview": "large" },
   },
   icons: { icon: "/favicon.ico" },
+  // Tell the Dark Reader extension to leave this page alone — the app manages
+  // its own light/dark theme, and extension overrides break our color tokens.
+  other: { "darkreader-lock": "" },
 };
 
 export const viewport: Viewport = {
