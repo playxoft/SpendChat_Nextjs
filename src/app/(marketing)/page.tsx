@@ -7,13 +7,15 @@ import {
   MessageSquare,
   ShieldCheck,
   Smartphone,
-  Zap,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ChatPreview } from "@/components/marketing/chat-preview";
+import { GithubIcon } from "@/components/icons/github";
+import { TrackerDemo } from "@/components/marketing/tracker-demo";
 import { JsonLd } from "@/components/json-ld";
 import { faqs } from "@/lib/faq";
 import { siteConfig } from "@/lib/site";
+import { marketingCta } from "@/lib/marketing";
 
 const features = [
   {
@@ -79,41 +81,55 @@ export default function LandingPage() {
     <>
       <JsonLd data={jsonLd} />
 
-      {/* Hero */}
-      <section className="mx-auto max-w-6xl px-4 pt-16 pb-12 sm:pt-24">
-        <div className="grid items-center gap-12 lg:grid-cols-2">
+      {/* Hero — fills the viewport (minus the fixed top nav). */}
+      <section className="mx-auto flex min-h-[calc(100svh-5rem)] max-w-6xl flex-col justify-center px-4 py-10">
+        <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-12">
           <div className="animate-rise">
-            <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-muted-foreground">
-              <Zap className="size-3.5" /> Free • Private • No installs
-            </span>
-            <h1 className="mt-5 text-balance text-4xl font-semibold tracking-tight sm:text-5xl">
+            <a
+              href={siteConfig.links.github}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Star className="size-3.5" /> Open source • Free • Private
+            </a>
+            <h1 className="mt-5 text-balance text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
               Track your money like a conversation.
             </h1>
-            <p className="mt-4 max-w-lg text-pretty text-lg text-muted-foreground">
-              MoneyTracker is a minimal, fast expense and income tracker. Add a
-              transaction in seconds, then filter, download, and print whenever you
-              need. Free to use.
+            <p className="mt-5 max-w-lg text-pretty text-lg text-muted-foreground">
+              MoneyTracker is a minimal, fast, open-source expense and income
+              tracker. Add a transaction in seconds, then filter, download, and
+              print whenever you need. Free to use.
             </p>
-            <div className="mt-7 flex flex-wrap items-center gap-3">
-              <Button asChild size="lg">
+            <div className="mt-8 flex flex-wrap items-center gap-3">
+              <Button asChild className={marketingCta}>
                 <Link href="/sign-up">
-                  Start tracking free <ArrowRight className="size-4" />
+                  Start tracking free <ArrowRight />
                 </Link>
               </Button>
-              <Button asChild size="lg" variant="outline">
+              <Button asChild variant="outline" className={marketingCta}>
                 <Link href="/features">See features</Link>
+              </Button>
+              <Button asChild variant="ghost" className={marketingCta}>
+                <a href={siteConfig.links.github} target="_blank" rel="noreferrer">
+                  <GithubIcon /> Source
+                </a>
               </Button>
             </div>
           </div>
-          <div className="animate-rise">
-            <ChatPreview />
+
+          <div className="animate-rise lg:pl-4">
+            <TrackerDemo />
+            <p className="mt-3 text-center text-xs text-muted-foreground">
+              Live demo — type an amount, pick a category, and hit send.
+            </p>
           </div>
         </div>
       </section>
 
       {/* Features */}
       <section className="border-t bg-muted/30">
-        <div className="mx-auto max-w-6xl px-4 py-16">
+        <div className="mx-auto max-w-6xl px-4 py-20">
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="text-3xl font-semibold tracking-tight">
               Everything you need, nothing you don&apos;t
@@ -141,7 +157,7 @@ export default function LandingPage() {
       </section>
 
       {/* How it works */}
-      <section className="mx-auto max-w-6xl px-4 py-16">
+      <section className="mx-auto max-w-6xl px-4 py-20">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="text-3xl font-semibold tracking-tight">
             Up and running in three steps
@@ -162,7 +178,7 @@ export default function LandingPage() {
 
       {/* FAQ teaser */}
       <section className="border-t bg-muted/30">
-        <div className="mx-auto max-w-3xl px-4 py-16">
+        <div className="mx-auto max-w-3xl px-4 py-20">
           <h2 className="text-center text-3xl font-semibold tracking-tight">
             Frequently asked questions
           </h2>
@@ -175,7 +191,7 @@ export default function LandingPage() {
             ))}
           </dl>
           <div className="mt-8 text-center">
-            <Button asChild variant="outline">
+            <Button asChild variant="outline" className={marketingCta}>
               <Link href="/faq">Read all FAQs</Link>
             </Button>
           </div>
@@ -183,17 +199,17 @@ export default function LandingPage() {
       </section>
 
       {/* Final CTA */}
-      <section className="mx-auto max-w-6xl px-4 py-20">
-        <div className="rounded-2xl border bg-card px-6 py-14 text-center">
+      <section className="mx-auto max-w-6xl px-4 py-24">
+        <div className="rounded-2xl border bg-card px-6 py-16 text-center">
           <h2 className="text-balance text-3xl font-semibold tracking-tight sm:text-4xl">
             Start tracking your money today
           </h2>
           <p className="mx-auto mt-3 max-w-md text-muted-foreground">
             It&apos;s free, private, and takes less than a minute to set up.
           </p>
-          <Button asChild size="lg" className="mt-7">
+          <Button asChild className={`mt-8 ${marketingCta}`}>
             <Link href="/sign-up">
-              Create your free account <ArrowRight className="size-4" />
+              Create your free account <ArrowRight />
             </Link>
           </Button>
         </div>

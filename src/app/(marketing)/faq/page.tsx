@@ -4,6 +4,7 @@ import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
 import { faqs } from "@/lib/faq";
+import { marketingCta } from "@/lib/marketing";
 
 export const metadata: Metadata = {
   title: "FAQ",
@@ -52,7 +53,7 @@ export default function FaqPage() {
 
       <div className="mt-12 text-center">
         <p className="text-muted-foreground">Still have questions?</p>
-        <Button asChild variant="outline" className="mt-4">
+        <Button asChild variant="outline" className={`mt-4 ${marketingCta}`}>
           <Link href="/sign-up">Just try it — it&apos;s free</Link>
         </Button>
       </div>
