@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { ChevronDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export function amountToneClass(type: "income" | "expense"): string {
@@ -11,14 +10,16 @@ export function amountToneClass(type: "income" | "expense"): string {
 /**
  * A transaction rendered as a chat bubble. Income ("incoming") aligns left;
  * expense ("outgoing") aligns right, like sent vs. received messages.
+ *
+ * Layout: the title sits up top (with the amount), the description shows below
+ * it as a subtitle, and the category + time anchor the bottom corners. The
+ * bubble grows to fit the description — there is no expand/collapse toggle.
  */
 export function TransactionBubble({
   type,
   amountLabel,
   title,
   description,
-  showDescription = false,
-  onToggleDescription,
   categoryName,
   categoryIcon,
   timeLabel,
@@ -30,8 +31,6 @@ export function TransactionBubble({
   amountLabel: string;
   title?: string | null;
   description?: string | null;
-  showDescription?: boolean;
-  onToggleDescription?: () => void;
   categoryName?: string | null;
   categoryIcon?: string | null;
   timeLabel?: string;
@@ -40,14 +39,10 @@ export function TransactionBubble({
   className?: string;
 }) {
   const side: "left" | "right" = type === "income" ? "left" : "right";
-  const hasDescription = !!description;
+  const heading = title?.trim() || categoryName || "Transaction";
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key !== "Enter") return;
-    if (e.shiftKey && hasDescription) {
-      e.preventDefault();
-      onToggleDescription?.();
-    } else if (!e.shiftKey && onActivate) {
+    if (e.key === "Enter" && onActivate) {
       e.preventDefault();
       onActivate();
     }
@@ -71,7 +66,7 @@ export function TransactionBubble({
         role={onActivate ? "button" : undefined}
         tabIndex={onActivate ? 0 : undefined}
         onClick={onActivate}
-        onKeyDown={onActivate || onToggleDescription ? handleKeyDown : undefined}
+        onKeyDown={onActivate ? handleKeyDown : undefined}
         className={cn(
           "min-w-0 flex-1 rounded-2xl border bg-card px-3.5 py-2.5 shadow-sm outline-none",
           side === "left" ? "rounded-tl-sm" : "rounded-tr-sm",
@@ -79,10 +74,8 @@ export function TransactionBubble({
             "cursor-pointer transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50",
         )}
       >
-        <div className="flex items-center justify-between gap-3">
-          <span className="truncate text-sm font-medium">
-            {categoryName ?? "Uncategorized"}
-          </span>
+        <div className="flex items-start justify-between gap-3">
+          <span className="min-w-0 text-sm font-medium break-words">{heading}</span>
           <span
             className={cn(
               "shrink-0 text-sm font-semibold tabular-nums",
@@ -93,41 +86,24 @@ export function TransactionBubble({
           </span>
         </div>
 
-        {title ? <p className="mt-0.5 line-clamp-2 text-sm">{title}</p> : null}
-
-        {hasDescription && showDescription ? (
-          <p className="mt-1 text-sm whitespace-pre-wrap text-muted-foreground">
+        {description ? (
+          <p className="mt-0.5 text-sm break-words whitespace-pre-wrap text-muted-foreground">
             {description}
           </p>
         ) : null}
 
-        {(timeLabel || actions || hasDescription) && (
-          <div className="mt-1 flex items-center justify-between gap-2">
-            <span className="text-xs text-muted-foreground">{timeLabel}</span>
-            <div className="flex items-center gap-1">
-              {hasDescription && onToggleDescription ? (
-                <button
-                  type="button"
-                  aria-label={showDescription ? "Hide description" : "Show description"}
-                  aria-expanded={showDescription}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onToggleDescription();
-                  }}
-                  className="inline-flex items-center gap-0.5 rounded text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <ChevronDown
-                    className={cn(
-                      "size-3.5 transition-transform",
-                      showDescription && "rotate-180",
-                    )}
-                  />
-                </button>
-              ) : null}
-              {actions}
-            </div>
-          </div>
-        )}
+        <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+          <span className="inline-flex min-w-0 items-center gap-1">
+            <span aria-hidden className="shrink-0">
+              {categoryIcon ?? "🏷️"}
+            </span>
+            <span className="truncate">{categoryName ?? "Uncategorized"}</span>
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1">
+            {timeLabel ? <span>{timeLabel}</span> : null}
+            {actions}
+          </span>
+        </div>
       </div>
     </div>
   );

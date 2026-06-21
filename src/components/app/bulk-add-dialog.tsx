@@ -212,6 +212,7 @@ export function BulkAddDialog({
                         onChange={(e) => patch(r.key, { title: e.target.value })}
                         placeholder="Title"
                         aria-label="Title"
+                        maxLength={100}
                         className="h-8"
                       />
                     </td>
@@ -221,6 +222,7 @@ export function BulkAddDialog({
                         onChange={(e) => patch(r.key, { description: e.target.value })}
                         placeholder="Description"
                         aria-label="Description"
+                        maxLength={250}
                         className="h-8"
                       />
                     </td>

@@ -145,6 +145,25 @@
   animation: mt-rise 0.28s ease-out both;
 }
 
+/* A very thin, unobtrusive horizontal/vertical scrollbar (used by the
+   single-row category picker). */
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in oklch, var(--foreground) 20%, transparent) transparent;
+
+  &::-webkit-scrollbar {
+    height: 4px;
+    width: 4px;
+  }
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  &::-webkit-scrollbar-thumb {
+    background: color-mix(in oklch, var(--foreground) 20%, transparent);
+    border-radius: 9999px;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
