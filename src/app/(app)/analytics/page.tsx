@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
 import { getUserSettings, requireUser } from "@/lib/auth";
 import {
   getCategoryBreakdown,
   getMonthlyTrend,
-  getProfiles,
   getSummary,
 } from "@/lib/queries";
 import { parseTxnFilters } from "@/lib/filters";
@@ -18,6 +18,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { AnalyticsFilters } from "@/components/app/analytics-filters";
+import { AnalyticsResultsSkeleton } from "@/components/app/analytics-skeleton";
 import { CategoryPieChart } from "@/components/app/category-pie-chart";
 import { PrintButton } from "@/components/app/print-button";
 
@@ -57,16 +58,70 @@ export default async function AnalyticsPage({
   const { start, end } = monthRange(today);
   const parsed = parseTxnFilters(get);
   const range = { from: parsed.from ?? start, to: parsed.to ?? end };
-  const filters = { from: range.from, to: range.to, profileId: parsed.profileId };
+  const profileId = parsed.profileId;
 
+  const rangeLabel = `${formatDateLabel(range.from, locale)} – ${formatDateLabel(range.to, locale)}`;
+  // Remount the streamed results on any filter change so the skeleton shows
+  // immediately instead of holding the previous numbers.
+  const streamKey = `${profileId ?? "all"}|${range.from}|${range.to}`;
+
+  return (
+    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Analytics</h1>
+          <p className="text-sm text-muted-foreground">{rangeLabel}</p>
+        </div>
+        <PrintButton />
+      </div>
+
+      <AnalyticsFilters today={today} />
+
+      <div className="hidden print:block">
+        <h2 className="text-lg font-semibold">MoneyTracker — Analytics</h2>
+        <p className="text-sm">{rangeLabel}</p>
+      </div>
+
+      <Suspense key={streamKey} fallback={<AnalyticsResultsSkeleton />}>
+        <AnalyticsResults
+          userId={user.id}
+          from={range.from}
+          to={range.to}
+          profileId={profileId}
+          currency={currency}
+          locale={locale}
+          today={today}
+        />
+      </Suspense>
+    </div>
+  );
+}
+
+async function AnalyticsResults({
+  userId,
+  from,
+  to,
+  profileId,
+  currency,
+  locale,
+  today,
+}: {
+  userId: string;
+  from: string;
+  to: string;
+  profileId?: string;
+  currency: string;
+  locale: string;
+  today: string;
+}) {
+  const filters = { from, to, profileId };
   const months = lastNMonths(6, today);
   const fromISO = `${months[0]}-01`;
 
-  const [summary, breakdown, trendRows, profiles] = await Promise.all([
-    getSummary(user.id, filters),
-    getCategoryBreakdown(user.id, "expense", filters),
-    getMonthlyTrend(user.id, fromISO, parsed.profileId),
-    getProfiles(user.id),
+  const [summary, breakdown, trendRows] = await Promise.all([
+    getSummary(userId, filters),
+    getCategoryBreakdown(userId, "expense", filters),
+    getMonthlyTrend(userId, fromISO, profileId),
   ]);
 
   const series = months.map((mm) => ({ month: mm, income: 0, expense: 0 }));
@@ -85,25 +140,8 @@ export default async function AnalyticsPage({
     icon: b.categoryIcon,
   }));
 
-  const rangeLabel = `${formatDateLabel(range.from, locale)} – ${formatDateLabel(range.to, locale)}`;
-
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Analytics</h1>
-          <p className="text-sm text-muted-foreground">{rangeLabel}</p>
-        </div>
-        <PrintButton />
-      </div>
-
-      <AnalyticsFilters profiles={profiles} today={today} />
-
-      <div className="hidden print:block">
-        <h2 className="text-lg font-semibold">MoneyTracker — Analytics</h2>
-        <p className="text-sm">{rangeLabel}</p>
-      </div>
-
+    <>
       <div className="grid gap-4 sm:grid-cols-3">
         <StatCard label="Income" value={formatMoney(summary.income, currency, locale)} positive />
         <StatCard label="Expenses" value={formatMoney(summary.expense, currency, locale)} />
@@ -162,7 +200,7 @@ export default async function AnalyticsPage({
           </ul>
         </CardContent>
       </Card>
-    </div>
+    </>
   );
 }
 

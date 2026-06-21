@@ -71,6 +71,13 @@ export function ProfileList({
   const [deleting, setDeleting] = React.useState<P | null>(null);
 
   const active = sp.get("profile");
+  // Optimistic selection so the highlight flips instantly on click, before the
+  // navigation (and the chat skeleton) settles.
+  const [optimistic, setOptimistic] = React.useState<string | null | undefined>(undefined);
+  if (optimistic !== undefined && optimistic === (active ?? null)) {
+    setOptimistic(undefined);
+  }
+  const shownActive = optimistic !== undefined ? optimistic : active;
   // Shift+` jumps to "All profiles" (desktop sidebar only); profiles get Shift+1…0.
   const allShortcut = enableShortcuts ? "shift+`" : "";
 
@@ -80,6 +87,7 @@ export function ProfileList({
   );
 
   function go(id: string | null) {
+    setOptimistic(id);
     const dataPage =
       pathname.startsWith("/app") ||
       pathname.startsWith("/transactions") ||
@@ -90,7 +98,7 @@ export function ProfileList({
     else params.delete("profile");
     params.delete("page");
     const qs = params.toString();
-    router.push(qs ? `${targetPath}?${qs}` : targetPath);
+    startTransition(() => router.push(qs ? `${targetPath}?${qs}` : targetPath));
     onNavigate?.();
   }
 
@@ -130,10 +138,10 @@ export function ProfileList({
         <button
           type="button"
           onClick={() => go(null)}
-          aria-current={!active ? "true" : undefined}
+          aria-current={!shownActive ? "true" : undefined}
           className={cn(
             "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
-            !active
+            !shownActive
               ? "bg-accent font-medium text-accent-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
@@ -151,7 +159,7 @@ export function ProfileList({
               <ProfileRow
                 key={p.id}
                 profile={p}
-                active={active === p.id}
+                active={shownActive === p.id}
                 shortcut={enableShortcuts ? profileShortcut(index) : ""}
                 onSelect={() => go(p.id)}
                 onEdit={() => setEditing(p)}

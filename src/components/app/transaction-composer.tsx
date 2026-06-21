@@ -19,8 +19,8 @@ import { CategoryEditorDialog } from "./category-editor-dialog";
 import { cn } from "@/lib/utils";
 import { addTransaction } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
-import { useShortcut } from "@/hooks/use-shortcut";
-import { comboFor } from "@/lib/shortcuts";
+import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
+import { comboFor, formatShortcut } from "@/lib/shortcuts";
 import type { Category, Profile } from "@/db/schema";
 
 const TITLE_MAX = 100;
@@ -34,12 +34,16 @@ export function TransactionComposer({
   today,
   profiles,
   activeProfileId,
+  allProfiles = false,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   currency: string;
   today: string;
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   activeProfileId?: string;
+  /** When viewing "All profiles", let the user pick the target; otherwise the
+   * active profile is locked in and the picker is hidden. */
+  allProfiles?: boolean;
 }) {
   const [type, setType] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
@@ -56,10 +60,18 @@ export function TransactionComposer({
   const descRef = useRef<HTMLTextAreaElement>(null);
   const cats = useMemo(() => categories.filter((c) => c.kind === type), [categories, type]);
   const symbol = getCurrency(currency).symbol;
+  const isMac = useIsMac();
 
   const toggleCombo = comboFor("tracker.toggle-type");
   const submitCombo = comboFor("tracker.submit");
   const descCombo = comboFor("tracker.description");
+  const submitLabel = formatShortcut(submitCombo, isMac);
+
+  // When a specific profile is active it's locked in; only "All profiles" lets
+  // the user choose where a new transaction lands.
+  const targetProfileId = allProfiles
+    ? profileId
+    : (activeProfileId ?? profiles[0]?.id ?? "");
 
   // "/" in the title opens an inline category picker.
   const slashMatch = title.match(SLASH_RE);
@@ -101,7 +113,7 @@ export function TransactionComposer({
         type,
         amount: value,
         categoryId,
-        profileId: profileId || undefined,
+        profileId: targetProfileId || undefined,
         title: title.trim() || undefined,
         description: description.trim() || undefined,
         occurredOn: today,
@@ -163,8 +175,14 @@ export function TransactionComposer({
   }
 
   const sendButton = (
-    <Button type="submit" size="icon" disabled={pending} aria-label="Send transaction">
+    <Button
+      type="submit"
+      disabled={pending}
+      aria-label={`Send transaction (${submitLabel})`}
+      className="h-9 gap-1.5 px-3"
+    >
       <ArrowUp className="size-4" />
+      <span className="text-xs font-semibold tracking-wide opacity-80">{submitLabel}</span>
     </Button>
   );
 
@@ -198,9 +216,9 @@ export function TransactionComposer({
             <Kbd combo={toggleCombo} className="mr-1.5 ml-1 hidden sm:inline-flex" />
           </div>
 
-          {profiles.length > 0 && (
+          {allProfiles && profiles.length > 0 && (
             <Select value={profileId} onValueChange={setProfileId}>
-              <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile">
+              <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile for new transaction">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent align="end">
@@ -283,12 +301,7 @@ export function TransactionComposer({
             )}
           </div>
 
-          {!descOpen && (
-            <>
-              <Kbd combo={submitCombo} className="hidden self-center sm:inline-flex" />
-              {sendButton}
-            </>
-          )}
+          {!descOpen && sendButton}
         </div>
 
         {descOpen ? (
@@ -304,10 +317,7 @@ export function TransactionComposer({
               aria-label="Description"
               className="flex-1"
             />
-            <div className="flex shrink-0 items-center gap-1.5 pb-0.5">
-              <Kbd combo={submitCombo} className="hidden sm:inline-flex" />
-              {sendButton}
-            </div>
+            <div className="flex shrink-0 items-center pb-0.5">{sendButton}</div>
           </div>
         ) : (
           <button

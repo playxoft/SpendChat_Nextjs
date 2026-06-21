@@ -48,6 +48,7 @@ export function BulkAddDialog({
   categories,
   profiles,
   activeProfileId,
+  allProfiles = false,
   currency = "USD",
 }: {
   trigger: ReactNode;
@@ -55,9 +56,13 @@ export function BulkAddDialog({
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   activeProfileId?: string;
+  /** Only when viewing "All profiles" can rows target different profiles;
+   * otherwise every row goes to the active profile. */
+  allProfiles?: boolean;
   currency?: string;
 }) {
   const defaultProfile = activeProfileId ?? profiles[0]?.id ?? "";
+  const showProfileColumn = allProfiles && profiles.length > 1;
   const idRef = useRef(3);
   const nextKey = () => ++idRef.current;
 
@@ -166,7 +171,7 @@ export function BulkAddDialog({
                 <th className="min-w-40">Description</th>
                 <th className="w-40">Category</th>
                 <th className="w-40">Date</th>
-                {profiles.length > 1 && <th className="w-36">Profile</th>}
+                {showProfileColumn && <th className="w-36">Profile</th>}
                 <th className="w-8" />
               </tr>
             </thead>
@@ -255,7 +260,7 @@ export function BulkAddDialog({
                         className="h-8"
                       />
                     </td>
-                    {profiles.length > 1 && (
+                    {showProfileColumn && (
                       <td>
                         <Select
                           value={r.profileId}
