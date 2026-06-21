@@ -114,6 +114,7 @@ export function TransactionFilters({
         <Button
           variant="ghost"
           size="sm"
+          className="h-9"
           onClick={() => {
             setQ("");
             router.push(pathname);
