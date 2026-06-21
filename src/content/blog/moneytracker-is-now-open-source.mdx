@@ -1,0 +1,22 @@
+export const meta = {
+  title: "MoneyTracker is now open source",
+  date: "2026-06-02",
+  readingMinutes: 2,
+  tag: "Open source",
+  excerpt:
+    "The entire app is public under the AGPL-3.0. Here's what that means for your data and your trust.",
+};
+
+MoneyTracker is now fully open source under the AGPL-3.0 license. Every query, every server action, and every line of the interface you use is public on GitHub.
+
+## Why open source a money app
+
+When an app holds your financial history, "trust us" isn't good enough. Open source replaces a promise with proof: you can read exactly how your data is stored, scoped, and protected. If you don't like an answer, you can change it.
+
+- Audit how your data is handled — nothing is hidden behind a closed binary.
+- Self-host your own instance if you'd rather own the whole stack.
+- File issues and send pull requests to shape where the product goes.
+
+## What's under the hood
+
+The app is built on Next.js with the App Router, Tailwind CSS and shadcn/ui, Neon Postgres with Drizzle, and Neon Auth, deployed to Cloudflare Workers via OpenNext. The [docs](/docs) cover everything you need to run it yourself.

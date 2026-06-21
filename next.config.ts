@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import createMDX from "@next/mdx";
 
 /**
  * Security headers applied to every response.
@@ -39,12 +40,23 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  // Let `.md`/`.mdx` files be imported as React components (blog content lives in
+  // `src/content/blog`). The default page extensions must stay listed too.
+  pageExtensions: ["ts", "tsx", "js", "jsx", "md", "mdx"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
 };
 
-export default nextConfig;
+// remark-gfm is referenced by name (string) so it works under Turbopack, which
+// can't accept plugin functions. It adds tables, strikethrough, and autolinks.
+const withMDX = createMDX({
+  options: {
+    remarkPlugins: [["remark-gfm"]],
+  },
+});
+
+export default withMDX(nextConfig);
 
 // Enables Cloudflare bindings (env, secrets) during `next dev` via OpenNext.
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
