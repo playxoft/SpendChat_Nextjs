@@ -18,7 +18,7 @@ export function Kbd({ combo, className }: { combo: string; className?: string })
       {keys.map((k, i) => (
         <kbd
           key={`${k}-${i}`}
-          className="inline-flex h-4 min-w-4 items-center justify-center rounded border border-foreground/15 bg-background/60 px-1 text-[10px] leading-none font-medium text-muted-foreground"
+          className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded border border-foreground/20 bg-background/60 px-1 text-[11px] leading-none font-semibold text-muted-foreground"
         >
           {k}
         </kbd>
