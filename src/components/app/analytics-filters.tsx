@@ -1,18 +1,12 @@
 "use client";
 
+import { useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
+import { Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { parseISODate, toISODate } from "@/lib/dates";
-import type { Profile } from "@/db/schema";
 
 const RANGES = [
   { key: "1", label: "This month", months: 1 },
@@ -22,18 +16,12 @@ const RANGES = [
   { key: "all", label: "All time", months: 0 },
 ] as const;
 
-export function AnalyticsFilters({
-  profiles = [],
-  today,
-}: {
-  profiles?: Pick<Profile, "id" | "name" | "icon">[];
-  today: string;
-}) {
+export function AnalyticsFilters({ today }: { today: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
+  const [pending, startTransition] = useTransition();
 
-  const profile = sp.get("profile") ?? "all";
   const from = sp.get("from") ?? "";
   const to = sp.get("to") ?? "";
 
@@ -44,7 +32,7 @@ export function AnalyticsFilters({
       else params.delete(k);
     }
     const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    startTransition(() => router.push(qs ? `${pathname}?${qs}` : pathname));
   }
 
   function applyRange(months: number) {
@@ -60,35 +48,18 @@ export function AnalyticsFilters({
     });
   }
 
+  const hasRange = !!from || !!to;
+
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      {profiles.length > 0 && (
-        <Select
-          value={profile}
-          onValueChange={(v) => update({ profile: v === "all" ? undefined : v })}
-        >
-          <SelectTrigger className="w-36" aria-label="Profile">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All profiles</SelectItem>
-            {profiles.map((p) => (
-              <SelectItem key={p.id} value={p.id}>
-                {p.icon ? `${p.icon} ` : ""}
-                {p.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
-
-      <div className="inline-flex rounded-lg border bg-muted/40 p-0.5">
+      <div className="inline-flex h-9 items-center rounded-md border bg-muted/40 p-1">
         {RANGES.map((r) => (
           <Button
             key={r.key}
             type="button"
             variant="ghost"
-            size="xs"
+            size="sm"
+            className="h-7 px-2.5 text-xs"
             onClick={() => applyRange(r.months)}
           >
             {r.label}
@@ -101,7 +72,7 @@ export function AnalyticsFilters({
         max={to || today}
         placeholder="From"
         onChange={(iso) => update({ from: iso || undefined })}
-        className="w-[9.5rem]"
+        className="h-9 w-[9.5rem]"
       />
       <DatePicker
         value={to}
@@ -109,8 +80,23 @@ export function AnalyticsFilters({
         max={today}
         placeholder="To"
         onChange={(iso) => update({ to: iso || undefined })}
-        className="w-[9.5rem]"
+        className="h-9 w-[9.5rem]"
       />
+
+      {hasRange && (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-9"
+          onClick={() => update({ from: undefined, to: undefined })}
+        >
+          <X className="size-4" /> Clear
+        </Button>
+      )}
+
+      {pending && (
+        <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Loading" />
+      )}
     </div>
   );
 }

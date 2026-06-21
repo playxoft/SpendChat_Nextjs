@@ -9,6 +9,7 @@ import {
   getProfiles,
   getSummary,
   listTransactions,
+  type TxnFilters,
 } from "@/lib/queries";
 import { parseTxnFilters } from "@/lib/filters";
 import { todayISO } from "@/lib/dates";
@@ -17,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TransactionFilters } from "@/components/app/transaction-filters";
 import { TransactionsTable } from "@/components/app/transactions-table";
+import { TransactionsResultsSkeleton } from "@/components/app/transactions-skeleton";
 import { TransactionDialog } from "@/components/app/transaction-dialog";
 import { BulkAddDialog } from "@/components/app/bulk-add-dialog";
 import { PrintButton } from "@/components/app/print-button";
@@ -52,17 +54,9 @@ export default async function TransactionsPage({
   const today = todayISO();
 
   const filters = parseTxnFilters(one);
+  const allProfiles = !filters.profileId;
   const composerProfileId = filters.profileId ?? profiles[0]?.id;
   const page = Math.max(1, Number(one("page")) || 1);
-  const offset = (page - 1) * PAGE_SIZE;
-
-  const [rows, total, summary] = await Promise.all([
-    listTransactions(user.id, { ...filters, limit: PAGE_SIZE, offset }),
-    countTransactions(user.id, filters),
-    getSummary(user.id, filters),
-  ]);
-
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const { currency, locale } = settings;
 
   const baseParams = new URLSearchParams();
@@ -72,23 +66,13 @@ export default async function TransactionsPage({
   }
   const base = baseParams.toString();
   const exportHref = `/api/transactions/export${base ? `?${base}` : ""}`;
-  const pageHref = (p: number) => {
-    const pr = new URLSearchParams(base);
-    if (p > 1) pr.set("page", String(p));
-    const qs = pr.toString();
-    return qs ? `/transactions?${qs}` : "/transactions";
-  };
+  // Remount the results on any filter/page change so the skeleton shows at once.
+  const streamKey = `${base}|${page}`;
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <div>
-          <h1 className="text-xl font-semibold">Transactions</h1>
-          <p className="text-sm text-muted-foreground">
-            {total} record{total === 1 ? "" : "s"} · Net{" "}
-            {formatMoney(summary.balance, currency, locale)}
-          </p>
-        </div>
+        <h1 className="text-xl font-semibold">Transactions</h1>
         <div className="flex items-center gap-1.5">
           <TransactionDialog
             mode="add"
@@ -108,6 +92,7 @@ export default async function TransactionsPage({
             categories={categories}
             profiles={profiles}
             activeProfileId={composerProfileId}
+            allProfiles={allProfiles}
             trigger={
               <Button variant="outline" size="sm">
                 <ListPlus className="size-4" />
@@ -127,9 +112,71 @@ export default async function TransactionsPage({
 
       <div className="mt-4">
         <Suspense fallback={null}>
-          <TransactionFilters categories={categories} profiles={profiles} />
+          <TransactionFilters categories={categories} />
         </Suspense>
       </div>
+
+      <div className="mt-4">
+        <Suspense key={streamKey} fallback={<TransactionsResultsSkeleton />}>
+          <TransactionsData
+            userId={user.id}
+            filters={filters}
+            page={page}
+            base={base}
+            currency={currency}
+            locale={locale}
+            categories={categories}
+            profiles={profiles}
+            today={today}
+          />
+        </Suspense>
+      </div>
+    </div>
+  );
+}
+
+async function TransactionsData({
+  userId,
+  filters,
+  page,
+  base,
+  currency,
+  locale,
+  categories,
+  profiles,
+  today,
+}: {
+  userId: string;
+  filters: TxnFilters;
+  page: number;
+  base: string;
+  currency: string;
+  locale: string;
+  categories: Awaited<ReturnType<typeof getCategories>>;
+  profiles: Awaited<ReturnType<typeof getProfiles>>;
+  today: string;
+}) {
+  const offset = (page - 1) * PAGE_SIZE;
+  const [rows, total, summary] = await Promise.all([
+    listTransactions(userId, { ...filters, limit: PAGE_SIZE, offset }),
+    countTransactions(userId, filters),
+    getSummary(userId, filters),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageHref = (p: number) => {
+    const pr = new URLSearchParams(base);
+    if (p > 1) pr.set("page", String(p));
+    const qs = pr.toString();
+    return qs ? `/transactions?${qs}` : "/transactions";
+  };
+
+  return (
+    <>
+      <p className="text-sm text-muted-foreground print:hidden">
+        {total} record{total === 1 ? "" : "s"} · Net{" "}
+        {formatMoney(summary.balance, currency, locale)}
+      </p>
 
       <div className="mt-4 mb-3 hidden print:block">
         <h2 className="text-lg font-semibold">MoneyTracker — Transactions</h2>
@@ -176,6 +223,6 @@ export default async function TransactionsPage({
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
