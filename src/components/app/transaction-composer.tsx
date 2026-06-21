@@ -5,7 +5,7 @@ import { ArrowUp } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { DatePicker } from "@/components/ui/date-picker";
 import { Kbd } from "@/components/ui/kbd";
 import {
   Select,
@@ -50,21 +50,21 @@ export function TransactionComposer({
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [descOpen, setDescOpen] = useState(false);
+  const [occurredOn, setOccurredOn] = useState(today);
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
   const [editorOpen, setEditorOpen] = useState(false);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const [pending, startTransition] = useTransition();
 
-  const descRef = useRef<HTMLTextAreaElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
+  const descRef = useRef<HTMLInputElement>(null);
   const cats = useMemo(() => categories.filter((c) => c.kind === type), [categories, type]);
   const symbol = getCurrency(currency).symbol;
   const isMac = useIsMac();
 
   const toggleCombo = comboFor("tracker.toggle-type");
   const submitCombo = comboFor("tracker.submit");
-  const descCombo = comboFor("tracker.description");
   const submitLabel = formatShortcut(submitCombo, isMac);
 
   // When a specific profile is active it's locked in; only "All profiles" lets
@@ -90,11 +90,6 @@ export function TransactionComposer({
   // ⌘/Ctrl+E toggles expense/income even while typing.
   useShortcut(toggleCombo, () => switchType(), { allowInInput: true });
 
-  function openDescription() {
-    setDescOpen(true);
-    requestAnimationFrame(() => descRef.current?.focus());
-  }
-
   function selectSlashCategory(cat: Pick<Category, "id">) {
     setCategoryId(cat.id);
     setTitle((t) => t.replace(SLASH_RE, "").replace(/\s+$/, ""));
@@ -108,27 +103,50 @@ export function TransactionComposer({
       toast.error("Enter an amount greater than 0");
       return;
     }
+    // A transaction needs an amount, a title, a date and a profile.
+    if (!title.trim()) {
+      toast.error("Add a title");
+      titleRef.current?.focus();
+      return;
+    }
+    if (!occurredOn) {
+      toast.error("Pick a date");
+      return;
+    }
+    if (!targetProfileId) {
+      toast.error("Pick a profile");
+      return;
+    }
     startTransition(async () => {
       const res = await addTransaction({
         type,
         amount: value,
         categoryId,
-        profileId: targetProfileId || undefined,
-        title: title.trim() || undefined,
+        profileId: targetProfileId,
+        title: title.trim(),
         description: description.trim() || undefined,
-        occurredOn: today,
+        occurredOn,
       });
       if (res.ok) {
         setAmount("");
         setTitle("");
         setDescription("");
-        setDescOpen(false);
+        setCategoryId(null);
+        setOccurredOn(today);
         setSlashDismissed(false);
         toast.success(type === "income" ? "Income added" : "Expense added");
       } else {
         toast.error(res.error);
       }
     });
+  }
+
+  function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Enter (or Tab) moves to the title rather than submitting an untitled row.
+    if (e.key === "Enter") {
+      e.preventDefault();
+      titleRef.current?.focus();
+    }
   }
 
   function onTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -156,19 +174,15 @@ export function TransactionComposer({
     }
 
     if (e.key === "Enter") {
-      // Shift+Enter opens the description; Enter (and ⌘/Ctrl+Enter) sends.
-      if (e.shiftKey) {
-        e.preventDefault();
-        openDescription();
-      } else {
-        e.preventDefault();
-        submit();
-      }
+      // Shift+Enter jumps to the description; Enter (and ⌘/Ctrl+Enter) sends.
+      e.preventDefault();
+      if (e.shiftKey) descRef.current?.focus();
+      else submit();
     }
   }
 
-  function onDescriptionKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+  function onDescriptionKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
       e.preventDefault();
       submit();
     }
@@ -204,33 +218,44 @@ export function TransactionComposer({
                 onClick={() => switchType(t)}
                 aria-pressed={type === t}
                 className={cn(
-                  "rounded-full px-3 py-1 capitalize transition-colors",
+                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1 capitalize transition-colors",
                   type === t
                     ? "bg-background font-medium shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {t}
+                {/* The ⌘E hint rides inside the active capsule. */}
+                {type === t && (
+                  <Kbd combo={toggleCombo} className="hidden opacity-70 sm:inline-flex" />
+                )}
               </button>
             ))}
-            <Kbd combo={toggleCombo} className="mr-1.5 ml-1 hidden sm:inline-flex" />
           </div>
 
-          {allProfiles && profiles.length > 0 && (
-            <Select value={profileId} onValueChange={setProfileId}>
-              <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile for new transaction">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent align="end">
-                {profiles.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.icon ? `${p.icon} ` : ""}
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+          <div className="flex items-center gap-2">
+            <DatePicker
+              value={occurredOn}
+              max={today}
+              onChange={setOccurredOn}
+              className="h-8 w-auto"
+            />
+            {allProfiles && profiles.length > 0 && (
+              <Select value={profileId} onValueChange={setProfileId}>
+                <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile for new transaction">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent align="end">
+                  {profiles.map((p) => (
+                    <SelectItem key={p.id} value={p.id}>
+                      {p.icon ? `${p.icon} ` : ""}
+                      {p.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </div>
         </div>
 
         <CategoryRow
@@ -250,6 +275,7 @@ export function TransactionComposer({
               placeholder="0.00"
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
+              onKeyDown={onAmountKeyDown}
               aria-label="Amount"
               className="w-28 pl-7 tabular-nums"
             />
@@ -257,6 +283,7 @@ export function TransactionComposer({
 
           <div className="relative min-w-32 flex-1">
             <Input
+              ref={titleRef}
               placeholder="Add a title — type / to tag a category"
               value={title}
               maxLength={TITLE_MAX}
@@ -301,34 +328,18 @@ export function TransactionComposer({
             )}
           </div>
 
-          {!descOpen && sendButton}
+          {sendButton}
         </div>
 
-        {descOpen ? (
-          <div className="flex items-end gap-2">
-            <Textarea
-              ref={descRef}
-              rows={2}
-              placeholder="Add a description…"
-              value={description}
-              maxLength={DESCRIPTION_MAX}
-              onChange={(e) => setDescription(e.target.value)}
-              onKeyDown={onDescriptionKeyDown}
-              aria-label="Description"
-              className="flex-1"
-            />
-            <div className="flex shrink-0 items-center pb-0.5">{sendButton}</div>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={openDescription}
-            className="inline-flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-          >
-            Add description
-            <Kbd combo={descCombo} />
-          </button>
-        )}
+        <Input
+          ref={descRef}
+          placeholder="Add a description (optional)"
+          value={description}
+          maxLength={DESCRIPTION_MAX}
+          onChange={(e) => setDescription(e.target.value)}
+          onKeyDown={onDescriptionKeyDown}
+          aria-label="Description"
+        />
       </div>
 
       <CategoryEditorDialog

@@ -50,8 +50,11 @@ export function BulkAddDialog({
   activeProfileId,
   allProfiles = false,
   currency = "USD",
+  open: openProp,
+  onOpenChange,
 }: {
-  trigger: ReactNode;
+  /** Optional — omit when the dialog is opened from a keyboard shortcut. */
+  trigger?: ReactNode;
   today: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
@@ -60,6 +63,8 @@ export function BulkAddDialog({
    * otherwise every row goes to the active profile. */
   allProfiles?: boolean;
   currency?: string;
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
 }) {
   const defaultProfile = activeProfileId ?? profiles[0]?.id ?? "";
   const showProfileColumn = allProfiles && profiles.length > 1;
@@ -77,7 +82,10 @@ export function BulkAddDialog({
     date: today,
   });
 
-  const [open, setOpen] = useState(false);
+  const controlled = openProp !== undefined;
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = controlled ? openProp : internalOpen;
+  const setOpen = controlled ? onOpenChange! : setInternalOpen;
   const [rows, setRows] = useState<DraftRow[]>(() => [0, 1, 2].map((k) => emptyRow(k)));
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
@@ -152,7 +160,7 @@ export function BulkAddDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
       <DialogContent className="sm:max-w-3xl">
         <DialogHeader>
           <DialogTitle>Bulk add transactions</DialogTitle>
@@ -166,7 +174,7 @@ export function BulkAddDialog({
             <thead className="sticky top-0 bg-muted/70 backdrop-blur-sm">
               <tr className="[&>th]:px-2 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium">
                 <th className="w-28">Type</th>
-                <th className="w-28">Amount</th>
+                <th className="w-40">Amount</th>
                 <th className="min-w-40">Title</th>
                 <th className="min-w-40">Description</th>
                 <th className="w-40">Category</th>

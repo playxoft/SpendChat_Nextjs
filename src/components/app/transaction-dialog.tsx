@@ -156,7 +156,7 @@ export function TransactionDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="inline-flex w-full items-center rounded-lg border bg-muted/50 p-0.5 text-sm">
+          <div className="flex w-full items-center rounded-lg border bg-muted/50 p-0.5 text-sm">
             {(["expense", "income"] as const).map((t) => (
               <button
                 key={t}
@@ -164,16 +164,19 @@ export function TransactionDialog({
                 onClick={() => setType(t)}
                 aria-pressed={values.type === t}
                 className={cn(
-                  "flex-1 rounded-md px-3 py-1.5 capitalize transition-colors",
+                  "flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 capitalize transition-colors",
                   values.type === t
                     ? "bg-background font-medium shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
                 )}
               >
                 {t}
+                {/* The ⌘E hint rides inside the active capsule. */}
+                {values.type === t && (
+                  <Kbd combo={toggleCombo} className="hidden opacity-70 sm:inline-flex" />
+                )}
               </button>
             ))}
-            <Kbd combo={toggleCombo} className="mr-1.5 ml-1 hidden sm:inline-flex" />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

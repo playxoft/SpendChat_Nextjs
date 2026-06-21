@@ -10,7 +10,7 @@ A minimal, fast, and secure personal **money tracker** — add, view, filter, do
 
 - **Effortless tracking** — add a transaction in seconds, see your balance instantly.
 - **Profiles** — keep separate spaces (Personal, Company, Home…) and switch in one keystroke.
-- **Keyboard-first** — type `/` to tag a category, `⇧↵` for a description, `⌘/Ctrl + ↵` to send.
+- **Keyboard-first** — jump anywhere (`T` `R` `A` `S`), add with `E`, search with `/`, send with `⌘/Ctrl + ↵`.
 - **Powerful views** — filter by date, type, and category; search; sort.
 - **Download & print** — export the current view to CSV or print/save as PDF.
 - **Minimal & clean** — neutral palette, no noisy gradients, subtle motion.
@@ -20,16 +20,21 @@ A minimal, fast, and secure personal **money tracker** — add, view, filter, do
 ## ⌨️ Keyboard shortcuts
 
 Modifier keys adapt to your platform — `⌘` on macOS, `Ctrl` on Windows/Linux.
+Single-key shortcuts fire only when you're not typing in a field.
 You can also browse these any time in **Settings → Keyboard shortcuts**.
 
 | Context | Shortcut | Action |
 |---------|----------|--------|
-| Tracker | `/` | Pick a category from the title field |
-| Tracker | `⇧ + ↵` | Open the description field |
+| Navigation | `T` / `R` / `A` / `S` | Tracker / Transactions / Analytics / Settings |
+| Actions | `E` | Add a transaction |
+| Actions | `B` | Bulk add transactions |
+| Actions | `/` | Focus search (where a search bar exists) |
 | Tracker | `⌘/Ctrl + ↵` | Send the transaction |
+| Tracker | `⇧ + ↵` | Jump to the description field |
+| Tracker | `/` | Tag a category from the title field |
 | Tracker | `⌘/Ctrl + E` | Switch between expense and income |
-| Profiles | `⇧ + 1…9`, `⇧ + 0` | Jump to a profile by position (0 = the 10th) |
-| Add / edit dialog | `⌘/Ctrl + E` | Switch between expense and income |
+| Profiles | `` ⇧ + ` `` | Show all profiles |
+| Profiles | `⇧ + 1…9`, `⇧ + 0` | Switch to a profile by position (0 = the 10th) |
 | Global | `⌘/Ctrl + P` | Print the current page |
 
 ## 🧱 Tech stack

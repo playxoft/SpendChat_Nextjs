@@ -13,12 +13,21 @@ export type ShortcutDef = {
 };
 
 export const SHORTCUTS: ShortcutDef[] = [
+  // Single-key navigation + actions — fire only when not typing in a field and
+  // no dialog/menu is open (see `requireNoOverlay` in use-shortcut).
+  { id: "nav.tracker", combo: "t", label: "Go to the tracker", scope: "Navigation" },
+  { id: "nav.transactions", combo: "r", label: "Go to transactions", scope: "Navigation" },
+  { id: "nav.analytics", combo: "a", label: "Go to analytics", scope: "Navigation" },
+  { id: "nav.settings", combo: "s", label: "Go to settings", scope: "Navigation" },
+  { id: "action.add", combo: "e", label: "Add a transaction", scope: "Actions" },
+  { id: "action.bulk", combo: "b", label: "Bulk add transactions", scope: "Actions" },
+  { id: "global.search", combo: "/", label: "Focus search (where a search bar exists)", scope: "Actions" },
   { id: "tracker.submit", combo: "mod+enter", label: "Send the transaction", scope: "Tracker" },
-  { id: "tracker.description", combo: "shift+enter", label: "Open the description field", scope: "Tracker" },
-  { id: "tracker.category", combo: "/", label: "Pick a category from the title field", scope: "Tracker" },
+  { id: "tracker.description", combo: "shift+enter", label: "Jump to the description field", scope: "Tracker" },
+  { id: "tracker.category", combo: "/", label: "Tag a category from the title field", scope: "Tracker" },
   { id: "tracker.toggle-type", combo: "mod+e", label: "Switch between expense and income", scope: "Tracker" },
+  { id: "profiles.all", combo: "shift+`", label: "Show all profiles", scope: "Profiles" },
   { id: "profiles.switch", combo: "shift+1", label: "Switch to a profile (Shift + 1…9, 0 for the 10th)", scope: "Profiles" },
-  { id: "transactions.toggle-type", combo: "mod+e", label: "Switch type in the add / edit dialog", scope: "Transactions" },
   { id: "global.print", combo: "mod+p", label: "Print the current page", scope: "Global" },
 ];
 
