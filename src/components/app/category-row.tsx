@@ -25,10 +25,22 @@ export function CategoryRow({
   onEdit?: () => void;
 }) {
   const [open, setOpen] = React.useState(false);
+  const scrollRef = React.useRef<HTMLDivElement>(null);
+
+  // Keep the selected chip visible — e.g. when it's chosen via the "/" command
+  // in the title and lives off-screen in the horizontal scroll area.
+  React.useEffect(() => {
+    if (!value) return;
+    const el = scrollRef.current?.querySelector(`[data-cat-id="${value}"]`);
+    el?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+  }, [value]);
 
   return (
     <div className="flex items-center gap-1.5">
-      <div className="scrollbar-thin flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-1">
+      <div
+        ref={scrollRef}
+        className="scrollbar-thin flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-1"
+      >
         {categories.length === 0 ? (
           <span className="text-xs text-muted-foreground">No categories yet.</span>
         ) : (
@@ -36,6 +48,7 @@ export function CategoryRow({
             <button
               key={c.id}
               type="button"
+              data-cat-id={c.id}
               onClick={() => onChange(value === c.id ? null : c.id)}
               aria-pressed={value === c.id}
               className={cn(

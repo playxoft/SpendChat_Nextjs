@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/card";
 import { AnalyticsFilters } from "@/components/app/analytics-filters";
 import { CategoryPieChart } from "@/components/app/category-pie-chart";
+import { PrintButton } from "@/components/app/print-button";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,7 @@ export default async function AnalyticsPage({
           <h1 className="text-xl font-semibold">Analytics</h1>
           <p className="text-sm text-muted-foreground">{rangeLabel}</p>
         </div>
+        <PrintButton />
       </div>
 
       <AnalyticsFilters profiles={profiles} today={today} />
