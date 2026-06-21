@@ -27,7 +27,7 @@ export function EmojiPickerPanel({
   return (
     <div className={cn("flex w-66 flex-col", className)}>
       <Frimousse.Root
-        className="isolate flex h-72 w-full flex-col"
+        className="isolate flex h-80 w-full flex-col"
         // Self-hosted Emojibase data (public/emojibase). Pins the v16 format
         // frimousse expects — the CDN default now serves v17, which fails to
         // parse and hangs on "Loading…" — and avoids a third-party request.
@@ -38,7 +38,7 @@ export function EmojiPickerPanel({
           className="z-10 mx-1.5 mt-1.5 appearance-none rounded-md border bg-muted/60 px-2.5 py-1.5 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
           placeholder="Search emoji…"
         />
-        <Frimousse.Viewport className="relative mt-1.5 flex-1 outline-none">
+        <Frimousse.Viewport className="relative mt-1.5 min-h-0 flex-1 outline-none">
           <Frimousse.Loading className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
             Loading…
           </Frimousse.Loading>
