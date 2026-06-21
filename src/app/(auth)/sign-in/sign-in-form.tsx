@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useActionState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -9,6 +10,7 @@ import { signInWithEmail } from "./actions";
 
 export function SignInForm() {
   const [state, action, pending] = useActionState(signInWithEmail, null);
+  const initialEmail = useSearchParams().get("email") ?? "";
 
   return (
     <div className="space-y-6">
@@ -28,12 +30,21 @@ export function SignInForm() {
             type="email"
             autoComplete="email"
             required
+            defaultValue={initialEmail}
             placeholder="you@example.com"
-            className="h-11"
+            className="h-10"
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="password">Password</Label>
+          <div className="flex items-center justify-between">
+            <Label htmlFor="password">Password</Label>
+            <Link
+              href="/forgot-password"
+              className="text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+            >
+              Forgot password?
+            </Link>
+          </div>
           <Input
             id="password"
             name="password"
@@ -41,13 +52,13 @@ export function SignInForm() {
             autoComplete="current-password"
             required
             placeholder="••••••••"
-            className="h-11"
+            className="h-10"
           />
         </div>
 
         {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
 
-        <Button type="submit" className="h-11 w-full" disabled={pending}>
+        <Button type="submit" className="h-10 w-full" disabled={pending}>
           {pending ? "Signing in…" : "Sign in"}
         </Button>
       </form>
