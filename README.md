@@ -9,11 +9,28 @@ A minimal, fast, and secure personal **money tracker** — add, view, filter, do
 ## ✨ Highlights
 
 - **Effortless tracking** — add a transaction in seconds, see your balance instantly.
+- **Profiles** — keep separate spaces (Personal, Company, Home…) and switch in one keystroke.
+- **Keyboard-first** — type `/` to tag a category, `⇧↵` for a description, `⌘/Ctrl + ↵` to send.
 - **Powerful views** — filter by date, type, and category; search; sort.
 - **Download & print** — export the current view to CSV or print/save as PDF.
 - **Minimal & clean** — neutral palette, no noisy gradients, subtle motion.
 - **Works everywhere** — responsive for mobile, tablet, and desktop, with light & dark mode.
 - **Private & secure** — your data is scoped to your account and never shared.
+
+## ⌨️ Keyboard shortcuts
+
+Modifier keys adapt to your platform — `⌘` on macOS, `Ctrl` on Windows/Linux.
+You can also browse these any time in **Settings → Keyboard shortcuts**.
+
+| Context | Shortcut | Action |
+|---------|----------|--------|
+| Tracker | `/` | Pick a category from the title field |
+| Tracker | `⇧ + ↵` | Open the description field |
+| Tracker | `⌘/Ctrl + ↵` | Send the transaction |
+| Tracker | `⌘/Ctrl + E` | Switch between expense and income |
+| Profiles | `⇧ + 1…9`, `⇧ + 0` | Jump to a profile by position (0 = the 10th) |
+| Add / edit dialog | `⌘/Ctrl + E` | Switch between expense and income |
+| Global | `⌘/Ctrl + P` | Print the current page |
 
 ## 🧱 Tech stack
 
