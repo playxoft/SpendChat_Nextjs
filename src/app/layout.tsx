@@ -41,7 +41,9 @@ export const metadata: Metadata = {
   icons: { icon: "/favicon.ico" },
   // Tell the Dark Reader extension to leave this page alone — the app manages
   // its own light/dark theme, and extension overrides break our color tokens.
-  other: { "darkreader-lock": "" },
+  // The content must be non-empty: Next drops `other` meta tags whose value is
+  // an empty string, and Dark Reader's lock is presence-only (content ignored).
+  other: { "darkreader-lock": "darkreader-lock" },
 };
 
 export const viewport: Viewport = {
