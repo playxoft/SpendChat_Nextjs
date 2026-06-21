@@ -4,7 +4,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
-import { PrintButton } from "@/components/app/print-button";
 import {
   Select,
   SelectContent,
@@ -112,8 +111,6 @@ export function AnalyticsFilters({
         onChange={(iso) => update({ to: iso || undefined })}
         className="w-[9.5rem]"
       />
-
-      <PrintButton />
     </div>
   );
 }

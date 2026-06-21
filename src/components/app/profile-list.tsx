@@ -71,6 +71,8 @@ export function ProfileList({
   const [deleting, setDeleting] = React.useState<P | null>(null);
 
   const active = sp.get("profile");
+  // Shift+` jumps to "All profiles" (desktop sidebar only); profiles get Shift+1…0.
+  const allShortcut = enableShortcuts ? "shift+`" : "";
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -91,6 +93,9 @@ export function ProfileList({
     router.push(qs ? `${targetPath}?${qs}` : targetPath);
     onNavigate?.();
   }
+
+  // No-op when `allShortcut` is "" (e.g. the mobile sheet).
+  useShortcut(allShortcut, () => go(null));
 
   function handleDragEnd(e: DragEndEvent) {
     const { active: a, over } = e;
@@ -135,6 +140,9 @@ export function ProfileList({
         >
           <LayoutGrid className="size-4" />
           All profiles
+          {allShortcut ? (
+            <Kbd combo={allShortcut} className="ml-auto opacity-60" />
+          ) : null}
         </button>
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

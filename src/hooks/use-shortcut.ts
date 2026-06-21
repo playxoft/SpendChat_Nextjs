@@ -39,11 +39,12 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 function normalizeKey(e: KeyboardEvent): string {
-  // Digit keys: match by physical code so Shift+1 (which yields "!" on many
-  // layouts) still maps to "1".
+  // Match a few keys by physical code so Shift combos work regardless of layout
+  // (Shift+1 yields "!", Shift+` yields "~", etc.).
   if (typeof e.code === "string") {
     const digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code);
     if (digit) return digit[1];
+    if (e.code === "Backquote") return "`";
   }
   if (e.key === "Enter") return "enter";
   if (e.key === "Escape") return "esc";
