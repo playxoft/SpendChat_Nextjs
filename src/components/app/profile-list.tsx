@@ -30,18 +30,28 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ProfileFormDialog } from "./profile-form-dialog";
 import { ProfileDeleteDialog } from "./profile-delete-dialog";
+import { Kbd } from "@/components/ui/kbd";
 import { reorderProfiles } from "@/actions/profiles";
+import { useShortcut } from "@/hooks/use-shortcut";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/db/schema";
 
 type P = Pick<Profile, "id" | "name" | "icon">;
 
+/** Shift + 1…9 (and 0 for the 10th) jump to a profile by position. */
+function profileShortcut(index: number): string {
+  return index < 10 ? `shift+${(index + 1) % 10}` : "";
+}
+
 export function ProfileList({
   profiles,
   onNavigate,
+  enableShortcuts = false,
 }: {
   profiles: P[];
   onNavigate?: () => void;
+  /** Bind + show Shift+1…0 shortcuts (desktop sidebar only, to avoid double-binding). */
+  enableShortcuts?: boolean;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -96,7 +106,7 @@ export function ProfileList({
   }
 
   return (
-    <div className="flex min-h-0 flex-col">
+    <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center justify-between px-3 pt-2 pb-1">
         <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Profiles
@@ -129,11 +139,12 @@ export function ProfileList({
 
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={items.map((p) => p.id)} strategy={verticalListSortingStrategy}>
-            {items.map((p) => (
+            {items.map((p, index) => (
               <ProfileRow
                 key={p.id}
                 profile={p}
                 active={active === p.id}
+                shortcut={enableShortcuts ? profileShortcut(index) : ""}
                 onSelect={() => go(p.id)}
                 onEdit={() => setEditing(p)}
                 onDelete={() => setDeleting(p)}
@@ -167,16 +178,21 @@ export function ProfileList({
 function ProfileRow({
   profile,
   active,
+  shortcut,
   onSelect,
   onEdit,
   onDelete,
 }: {
   profile: P;
   active: boolean;
+  shortcut: string;
   onSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  // No-op when `shortcut` is "" (e.g. the mobile sheet or profiles past the 10th).
+  useShortcut(shortcut, onSelect);
+
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: profile.id,
   });
@@ -217,6 +233,7 @@ function ProfileRow({
         <span aria-hidden className="text-base">{profile.icon ?? "👤"}</span>
         <span className="truncate">{profile.name}</span>
       </button>
+      {shortcut ? <Kbd combo={shortcut} className="shrink-0 opacity-60" /> : null}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button

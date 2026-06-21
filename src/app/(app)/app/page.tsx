@@ -37,6 +37,9 @@ export default async function ChatPage({
   const filterProfileId = parseActiveProfile(profileParam ?? null);
   // Which profile new transactions land in (falls back to the first profile).
   const composerProfileId = filterProfileId ?? profiles[0]?.id;
+  const activeProfile = filterProfileId
+    ? (profiles.find((p) => p.id === filterProfileId) ?? null)
+    : null;
 
   const today = todayISO();
   const { start, end } = monthRange(today);
@@ -55,56 +58,76 @@ export default async function ChatPage({
   return (
     <div className="flex min-h-full flex-col">
       <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0">
-        <div className="mx-auto flex max-w-2xl items-center justify-between gap-3 px-4 pt-3">
-          <div>
-            <p className="text-xs text-muted-foreground">
-              {monthLabel(today, locale)} balance
-            </p>
-            <p
-              className={cn(
-                "text-xl font-semibold tabular-nums",
-                summary.balance < 0 && "text-rose-600 dark:text-rose-400",
-              )}
+        <div className="mx-auto max-w-2xl px-4 pt-3 pb-2">
+          <div className="flex items-center gap-3">
+            <div
+              aria-hidden
+              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-lg"
             >
-              {formatMoney(summary.balance, currency, locale)}
-            </p>
+              {activeProfile?.icon ?? (filterProfileId ? "👤" : "🗂️")}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium">
+                {activeProfile?.name ?? "All profiles"}
+              </p>
+              <p className="truncate text-xs text-muted-foreground">
+                {rows.length} {rows.length === 1 ? "transaction" : "transactions"} ·{" "}
+                {monthLabel(today, locale)}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5">
+              <TransactionDialog
+                mode="add"
+                categories={categories}
+                profiles={profiles}
+                activeProfileId={composerProfileId}
+                currency={currency}
+                today={today}
+                trigger={
+                  <Button variant="ghost" size="icon" aria-label="Add with a custom date">
+                    <CalendarPlus className="size-4" />
+                  </Button>
+                }
+              />
+              <BulkAddDialog
+                today={today}
+                categories={categories}
+                profiles={profiles}
+                activeProfileId={composerProfileId}
+                currency={currency}
+                trigger={
+                  <Button variant="outline" size="sm">
+                    <ListPlus className="size-4" />
+                    <span className="hidden sm:inline">Bulk add</span>
+                  </Button>
+                }
+              />
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <TransactionDialog
-              mode="add"
-              categories={categories}
-              profiles={profiles}
-              activeProfileId={composerProfileId}
-              currency={currency}
-              today={today}
-              trigger={
-                <Button variant="ghost" size="icon" aria-label="Add with a custom date">
-                  <CalendarPlus className="size-4" />
-                </Button>
-              }
-            />
-            <BulkAddDialog
-              today={today}
-              categories={categories}
-              profiles={profiles}
-              activeProfileId={composerProfileId}
-              currency={currency}
-              trigger={
-                <Button variant="outline" size="sm">
-                  <ListPlus className="size-4" />
-                  <span className="hidden sm:inline">Bulk add</span>
-                </Button>
-              }
-            />
+
+          <div className="mt-3 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-xs text-muted-foreground">
+                {monthLabel(today, locale)} balance
+              </p>
+              <p
+                className={cn(
+                  "text-xl font-semibold tabular-nums",
+                  summary.balance < 0 && "text-rose-600 dark:text-rose-400",
+                )}
+              >
+                {formatMoney(summary.balance, currency, locale)}
+              </p>
+            </div>
+            <div className="flex gap-4 pb-1 text-xs">
+              <span className="text-emerald-600 dark:text-emerald-400">
+                +{formatMoney(summary.income, currency, locale)} in
+              </span>
+              <span className="text-muted-foreground">
+                −{formatMoney(summary.expense, currency, locale)} out
+              </span>
+            </div>
           </div>
-        </div>
-        <div className="mx-auto flex max-w-2xl gap-4 px-4 pt-1 pb-2 text-xs">
-          <span className="text-emerald-600 dark:text-emerald-400">
-            +{formatMoney(summary.income, currency, locale)} in
-          </span>
-          <span className="text-muted-foreground">
-            −{formatMoney(summary.expense, currency, locale)} out
-          </span>
         </div>
       </header>
 

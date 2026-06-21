@@ -27,6 +27,11 @@ export function AppSidebar({
           <Logo />
         </Link>
       </div>
+
+      {/* Profiles are the primary content — they fill the sidebar. */}
+      <ProfileList profiles={profiles} enableShortcuts />
+
+      <Separator className="my-1" />
       <nav className="shrink-0 space-y-1 px-3 py-2">
         {navItems.map((item) => {
           const active = isActive(pathname, item.href, item.exact);
@@ -49,12 +54,12 @@ export function AppSidebar({
         })}
       </nav>
 
-      <Separator className="my-1" />
-      <ProfileList profiles={profiles} />
-
-      <div className="flex shrink-0 items-center gap-1 border-t p-3">
-        <UserMenu email={email} />
+      <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
+        <span className="text-xs text-muted-foreground">Theme</span>
         <ThemeToggle />
+      </div>
+      <div className="flex shrink-0 items-center border-t p-3">
+        <UserMenu email={email} />
       </div>
     </aside>
   );
