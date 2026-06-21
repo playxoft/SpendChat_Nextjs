@@ -66,7 +66,7 @@ export function TransactionDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent closeOnOutsideClick className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="sr-only">Transaction details</DialogTitle>
           <DialogDescription className="sr-only">

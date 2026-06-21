@@ -51,21 +51,24 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  closeOnOutsideClick = false,
   onPointerDownOutside,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  /** Opt back into dismiss-on-outside-click (off by default app-wide). */
+  closeOnOutsideClick?: boolean
 }) {
   return (
     <DialogPortal>
       <DialogOverlay />
       <DialogPrimitive.Content
         data-slot="dialog-content"
-        // Don't dismiss on outside click — only the close button or an explicit
-        // action should close a dialog, so accidental clicks never lose work.
-        // Escape and the close button still work.
+        // By default an outside click doesn't dismiss — only the close button or
+        // an explicit action closes a dialog, so accidental clicks never lose
+        // work. Set closeOnOutsideClick to restore click-away. Escape always works.
         onPointerDownOutside={(event) => {
-          event.preventDefault()
+          if (!closeOnOutsideClick) event.preventDefault()
           onPointerDownOutside?.(event)
         }}
         className={cn(
