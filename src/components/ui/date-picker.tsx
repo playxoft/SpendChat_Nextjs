@@ -49,7 +49,7 @@ export function DatePicker({
           {value ? formatDateLabel(value, locale) : placeholder}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto">
+      <PopoverContent align="start" closeOnOutsideClick className="w-auto">
         <Calendar
           selected={value || null}
           min={min}

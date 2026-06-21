@@ -77,6 +77,7 @@ export function CategoryRow({
           </PopoverTrigger>
           <PopoverContent
             align="end"
+            side="top"
             closeOnOutsideClick
             className="w-auto max-w-[min(92vw,30rem)]"
           >

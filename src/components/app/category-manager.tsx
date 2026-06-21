@@ -4,38 +4,17 @@ import { useState, useTransition } from "react";
 import { Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
-import { cn } from "@/lib/utils";
-import { addCategory, deleteCategory, updateCategory } from "@/actions/categories";
+import { CategoryEditorDialog } from "./category-editor-dialog";
+import { deleteCategory, updateCategory } from "@/actions/categories";
 import type { Category } from "@/db/schema";
 
 export function CategoryManager({ categories }: { categories: Category[] }) {
-  const [kind, setKind] = useState<"expense" | "income">("expense");
-  const [name, setName] = useState("");
-  const [icon, setIcon] = useState("🏷️");
+  const [editorOpen, setEditorOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const expense = categories.filter((c) => c.kind === "expense");
   const income = categories.filter((c) => c.kind === "income");
-
-  function handleAdd(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) {
-      toast.error("Enter a category name");
-      return;
-    }
-    startTransition(async () => {
-      const res = await addCategory({ name: name.trim(), kind, icon });
-      if (res.ok) {
-        toast.success("Category added");
-        setName("");
-        setIcon("🏷️");
-      } else {
-        toast.error(res.error);
-      }
-    });
-  }
 
   function handleRemove(id: string) {
     startTransition(async () => {
@@ -54,45 +33,21 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
 
   return (
     <div className="space-y-6">
-      <form onSubmit={handleAdd} className="flex flex-wrap items-center gap-2">
-        <div className="inline-flex rounded-lg border bg-muted/50 p-0.5 text-sm">
-          {(["expense", "income"] as const).map((k) => (
-            <button
-              key={k}
-              type="button"
-              onClick={() => setKind(k)}
-              aria-pressed={kind === k}
-              className={cn(
-                "rounded-md px-3 py-1 capitalize transition-colors",
-                kind === k
-                  ? "bg-background font-medium shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              {k}
-            </button>
-          ))}
-        </div>
-        <EmojiPicker
-          onSelect={setIcon}
-          trigger={
-            <Button type="button" variant="outline" size="icon" aria-label="Pick an icon">
-              <span className="text-base">{icon}</span>
-            </Button>
-          }
-        />
-        <Input
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="New category name"
-          aria-label="Category name"
-          className="min-w-40 flex-1"
-          maxLength={40}
-        />
-        <Button type="submit" size="sm" disabled={pending}>
-          <Plus className="size-4" /> Add
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          {categories.length} categor{categories.length === 1 ? "y" : "ies"}
+        </p>
+        <Button type="button" size="sm" onClick={() => setEditorOpen(true)}>
+          <Plus className="size-4" /> Add category
         </Button>
-      </form>
+      </div>
+
+      <CategoryEditorDialog
+        open={editorOpen}
+        onOpenChange={setEditorOpen}
+        categories={categories}
+        defaultKind="expense"
+      />
 
       <div className="grid gap-6 sm:grid-cols-2">
         <CategoryGroup

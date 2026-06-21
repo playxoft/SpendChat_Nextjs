@@ -2,6 +2,13 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 import { CalendarPlus, Download, ListPlus } from "lucide-react";
+import {
+  endOfMonth,
+  format,
+  isSameDay,
+  isSameMonth,
+  startOfMonth,
+} from "date-fns";
 import { getUserSettings, requireUser } from "@/lib/auth";
 import {
   countTransactions,
@@ -12,10 +19,12 @@ import {
   type TxnFilters,
 } from "@/lib/queries";
 import { parseTxnFilters } from "@/lib/filters";
-import { todayISO } from "@/lib/dates";
+import { parseISODate, todayISO } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
+import { comboFor } from "@/lib/shortcuts";
 import { TransactionFilters } from "@/components/app/transaction-filters";
 import { TransactionsTable } from "@/components/app/transactions-table";
 import { TransactionsResultsSkeleton } from "@/components/app/transactions-skeleton";
@@ -31,6 +40,22 @@ export const metadata: Metadata = {
 };
 
 const PAGE_SIZE = 50;
+
+/** Human date-range label for the print header. When the range is exactly one
+ * calendar month, the month name is surfaced separately so it can be shown big. */
+function printRange(from?: string, to?: string): { month: string | null; label: string } {
+  if (from && to) {
+    const f = parseISODate(from);
+    const t = parseISODate(to);
+    const label = `${format(f, "d MMM yyyy")} to ${format(t, "d MMM yyyy")}`;
+    const singleMonth =
+      isSameMonth(f, t) && isSameDay(f, startOfMonth(f)) && isSameDay(t, endOfMonth(t));
+    return { month: singleMonth ? format(f, "MMMM yyyy") : null, label };
+  }
+  if (from) return { month: null, label: `From ${format(parseISODate(from), "d MMM yyyy")}` };
+  if (to) return { month: null, label: `Until ${format(parseISODate(to), "d MMM yyyy")}` };
+  return { month: null, label: "All transactions" };
+}
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -82,8 +107,9 @@ export default async function TransactionsPage({
             currency={currency}
             today={today}
             trigger={
-              <Button variant="ghost" size="icon" aria-label="Add a transaction">
+              <Button variant="ghost" size="sm" className="gap-1.5" aria-label="Add a transaction">
                 <CalendarPlus className="size-4" />
+                <Kbd combo={comboFor("action.add")} className="hidden sm:inline-flex" />
               </Button>
             }
           />
@@ -97,6 +123,7 @@ export default async function TransactionsPage({
               <Button variant="outline" size="sm">
                 <ListPlus className="size-4" />
                 <span className="hidden sm:inline">Bulk add</span>
+                <Kbd combo={comboFor("action.bulk")} className="hidden sm:inline-flex" />
               </Button>
             }
           />
@@ -164,6 +191,7 @@ async function TransactionsData({
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const range = printRange(filters.from, filters.to);
   const pageHref = (p: number) => {
     const pr = new URLSearchParams(base);
     if (p > 1) pr.set("page", String(p));
@@ -180,7 +208,9 @@ async function TransactionsData({
 
       <div className="mt-4 mb-3 hidden print:block">
         <h2 className="text-lg font-semibold">MoneyTracker — Transactions</h2>
-        <p className="text-sm">
+        {range.month && <p className="mt-1 text-3xl font-bold">{range.month}</p>}
+        <p className="mt-0.5 text-sm font-medium">{range.label}</p>
+        <p className="text-sm text-muted-foreground">
           {total} records · Net {formatMoney(summary.balance, currency, locale)}
         </p>
       </div>

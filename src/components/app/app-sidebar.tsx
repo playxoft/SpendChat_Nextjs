@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
+import { Kbd } from "@/components/ui/kbd";
 import { ProfileList } from "./profile-list";
 import { UserMenu } from "./user-menu";
 import { isActive, navItems } from "./nav-items";
@@ -49,6 +50,7 @@ export function AppSidebar({
             >
               <item.icon className="size-4" />
               {item.label}
+              <Kbd combo={item.shortcut} className="ml-auto opacity-70" />
             </Link>
           );
         })}
