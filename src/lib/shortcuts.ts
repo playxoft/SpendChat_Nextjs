@@ -13,10 +13,11 @@ export type ShortcutDef = {
 };
 
 export const SHORTCUTS: ShortcutDef[] = [
-  { id: "tracker.submit", combo: "enter", label: "Add the transaction", scope: "Tracker" },
-  { id: "tracker.description", combo: "shift+enter", label: "Add or edit a description", scope: "Tracker" },
+  { id: "tracker.submit", combo: "mod+enter", label: "Send the transaction", scope: "Tracker" },
+  { id: "tracker.description", combo: "shift+enter", label: "Open the description field", scope: "Tracker" },
+  { id: "tracker.category", combo: "/", label: "Pick a category from the title field", scope: "Tracker" },
   { id: "tracker.toggle-type", combo: "mod+e", label: "Switch between expense and income", scope: "Tracker" },
-  { id: "tracker.categories", combo: "/", label: "Edit categories", scope: "Tracker" },
+  { id: "profiles.switch", combo: "shift+1", label: "Switch to a profile (Shift + 1…9, 0 for the 10th)", scope: "Profiles" },
   { id: "transactions.toggle-type", combo: "mod+e", label: "Switch type in the add / edit dialog", scope: "Transactions" },
   { id: "global.print", combo: "mod+p", label: "Print the current page", scope: "Global" },
 ];

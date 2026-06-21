@@ -256,6 +256,7 @@ export function TransactionDialog({
               id="title"
               placeholder="Add title"
               value={values.title}
+              maxLength={100}
               onChange={(e) => setValues((v) => ({ ...v, title: e.target.value }))}
             />
           </div>
@@ -267,6 +268,7 @@ export function TransactionDialog({
               rows={2}
               placeholder="Optional description"
               value={values.description}
+              maxLength={250}
               onChange={(e) => setValues((v) => ({ ...v, description: e.target.value }))}
             />
           </div>

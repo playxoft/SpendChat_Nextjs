@@ -23,6 +23,11 @@ import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
 import type { Category, Profile } from "@/db/schema";
 
+const TITLE_MAX = 100;
+const DESCRIPTION_MAX = 250;
+// Matches a trailing "/query" token typed into the title field.
+const SLASH_RE = /(?:^|\s)\/([^\s/]*)$/;
+
 export function TransactionComposer({
   categories,
   currency,
@@ -44,6 +49,8 @@ export function TransactionComposer({
   const [descOpen, setDescOpen] = useState(false);
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
   const [editorOpen, setEditorOpen] = useState(false);
+  const [slashDismissed, setSlashDismissed] = useState(false);
+  const [slashIndex, setSlashIndex] = useState(0);
   const [pending, startTransition] = useTransition();
 
   const descRef = useRef<HTMLTextAreaElement>(null);
@@ -51,7 +58,17 @@ export function TransactionComposer({
   const symbol = getCurrency(currency).symbol;
 
   const toggleCombo = comboFor("tracker.toggle-type");
-  const editCombo = comboFor("tracker.categories");
+  const submitCombo = comboFor("tracker.submit");
+  const descCombo = comboFor("tracker.description");
+
+  // "/" in the title opens an inline category picker.
+  const slashMatch = title.match(SLASH_RE);
+  const slashQuery = slashMatch?.[1] ?? "";
+  const slashActive = !!slashMatch && !slashDismissed;
+  const slashResults = slashActive
+    ? cats.filter((c) => c.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8)
+    : [];
+  const slashIdx = slashResults.length ? Math.min(slashIndex, slashResults.length - 1) : 0;
 
   function switchType(t?: "expense" | "income") {
     setType((prev) => t ?? (prev === "expense" ? "income" : "expense"));
@@ -60,8 +77,18 @@ export function TransactionComposer({
 
   // ⌘/Ctrl+E toggles expense/income even while typing.
   useShortcut(toggleCombo, () => switchType(), { allowInInput: true });
-  // "/" opens the category editor when not typing in a field.
-  useShortcut(editCombo, () => setEditorOpen(true));
+
+  function openDescription() {
+    setDescOpen(true);
+    requestAnimationFrame(() => descRef.current?.focus());
+  }
+
+  function selectSlashCategory(cat: Pick<Category, "id">) {
+    setCategoryId(cat.id);
+    setTitle((t) => t.replace(SLASH_RE, "").replace(/\s+$/, ""));
+    setSlashDismissed(true);
+    setSlashIndex(0);
+  }
 
   function submit() {
     const value = Number(amount);
@@ -84,6 +111,7 @@ export function TransactionComposer({
         setTitle("");
         setDescription("");
         setDescOpen(false);
+        setSlashDismissed(false);
         toast.success(type === "income" ? "Income added" : "Expense added");
       } else {
         toast.error(res.error);
@@ -92,16 +120,53 @@ export function TransactionComposer({
   }
 
   function onTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key !== "Enter") return;
-    if (e.shiftKey) {
-      e.preventDefault();
-      setDescOpen(true);
-      requestAnimationFrame(() => descRef.current?.focus());
-    } else {
+    if (slashActive && slashResults.length > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setSlashIndex((i) => (i + 1) % slashResults.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setSlashIndex((i) => (i - 1 + slashResults.length) % slashResults.length);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        selectSlashCategory(slashResults[slashIdx]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setSlashDismissed(true);
+        return;
+      }
+    }
+
+    if (e.key === "Enter") {
+      // Shift+Enter opens the description; Enter (and ⌘/Ctrl+Enter) sends.
+      if (e.shiftKey) {
+        e.preventDefault();
+        openDescription();
+      } else {
+        e.preventDefault();
+        submit();
+      }
+    }
+  }
+
+  function onDescriptionKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       submit();
     }
   }
+
+  const sendButton = (
+    <Button type="submit" size="icon" disabled={pending} aria-label="Send transaction">
+      <ArrowUp className="size-4" />
+    </Button>
+  );
 
   return (
     <form
@@ -155,10 +220,9 @@ export function TransactionComposer({
           value={categoryId}
           onChange={setCategoryId}
           onEdit={() => setEditorOpen(true)}
-          editCombo={editCombo}
         />
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-end gap-2">
           <div className="relative">
             <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
               {symbol}
@@ -172,39 +236,87 @@ export function TransactionComposer({
               className="w-28 pl-7 tabular-nums"
             />
           </div>
-          <Input
-            placeholder="Add title…"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            onKeyDown={onTitleKeyDown}
-            aria-label="Title"
-            className="min-w-32 flex-1"
-          />
-          <Button type="submit" size="icon" disabled={pending} aria-label="Add transaction">
-            <ArrowUp className="size-4" />
-          </Button>
+
+          <div className="relative min-w-32 flex-1">
+            <Input
+              placeholder="Add a title — type / to tag a category"
+              value={title}
+              maxLength={TITLE_MAX}
+              onChange={(e) => {
+                setTitle(e.target.value);
+                setSlashDismissed(false);
+                setSlashIndex(0);
+              }}
+              onKeyDown={onTitleKeyDown}
+              aria-label="Title"
+              className="w-full"
+            />
+            {slashActive && (
+              <div className="absolute bottom-full left-0 z-30 mb-1 w-64 overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
+                {slashResults.length > 0 ? (
+                  <ul className="max-h-56 overflow-y-auto">
+                    {slashResults.map((c, i) => (
+                      <li key={c.id}>
+                        <button
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            selectSlashCategory(c);
+                          }}
+                          className={cn(
+                            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                            i === slashIdx ? "bg-accent" : "hover:bg-muted",
+                          )}
+                        >
+                          <span aria-hidden>{c.icon ?? "🏷️"}</span>
+                          <span className="truncate">{c.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                    No category matches “{slashQuery}”
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {!descOpen && (
+            <>
+              <Kbd combo={submitCombo} className="hidden self-center sm:inline-flex" />
+              {sendButton}
+            </>
+          )}
         </div>
 
         {descOpen ? (
-          <Textarea
-            ref={descRef}
-            rows={2}
-            placeholder="Add a description…"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            aria-label="Description"
-          />
+          <div className="flex items-end gap-2">
+            <Textarea
+              ref={descRef}
+              rows={2}
+              placeholder="Add a description…"
+              value={description}
+              maxLength={DESCRIPTION_MAX}
+              onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={onDescriptionKeyDown}
+              aria-label="Description"
+              className="flex-1"
+            />
+            <div className="flex shrink-0 items-center gap-1.5 pb-0.5">
+              <Kbd combo={submitCombo} className="hidden sm:inline-flex" />
+              {sendButton}
+            </div>
+          </div>
         ) : (
           <button
             type="button"
-            onClick={() => {
-              setDescOpen(true);
-              requestAnimationFrame(() => descRef.current?.focus());
-            }}
+            onClick={openDescription}
             className="inline-flex w-fit items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
             Add description
-            <Kbd combo={comboFor("tracker.description")} />
+            <Kbd combo={descCombo} />
           </button>
         )}
       </div>

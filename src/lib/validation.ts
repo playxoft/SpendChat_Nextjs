@@ -19,10 +19,15 @@ export const transactionInputSchema = z.object({
   amount: amountSchema,
   categoryId: z.string().uuid().nullish(),
   profileId: z.string().uuid().nullish(),
-  title: z.string().trim().max(120).optional().default(""),
-  description: z.string().trim().max(2000).optional().default(""),
+  title: z.string().trim().max(100, "Title is too long (max 100 characters)").optional().default(""),
+  description: z
+    .string()
+    .trim()
+    .max(250, "Description is too long (max 250 characters)")
+    .optional()
+    .default(""),
   // Deprecated alias for `title`; accepted until every caller passes `title`.
-  note: z.string().trim().max(280).optional(),
+  note: z.string().trim().max(100).optional(),
   occurredOn: dateSchema,
 });
 // `input` type accounts for fields with defaults being optional for callers.

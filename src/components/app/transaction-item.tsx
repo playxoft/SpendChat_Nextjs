@@ -27,7 +27,6 @@ export function TransactionItem({
 }) {
   const [editing, setEditing] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [descOpen, setDescOpen] = useState(false);
 
   const amountLabel = formatMoney(
     signedMinor(row.type, row.amountMinor),
@@ -43,8 +42,6 @@ export function TransactionItem({
         amountLabel={amountLabel}
         title={row.title}
         description={row.description}
-        showDescription={descOpen}
-        onToggleDescription={() => setDescOpen((v) => !v)}
         categoryName={row.categoryName}
         categoryIcon={row.categoryIcon}
         timeLabel={timeLabel}
