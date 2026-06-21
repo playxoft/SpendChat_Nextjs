@@ -38,6 +38,19 @@ function isTypingTarget(target: EventTarget | null): boolean {
   );
 }
 
+/**
+ * True when a modal layer (dialog, menu, select listbox, etc.) is open. Radix
+ * unmounts these on close, so their presence in the DOM means they're open.
+ * Used to suppress bare single-key shortcuts that would otherwise clash with
+ * menu typeahead or steal focus while a dialog is being filled in.
+ */
+function hasOpenOverlay(): boolean {
+  if (typeof document === "undefined") return false;
+  return !!document.querySelector(
+    '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]',
+  );
+}
+
 function normalizeKey(e: KeyboardEvent): string {
   // Match a few keys by physical code so Shift combos work regardless of layout
   // (Shift+1 yields "!", Shift+` yields "~", etc.).
@@ -74,6 +87,9 @@ type Options = {
   enabled?: boolean;
   /** Allow firing while focus is in a text field (default false). */
   allowInInput?: boolean;
+  /** Don't fire while a dialog / menu / listbox is open (default false).
+   * Use for bare single-key shortcuts to avoid clashing with menu typeahead. */
+  requireNoOverlay?: boolean;
   /** Target element to listen on (defaults to window). */
   target?: HTMLElement | null;
 };
@@ -85,7 +101,12 @@ export function useShortcut(
   options: Options = {},
 ) {
   const isMac = useIsMac();
-  const { enabled = true, allowInInput = false, target } = options;
+  const {
+    enabled = true,
+    allowInInput = false,
+    requireNoOverlay = false,
+    target,
+  } = options;
 
   useEffect(() => {
     if (!enabled || !combo) return;
@@ -93,6 +114,7 @@ export function useShortcut(
     function onKeyDown(e: Event) {
       const ke = e as KeyboardEvent;
       if (!allowInInput && isTypingTarget(ke.target)) return;
+      if (requireNoOverlay && hasOpenOverlay()) return;
       if (matches(ke, combo, isMac)) {
         ke.preventDefault();
         handler(ke);
@@ -100,5 +122,5 @@ export function useShortcut(
     }
     node.addEventListener("keydown", onKeyDown);
     return () => node.removeEventListener("keydown", onKeyDown);
-  }, [combo, isMac, enabled, allowInInput, target, handler]);
+  }, [combo, isMac, enabled, allowInInput, requireNoOverlay, target, handler]);
 }

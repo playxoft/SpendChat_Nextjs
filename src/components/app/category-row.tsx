@@ -75,7 +75,11 @@ export function CategoryRow({
               More <ChevronDown className="size-3.5" />
             </button>
           </PopoverTrigger>
-          <PopoverContent align="end" className="w-auto max-w-[min(92vw,30rem)]">
+          <PopoverContent
+            align="end"
+            closeOnOutsideClick
+            className="w-auto max-w-[min(92vw,30rem)]"
+          >
             <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
               {categories.map((c) => (
                 <button

@@ -21,19 +21,24 @@ function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
+  closeOnOutsideClick = false,
   onPointerDownOutside,
   ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Content>) {
+}: React.ComponentProps<typeof PopoverPrimitive.Content> & {
+  /** Opt back into dismiss-on-outside-click (off by default app-wide). */
+  closeOnOutsideClick?: boolean
+}) {
   return (
     <PopoverPrimitive.Portal>
       <PopoverPrimitive.Content
         data-slot="popover-content"
         align={align}
         sideOffset={sideOffset}
-        // Don't dismiss on outside click — the popover closes via its own action
-        // (selecting a value) or Escape, not an accidental click elsewhere.
+        // By default an outside click doesn't dismiss — the popover closes via
+        // its own action (selecting a value) or Escape. Set closeOnOutsideClick
+        // to restore the usual click-away behavior.
         onPointerDownOutside={(event) => {
-          event.preventDefault()
+          if (!closeOnOutsideClick) event.preventDefault()
           onPointerDownOutside?.(event)
         }}
         className={cn(

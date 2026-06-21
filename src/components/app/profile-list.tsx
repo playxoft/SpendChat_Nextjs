@@ -33,6 +33,7 @@ import { ProfileDeleteDialog } from "./profile-delete-dialog";
 import { Kbd } from "@/components/ui/kbd";
 import { reorderProfiles } from "@/actions/profiles";
 import { useShortcut } from "@/hooks/use-shortcut";
+import { comboFor } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import type { Profile } from "@/db/schema";
 
@@ -79,7 +80,7 @@ export function ProfileList({
   }
   const shownActive = optimistic !== undefined ? optimistic : active;
   // Shift+` jumps to "All profiles" (desktop sidebar only); profiles get Shift+1…0.
-  const allShortcut = enableShortcuts ? "shift+`" : "";
+  const allShortcut = enableShortcuts ? comboFor("profiles.all") : "";
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
@@ -140,7 +141,9 @@ export function ProfileList({
           onClick={() => go(null)}
           aria-current={!shownActive ? "true" : undefined}
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
+            // pr-9 reserves the same right gutter the profile rows use for their
+            // menu button, so every shortcut hint lines up on the same column.
+            "flex w-full items-center gap-2.5 rounded-lg py-2 pl-2.5 pr-9 text-sm transition-colors",
             !shownActive
               ? "bg-accent font-medium text-accent-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -223,7 +226,9 @@ function ProfileRow({
       ref={setNodeRef}
       style={style}
       className={cn(
-        "group flex items-center gap-1 rounded-lg pr-1 transition-colors",
+        // pr-9 reserves room for the hover menu (positioned absolutely below) so
+        // the shortcut hint stays in a fixed column across every row.
+        "group relative flex items-center gap-1 rounded-lg pr-9 transition-colors",
         active ? "bg-accent" : "hover:bg-accent/50",
         isDragging && "bg-accent shadow-sm",
       )}
@@ -249,14 +254,14 @@ function ProfileRow({
         <span aria-hidden className="text-base">{profile.icon ?? "👤"}</span>
         <span className="truncate">{profile.name}</span>
       </button>
-      {shortcut ? <Kbd combo={shortcut} className="shrink-0 opacity-60" /> : null}
+      {shortcut ? <Kbd combo={shortcut} className="ml-auto shrink-0 opacity-60" /> : null}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <Button
             variant="ghost"
             size="icon-xs"
             aria-label={`${profile.name} options`}
-            className="opacity-0 transition-opacity group-hover:opacity-100 aria-expanded:opacity-100"
+            className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100 aria-expanded:opacity-100"
           >
             <MoreVertical className="size-3.5" />
           </Button>
