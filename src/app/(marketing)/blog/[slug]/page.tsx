@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
 import { getPost, formatPostDate } from "@/lib/blog";
-import { absoluteImage, ogImage } from "@/lib/seo";
+import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { absoluteImage, breadcrumbJsonLd, faqJsonLd, ogImage } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
@@ -63,6 +70,17 @@ export default async function BlogPostPage({ params }: Params) {
   if (!post) notFound();
 
   const url = `${siteConfig.url}/blog/${post.slug}`;
+  const faqs = post.faqs ?? [];
+  // `imageAlt ?? title` would re-introduce the duplicate this field exists to
+  // avoid, and `""` is a legitimate value meaning "decorative" — so only an
+  // absent field falls back, and it falls back to a description of the card
+  // rather than to the headline printed directly above it.
+  const coverAlt = post.imageAlt ?? `${post.title} — ${siteConfig.name} blog cover`;
+  const trail = [
+    { name: "Home", path: "/" },
+    { name: "Blog", path: "/blog" },
+    { name: post.title, path: `/blog/${post.slug}` },
+  ];
   const articleJsonLd = {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
@@ -87,15 +105,19 @@ export default async function BlogPostPage({ params }: Params) {
   return (
     <article className="mx-auto max-w-2xl px-4 pb-24 pt-4 sm:pt-6">
       <JsonLd data={articleJsonLd} />
-      <Link
-        href="/blog"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" /> All posts
-      </Link>
+      <JsonLd data={breadcrumbJsonLd(trail)} />
+      {/* Only ever emitted from `post.faqs`, which is also what the visible
+          block below renders — structured data describing text a reader can't
+          find on the page is the exact mismatch the spam policies target. */}
+      {faqs.length > 0 && <JsonLd data={faqJsonLd(faqs)} />}
+      {/* A visible trail, not just a "back" link: the BreadcrumbList above
+          describes navigation, and structured data for navigation the reader
+          can't see is the mismatch the spam policies target. Google also
+          renders the trail in place of the raw URL in the result snippet. */}
+      <Breadcrumbs trail={trail} />
 
       {/* Header */}
-      <div className="mt-6 flex items-center gap-3 text-xs text-muted-foreground">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
         <span className="rounded-full bg-muted px-2.5 py-0.5 font-medium">
           {post.tag}
         </span>
@@ -116,7 +138,7 @@ export default async function BlogPostPage({ params }: Params) {
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={post.image}
-          alt={post.title}
+          alt={coverAlt}
           width={1200}
           height={630}
           className="mt-8 h-auto w-full rounded-2xl border sm:-mx-8 sm:w-[calc(100%+4rem)] lg:-mx-24 lg:w-[calc(100%+12rem)] lg:max-w-none"
@@ -127,6 +149,28 @@ export default async function BlogPostPage({ params }: Params) {
       <div className="mt-10 [&>:first-child]:mt-0">
         <post.Component />
       </div>
+
+      {/* FAQ — one array drives both the visible accordion and the `FAQPage`
+          markup above, so they can't drift apart. `AccordionContent` keeps its
+          answer mounted while collapsed, which is what puts the text in the
+          server-rendered HTML that crawlers actually read. */}
+      {faqs.length > 0 && (
+        <section className="mt-14">
+          <h2 className="text-2xl font-semibold tracking-tight">
+            Frequently asked questions
+          </h2>
+          <Accordion type="multiple" className="mt-6 border-t">
+            {faqs.map((faq) => (
+              <AccordionItem key={faq.q} value={faq.q}>
+                <AccordionTrigger>{faq.q}</AccordionTrigger>
+                <AccordionContent className="leading-relaxed text-muted-foreground">
+                  {faq.a}
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </section>
+      )}
 
       {/* CTA */}
       <div className="mt-14 rounded-3xl border bg-card p-7 text-center">
