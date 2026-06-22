@@ -18,12 +18,37 @@ export type BlogMeta = {
   /** Hidden in production, shown in dev so you can preview before publishing. */
   draft?: boolean;
   /**
+   * Q&As for the post, rendered visibly at the foot of the article *and* as
+   * `FAQPage` structured data — both from this one array, so the two can never
+   * disagree.
+   *
+   * That single source is the point. Marking up questions that aren't on the
+   * page is a documented spam pattern, and the way it happens in practice is
+   * never malice: someone edits the visible copy and forgets the JSON-LD
+   * beside it. Keeping the FAQ in frontmatter rather than in the MDX body
+   * makes that edit impossible to get wrong.
+   *
+   * Write answers as plain prose that stands alone — a rich result shows the
+   * answer without the paragraph above it.
+   */
+  faqs?: { q: string; a: string }[];
+  /**
    * The post's cover: shown on the index card and above the article, and used
    * as its social preview. Root-relative or absolute; falls back to the shared
    * site card. Generate it with `scripts/blog-image.html` (1200×630, dark) —
    * see that file's header comment for the Chrome command.
    */
   image?: string;
+  /**
+   * Alt text for the cover.
+   *
+   * Without this the cover falls back to the post title — which is printed as
+   * the `<h1>` immediately above the image, so a screen reader hears the same
+   * sentence twice and a crawler sees the title repeated in alt. Describe what
+   * the card actually shows instead, or set it to `""` to mark a purely
+   * decorative cover as decorative, which is more honest than a duplicate.
+   */
+  imageAlt?: string;
 };
 
 export type BlogPost = BlogMeta & {
