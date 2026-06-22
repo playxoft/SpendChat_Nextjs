@@ -3,6 +3,14 @@ main = ".open-next/worker.js"
 compatibility_date = "2025-09-23"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
+# Preserve variables and secrets configured on Cloudflare when deploying.
+# Without this, `wrangler deploy` treats this file as the single source of truth
+# and DELETES any dashboard-managed env vars not listed here — which is how a
+# deploy can wipe NEON_* and 500 the app. With keep_vars on, deploys never
+# overwrite the variables/secrets you've set on Cloudflare. (Secrets added via
+# `wrangler secret put` persist regardless; this also protects dashboard vars.)
+keep_vars = true
+
 # Serve the app from the custom domain (requires the playxoft.com zone in this
 # Cloudflare account). Comment out for a quick *.workers.dev preview.
 # NOTE: top-level keys must appear before any [table] headers in TOML.
@@ -19,7 +27,9 @@ binding = "ASSETS"
 enabled = true
 
 # ---------------------------------------------------------------------------
-# Secrets are NOT stored here. Set them from Doppler before deploying, e.g.:
+# Secrets/vars are NOT stored here — manage them on Cloudflare (dashboard) or
+# via `wrangler secret put`. Thanks to keep_vars above, deploys preserve them.
+# Set them once from Doppler, e.g.:
 #
 #   doppler secrets get NEON_POSTGRES_DATABASE_URL --plain | npx wrangler secret put NEON_POSTGRES_DATABASE_URL
 #   doppler secrets get NEON_AUTH_BASE_URL          --plain | npx wrangler secret put NEON_AUTH_BASE_URL
