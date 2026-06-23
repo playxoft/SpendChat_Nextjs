@@ -209,7 +209,7 @@ export function TransactionComposer({
       className="sticky bottom-20 z-20 border-t bg-background/95 px-3 py-3 backdrop-blur-sm md:bottom-0"
     >
       <div className="mx-auto flex max-w-2xl flex-col gap-2">
-        <div className="flex items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="inline-flex w-fit items-center rounded-full border bg-muted/50 p-0.5 text-sm">
             {(["expense", "income"] as const).map((t) => (
               <button
@@ -265,7 +265,7 @@ export function TransactionComposer({
           onEdit={() => setEditorOpen(true)}
         />
 
-        <div className="flex flex-wrap items-end gap-2">
+        <div className="relative flex flex-wrap items-end gap-2">
           <div className="relative">
             <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
               {symbol}
@@ -281,7 +281,7 @@ export function TransactionComposer({
             />
           </div>
 
-          <div className="relative min-w-32 flex-1">
+          <div className="min-w-32 flex-1">
             <Input
               ref={titleRef}
               placeholder="Add a title — type / to tag a category"
@@ -296,39 +296,42 @@ export function TransactionComposer({
               aria-label="Title"
               className="w-full"
             />
-            {slashActive && (
-              <div className="absolute bottom-full left-0 z-30 mb-1 w-64 overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
-                {slashResults.length > 0 ? (
-                  <ul className="max-h-56 overflow-y-auto">
-                    {slashResults.map((c, i) => (
-                      <li key={c.id}>
-                        <button
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            selectSlashCategory(c);
-                          }}
-                          className={cn(
-                            "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                            i === slashIdx ? "bg-accent" : "hover:bg-muted",
-                          )}
-                        >
-                          <span aria-hidden>{c.icon ?? "🏷️"}</span>
-                          <span className="truncate">{c.name}</span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                    No category matches “{slashQuery}”
-                  </p>
-                )}
-              </div>
-            )}
           </div>
 
           {sendButton}
+
+          {/* Anchored to the input row (not the narrow title) and clamped to the
+              viewport, so it never runs off-screen on a phone. */}
+          {slashActive && (
+            <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
+              {slashResults.length > 0 ? (
+                <ul className="max-h-56 overflow-y-auto">
+                  {slashResults.map((c, i) => (
+                    <li key={c.id}>
+                      <button
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          selectSlashCategory(c);
+                        }}
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                          i === slashIdx ? "bg-accent" : "hover:bg-muted",
+                        )}
+                      >
+                        <span aria-hidden>{c.icon ?? "🏷️"}</span>
+                        <span className="truncate">{c.name}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                  No category matches “{slashQuery}”
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <Input

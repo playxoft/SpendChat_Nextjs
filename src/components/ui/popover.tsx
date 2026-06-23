@@ -21,6 +21,7 @@ function PopoverContent({
   className,
   align = "center",
   sideOffset = 4,
+  collisionPadding = 8,
   closeOnOutsideClick = false,
   onPointerDownOutside,
   ...props
@@ -34,6 +35,9 @@ function PopoverContent({
         data-slot="popover-content"
         align={align}
         sideOffset={sideOffset}
+        // Keep popovers fully on-screen (esp. on mobile): pad the collision
+        // boundary and never let content grow wider than the viewport.
+        collisionPadding={collisionPadding}
         // By default an outside click doesn't dismiss — the popover closes via
         // its own action (selecting a value) or Escape. Set closeOnOutsideClick
         // to restore the usual click-away behavior.
@@ -42,7 +46,7 @@ function PopoverContent({
           onPointerDownOutside?.(event)
         }}
         className={cn(
-          "z-50 flex w-72 origin-(--radix-popover-content-transform-origin) flex-col gap-2.5 rounded-lg bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          "z-50 flex w-72 max-w-[calc(100vw-1rem)] origin-(--radix-popover-content-transform-origin) flex-col gap-2.5 rounded-lg bg-popover p-2.5 text-sm text-popover-foreground shadow-md ring-1 ring-foreground/10 outline-hidden duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
           className
         )}
         {...props}
