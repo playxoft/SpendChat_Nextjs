@@ -78,7 +78,7 @@ export function TransactionBubble({
           <span className="min-w-0 text-sm font-medium break-words">{heading}</span>
           <span
             className={cn(
-              "shrink-0 text-sm font-semibold tabular-nums",
+              "shrink-0 text-base font-semibold tabular-nums",
               amountToneClass(type),
             )}
           >
