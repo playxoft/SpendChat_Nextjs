@@ -1,0 +1,151 @@
+import { Figure } from "@/components/blog/figure";
+
+export const meta = {
+  title: "How to Track Expenses With AI Without Letting It Guess",
+  date: "2026-06-24",
+  readingMinutes: 7,
+  tag: "AI",
+  excerpt:
+    "AI expense tracking works when the model drafts and you decide. How to write a sentence it parses right, and why auto-filing ruins your records.",
+  image: "/blog/how-to-track-expenses-with-ai.png",
+  imageAlt: "Cover card for a SpendChat post about AI expense tracking.",
+  faqs: [
+    {
+      q: "How does AI expense tracking actually work?",
+      a: "You type a sentence describing what you spent. The model reads it and returns draft transactions — one per item, each with an amount, a category chosen from your own category list, an income-or-expense type and a date. The drafts appear as editable rows. Nothing is saved until you confirm them.",
+    },
+    {
+      q: "Can an AI expense tracker categorise transactions automatically?",
+      a: "It can suggest a category, and it is usually right. The question worth asking is what happens when it isn't. SpendChat shows you the suggestion as an editable field before saving, so a wrong guess costs five seconds. A tracker that files automatically hides the same mistake inside a total you won't check for months.",
+    },
+    {
+      q: "Is AI expense tracking free?",
+      a: "In SpendChat, yes — free today, with no paid tier holding it back and a fair-use limit on how many parses one account can run in an hour so a single user can't exhaust the shared allowance. Pricing hasn't been settled, and any change would be announced on the pricing page in advance.",
+    },
+    {
+      q: "What does the AI get sent when I use it?",
+      a: "The note you typed, your workspace's category names, its currency code and today's date. Not your name, not your email, not your balance, and none of your other transactions. Manual entry calls no model at all — the toggle in the composer is yours to leave off.",
+    },
+    {
+      q: "Can the AI handle several expenses in one sentence?",
+      a: "Yes. \"lunch 12.50, groceries 62, and 40 for the taxi home\" comes back as three separate drafts, split on the natural boundaries rather than on commas alone. You can delete any of them or add a row the sentence missed before confirming.",
+    },
+    {
+      q: "Does AI expense tracking need my bank account?",
+      a: "No. The AI reads text you wrote; it has no connection to a bank, a card or an aggregator. That is why it works for cash, for informal transfers and for accounts no aggregation service supports.",
+    },
+  ],
+};
+
+Every AI expense tracker makes the same promise: stop typing, let the model do it. The promise is real — parsing "coffee 4.50 and 62 on groceries" into two categorised transactions is exactly the sort of thing language models are good at. The trouble starts with what happens next. Most tools take the parse and file it. That single design decision is the difference between an AI expense tracker you can trust and one that slowly fills your history with plausible, wrong records.
+
+This is a practical guide to the first half — how to get a model to read your spending correctly — and an argument about the second.
+
+## Three generations of expense entry
+
+It's worth being clear about what "AI expense tracking" means in 2026, because three quite different things are sold under the phrase.
+
+**The form.** You open a dialog, fill six fields, press save. Accurate, slow, and abandoned by most people inside a fortnight. Nothing about it is AI.
+
+**Bank-feed classification.** Your transactions arrive from an aggregator and a classifier assigns each one a category from a fixed taxonomy. This has been marketed as AI for a decade. It works on card spending, is blind to cash, and its accuracy depends on merchant strings — which is why a hardware shop and a garden centre both end up under "Shopping", and why a transfer to a friend gets a category at all.
+
+**Language parsing.** You write a sentence in whatever words you'd use out loud, and a model turns it into structured drafts. This is the new one, and it's genuinely different: it works on anything you can describe, including the cash purchases no bank feed will ever see.
+
+SpendChat's [AI expense tracker](/features/ai-expense-tracker) is the third kind. You write, it drafts, you confirm.
+
+<Figure
+  src="/blog/how-to-track-expenses-with-ai--parse-review-confirm.png"
+  alt="Three-step diagram: a typed sentence reading 'coffee 4.50, 62 groceries and 40 taxi yesterday' produces three editable drafts with nothing saved yet, and a confirm step writes them to the feed."
+  caption="The sequence in full. Step two is where the model works; step three is where you do. Nothing exists in your records until you press the button."
+/>
+
+## How to write a sentence an AI expense tracker parses correctly
+
+There's no syntax to learn, but there are patterns that parse cleanly every time. After a few weeks of using this, most people converge on the same habits.
+
+**Put the amount next to the thing.** "coffee 4.50, taxi 40" is unambiguous. "4.50 and 40 for coffee and a taxi" makes the model resolve an ordering problem it might get wrong.
+
+**Say the direction when it isn't obvious.** "got 2000 salary" comes back as income with the type already flipped. "2000 salary" usually does too, but adding a verb costs one word and removes the guesswork.
+
+**Use ordinary date words.** "yesterday", "last Friday", "on the 3rd" all resolve to a real date on the draft — which you can still change. This matters more than it sounds: the most common reason a transaction is wrong isn't the amount, it's that you logged Saturday's dinner on Monday.
+
+**Pin a category when you already know it.** A `#` tag settles it outright — `40 taxi #Transport` doesn't ask the model to choose, and the tag goes after the item, the way the composer's own examples write it. Text in parentheses becomes the description rather than the title, which is where "split with Sam, he owes 20" belongs.
+
+Neither of those last two is required. They exist for the case where you know exactly what you want and would rather not let anything guess.
+
+## Why the review step is the entire product
+
+Language models are reliably imperfect at this, which nobody disputes. What's worth doing is the arithmetic, because the argument only gets sharp once there are numbers on it.
+
+Say a parser is right 98% of the time — better than most, and a figure a vendor would be pleased to quote. Log five transactions a day and that's around 1,800 a year, so roughly **36 wrong records**. Now ask where they land. They aren't spread evenly: parsers fail hardest on unusual phrasing, and unusual phrasing goes with unusual purchases, which skew larger. The 36 are disproportionately your interesting transactions.
+
+Then notice that a wrong record isn't one error. A misfiled 400 doesn't only make Transport too small; it makes Shopping too big. Every category mistake lands twice, and one of the two inflates a line you might have gone and investigated.
+
+And you can't find them, which is the part that matters. A bad parse isn't corrupt data that fails a check — it's a plausible transaction of roughly the right size on roughly the right day. Nothing flags it, nothing reconciles against it, and the only audit available is re-reading 1,800 rows. Financial records fail quietly, which is the failure mode automation handles worst.
+
+Against that, two seconds an entry is about twenty minutes a year. It's the cheapest error correction anywhere in the process, applied at the one moment you still remember what the transaction was.
+
+<Figure
+  src="/blog/how-to-track-expenses-with-ai--autofile-vs-review.png"
+  alt="Two-column comparison. Left: automatic filing, where a wrong category is invisible until a total looks odd and fixing it means auditing months of history. Right: drafts with your approval, where every field is editable, a bad parse is a five-second correction, and categories come from your own workspace."
+  caption="The same model, two designs. The one on the right is slower by about two seconds per entry and produces records you can actually rely on."
+/>
+
+## The three approaches, side by side
+
+|  | Manual form | Bank-feed classifier | Parse, then confirm |
+| --- | --- | --- | --- |
+| Time per entry | 20–30 seconds | Zero, after setup | 5–10 seconds |
+| Sees cash | Yes | No | Yes |
+| Needs bank credentials | No | Yes | No |
+| Category accuracy | Yours | Merchant-string guesswork | Model, checked by you |
+| When it's wrong | You made the mistake | You find out months later | You see it before saving |
+| Works offline from a bank outage | Yes | No | Yes |
+
+The middle column is the one most people picture when they hear "AI expense tracker", and it's the one with the structural problem: it can only see what an aggregator can see, and it can only tell you what a merchant string implies. If half your spending is cash, informal transfers or split bills, it's describing half your life.
+
+## Your categories, not a generic taxonomy
+
+One detail changes accuracy more than any prompt trick: the model chooses from *your* [category list](/features/categories), not from a fixed set.
+
+An AI picking from someone else's taxonomy has to map "school fees" onto something approximate — Education if you're lucky, Shopping if you're not. One picking from the fifteen categories in your workspace, including the three you renamed and the two you invented, has a much easier job, because the options already match how you think about money. If your breakdown has a category called "Kids", school fees land in it.
+
+This is also why editing a category name improves your parses. It isn't a cosmetic setting — [it's worth getting that list right](/blog/how-to-categorize-expenses) before blaming the model for a bad guess.
+
+## A worked example: one messy Tuesday
+
+Say you get to the end of a day having logged nothing. You remember: a coffee, a big supermarket run, a taxi you took because it was raining, and a client invoice that finally cleared.
+
+You write it as one sentence:
+
+```
+coffee 4.50, 62 groceries, 40 taxi home yesterday, got 1200 invoice from Meridian (paid late)
+```
+
+Four drafts come back. The coffee and the groceries are dated today; the taxi is dated yesterday, because you said so. The invoice is typed as income at 1,200, with "paid late" sitting in the description rather than the title, because you put it in parentheses. Categories are filled in from your own list — and one of them, let's say the taxi, has landed in Other when you file taxis under Transport. (It can only ever offer a category you actually have; anything it can't match comes back blank rather than invented.)
+
+You change one dropdown and press Add. Elapsed time: about fifteen seconds for four transactions, one of which you corrected. That's the realistic case. Not magic, not zero effort — just much faster than four dialogs, with the one wrong guess caught while it was still a dropdown rather than a line in next quarter's report.
+
+## What the model is told about you
+
+Worth stating plainly, because "we send it to AI" covers an enormous range of behaviour.
+
+When you use AI entry, four things go to the configured model provider: the note you typed, your workspace's category names, its currency code, and today's date. That's the complete list. No name, no email, no user id, no balance, and none of your other transactions. The model is answering a question about one sentence; it has no reason to see your history, so it doesn't.
+
+Manual entry calls no model at all. The composer's AI toggle is exactly what it looks like — optional. And because the model is configuration rather than hard-coded, a [self-hosted instance](/features/privacy-and-security) can point at whichever provider it prefers, or at none.
+
+## When not to use it
+
+AI entry is the fastest way in for a messy sentence with several items. It is not always the right tool.
+
+For a single expense you already know the shape of — 62, groceries, today — the plain [chat composer](/features/chat-expense-tracker) is faster, because there's no round trip to a model. Type the amount, hit the category, send.
+
+For a year of history in a spreadsheet, don't paste it into the AI note. [Bulk add](/features/bulk-add) parses tab-separated rows deterministically and names any line it couldn't read. A parser that can't be creative is exactly what you want when the input is already structured — and [the spreadsheet migration has its own post](/blog/spreadsheet-vs-expense-tracker-app).
+
+And for the times your hands are full, [voice entry](/features/voice-expense-tracker) records what you say, transcribes it, and drops the text into the same AI note, so the review step is identical. If you speak more than one language, [that turns out to be the harder half of the problem](/blog/voice-expense-tracking-in-any-language).
+
+## The short version
+
+Use a model to read your sentence. Don't use it to sign off on your books. The version of AI expense tracking that survives contact with a real year of spending is the one where a person spends two seconds looking at what the machine understood — and that's the version worth building a habit around.
+
+[Try AI entry in SpendChat](/features/ai-expense-tracker) — it's free, there's no bank connection, and nothing is saved until you say so.

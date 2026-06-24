@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import * as aiTracking from "@/content/blog/how-to-track-expenses-with-ai.mdx";
 import * as conversation from "@/content/blog/track-your-money-like-a-conversation.mdx";
 import * as openSource from "@/content/blog/spendchat-is-now-open-source.mdx";
 import * as introducing from "@/content/blog/introducing-spendchat.mdx";
@@ -67,6 +68,7 @@ type MdxModule = { default: ComponentType; meta: BlogMeta };
  * `src/content/blog` and adding one line here.
  */
 const registry: { slug: string; mod: MdxModule }[] = [
+  { slug: "how-to-track-expenses-with-ai", mod: aiTracking },
   { slug: "track-your-money-like-a-conversation", mod: conversation },
   { slug: "spendchat-is-now-open-source", mod: openSource },
   { slug: "introducing-spendchat", mod: introducing },

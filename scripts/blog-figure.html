@@ -1,0 +1,984 @@
+<!doctype html>
+<!--
+  Source for public/blog/<slug>--<name>.png — the illustrations *inside* a blog
+  post, rendered by <Figure> (src/components/blog/figure.tsx) at 1200x675.
+
+  Sibling of scripts/blog-image.html, which renders the 1200x630 cover. Same
+  reasoning applies: static PNGs written ahead of time, not next/og at runtime,
+  because generating them in the app makes OpenNext bundle @vercel/og +
+  resvg.wasm (~2.2 MB) into the Worker and serves every image through a Worker
+  invocation instead of straight off Cloudflare's CDN.
+
+  One file renders every figure. The id is read from the query string
+  (?fig=<slug>--<name>) and looked up in the FIGURES table at the bottom. Three
+  layouts cover everything so far:
+
+    compare — two columns, each a claim with supporting lines
+    flow    — three numbered steps, left to right
+    table   — a header row and body rows
+
+  Adding a figure is an entry in FIGURES plus a <Figure> in the post. Keep the
+  `alt` on that <Figure> describing what the picture *says*, not that it is a
+  picture: the alt text is what a screen reader announces and what Google reads,
+  and "diagram" tells neither of them anything.
+
+  To render, run from the repo root (needs Chrome). REGENERATE ALL of them after
+  editing this file, since a style change here affects every figure:
+
+    mkdir -p public/blog
+    for fig in $(node -e "
+      const fs=require('fs');
+      const src=fs.readFileSync('scripts/blog-figure.html','utf8');
+      const ids=[...src.matchAll(/^        \"([a-z0-9-]+--[a-z0-9-]+)\":/gm)].map(m=>m[1]);
+      console.log(ids.join(' '));
+    "); do
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+        --headless=new --disable-gpu --hide-scrollbars \
+        --force-device-scale-factor=1 --window-size=1200,675 \
+        --virtual-time-budget=4000 \
+        --screenshot="public/blog/$fig.png" \
+        "file://$PWD/scripts/blog-figure.html?fig=$fig"
+    done
+
+  Keep each file well under 300 KB — these are lazy-loaded below the fold, but a
+  post carries two of them and mobile readers pay for both.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* The app's dark-theme tokens, copied from src/app/globals.css (`.dark`),
+         same as the covers — a figure should never drift from the palette of
+         the product it is explaining. */
+      :root {
+        --background: oklch(0.145 0 0);
+        --card: oklch(0.205 0 0);
+        --foreground: oklch(0.985 0 0);
+        --muted: oklch(0.269 0 0);
+        --muted-foreground: oklch(0.708 0 0);
+        --border: oklch(1 0 0 / 10%);
+        /* Income accent — the one colour the product allows itself. */
+        --accent: #34d399;
+        --negative: rgba(255, 255, 255, 0.42);
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1200px;
+        height: 675px;
+      }
+      body {
+        position: relative;
+        overflow: hidden;
+        background: var(--background);
+        color: var(--foreground);
+        font-family: "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Segoe UI", Roboto, sans-serif;
+        box-shadow: inset 0 0 0 1px var(--border);
+      }
+
+      .grid {
+        position: absolute;
+        inset: 0;
+        background-image: linear-gradient(
+            to right,
+            rgba(255, 255, 255, 0.03) 1px,
+            transparent 1px
+          ),
+          linear-gradient(
+            to bottom,
+            rgba(255, 255, 255, 0.03) 1px,
+            transparent 1px
+          );
+        background-size: 60px 60px;
+        -webkit-mask-image: radial-gradient(
+          90% 110% at 100% 0%,
+          #000 0%,
+          transparent 62%
+        );
+      }
+      .glow {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          58% 72% at 96% 4%,
+          rgba(255, 255, 255, 0.06) 0%,
+          transparent 60%
+        );
+      }
+
+      .frame {
+        position: relative;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        padding: 52px 60px 44px;
+      }
+
+      /* ---- Heading ---- */
+      .kicker {
+        font-size: 18px;
+        font-weight: 500;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+        color: var(--muted-foreground);
+      }
+      h1 {
+        margin-top: 12px;
+        font-size: 40px;
+        font-weight: 600;
+        line-height: 1.15;
+        letter-spacing: -0.025em;
+        max-width: 980px;
+        text-wrap: balance;
+      }
+      h1.long {
+        font-size: 34px;
+      }
+
+      .stage {
+        flex: 1;
+        display: flex;
+        align-items: center;
+        margin-top: 34px;
+      }
+
+      /* ---- Footer ---- */
+      .foot {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding-top: 22px;
+        font-size: 17px;
+        color: var(--muted-foreground);
+      }
+      .mark {
+        width: 21px;
+        height: 21px;
+        flex: none;
+      }
+
+      /* ---- Layout: compare ---- */
+      .compare {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 26px;
+        width: 100%;
+      }
+      .col {
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--card);
+        padding: 26px 28px 28px;
+        min-height: 340px;
+      }
+      .col.hi {
+        border-color: rgba(52, 211, 153, 0.32);
+        box-shadow: inset 0 0 0 1px rgba(52, 211, 153, 0.12);
+      }
+      .col.ai {
+        border-color: rgba(124, 58, 237, 0.4);
+        box-shadow: inset 0 0 0 1px rgba(124, 58, 237, 0.16);
+      }
+      .col-label {
+        font-size: 24px;
+        font-weight: 600;
+        letter-spacing: -0.015em;
+      }
+      .col-sub {
+        margin-top: 7px;
+        font-size: 17px;
+        color: var(--muted-foreground);
+      }
+      .items {
+        margin-top: 22px;
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+      }
+      .item {
+        display: flex;
+        gap: 12px;
+        font-size: 19px;
+        line-height: 1.35;
+        color: var(--muted-foreground);
+      }
+      .bullet {
+        flex: none;
+        width: 22px;
+        height: 22px;
+        margin-top: 2px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 13px;
+        font-weight: 600;
+        background: var(--muted);
+        color: var(--muted-foreground);
+      }
+      .bullet.yes {
+        background: rgba(52, 211, 153, 0.16);
+        color: var(--accent);
+      }
+      .bullet.no {
+        background: rgba(255, 255, 255, 0.07);
+        color: var(--negative);
+      }
+      .bullet.ai {
+        background: linear-gradient(90deg, #2563eb, #7c3aed);
+        color: #fff;
+      }
+
+      /* ---- Layout: flow ---- */
+      .flow {
+        display: flex;
+        align-items: stretch;
+        gap: 0;
+        width: 100%;
+      }
+      .step {
+        flex: 1;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        background: var(--card);
+        padding: 24px 24px 26px;
+        min-height: 300px;
+        display: flex;
+        flex-direction: column;
+      }
+      .step.ai {
+        border-color: rgba(124, 58, 237, 0.4);
+      }
+      .step.done {
+        border-color: rgba(52, 211, 153, 0.32);
+      }
+      .n {
+        width: 34px;
+        height: 34px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 17px;
+        font-weight: 600;
+        background: var(--muted);
+        color: var(--foreground);
+      }
+      .step.ai .n {
+        background: linear-gradient(90deg, #2563eb, #7c3aed);
+        color: #fff;
+      }
+      .step.done .n {
+        background: rgba(52, 211, 153, 0.16);
+        color: var(--accent);
+      }
+      .step-label {
+        margin-top: 18px;
+        font-size: 22px;
+        font-weight: 600;
+        letter-spacing: -0.012em;
+        line-height: 1.2;
+      }
+      .step-body {
+        margin-top: 10px;
+        font-size: 17.5px;
+        line-height: 1.42;
+        color: var(--muted-foreground);
+      }
+      .mono {
+        margin-top: auto;
+        padding-top: 18px;
+      }
+      .mono span {
+        display: inline-block;
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        background: rgba(255, 255, 255, 0.04);
+        padding: 9px 12px;
+        font-family: "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 15.5px;
+        line-height: 1.35;
+        color: var(--foreground);
+      }
+      .arrow {
+        flex: none;
+        width: 46px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: rgba(255, 255, 255, 0.28);
+        font-size: 26px;
+      }
+
+      /* ---- Layout: table ---- */
+      .table {
+        width: 100%;
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        overflow: hidden;
+        background: var(--card);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      th {
+        text-align: left;
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        color: var(--foreground);
+        background: rgba(255, 255, 255, 0.045);
+        padding: 15px 24px;
+        border-bottom: 1px solid var(--border);
+      }
+      td {
+        font-size: 18.5px;
+        line-height: 1.35;
+        color: var(--muted-foreground);
+        padding: 14px 24px;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+      tr:last-child td {
+        border-bottom: 0;
+      }
+      td.key {
+        color: var(--foreground);
+        font-weight: 500;
+      }
+      td.good {
+        color: var(--accent);
+      }
+      /* Rows get tighter as the table gets longer, so seven rows fit the same
+         frame as four without the type shrinking to unreadable. */
+      .table.rows-6 td,
+      .table.rows-7 td {
+        padding: 11px 24px;
+        font-size: 17.5px;
+      }
+      .table.rows-8 td,
+      .table.rows-9 td {
+        padding: 8px 24px;
+        font-size: 16.5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid"></div>
+    <div class="glow"></div>
+
+    <div class="frame">
+      <div>
+        <div class="kicker" id="kicker"></div>
+        <h1 id="title"></h1>
+      </div>
+
+      <div class="stage" id="stage"></div>
+
+      <div class="foot">
+        <!-- SpendChat mark — the same chat bubble + $ as src/components/logo.tsx -->
+        <svg class="mark" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.9"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <text
+            x="12"
+            y="10.4"
+            text-anchor="middle"
+            dominant-baseline="middle"
+            font-size="9"
+            font-weight="600"
+            fill="currentColor"
+            font-family="Geist, -apple-system, system-ui, sans-serif"
+          >
+            $
+          </text>
+        </svg>
+        <span>spendchat.app</span>
+      </div>
+    </div>
+
+    <script>
+      // Every in-post figure, keyed "<post-slug>--<name>". The key is also the
+      // PNG filename, so a figure and the file it renders to can't drift.
+      //
+      // `kicker` is the post's theme, `title` is what the picture claims. Keep
+      // the claim short — this is read at a glance, and the post's prose is
+      // where the argument goes.
+      const FIGURES = {
+        /* ---------- how-to-track-expenses-with-ai ---------- */
+        "how-to-track-expenses-with-ai--parse-review-confirm": {
+          kicker: "AI expense tracking",
+          title: "One sentence in, three drafts out — and a human in between",
+          type: "flow",
+          steps: [
+            {
+              n: "1",
+              tone: "",
+              label: "You type it however you'd say it",
+              body: "One item or five, in any order, with dates in ordinary words.",
+              mono: "coffee 4.50, 62 groceries\nand 40 taxi yesterday",
+            },
+            {
+              n: "2",
+              tone: "ai",
+              label: "The model returns drafts",
+              body: "Each item split out with an amount, a category from your own list, a type and a date.",
+              mono: "3 drafts · editable\nnothing saved yet",
+            },
+            {
+              n: "3",
+              tone: "done",
+              label: "You confirm",
+              body: "Fix the row it got wrong, delete one, add one it missed — then press Add.",
+              mono: "→ written to your feed",
+            },
+          ],
+        },
+        "how-to-track-expenses-with-ai--autofile-vs-review": {
+          kicker: "Two ways to use a model",
+          title: "Automatic filing versus parse-then-ask",
+          type: "compare",
+          left: {
+            label: "Files it for you",
+            sub: "The model writes straight to your records",
+            tone: "",
+            items: [
+              { m: "no", t: "A wrong category is invisible until a total looks odd" },
+              { m: "no", t: "Errors are plausible, so nothing alerts you" },
+              { m: "no", t: "Fixing it later means auditing months of history" },
+              { m: "no", t: "You learn nothing about your own spending" },
+            ],
+          },
+          right: {
+            label: "Drafts, then your OK",
+            sub: "The model proposes; you decide",
+            tone: "ai",
+            items: [
+              { m: "ai", t: "Every field is editable before anything is saved" },
+              { m: "ai", t: "A bad parse is a five-second correction" },
+              { m: "ai", t: "Categories come from your workspace, not a fixed list" },
+              { m: "ai", t: "Two seconds of review buys records you can trust" },
+            ],
+          },
+        },
+
+        /* ---------- voice-expense-tracking-in-any-language ---------- */
+        "voice-expense-tracking-in-any-language--hold-speak-confirm": {
+          kicker: "Voice entry",
+          title: "Hold a key, say it, check it",
+          type: "flow",
+          steps: [
+            {
+              n: "1",
+              tone: "",
+              label: "Hold M and speak",
+              body: "Recording runs in the browser for as long as you hold the key. No app to install.",
+              mono: '"chai 20 aur groceries 620"',
+            },
+            {
+              n: "2",
+              tone: "ai",
+              label: "Transcribed, then discarded",
+              body: "The audio is transcribed and thrown away. The text lands in the AI note for you to read.",
+              mono: "audio → text\naudio never stored",
+            },
+            {
+              n: "3",
+              tone: "done",
+              label: "Drafts wait for you",
+              body: "A misheard merchant or a wrong amount is caught by a person, not by a total months later.",
+              mono: "2 drafts · confirm to save",
+            },
+          ],
+        },
+        "voice-expense-tracking-in-any-language--one-language-vs-many": {
+          kicker: "Why code-mixed speech breaks",
+          title: "Pinning one language versus naming the ones you speak",
+          type: "compare",
+          left: {
+            label: "One language code",
+            sub: "What most speech APIs accept",
+            tone: "",
+            items: [
+              { m: "no", t: "Everything is forced into the language you picked" },
+              { m: "no", t: '"aur" comes back transliterated, not translated' },
+              { m: "no", t: "Switching mid-sentence produces nonsense" },
+              { m: "no", t: "You end up speaking a second language to your own tracker" },
+            ],
+          },
+          right: {
+            label: "A list of languages",
+            sub: "Up to 5 at once, set in Settings",
+            tone: "hi",
+            items: [
+              { m: "yes", t: "The model is told to expect all of them at once" },
+              { m: "yes", t: "Hindi-English, Tamil-English, Spanglish transcribe as spoken" },
+              { m: "yes", t: "Numbers and merchant names survive the switch" },
+              { m: "yes", t: "You speak the way you actually speak" },
+            ],
+          },
+        },
+
+        /* ---------- expense-tracker-without-bank-connection ---------- */
+        "expense-tracker-without-bank-connection--sync-vs-manual": {
+          kicker: "Bank sync, honestly",
+          title: "What automatic import gives you, and what it costs",
+          type: "compare",
+          left: {
+            label: "Connected to your bank",
+            sub: "An aggregator holds the keys",
+            tone: "",
+            items: [
+              { m: "yes", t: "Card transactions appear without you doing anything" },
+              { m: "no", t: "Cash is invisible — it leaves as one ATM withdrawal" },
+              { m: "no", t: "Merchant strings are guessed at, often wrongly" },
+              { m: "no", t: "Connections break on every bank security change" },
+              { m: "no", t: "A third party holds credentials to your money" },
+            ],
+          },
+          right: {
+            label: "You enter it yourself",
+            sub: "No credentials exist to leak",
+            tone: "hi",
+            items: [
+              { m: "yes", t: "Cash, transfers and split bills all land the same way" },
+              { m: "yes", t: "The category is right because you chose it" },
+              { m: "yes", t: "Nothing to reconnect, ever" },
+              { m: "yes", t: "Ten seconds a day, and you notice what you spend" },
+            ],
+          },
+        },
+        "expense-tracker-without-bank-connection--what-we-hold": {
+          kicker: "What the app actually holds",
+          title: "The list is short because there is no feature that needs more",
+          type: "table",
+          head: ["Data", "Held?", "Why"],
+          rows: [
+            ["Bank login", "No", "There is no bank integration to use it"],
+            ["Card numbers", "No", "Nothing in the app takes a payment"],
+            ["Your password", "No", "Sign-in is handled by Firebase Authentication"],
+            ["Transactions you type", "Yes", "That is the product"],
+            ["Receipts you attach", "Yes", "1 GB per workspace, deletable"],
+            ["Audio from voice entry", "No", "Transcribed, then discarded"],
+            ["Data sold to anyone", "No", "No ads, no brokers, no profile"],
+          ],
+        },
+
+        /* ---------- spreadsheet-vs-expense-tracker-app ---------- */
+        "spreadsheet-vs-expense-tracker-app--stay-or-move": {
+          kicker: "The actual decision",
+          title: "Stay on the spreadsheet, or move — it depends on four things",
+          type: "compare",
+          left: {
+            label: "Stay where you are",
+            sub: "The spreadsheet is winning",
+            tone: "",
+            items: [
+              { m: "yes", t: "You log at a desk, and you are already consistent" },
+              { m: "yes", t: "Your favourite feature is a formula you wrote" },
+              { m: "yes", t: "Nobody else needs to see or edit it" },
+              { m: "yes", t: "The file living only on your machine matters to you" },
+            ],
+          },
+          right: {
+            label: "Time to move",
+            sub: "The spreadsheet is costing you",
+            tone: "hi",
+            items: [
+              { m: "yes", t: "Most spending happens away from a keyboard" },
+              { m: "yes", t: "A second person needs their own access" },
+              { m: "yes", t: "Receipts should live beside the numbers" },
+              { m: "yes", t: "You have restarted the same sheet three Januaries running" },
+            ],
+          },
+        },
+        "spreadsheet-vs-expense-tracker-app--paste-preview-import": {
+          kicker: "Bringing history with you",
+          title: "Copy the rows, read the preview, import",
+          type: "flow",
+          steps: [
+            {
+              n: "1",
+              tone: "",
+              label: "Copy cells from the sheet",
+              body: "A spreadsheet copy is tab-separated text, which bulk add detects and reads as-is.",
+              mono: "12.50\tlunch\tFood\n62\tgroceries\tFood",
+            },
+            {
+              n: "2",
+              tone: "",
+              label: "Read what it parsed",
+              body: "Every row priced and categorised on screen. Broken lines are named by number, not guessed at.",
+              mono: "198 rows ok\nline 87: no amount",
+            },
+            {
+              n: "3",
+              tone: "done",
+              label: "Import into a profile",
+              body: "Up to 500 rows a paste, into whichever set of books you chose. Order doesn't matter.",
+              mono: "→ Personal · 198 added",
+            },
+          ],
+        },
+
+        /* ---------- how-to-categorize-expenses ---------- */
+        "how-to-categorize-expenses--does-it-earn-its-place": {
+          kicker: "Before you add a category",
+          title: "One test, and most of the list decides itself",
+          type: "flow",
+          steps: [
+            {
+              n: "1",
+              tone: "",
+              label: "Finish the sentence",
+              body: "If this number turned out to be twice what you expected, what would you do differently?",
+              mono: 'if _____ doubled,\nI would _____',
+            },
+            {
+              n: "2",
+              tone: "",
+              label: "Can't finish it? Don't add it",
+              body: "A category you would act on earns its place. One that only produces a fact is collecting trivia at the price of a hundred filing decisions.",
+              mono: "Subscriptions → cancel two\nStationery → nothing",
+            },
+            {
+              n: "3",
+              tone: "done",
+              label: "Split later, not now",
+              body: "Start blunt. Split a category only once a total has made you curious twice — then merge it back when you have the answer.",
+              mono: "8-15 categories\nnamed how you talk",
+            },
+          ],
+        },
+        "how-to-categorize-expenses--too-many-vs-useful": {
+          kicker: "How many is too many",
+          title: "Forty categories tell you less than eight",
+          type: "compare",
+          left: {
+            label: "Split until it's precise",
+            sub: "Coffee, lunch, snacks, dinner…",
+            tone: "",
+            items: [
+              { m: "no", t: "Every entry becomes a decision, so entries stop happening" },
+              { m: "no", t: "The same purchase lands in a different bucket each week" },
+              { m: "no", t: "The breakdown is a long tail of 1% slices" },
+              { m: "no", t: "No line is big enough to be worth acting on" },
+            ],
+          },
+          right: {
+            label: "Split where you'd act",
+            sub: "Eight to fifteen, named your way",
+            tone: "hi",
+            items: [
+              { m: "yes", t: "Picking one is instant, so logging stays a habit" },
+              { m: "yes", t: "Totals are stable enough to compare month to month" },
+              { m: "yes", t: "Three or four lines explain most of your month" },
+              { m: "yes", t: "Split a category only once a total makes you curious" },
+            ],
+          },
+        },
+
+        /* ---------- how-to-track-shared-expenses-with-your-partner ---------- */
+        "how-to-track-shared-expenses-with-your-partner--roles": {
+          kicker: "Who can do what",
+          title: "Three roles, so access is a choice rather than all-or-nothing",
+          type: "table",
+          head: ["", "Viewer", "Editor", "Admin"],
+          rows: [
+            ["Read the feed and reports", "Yes", "Yes", "Yes"],
+            ["Add and edit transactions", "—", "Yes", "Yes"],
+            ["Attach receipts", "—", "Yes", "Yes"],
+            ["Add and rename categories", "—", "Yes", "Yes"],
+            ["Create and delete profiles", "—", "—", "Yes"],
+            ["Invite and remove people", "—", "—", "Yes"],
+            ["Set the workspace currency", "—", "—", "Yes"],
+          ],
+        },
+        "how-to-track-shared-expenses-with-your-partner--password-vs-roles": {
+          kicker: "The usual arrangement",
+          title: "Sharing one login versus inviting a person",
+          type: "compare",
+          left: {
+            label: "One shared login",
+            sub: "The way most couples start",
+            tone: "",
+            items: [
+              { m: "no", t: "No record of who entered what" },
+              { m: "no", t: "Access is total — there is no read-only" },
+              { m: "no", t: "Removing it means changing the password" },
+              { m: "no", t: "An accountant sees the groceries too" },
+            ],
+          },
+          right: {
+            label: "An invite with a role",
+            sub: "Each person signs in as themselves",
+            tone: "hi",
+            items: [
+              { m: "yes", t: "Every transaction shows who added it" },
+              { m: "yes", t: "Viewer, editor or admin, chosen per person" },
+              { m: "yes", t: "Revoked in one click, no password changes" },
+              { m: "yes", t: "An accountant can be given one profile only" },
+            ],
+          },
+        },
+
+        /* ---------- how-to-organize-receipts-digitally ---------- */
+        "how-to-organize-receipts-digitally--drop-attach-find": {
+          kicker: "Receipts",
+          title: "Attach it while you're already there",
+          type: "flow",
+          steps: [
+            {
+              n: "1",
+              tone: "",
+              label: "Drop the photo on the composer",
+              body: "Anywhere on the tracker, while you're writing the transaction it belongs to.",
+              mono: "receipt-1042.jpg · 240 KB",
+            },
+            {
+              n: "2",
+              tone: "",
+              label: "It lands on the transaction",
+              body: "The file is attached to that record, and the row carries a paperclip you can see from the table.",
+              mono: "Groceries · 62.40 · 📎",
+            },
+            {
+              n: "3",
+              tone: "done",
+              label: "And in the vault",
+              body: "The same file appears in a Transaction attachments folder, so you can find it either way.",
+              mono: "→ /files · tag: Receipts",
+            },
+          ],
+        },
+        "how-to-organize-receipts-digitally--folders-vs-tags": {
+          kicker: "Filing that survives a year",
+          title: "A folder is where it lives; a tag is what it is",
+          type: "compare",
+          left: {
+            label: "Folders",
+            sub: "One file, one place",
+            tone: "",
+            items: [
+              { m: "yes", t: "Answers \"where did I put it\" — 2026 tax, Car, Flat" },
+              { m: "yes", t: "Colour tints make the right one findable at a glance" },
+              { m: "no", t: "A receipt that is both a car cost and a tax document has to pick" },
+              { m: "no", t: "Deep nesting becomes a filing system you avoid" },
+            ],
+          },
+          right: {
+            label: "Tags",
+            sub: "One file, several truths",
+            tone: "hi",
+            items: [
+              { m: "yes", t: "Receipts, Warranty, Tax, Reimbursable — all at once" },
+              { m: "yes", t: "Filter by tag across every folder you own" },
+              { m: "yes", t: "Add one later, when you learn what you actually search for" },
+              { m: "yes", t: "Shallow folders plus tags beats a deep tree" },
+            ],
+          },
+        },
+
+        /* ---------- export-expenses-to-csv-for-taxes ---------- */
+        "export-expenses-to-csv-for-taxes--filter-then-export": {
+          kicker: "Ten minutes, once a year",
+          title: "Narrow the view first, and the file needs no cleanup",
+          type: "flow",
+          steps: [
+            {
+              n: "1",
+              tone: "",
+              label: "Filter the table",
+              body: "Profile, date range, type, category, a search term. Whatever is on screen is what the file will hold.",
+              mono: "Business · 6 Apr–5 Apr\ntype: expense",
+            },
+            {
+              n: "2",
+              tone: "",
+              label: "CSV, or print",
+              body: "The download carries the same filters. Print strips the interface and saves as a PDF.",
+              mono: "spendchat-2026-08-21.csv\nup to 5,000 rows",
+            },
+            {
+              n: "3",
+              tone: "done",
+              label: "Open it anywhere",
+              body: "UTF-8, header row, RFC 4180 quoting. Excel, Numbers, Sheets, or your accountant's software.",
+              mono: "totals already in\nthe report block",
+            },
+          ],
+        },
+        "export-expenses-to-csv-for-taxes--file-anatomy": {
+          kicker: "What's in the file",
+          title: "Eleven rows of report, then your transactions",
+          type: "table",
+          head: ["Part of the file", "What it contains"],
+          rows: [
+            ["Rows 1-6", "The app name, your workspace, the profile, the date range"],
+            ["Rows 8-10", "Total income, total expense, and the net between them"],
+            ["Row 12", "The column header: date, type, category, title, amount, currency"],
+            ["Row 13 on", "Your transactions, newest first, up to 5,000 of them"],
+            ["Column E", "The amount, signed — expenses negative, income positive"],
+            ["Last table row", "A Total: line, so a SUM to the bottom counts the net twice"],
+            ["Encoding", "UTF-8, CRLF line endings, RFC 4180 quoting"],
+          ],
+        },
+
+        /* ---------- open-source-expense-tracker ---------- */
+        "open-source-expense-tracker--hosted-vs-self-hosted": {
+          kicker: "Two ways to run it",
+          title: "The same code, hosted by us or hosted by you",
+          type: "compare",
+          left: {
+            label: "The hosted app",
+            sub: "spendchat.app · free",
+            tone: "hi",
+            items: [
+              { m: "yes", t: "Sign up and log something in under a minute" },
+              { m: "yes", t: "Updates, backups and uptime are our problem" },
+              { m: "yes", t: "Same source you can read on GitHub" },
+              { m: "no", t: "Your rows sit in our database, not yours" },
+            ],
+          },
+          right: {
+            label: "Your own instance",
+            sub: "AGPL-3.0 · your infrastructure",
+            tone: "",
+            items: [
+              { m: "yes", t: "Your database, your storage, your keys" },
+              { m: "yes", t: "Point AI entry at whichever provider you prefer" },
+              { m: "yes", t: "Fork it — the licence is designed to let you" },
+              { m: "no", t: "You own the upgrades and the backups too" },
+            ],
+          },
+        },
+        "open-source-expense-tracker--verifiable-claims": {
+          kicker: "Open source as evidence",
+          title: "Every privacy claim maps to a file you can open",
+          type: "table",
+          head: ["The claim", "Where it is decided"],
+          rows: [
+            ["Reads are scoped to your access", "src/lib/queries.ts, src/lib/rbac.ts"],
+            ["No bank integration exists", "grep the repo — there is nothing to find"],
+            ["What the AI is sent", "src/lib/ai-*.ts, the prompt is right there"],
+            ["Audio is discarded, not stored", "the transcribe route writes nothing"],
+            ["Your export is complete", "the CSV builder, and its tests"],
+            ["Account deletion really deletes", "the delete action, in one place"],
+          ],
+        },
+      };
+
+      const id = new URLSearchParams(location.search).get("fig");
+      const fig = FIGURES[id];
+
+      const el = (tag, cls, text) => {
+        const n = document.createElement(tag);
+        if (cls) n.className = cls;
+        if (text != null) n.textContent = text;
+        return n;
+      };
+
+      function renderCompare(fig, stage) {
+        const wrap = el("div", "compare");
+        for (const side of [fig.left, fig.right]) {
+          const col = el("div", `col ${side.tone || ""}`.trim());
+          col.append(el("div", "col-label", side.label));
+          if (side.sub) col.append(el("div", "col-sub", side.sub));
+          const items = el("div", "items");
+          for (const it of side.items) {
+            const row = el("div", "item");
+            const glyph = it.m === "no" ? "✕" : it.m === "ai" ? "✦" : "✓";
+            row.append(el("span", `bullet ${it.m}`, glyph));
+            row.append(el("span", null, it.t));
+            items.append(row);
+          }
+          col.append(items);
+          wrap.append(col);
+        }
+        stage.append(wrap);
+      }
+
+      function renderFlow(fig, stage) {
+        const wrap = el("div", "flow");
+        fig.steps.forEach((s, i) => {
+          if (i > 0) wrap.append(el("div", "arrow", "→"));
+          const step = el("div", `step ${s.tone || ""}`.trim());
+          step.append(el("div", "n", s.n));
+          step.append(el("div", "step-label", s.label));
+          step.append(el("div", "step-body", s.body));
+          if (s.mono) {
+            const mono = el("div", "mono");
+            // Newlines in `mono` are literal line breaks in the chip.
+            const chip = el("span");
+            s.mono.split("\n").forEach((line, j) => {
+              if (j > 0) chip.append(document.createElement("br"));
+              chip.append(document.createTextNode(line));
+            });
+            mono.append(chip);
+            step.append(mono);
+          }
+          wrap.append(step);
+        });
+        stage.append(wrap);
+      }
+
+      function renderTable(fig, stage) {
+        const wrap = el("div", `table rows-${fig.rows.length}`);
+        const table = document.createElement("table");
+        const thead = document.createElement("thead");
+        const hr = document.createElement("tr");
+        fig.head.forEach((h) => hr.append(el("th", null, h)));
+        thead.append(hr);
+        const tbody = document.createElement("tbody");
+        fig.rows.forEach((cells) => {
+          const tr = document.createElement("tr");
+          cells.forEach((c, i) => {
+            // First column names the thing; "Yes" reads as the accent so the
+            // shape of a comparison is legible before any of it is read.
+            const cls = i === 0 ? "key" : c === "Yes" ? "good" : null;
+            tr.append(el("td", cls, c));
+          });
+          tbody.append(tr);
+        });
+        table.append(thead, tbody);
+        wrap.append(table);
+        stage.append(wrap);
+      }
+
+      if (!fig) {
+        document.body.innerHTML =
+          '<div style="padding:80px;font-size:32px;font-family:sans-serif">Unknown figure: ' +
+          (id || "(none)") +
+          "</div>";
+      } else {
+        const titleEl = document.getElementById("title");
+        document.getElementById("kicker").textContent = fig.kicker;
+        titleEl.textContent = fig.title;
+        if (fig.title.length > 52) titleEl.classList.add("long");
+        const stage = document.getElementById("stage");
+        if (fig.type === "compare") renderCompare(fig, stage);
+        else if (fig.type === "flow") renderFlow(fig, stage);
+        else renderTable(fig, stage);
+      }
+    </script>
+  </body>
+</html>
