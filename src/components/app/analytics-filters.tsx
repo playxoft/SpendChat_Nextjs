@@ -52,14 +52,16 @@ export function AnalyticsFilters({ today }: { today: string }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <div className="inline-flex h-9 items-center rounded-md border bg-muted/40 p-1">
+      {/* Segmented range control: scrolls horizontally on narrow screens
+          instead of pushing the page wider than the viewport. */}
+      <div className="flex h-9 min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-md border bg-muted/40 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {RANGES.map((r) => (
           <Button
             key={r.key}
             type="button"
             variant="ghost"
             size="sm"
-            className="h-7 px-2.5 text-xs"
+            className="h-7 shrink-0 px-2.5 text-xs"
             onClick={() => applyRange(r.months)}
           >
             {r.label}
@@ -72,7 +74,7 @@ export function AnalyticsFilters({ today }: { today: string }) {
         max={to || today}
         placeholder="From"
         onChange={(iso) => update({ from: iso || undefined })}
-        className="h-9 w-[9.5rem]"
+        className="h-9 w-[calc(50%-0.25rem)] sm:w-[9.5rem]"
       />
       <DatePicker
         value={to}
@@ -80,7 +82,7 @@ export function AnalyticsFilters({ today }: { today: string }) {
         max={today}
         placeholder="To"
         onChange={(iso) => update({ to: iso || undefined })}
-        className="h-9 w-[9.5rem]"
+        className="h-9 w-[calc(50%-0.25rem)] sm:w-[9.5rem]"
       />
 
       {hasRange && (
