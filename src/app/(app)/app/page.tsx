@@ -165,7 +165,7 @@ async function SummaryStream({
 }) {
   const summary = await getSummary(userId, { from, to, profileId });
   return (
-    <div className="mt-3 flex items-end justify-between gap-3">
+    <div className="mt-3 flex flex-wrap items-end justify-between gap-x-3 gap-y-1">
       <div>
         <p className="text-xs text-muted-foreground">{monthLabel(today, locale)} balance</p>
         <p
