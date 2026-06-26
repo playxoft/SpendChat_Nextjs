@@ -23,7 +23,7 @@ import { marketingCta } from "@/lib/marketing";
 export const metadata: Metadata = {
   title: "Features",
   description:
-    "Chat-style transaction entry, bulk import, powerful filters, CSV export, printing, and a private, secure, mobile-friendly design. See what MoneyTracker can do.",
+    "Chat-style transaction entry, bulk import, powerful filters, CSV export, printing, and a private, secure, mobile-friendly design. See what SpendChat can do.",
   alternates: { canonical: "/features" },
 };
 

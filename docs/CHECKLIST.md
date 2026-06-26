@@ -1,7 +1,7 @@
-# MoneyTracker — Build Checklist
+# SpendChat — Build Checklist
 
 > Minimal, fast, secure personal money tracker with a **chat-app feel**.
-> **Live domain:** `https://moneytracker.playxoft.com`
+> **Live domain:** `https://spendchat.playxoft.com`
 > **Hosting:** Cloudflare Workers (free tier — 3 MB bundle, 10 ms CPU/req) via `@opennextjs/cloudflare`.
 
 Legend: `[x]` done · `[~]` partial · `[ ]` todo.
@@ -42,7 +42,7 @@ Status: **implementation complete** — pending live Neon/Doppler credentials an
 - [x] `initOpenNextCloudflareForDev()` in `next.config.ts`
 - [x] Scripts: dev, build, preview, deploy, cf-typegen
 - [x] Worker bundle builds and fits free tier (~1.97 MB gzip < 3 MB)
-- [ ] Bind custom domain `moneytracker.playxoft.com` (at deploy time)
+- [ ] Bind custom domain `spendchat.playxoft.com` (at deploy time)
 
 ## 3. Secrets — Doppler
 - [x] `doppler.yaml`
@@ -121,7 +121,7 @@ Status: **implementation complete** — pending live Neon/Doppler credentials an
 - [ ] Unit tests (money math, CSV, bulk parser, filters)
 
 ## 13. Deploy
-- [ ] First deploy to Cloudflare Workers → `moneytracker.playxoft.com`
+- [ ] First deploy to Cloudflare Workers → `spendchat.playxoft.com`
 - [ ] Production Neon branch + Doppler `prd`
 - [ ] Smoke test on a real device
 

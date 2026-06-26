@@ -8,7 +8,7 @@ import { siteConfig } from "@/lib/site";
 export const metadata: Metadata = {
   title: "Blog",
   description:
-    "Updates, ideas, and notes from the team behind MoneyTracker — a minimal, open-source money tracker.",
+    "Updates, ideas, and notes from the team behind SpendChat — a minimal, open-source money tracker.",
   alternates: {
     canonical: "/blog",
     types: { "application/rss+xml": `${siteConfig.url}/blog/rss.xml` },

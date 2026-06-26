@@ -1,7 +1,7 @@
 export const siteConfig = {
-  name: "MoneyTracker",
-  domain: "moneytracker.playxoft.com",
-  url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://moneytracker.playxoft.com").replace(
+  name: "SpendChat",
+  domain: "spendchat.playxoft.com",
+  url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://spendchat.playxoft.com").replace(
     /\/$/,
     "",
   ),

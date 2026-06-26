@@ -1,4 +1,4 @@
-# MoneyTracker — Feature Overhaul Plan (checklist_1)
+# SpendChat — Feature Overhaul Plan (checklist_1)
 
 A staged plan to add profiles, richer transactions (title + description), a category
 row selector with an emoji picker, keyboard shortcuts, a pie-chart analytics page,

@@ -16,7 +16,7 @@ import { marketingCta } from "@/lib/marketing";
 export const metadata: Metadata = {
   title: "About",
   description:
-    "MoneyTracker is a minimal, privacy-first, open-source money tracker built to make logging income and expenses as easy as sending a message.",
+    "SpendChat is a minimal, privacy-first, open-source money tracker built to make logging income and expenses as easy as sending a message.",
   alternates: { canonical: "/about" },
 };
 
@@ -74,7 +74,7 @@ export default function AboutPage() {
           a tool so simple you actually keep using it past the first week.
         </p>
         <p>
-          MoneyTracker treats logging a transaction like sending a message. You type
+          SpendChat treats logging a transaction like sending a message. You type
           what you spent or earned, pick a category, and it&apos;s done. Your balance
           updates instantly, your history stays tidy, and when you need your data, it
           exports and prints in a click.
@@ -95,7 +95,7 @@ export default function AboutPage() {
           Proudly open source
         </h2>
         <p className="mt-3 text-muted-foreground">
-          MoneyTracker is open source under the{" "}
+          SpendChat is open source under the{" "}
           <span className="font-medium text-foreground">{siteConfig.license}</span>{" "}
           license. The entire application — every query, every server action, every
           line of the interface you&apos;re using — is public. You can read exactly how

@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Reset your password",
-  description: "Reset the password for your MoneyTracker account.",
+  description: "Reset the password for your SpendChat account.",
   robots: { index: false, follow: false },
 };
 

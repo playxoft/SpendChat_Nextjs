@@ -1,8 +1,8 @@
-# MoneyTracker
+# SpendChat
 
 A minimal, fast, and secure personal **money tracker** — add, view, filter, download, and print your income and expenses. Free to use.
 
-🌐 **Live demo:** coming soon — will be deployed to [moneytracker.playxoft.com](https://moneytracker.playxoft.com)
+🌐 **Live demo:** coming soon — will be deployed to [spendchat.playxoft.com](https://spendchat.playxoft.com)
 
 ---
 
@@ -108,7 +108,7 @@ Managed by **Doppler** — see [`.env.example`](./.env.example) for the full lis
 
 ## 🌍 Deployment
 
-Deployed to **Cloudflare Workers** and served at `moneytracker.playxoft.com`.
+Deployed to **Cloudflare Workers** and served at `spendchat.playxoft.com`.
 
 ```bash
 pnpm deploy   # builds + deploys using the Doppler `prd` config
@@ -147,7 +147,7 @@ Licensed under the [GNU Affero General Public License v3.0](./LICENSE) (AGPL-3.0
 Copyright © 2026 Playxoft.
 
 > **Why AGPL?** AGPL-3.0 is a strong copyleft license: anyone who runs a modified
-> version of MoneyTracker as a network service must make their source available
+> version of SpendChat as a network service must make their source available
 > under the same terms. This keeps the project and its improvements open.
 
 > **Open core:** this repository is open source and stays that way. Playxoft also

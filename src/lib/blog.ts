@@ -1,7 +1,7 @@
 import type { ComponentType } from "react";
 import * as conversation from "@/content/blog/track-your-money-like-a-conversation.mdx";
-import * as openSource from "@/content/blog/moneytracker-is-now-open-source.mdx";
-import * as introducing from "@/content/blog/introducing-moneytracker.mdx";
+import * as openSource from "@/content/blog/spendchat-is-now-open-source.mdx";
+import * as introducing from "@/content/blog/introducing-spendchat.mdx";
 
 /** Frontmatter exported from each post's `.mdx` file as `export const meta`. */
 export type BlogMeta = {
@@ -38,8 +38,8 @@ type MdxModule = { default: ComponentType; meta: BlogMeta };
  */
 const registry: { slug: string; mod: MdxModule }[] = [
   { slug: "track-your-money-like-a-conversation", mod: conversation },
-  { slug: "moneytracker-is-now-open-source", mod: openSource },
-  { slug: "introducing-moneytracker", mod: introducing },
+  { slug: "spendchat-is-now-open-source", mod: openSource },
+  { slug: "introducing-spendchat", mod: introducing },
 ];
 
 const isProd = process.env.NODE_ENV === "production";

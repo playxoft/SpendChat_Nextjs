@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-MoneyTracker is under active development. Security fixes are applied to the
+SpendChat is under active development. Security fixes are applied to the
 `master` branch. There are no long-term support branches yet.
 
 ## Reporting a vulnerability
@@ -35,4 +35,4 @@ especially seriously:
 - Injection (queries are parameterized via Drizzle; input is validated with Zod)
 - Secret exposure (secrets are managed by Doppler and never committed)
 
-Thank you for helping keep MoneyTracker and its users safe.
+Thank you for helping keep SpendChat and its users safe.

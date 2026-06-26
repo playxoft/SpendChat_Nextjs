@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Sign in",
-  description: "Sign in to your MoneyTracker account.",
+  description: "Sign in to your SpendChat account.",
   robots: { index: false, follow: false },
 };
 

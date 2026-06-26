@@ -185,7 +185,7 @@ async function TransactionsData({
       </p>
 
       <div className="mt-4 mb-3 hidden print:block">
-        <h2 className="text-lg font-semibold">MoneyTracker — Transactions</h2>
+        <h2 className="text-lg font-semibold">SpendChat — Transactions</h2>
         {range.month && <p className="mt-1 text-3xl font-bold">{range.month}</p>}
         <p className="mt-0.5 text-sm font-medium">{range.label}</p>
         <p className="text-sm text-muted-foreground">

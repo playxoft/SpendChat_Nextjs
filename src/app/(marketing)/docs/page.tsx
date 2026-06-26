@@ -9,7 +9,7 @@ import { marketingCta } from "@/lib/marketing";
 export const metadata: Metadata = {
   title: "Docs",
   description:
-    "Documentation for MoneyTracker — getting started, adding transactions, categories, bulk import, filtering, exporting, keyboard shortcuts, privacy, and self-hosting the open-source app.",
+    "Documentation for SpendChat — getting started, adding transactions, categories, bulk import, filtering, exporting, keyboard shortcuts, privacy, and self-hosting the open-source app.",
   alternates: { canonical: "/docs" },
 };
 
@@ -30,7 +30,7 @@ const sections: Section[] = [
     blocks: [
       {
         kind: "p",
-        text: "MoneyTracker is a chat-style tracker for your income and expenses. Create a free account and you can start logging transactions in seconds — no setup, no connected bank accounts, no credit card.",
+        text: "SpendChat is a chat-style tracker for your income and expenses. Create a free account and you can start logging transactions in seconds — no setup, no connected bank accounts, no credit card.",
       },
       {
         kind: "steps",
@@ -146,7 +146,7 @@ const sections: Section[] = [
     blocks: [
       {
         kind: "p",
-        text: `MoneyTracker is open source under the ${siteConfig.license} license. You can read the full source, file issues, and self-host your own instance. The app is built on Next.js (App Router), Tailwind CSS with shadcn/ui, Neon Postgres with Drizzle, Neon Auth, and deploys to Cloudflare Workers via OpenNext.`,
+        text: `SpendChat is open source under the ${siteConfig.license} license. You can read the full source, file issues, and self-host your own instance. The app is built on Next.js (App Router), Tailwind CSS with shadcn/ui, Neon Postgres with Drizzle, Neon Auth, and deploys to Cloudflare Workers via OpenNext.`,
       },
       {
         kind: "steps",

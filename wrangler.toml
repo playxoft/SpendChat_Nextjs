@@ -1,4 +1,4 @@
-name = "moneytracker"
+name = "spendchat"
 main = ".open-next/worker.js"
 compatibility_date = "2025-09-23"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
@@ -15,7 +15,7 @@ keep_vars = true
 # Cloudflare account). Comment out for a quick *.workers.dev preview.
 # NOTE: top-level keys must appear before any [table] headers in TOML.
 routes = [
-  { pattern = "moneytracker.playxoft.com", custom_domain = true },
+  { pattern = "spendchat.playxoft.com", custom_domain = true },
 ]
 
 # Static assets emitted by OpenNext
