@@ -14,7 +14,16 @@ export type SessionUser = {
 
 /** Current user or null. */
 export async function getCurrentUser(): Promise<SessionUser | null> {
-  const { data } = await auth.getSession();
+  // Server Components / layouts can't write cookies (Next.js throws "Cookies can
+  // only be modified in a Server Action or Route Handler"). A plain getSession()
+  // refreshes the session-data cache cookie on a cache miss, which triggers that
+  // write during render. `disableCookieCache` + `disableRefresh` keep the upstream
+  // read-only (no Set-Cookie), so this is safe to call anywhere. The cache cookie
+  // and token refresh are still maintained by the client + the /api/auth route
+  // handler, where cookie writes are allowed.
+  const { data } = await auth.getSession({
+    query: { disableCookieCache: true, disableRefresh: true },
+  });
   const user = data?.user;
   if (!user) return null;
   return {

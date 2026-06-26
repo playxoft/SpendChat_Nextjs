@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
-import { CalendarPlus, Download, ListPlus } from "lucide-react";
+import { Download } from "lucide-react";
 import {
   endOfMonth,
   format,
@@ -20,16 +20,14 @@ import {
 } from "@/lib/queries";
 import { parseTxnFilters } from "@/lib/filters";
 import { parseISODate, todayISO } from "@/lib/dates";
+import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Kbd } from "@/components/ui/kbd";
-import { comboFor } from "@/lib/shortcuts";
 import { TransactionFilters } from "@/components/app/transaction-filters";
 import { TransactionsTable } from "@/components/app/transactions-table";
 import { TransactionsResultsSkeleton } from "@/components/app/transactions-skeleton";
-import { TransactionDialog } from "@/components/app/transaction-dialog";
-import { BulkAddDialog } from "@/components/app/bulk-add-dialog";
+import { TransactionsActions } from "@/components/app/transactions-actions";
 import { PrintButton } from "@/components/app/print-button";
 
 export const dynamic = "force-dynamic";
@@ -76,7 +74,7 @@ export default async function TransactionsPage({
     getCategories(user.id),
     getProfiles(user.id),
   ]);
-  const today = todayISO();
+  const today = todayISO(await getTimeZone());
 
   const filters = parseTxnFilters(one);
   const allProfiles = !filters.profileId;
@@ -99,34 +97,13 @@ export default async function TransactionsPage({
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <h1 className="text-xl font-semibold">Transactions</h1>
         <div className="flex items-center gap-1.5">
-          <TransactionDialog
-            mode="add"
+          <TransactionsActions
             categories={categories}
             profiles={profiles}
             activeProfileId={composerProfileId}
             currency={currency}
             today={today}
-            trigger={
-              <Button size="sm" className="gap-1.5">
-                <CalendarPlus className="size-4" />
-                Add transaction
-                <Kbd combo={comboFor("action.add")} className="hidden sm:inline-flex" />
-              </Button>
-            }
-          />
-          <BulkAddDialog
-            today={today}
-            categories={categories}
-            profiles={profiles}
-            activeProfileId={composerProfileId}
             allProfiles={allProfiles}
-            trigger={
-              <Button variant="outline" size="sm">
-                <ListPlus className="size-4" />
-                <span className="hidden sm:inline">Bulk add</span>
-                <Kbd combo={comboFor("action.bulk")} className="hidden sm:inline-flex" />
-              </Button>
-            }
           />
           <Button asChild variant="outline" size="sm">
             <a href={exportHref}>

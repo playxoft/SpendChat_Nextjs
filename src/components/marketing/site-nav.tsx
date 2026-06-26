@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { GithubIcon } from "@/components/icons/github";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { marketingNav } from "@/lib/site";
+import { marketingNav, siteConfig } from "@/lib/site";
 
 /**
  * Floating, capsule-style marketing navigation pinned to the top of the
@@ -38,18 +39,28 @@ export function SiteNav() {
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+          <Button
+            asChild
+            variant="ghost"
+            size="icon"
+            aria-label="View MoneyTracker on GitHub"
+            className="hidden rounded-full sm:inline-flex"
+          >
+            <a href={siteConfig.links.github} target="_blank" rel="noreferrer">
+              <GithubIcon className="size-[18px]" />
+            </a>
+          </Button>
           <div className="hidden sm:block">
             <ThemeToggle />
           </div>
           <Button
             asChild
             variant="ghost"
-            size="sm"
-            className="hidden rounded-full sm:inline-flex"
+            className="hidden h-10 rounded-full sm:inline-flex"
           >
             <Link href="/sign-in">Sign in</Link>
           </Button>
-          <Button asChild size="sm" className="rounded-full">
+          <Button asChild className="h-10 rounded-full px-5">
             <Link href="/sign-up">Get started</Link>
           </Button>
         </div>

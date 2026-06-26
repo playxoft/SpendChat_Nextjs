@@ -65,7 +65,7 @@ export function CategoryRow({
         )}
       </div>
 
-      {categories.length > 0 && (
+      {(categories.length > 0 || onEdit) && (
         <Popover open={open} onOpenChange={setOpen}>
           <PopoverTrigger asChild>
             <button
@@ -81,39 +81,45 @@ export function CategoryRow({
             closeOnOutsideClick
             className="w-auto max-w-[min(92vw,30rem)]"
           >
-            <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
-              {categories.map((c) => (
+            {categories.length > 0 && (
+              <div className="grid grid-cols-2 gap-1 sm:grid-cols-3">
+                {categories.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => {
+                      onChange(value === c.id ? null : c.id);
+                      setOpen(false);
+                    }}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
+                      value === c.id && "bg-muted font-medium",
+                    )}
+                  >
+                    <span aria-hidden>{c.icon ?? "🏷️"}</span>
+                    <span className="truncate">{c.name}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {onEdit && (
+              <>
+                {categories.length > 0 && <div className="my-2 border-t" />}
                 <button
-                  key={c.id}
                   type="button"
                   onClick={() => {
-                    onChange(value === c.id ? null : c.id);
                     setOpen(false);
+                    onEdit();
                   }}
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted",
-                    value === c.id && "bg-muted font-medium",
-                  )}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted"
                 >
-                  <span aria-hidden>{c.icon ?? "🏷️"}</span>
-                  <span className="truncate">{c.name}</span>
+                  <Tags className="size-4 text-muted-foreground" />
+                  Edit categories
                 </button>
-              ))}
-            </div>
+              </>
+            )}
           </PopoverContent>
         </Popover>
-      )}
-
-      {onEdit && (
-        <button
-          type="button"
-          onClick={onEdit}
-          title="Edit categories"
-          className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-        >
-          <Tags className="size-3.5" />
-          <span className="hidden sm:inline">Edit</span>
-        </button>
       )}
     </div>
   );

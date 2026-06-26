@@ -101,7 +101,7 @@ export default function LandingPage() {
               tracker. Add a transaction in seconds, then filter, download, and
               print whenever you need. Free to use.
             </p>
-            <div className="mt-8 flex flex-wrap items-center gap-3">
+            <div className="mt-8 flex items-center gap-2.5">
               <Button asChild className={marketingCta}>
                 <Link href="/sign-up">
                   Start tracking free <ArrowRight />
@@ -110,9 +110,15 @@ export default function LandingPage() {
               <Button asChild variant="outline" className={marketingCta}>
                 <Link href="/features">See features</Link>
               </Button>
-              <Button asChild variant="ghost" className={marketingCta}>
+              <Button
+                asChild
+                variant="outline"
+                size="icon"
+                aria-label="View MoneyTracker on GitHub"
+                className="size-12 shrink-0 rounded-xl"
+              >
                 <a href={siteConfig.links.github} target="_blank" rel="noreferrer">
-                  <GithubIcon /> Source
+                  <GithubIcon className="size-5" />
                 </a>
               </Button>
             </div>

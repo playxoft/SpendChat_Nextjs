@@ -8,6 +8,7 @@ import {
 } from "@/lib/queries";
 import { parseTxnFilters } from "@/lib/filters";
 import { formatDateLabel, monthLabel, monthRange, todayISO } from "@/lib/dates";
+import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import {
@@ -54,7 +55,7 @@ export default async function AnalyticsPage({
   const settings = await getUserSettings(user.id);
   const { currency, locale } = settings;
 
-  const today = todayISO();
+  const today = todayISO(await getTimeZone());
   const { start, end } = monthRange(today);
   const parsed = parseTxnFilters(get);
   const range = { from: parsed.from ?? start, to: parsed.to ?? end };

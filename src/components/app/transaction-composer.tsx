@@ -206,7 +206,7 @@ export function TransactionComposer({
         e.preventDefault();
         submit();
       }}
-      className="sticky bottom-20 z-20 border-t bg-background/95 px-3 py-3 backdrop-blur-sm md:bottom-0"
+      className="sticky bottom-16 z-20 border-t bg-background px-3 py-3 md:bottom-0 md:bg-background/95 md:backdrop-blur-sm"
     >
       <div className="mx-auto flex max-w-2xl flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -218,7 +218,7 @@ export function TransactionComposer({
                 onClick={() => switchType(t)}
                 aria-pressed={type === t}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1 capitalize transition-colors",
+                  "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 capitalize transition-colors md:px-3 md:py-1",
                   type === t
                     ? "bg-background font-medium shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
@@ -238,11 +238,11 @@ export function TransactionComposer({
               value={occurredOn}
               max={today}
               onChange={setOccurredOn}
-              className="h-8 w-auto"
+              className="h-10 w-auto md:h-8"
             />
             {allProfiles && profiles.length > 0 && (
               <Select value={profileId} onValueChange={setProfileId}>
-                <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile for new transaction">
+                <SelectTrigger className="h-10 w-auto gap-1 md:h-8" aria-label="Profile for new transaction">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="end">
@@ -277,7 +277,7 @@ export function TransactionComposer({
               onChange={(e) => setAmount(e.target.value)}
               onKeyDown={onAmountKeyDown}
               aria-label="Amount"
-              className="w-28 pl-7 tabular-nums"
+              className="h-11 w-28 pl-7 tabular-nums md:h-8"
             />
           </div>
 
@@ -294,11 +294,13 @@ export function TransactionComposer({
               }}
               onKeyDown={onTitleKeyDown}
               aria-label="Title"
-              className="w-full"
+              className="h-11 w-full md:h-8"
             />
           </div>
 
-          {sendButton}
+          {/* Send sits inline on desktop; on mobile it moves to a full-width
+              button at the bottom (see below) for an easier thumb reach. */}
+          <div className="hidden md:block">{sendButton}</div>
 
           {/* Anchored to the input row (not the narrow title) and clamped to the
               viewport, so it never runs off-screen on a phone. */}
@@ -342,7 +344,18 @@ export function TransactionComposer({
           onChange={(e) => setDescription(e.target.value)}
           onKeyDown={onDescriptionKeyDown}
           aria-label="Description"
+          className="h-11 md:h-8"
         />
+
+        {/* Full-width send on mobile — easy thumb reach at the bottom. */}
+        <Button
+          type="submit"
+          disabled={pending}
+          aria-label={`Send transaction (${submitLabel})`}
+          className="h-12 w-full gap-1.5 text-base md:hidden"
+        >
+          <ArrowUp className="size-5" /> Send
+        </Button>
       </div>
 
       <CategoryEditorDialog
