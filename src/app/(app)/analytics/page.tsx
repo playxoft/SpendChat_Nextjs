@@ -79,7 +79,7 @@ export default async function AnalyticsPage({
       <AnalyticsFilters today={today} />
 
       <div className="hidden print:block">
-        <h2 className="text-lg font-semibold">MoneyTracker — Analytics</h2>
+        <h2 className="text-lg font-semibold">SpendChat — Analytics</h2>
         <p className="text-sm">{rangeLabel}</p>
       </div>
 

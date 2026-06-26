@@ -1,4 +1,4 @@
-<!-- Thanks for contributing to MoneyTracker! Please fill this in. -->
+<!-- Thanks for contributing to SpendChat! Please fill this in. -->
 
 ## What does this PR do?
 

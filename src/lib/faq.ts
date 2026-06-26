@@ -2,8 +2,8 @@ export type Faq = { q: string; a: string };
 
 export const faqs: Faq[] = [
   {
-    q: "Is MoneyTracker free to use?",
-    a: "Yes. MoneyTracker is completely free for personal use — add unlimited income and expense transactions, filter them, and export or print whenever you like.",
+    q: "Is SpendChat free to use?",
+    a: "Yes. SpendChat is completely free for personal use — add unlimited income and expense transactions, filter them, and export or print whenever you like.",
   },
   {
     q: "How do I add a transaction?",
@@ -18,7 +18,7 @@ export const faqs: Faq[] = [
     a: "Absolutely. Any filtered view can be downloaded as a CSV file or sent to your printer (or saved as a PDF) with a clean, print-friendly layout.",
   },
   {
-    q: "Which currency does MoneyTracker support?",
+    q: "Which currency does SpendChat support?",
     a: "You choose a single currency in Settings and the whole app uses it. Amounts are stored precisely as integer minor units, so there is never any rounding drift.",
   },
   {
@@ -27,7 +27,7 @@ export const faqs: Faq[] = [
   },
   {
     q: "Do I need to install an app?",
-    a: "No installation needed. MoneyTracker runs in any modern browser and is designed to work smoothly on mobile, tablet, and desktop.",
+    a: "No installation needed. SpendChat runs in any modern browser and is designed to work smoothly on mobile, tablet, and desktop.",
   },
   {
     q: "Can I filter and search my history?",

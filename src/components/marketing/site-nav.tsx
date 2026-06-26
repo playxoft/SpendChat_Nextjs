@@ -19,7 +19,7 @@ export function SiteNav() {
       <nav className="mx-auto flex h-14 w-full max-w-5xl items-center gap-1 rounded-full border bg-background/80 px-2 shadow-lg shadow-black/5 backdrop-blur-md sm:gap-3 sm:px-3">
         <Link
           href="/"
-          aria-label={`${"MoneyTracker"} home`}
+          aria-label={`${"SpendChat"} home`}
           className="flex shrink-0 items-center pl-1.5"
         >
           <Logo showText={false} className="sm:hidden" />
@@ -43,7 +43,7 @@ export function SiteNav() {
             asChild
             variant="ghost"
             size="icon"
-            aria-label="View MoneyTracker on GitHub"
+            aria-label="View SpendChat on GitHub"
             className="hidden rounded-full sm:inline-flex"
           >
             <a href={siteConfig.links.github} target="_blank" rel="noreferrer">

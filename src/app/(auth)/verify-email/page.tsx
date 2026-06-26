@@ -4,7 +4,7 @@ import { VerifyEmailForm } from "./verify-email-form";
 
 export const metadata: Metadata = {
   title: "Verify your email",
-  description: "Verify your MoneyTracker email address.",
+  description: "Verify your SpendChat email address.",
   robots: { index: false, follow: false },
 };
 

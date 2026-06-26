@@ -9,7 +9,7 @@ import { marketingCta } from "@/lib/marketing";
 export const metadata: Metadata = {
   title: "FAQ",
   description:
-    "Answers to common questions about MoneyTracker — pricing, adding and bulk-importing transactions, exporting and printing, currencies, and privacy.",
+    "Answers to common questions about SpendChat — pricing, adding and bulk-importing transactions, exporting and printing, currencies, and privacy.",
   alternates: { canonical: "/faq" },
 };
 

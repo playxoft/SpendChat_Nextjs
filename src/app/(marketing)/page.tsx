@@ -97,7 +97,7 @@ export default function LandingPage() {
               Track your money like a conversation.
             </h1>
             <p className="mt-5 max-w-lg text-pretty text-lg text-muted-foreground">
-              MoneyTracker is a minimal, fast, open-source expense and income
+              SpendChat is a minimal, fast, open-source expense and income
               tracker. Add a transaction in seconds, then filter, download, and
               print whenever you need. Free to use.
             </p>
@@ -114,7 +114,7 @@ export default function LandingPage() {
                 asChild
                 variant="outline"
                 size="icon"
-                aria-label="View MoneyTracker on GitHub"
+                aria-label="View SpendChat on GitHub"
                 className="size-12 shrink-0 rounded-xl"
               >
                 <a href={siteConfig.links.github} target="_blank" rel="noreferrer">

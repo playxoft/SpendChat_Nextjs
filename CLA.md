@@ -1,6 +1,6 @@
 # Contributor License Agreement
 
-Thank you for contributing to MoneyTracker (the "Project"), maintained by Playxoft
+Thank you for contributing to SpendChat (the "Project"), maintained by Playxoft
 ("Playxoft", "we", "us"). This Contributor License Agreement ("Agreement")
 clarifies the intellectual-property license granted with Contributions from any
 person or entity. It protects both you and Playxoft, and lets us keep the Project

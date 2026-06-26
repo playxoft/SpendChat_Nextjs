@@ -1,4 +1,4 @@
-# Contributing to MoneyTracker
+# Contributing to SpendChat
 
 Thanks for your interest in contributing! This document covers how to get set up,
 the conventions we follow, and how to submit changes.
@@ -47,7 +47,7 @@ chore: bump dependencies
 
 ## Contributor License Agreement (CLA)
 
-MoneyTracker is **open core**: the code in this repository is open source under
+SpendChat is **open core**: the code in this repository is open source under
 AGPL-3.0, and Playxoft also offers a commercial/SaaS product built on top of it
 (see [Open core & commercial use](#open-core--commercial-use) below).
 
