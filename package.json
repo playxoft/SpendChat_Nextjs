@@ -15,7 +15,7 @@
     "typecheck": "tsc --noEmit",
     "preview": "doppler run -- opennextjs-cloudflare build && doppler run -- opennextjs-cloudflare preview",
     "build:worker": "doppler run -- opennextjs-cloudflare build",
-    "deploy": "doppler run --config prd -- opennextjs-cloudflare build && doppler run --config prd -- opennextjs-cloudflare deploy",
+    "deploy": "doppler run --config prd_money_tracker_nextjs -- opennextjs-cloudflare build && doppler run --config prd_money_tracker_nextjs -- opennextjs-cloudflare deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv ./cloudflare-env.d.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "doppler run -- drizzle-kit migrate",

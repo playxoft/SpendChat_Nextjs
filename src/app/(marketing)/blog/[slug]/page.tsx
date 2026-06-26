@@ -4,18 +4,18 @@ import { notFound } from "next/navigation";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
-import { getPost, getPosts, formatPostDate } from "@/lib/blog";
+import { getPost, formatPostDate } from "@/lib/blog";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
 type Params = { params: Promise<{ slug: string }> };
 
-export function generateStaticParams() {
-  return getPosts().map((p) => ({ slug: p.slug }));
-}
-
-// Only the posts above are built; any other slug 404s (no runtime rendering).
-export const dynamicParams = false;
+// Render on demand rather than prerendering (SSG). The posts' MDX is bundled
+// at build time, so there's nothing to fetch — but on Cloudflare/OpenNext,
+// prerendered dynamic routes need an incremental cache to be served (otherwise
+// they 404), while on-demand dynamic routes always work. `getPost` returns
+// undefined for unknown slugs below, so those still 404 as expected.
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { slug } = await params;

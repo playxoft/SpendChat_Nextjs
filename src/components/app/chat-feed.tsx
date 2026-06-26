@@ -5,15 +5,20 @@ import { dayDividerLabel } from "@/lib/dates";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 
-function timeLabel(value: Date | string, locale: string): string {
+function timeLabel(value: Date | string, locale: string, timeZone: string): string {
   const d = value instanceof Date ? value : new Date(value);
-  return d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  return d.toLocaleTimeString(locale, {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone,
+  });
 }
 
 export function ChatFeed({
   rows,
   currency,
   locale,
+  timeZone,
   today,
   categories,
   profiles = [],
@@ -21,6 +26,7 @@ export function ChatFeed({
   rows: TransactionRow[];
   currency: string;
   locale: string;
+  timeZone: string;
   today: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles?: Pick<Profile, "id" | "name" | "icon">[];
@@ -62,7 +68,7 @@ export function ChatFeed({
                 categories={categories}
                 profiles={profiles}
                 today={today}
-                timeLabel={timeLabel(r.createdAt, locale)}
+                timeLabel={timeLabel(r.createdAt, locale, timeZone)}
               />
             ))}
           </div>

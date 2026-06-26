@@ -25,6 +25,7 @@ export const siteConfig = {
   links: {
     twitter: "https://twitter.com/",
     github: "https://github.com/rnithin133/MoneyTracker_Nextjs",
+    playxoft: "https://playxoft.com",
   },
 } as const;
 
@@ -33,6 +34,7 @@ export const marketingNav = [
   { href: "/features", label: "Features" },
   { href: "/docs", label: "Docs" },
   { href: "/blog", label: "Blog" },
+  { href: "/about", label: "About" },
 ] as const;
 
 /** Authenticated app navigation. */

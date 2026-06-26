@@ -158,12 +158,21 @@ export default function AboutPage() {
         ))}
       </dl>
 
-      <p className="mt-12 text-muted-foreground">
-        {siteConfig.name} is built and maintained by {siteConfig.author}.
+      <p className="mt-12 text-center text-muted-foreground">
+        {siteConfig.name} is built and maintained by{" "}
+        <a
+          href={siteConfig.links.playxoft}
+          target="_blank"
+          rel="noreferrer"
+          className="font-medium text-foreground underline-offset-4 hover:underline"
+        >
+          {siteConfig.author}
+        </a>
+        .
       </p>
 
       {/* CTA */}
-      <div className="mt-10 flex flex-wrap gap-3">
+      <div className="mt-10 flex flex-wrap justify-center gap-3">
         <Button asChild className={marketingCta}>
           <Link href="/sign-up">
             Start tracking free <ArrowRight />

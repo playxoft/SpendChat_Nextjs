@@ -161,7 +161,7 @@ export function BulkAddDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-[min(96rem,95vw)]">
         <DialogHeader>
           <DialogTitle>Bulk add transactions</DialogTitle>
           <DialogDescription>

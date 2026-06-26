@@ -1,8 +1,17 @@
-/** Today's date as YYYY-MM-DD in local time. */
-export function todayISO(): string {
-  const d = new Date();
-  const tz = d.getTimezoneOffset() * 60000;
-  return new Date(d.getTime() - tz).toISOString().slice(0, 10);
+/**
+ * Today's date as YYYY-MM-DD in the given IANA timezone (e.g. "Asia/Kolkata").
+ * Cloudflare Workers runs in UTC, so the viewer's zone must be passed explicitly
+ * to get their real local date; omit it to use the runtime's zone.
+ */
+export function todayISO(timeZone?: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
 /** Parse a YYYY-MM-DD string into a local-time Date (no timezone drift). */
@@ -28,20 +37,26 @@ export function monthRange(dateISO: string): { start: string; end: string } {
   return { start, end };
 }
 
-/** Human label for a YYYY-MM-DD date, e.g. "Jun 17, 2026". */
+/**
+ * Human label for a YYYY-MM-DD date, e.g. "Jun 17, 2026". `occurredOn` is a
+ * date-only value, so it's parsed and formatted in UTC to show exactly the
+ * stored calendar date regardless of the runtime's zone.
+ */
 export function formatDateLabel(dateISO: string, locale = "en-US"): string {
-  const d = new Date(`${dateISO}T00:00:00`);
+  const d = new Date(`${dateISO}T00:00:00Z`);
   return d.toLocaleDateString(locale, {
     year: "numeric",
     month: "short",
     day: "numeric",
+    timeZone: "UTC",
   });
 }
 
 /** Relative day divider label: Today / Yesterday / full date. */
 export function dayDividerLabel(dateISO: string, today: string, locale = "en-US"): string {
   if (dateISO === today) return "Today";
-  const t = new Date(`${today}T00:00:00`);
+  // Parse as UTC so the day-before arithmetic never drifts by the runtime offset.
+  const t = new Date(`${today}T00:00:00Z`);
   const yesterday = new Date(t.getTime() - 86400000).toISOString().slice(0, 10);
   if (dateISO === yesterday) return "Yesterday";
   return formatDateLabel(dateISO, locale);

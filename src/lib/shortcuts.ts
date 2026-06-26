@@ -15,8 +15,8 @@ export type ShortcutDef = {
 export const SHORTCUTS: ShortcutDef[] = [
   // Single-key navigation + actions — fire only when not typing in a field and
   // no dialog/menu is open (see `requireNoOverlay` in use-shortcut).
-  { id: "nav.tracker", combo: "t", label: "Go to the tracker", scope: "Navigation" },
-  { id: "nav.transactions", combo: "r", label: "Go to transactions", scope: "Navigation" },
+  { id: "nav.tracker", combo: "q", label: "Go to the tracker", scope: "Navigation" },
+  { id: "nav.transactions", combo: "t", label: "Go to transactions", scope: "Navigation" },
   { id: "nav.analytics", combo: "a", label: "Go to analytics", scope: "Navigation" },
   { id: "nav.settings", combo: "s", label: "Go to settings", scope: "Navigation" },
   { id: "action.add", combo: "e", label: "Add a transaction", scope: "Actions" },

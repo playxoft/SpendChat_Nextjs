@@ -1,19 +1,19 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { CalendarPlus, ListPlus } from "lucide-react";
 import { requireUser, getUserSettings } from "@/lib/auth";
 import { getCategories, getProfiles, getSummary, listTransactionsAsc } from "@/lib/queries";
 import { parseActiveProfile } from "@/lib/filters";
 import { monthLabel, monthRange, todayISO } from "@/lib/dates";
+import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { ChatFeed } from "@/components/app/chat-feed";
 import { ChatBalanceSkeleton, ChatFeedSkeleton } from "@/components/app/chat-skeleton";
 import { TransactionComposer } from "@/components/app/transaction-composer";
-import { TransactionDialog } from "@/components/app/transaction-dialog";
-import { BulkAddDialog } from "@/components/app/bulk-add-dialog";
+import { TrackerActions } from "@/components/app/tracker-actions";
 import { ScrollToBottom } from "@/components/app/scroll-to-bottom";
+import { ProfileSwitcher } from "@/components/app/profile-switcher";
+import { ProfileSwipe } from "@/components/app/profile-swipe";
 
 export const dynamic = "force-dynamic";
 
@@ -41,11 +41,9 @@ export default async function ChatPage({
   const allProfiles = !filterProfileId;
   // Which profile new transactions land in (falls back to the first profile).
   const composerProfileId = filterProfileId ?? profiles[0]?.id;
-  const activeProfile = filterProfileId
-    ? (profiles.find((p) => p.id === filterProfileId) ?? null)
-    : null;
 
-  const today = todayISO();
+  const timeZone = await getTimeZone();
+  const today = todayISO(timeZone);
   const { start, end } = monthRange(today);
   const { currency, locale } = settings;
   // Changing the key remounts the streamed sections so their skeletons show
@@ -57,51 +55,19 @@ export default async function ChatPage({
       <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0">
         <div className="mx-auto max-w-2xl px-4 pt-3 pb-2">
           <div className="flex items-center gap-3">
-            <div
-              aria-hidden
-              className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-lg"
-            >
-              {activeProfile?.icon ?? (filterProfileId ? "👤" : "🗂️")}
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="truncate font-medium">
-                {activeProfile?.name ?? "All profiles"}
-              </p>
-              <p className="truncate text-xs text-muted-foreground">
-                {allProfiles
-                  ? `${profiles.length} profile${profiles.length === 1 ? "" : "s"}`
-                  : "Transactions this month"}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1.5">
-              <TransactionDialog
-                mode="add"
-                categories={categories}
-                profiles={profiles}
-                activeProfileId={composerProfileId}
-                currency={currency}
-                today={today}
-                trigger={
-                  <Button variant="ghost" size="icon" aria-label="Add with a custom date">
-                    <CalendarPlus className="size-4" />
-                  </Button>
-                }
-              />
-              <BulkAddDialog
-                today={today}
-                categories={categories}
-                profiles={profiles}
-                activeProfileId={composerProfileId}
-                allProfiles={allProfiles}
-                currency={currency}
-                trigger={
-                  <Button variant="outline" size="sm">
-                    <ListPlus className="size-4" />
-                    <span className="hidden sm:inline">Bulk add</span>
-                  </Button>
-                }
-              />
-            </div>
+            <ProfileSwitcher
+              profiles={profiles}
+              filterProfileId={filterProfileId}
+              allProfiles={allProfiles}
+            />
+            <TrackerActions
+              categories={categories}
+              profiles={profiles}
+              activeProfileId={composerProfileId}
+              currency={currency}
+              today={today}
+              allProfiles={allProfiles}
+            />
           </div>
 
           <Suspense key={streamKey} fallback={<ChatBalanceSkeleton />}>
@@ -127,6 +93,7 @@ export default async function ChatPage({
             profileId={filterProfileId}
             currency={currency}
             locale={locale}
+            timeZone={timeZone}
             today={today}
             categories={categories}
             profiles={profiles}
@@ -142,6 +109,9 @@ export default async function ChatPage({
         activeProfileId={composerProfileId}
         allProfiles={allProfiles}
       />
+
+      {/* Mobile: swipe left/right across the tracker to change profile. */}
+      <ProfileSwipe profiles={profiles} filterProfileId={filterProfileId} />
     </div>
   );
 }
@@ -196,6 +166,7 @@ async function FeedStream({
   profileId,
   currency,
   locale,
+  timeZone,
   today,
   categories,
   profiles,
@@ -206,6 +177,7 @@ async function FeedStream({
   profileId?: string;
   currency: string;
   locale: string;
+  timeZone: string;
   today: string;
   categories: Awaited<ReturnType<typeof getCategories>>;
   profiles: Awaited<ReturnType<typeof getProfiles>>;
@@ -222,6 +194,7 @@ async function FeedStream({
         rows={rows}
         currency={currency}
         locale={locale}
+        timeZone={timeZone}
         today={today}
         categories={categories}
         profiles={profiles}

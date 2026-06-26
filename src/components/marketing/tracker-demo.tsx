@@ -4,6 +4,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { DayDivider } from "@/components/app/day-divider";
 import { TransactionBubble } from "@/components/app/transaction-bubble";
 import { DEFAULT_CATEGORIES } from "@/lib/categories";
@@ -25,35 +32,33 @@ type DemoTxn = {
 const CURRENCY = "USD";
 const LOCALE = "en-US";
 
-const SEED: DemoTxn[] = [
-  {
-    id: 1,
-    type: "income",
-    amountMinor: 200000,
-    title: "June salary",
-    categoryName: "Salary",
-    categoryIcon: "💼",
-    timeLabel: "9:02 AM",
-  },
-  {
-    id: 2,
-    type: "expense",
-    amountMinor: 1250,
-    title: "Lunch with the team",
-    categoryName: "Food & Dining",
-    categoryIcon: "🍽️",
-    timeLabel: "1:14 PM",
-  },
-  {
-    id: 3,
-    type: "expense",
-    amountMinor: 4000,
-    title: "Weekly groceries",
-    categoryName: "Groceries",
-    categoryIcon: "🛒",
-    timeLabel: "6:30 PM",
-  },
-];
+const PROFILES = ["Home", "Personal", "Business"] as const;
+type Profile = (typeof PROFILES)[number];
+const PROFILE_ICON: Record<Profile, string> = {
+  Home: "🏠",
+  Personal: "👤",
+  Business: "💼",
+};
+
+/** Separate seed feeds per profile, so switching the dropdown genuinely swaps
+ * the data — exactly how profiles behave in the real app. */
+const SEEDS: Record<Profile, DemoTxn[]> = {
+  Personal: [
+    { id: 1, type: "income", amountMinor: 200000, title: "June salary", categoryName: "Salary", categoryIcon: "💼", timeLabel: "9:02 AM" },
+    { id: 2, type: "expense", amountMinor: 1250, title: "Lunch with the team", categoryName: "Food & Dining", categoryIcon: "🍽️", timeLabel: "1:14 PM" },
+    { id: 3, type: "expense", amountMinor: 4000, title: "Weekly groceries", categoryName: "Groceries", categoryIcon: "🛒", timeLabel: "6:30 PM" },
+  ],
+  Home: [
+    { id: 1, type: "expense", amountMinor: 120000, title: "Rent", categoryName: "Housing", categoryIcon: "🏠", timeLabel: "8:00 AM" },
+    { id: 2, type: "expense", amountMinor: 6800, title: "Electricity bill", categoryName: "Utilities", categoryIcon: "💡", timeLabel: "11:20 AM" },
+    { id: 3, type: "expense", amountMinor: 7350, title: "Household supplies", categoryName: "Groceries", categoryIcon: "🛒", timeLabel: "5:45 PM" },
+  ],
+  Business: [
+    { id: 1, type: "income", amountMinor: 350000, title: "Client invoice", categoryName: "Income", categoryIcon: "🧾", timeLabel: "10:05 AM" },
+    { id: 2, type: "expense", amountMinor: 4900, title: "SaaS subscriptions", categoryName: "Software", categoryIcon: "🧩", timeLabel: "2:30 PM" },
+    { id: 3, type: "expense", amountMinor: 12000, title: "Online ads", categoryName: "Marketing", categoryIcon: "📣", timeLabel: "4:10 PM" },
+  ],
+};
 
 function timeLabelNow(): string {
   return new Date().toLocaleTimeString(LOCALE, {
@@ -69,10 +74,13 @@ function timeLabelNow(): string {
  * local only (no account, no database).
  */
 export function TrackerDemo() {
-  const [txns, setTxns] = useState<DemoTxn[]>(SEED);
+  const [profile, setProfile] = useState<Profile>("Personal");
+  const [byProfile, setByProfile] = useState<Record<Profile, DemoTxn[]>>(SEEDS);
   const [type, setType] = useState<TxnType>("expense");
   const [amount, setAmount] = useState("");
   const [title, setTitle] = useState("");
+
+  const txns = byProfile[profile];
 
   const categories = useMemo(
     () => DEFAULT_CATEGORIES.filter((c) => c.kind === type),
@@ -80,7 +88,7 @@ export function TrackerDemo() {
   );
   const [categoryName, setCategoryName] = useState(categories[0]?.name ?? "Other");
 
-  const nextId = useRef(SEED.length + 1);
+  const nextId = useRef(100);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const activeCategory =
@@ -108,18 +116,16 @@ export function TrackerDemo() {
     if (!Number.isFinite(value) || value <= 0) return;
     const amountMinor = Math.round(value * 100);
     const cat = activeCategory;
-    setTxns((prev) => [
-      ...prev,
-      {
-        id: nextId.current++,
-        type,
-        amountMinor,
-        title: title.trim() || cat?.name || "Transaction",
-        categoryName: cat?.name ?? "Other",
-        categoryIcon: cat?.icon ?? "💸",
-        timeLabel: timeLabelNow(),
-      },
-    ]);
+    const txn: DemoTxn = {
+      id: nextId.current++,
+      type,
+      amountMinor,
+      title: title.trim() || cat?.name || "Transaction",
+      categoryName: cat?.name ?? "Other",
+      categoryIcon: cat?.icon ?? "💸",
+      timeLabel: timeLabelNow(),
+    };
+    setByProfile((prev) => ({ ...prev, [profile]: [...prev[profile], txn] }));
     setAmount("");
     setTitle("");
   }
@@ -141,9 +147,21 @@ export function TrackerDemo() {
             {formatMoney(balanceMinor, CURRENCY, LOCALE)}
           </p>
         </div>
-        <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
-          June
-        </span>
+        <Select value={profile} onValueChange={(v) => setProfile(v as Profile)}>
+          <SelectTrigger
+            className="h-9 w-auto gap-1.5 rounded-full"
+            aria-label="Profile"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            {PROFILES.map((p) => (
+              <SelectItem key={p} value={p}>
+                <span aria-hidden>{PROFILE_ICON[p]}</span> {p}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Feed */}
