@@ -32,6 +32,7 @@ export const siteConfig = {
 /** Marketing site navigation. Kept short so the capsule nav stays mobile-friendly. */
 export const marketingNav = [
   { href: "/features", label: "Features" },
+  { href: "/pricing", label: "Pricing" },
   { href: "/docs", label: "Docs" },
   { href: "/blog", label: "Blog" },
   { href: "/about", label: "About" },
