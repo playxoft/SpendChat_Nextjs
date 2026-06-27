@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- SpendChat mark — same chat bubble + currency symbol as the nav Logo.
+       currentColor can't resolve in a favicon, so colors are explicit and
+       follow the browser theme. -->
+  <style>
+    .bubble { stroke: #0a0a0a; }
+    .symbol { fill: #0a0a0a; }
+    @media (prefers-color-scheme: dark) {
+      .bubble { stroke: #fafafa; }
+      .symbol { fill: #fafafa; }
+    }
+  </style>
+  <path
+    class="bubble"
+    d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+    fill="none"
+    stroke-width="1.75"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <text
+    class="symbol"
+    x="12"
+    y="10.4"
+    text-anchor="middle"
+    dominant-baseline="middle"
+    font-size="9"
+    font-weight="600"
+    font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif"
+  >$</text>
+</svg>

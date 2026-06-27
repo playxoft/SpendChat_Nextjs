@@ -9,14 +9,14 @@ import { marketingNav, siteConfig } from "@/lib/site";
 
 /**
  * Floating, capsule-style marketing navigation pinned to the top of the
- * viewport. Stays visible while scrolling, centred at a max width of 5xl, and
+ * viewport. Stays visible while scrolling, centred at a max width of 6xl, and
  * stays usable down to small phones (the brand mark collapses to its icon, and
  * secondary actions hide, so the links always fit).
  */
 export function SiteNav() {
   return (
     <div className="fixed inset-x-0 top-0 z-50 px-3 pt-3 print:hidden sm:px-4 sm:pt-4">
-      <nav className="mx-auto flex h-14 w-full max-w-5xl items-center gap-1 rounded-full border bg-background/80 px-2 shadow-lg shadow-black/5 backdrop-blur-md sm:gap-3 sm:px-3">
+      <nav className="mx-auto flex h-14 w-full max-w-6xl items-center gap-1 rounded-full border bg-background/80 px-2 shadow-lg shadow-black/5 backdrop-blur-md sm:gap-3 sm:px-3">
         <Link
           href="/"
           aria-label={`${"SpendChat"} home`}

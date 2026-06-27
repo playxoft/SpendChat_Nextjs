@@ -38,7 +38,8 @@ export const metadata: Metadata = {
     follow: true,
     googleBot: { index: true, follow: true, "max-image-preview": "large" },
   },
-  icons: { icon: "/favicon.ico" },
+  // Icons are set via the file conventions in `app/`: `icon.svg` (the SpendChat
+  // mark, preferred by modern browsers) and `favicon.ico` (legacy fallback).
   // Tell the Dark Reader extension to leave this page alone — the app manages
   // its own light/dark theme, and extension overrides break our color tokens.
   // The content must be non-empty: Next drops `other` meta tags whose value is

@@ -145,6 +145,57 @@
   animation: mt-rise 0.28s ease-out both;
 }
 
+/* ── 404 / not-found page: playful, money-themed motion. Purely decorative —
+   the reduced-motion rule below neutralizes these, and the drifting coins are
+   also hidden outright via `motion-reduce:hidden` in the markup. ───────────── */
+@keyframes mt-coin-spin {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(360deg);
+  }
+}
+
+@keyframes mt-coin-drift {
+  0% {
+    transform: translateY(0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: var(--coin-opacity, 0.12);
+  }
+  88% {
+    opacity: var(--coin-opacity, 0.12);
+  }
+  100% {
+    transform: translateY(-115vh) rotate(200deg);
+    opacity: 0;
+  }
+}
+
+@keyframes mt-stamp {
+  0% {
+    transform: rotate(-9deg) scale(2.6);
+    opacity: 0;
+  }
+  55% {
+    opacity: 1;
+  }
+  100% {
+    transform: rotate(-9deg) scale(1);
+    opacity: 1;
+  }
+}
+
+@utility animate-coin-spin {
+  animation: mt-coin-spin 3.6s linear infinite;
+}
+
+@utility animate-stamp {
+  animation: mt-stamp 0.55s cubic-bezier(0.2, 1.5, 0.45, 1) both;
+}
+
 /* A very thin, unobtrusive horizontal/vertical scrollbar (used by the
    single-row category picker). */
 @utility scrollbar-thin {

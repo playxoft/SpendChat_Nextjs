@@ -35,7 +35,7 @@ export default function BlogPage() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-4 pb-24 pt-10 sm:pt-16">
+    <div className="mx-auto max-w-6xl px-4 pb-24 pt-10 sm:pt-16">
       <JsonLd data={blogJsonLd} />
       {/* Header */}
       <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-muted-foreground">
@@ -48,13 +48,13 @@ export default function BlogPage() {
         Updates and ideas from the team building {siteConfig.name}.
       </p>
 
-      {/* Post list */}
-      <div className="mt-12 space-y-4">
+      {/* Post grid — 3 across on large screens (3x3 once there are 9 posts) */}
+      <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {posts.map((post) => (
           <Link
             key={post.slug}
             href={`/blog/${post.slug}`}
-            className="group block rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
+            className="group flex flex-col rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
           >
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="rounded-full bg-muted px-2.5 py-0.5 font-medium">
@@ -68,7 +68,7 @@ export default function BlogPage() {
               {post.title}
             </h2>
             <p className="mt-2 text-muted-foreground">{post.excerpt}</p>
-            <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
+            <span className="mt-auto pt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
               Read post
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
             </span>
