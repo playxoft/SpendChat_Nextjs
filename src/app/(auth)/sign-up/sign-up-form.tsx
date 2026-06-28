@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { signUpWithEmail } from "./actions";
+import { GoogleSignInButton } from "../google-button";
 
 export function SignUpForm() {
   const [state, action, pending] = useActionState(signUpWithEmail, null);
@@ -17,6 +18,19 @@ export function SignUpForm() {
         <p className="text-sm text-muted-foreground">
           Start tracking your money in seconds — it&apos;s free.
         </p>
+      </div>
+
+      <GoogleSignInButton />
+
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <span className="w-full border-t" />
+        </div>
+        <div className="relative flex justify-center text-xs uppercase">
+          <span className="bg-background px-2 text-muted-foreground">
+            or sign up with email
+          </span>
+        </div>
       </div>
 
       <form action={action} className="space-y-4">
