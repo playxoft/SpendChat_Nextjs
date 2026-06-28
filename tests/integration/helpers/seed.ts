@@ -1,0 +1,82 @@
+import { and, asc, eq } from "drizzle-orm";
+import { categories, profiles, transactions } from "@/db/schema";
+import { ensureBootstrap } from "@/lib/auth";
+import { getTestDb } from "./test-db";
+
+/** Bootstrap a user (settings + default categories + Personal profile). */
+export async function bootstrapUser(userId: string): Promise<void> {
+  await ensureBootstrap(userId);
+}
+
+/** The user's first (default) profile id. */
+export async function firstProfileId(userId: string): Promise<string> {
+  const db = getTestDb();
+  const [row] = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.userId, userId))
+    .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt))
+    .limit(1);
+  return row!.id;
+}
+
+/** Look up a category id by name + kind for a user. */
+export async function categoryId(
+  userId: string,
+  name: string,
+  kind: "income" | "expense",
+): Promise<string> {
+  const db = getTestDb();
+  const [row] = await db
+    .select({ id: categories.id })
+    .from(categories)
+    .where(
+      and(
+        eq(categories.userId, userId),
+        eq(categories.name, name),
+        eq(categories.kind, kind),
+      ),
+    )
+    .limit(1);
+  return row!.id;
+}
+
+type TxnSeed = {
+  type: "income" | "expense";
+  amountMinor: number;
+  occurredOn: string;
+  profileId?: string;
+  categoryId?: string | null;
+  title?: string | null;
+  description?: string | null;
+};
+
+/** Insert a transaction directly (bypassing the action) for query/seed setup. */
+export async function insertTxn(userId: string, t: TxnSeed): Promise<string> {
+  const db = getTestDb();
+  const profileId = t.profileId ?? (await firstProfileId(userId));
+  const [row] = await db
+    .insert(transactions)
+    .values({
+      userId,
+      type: t.type,
+      amountMinor: t.amountMinor,
+      occurredOn: t.occurredOn,
+      profileId,
+      categoryId: t.categoryId ?? null,
+      title: t.title ?? null,
+      description: t.description ?? null,
+    })
+    .returning({ id: transactions.id });
+  return row!.id;
+}
+
+/** Count a user's transactions (optionally scoped to a profile). */
+export async function countTxns(userId: string): Promise<number> {
+  const db = getTestDb();
+  const rows = await db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(eq(transactions.userId, userId));
+  return rows.length;
+}
