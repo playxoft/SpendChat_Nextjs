@@ -15,6 +15,8 @@ const eslintConfig = defineConfig([
     // Generated Cloudflare/OpenNext output:
     ".open-next/**",
     ".wrangler/**",
+    // Generated test coverage report:
+    "coverage/**",
   ]),
 ]);
 
