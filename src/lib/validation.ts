@@ -48,6 +48,11 @@ export const settingsSchema = z.object({
 });
 export type SettingsInput = z.infer<typeof settingsSchema>;
 
+/** Layout of the transaction composer inputs. Stored on `user_settings`. */
+export const INPUT_MODES = ["amount_title", "title_amount", "combined"] as const;
+export const inputModeSchema = z.enum(INPUT_MODES);
+export type InputMode = (typeof INPUT_MODES)[number];
+
 export const categoryInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(40),
   kind: txnTypeSchema,

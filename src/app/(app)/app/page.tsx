@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { requireUser, getUserSettings } from "@/lib/auth";
 import { getCategories, getProfiles, getSummary, listTransactionsAsc } from "@/lib/queries";
 import { parseActiveProfile } from "@/lib/filters";
+import type { InputMode } from "@/lib/validation";
 import { monthLabel, monthRange, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
@@ -108,6 +109,7 @@ export default async function ChatPage({
         profiles={profiles}
         activeProfileId={composerProfileId}
         allProfiles={allProfiles}
+        inputMode={settings.inputMode as InputMode}
       />
 
       {/* Mobile: swipe left/right across the tracker to change profile. */}

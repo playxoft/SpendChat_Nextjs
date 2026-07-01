@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "input_mode" text DEFAULT 'amount_title' NOT NULL;

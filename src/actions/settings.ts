@@ -5,7 +5,7 @@ import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { transactions, userSettings } from "@/db/schema";
 import { ensureBootstrap, requireUser } from "@/lib/auth";
-import { settingsSchema, type SettingsInput } from "@/lib/validation";
+import { inputModeSchema, settingsSchema, type SettingsInput } from "@/lib/validation";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -44,6 +44,24 @@ export async function updateCurrency(currency: string): Promise<ActionResult> {
   revalidatePath("/app");
   revalidatePath("/transactions");
   revalidatePath("/analytics");
+  revalidatePath("/settings");
+  return { ok: true };
+}
+
+/** Change how the transaction composer lays out its inputs. */
+export async function updateInputMode(mode: string): Promise<ActionResult> {
+  const user = await requireUser();
+  const parsed = inputModeSchema.safeParse(mode);
+  if (!parsed.success) {
+    return { ok: false, error: "Invalid input layout" };
+  }
+  await ensureBootstrap(user.id);
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({ inputMode: parsed.data, updatedAt: new Date() })
+    .where(eq(userSettings.userId, user.id));
+  revalidatePath("/app");
   revalidatePath("/settings");
   return { ok: true };
 }

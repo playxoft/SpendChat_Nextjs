@@ -19,8 +19,10 @@ import { CategoryEditorDialog } from "./category-editor-dialog";
 import { cn } from "@/lib/utils";
 import { addTransaction } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
+import { parseQuickEntry } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
+import type { InputMode } from "@/lib/validation";
 import type { Category, Profile } from "@/db/schema";
 
 const TITLE_MAX = 100;
@@ -35,6 +37,7 @@ export function TransactionComposer({
   profiles,
   activeProfileId,
   allProfiles = false,
+  inputMode = "amount_title",
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   currency: string;
@@ -44,11 +47,15 @@ export function TransactionComposer({
   /** When viewing "All profiles", let the user pick the target; otherwise the
    * active profile is locked in and the picker is hidden. */
   allProfiles?: boolean;
+  /** How to lay out the amount/title inputs (from user settings). */
+  inputMode?: InputMode;
 }) {
   const [type, setType] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
+  // Single-field ("combined") mode types amount + title together, e.g. "100 fruits".
+  const [combined, setCombined] = useState("");
   const [description, setDescription] = useState("");
   const [occurredOn, setOccurredOn] = useState(today);
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
@@ -58,10 +65,18 @@ export function TransactionComposer({
   const [pending, startTransition] = useTransition();
 
   const titleRef = useRef<HTMLInputElement>(null);
+  const amountRef = useRef<HTMLInputElement>(null);
   const descRef = useRef<HTMLInputElement>(null);
   const cats = useMemo(() => categories.filter((c) => c.kind === type), [categories, type]);
   const symbol = getCurrency(currency).symbol;
   const isMac = useIsMac();
+
+  const isCombined = inputMode === "combined";
+  // The "/" category picker reads/writes whichever field holds the title text.
+  const titleSource = isCombined ? combined : title;
+  const setTitleSource = isCombined ? setCombined : setTitle;
+  // Live parse of the combined field for the inline preview + submit.
+  const quick = isCombined ? parseQuickEntry(combined) : null;
 
   const toggleCombo = comboFor("tracker.toggle-type");
   const submitCombo = comboFor("tracker.submit");
@@ -74,7 +89,7 @@ export function TransactionComposer({
     : (activeProfileId ?? profiles[0]?.id ?? "");
 
   // "/" in the title opens an inline category picker.
-  const slashMatch = title.match(SLASH_RE);
+  const slashMatch = titleSource.match(SLASH_RE);
   const slashQuery = slashMatch?.[1] ?? "";
   const slashActive = !!slashMatch && !slashDismissed;
   const slashResults = slashActive
@@ -92,20 +107,27 @@ export function TransactionComposer({
 
   function selectSlashCategory(cat: Pick<Category, "id">) {
     setCategoryId(cat.id);
-    setTitle((t) => t.replace(SLASH_RE, "").replace(/\s+$/, ""));
+    setTitleSource((t) => t.replace(SLASH_RE, "").replace(/\s+$/, ""));
     setSlashDismissed(true);
     setSlashIndex(0);
   }
 
   function submit() {
-    const value = Number(amount);
+    // In combined mode the amount + title come from one parsed field.
+    // Standalone amount may carry comma thousands separators — drop them to parse.
+    const value = isCombined ? quick!.amount ?? 0 : Number(amount.replace(/,/g, ""));
+    const finalTitle = (isCombined ? quick!.title : title).trim();
+
     if (!value || value <= 0) {
-      toast.error("Enter an amount greater than 0");
+      toast.error(
+        isCombined ? "Start with an amount, e.g. 100 fruits" : "Enter an amount greater than 0",
+      );
+      titleRef.current?.focus();
       return;
     }
     // A transaction needs an amount, a title, a date and a profile.
-    if (!title.trim()) {
-      toast.error("Add a title");
+    if (!finalTitle) {
+      toast.error(isCombined ? "Add a title after the amount" : "Add a title");
       titleRef.current?.focus();
       return;
     }
@@ -123,13 +145,14 @@ export function TransactionComposer({
         amount: value,
         categoryId,
         profileId: targetProfileId,
-        title: title.trim(),
+        title: finalTitle,
         description: description.trim() || undefined,
         occurredOn,
       });
       if (res.ok) {
         setAmount("");
         setTitle("");
+        setCombined("");
         setDescription("");
         setCategoryId(null);
         setOccurredOn(today);
@@ -142,10 +165,12 @@ export function TransactionComposer({
   }
 
   function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    // Enter (or Tab) moves to the title rather than submitting an untitled row.
     if (e.key === "Enter") {
       e.preventDefault();
-      titleRef.current?.focus();
+      // Amount-first: move to the title rather than submitting an untitled row.
+      // Title-first: the amount is the last field, so Enter sends.
+      if (inputMode === "title_amount") submit();
+      else titleRef.current?.focus();
     }
   }
 
@@ -174,9 +199,11 @@ export function TransactionComposer({
     }
 
     if (e.key === "Enter") {
-      // Shift+Enter jumps to the description; Enter (and ⌘/Ctrl+Enter) sends.
+      // Shift+Enter jumps to the description. Otherwise Enter sends, except in
+      // title-first mode where the amount still needs filling in.
       e.preventDefault();
       if (e.shiftKey) descRef.current?.focus();
+      else if (inputMode === "title_amount") amountRef.current?.focus();
       else submit();
     }
   }
@@ -198,6 +225,66 @@ export function TransactionComposer({
       <ArrowUp className="size-4" />
       <span className="text-xs font-semibold tracking-wide opacity-80">{submitLabel}</span>
     </Button>
+  );
+
+  const amountField = (
+    <div className="relative">
+      <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
+        {symbol}
+      </span>
+      <Input
+        ref={amountRef}
+        inputMode="decimal"
+        placeholder="0.00"
+        value={amount}
+        // Numbers only — allow digits plus comma/period separators, drop the rest.
+        onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ""))}
+        onKeyDown={onAmountKeyDown}
+        aria-label="Amount"
+        className="h-11 w-28 pl-7 tabular-nums md:h-8"
+      />
+    </div>
+  );
+
+  const titleField = (
+    <div className="min-w-32 flex-1">
+      <Input
+        ref={titleRef}
+        placeholder="Add a title — type / to tag a category"
+        value={title}
+        maxLength={TITLE_MAX}
+        onChange={(e) => {
+          setTitle(e.target.value);
+          setSlashDismissed(false);
+          setSlashIndex(0);
+        }}
+        onKeyDown={onTitleKeyDown}
+        aria-label="Title"
+        className="h-11 w-full md:h-8"
+      />
+    </div>
+  );
+
+  // Single-field mode: "100 fruits" → amount 100, title "fruits". Uses titleRef
+  // so shortcuts that focus the title still land here, and onTitleKeyDown so the
+  // "/" category picker keeps working on the parsed title.
+  const combinedField = (
+    <div className="min-w-32 flex-1">
+      <Input
+        ref={titleRef}
+        placeholder="e.g. 100 fruits"
+        value={combined}
+        maxLength={TITLE_MAX + 12}
+        onChange={(e) => {
+          setCombined(e.target.value);
+          setSlashDismissed(false);
+          setSlashIndex(0);
+        }}
+        onKeyDown={onTitleKeyDown}
+        aria-label="Amount and title"
+        className="h-11 w-full md:h-8"
+      />
+    </div>
   );
 
   return (
@@ -265,38 +352,51 @@ export function TransactionComposer({
           onEdit={() => setEditorOpen(true)}
         />
 
-        <div className="relative flex flex-wrap items-end gap-2">
-          <div className="relative">
-            <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
-              {symbol}
-            </span>
-            <Input
-              inputMode="decimal"
-              placeholder="0.00"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              onKeyDown={onAmountKeyDown}
-              aria-label="Amount"
-              className="h-11 w-28 pl-7 tabular-nums md:h-8"
-            />
-          </div>
+        {/* Live parse feedback for the single-field mode, shown above the input. */}
+        {isCombined && combined.trim() && (
+          <p className="px-0.5 text-xs text-muted-foreground">
+            {quick!.amount != null && quick!.title ? (
+              <>
+                Adds{" "}
+                <span className="font-medium text-foreground tabular-nums">
+                  {symbol}
+                  {quick!.amount}
+                </span>{" "}
+                · {quick!.title}
+              </>
+            ) : quick!.amount != null ? (
+              <>
+                Amount{" "}
+                <span className="font-medium text-foreground tabular-nums">
+                  {symbol}
+                  {quick!.amount}
+                </span>{" "}
+                — now add a title
+              </>
+            ) : (
+              <>
+                Start with a number, e.g.{" "}
+                <span className="font-medium text-foreground">100 fruits</span>
+              </>
+            )}
+          </p>
+        )}
 
-          <div className="min-w-32 flex-1">
-            <Input
-              ref={titleRef}
-              placeholder="Add a title — type / to tag a category"
-              value={title}
-              maxLength={TITLE_MAX}
-              onChange={(e) => {
-                setTitle(e.target.value);
-                setSlashDismissed(false);
-                setSlashIndex(0);
-              }}
-              onKeyDown={onTitleKeyDown}
-              aria-label="Title"
-              className="h-11 w-full md:h-8"
-            />
-          </div>
+        <div className="relative flex flex-wrap items-end gap-2">
+          {/* Field order follows the user's chosen input mode. */}
+          {isCombined ? (
+            combinedField
+          ) : inputMode === "title_amount" ? (
+            <>
+              {titleField}
+              {amountField}
+            </>
+          ) : (
+            <>
+              {amountField}
+              {titleField}
+            </>
+          )}
 
           {/* Send sits inline on desktop; on mobile it moves to a full-width
               button at the bottom (see below) for an easier thumb reach. */}

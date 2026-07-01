@@ -27,6 +27,11 @@ export const userSettings = pgTable("user_settings", {
   currency: text("currency").notNull().default("USD"),
   locale: text("locale").notNull().default("en-US"),
   theme: text("theme").notNull().default("system"),
+  // How the transaction composer lays out its inputs:
+  //   amount_title — amount field, then title (default / original layout)
+  //   title_amount — title field, then amount
+  //   combined     — one field parsed as "<amount> <title>" (e.g. "100 fruits")
+  inputMode: text("input_mode").notNull().default("amount_title"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
