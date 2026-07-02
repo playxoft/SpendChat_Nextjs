@@ -6,8 +6,6 @@ import { runAction, type ActionResult } from "@/lib/action-result";
 import * as cats from "@/services/categories";
 import { type CategoryInput, type UpdateCategoryInput } from "@/lib/validation";
 
-export type { ActionResult };
-
 function revalidateApp() {
   revalidatePath("/settings");
   revalidatePath("/app");
@@ -15,7 +13,7 @@ function revalidateApp() {
 
 export async function addCategory(input: CategoryInput): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction(async () => {
+  return runAction("addCategory", async () => {
     await cats.createCategory(user.id, input);
     revalidateApp();
     return {};
@@ -24,7 +22,7 @@ export async function addCategory(input: CategoryInput): Promise<ActionResult> {
 
 export async function updateCategory(input: UpdateCategoryInput): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction(async () => {
+  return runAction("updateCategory", async () => {
     await cats.updateCategory(user.id, input.id, input);
     revalidateApp();
     return {};
@@ -33,7 +31,7 @@ export async function updateCategory(input: UpdateCategoryInput): Promise<Action
 
 export async function deleteCategory(id: string): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction(async () => {
+  return runAction("deleteCategory", async () => {
     await cats.deleteCategory(user.id, id);
     revalidateApp();
     return {};

@@ -57,6 +57,8 @@ export default defineConfig({
         // Thin third-party wiring — nothing of ours to assert.
         "src/lib/neon-auth.ts",
         "src/lib/neon-auth-client.ts",
+        // Logging I/O wiring (console + BetterStack HTTP shipping), same rationale.
+        "src/lib/logger.ts",
         // MDX-backed; covered behaviourally, not held to the branch gate
         // (the `isProd` draft filter short-circuits and can't both-branch).
         "src/lib/blog.ts",

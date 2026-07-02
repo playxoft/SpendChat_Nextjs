@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { ApiError, validationError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 
 /**
  * JSON response conventions for the mobile REST API (`/api/v1/*`).
@@ -52,14 +53,16 @@ function zodDetails(err: z.ZodError): Record<string, string> {
  */
 export function handleApiError(err: unknown): Response {
   if (err instanceof ApiError) {
+    logger.warn("api.rejected", { code: err.code, status: err.status, error: err.message });
     return apiError(err.status, err.code, err.message, err.details);
   }
   if (err instanceof z.ZodError) {
     const first = err.issues[0]?.message ?? "Invalid request";
+    logger.warn("api.validation", { error: first });
     return apiError(422, "validation_error", first, zodDetails(err));
   }
   // Unknown/unexpected: don't leak internals to the client.
-  console.error("[api] unhandled error:", err);
+  logger.error("api.error", { error: err });
   return apiError(500, "internal_error", "Something went wrong");
 }
 
