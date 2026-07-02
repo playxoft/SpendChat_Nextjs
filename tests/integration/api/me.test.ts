@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { GET } from "@/app/api/v1/me/route";
-import { setSession, signInAs } from "../helpers/session";
+import { setSession, signInAs, uid } from "../helpers/session";
 import { apiReq } from "./helpers";
 
 describe("GET /api/v1/me", () => {
@@ -17,7 +17,11 @@ describe("GET /api/v1/me", () => {
     const res = await GET(apiReq("/api/v1/me"));
     expect(res.status).toBe(200);
     const { data } = await res.json();
-    expect(data.user).toEqual({ id: "user-1", email: "user-1@example.com", name: "user-1" });
+    expect(data.user).toEqual({
+      id: uid("user-1"),
+      email: "user-1@example.com",
+      name: "user-1",
+    });
     expect(data.settings.currency).toBe("USD");
     expect(data.settings.currencyDetail).toEqual({ code: "USD", symbol: "$", decimals: 2 });
     expect(data.settings.inputMode).toBe("amount_title");

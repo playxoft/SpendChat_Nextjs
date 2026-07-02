@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { and, eq } from "drizzle-orm";
 import { categories, transactions } from "@/db/schema";
 import { addCategory, updateCategory, deleteCategory } from "@/actions/categories";
-import { signInAs } from "./helpers/session";
+import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import { bootstrapUser, categoryId, insertTxn } from "./helpers/seed";
 
@@ -12,7 +12,7 @@ const cat = (userId: string, name: string, kind: "income" | "expense") =>
     .from(categories)
     .where(
       and(
-        eq(categories.userId, userId),
+        eq(categories.userId, uid(userId)),
         eq(categories.name, name),
         eq(categories.kind, kind),
       ),

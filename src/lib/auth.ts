@@ -6,6 +6,7 @@ import { getDb } from "@/db";
 import { categories, profiles, userSettings } from "@/db/schema";
 import { auth } from "@/lib/neon-auth";
 import { DEFAULT_CATEGORIES } from "./categories";
+import { detectSettingsDefaults } from "./geo.server";
 
 export type SessionUser = {
   id: string;
@@ -48,10 +49,16 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
-/** Create default settings + categories for a user. Idempotent. */
+/**
+ * Create default settings + categories for a user. Idempotent. The settings
+ * row is seeded with the geo-detected currency/locale for the current request
+ * (`onConflictDoNothing` means detection only ever applies to a first sign-in —
+ * an existing user's currency is never silently changed).
+ */
 export async function ensureBootstrap(userId: string) {
   const db = getDb();
-  await db.insert(userSettings).values({ userId }).onConflictDoNothing();
+  const defaults = await detectSettingsDefaults();
+  await db.insert(userSettings).values({ userId, ...defaults }).onConflictDoNothing();
 
   const existing = await db.query.categories.findFirst({
     where: eq(categories.userId, userId),

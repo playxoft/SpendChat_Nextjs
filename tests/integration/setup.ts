@@ -21,6 +21,14 @@ vi.mock("next/cache", () => ({
   revalidateTag: vi.fn(),
 }));
 
+// Bootstrap geo-detects default currency/locale from request headers. Tests run
+// outside a request scope, so serve an empty header bag — detection falls back
+// to the global defaults (USD / en-US), matching the pre-geo behaviour.
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers(),
+  cookies: async () => ({ get: () => undefined }),
+}));
+
 vi.mock("next/navigation", () => ({
   // Mirrors Next's redirect(): throws to halt execution. Tag with a digest so
   // tests can assert the destination via `expectRedirect`.

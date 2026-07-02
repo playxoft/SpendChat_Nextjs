@@ -6,7 +6,7 @@ import {
   updateCurrency,
   deleteAllTransactions,
 } from "@/actions/settings";
-import { signInAs } from "./helpers/session";
+import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import { bootstrapUser, insertTxn, countTxns } from "./helpers/seed";
 
@@ -14,7 +14,7 @@ const settingsRow = (userId: string) =>
   getTestDb()
     .select()
     .from(userSettings)
-    .where(eq(userSettings.userId, userId))
+    .where(eq(userSettings.userId, uid(userId)))
     .then((r) => r[0]);
 
 describe("updateSettings", () => {
