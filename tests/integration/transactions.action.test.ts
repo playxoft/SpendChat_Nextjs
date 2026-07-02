@@ -217,16 +217,16 @@ describe("updateTransaction", () => {
       title: "B's data",
     });
 
-    // Signed in as A, try to update B's row.
+    // Signed in as A, try to update B's row: no role on B's profile → 404.
     const res = await updateTransaction({
       id: victimId,
       type: "income",
       amount: 999,
       occurredOn: "2026-06-02",
     });
-    expect(res.ok).toBe(true); // no error, but...
+    expect(res).toEqual({ ok: false, error: "Profile not found" });
     const [row] = await rows("b");
-    expect(row.amountMinor).toBe(500); // ...unchanged
+    expect(row.amountMinor).toBe(500); // unchanged
     expect(row.type).toBe("expense");
   });
 });

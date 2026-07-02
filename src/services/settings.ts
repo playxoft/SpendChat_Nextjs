@@ -1,9 +1,18 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
-import { transactions, userSettings } from "@/db/schema";
+import {
+  categories,
+  profileAccess,
+  profiles,
+  transactions,
+  userSettings,
+  workspaceMembers,
+  workspaces,
+} from "@/db/schema";
 import { ensureBootstrap, getUserSettings } from "@/lib/auth";
 import { badRequest, validationError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
 import { patchSettingsSchema, settingsSchema, inputModeSchema } from "@/lib/validation";
 import type { UserSettings } from "@/db/schema";
@@ -74,4 +83,47 @@ export async function deleteAllTransactions(
     .where(eq(transactions.userId, userId))
     .returning({ id: transactions.id });
   return { deleted: deleted.length };
+}
+
+/**
+ * Erase everything the user owns in SpendChat: the transactions they wrote,
+ * their owned workspaces (including all profiles and transactions inside,
+ * even ones written by members), their memberships/grants, categories, and
+ * settings. Requires the exact "DELETE" confirmation. The Neon Auth account
+ * itself is managed by Neon — after this wipe, signing in again starts from a
+ * fresh bootstrap.
+ */
+export async function deleteAccount(userId: string, confirm: string): Promise<void> {
+  if (confirm !== "DELETE") throw badRequest("Type DELETE to confirm");
+  const db = getDb();
+
+  const owned = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.ownerId, userId));
+  const ownedIds = owned.map((w) => w.id);
+
+  if (ownedIds.length > 0) {
+    const ownedProfiles = await db
+      .select({ id: profiles.id })
+      .from(profiles)
+      .where(inArray(profiles.workspaceId, ownedIds));
+    const profileIds = ownedProfiles.map((p) => p.id);
+    if (profileIds.length > 0) {
+      await db.delete(transactions).where(inArray(transactions.profileId, profileIds));
+      await db.delete(profiles).where(inArray(profiles.id, profileIds));
+    }
+  }
+
+  // Transactions the user authored in workspaces shared with them.
+  await db.delete(transactions).where(eq(transactions.userId, userId));
+  if (ownedIds.length > 0) {
+    // Members/invites cascade with the workspace rows.
+    await db.delete(workspaces).where(inArray(workspaces.id, ownedIds));
+  }
+  await db.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
+  await db.delete(profileAccess).where(eq(profileAccess.userId, userId));
+  await db.delete(categories).where(eq(categories.userId, userId));
+  await db.delete(userSettings).where(eq(userSettings.userId, userId));
+  logger.info("account.deleted", { userId, workspaces: ownedIds.length });
 }

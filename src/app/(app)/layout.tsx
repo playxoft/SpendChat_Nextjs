@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import { getAppContext, getUserSettings } from "@/lib/auth";
+import { getAppContext, getUserSettings, getUserWorkspaces } from "@/lib/auth";
 import { getCategories, getProfiles } from "@/lib/queries";
 import { todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
@@ -15,20 +15,31 @@ export const dynamic = "force-dynamic";
 export default async function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
-  const { user } = await getAppContext();
+  const { user, workspace } = await getAppContext();
   const email = user.email;
   const timeZone = await getTimeZone();
-  const [profiles, categories, settings] = await Promise.all([
-    getProfiles(user.id),
+  const [profiles, categories, settings, workspaces] = await Promise.all([
+    getProfiles(user.id, workspace.id),
     getCategories(user.id),
     getUserSettings(user.id),
+    getUserWorkspaces(user.id),
   ]);
 
   return (
     <div className="flex min-h-svh">
-      <AppSidebar email={email} profiles={profiles} />
+      <AppSidebar
+        email={email}
+        profiles={profiles}
+        workspaces={workspaces}
+        currentWorkspaceId={workspace.id}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
-        <AppTopbar email={email} profiles={profiles} />
+        <AppTopbar
+          email={email}
+          profiles={profiles}
+          workspaces={workspaces}
+          currentWorkspaceId={workspace.id}
+        />
         <main className="flex-1 pb-20 md:pb-0">{children}</main>
         <BottomNav />
       </div>

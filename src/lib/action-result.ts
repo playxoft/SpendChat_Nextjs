@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/errors";
-import { logger } from "@/lib/logger";
+import { logger, type LogMeta } from "@/lib/logger";
 
 /**
  * Bridges the shared service layer to the web server actions. Services throw
@@ -19,19 +19,26 @@ export type ActionResult<T = Record<never, never>> = ActionOk<T> | { ok: false; 
 export async function runAction<T extends object = Record<never, never>>(
   action: string,
   fn: () => Promise<T>,
+  meta: LogMeta = {},
 ): Promise<ActionResult<T>> {
   const startedAt = Date.now();
   try {
     const extra = await fn();
-    logger.info("action.ok", { action, durationMs: Date.now() - startedAt });
+    logger.info("action.ok", { action, ...meta, durationMs: Date.now() - startedAt });
     return { ok: true, ...extra };
   } catch (err) {
     const durationMs = Date.now() - startedAt;
     if (err instanceof ApiError) {
-      logger.warn("action.rejected", { action, code: err.code, error: err.message, durationMs });
+      logger.warn("action.rejected", {
+        action,
+        ...meta,
+        code: err.code,
+        error: err.message,
+        durationMs,
+      });
       return { ok: false, error: err.message };
     }
-    logger.error("action.error", { action, error: err, durationMs });
+    logger.error("action.error", { action, ...meta, error: err, durationMs });
     throw err;
   }
 }

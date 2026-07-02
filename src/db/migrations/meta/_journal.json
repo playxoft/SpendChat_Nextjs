@@ -57,6 +57,20 @@
       "when": 1783006711745,
       "tag": "0007_uuidv7_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1783011231619,
+      "tag": "0008_elite_molly_hayes",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1783011265813,
+      "tag": "0009_workspace_backfill",
+      "breakpoints": true
     }
   ]
 }

@@ -16,14 +16,19 @@ import {
 } from "@/components/ui/sheet";
 import { ProfileList } from "./profile-list";
 import { UserMenu } from "./user-menu";
+import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
 import type { Profile } from "@/db/schema";
 
 export function AppTopbar({
   email,
   profiles,
+  workspaces,
+  currentWorkspaceId,
 }: {
   email: string | null;
   profiles: Pick<Profile, "id" | "name" | "icon">[];
+  workspaces: WorkspaceOption[];
+  currentWorkspaceId: string;
 }) {
   const [open, setOpen] = useState(false);
 
@@ -42,6 +47,13 @@ export function AppTopbar({
               <SheetDescription>Switch between your transaction profiles.</SheetDescription>
             </SheetHeader>
             <div className="flex h-full flex-col pt-10">
+              <div className="shrink-0 px-3 pb-1">
+                <WorkspaceSwitcher
+                  workspaces={workspaces}
+                  currentId={currentWorkspaceId}
+                  onNavigate={() => setOpen(false)}
+                />
+              </div>
               <ProfileList profiles={profiles} onNavigate={() => setOpen(false)} />
             </div>
           </SheetContent>

@@ -1,5 +1,5 @@
-import { and, asc, eq } from "drizzle-orm";
-import { categories, profiles, transactions } from "@/db/schema";
+import { and, asc, eq, sql } from "drizzle-orm";
+import { categories, profiles, transactions, workspaces } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { getTestDb } from "./test-db";
 import { uid } from "./session";
@@ -9,9 +9,40 @@ import { uid } from "./session";
  * passing short aliases ("a") even though `user_id` is a uuid column.
  */
 
-/** Bootstrap a user (settings + default categories + Personal profile). */
+/**
+ * Register the alias in the neon_auth directory stub (name = alias, email =
+ * alias@example.com) so bootstrap can name the default workspace and invites
+ * can match. Idempotent.
+ */
+export async function registerUser(alias: string): Promise<void> {
+  const db = getTestDb();
+  await db.execute(
+    sql`insert into neon_auth."user" ("id", "name", "email")
+        values (${uid(alias)}, ${alias}, ${`${alias}@example.com`})
+        on conflict ("id") do nothing`,
+  );
+}
+
+/**
+ * Bootstrap a user (settings + default categories + workspace with its
+ * Personal profile). Registers the alias in the directory stub first, exactly
+ * like a real sign-up exists in neon_auth before the first bootstrap.
+ */
 export async function bootstrapUser(userId: string): Promise<void> {
+  await registerUser(userId);
   await ensureBootstrap(uid(userId));
+}
+
+/** The user's own (default) workspace id. */
+export async function workspaceIdOf(userId: string): Promise<string> {
+  const db = getTestDb();
+  const [row] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(eq(workspaces.ownerId, uid(userId)))
+    .orderBy(asc(workspaces.createdAt))
+    .limit(1);
+  return row!.id;
 }
 
 /** The user's first (default) profile id. */

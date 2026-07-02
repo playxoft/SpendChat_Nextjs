@@ -59,6 +59,8 @@ export default defineConfig({
         "src/lib/neon-auth-client.ts",
         // Logging I/O wiring (console + BetterStack HTTP shipping), same rationale.
         "src/lib/logger.ts",
+        // Email I/O wiring (ZeptoMail HTTP API), same rationale.
+        "src/lib/email.ts",
         // MDX-backed; covered behaviourally, not held to the branch gate
         // (the `isProd` draft filter short-circuits and can't both-branch).
         "src/lib/blog.ts",

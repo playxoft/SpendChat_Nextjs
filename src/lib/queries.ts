@@ -1,7 +1,8 @@
 import "server-only";
-import { and, asc, desc, eq, gte, ilike, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, profiles, transactions } from "@/db/schema";
+import { accessibleProfileIds, getEffectiveProfileRole } from "@/lib/workspaces";
 
 export type TxnFilters = {
   from?: string;
@@ -32,8 +33,13 @@ export type TransactionRow = {
   profileIcon: string | null;
 };
 
-function buildConditions(userId: string, f: TxnFilters) {
-  const conds = [eq(transactions.userId, userId)];
+/**
+ * Reads are scoped to the profiles the user can at least view in the current
+ * workspace — not to `transactions.user_id` (that column is attribution: who
+ * entered the row, which matters in shared profiles).
+ */
+function buildConditions(userId: string, workspaceId: string, f: TxnFilters) {
+  const conds = [inArray(transactions.profileId, accessibleProfileIds(userId, workspaceId))];
   if (f.from) conds.push(gte(transactions.occurredOn, f.from));
   if (f.to) conds.push(lte(transactions.occurredOn, f.to));
   if (f.type) conds.push(eq(transactions.type, f.type));
@@ -71,6 +77,7 @@ const txnSelection = {
 
 export async function listTransactions(
   userId: string,
+  workspaceId: string,
   f: TxnFilters = {},
 ): Promise<TransactionRow[]> {
   const db = getDb();
@@ -79,13 +86,16 @@ export async function listTransactions(
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(profiles, eq(transactions.profileId, profiles.id))
-    .where(buildConditions(userId, f))
+    .where(buildConditions(userId, workspaceId, f))
     .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt))
     .limit(f.limit ?? 100)
     .offset(f.offset ?? 0);
 }
 
-/** A single transaction (joined with its category + profile), or null. */
+/**
+ * A single transaction (joined with its category + profile), or null when it
+ * doesn't exist or the user can't view its profile.
+ */
 export async function getTransactionById(
   userId: string,
   id: string,
@@ -96,32 +106,43 @@ export async function getTransactionById(
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(profiles, eq(transactions.profileId, profiles.id))
-    .where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+    .where(eq(transactions.id, id))
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  const access = await getEffectiveProfileRole(userId, row.profileId);
+  return access ? row : null;
 }
 
 /** Oldest-first, for the chat feed (messages read top to bottom). */
 export async function listTransactionsAsc(
   userId: string,
+  workspaceId: string,
   f: TxnFilters = {},
 ): Promise<TransactionRow[]> {
-  const rows = await listTransactions(userId, f);
+  const rows = await listTransactions(userId, workspaceId, f);
   return rows.reverse();
 }
 
-export async function countTransactions(userId: string, f: TxnFilters = {}): Promise<number> {
+export async function countTransactions(
+  userId: string,
+  workspaceId: string,
+  f: TxnFilters = {},
+): Promise<number> {
   const db = getDb();
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(transactions)
-    .where(buildConditions(userId, f));
+    .where(buildConditions(userId, workspaceId, f));
   return row?.count ?? 0;
 }
 
 export type Summary = { income: number; expense: number; balance: number };
 
-export async function getSummary(userId: string, f: TxnFilters = {}): Promise<Summary> {
+export async function getSummary(
+  userId: string,
+  workspaceId: string,
+  f: TxnFilters = {},
+): Promise<Summary> {
   const db = getDb();
   const rows = await db
     .select({
@@ -129,7 +150,7 @@ export async function getSummary(userId: string, f: TxnFilters = {}): Promise<Su
       total: sql<string>`coalesce(sum(${transactions.amountMinor}), 0)`,
     })
     .from(transactions)
-    .where(buildConditions(userId, f))
+    .where(buildConditions(userId, workspaceId, f))
     .groupBy(transactions.type);
 
   let income = 0;
@@ -150,6 +171,7 @@ export type CategoryBreakdownRow = {
 
 export async function getCategoryBreakdown(
   userId: string,
+  workspaceId: string,
   type: "income" | "expense",
   f: TxnFilters = {},
 ): Promise<CategoryBreakdownRow[]> {
@@ -163,7 +185,7 @@ export async function getCategoryBreakdown(
     })
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
-    .where(and(buildConditions(userId, { ...f, type }), eq(transactions.type, type)))
+    .where(and(buildConditions(userId, workspaceId, { ...f, type }), eq(transactions.type, type)))
     .groupBy(transactions.categoryId, categories.name, categories.icon)
     .orderBy(desc(sql`sum(${transactions.amountMinor})`));
   return rows.map((r) => ({ ...r, total: Number(r.total) }));
@@ -173,11 +195,15 @@ export type MonthlyPoint = { month: string; income: number; expense: number };
 
 export async function getMonthlyTrend(
   userId: string,
+  workspaceId: string,
   fromISO: string,
   profileId?: string,
 ): Promise<{ month: string; type: "income" | "expense"; total: number }[]> {
   const db = getDb();
-  const conds = [eq(transactions.userId, userId), gte(transactions.occurredOn, fromISO)];
+  const conds = [
+    inArray(transactions.profileId, accessibleProfileIds(userId, workspaceId)),
+    gte(transactions.occurredOn, fromISO),
+  ];
   if (profileId) conds.push(eq(transactions.profileId, profileId));
   const rows = await db
     .select({
@@ -201,11 +227,12 @@ export async function getCategories(userId: string) {
     .orderBy(asc(categories.kind), asc(categories.name));
 }
 
-export async function getProfiles(userId: string) {
+/** Profiles in the workspace the user can at least view, in sidebar order. */
+export async function getProfiles(userId: string, workspaceId: string) {
   const db = getDb();
   return db
     .select()
     .from(profiles)
-    .where(eq(profiles.userId, userId))
+    .where(inArray(profiles.id, accessibleProfileIds(userId, workspaceId)))
     .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt));
 }

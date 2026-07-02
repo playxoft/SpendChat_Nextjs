@@ -13,27 +13,39 @@ function revalidateApp() {
 
 export async function addCategory(input: CategoryInput): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction("addCategory", async () => {
-    await cats.createCategory(user.id, input);
-    revalidateApp();
-    return {};
-  });
+  return runAction(
+    "addCategory",
+    async () => {
+      await cats.createCategory(user.id, input);
+      revalidateApp();
+      return {};
+    },
+    { userId: user.id },
+  );
 }
 
 export async function updateCategory(input: UpdateCategoryInput): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction("updateCategory", async () => {
-    await cats.updateCategory(user.id, input.id, input);
-    revalidateApp();
-    return {};
-  });
+  return runAction(
+    "updateCategory",
+    async () => {
+      await cats.updateCategory(user.id, input.id, input);
+      revalidateApp();
+      return {};
+    },
+    { userId: user.id, categoryId: input.id },
+  );
 }
 
 export async function deleteCategory(id: string): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction("deleteCategory", async () => {
-    await cats.deleteCategory(user.id, id);
-    revalidateApp();
-    return {};
-  });
+  return runAction(
+    "deleteCategory",
+    async () => {
+      await cats.deleteCategory(user.id, id);
+      revalidateApp();
+      return {};
+    },
+    { userId: user.id, categoryId: id },
+  );
 }

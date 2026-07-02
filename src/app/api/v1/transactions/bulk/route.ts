@@ -11,9 +11,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const { user } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const body = await readJson(request);
-    const result = await createManyTransactions(user.id, body);
+    const result = await createManyTransactions(user.id, workspace.id, body);
     return apiOk(result, 201);
   });
 }

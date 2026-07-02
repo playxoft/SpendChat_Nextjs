@@ -27,6 +27,17 @@ export async function initTestDb(): Promise<PgliteDatabase<typeof schema>> {
      CREATE OR REPLACE FUNCTION uuidv7(shift interval) RETURNS uuid
        AS $$ SELECT gen_random_uuid() $$ LANGUAGE sql;`,
   );
+  // Minimal stand-in for the Neon-managed auth directory: bootstrap names
+  // workspaces from it and invites are matched against it. Tests register
+  // users via the seed helpers.
+  await client.exec(
+    `CREATE SCHEMA IF NOT EXISTS neon_auth;
+     CREATE TABLE IF NOT EXISTS neon_auth."user" (
+       "id" uuid PRIMARY KEY,
+       "name" text,
+       "email" text
+     );`,
+  );
   db = drizzle(client, { schema });
   await migrate(db, {
     migrationsFolder: path.resolve(process.cwd(), "src/db/migrations"),
@@ -43,6 +54,9 @@ export function getTestDb(): PgliteDatabase<typeof schema> {
 export async function resetTestDb(): Promise<void> {
   if (!client) return;
   await client.exec(
-    `TRUNCATE TABLE transactions, categories, profiles, user_settings RESTART IDENTITY CASCADE;`,
+    `TRUNCATE TABLE transactions, categories, profiles, user_settings,
+       workspace_invites, profile_access, workspace_members, workspaces,
+       neon_auth."user"
+     RESTART IDENTITY CASCADE;`,
   );
 }

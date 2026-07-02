@@ -13,10 +13,10 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const { user } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const body = (await readJson(request)) as { ids?: string[] };
-    await reorderProfiles(user.id, body?.ids ?? []);
-    const rows = await listProfiles(user.id);
+    await reorderProfiles(user.id, workspace.id, body?.ids ?? []);
+    const rows = await listProfiles(user.id, workspace.id);
     return apiOk(rows.map(serializeProfile));
   });
 }

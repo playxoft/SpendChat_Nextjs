@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 /** GET /api/v1/profiles — the caller's profiles in sidebar order. */
 export async function GET(request: NextRequest) {
   return handle(async () => {
-    const { user } = await getApiContext(request);
-    const rows = await listProfiles(user.id);
+    const { user, workspace } = await getApiContext(request);
+    const rows = await listProfiles(user.id, workspace.id);
     return apiOk(rows.map(serializeProfile));
   });
 }
@@ -18,9 +18,9 @@ export async function GET(request: NextRequest) {
 /** POST /api/v1/profiles — create a profile (appended to the end). */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const { user } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const body = await readJson(request);
-    const created = await createProfile(user.id, body);
+    const created = await createProfile(user.id, workspace.id, body);
     return apiOk(serializeProfile(created), 201);
   });
 }

@@ -9,15 +9,20 @@ import { Separator } from "@/components/ui/separator";
 import { Kbd } from "@/components/ui/kbd";
 import { ProfileList } from "./profile-list";
 import { UserMenu } from "./user-menu";
+import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
 import { isActive, navItems } from "./nav-items";
 import type { Profile } from "@/db/schema";
 
 export function AppSidebar({
   email,
   profiles,
+  workspaces,
+  currentWorkspaceId,
 }: {
   email: string | null;
   profiles: Pick<Profile, "id" | "name" | "icon">[];
+  workspaces: WorkspaceOption[];
+  currentWorkspaceId: string;
 }) {
   const pathname = usePathname();
 
@@ -27,6 +32,10 @@ export function AppSidebar({
         <Link href="/app" aria-label="Tracker">
           <Logo />
         </Link>
+      </div>
+
+      <div className="shrink-0 px-3 pb-1">
+        <WorkspaceSwitcher workspaces={workspaces} currentId={currentWorkspaceId} />
       </div>
 
       {/* Profiles are the primary content — they fill the sidebar. */}

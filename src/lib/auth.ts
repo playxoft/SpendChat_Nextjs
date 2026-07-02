@@ -3,10 +3,17 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, profiles, userSettings } from "@/db/schema";
+import { categories, userSettings, workspaces } from "@/db/schema";
 import { auth } from "@/lib/neon-auth";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { detectSettingsDefaults } from "./geo.server";
+import { findUserById } from "./directory";
+import {
+  acceptPendingInvites,
+  createWorkspaceWithDefaults,
+  listUserWorkspaces,
+  type WorkspaceSummary,
+} from "./workspaces";
 
 export type SessionUser = {
   id: string;
@@ -49,11 +56,23 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
+/** "<name>'s Workspace", from the best identity evidence available. */
+export function defaultWorkspaceName(name?: string | null, email?: string | null): string {
+  const display = name?.trim() || email?.split("@")[0]?.trim();
+  return display ? `${display}'s Workspace` : "My Workspace";
+}
+
 /**
- * Create default settings + categories for a user. Idempotent. The settings
- * row is seeded with the geo-detected currency/locale for the current request
- * (`onConflictDoNothing` means detection only ever applies to a first sign-in —
- * an existing user's currency is never silently changed).
+ * Create default settings + categories + workspace for a user. Idempotent.
+ * The settings row is seeded with the geo-detected currency/locale for the
+ * current request (`onConflictDoNothing` means detection only ever applies to
+ * a first sign-in — an existing user's currency is never silently changed).
+ *
+ * Every user owns a default workspace ("<name>'s Workspace", named via the
+ * Neon Auth directory) with an admin membership and a "Personal" profile.
+ * On that first bootstrap, pending email invites are converted into
+ * memberships/profile grants — invites only ever exist for emails that had no
+ * account when they were invited (known accounts are added directly).
  */
 export async function ensureBootstrap(userId: string) {
   const db = getDb();
@@ -78,16 +97,17 @@ export async function ensureBootstrap(userId: string) {
       .onConflictDoNothing();
   }
 
-  // Every user has at least one profile ("Personal") to attach transactions to.
-  const existingProfile = await db.query.profiles.findFirst({
-    where: eq(profiles.userId, userId),
+  const ownWorkspace = await db.query.workspaces.findFirst({
+    where: eq(workspaces.ownerId, userId),
     columns: { id: true },
   });
-  if (!existingProfile) {
-    await db
-      .insert(profiles)
-      .values({ userId, name: "Personal", icon: "👤", sortOrder: 0 })
-      .onConflictDoNothing();
+  if (!ownWorkspace) {
+    const identity = await findUserById(userId);
+    await createWorkspaceWithDefaults(
+      userId,
+      defaultWorkspaceName(identity?.name, identity?.email),
+    );
+    if (identity?.email) await acceptPendingInvites(userId, identity.email);
   }
 }
 
@@ -111,14 +131,33 @@ export const getUserSettings = cache(async (userId: string) => {
   return settings!;
 });
 
+/** All workspaces the user can open, deduped per request. */
+export const getUserWorkspaces = cache(async (userId: string) => {
+  await getUserSettings(userId); // lazily bootstraps a brand-new user first
+  return listUserWorkspaces(userId);
+});
+
 /**
- * Resolve the authenticated user + their settings. `getUserSettings` bootstraps
- * a first-time user lazily, so there is no per-request bootstrap cost: the common
- * case (an existing user) is a single settings SELECT, not the insert + two
- * findFirst probes this used to run on every page load.
+ * The user's current workspace: `last_workspace_id` when still accessible,
+ * else their first workspace (bootstrap guarantees at least one — their own).
+ */
+export const getCurrentWorkspace = cache(async (userId: string): Promise<WorkspaceSummary> => {
+  const [settings, list] = await Promise.all([
+    getUserSettings(userId),
+    getUserWorkspaces(userId),
+  ]);
+  return list.find((w) => w.id === settings.lastWorkspaceId) ?? list[0]!;
+});
+
+/**
+ * Resolve the authenticated user + their settings + current workspace.
+ * `getUserSettings` bootstraps a first-time user lazily, so there is no
+ * per-request bootstrap cost: the common case (an existing user) is a settings
+ * SELECT plus the workspace lookups, all deduped per request via `cache()`.
  */
 export async function getAppContext() {
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
-  return { user, settings };
+  const workspace = await getCurrentWorkspace(user.id);
+  return { user, settings, workspace };
 }

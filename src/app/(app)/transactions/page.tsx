@@ -9,7 +9,7 @@ import {
   isSameMonth,
   startOfMonth,
 } from "date-fns";
-import { getUserSettings, requireUser } from "@/lib/auth";
+import { getCurrentWorkspace, getUserSettings, requireUser } from "@/lib/auth";
 import {
   countTransactions,
   getCategories,
@@ -70,9 +70,10 @@ export default async function TransactionsPage({
 
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
+  const workspace = await getCurrentWorkspace(user.id);
   const [categories, profiles] = await Promise.all([
     getCategories(user.id),
-    getProfiles(user.id),
+    getProfiles(user.id, workspace.id),
   ]);
   const today = todayISO(await getTimeZone());
 
@@ -125,6 +126,7 @@ export default async function TransactionsPage({
         <Suspense key={streamKey} fallback={<TransactionsResultsSkeleton />}>
           <TransactionsData
             userId={user.id}
+            workspaceId={workspace.id}
             filters={filters}
             page={page}
             base={base}
@@ -142,6 +144,7 @@ export default async function TransactionsPage({
 
 async function TransactionsData({
   userId,
+  workspaceId,
   filters,
   page,
   base,
@@ -152,6 +155,7 @@ async function TransactionsData({
   today,
 }: {
   userId: string;
+  workspaceId: string;
   filters: TxnFilters;
   page: number;
   base: string;
@@ -163,9 +167,9 @@ async function TransactionsData({
 }) {
   const offset = (page - 1) * PAGE_SIZE;
   const [rows, total, summary] = await Promise.all([
-    listTransactions(userId, { ...filters, limit: PAGE_SIZE, offset }),
-    countTransactions(userId, filters),
-    getSummary(userId, filters),
+    listTransactions(userId, workspaceId, { ...filters, limit: PAGE_SIZE, offset }),
+    countTransactions(userId, workspaceId, filters),
+    getSummary(userId, workspaceId, filters),
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
