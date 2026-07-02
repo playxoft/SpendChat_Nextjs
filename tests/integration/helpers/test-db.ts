@@ -14,12 +14,17 @@ let db: PgliteDatabase<typeof schema> | null = null;
  * PGlite is Postgres 16, which predates the built-in `uuidv7()` that migrations
  * 0001/0002 set as the id default — so we shim it onto `gen_random_uuid()`
  * (a v4 UUID; still unique and a valid UUID, which is all the tests need).
+ * The interval overload is what migration 0007's backfill calls
+ * (`uuidv7(created_at - clock_timestamp())`); it runs against empty tables
+ * here, so a v4 stand-in is fine.
  */
 export async function initTestDb(): Promise<PgliteDatabase<typeof schema>> {
   if (db) return db;
   client = new PGlite();
   await client.exec(
     `CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid
+       AS $$ SELECT gen_random_uuid() $$ LANGUAGE sql;
+     CREATE OR REPLACE FUNCTION uuidv7(shift interval) RETURNS uuid
        AS $$ SELECT gen_random_uuid() $$ LANGUAGE sql;`,
   );
   db = drizzle(client, { schema });

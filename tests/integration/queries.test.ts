@@ -10,10 +10,10 @@ import {
   getProfiles,
 } from "@/lib/queries";
 import { addProfile } from "@/actions/profiles";
-import { signInAs } from "./helpers/session";
+import { signInAs, uid } from "./helpers/session";
 import { bootstrapUser, firstProfileId, categoryId, insertTxn } from "./helpers/seed";
 
-const U = "q";
+const U = uid("q");
 let personal: string;
 let work: string;
 let groceries: string;
@@ -157,7 +157,7 @@ describe("getSummary", () => {
   });
 
   it("returns zeroes for an empty set", async () => {
-    expect(await getSummary("nobody")).toEqual({ income: 0, expense: 0, balance: 0 });
+    expect(await getSummary(uid("nobody"))).toEqual({ income: 0, expense: 0, balance: 0 });
   });
 });
 

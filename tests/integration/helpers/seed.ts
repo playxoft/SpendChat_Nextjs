@@ -2,10 +2,16 @@ import { and, asc, eq } from "drizzle-orm";
 import { categories, profiles, transactions } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { getTestDb } from "./test-db";
+import { uid } from "./session";
+
+/**
+ * Every helper normalizes its user argument through `uid()`, so tests keep
+ * passing short aliases ("a") even though `user_id` is a uuid column.
+ */
 
 /** Bootstrap a user (settings + default categories + Personal profile). */
 export async function bootstrapUser(userId: string): Promise<void> {
-  await ensureBootstrap(userId);
+  await ensureBootstrap(uid(userId));
 }
 
 /** The user's first (default) profile id. */
@@ -14,7 +20,7 @@ export async function firstProfileId(userId: string): Promise<string> {
   const [row] = await db
     .select({ id: profiles.id })
     .from(profiles)
-    .where(eq(profiles.userId, userId))
+    .where(eq(profiles.userId, uid(userId)))
     .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt))
     .limit(1);
   return row!.id;
@@ -32,7 +38,7 @@ export async function categoryId(
     .from(categories)
     .where(
       and(
-        eq(categories.userId, userId),
+        eq(categories.userId, uid(userId)),
         eq(categories.name, name),
         eq(categories.kind, kind),
       ),
@@ -58,7 +64,7 @@ export async function insertTxn(userId: string, t: TxnSeed): Promise<string> {
   const [row] = await db
     .insert(transactions)
     .values({
-      userId,
+      userId: uid(userId),
       type: t.type,
       amountMinor: t.amountMinor,
       occurredOn: t.occurredOn,
@@ -77,6 +83,6 @@ export async function countTxns(userId: string): Promise<number> {
   const rows = await db
     .select({ id: transactions.id })
     .from(transactions)
-    .where(eq(transactions.userId, userId));
+    .where(eq(transactions.userId, uid(userId)));
   return rows.length;
 }

@@ -9,7 +9,7 @@ import {
   reorderProfiles,
   listProfiles,
 } from "@/actions/profiles";
-import { signInAs } from "./helpers/session";
+import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import { bootstrapUser, firstProfileId, insertTxn } from "./helpers/seed";
 
@@ -17,7 +17,7 @@ const profileByName = (userId: string, name: string) =>
   getTestDb()
     .select()
     .from(profiles)
-    .where(and(eq(profiles.userId, userId), eq(profiles.name, name)))
+    .where(and(eq(profiles.userId, uid(userId)), eq(profiles.name, name)))
     .limit(1)
     .then((r) => r[0]);
 

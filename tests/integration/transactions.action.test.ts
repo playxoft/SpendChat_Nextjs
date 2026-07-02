@@ -8,7 +8,7 @@ import {
   addBulkTransactions,
 } from "@/actions/transactions";
 import type { BulkDraft } from "@/lib/bulk-parser";
-import { setSession, signInAs } from "./helpers/session";
+import { setSession, signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import {
   bootstrapUser,
@@ -19,7 +19,7 @@ import {
 } from "./helpers/seed";
 
 const rows = (userId: string) =>
-  getTestDb().select().from(transactions).where(eq(transactions.userId, userId));
+  getTestDb().select().from(transactions).where(eq(transactions.userId, uid(userId)));
 
 describe("addTransaction", () => {
   it("inserts a transaction, converting the amount via the user's currency", async () => {
@@ -46,7 +46,7 @@ describe("addTransaction", () => {
     await getTestDb()
       .update(userSettings)
       .set({ currency: "JPY" })
-      .where(eq(userSettings.userId, "a"));
+      .where(eq(userSettings.userId, uid("a")));
 
     await addTransaction({ type: "income", amount: 1500, occurredOn: "2026-06-01" });
     const [row] = await rows("a");
@@ -131,7 +131,7 @@ describe("addTransaction", () => {
     signInAs("a");
     await bootstrapUser("a");
     // Remove the bootstrapped profile (no txns reference it yet).
-    await getTestDb().delete(profiles).where(eq(profiles.userId, "a"));
+    await getTestDb().delete(profiles).where(eq(profiles.userId, uid("a")));
 
     const res = await addTransaction({
       type: "expense",
@@ -356,7 +356,7 @@ describe("tenant isolation (bulk)", () => {
     const [row] = await getTestDb()
       .select()
       .from(transactions)
-      .where(and(eq(transactions.userId, "a"), eq(transactions.profileId, aProfile)));
-    expect(row.userId).toBe("a");
+      .where(and(eq(transactions.userId, uid("a")), eq(transactions.profileId, aProfile)));
+    expect(row.userId).toBe(uid("a"));
   });
 });

@@ -19,11 +19,12 @@ const uuidV7 = sql`uuidv7()`;
 export const txnTypeEnum = pgEnum("txn_type", ["income", "expense"]);
 
 /**
- * Per-user preferences. `user_id` is the Neon Auth (Stack) user id.
- * One row per user; created on first sign-in (bootstrap).
+ * Per-user preferences. `user_id` is the Neon Auth user id (a UUID minted by
+ * Neon Auth — v4, since we don't control their generator; everything we mint
+ * ourselves is v7). One row per user; created on first sign-in (bootstrap).
  */
 export const userSettings = pgTable("user_settings", {
-  userId: text("user_id").primaryKey(),
+  userId: uuid("user_id").primaryKey(),
   currency: text("currency").notNull().default("USD"),
   locale: text("locale").notNull().default("en-US"),
   theme: text("theme").notNull().default("system"),
@@ -45,7 +46,7 @@ export const profiles = pgTable(
   "profiles",
   {
     id: uuid("id").primaryKey().default(uuidV7),
-    userId: text("user_id").notNull(),
+    userId: uuid("user_id").notNull(),
     name: text("name").notNull(),
     icon: text("icon"),
     color: text("color"),
@@ -64,7 +65,7 @@ export const categories = pgTable(
   "categories",
   {
     id: uuid("id").primaryKey().default(uuidV7),
-    userId: text("user_id").notNull(),
+    userId: uuid("user_id").notNull(),
     name: text("name").notNull(),
     kind: txnTypeEnum("kind").notNull(),
     icon: text("icon"),
@@ -84,7 +85,7 @@ export const transactions = pgTable(
   "transactions",
   {
     id: uuid("id").primaryKey().default(uuidV7),
-    userId: text("user_id").notNull(),
+    userId: uuid("user_id").notNull(),
     type: txnTypeEnum("type").notNull(),
     // Amount stored as a positive integer in the currency's minor units (e.g. cents).
     amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
