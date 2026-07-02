@@ -34,6 +34,10 @@ export default defineConfig({
           // One shared in-process Postgres; serialize files to avoid cross-talk.
           fileParallelism: false,
           pool: "forks",
+          // Each file boots PGlite + runs migrations in its beforeAll; under the
+          // parallel unit project that cold start can exceed the default 10s.
+          hookTimeout: 30000,
+          testTimeout: 20000,
         },
       },
     ],
