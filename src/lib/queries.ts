@@ -85,6 +85,22 @@ export async function listTransactions(
     .offset(f.offset ?? 0);
 }
 
+/** A single transaction (joined with its category + profile), or null. */
+export async function getTransactionById(
+  userId: string,
+  id: string,
+): Promise<TransactionRow | null> {
+  const db = getDb();
+  const [row] = await db
+    .select(txnSelection)
+    .from(transactions)
+    .leftJoin(categories, eq(transactions.categoryId, categories.id))
+    .leftJoin(profiles, eq(transactions.profileId, profiles.id))
+    .where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+    .limit(1);
+  return row ?? null;
+}
+
 /** Oldest-first, for the chat feed (messages read top to bottom). */
 export async function listTransactionsAsc(
   userId: string,

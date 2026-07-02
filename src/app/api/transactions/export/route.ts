@@ -1,9 +1,7 @@
 import { getCurrentUser, getUserSettings } from "@/lib/auth";
 import { listTransactions } from "@/lib/queries";
 import { parseTxnFilters } from "@/lib/filters";
-import { toCsv } from "@/lib/csv";
-import { fromMinorUnits, signedMinor } from "@/lib/money";
-import { getCurrency } from "@/lib/currencies";
+import { transactionsToCsv } from "@/lib/transactions-csv";
 
 export const dynamic = "force-dynamic";
 
@@ -16,19 +14,7 @@ export async function GET(request: Request) {
   const filters = parseTxnFilters((k) => url.searchParams.get(k));
 
   const rows = await listTransactions(user.id, { ...filters, limit: 5000, offset: 0 });
-  const decimals = getCurrency(settings.currency).decimals;
-
-  const header = ["Date", "Type", "Category", "Note", "Amount", "Currency"];
-  const data = rows.map((r) => [
-    r.occurredOn,
-    r.type,
-    r.categoryName ?? "Uncategorized",
-    r.note ?? "",
-    fromMinorUnits(signedMinor(r.type, r.amountMinor), settings.currency).toFixed(decimals),
-    settings.currency,
-  ]);
-
-  const csv = toCsv(header, data);
+  const csv = transactionsToCsv(rows, settings.currency);
   const stamp = new Date().toISOString().slice(0, 10);
 
   return new Response(csv, {

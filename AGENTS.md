@@ -29,3 +29,7 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
   (no `proxy.ts`/middleware — OpenNext on Workers can't run Next 16's Node-only middleware).
 - DB client is lazy via `getDb()` so env is read inside the request context (Workers-safe).
 - Keep the design minimal and neutral (no gradients); income uses a single emerald accent.
+
+## Git
+- Write commit messages and PR bodies as a normal engineering project. Do **not** add AI
+  attribution: no `Co-Authored-By: Claude …` trailer and no "Generated with Claude Code" line.

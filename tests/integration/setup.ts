@@ -50,6 +50,20 @@ vi.mock("@/lib/neon-auth", async () => {
   };
 });
 
+// The mobile API verifies a bearer JWT via `@/lib/jwt`. In tests we swap the
+// real JWKS verification for the same controllable session, so `requireApiUser`
+// (and the whole /api/v1 stack) runs end-to-end driven by `signInAs()`.
+vi.mock("@/lib/jwt", async () => {
+  const { getSessionUser } = await import("./helpers/session");
+  return {
+    verifyAccessToken: async () => {
+      const user = getSessionUser();
+      if (!user) throw new Error("no session");
+      return { sub: user.id, email: user.email, name: user.name };
+    },
+  };
+});
+
 beforeAll(async () => {
   const { initTestDb } = await import("./helpers/test-db");
   await initTestDb();

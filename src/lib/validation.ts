@@ -53,6 +53,23 @@ export const INPUT_MODES = ["amount_title", "title_amount", "combined"] as const
 export const inputModeSchema = z.enum(INPUT_MODES);
 export type InputMode = (typeof INPUT_MODES)[number];
 
+/**
+ * Partial settings update for the REST API's `PATCH /settings`. Any subset of
+ * fields may be supplied; at least one is required.
+ */
+export const patchSettingsSchema = z
+  .object({
+    currency: settingsSchema.shape.currency,
+    locale: settingsSchema.shape.locale,
+    theme: settingsSchema.shape.theme,
+    inputMode: inputModeSchema,
+  })
+  .partial()
+  .refine((o) => Object.keys(o).length > 0, {
+    message: "Provide at least one setting to update",
+  });
+export type PatchSettingsInput = z.infer<typeof patchSettingsSchema>;
+
 export const categoryInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(40),
   kind: txnTypeSchema,

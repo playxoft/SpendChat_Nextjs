@@ -1,0 +1,907 @@
+openapi: 3.1.0
+info:
+  title: SpendChat Mobile API
+  version: "1.0.0"
+  description: |
+    REST API for the SpendChat mobile (Flutter) client. It is versioned under
+    `/api/v1` and served by the same Next.js app as the web UI.
+
+    ## Authentication
+    All `/api/v1/*` endpoints require a **bearer JWT** in the `Authorization`
+    header: `Authorization: Bearer <token>`. Tokens are minted by Neon Auth
+    (Better Auth JWT plugin, EdDSA/Ed25519) and are verified on the server
+    against the auth server's public JWKS. They are short-lived (~15 minutes) —
+    refresh by requesting a new token.
+
+    ### Obtaining a token
+    1. Sign in through Neon Auth (email/password or Google) against the auth
+       endpoints under `/api/auth/*` (proxied to Neon Auth). Email/password:
+       `POST /api/auth/sign-in/email` with `{ "email", "password" }`.
+    2. With the resulting session, call `GET /api/auth/token` to receive a JWT
+       (`{ "token": "<jwt>" }`).
+    3. Send that JWT as `Authorization: Bearer <jwt>` on every `/api/v1` call.
+
+    ## Conventions
+    - **Envelope:** success responses are `{ "data": ... }` (plus `"meta"` for
+      lists/analytics); errors are `{ "error": { "code", "message", "details"? } }`.
+    - **Money** is integer **minor units** (`amountMinor`, e.g. cents). Each
+      transaction also includes `amount`, a major-unit string. A user has a
+      single currency; `meta.currency` (and `settings.currencyDetail`) give the
+      `decimals` needed to format minor units.
+    - **Dates**: `occurredOn` is a calendar date `YYYY-MM-DD`; timestamps are
+      RFC 3339 date-times.
+    - Every resource is scoped to the authenticated user.
+
+servers:
+  - url: http://localhost:3010
+    description: Local development (`pnpm dev`)
+  - url: https://spendchat.example.com
+    description: Production (replace with your Worker/route domain)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Account
+  - name: Transactions
+  - name: Categories
+  - name: Profiles
+  - name: Settings
+  - name: Analytics
+
+paths:
+  /api/v1/me:
+    get:
+      tags: [Account]
+      summary: Current user and settings
+      responses:
+        "200":
+          description: The authenticated user and their settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      user: { $ref: "#/components/schemas/User" }
+                      settings: { $ref: "#/components/schemas/Settings" }
+                    required: [user, settings]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/transactions:
+    get:
+      tags: [Transactions]
+      summary: List transactions (newest first)
+      parameters:
+        - $ref: "#/components/parameters/type"
+        - $ref: "#/components/parameters/category"
+        - $ref: "#/components/parameters/profile"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/q"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: A page of transactions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Transaction" }
+                  meta:
+                    type: object
+                    properties:
+                      total: { type: integer, description: Total matching the filters (ignores paging). }
+                      limit: { type: integer }
+                      offset: { type: integer }
+                      currency: { $ref: "#/components/schemas/CurrencyMeta" }
+                    required: [total, limit, offset, currency]
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Transactions]
+      summary: Create a transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransactionInput" }
+      responses:
+        "201":
+          description: The created transaction.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Transaction" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/transactions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Transactions]
+      summary: Get a transaction
+      responses:
+        "200":
+          description: The transaction.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Transaction" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Transactions]
+      summary: Update a transaction (full replacement of mutable fields)
+      description: Send the complete transaction body, as the web editor does.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransactionInput" }
+      responses:
+        "200":
+          description: The updated transaction.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Transaction" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Transactions]
+      summary: Delete a transaction
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/transactions/bulk:
+    post:
+      tags: [Transactions]
+      summary: Create many transactions (max 500)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items: { $ref: "#/components/schemas/TransactionInput" }
+              required: [items]
+      responses:
+        "201":
+          description: How many rows were inserted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { count: { type: integer } }
+                    required: [count]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/transactions/export:
+    get:
+      tags: [Transactions]
+      summary: Export transactions as CSV
+      parameters:
+        - $ref: "#/components/parameters/type"
+        - $ref: "#/components/parameters/category"
+        - $ref: "#/components/parameters/profile"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/q"
+      responses:
+        "200":
+          description: CSV file (Date,Type,Category,Note,Amount,Currency).
+          content:
+            text/csv:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/transactions/delete-all:
+    post:
+      tags: [Transactions]
+      summary: Delete ALL of the caller's transactions (danger zone)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm:
+                  type: string
+                  description: Must be the exact string "DELETE".
+                  enum: ["DELETE"]
+              required: [confirm]
+      responses:
+        "200":
+          description: How many transactions were removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { deleted: { type: integer } }
+                    required: [deleted]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+
+  /api/v1/categories:
+    get:
+      tags: [Categories]
+      summary: List categories
+      responses:
+        "200":
+          description: The caller's categories (income first, then by name).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Categories]
+      summary: Create a category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CategoryInput" }
+      responses:
+        "201":
+          description: The created category.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Category" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/categories/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    patch:
+      tags: [Categories]
+      summary: Update a category (partial)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CategoryUpdate" }
+      responses:
+        "200":
+          description: The updated category.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Category" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Categories]
+      summary: Delete a category (referencing transactions keep their data, category set to null)
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/profiles:
+    get:
+      tags: [Profiles]
+      summary: List profiles (sidebar order)
+      responses:
+        "200":
+          description: The caller's profiles.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Profile" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Profiles]
+      summary: Create a profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileInput" }
+      responses:
+        "201":
+          description: The created profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Profile" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/profiles/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    patch:
+      tags: [Profiles]
+      summary: Update a profile (partial)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileUpdate" }
+      responses:
+        "200":
+          description: The updated profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Profile" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Profiles]
+      summary: Delete a profile
+      description: >
+        Refused with 409 for the last remaining profile, or one that still has
+        transactions (move them first via /profiles/{id}/move).
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/profiles/reorder:
+    post:
+      tags: [Profiles]
+      summary: Reorder profiles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  description: The full ordered list of the caller's profile ids.
+                  items: { type: string, format: uuid }
+                  minItems: 1
+                  maxItems: 100
+              required: [ids]
+      responses:
+        "200":
+          description: The profiles in their new order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Profile" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/profiles/{id}/move:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [Profiles]
+      summary: Move this profile's transactions to another profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                toProfileId: { type: string, format: uuid }
+              required: [toProfileId]
+      responses:
+        "200":
+          description: How many transactions were moved.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { moved: { type: integer } }
+                    required: [moved]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/settings:
+    get:
+      tags: [Settings]
+      summary: Get settings
+      responses:
+        "200":
+          description: The caller's settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Settings" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [Settings]
+      summary: Update settings (partial)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettingsPatch" }
+      responses:
+        "200":
+          description: The updated settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Settings" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/analytics/summary:
+    get:
+      tags: [Analytics]
+      summary: Income / expense / balance for the current filters
+      parameters:
+        - $ref: "#/components/parameters/type"
+        - $ref: "#/components/parameters/category"
+        - $ref: "#/components/parameters/profile"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/q"
+      responses:
+        "200":
+          description: Totals in minor units.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Summary" }
+                  meta:
+                    type: object
+                    properties: { currency: { $ref: "#/components/schemas/CurrencyMeta" } }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/analytics/categories:
+    get:
+      tags: [Analytics]
+      summary: Totals grouped by category
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema: { type: string, enum: [income, expense] }
+        - $ref: "#/components/parameters/profile"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/q"
+      responses:
+        "200":
+          description: Category totals in minor units, largest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/CategoryBreakdownItem" }
+                  meta:
+                    type: object
+                    properties: { currency: { $ref: "#/components/schemas/CurrencyMeta" } }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/analytics/monthly:
+    get:
+      tags: [Analytics]
+      summary: Income vs expense per month
+      parameters:
+        - name: from
+          in: query
+          required: true
+          description: Inclusive start date, YYYY-MM-DD.
+          schema: { type: string, format: date }
+        - $ref: "#/components/parameters/profile"
+      responses:
+        "200":
+          description: One point per calendar month (minor units).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/MonthlyPoint" }
+                  meta:
+                    type: object
+                    properties: { currency: { $ref: "#/components/schemas/CurrencyMeta" } }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    type:
+      name: type
+      in: query
+      required: false
+      schema: { type: string, enum: [income, expense] }
+    category:
+      name: category
+      in: query
+      required: false
+      description: Category id, or "all".
+      schema: { type: string }
+    profile:
+      name: profile
+      in: query
+      required: false
+      description: Profile id, or "all" for every profile.
+      schema: { type: string }
+    from:
+      name: from
+      in: query
+      required: false
+      description: Inclusive start date, YYYY-MM-DD.
+      schema: { type: string, format: date }
+    to:
+      name: to
+      in: query
+      required: false
+      description: Inclusive end date, YYYY-MM-DD.
+      schema: { type: string, format: date }
+    q:
+      name: q
+      in: query
+      required: false
+      description: Free-text search over title + description.
+      schema: { type: string }
+    limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size (default 100, max 500).
+      schema: { type: integer, default: 100, minimum: 1, maximum: 500 }
+    offset:
+      name: offset
+      in: query
+      required: false
+      schema: { type: integer, default: 0, minimum: 0 }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: unauthorized, message: "Missing bearer token" } }
+    BadRequest:
+      description: Malformed request (e.g. invalid JSON).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource not found or not owned by the caller.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: not_found, message: "Transaction not found" } }
+    Conflict:
+      description: Conflicts with current state (e.g. duplicate name).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: conflict, message: "A category with that name already exists" } }
+    ValidationError:
+      description: Input failed validation. `details` maps field → message.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: validation_error
+              message: "Amount must be greater than 0"
+              details: { amount: "Amount must be greater than 0" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [unauthorized, bad_request, not_found, conflict, validation_error, internal_error]
+            message: { type: string }
+            details:
+              description: Optional per-field messages for validation errors.
+              type: object
+              additionalProperties: { type: string }
+          required: [code, message]
+      required: [error]
+
+    User:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: [string, "null"] }
+        name: { type: [string, "null"] }
+      required: [id, email, name]
+
+    CurrencyMeta:
+      type: object
+      description: Enough to format minor-unit amounts client-side.
+      properties:
+        code: { type: string, example: USD }
+        symbol: { type: string, example: "$" }
+        decimals: { type: integer, example: 2 }
+      required: [code, symbol, decimals]
+
+    Settings:
+      type: object
+      properties:
+        currency: { $ref: "#/components/schemas/CurrencyCode" }
+        locale: { type: string, example: en-US }
+        theme: { type: string, enum: [light, dark, system] }
+        inputMode: { type: string, enum: [amount_title, title_amount, combined] }
+        currencyDetail: { $ref: "#/components/schemas/CurrencyMeta" }
+      required: [currency, locale, theme, inputMode, currencyDetail]
+
+    SettingsPatch:
+      type: object
+      minProperties: 1
+      description: Any subset; at least one property is required.
+      properties:
+        currency: { $ref: "#/components/schemas/CurrencyCode" }
+        locale: { type: string, minLength: 2, maxLength: 20 }
+        theme: { type: string, enum: [light, dark, system] }
+        inputMode: { type: string, enum: [amount_title, title_amount, combined] }
+
+    CurrencyCode:
+      type: string
+      enum: [USD, EUR, GBP, INR, JPY, CAD, AUD, SGD, AED, CHF, CNY, BRL, ZAR, NGN]
+
+    Transaction:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [income, expense] }
+        amountMinor:
+          type: integer
+          description: Positive amount in the user's currency minor units (source of truth).
+          example: 1250
+        amount:
+          type: string
+          description: Same value in major units, formatted to the currency's decimals.
+          example: "12.50"
+        title: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        occurredOn: { type: string, format: date, example: "2026-06-01" }
+        createdAt: { type: string, format: date-time }
+        category:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: [string, "null"] }
+                icon: { type: [string, "null"] }
+              required: [id, name, icon]
+        profile:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: [string, "null"] }
+            icon: { type: [string, "null"] }
+          required: [id, name, icon]
+      required: [id, type, amountMinor, amount, title, description, occurredOn, createdAt, category, profile]
+
+    TransactionInput:
+      type: object
+      properties:
+        type: { type: string, enum: [income, expense] }
+        amount:
+          type: number
+          description: Positive major-unit amount (e.g. 12.50). Converted to minor units server-side.
+          exclusiveMinimum: 0
+          maximum: 1000000000
+        categoryId:
+          type: [string, "null"]
+          format: uuid
+          description: Must belong to the caller; an unknown id is stored as null.
+        profileId:
+          type: [string, "null"]
+          format: uuid
+          description: Must belong to the caller; an unknown/absent id uses the default profile.
+        title: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 250 }
+        occurredOn: { type: string, format: date, example: "2026-06-01" }
+      required: [type, amount, occurredOn]
+
+    Category:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        kind: { type: string, enum: [income, expense] }
+        icon: { type: [string, "null"] }
+        color: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, name, kind, icon, color, createdAt, updatedAt]
+
+    CategoryInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        kind: { type: string, enum: [income, expense] }
+        icon: { type: string, maxLength: 16 }
+        color: { type: string, maxLength: 32 }
+      required: [name, kind]
+
+    CategoryUpdate:
+      type: object
+      description: Any subset of the mutable fields.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        icon: { type: [string, "null"], maxLength: 16 }
+        color: { type: [string, "null"], maxLength: 32 }
+
+    Profile:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        icon: { type: [string, "null"] }
+        color: { type: [string, "null"] }
+        sortOrder: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, name, icon, color, sortOrder, createdAt, updatedAt]
+
+    ProfileInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        icon: { type: string, maxLength: 16 }
+        color: { type: string, maxLength: 32 }
+      required: [name]
+
+    ProfileUpdate:
+      type: object
+      description: Any subset of the mutable fields.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        icon: { type: [string, "null"], maxLength: 16 }
+        color: { type: [string, "null"], maxLength: 32 }
+
+    Summary:
+      type: object
+      description: All values are minor units.
+      properties:
+        income: { type: integer }
+        expense: { type: integer }
+        balance: { type: integer, description: income - expense }
+      required: [income, expense, balance]
+
+    CategoryBreakdownItem:
+      type: object
+      properties:
+        categoryId: { type: [string, "null"], format: uuid }
+        categoryName: { type: [string, "null"] }
+        categoryIcon: { type: [string, "null"] }
+        total: { type: integer, description: Minor units. }
+      required: [categoryId, categoryName, categoryIcon, total]
+
+    MonthlyPoint:
+      type: object
+      properties:
+        month: { type: string, example: "2026-06", description: "YYYY-MM" }
+        income: { type: integer, description: Minor units. }
+        expense: { type: integer, description: Minor units. }
+      required: [month, income, expense]
+
+    DeletedResult:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        deleted: { type: boolean, enum: [true] }
+      required: [id, deleted]
