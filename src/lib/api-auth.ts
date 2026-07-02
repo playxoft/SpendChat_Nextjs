@@ -1,6 +1,7 @@
 import "server-only";
 import { ensureBootstrap, getUserSettings, type SessionUser } from "@/lib/auth";
-import { unauthorized } from "@/lib/errors";
+import { listUserWorkspaces, type WorkspaceSummary } from "@/lib/workspaces";
+import { notFound, unauthorized } from "@/lib/errors";
 import { verifyAccessToken } from "@/lib/jwt";
 
 /**
@@ -34,12 +35,28 @@ export async function requireApiUser(request: Request): Promise<SessionUser> {
 }
 
 /**
- * Resolve the authenticated user + their settings, bootstrapping defaults on
- * first use. The API analogue of `getAppContext()`.
+ * Resolve the authenticated user + settings + current workspace, bootstrapping
+ * defaults on first use. The API analogue of `getAppContext()`. Mobile clients
+ * pick a workspace with the `X-Workspace-Id` header; without it the user's
+ * last-opened workspace (or their own) is used.
  */
-export async function getApiContext(request: Request) {
+export async function getApiContext(request: Request): Promise<{
+  user: SessionUser;
+  settings: Awaited<ReturnType<typeof getUserSettings>>;
+  workspace: WorkspaceSummary;
+}> {
   const user = await requireApiUser(request);
   await ensureBootstrap(user.id);
   const settings = await getUserSettings(user.id);
-  return { user, settings };
+
+  const list = await listUserWorkspaces(user.id);
+  const requested = request.headers.get("x-workspace-id");
+  let workspace: WorkspaceSummary | undefined;
+  if (requested) {
+    workspace = list.find((w) => w.id === requested);
+    if (!workspace) throw notFound("Workspace not found");
+  } else {
+    workspace = list.find((w) => w.id === settings.lastWorkspaceId) ?? list[0];
+  }
+  return { user, settings, workspace: workspace! };
 }

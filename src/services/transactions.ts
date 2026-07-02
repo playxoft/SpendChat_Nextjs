@@ -1,12 +1,17 @@
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, profiles, transactions } from "@/db/schema";
 import { ensureBootstrap, getUserSettings } from "@/lib/auth";
-import { badRequest, validationError } from "@/lib/errors";
+import { badRequest, forbidden, validationError } from "@/lib/errors";
 import { toMinorUnits } from "@/lib/money";
 import { getTransactionById, type TransactionRow } from "@/lib/queries";
 import { parseOrThrow, withId } from "@/lib/api-response";
+import {
+  accessibleProfileIds,
+  getWorkspaceRole,
+  requireProfileRole,
+} from "@/lib/workspaces";
 import {
   transactionInputSchema,
   updateTransactionSchema,
@@ -17,10 +22,10 @@ import { z } from "zod";
 
 /**
  * Transaction business logic, shared by the web server actions (`src/actions`)
- * and the mobile REST API (`src/app/api/v1`). Functions take a `userId` and
- * validated/raw input, enforce ownership + the money/currency rules, and
- * either return data or throw an `ApiError`. They never touch Next.js caching
- * or auth — callers own that. Every write is scoped to `userId`.
+ * and the mobile REST API (`src/app/api/v1`). RBAC is per profile: writing a
+ * transaction requires the editor role on its profile (workspace-wide or via
+ * a profile grant); reads are the viewer role. `transactions.user_id` records
+ * the author, not access.
  */
 
 /** Confirm a category id belongs to the user; returns null otherwise. */
@@ -34,34 +39,43 @@ async function ownedCategoryId(userId: string, categoryId?: string | null) {
   return cat?.id ?? null;
 }
 
-/**
- * Resolve the profile a transaction belongs to. Validates ownership of the
- * requested profile, falling back to the user's first (default) profile.
- */
-async function resolveProfileId(userId: string, profileId?: string | null): Promise<string> {
+/** Profile ids in the workspace the user can write to (editor or admin). */
+async function writableProfileIds(userId: string, workspaceId: string): Promise<string[]> {
   const db = getDb();
-  if (profileId) {
-    const owned = await db.query.profiles.findFirst({
-      where: and(eq(profiles.id, profileId), eq(profiles.userId, userId)),
-      columns: { id: true },
-    });
-    if (owned) return owned.id;
+  const rows = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(inArray(profiles.id, accessibleProfileIds(userId, workspaceId, "editor")))
+    .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt));
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Resolve the profile a new transaction lands in: the requested profile when
+ * the user can write to it (and it's in this workspace), else the first
+ * writable profile. A workspace admin with no profiles at all gets the
+ * default "Personal" recreated (self-heal); anyone else gets a 403.
+ */
+async function resolveProfileId(
+  userId: string,
+  workspaceId: string,
+  profileId?: string | null,
+): Promise<string> {
+  const writable = await writableProfileIds(userId, workspaceId);
+  if (profileId && writable.includes(profileId)) return profileId;
+  if (writable[0]) return writable[0];
+
+  const role = await getWorkspaceRole(userId, workspaceId);
+  if (role === "admin") {
+    const db = getDb();
+    const [row] = await db
+      .insert(profiles)
+      .values({ userId, workspaceId, name: "Personal", icon: "👤", sortOrder: 0 })
+      .onConflictDoNothing()
+      .returning({ id: profiles.id });
+    if (row) return row.id;
   }
-  const first = await db
-    .select({ id: profiles.id })
-    .from(profiles)
-    .where(eq(profiles.userId, userId))
-    .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt))
-    .limit(1);
-  if (first[0]) return first[0].id;
-  // No profile yet (shouldn't happen post-bootstrap) — create the default.
-  await ensureBootstrap(userId);
-  const created = await db
-    .select({ id: profiles.id })
-    .from(profiles)
-    .where(eq(profiles.userId, userId))
-    .limit(1);
-  return created[0]!.id;
+  throw forbidden("You don't have permission to add transactions in this workspace");
 }
 
 /** Pick the title, accepting the deprecated `note` alias. */
@@ -73,12 +87,14 @@ function pickTitle(data: { title?: string; note?: string }): string | null {
 /** Create a transaction; returns the created row (joined). Throws on invalid input. */
 export async function createTransaction(
   userId: string,
+  workspaceId: string,
   input: unknown,
 ): Promise<TransactionRow> {
   const data = parseOrThrow(transactionInputSchema, input);
+  await ensureBootstrap(userId);
   const settings = await getUserSettings(userId);
   const categoryId = await ownedCategoryId(userId, data.categoryId);
-  const profileId = await resolveProfileId(userId, data.profileId);
+  const profileId = await resolveProfileId(userId, workspaceId, data.profileId);
 
   const db = getDb();
   const [row] = await db
@@ -100,9 +116,9 @@ export async function createTransaction(
 }
 
 /**
- * Update an owned transaction. Returns the updated row, or `null` when no row
- * matched (unknown id / not owned) — callers decide whether that is a 404
- * (API) or a silent no-op (web action). Throws on invalid input.
+ * Update a transaction the user can edit. Returns the updated row, or `null`
+ * when no row matched — callers decide whether that is a 404 (API) or a
+ * silent no-op (web action). Throws on invalid input or a viewer role.
  */
 export async function updateTransaction(
   userId: string,
@@ -110,12 +126,26 @@ export async function updateTransaction(
   input: unknown,
 ): Promise<TransactionRow | null> {
   const data = parseOrThrow(updateTransactionSchema, withId(input, id));
+  const db = getDb();
+
+  const existing = await db.query.transactions.findFirst({
+    where: eq(transactions.id, data.id),
+    columns: { id: true, profileId: true },
+  });
+  if (!existing) return null;
+  const access = await requireProfileRole(userId, existing.profileId, "editor");
+
   const settings = await getUserSettings(userId);
   const categoryId = await ownedCategoryId(userId, data.categoryId);
-  const profileId = await resolveProfileId(userId, data.profileId);
+  // Moving to another profile requires editor there too (same workspace).
+  let profileId = existing.profileId;
+  if (data.profileId && data.profileId !== existing.profileId) {
+    const target = await requireProfileRole(userId, data.profileId, "editor");
+    if (target.workspaceId !== access.workspaceId) throw validationError("Invalid profile");
+    profileId = data.profileId;
+  }
 
-  const db = getDb();
-  const updated = await db
+  await db
     .update(transactions)
     .set({
       type: data.type,
@@ -127,25 +157,30 @@ export async function updateTransaction(
       occurredOn: data.occurredOn,
       updatedAt: new Date(),
     })
-    .where(and(eq(transactions.id, data.id), eq(transactions.userId, userId)))
-    .returning({ id: transactions.id });
+    .where(eq(transactions.id, data.id));
 
-  if (updated.length === 0) return null;
   return getTransactionById(userId, data.id);
 }
 
 /**
- * Delete an owned transaction. Returns whether a row was removed. Throws a
- * validation error for a non-UUID id (message matches the web action).
+ * Delete a transaction (requires editor on its profile). Returns whether a
+ * row was removed. Throws a validation error for a non-UUID id.
  */
 export async function deleteTransaction(userId: string, id: string): Promise<boolean> {
   if (!z.string().uuid().safeParse(id).success) {
     throw validationError("Invalid transaction");
   }
   const db = getDb();
+  const existing = await db.query.transactions.findFirst({
+    where: eq(transactions.id, id),
+    columns: { id: true, profileId: true },
+  });
+  if (!existing) return false;
+  await requireProfileRole(userId, existing.profileId, "editor");
+
   const deleted = await db
     .delete(transactions)
-    .where(and(eq(transactions.id, id), eq(transactions.userId, userId)))
+    .where(eq(transactions.id, id))
     .returning({ id: transactions.id });
   return deleted.length > 0;
 }
@@ -156,9 +191,11 @@ export async function deleteTransaction(userId: string, id: string): Promise<boo
  */
 export async function createManyTransactions(
   userId: string,
+  workspaceId: string,
   input: unknown,
 ): Promise<{ count: number }> {
   const { items } = parseOrThrow(bulkTransactionsSchema, input);
+  await ensureBootstrap(userId);
   const settings = await getUserSettings(userId);
   const db = getDb();
 
@@ -170,19 +207,19 @@ export async function createManyTransactions(
         .where(eq(categories.userId, userId))
     ).map((c) => c.id),
   );
-  const defaultProfileId = await resolveProfileId(userId, undefined);
-  const ownedProfiles = new Set(
-    (
-      await db.select({ id: profiles.id }).from(profiles).where(eq(profiles.userId, userId))
-    ).map((p) => p.id),
-  );
+  const writable = await writableProfileIds(userId, workspaceId);
+  if (writable.length === 0) {
+    throw forbidden("You don't have permission to add transactions in this workspace");
+  }
+  const writableSet = new Set(writable);
+  const defaultProfileId = writable[0]!;
 
   const values = items.map((d) => ({
     userId,
     type: d.type,
     amountMinor: toMinorUnits(d.amount, settings.currency),
     categoryId: d.categoryId && ownedCats.has(d.categoryId) ? d.categoryId : null,
-    profileId: d.profileId && ownedProfiles.has(d.profileId) ? d.profileId : defaultProfileId,
+    profileId: d.profileId && writableSet.has(d.profileId) ? d.profileId : defaultProfileId,
     title: pickTitle(d),
     description: d.description?.trim() ? d.description.trim() : null,
     occurredOn: d.occurredOn,
@@ -199,6 +236,7 @@ export async function createManyTransactions(
  */
 export async function createBulkFromDrafts(
   userId: string,
+  workspaceId: string,
   drafts: BulkDraft[],
 ): Promise<{ count: number }> {
   if (!Array.isArray(drafts) || drafts.length === 0) {
@@ -218,12 +256,12 @@ export async function createBulkFromDrafts(
   const catMap = new Map<string, string>();
   for (const c of userCats) catMap.set(`${c.kind}:${c.name.toLowerCase()}`, c.id);
 
-  const defaultProfileId = await resolveProfileId(userId, undefined);
-  const ownedProfiles = await db
-    .select({ id: profiles.id })
-    .from(profiles)
-    .where(eq(profiles.userId, userId));
-  const profileIds = new Set(ownedProfiles.map((p) => p.id));
+  const writable = await writableProfileIds(userId, workspaceId);
+  if (writable.length === 0) {
+    throw forbidden("You don't have permission to add transactions in this workspace");
+  }
+  const writableSet = new Set(writable);
+  const defaultProfileId = writable[0]!;
 
   const values = [];
   for (const d of drafts) {
@@ -235,7 +273,7 @@ export async function createBulkFromDrafts(
       ? (catMap.get(`${d.type}:${d.categoryName.toLowerCase()}`) ?? null)
       : null;
     const profileId =
-      d.profileId && profileIds.has(d.profileId) ? d.profileId : defaultProfileId;
+      d.profileId && writableSet.has(d.profileId) ? d.profileId : defaultProfileId;
     values.push({
       userId,
       type: d.type,

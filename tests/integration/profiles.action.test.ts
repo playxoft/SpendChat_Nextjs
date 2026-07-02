@@ -162,7 +162,7 @@ describe("moveProfileTransactions", () => {
     const foreign = await firstProfileId("b");
     expect(await moveProfileTransactions(personal, foreign)).toEqual({
       ok: false,
-      error: "Invalid profiles",
+      error: "Profile not found",
     });
   });
 });

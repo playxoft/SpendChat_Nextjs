@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { requireUser, getUserSettings } from "@/lib/auth";
+import { requireUser, getUserSettings, getCurrentWorkspace } from "@/lib/auth";
 import { getCategories, getProfiles, getSummary, listTransactionsAsc } from "@/lib/queries";
 import { parseActiveProfile } from "@/lib/filters";
 import type { InputMode } from "@/lib/validation";
@@ -33,9 +33,10 @@ export default async function ChatPage({
 
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
+  const workspace = await getCurrentWorkspace(user.id);
   const [categories, profiles] = await Promise.all([
     getCategories(user.id),
-    getProfiles(user.id),
+    getProfiles(user.id, workspace.id),
   ]);
 
   const filterProfileId = parseActiveProfile(profileParam ?? null);
@@ -74,6 +75,7 @@ export default async function ChatPage({
           <Suspense key={streamKey} fallback={<ChatBalanceSkeleton />}>
             <SummaryStream
               userId={user.id}
+              workspaceId={workspace.id}
               from={start}
               to={end}
               profileId={filterProfileId}
@@ -89,6 +91,7 @@ export default async function ChatPage({
         <Suspense key={streamKey} fallback={<ChatFeedSkeleton />}>
           <FeedStream
             userId={user.id}
+            workspaceId={workspace.id}
             from={start}
             to={end}
             profileId={filterProfileId}
@@ -120,6 +123,7 @@ export default async function ChatPage({
 
 async function SummaryStream({
   userId,
+  workspaceId,
   from,
   to,
   profileId,
@@ -128,6 +132,7 @@ async function SummaryStream({
   today,
 }: {
   userId: string;
+  workspaceId: string;
   from: string;
   to: string;
   profileId?: string;
@@ -135,7 +140,7 @@ async function SummaryStream({
   locale: string;
   today: string;
 }) {
-  const summary = await getSummary(userId, { from, to, profileId });
+  const summary = await getSummary(userId, workspaceId, { from, to, profileId });
   return (
     <div className="mt-3 flex flex-wrap items-end justify-between gap-x-3 gap-y-1">
       <div>
@@ -163,6 +168,7 @@ async function SummaryStream({
 
 async function FeedStream({
   userId,
+  workspaceId,
   from,
   to,
   profileId,
@@ -174,6 +180,7 @@ async function FeedStream({
   profiles,
 }: {
   userId: string;
+  workspaceId: string;
   from: string;
   to: string;
   profileId?: string;
@@ -184,7 +191,7 @@ async function FeedStream({
   categories: Awaited<ReturnType<typeof getCategories>>;
   profiles: Awaited<ReturnType<typeof getProfiles>>;
 }) {
-  const rows = await listTransactionsAsc(userId, {
+  const rows = await listTransactionsAsc(userId, workspaceId, {
     from,
     to,
     limit: 300,

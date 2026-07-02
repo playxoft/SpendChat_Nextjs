@@ -16,14 +16,14 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
-    const { user, settings } = await getApiContext(request);
+    const { user, settings, workspace } = await getApiContext(request);
     const url = new URL(request.url);
     const parsedType = txnTypeSchema.safeParse(url.searchParams.get("type"));
     if (!parsedType.success) {
       throw validationError("Query param `type` must be 'income' or 'expense'");
     }
     const filters = parseTxnFilters((k) => url.searchParams.get(k));
-    const rows = await getCategoryBreakdown(user.id, parsedType.data, filters);
+    const rows = await getCategoryBreakdown(user.id, workspace.id, parsedType.data, filters);
     return apiOk(rows, 200, currencyMeta(settings.currency));
   });
 }

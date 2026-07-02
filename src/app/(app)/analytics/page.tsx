@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { getUserSettings, requireUser } from "@/lib/auth";
+import { getCurrentWorkspace, getUserSettings, requireUser } from "@/lib/auth";
 import {
   getCategoryBreakdown,
   getMonthlyTrend,
@@ -53,6 +53,7 @@ export default async function AnalyticsPage({
 
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
+  const workspace = await getCurrentWorkspace(user.id);
   const { currency, locale } = settings;
 
   const today = todayISO(await getTimeZone());
@@ -86,6 +87,7 @@ export default async function AnalyticsPage({
       <Suspense key={streamKey} fallback={<AnalyticsResultsSkeleton />}>
         <AnalyticsResults
           userId={user.id}
+          workspaceId={workspace.id}
           from={range.from}
           to={range.to}
           profileId={profileId}
@@ -100,6 +102,7 @@ export default async function AnalyticsPage({
 
 async function AnalyticsResults({
   userId,
+  workspaceId,
   from,
   to,
   profileId,
@@ -108,6 +111,7 @@ async function AnalyticsResults({
   today,
 }: {
   userId: string;
+  workspaceId: string;
   from: string;
   to: string;
   profileId?: string;
@@ -120,9 +124,9 @@ async function AnalyticsResults({
   const fromISO = `${months[0]}-01`;
 
   const [summary, breakdown, trendRows] = await Promise.all([
-    getSummary(userId, filters),
-    getCategoryBreakdown(userId, "expense", filters),
-    getMonthlyTrend(userId, fromISO, profileId),
+    getSummary(userId, workspaceId, filters),
+    getCategoryBreakdown(userId, workspaceId, "expense", filters),
+    getMonthlyTrend(userId, workspaceId, fromISO, profileId),
   ]);
 
   const series = months.map((mm) => ({ month: mm, income: 0, expense: 0 }));

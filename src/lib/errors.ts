@@ -31,6 +31,11 @@ export function unauthorized(message = "Authentication required"): ApiError {
   return new ApiError(401, "unauthorized", message);
 }
 
+/** 403 — authenticated, but the caller's role doesn't permit this. */
+export function forbidden(message = "You don't have permission to do that"): ApiError {
+  return new ApiError(403, "forbidden", message);
+}
+
 /** 404 — the resource does not exist or is not owned by the caller. */
 export function notFound(message = "Not found"): ApiError {
   return new ApiError(404, "not_found", message);

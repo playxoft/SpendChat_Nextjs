@@ -26,7 +26,16 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
 - **Ids are UUIDv7** (`uuid` columns, Postgres 18's `uuidv7()` as the DB default). No text
   or v4 ids for anything we mint. Exception: `user_id` values come from Neon Auth (v4,
   outside our control) — the columns are typed `uuid`, but the version isn't ours to choose.
-- **Every query is scoped to the authenticated user.** Reads live in `src/lib/queries.ts`,
+- **Workspaces + RBAC.** Profiles live in workspaces; every user owns a default
+  workspace ("<name>'s Workspace", created at bootstrap). Access = workspace membership
+  (`workspace_members`) or per-profile grant (`profile_access`); roles viewer < editor < admin,
+  effective role on a profile = max of the two (`src/lib/rbac.ts`, `src/lib/workspaces.ts`).
+  Transaction/profile reads scope to accessible profiles in the *current* workspace
+  (`user_settings.last_workspace_id`, `X-Workspace-Id` header on the API); `transactions.user_id`
+  is attribution, not access. Categories remain per-user. Member invites go through ZeptoMail
+  (`src/lib/email.ts`, `ZEPTOMAIL_TOKEN`/`MAIL_FROM_ADDRESS` in Doppler); unknown emails become
+  `workspace_invites` rows accepted at the invitee's first bootstrap.
+- **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,
   mutations in `src/actions/*` (server actions), both validated with Zod (`src/lib/validation.ts`).
 - Auth: Neon Auth (`@neondatabase/auth`). Server instance in `src/lib/neon-auth.ts` (`auth`),
   browser client in `src/lib/neon-auth-client.ts`. Helpers `getCurrentUser()` / `requireUser()` /

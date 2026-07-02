@@ -104,3 +104,32 @@ export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 export const reorderProfilesSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(100),
 });
+
+export const workspaceRoleSchema = z.enum(["viewer", "editor", "admin"]);
+
+export const workspaceNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Workspace name is required")
+  .max(60, "Workspace name is too long (max 60 characters)");
+
+export const createWorkspaceSchema = z.object({ name: workspaceNameSchema });
+export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>;
+
+export const renameWorkspaceSchema = z.object({
+  id: z.string().uuid(),
+  name: workspaceNameSchema,
+});
+
+/** Add a user to a workspace (or to a single profile when `profileId` is set). */
+export const addMemberSchema = z.object({
+  email: z.string().trim().toLowerCase().email("Enter a valid email address"),
+  role: workspaceRoleSchema,
+  profileId: z.string().uuid().nullish(),
+});
+export type AddMemberInput = z.input<typeof addMemberSchema>;
+
+export const updateMemberRoleSchema = z.object({
+  userId: z.string().uuid(),
+  role: workspaceRoleSchema,
+});

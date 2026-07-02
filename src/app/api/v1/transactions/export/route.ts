@@ -13,10 +13,10 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
-    const { user, settings } = await getApiContext(request);
+    const { user, settings, workspace } = await getApiContext(request);
     const url = new URL(request.url);
     const filters = parseTxnFilters((k) => url.searchParams.get(k));
-    const rows = await listTransactions(user.id, { ...filters, limit: 5000, offset: 0 });
+    const rows = await listTransactions(user.id, workspace.id, { ...filters, limit: 5000, offset: 0 });
     const csv = transactionsToCsv(rows, settings.currency);
     const stamp = new Date().toISOString().slice(0, 10);
     return new Response(csv, {
