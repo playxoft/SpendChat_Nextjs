@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
@@ -12,17 +13,24 @@ export type SessionUser = {
   name: string | null;
 };
 
-/** Current user or null. */
-export async function getCurrentUser(): Promise<SessionUser | null> {
-  // Server Components / layouts can't write cookies (Next.js throws "Cookies can
-  // only be modified in a Server Action or Route Handler"). A plain getSession()
-  // refreshes the session-data cache cookie on a cache miss, which triggers that
-  // write during render. `disableCookieCache` + `disableRefresh` keep the upstream
-  // read-only (no Set-Cookie), so this is safe to call anywhere. The cache cookie
-  // and token refresh are still maintained by the client + the /api/auth route
-  // handler, where cookie writes are allowed.
+/**
+ * Current user or null. Deduped per request with React `cache()` so the (app)
+ * layout and the page it renders resolve the session once, not twice.
+ *
+ * neon-auth validates the signed session-data cookie locally (HMAC via the
+ * cookie secret — no network), which is the hot path for a signed-in user and
+ * costs zero round-trips to the Neon Auth server. We deliberately do NOT pass
+ * `disableCookieCache`: that flag skips the local cache and forces an upstream
+ * fetch on every call. `disableRefresh` stays — on a genuine cache miss neon-auth
+ * falls back to an upstream fetch, and without it the response would carry a
+ * Set-Cookie that makes neon-auth call `cookies().set()` during render, which
+ * Next throws on ("Cookies can only be modified in a Server Action or Route
+ * Handler"). Cache-cookie minting and token refresh still happen in the client
+ * and the /api/auth route handler, where cookie writes are allowed.
+ */
+export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   const { data } = await auth.getSession({
-    query: { disableCookieCache: true, disableRefresh: true },
+    query: { disableRefresh: true },
   });
   const user = data?.user;
   if (!user) return null;
@@ -31,7 +39,7 @@ export async function getCurrentUser(): Promise<SessionUser | null> {
     email: user.email ?? null,
     name: user.name ?? null,
   };
-}
+});
 
 /** Current user, redirecting to sign-in when absent. Use in protected routes. */
 export async function requireUser(): Promise<SessionUser> {
@@ -76,7 +84,13 @@ export async function ensureBootstrap(userId: string) {
   }
 }
 
-export async function getUserSettings(userId: string) {
+/**
+ * A user's settings (currency, locale, theme, input mode…), deduped per request
+ * so the layout and page don't each hit the DB. Bootstraps lazily on a cache
+ * miss: a brand-new user's first read creates their settings, categories, and
+ * default profile, then re-reads; every subsequent read is a single SELECT.
+ */
+export const getUserSettings = cache(async (userId: string) => {
   const db = getDb();
   let settings = await db.query.userSettings.findFirst({
     where: eq(userSettings.userId, userId),
@@ -88,12 +102,16 @@ export async function getUserSettings(userId: string) {
     });
   }
   return settings!;
-}
+});
 
-/** Resolve the authenticated user + their settings, bootstrapping if needed. */
+/**
+ * Resolve the authenticated user + their settings. `getUserSettings` bootstraps
+ * a first-time user lazily, so there is no per-request bootstrap cost: the common
+ * case (an existing user) is a single settings SELECT, not the insert + two
+ * findFirst probes this used to run on every page load.
+ */
 export async function getAppContext() {
   const user = await requireUser();
-  await ensureBootstrap(user.id);
   const settings = await getUserSettings(user.id);
   return { user, settings };
 }

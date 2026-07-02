@@ -6,8 +6,6 @@ import { runAction, type ActionResult } from "@/lib/action-result";
 import * as profileService from "@/services/profiles";
 import { type ProfileInput, type UpdateProfileInput } from "@/lib/validation";
 
-export type { ActionResult };
-
 function revalidateApp() {
   revalidatePath("/app");
   revalidatePath("/transactions");
@@ -17,7 +15,7 @@ function revalidateApp() {
 
 export async function addProfile(input: ProfileInput): Promise<ActionResult<{ id?: string }>> {
   const user = await requireUser();
-  return runAction(async () => {
+  return runAction("addProfile", async () => {
     const row = await profileService.createProfile(user.id, input);
     revalidateApp();
     return { id: row.id };
@@ -26,7 +24,7 @@ export async function addProfile(input: ProfileInput): Promise<ActionResult<{ id
 
 export async function updateProfile(input: UpdateProfileInput): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction(async () => {
+  return runAction("updateProfile", async () => {
     await profileService.updateProfile(user.id, input.id, input);
     revalidateApp();
     return {};
@@ -35,7 +33,7 @@ export async function updateProfile(input: UpdateProfileInput): Promise<ActionRe
 
 export async function deleteProfile(id: string): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction(async () => {
+  return runAction("deleteProfile", async () => {
     await profileService.deleteProfile(user.id, id);
     revalidateApp();
     return {};
@@ -48,7 +46,7 @@ export async function moveProfileTransactions(
   toId: string,
 ): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction(async () => {
+  return runAction("moveProfileTransactions", async () => {
     await profileService.moveProfileTransactions(user.id, fromId, toId);
     revalidateApp();
     return {};
@@ -58,7 +56,7 @@ export async function moveProfileTransactions(
 /** Persist the sidebar order. `ids` is the full ordered list of the user's profiles. */
 export async function reorderProfiles(ids: string[]): Promise<ActionResult> {
   const user = await requireUser();
-  return runAction(async () => {
+  return runAction("reorderProfiles", async () => {
     await profileService.reorderProfiles(user.id, ids);
     revalidateApp();
     return {};
