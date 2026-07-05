@@ -19,7 +19,7 @@ import { after } from "next/server";
  * is swallowed — logging must never break or slow a request.
  *
  * This module is intentionally excluded from the coverage gate (see
- * vitest.config.ts): it is thin I/O wiring, like the neon-auth adapters.
+ * vitest.config.ts): it is thin I/O wiring, like the Firebase client adapter.
  */
 
 export type LogLevel = "debug" | "info" | "warn" | "error";

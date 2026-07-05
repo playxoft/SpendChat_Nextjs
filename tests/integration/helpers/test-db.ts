@@ -56,7 +56,7 @@ export async function resetTestDb(): Promise<void> {
   await client.exec(
     `TRUNCATE TABLE transactions, categories, profiles, user_settings,
        workspace_invites, profile_access, workspace_members, workspaces,
-       neon_auth."user"
+       users, neon_auth."user"
      RESTART IDENTITY CASCADE;`,
   );
 }

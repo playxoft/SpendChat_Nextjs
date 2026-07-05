@@ -10,9 +10,11 @@
 #              unauthenticated checks (expecting 401) run. With it, the full
 #              authenticated happy-path runs.
 #
-# Getting a JWT (once signed in on the web app in a browser):
-#   - Visit  <BASE_URL>/api/auth/token  while authenticated, copy the `token`.
-#   - Or, in the app, DevTools → Network → any /api/auth/token response.
+# Getting a Firebase ID token (once signed in on the web app in a browser):
+#   - DevTools console:  await firebase.auth().currentUser.getIdToken()
+#   - Or read the `__session` cookie value (it IS the Firebase ID token).
+#   - Or via Firebase REST: POST to identitytoolkit signInWithPassword with your
+#     web API key, then use the returned idToken.
 #
 # Exit code is non-zero if any check fails.
 

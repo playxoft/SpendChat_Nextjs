@@ -1,15 +1,58 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import {
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  updateProfile,
+} from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { signUpWithEmail } from "./actions";
+import { getFirebaseAuth } from "@/lib/firebase";
+import { firebaseAuthErrorMessage } from "@/lib/auth-errors";
 import { GoogleSignInButton } from "../google-button";
 
 export function SignUpForm() {
-  const [state, action, pending] = useActionState(signUpWithEmail, null);
+  const router = useRouter();
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    const data = new FormData(e.currentTarget);
+    const name = String(data.get("name") ?? "").trim();
+    const email = String(data.get("email") ?? "").trim();
+    const password = String(data.get("password") ?? "");
+    if (!email || !password) {
+      setError("Email and password are required.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+    startTransition(async () => {
+      const auth = getFirebaseAuth();
+      try {
+        const { user } = await createUserWithEmailAndPassword(auth, email, password);
+        if (name) await updateProfile(user, { displayName: name });
+        try {
+          await sendEmailVerification(user);
+        } catch {
+          // ignore transient errors sending the verification email
+        }
+        router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+      } catch (err) {
+        setError(
+          firebaseAuthErrorMessage(err, "Couldn't create your account. Please try again."),
+        );
+      }
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -33,7 +76,7 @@ export function SignUpForm() {
         </div>
       </div>
 
-      <form action={action} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="name">Name</Label>
           <Input
@@ -71,7 +114,7 @@ export function SignUpForm() {
           />
         </div>
 
-        {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
         <Button type="submit" className="h-10 w-full" disabled={pending}>
           {pending ? "Creating account…" : "Create account"}

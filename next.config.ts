@@ -3,9 +3,11 @@ import createMDX from "@next/mdx";
 
 /**
  * Security headers applied to every response.
- * CSP allows inline styles (required by the UI lib). Auth runs same-origin via
- * /api/auth, so connect-src 'self' is sufficient. Tighten to a nonce-based
- * policy as a future step.
+ * CSP allows inline styles (required by the UI lib). Firebase Auth runs in the
+ * browser: it calls Google's Identity Toolkit / Secure Token / JWKS endpoints
+ * (`*.googleapis.com`) and opens a Google sign-in popup + a hidden iframe on the
+ * Firebase auth domain — hence the extra script/connect/frame sources below.
+ * Tighten to a nonce-based policy as a future step.
  */
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
@@ -23,11 +25,12 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://www.gstatic.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self'",
+      "connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com",
+      "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://apis.google.com",
       "frame-ancestors 'none'",
       "object-src 'none'",
       "base-uri 'self'",

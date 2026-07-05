@@ -1,10 +1,11 @@
 export const siteConfig = {
   name: "SpendChat",
   domain: "spendchat.playxoft.com",
-  url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://spendchat.playxoft.com").replace(
-    /\/$/,
-    "",
-  ),
+  url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://spendchat.playxoft.com")
+    // Tolerate a bare hostname in the env (e.g. "spendchat.playxoft.com"):
+    // new URL() requires a scheme, so default to https:// when none is given.
+    .replace(/^(?!https?:\/\/)/i, "https://")
+    .replace(/\/$/, ""),
   tagline: "Track your money like a conversation.",
   description:
     "A minimal, fast, and private money tracker. Add income and expenses in seconds with a chat-style tracker, then filter, download, and print whenever you need. Free to use.",

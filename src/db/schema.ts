@@ -28,6 +28,23 @@ export const txnTypeEnum = pgEnum("txn_type", ["income", "expense"]);
 export const workspaceRoleEnum = pgEnum("workspace_role", ["viewer", "editor", "admin"]);
 
 /**
+ * Application identity. `id` is our own uuidv7 — the value stored in every
+ * `user_id` / `owner_id` column across the schema. `firebase_uid` links to the
+ * Firebase Auth account; we translate Firebase UID → this `id` at the auth
+ * boundary (`resolveUser`), so the rest of the app never sees a provider id.
+ * Email/name/image are synced from the verified Firebase token.
+ */
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey().default(uuidV7),
+  firebaseUid: text("firebase_uid").notNull().unique(),
+  email: text("email"),
+  name: text("name"),
+  image: text("image"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
  * A workspace groups profiles (threads) and members. Every user gets a default
  * workspace ("<name>'s Workspace") at bootstrap and can create/join more.
  */
@@ -222,6 +239,8 @@ export const transactions = pgTable(
   ],
 );
 
+export type User = typeof users.$inferSelect;
+export type NewUser = typeof users.$inferInsert;
 export type UserSettings = typeof userSettings.$inferSelect;
 export type Profile = typeof profiles.$inferSelect;
 export type NewProfile = typeof profiles.$inferInsert;

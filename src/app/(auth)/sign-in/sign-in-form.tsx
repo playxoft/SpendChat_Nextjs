@@ -1,17 +1,57 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useState, useTransition } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { sendEmailVerification, signInWithEmailAndPassword } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { signInWithEmail } from "./actions";
+import { getFirebaseAuth, syncSession } from "@/lib/firebase";
+import { firebaseAuthErrorMessage } from "@/lib/auth-errors";
 import { GoogleSignInButton } from "../google-button";
 
 export function SignInForm() {
-  const [state, action, pending] = useActionState(signInWithEmail, null);
+  const router = useRouter();
   const initialEmail = useSearchParams().get("email") ?? "";
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError(null);
+    const data = new FormData(e.currentTarget);
+    const email = String(data.get("email") ?? "").trim();
+    const password = String(data.get("password") ?? "");
+    if (!email || !password) {
+      setError("Email and password are required.");
+      return;
+    }
+    startTransition(async () => {
+      const auth = getFirebaseAuth();
+      try {
+        const { user } = await signInWithEmailAndPassword(auth, email, password);
+        if (!user.emailVerified) {
+          // Re-send a fresh link and route to the verify screen. The server
+          // won't grant a session until the email is verified.
+          try {
+            await sendEmailVerification(user);
+          } catch {
+            // ignore rate-limit / transient errors on the resend
+          }
+          router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+          return;
+        }
+        await syncSession();
+        router.push("/app");
+        router.refresh();
+      } catch (err) {
+        setError(
+          firebaseAuthErrorMessage(err, "Couldn't sign in. Check your details and try again."),
+        );
+      }
+    });
+  }
 
   return (
     <div className="space-y-6">
@@ -35,7 +75,7 @@ export function SignInForm() {
         </div>
       </div>
 
-      <form action={action} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
         <div className="space-y-1.5">
           <Label htmlFor="email">Email</Label>
           <Input
@@ -70,7 +110,7 @@ export function SignInForm() {
           />
         </div>
 
-        {state?.error && <p className="text-sm text-destructive">{state.error}</p>}
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
         <Button type="submit" className="h-10 w-full" disabled={pending}>
           {pending ? "Signing in…" : "Sign in"}

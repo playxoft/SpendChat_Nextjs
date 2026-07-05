@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { signInWithPopup } from "firebase/auth";
 import { Button } from "@/components/ui/button";
-import { authClient } from "@/lib/neon-auth-client";
-import { getAuthErrorMessage } from "@/lib/auth-errors";
+import { getFirebaseAuth, googleProvider, syncSession } from "@/lib/firebase";
+import { firebaseAuthErrorMessage } from "@/lib/auth-errors";
 
 /** Official multi-color Google "G" mark. */
 function GoogleIcon() {
@@ -29,35 +31,29 @@ function GoogleIcon() {
   );
 }
 
-/** One-click "Continue with Google" — redirects through Neon Auth's hosted OAuth. */
+/** One-click "Continue with Google" — Firebase popup OAuth. */
 export function GoogleSignInButton() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function onClick() {
     setError(null);
     setLoading(true);
-    console.info("[auth] Starting Google sign-in…");
     try {
-      // On success this redirects the browser to Google, so the loading state
-      // stays until the page navigates away. We only return here on failure.
-      // `callbackURL` is where Neon sends us back with the session verifier —
-      // /auth/callback finalizes the session before entering the gated app.
-      const { error: err } = await authClient.signIn.social({
-        provider: "google",
-        callbackURL: "/auth/callback",
-        errorCallbackURL: "/sign-in",
-      });
-      if (err) {
-        console.error("[auth] Google sign-in request failed:", err);
-        setError(err.message || "Couldn't continue with Google. Try again.");
-        setLoading(false);
-      } else {
-        console.info("[auth] Redirecting to Google…");
-      }
+      await signInWithPopup(getFirebaseAuth(), googleProvider());
+      // Google accounts are email-verified; establish the session cookie
+      // before entering the gated app.
+      await syncSession();
+      router.push("/app");
+      router.refresh();
     } catch (err) {
-      console.error("[auth] Google sign-in threw:", err);
-      setError(getAuthErrorMessage(err, "Couldn't continue with Google. Try again."));
+      const code =
+        err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : "";
+      // A user closing the popup isn't an error worth shouting about.
+      if (code !== "auth/popup-closed-by-user" && code !== "auth/cancelled-popup-request") {
+        setError(firebaseAuthErrorMessage(err, "Couldn't continue with Google. Try again."));
+      }
       setLoading(false);
     }
   }

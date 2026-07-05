@@ -1,5 +1,5 @@
-import { and, asc, eq, sql } from "drizzle-orm";
-import { categories, profiles, transactions, workspaces } from "@/db/schema";
+import { and, asc, eq } from "drizzle-orm";
+import { categories, profiles, transactions, users, workspaces } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { getTestDb } from "./test-db";
 import { uid } from "./session";
@@ -10,17 +10,22 @@ import { uid } from "./session";
  */
 
 /**
- * Register the alias in the neon_auth directory stub (name = alias, email =
+ * Register the alias in the `users` directory (name = alias, email =
  * alias@example.com) so bootstrap can name the default workspace and invites
- * can match. Idempotent.
+ * can match by email. Mirrors the `resolveUser` mock row exactly (same id +
+ * firebase_uid), so order doesn't matter. Idempotent.
  */
 export async function registerUser(alias: string): Promise<void> {
   const db = getTestDb();
-  await db.execute(
-    sql`insert into neon_auth."user" ("id", "name", "email")
-        values (${uid(alias)}, ${alias}, ${`${alias}@example.com`})
-        on conflict ("id") do nothing`,
-  );
+  await db
+    .insert(users)
+    .values({
+      id: uid(alias),
+      firebaseUid: `fb-${uid(alias)}`,
+      name: alias,
+      email: `${alias}@example.com`,
+    })
+    .onConflictDoNothing();
 }
 
 /**
