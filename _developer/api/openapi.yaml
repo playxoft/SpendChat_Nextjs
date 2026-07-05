@@ -7,19 +7,22 @@ info:
     `/api/v1` and served by the same Next.js app as the web UI.
 
     ## Authentication
-    All `/api/v1/*` endpoints require a **bearer JWT** in the `Authorization`
-    header: `Authorization: Bearer <token>`. Tokens are minted by Neon Auth
-    (Better Auth JWT plugin, EdDSA/Ed25519) and are verified on the server
-    against the auth server's public JWKS. They are short-lived (~15 minutes) —
-    refresh by requesting a new token.
+    All `/api/v1/*` endpoints require a **Firebase ID token** as a bearer token
+    in the `Authorization` header: `Authorization: Bearer <idToken>`. The server
+    verifies it (RS256) against Google's public keys, pinning issuer + audience
+    to the Firebase project. ID tokens are short-lived (~1 hour); the Firebase
+    SDK refreshes them automatically. Email/password accounts must have a
+    **verified email** (Google accounts always do) — an unverified token gets a
+    `403 forbidden`.
 
-    ### Obtaining a token
-    1. Sign in through Neon Auth (email/password or Google) against the auth
-       endpoints under `/api/auth/*` (proxied to Neon Auth). Email/password:
-       `POST /api/auth/sign-in/email` with `{ "email", "password" }`.
-    2. With the resulting session, call `GET /api/auth/token` to receive a JWT
-       (`{ "token": "<jwt>" }`).
-    3. Send that JWT as `Authorization: Bearer <jwt>` on every `/api/v1` call.
+    ### Obtaining a token (Flutter)
+    1. Add the `firebase_auth` + `google_sign_in` packages and initialise
+       Firebase with your project's config.
+    2. Sign in: `FirebaseAuth.instance.signInWithEmailAndPassword(...)` or the
+       Google flow.
+    3. Get the token: `await FirebaseAuth.instance.currentUser!.getIdToken()` and
+       send it as `Authorization: Bearer <idToken>`. Call `getIdToken()` again
+       (it auto-refreshes) when a request returns `401`.
 
     ## Conventions
     - **Envelope:** success responses are `{ "data": ... }` (plus `"meta"` for
@@ -611,6 +614,7 @@ components:
       type: http
       scheme: bearer
       bearerFormat: JWT
+      description: Firebase ID token (from the firebase_auth SDK's getIdToken()).
 
   parameters:
     id:

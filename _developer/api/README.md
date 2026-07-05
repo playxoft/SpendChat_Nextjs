@@ -7,7 +7,7 @@ it (see [Generating a Dart client](#generating-a-dart-client)).
 
 - **Base URL (dev):** `http://localhost:3010`
 - **Base URL (prod):** your Worker/route domain
-- **Auth:** bearer JWT on every request (`Authorization: Bearer <token>`)
+- **Auth:** Firebase ID token as bearer (`Authorization: Bearer <idToken>`)
 - **Content type:** `application/json` (CSV export is `text/csv`)
 
 ## Response envelope
@@ -28,30 +28,27 @@ message) for form validation.
 
 ## Authentication
 
-The API does **not** issue tokens itself — it verifies JWTs minted by Neon Auth
-(Better Auth, EdDSA) against the auth server's public JWKS. The flow:
+Auth is **Firebase Authentication**. The API does not issue tokens — it verifies
+the **Firebase ID token** (RS256) against Google's public keys, pinning the
+issuer + audience to your Firebase project. The Flutter flow:
 
-1. **Sign in** against the auth endpoints (proxied under `/api/auth/*`):
-   - Email/password: `POST /api/auth/sign-in/email` with `{ "email", "password" }`.
-     (New accounts must verify their email first, exactly like the web app.)
-   - Google: use Neon Auth social sign-in (`/api/auth/sign-in/social`) via a
-     webview / deep-link redirect. See the Neon Auth docs for the mobile flow.
-   Sign-in establishes a session (returned as `Set-Cookie`). Use a cookie-aware
-   HTTP client (e.g. `dio` + `cookie_jar`) for the auth calls, or capture the
-   session token from the response.
-2. **Exchange for a JWT:** `GET /api/auth/token` (with the session) →
-   `{ "token": "<jwt>" }`.
-3. **Call the API:** send `Authorization: Bearer <jwt>` on every `/api/v1/*`
-   request.
+1. **Set up Firebase** in the app (`firebase_core` + `firebase_auth`, plus
+   `google_sign_in` for Google). Use the same Firebase project as the web app.
+2. **Sign in**: `signInWithEmailAndPassword(...)` or the Google flow.
+   Email/password accounts must have verified their email (Google always has) —
+   the API returns `403` for an unverified token.
+3. **Get the token**: `final idToken = await FirebaseAuth.instance.currentUser!
+   .getIdToken();` and send `Authorization: Bearer <idToken>` on every `/api/v1`
+   request. The SDK caches + auto-refreshes it; call `getIdToken()` again (or
+   `getIdToken(true)` to force) when a request returns `401`.
 
-Tokens are short-lived (~15 minutes). On a `401` with code `unauthorized` and a
-message like *"Invalid or expired token"*, fetch a fresh JWT from
-`GET /api/auth/token` (the session outlives the JWT) and retry once. Store the
-JWT in secure storage (`flutter_secure_storage`), not shared prefs.
+ID tokens last ~1 hour and the SDK refreshes them automatically — you don't need
+`flutter_secure_storage` for the token (Firebase persists the session itself).
 
-> Server config: the API reads `NEON_AUTH_BASE_URL` to locate the JWKS
-> (`/.well-known/jwks.json`). Optionally set `NEON_AUTH_JWT_ISSUER` to also pin
-> the `iss` claim once you confirm its exact value from a real token.
+> Server config: the whole Firebase web config is one env var,
+> `NEXT_PUBLIC_FIREBASE_CONFIG` (JSON). The API verifies against its `projectId`
+> (`iss = https://securetoken.google.com/<projectId>`, `aud = <projectId>`),
+> using Google's Secure Token JWKS.
 
 ## Money
 
