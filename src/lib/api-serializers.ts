@@ -47,7 +47,6 @@ export type ApiCategory = {
   name: string;
   kind: "income" | "expense";
   icon: string | null;
-  color: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -58,7 +57,6 @@ export function serializeCategory(c: Category): ApiCategory {
     name: c.name,
     kind: c.kind,
     icon: c.icon,
-    color: c.color,
     createdAt: c.createdAt.toISOString(),
     updatedAt: c.updatedAt.toISOString(),
   };

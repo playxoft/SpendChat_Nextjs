@@ -74,7 +74,6 @@ export const categoryInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(40),
   kind: txnTypeSchema,
   icon: z.string().trim().max(16).optional(),
-  color: z.string().trim().max(32).optional(),
 });
 export type CategoryInput = z.infer<typeof categoryInputSchema>;
 
@@ -82,7 +81,6 @@ export const updateCategorySchema = z.object({
   id: z.string().uuid(),
   name: z.string().trim().min(1, "Name is required").max(40).optional(),
   icon: z.string().trim().max(16).nullish(),
-  color: z.string().trim().max(32).nullish(),
 });
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 

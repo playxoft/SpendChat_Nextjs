@@ -6,6 +6,16 @@ import type { FirebaseTokenClaims } from "@/lib/firebase-verify";
 import type { SessionUser } from "@/lib/auth";
 
 /**
+ * Emails are stored lowercased so "one account per email" is case-insensitive
+ * (Foo@x.com === foo@x.com). Enforced at the DB by a unique index on
+ * `lower(email)` (`users_email_lower_uq`); normalizing here keeps the stored
+ * value canonical too. Returns null for missing/blank emails.
+ */
+function normalizeEmail(email: unknown): string | null {
+  return typeof email === "string" && email.trim() ? email.trim().toLowerCase() : null;
+}
+
+/**
  * Translate a verified Firebase token into our internal identity.
  *
  * `users.firebase_uid` maps the provider's UID to our own `uuidv7` `id`, which
@@ -29,7 +39,7 @@ export async function resolveUser(claims: FirebaseTokenClaims): Promise<SessionU
     .limit(1);
   if (existing[0]) return existing[0];
 
-  const email = (claims.email as string | undefined) ?? null;
+  const email = normalizeEmail(claims.email);
   const name = (claims.name as string | undefined) ?? null;
   const image = (claims.picture as string | undefined) ?? null;
 
@@ -49,7 +59,7 @@ export async function syncUserProfile(claims: FirebaseTokenClaims): Promise<void
   await db
     .update(users)
     .set({
-      email: (claims.email as string | undefined) ?? null,
+      email: normalizeEmail(claims.email),
       name: (claims.name as string | undefined) ?? null,
       image: (claims.picture as string | undefined) ?? null,
       updatedAt: new Date(),

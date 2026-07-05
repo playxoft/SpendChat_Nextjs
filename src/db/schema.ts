@@ -34,15 +34,23 @@ export const workspaceRoleEnum = pgEnum("workspace_role", ["viewer", "editor", "
  * boundary (`resolveUser`), so the rest of the app never sees a provider id.
  * Email/name/image are synced from the verified Firebase token.
  */
-export const users = pgTable("users", {
-  id: uuid("id").primaryKey().default(uuidV7),
-  firebaseUid: text("firebase_uid").notNull().unique(),
-  email: text("email"),
-  name: text("name"),
-  image: text("image"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    firebaseUid: text("firebase_uid").notNull().unique(),
+    email: text("email"),
+    name: text("name"),
+    image: text("image"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One account per email, case-insensitive. Emails are stored lowercased
+    // (`normalizeEmail` in identity.ts), so `lower(email)` is belt-and-suspenders.
+    uniqueIndex("users_email_lower_uq").on(sql`lower(${t.email})`),
+  ],
+);
 
 /**
  * A workspace groups profiles (threads) and members. Every user gets a default
@@ -127,6 +135,8 @@ export const workspaceInvites = pgTable(
       sql`coalesce(${t.profileId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
     ),
     index("workspace_invites_email_idx").on(t.email),
+    // FK maintenance: cascade when the referenced profile is deleted.
+    index("workspace_invites_profile_idx").on(t.profileId),
   ],
 );
 
@@ -190,7 +200,6 @@ export const categories = pgTable(
     name: text("name").notNull(),
     kind: txnTypeEnum("kind").notNull(),
     icon: text("icon"),
-    color: text("color"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -236,6 +245,11 @@ export const transactions = pgTable(
     index("transactions_user_created_idx").on(t.userId, t.createdAt.desc()),
     // Filter a user's transactions by profile (thread).
     index("transactions_user_profile_idx").on(t.userId, t.profileId),
+    // FK maintenance: the composites above lead with user_id, so they can't
+    // serve a lookup keyed only on the FK column (category delete → set null,
+    // profile delete → restrict check). Single-column indexes for those.
+    index("transactions_category_idx").on(t.categoryId),
+    index("transactions_profile_idx").on(t.profileId),
   ],
 );
 

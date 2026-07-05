@@ -37,7 +37,6 @@ export async function createCategory(userId: string, input: unknown): Promise<Ca
         name: data.name,
         kind: data.kind,
         icon: data.icon || null,
-        color: data.color || null,
       })
       .returning();
     return row!;
@@ -56,7 +55,6 @@ export async function updateCategory(
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   if (data.name !== undefined) patch.name = data.name;
   if (data.icon !== undefined) patch.icon = data.icon || null;
-  if (data.color !== undefined) patch.color = data.color || null;
 
   const db = getDb();
   try {
