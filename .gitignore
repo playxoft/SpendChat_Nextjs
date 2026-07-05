@@ -23,6 +23,8 @@ next-env.d.ts
 !.env.example
 .dev.vars
 .dev.vars.*
+# Firebase service-account key (migration script only)
+.firebase-service-account.json
 
 # ---- cloudflare / opennext / wrangler ----
 /.open-next/

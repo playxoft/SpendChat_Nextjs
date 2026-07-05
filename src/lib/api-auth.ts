@@ -1,17 +1,18 @@
 import "server-only";
 import { ensureBootstrap, getUserSettings, type SessionUser } from "@/lib/auth";
 import { listUserWorkspaces, type WorkspaceSummary } from "@/lib/workspaces";
-import { notFound, unauthorized } from "@/lib/errors";
-import { verifyAccessToken } from "@/lib/jwt";
+import { forbidden, notFound, unauthorized } from "@/lib/errors";
+import { verifyFirebaseIdToken } from "@/lib/firebase-verify";
+import { resolveUser } from "@/lib/identity";
 
 /**
  * Authentication for the mobile REST API (`/api/v1/*`).
  *
- * Unlike the web app — which reads the Neon Auth session cookie via
- * `getCurrentUser()` — mobile clients authenticate with a bearer JWT
- * (`Authorization: Bearer <token>`). This mirrors the app's `requireUser()` /
- * `getAppContext()` helpers but returns 401s (never a redirect), which is the
- * correct behaviour for an API.
+ * Mobile clients send a Firebase **ID token** as `Authorization: Bearer
+ * <idToken>` (from the `firebase_auth` Flutter SDK). We verify it statelessly
+ * with `jose` and map the Firebase UID → our internal user id via `resolveUser`.
+ * This mirrors the app's `requireUser()` / `getAppContext()` but returns 401s
+ * (never a redirect), which is the correct behaviour for an API.
  */
 
 /** Extract the `Authorization: Bearer <token>` value, or null. */
@@ -26,12 +27,11 @@ export function getBearerToken(request: Request): string | null {
 export async function requireApiUser(request: Request): Promise<SessionUser> {
   const token = getBearerToken(request);
   if (!token) throw unauthorized("Missing bearer token");
-  const claims = await verifyAccessToken(token);
-  return {
-    id: claims.sub,
-    email: (claims.email as string | undefined) ?? null,
-    name: (claims.name as string | undefined) ?? null,
-  };
+  const claims = await verifyFirebaseIdToken(token);
+  // Email/password accounts must verify their email first (Google is always
+  // verified). Enforced here since Firebase itself lets unverified users sign in.
+  if (claims.email_verified === false) throw forbidden("Email not verified");
+  return resolveUser(claims);
 }
 
 /**

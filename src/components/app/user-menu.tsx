@@ -13,7 +13,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { authClient } from "@/lib/neon-auth-client";
+import { signOut } from "firebase/auth";
+import { clearSession, getFirebaseAuth } from "@/lib/firebase";
 
 export function UserMenu({
   email,
@@ -28,8 +29,9 @@ export function UserMenu({
 
   function handleSignOut() {
     startTransition(async () => {
-      await authClient.signOut();
-      router.push("/");
+      await signOut(getFirebaseAuth());
+      await clearSession();
+      router.push("/sign-in");
       router.refresh();
     });
   }

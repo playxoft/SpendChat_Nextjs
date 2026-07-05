@@ -54,9 +54,14 @@ export default defineConfig({
         "src/app/api/transactions/export/route.ts",
       ],
       exclude: [
-        // Thin third-party wiring — nothing of ours to assert.
-        "src/lib/neon-auth.ts",
-        "src/lib/neon-auth-client.ts",
+        // Browser Firebase SDK wiring — client-only, not run under Node tests.
+        "src/lib/firebase.ts",
+        // Firebase web config env parsing — thin wiring around one env var.
+        "src/lib/firebase-config.ts",
+        // Firebase UID → internal id mapping. Mocked at the edge in the
+        // integration suite (see tests/integration/setup.ts), like the auth
+        // session was before. TODO: add a direct test of the real upsert.
+        "src/lib/identity.ts",
         // Logging I/O wiring (console + BetterStack HTTP shipping), same rationale.
         "src/lib/logger.ts",
         // Email I/O wiring (ZeptoMail HTTP API), same rationale.

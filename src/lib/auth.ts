@@ -1,10 +1,13 @@
 import "server-only";
 import { cache } from "react";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, userSettings, workspaces } from "@/db/schema";
-import { auth } from "@/lib/neon-auth";
+import { verifyFirebaseIdToken } from "@/lib/firebase-verify";
+import { resolveUser } from "@/lib/identity";
+import { SESSION_COOKIE } from "@/lib/session-cookie";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { detectSettingsDefaults } from "./geo.server";
 import { findUserById } from "./directory";
@@ -25,28 +28,24 @@ export type SessionUser = {
  * Current user or null. Deduped per request with React `cache()` so the (app)
  * layout and the page it renders resolve the session once, not twice.
  *
- * neon-auth validates the signed session-data cookie locally (HMAC via the
- * cookie secret — no network), which is the hot path for a signed-in user and
- * costs zero round-trips to the Neon Auth server. We deliberately do NOT pass
- * `disableCookieCache`: that flag skips the local cache and forces an upstream
- * fetch on every call. `disableRefresh` stays — on a genuine cache miss neon-auth
- * falls back to an upstream fetch, and without it the response would carry a
- * Set-Cookie that makes neon-auth call `cookies().set()` during render, which
- * Next throws on ("Cookies can only be modified in a Server Action or Route
- * Handler"). Cache-cookie minting and token refresh still happen in the client
- * and the /api/auth route handler, where cookie writes are allowed.
+ * Reads the httpOnly `__session` cookie (a Firebase ID token, written by
+ * `POST /api/auth/session`) and verifies it statelessly with `jose` against
+ * Google's public keys (no network to a session server, no `firebase-admin`).
+ * `resolveUser` maps the Firebase UID → our internal `uuidv7` id. A missing,
+ * expired, or invalid token reads as signed-out; the browser's `AuthBridge`
+ * refreshes the token and re-sets the cookie. Cookie writes never happen here —
+ * only in the `/api/auth/session` route handler.
  */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
-  const { data } = await auth.getSession({
-    query: { disableRefresh: true },
-  });
-  const user = data?.user;
-  if (!user) return null;
-  return {
-    id: user.id,
-    email: user.email ?? null,
-    name: user.name ?? null,
-  };
+  const store = await cookies();
+  const token = store.get(SESSION_COOKIE)?.value;
+  if (!token) return null;
+  try {
+    const claims = await verifyFirebaseIdToken(token);
+    return await resolveUser(claims);
+  } catch {
+    return null;
+  }
 });
 
 /** Current user, redirecting to sign-in when absent. Use in protected routes. */

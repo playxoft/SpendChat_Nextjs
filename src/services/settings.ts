@@ -6,6 +6,7 @@ import {
   profileAccess,
   profiles,
   transactions,
+  users,
   userSettings,
   workspaceMembers,
   workspaces,
@@ -125,5 +126,7 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
   await db.delete(profileAccess).where(eq(profileAccess.userId, userId));
   await db.delete(categories).where(eq(categories.userId, userId));
   await db.delete(userSettings).where(eq(userSettings.userId, userId));
+  // The identity row last (the Firebase account itself is deleted client-side).
+  await db.delete(users).where(eq(users.id, userId));
   logger.info("account.deleted", { userId, workspaces: ownedIds.length });
 }

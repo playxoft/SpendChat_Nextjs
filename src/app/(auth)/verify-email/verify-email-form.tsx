@@ -1,78 +1,68 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
+import { onAuthStateChanged, sendEmailVerification, type User } from "firebase/auth";
 import { toast } from "sonner";
+import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { authClient } from "@/lib/neon-auth-client";
-import { friendlyOtpError, getAuthErrorMessage } from "@/lib/auth-errors";
+import { getFirebaseAuth, syncSession } from "@/lib/firebase";
+import { firebaseAuthErrorMessage } from "@/lib/auth-errors";
 
 export function VerifyEmailForm() {
   const router = useRouter();
-  const sp = useSearchParams();
-  const initialEmail = sp.get("email") ?? "";
-
-  const [email, setEmail] = useState(initialEmail);
-  const [otp, setOtp] = useState("");
-  const [formError, setFormError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const emailParam = useSearchParams().get("email") ?? "";
+  const [user, setUser] = useState<User | null>(null);
+  const [ready, setReady] = useState(false);
   const [resending, setResending] = useState(false);
+  const [pending, startTransition] = useTransition();
 
-  function handleVerify(e: React.FormEvent) {
-    e.preventDefault();
-    setFormError(null);
-    const trimmedEmail = email.trim();
-    const code = otp.trim();
-    if (!trimmedEmail) {
-      setFormError("Enter your email.");
+  useEffect(() => {
+    return onAuthStateChanged(getFirebaseAuth(), (u) => {
+      setUser(u);
+      setReady(true);
+    });
+  }, []);
+
+  const email = user?.email ?? emailParam;
+
+  async function handleResend() {
+    if (!user) {
+      toast.error("Please sign in again to resend the link.");
       return;
     }
-    if (code.length < 4) {
-      setFormError("Enter the code from your email.");
+    setResending(true);
+    try {
+      await sendEmailVerification(user);
+      toast.success("Verification link sent — check your inbox.");
+    } catch (err) {
+      toast.error(firebaseAuthErrorMessage(err, "Couldn't resend the link."));
+    } finally {
+      setResending(false);
+    }
+  }
+
+  function handleContinue() {
+    if (!user) {
+      toast.error("Please sign in again to continue.");
       return;
     }
     startTransition(async () => {
       try {
-        const { error } = await authClient.emailOtp.verifyEmail({
-          email: trimmedEmail,
-          otp: code,
-        });
-        if (error) {
-          setFormError(friendlyOtpError(getAuthErrorMessage(error)));
+        await user.reload();
+        if (!user.emailVerified) {
+          toast.error("Not verified yet — click the link in your email first.");
           return;
         }
+        await syncSession();
         toast.success("Email verified");
         router.push("/app");
         router.refresh();
       } catch (err) {
-        // The client throws on expired/invalid codes — surface it inline.
-        setFormError(friendlyOtpError(getAuthErrorMessage(err)));
+        toast.error(firebaseAuthErrorMessage(err, "Couldn't confirm verification."));
       }
     });
-  }
-
-  async function handleResend() {
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail) {
-      setFormError("Enter your email first.");
-      return;
-    }
-    setFormError(null);
-    setResending(true);
-    try {
-      const { error } = await authClient.emailOtp.sendVerificationOtp({
-        email: trimmedEmail,
-        type: "email-verification",
-      });
-      if (error) setFormError(getAuthErrorMessage(error, "Couldn't resend the code."));
-      else toast.success("New code sent — check your inbox.");
-    } catch (err) {
-      setFormError(getAuthErrorMessage(err, "Couldn't resend the code."));
-    } finally {
-      setResending(false);
-    }
   }
 
   return (
@@ -80,65 +70,46 @@ export function VerifyEmailForm() {
       <div className="space-y-1.5 text-center">
         <h1 className="text-2xl font-semibold tracking-tight">Verify your email</h1>
         <p className="text-sm text-muted-foreground">
-          Enter the code we emailed{initialEmail ? ` to ${initialEmail}` : ""} to finish
-          setting up your account.
+          We emailed a verification link{email ? ` to ${email}` : ""}. Click it, then come
+          back and continue.
         </p>
       </div>
 
-      <form onSubmit={handleVerify} className="space-y-4">
-        {!initialEmail && (
-          <div className="space-y-1.5">
-            <Label htmlFor="email">Email</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => {
-                setEmail(e.target.value);
-                if (formError) setFormError(null);
-              }}
-              required
-              placeholder="you@example.com"
-            />
-          </div>
-        )}
-        <div className="space-y-1.5">
-          <Label htmlFor="otp">Verification code</Label>
-          <Input
-            id="otp"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            value={otp}
-            onChange={(e) => {
-              setOtp(e.target.value.replace(/\D/g, ""));
-              if (formError) setFormError(null);
-            }}
-            maxLength={8}
-            required
-            placeholder="123456"
-            className="text-center text-lg tracking-[0.3em]"
-          />
-        </div>
-
-        {formError && <p className="text-sm text-destructive">{formError}</p>}
-
-        <Button type="submit" className="w-full" disabled={pending}>
-          {pending ? "Verifying…" : "Verify email"}
+      <div className="space-y-3">
+        <Button className="w-full" onClick={handleContinue} disabled={pending || !ready}>
+          {pending ? "Checking…" : "I've verified — continue"}
         </Button>
-      </form>
-
-      <p className="text-center text-sm text-muted-foreground">
-        Didn&apos;t get a code?{" "}
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          className="w-full"
           onClick={handleResend}
-          disabled={resending}
-          className="font-medium text-foreground underline-offset-4 hover:underline disabled:opacity-50"
+          disabled={resending || !ready}
         >
-          {resending ? "Sending…" : "Resend code"}
-        </button>
-      </p>
+          {resending ? "Sending…" : "Resend link"}
+        </Button>
+      </div>
+
+      {ready && !user && (
+        <p className="text-center text-sm text-muted-foreground">
+          Not signed in?{" "}
+          <Link
+            href={`/sign-in${email ? `?email=${encodeURIComponent(email)}` : ""}`}
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            Sign in again
+          </Link>{" "}
+          to resend or continue.
+        </p>
+      )}
+
+      <div className="text-center">
+        <Link
+          href="/sign-in"
+          className="inline-flex items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+        >
+          <ArrowLeft className="size-3.5" /> Back to sign in
+        </Link>
+      </div>
     </div>
   );
 }

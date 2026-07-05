@@ -13,8 +13,9 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { deleteUser, signOut } from "firebase/auth";
 import { deleteAccount, deleteAllTransactions } from "@/actions/settings";
-import { authClient } from "@/lib/neon-auth-client";
+import { clearSession, getFirebaseAuth } from "@/lib/firebase";
 
 /** A confirm-by-typing-DELETE destructive row. */
 function DangerRow({
@@ -121,7 +122,22 @@ export function DangerZone() {
           void deleteAccount(confirm).then(async (res) => {
             if (res.ok) {
               toast.success("Account data deleted");
-              await authClient.signOut();
+              const auth = getFirebaseAuth();
+              try {
+                if (auth.currentUser) await deleteUser(auth.currentUser);
+              } catch (err) {
+                // The DB data is already gone; Firebase may need a recent login
+                // to delete the credential itself. Sign out regardless.
+                const code =
+                  err && typeof err === "object" && "code" in err
+                    ? String((err as { code?: unknown }).code)
+                    : "";
+                if (code === "auth/requires-recent-login") {
+                  toast.info("Your data is deleted. Sign in again to remove your login.");
+                }
+              }
+              await signOut(auth);
+              await clearSession();
               window.location.href = "/";
             } else {
               toast.error(res.error);
