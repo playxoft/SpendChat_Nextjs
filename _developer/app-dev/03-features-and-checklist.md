@@ -11,12 +11,13 @@ Status legend: `- [ ]` todo · `- [~]` in progress · `- [x]` done
 
 ## 1. Feature → API map
 
-| Feature | Endpoint(s) |
+| Feature | How |
 |---|---|
-| Sign in (email) | `POST /api/auth/sign-in/email` → `GET /api/auth/token` |
-| Sign up + verify | `POST /api/auth/sign-up/email`; verify via email link |
-| Google sign in | `POST /api/auth/sign-in/social` (webview/deep link) → `GET /api/auth/token` |
-| Token refresh | `GET /api/auth/token` |
+| Sign in (email) | Firebase `signInWithEmailAndPassword` (client SDK) |
+| Sign up + verify | Firebase `createUserWithEmailAndPassword` + `sendEmailVerification` |
+| Google sign in | `google_sign_in` → `signInWithCredential` |
+| Token (per request) | `await currentUser.getIdToken()` → `Authorization: Bearer` |
+| Token refresh | automatic; `getIdToken(true)` to force on `401` |
 | Current user + settings | `GET /api/v1/me` |
 | Tracker feed | `GET /api/v1/transactions?profile=&limit=&offset=` |
 | Add transaction | `POST /api/v1/transactions` |

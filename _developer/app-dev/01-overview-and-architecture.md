@@ -23,7 +23,7 @@ sending chat messages. Feature parity with the web app:
 - **Profiles** — WhatsApp-style "threads" (Personal, Work, …) that scope the data.
 - **Categories** — per-user income/expense categories with emoji icons.
 - **Settings** — currency, locale, theme, input layout, danger zone.
-- **Auth** — email/password + Google, via Neon Auth.
+- **Auth** — email/password + Google, via Firebase Authentication.
 
 Single currency per user. Money is integer **minor units** end-to-end.
 
@@ -117,27 +117,29 @@ format `amountMinor` yourself with `meta.currency.decimals` (see `money.dart`).
 
 ## 5. Auth flow (important)
 
-The API verifies a **bearer JWT** minted by Neon Auth; it does not issue tokens
-itself. The mobile flow:
+Auth is **Firebase Authentication** (same Firebase project as the web app). The
+API verifies the Firebase **ID token**; it does not issue tokens. The mobile flow
+uses the native Firebase SDKs — no custom auth endpoints, no cookie jar:
 
-1. **Sign in** against the auth endpoints (same origin, `/api/auth/*`) using a
-   **cookie-aware** dio instance:
-   - Email/password: `POST /api/auth/sign-in/email` `{ email, password }`.
-     A brand-new account must verify its email first (see the verify screen).
-   - Google: Neon Auth social sign-in via a browser/deep-link (`flutter_web_auth_2`),
-     `POST /api/auth/sign-in/social` with `provider: "google"`. See the Neon Auth
-     docs for the mobile redirect; treat as a later phase.
-   Sign-in returns a session (as cookies) which the cookie jar stores.
-2. **Exchange for a JWT:** `GET /api/auth/token` → `{ "token": "<jwt>" }`.
-3. **Use the JWT** as `Authorization: Bearer <jwt>` for all `/api/v1` calls.
+1. **Set up Firebase**: add `firebase_core`, `firebase_auth`, `google_sign_in`;
+   run `flutterfire configure` (or add the platform config files) for the
+   project. Initialise in `main()`.
+2. **Sign in**:
+   - Email/password: `FirebaseAuth.instance.signInWithEmailAndPassword(...)`.
+     A new account must verify its email (`sendEmailVerification`) — the API
+     returns `403` for an unverified token, so gate the app on
+     `user.emailVerified`.
+   - Google: `google_sign_in` → credential → `signInWithCredential(...)`
+     (or `signInWithProvider(GoogleAuthProvider())`). Google is always verified.
+3. **Call the API**: attach `Authorization: Bearer ${await user.getIdToken()}` to
+   every `/api/v1` request (a dio interceptor is ideal).
 
-**Refresh:** JWTs are short-lived (~15 min). When a `/api/v1` call returns `401`
-with `error.code == "unauthorized"`, call `GET /api/auth/token` again (the
-session cookie outlives the JWT), store the new JWT, and retry once. If that
-also fails, the session is gone → clear storage and route to sign-in.
+**Refresh:** ID tokens last ~1 hour and the SDK refreshes automatically.
+`getIdToken()` returns a fresh one; on a `401`, call `getIdToken(true)` (force
+refresh) and retry once. Listen to `idTokenChanges()` to react to sign-out.
 
-**Storage:** keep the session cookie persisted (cookie_jar + secure storage) and
-the current JWT in memory (optionally cached in secure storage). Never log tokens.
+**Storage:** none needed for the token — Firebase persists the session on device
+and rehydrates it on launch. Never log tokens.
 
 > Testing tip: `scripts/api-smoke.sh <base> <jwt>` on the server repo exercises
 > every endpoint with a real token — handy to confirm the backend before wiring
