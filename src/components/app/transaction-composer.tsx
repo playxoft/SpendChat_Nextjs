@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ArrowUp } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -17,12 +17,13 @@ import {
 import { CategoryRow } from "./category-row";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { cn } from "@/lib/utils";
-import { addTransaction } from "@/actions/transactions";
+import { usePendingMessages } from "./pending-messages";
 import { getCurrency } from "@/lib/currencies";
+import { toMinorUnits } from "@/lib/money";
 import { parseQuickEntry } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
-import type { InputMode } from "@/lib/validation";
+import type { InputMode, TransactionInput } from "@/lib/validation";
 import type { Category, Profile } from "@/db/schema";
 
 const TITLE_MAX = 100;
@@ -62,7 +63,7 @@ export function TransactionComposer({
   const [editorOpen, setEditorOpen] = useState(false);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
-  const [pending, startTransition] = useTransition();
+  const { send } = usePendingMessages();
 
   const titleRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
@@ -139,29 +140,42 @@ export function TransactionComposer({
       toast.error("Pick a profile");
       return;
     }
-    startTransition(async () => {
-      const res = await addTransaction({
-        type,
-        amount: value,
-        categoryId,
-        profileId: targetProfileId,
-        title: finalTitle,
-        description: description.trim() || undefined,
-        occurredOn,
-      });
-      if (res.ok) {
-        setAmount("");
-        setTitle("");
-        setCombined("");
-        setDescription("");
-        setCategoryId(null);
-        setOccurredOn(today);
-        setSlashDismissed(false);
-        toast.success(type === "income" ? "Income added" : "Expense added");
-      } else {
-        toast.error(res.error);
-      }
+
+    const input: TransactionInput = {
+      type,
+      amount: value,
+      categoryId,
+      profileId: targetProfileId,
+      title: finalTitle,
+      description: description.trim() || undefined,
+      occurredOn,
+    };
+    // categoryId is always from the current type's list (switching type clears it).
+    const cat = categoryId ? cats.find((c) => c.id === categoryId) ?? null : null;
+
+    // Optimistic: paint the bubble now, save in the background. On failure the
+    // ghost bubble surfaces a "Try again" — the composer doesn't wait or block.
+    send({
+      input,
+      type,
+      amountMinor: toMinorUnits(value, currency),
+      title: finalTitle,
+      description: input.description ?? null,
+      categoryName: cat?.name ?? null,
+      categoryIcon: cat?.icon ?? null,
+      profileId: targetProfileId,
     });
+
+    // Clear the composer immediately so the next entry can start (WhatsApp-style),
+    // and keep focus in the first field for rapid successive sends.
+    setAmount("");
+    setTitle("");
+    setCombined("");
+    setDescription("");
+    setCategoryId(null);
+    setOccurredOn(today);
+    setSlashDismissed(false);
+    (isCombined || inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
   }
 
   function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -218,7 +232,6 @@ export function TransactionComposer({
   const sendButton = (
     <Button
       type="submit"
-      disabled={pending}
       aria-label={`Send transaction (${submitLabel})`}
       className="h-9 gap-1.5 px-3"
     >
@@ -450,7 +463,6 @@ export function TransactionComposer({
         {/* Full-width send on mobile — easy thumb reach at the bottom. */}
         <Button
           type="submit"
-          disabled={pending}
           aria-label={`Send transaction (${submitLabel})`}
           className="h-12 w-full gap-1.5 text-base md:hidden"
         >

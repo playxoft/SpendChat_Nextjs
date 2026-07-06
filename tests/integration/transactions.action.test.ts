@@ -31,13 +31,15 @@ describe("addTransaction", () => {
       occurredOn: "2026-06-01",
       title: "Lunch",
     });
-    expect(res).toEqual({ ok: true, count: 1 });
+    expect(res.ok).toBe(true);
 
     const [row] = await rows("a");
     expect(row.amountMinor).toBe(1250);
     expect(row.type).toBe("expense");
     expect(row.title).toBe("Lunch");
     expect(row.description).toBeNull();
+    // The action returns the created id (the optimistic UI keys off it).
+    if (res.ok) expect(res.id).toBe(row.id);
   });
 
   it("converts using a non-USD, zero-decimal currency", async () => {

@@ -145,6 +145,22 @@
   animation: mt-rise 0.28s ease-out both;
 }
 
+/* Optimistic "sending" coin — a small coin flipping on its edge, shown on a
+   chat bubble while its transaction is being saved in the background.
+   Neutralized by the reduced-motion rule below (falls back to a static coin). */
+@keyframes mt-coin-flip {
+  from {
+    transform: rotateY(0deg);
+  }
+  to {
+    transform: rotateY(360deg);
+  }
+}
+
+@utility animate-coin-flip {
+  animation: mt-coin-flip 1.1s linear infinite;
+}
+
 /* ── 404 / not-found page: playful, money-themed motion. Purely decorative —
    the reduced-motion rule below neutralizes these, and the drifting coins are
    also hidden outright via `motion-reduce:hidden` in the markup. ───────────── */
