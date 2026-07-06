@@ -1,10 +1,28 @@
 import type { ReactNode } from "react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 export function amountToneClass(type: "income" | "expense"): string {
   return type === "income"
     ? "text-emerald-600 dark:text-emerald-400"
     : "text-foreground";
+}
+
+/**
+ * Amount label for a chat bubble. Expenses carry no sign — the neutral color
+ * already reads as money out — while income keeps a leading "+" (with its
+ * emerald tone). `amountMinor` is the stored positive value.
+ */
+export function bubbleAmountLabel(
+  type: "income" | "expense",
+  amountMinor: number,
+  currency: string,
+  locale: string,
+): string {
+  return type === "income"
+    ? formatMoney(amountMinor, currency, locale, { signed: true })
+    : formatMoney(amountMinor, currency, locale);
 }
 
 /**
@@ -56,12 +74,14 @@ export function TransactionBubble({
         className,
       )}
     >
-      <div
-        aria-hidden
-        className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-base"
-      >
-        {categoryIcon ?? "💸"}
-      </div>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="flex size-9 shrink-0 cursor-default items-center justify-center rounded-full bg-muted text-base">
+            {categoryIcon ?? "💸"}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent side="top">{categoryName ?? "Uncategorized"}</TooltipContent>
+      </Tooltip>
       <div
         role={onActivate ? "button" : undefined}
         tabIndex={onActivate ? 0 : undefined}

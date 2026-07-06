@@ -10,6 +10,7 @@ import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { ChatFeed } from "@/components/app/chat-feed";
 import { ChatBalanceSkeleton, ChatFeedSkeleton } from "@/components/app/chat-skeleton";
+import { FeedRegion, PendingMessagesProvider } from "@/components/app/pending-messages";
 import { TransactionComposer } from "@/components/app/transaction-composer";
 import { TrackerActions } from "@/components/app/tracker-actions";
 import { ScrollToBottom } from "@/components/app/scroll-to-bottom";
@@ -53,27 +54,44 @@ export default async function ChatPage({
   const streamKey = filterProfileId ?? "all";
 
   return (
-    <div className="flex min-h-full flex-col">
-      <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0">
-        <div className="mx-auto max-w-2xl px-4 pt-3 pb-2">
-          <div className="flex items-center gap-3">
-            <ProfileSwitcher
-              profiles={profiles}
-              filterProfileId={filterProfileId}
-              allProfiles={allProfiles}
-            />
-            <TrackerActions
-              categories={categories}
-              profiles={profiles}
-              activeProfileId={composerProfileId}
-              currency={currency}
-              today={today}
-              allProfiles={allProfiles}
-            />
-          </div>
+    <PendingMessagesProvider>
+      <div className="flex min-h-full flex-col">
+        <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0">
+          <div className="mx-auto max-w-2xl px-4 pt-3 pb-2">
+            <div className="flex items-center gap-3">
+              <ProfileSwitcher
+                profiles={profiles}
+                filterProfileId={filterProfileId}
+                allProfiles={allProfiles}
+              />
+              <TrackerActions
+                categories={categories}
+                profiles={profiles}
+                activeProfileId={composerProfileId}
+                currency={currency}
+                today={today}
+                allProfiles={allProfiles}
+              />
+            </div>
 
-          <Suspense key={streamKey} fallback={<ChatBalanceSkeleton />}>
-            <SummaryStream
+            <Suspense key={streamKey} fallback={<ChatBalanceSkeleton />}>
+              <SummaryStream
+                userId={user.id}
+                workspaceId={workspace.id}
+                from={start}
+                to={end}
+                profileId={filterProfileId}
+                currency={currency}
+                locale={locale}
+                today={today}
+              />
+            </Suspense>
+          </div>
+        </header>
+
+        <div className="mx-auto w-full max-w-2xl flex-1 px-4 py-4">
+          <Suspense key={streamKey} fallback={<ChatFeedSkeleton />}>
+            <FeedStream
               userId={user.id}
               workspaceId={workspace.id}
               from={start}
@@ -81,43 +99,28 @@ export default async function ChatPage({
               profileId={filterProfileId}
               currency={currency}
               locale={locale}
+              timeZone={timeZone}
               today={today}
+              categories={categories}
+              profiles={profiles}
             />
           </Suspense>
         </div>
-      </header>
 
-      <div className="mx-auto w-full max-w-2xl flex-1 px-4 py-4">
-        <Suspense key={streamKey} fallback={<ChatFeedSkeleton />}>
-          <FeedStream
-            userId={user.id}
-            workspaceId={workspace.id}
-            from={start}
-            to={end}
-            profileId={filterProfileId}
-            currency={currency}
-            locale={locale}
-            timeZone={timeZone}
-            today={today}
-            categories={categories}
-            profiles={profiles}
-          />
-        </Suspense>
+        <TransactionComposer
+          categories={categories}
+          currency={currency}
+          today={today}
+          profiles={profiles}
+          activeProfileId={composerProfileId}
+          allProfiles={allProfiles}
+          inputMode={settings.inputMode as InputMode}
+        />
+
+        {/* Mobile: swipe left/right across the tracker to change profile. */}
+        <ProfileSwipe profiles={profiles} filterProfileId={filterProfileId} />
       </div>
-
-      <TransactionComposer
-        categories={categories}
-        currency={currency}
-        today={today}
-        profiles={profiles}
-        activeProfileId={composerProfileId}
-        allProfiles={allProfiles}
-        inputMode={settings.inputMode as InputMode}
-      />
-
-      {/* Mobile: swipe left/right across the tracker to change profile. */}
-      <ProfileSwipe profiles={profiles} filterProfileId={filterProfileId} />
-    </div>
+    </PendingMessagesProvider>
   );
 }
 
@@ -199,15 +202,24 @@ async function FeedStream({
   });
   return (
     <>
-      <ChatFeed
-        rows={rows}
+      <FeedRegion
+        hasRows={rows.length > 0}
+        rowIds={rows.map((r) => r.id)}
         currency={currency}
         locale={locale}
         timeZone={timeZone}
-        today={today}
-        categories={categories}
-        profiles={profiles}
-      />
+        profileId={profileId ?? null}
+      >
+        <ChatFeed
+          rows={rows}
+          currency={currency}
+          locale={locale}
+          timeZone={timeZone}
+          today={today}
+          categories={categories}
+          profiles={profiles}
+        />
+      </FeedRegion>
       <ScrollToBottom count={rows.length} />
     </>
   );

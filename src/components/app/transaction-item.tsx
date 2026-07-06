@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { TransactionBubble } from "./transaction-bubble";
+import { TransactionBubble, bubbleAmountLabel } from "./transaction-bubble";
 import { TransactionDialog } from "./transaction-dialog";
 import { TransactionDetailDialog } from "./transaction-detail-dialog";
-import { formatMoney, minorToInputString, signedMinor } from "@/lib/money";
+import { minorToInputString } from "@/lib/money";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 
@@ -28,12 +28,7 @@ export function TransactionItem({
   const [editing, setEditing] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
 
-  const amountLabel = formatMoney(
-    signedMinor(row.type, row.amountMinor),
-    currency,
-    locale,
-    { signed: true },
-  );
+  const amountLabel = bubbleAmountLabel(row.type, row.amountMinor, currency, locale);
 
   return (
     <>

@@ -14,15 +14,17 @@ function revalidateApp() {
   revalidatePath("/analytics");
 }
 
-export async function addTransaction(input: TransactionInput): Promise<ActionResult<{ count: number }>> {
+export async function addTransaction(input: TransactionInput): Promise<ActionResult<{ id: string }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "addTransaction",
     async () => {
-      await txns.createTransaction(user.id, workspace.id, input);
+      // The optimistic UI keys off the created id to retire its ghost bubble
+      // once the revalidated feed shows the real row.
+      const created = await txns.createTransaction(user.id, workspace.id, input);
       revalidateApp();
-      return { count: 1 };
+      return { id: created.id };
     },
     { userId: user.id, workspaceId: workspace.id, profileId: input.profileId ?? null },
   );

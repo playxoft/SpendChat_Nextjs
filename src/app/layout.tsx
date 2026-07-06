@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { ThemeProvider } from "@/components/theme-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthBridge } from "@/components/auth-bridge";
 import { siteConfig } from "@/lib/site";
@@ -71,7 +72,7 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
           <Toaster richColors position="top-right" />
           <AuthBridge />
         </ThemeProvider>
