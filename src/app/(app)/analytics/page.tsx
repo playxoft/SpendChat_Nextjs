@@ -4,9 +4,10 @@ import { getCurrentWorkspace, getUserSettings, requireUser } from "@/lib/auth";
 import {
   getCategoryBreakdown,
   getMonthlyTrend,
+  getProfiles,
   getSummary,
 } from "@/lib/queries";
-import { parseTxnFilters } from "@/lib/filters";
+import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
 import { formatDateLabel, monthLabel, monthRange, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
@@ -54,13 +55,15 @@ export default async function AnalyticsPage({
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
   const workspace = await getCurrentWorkspace(user.id);
+  const profiles = await getProfiles(user.id, workspace.id);
   const { currency, locale } = settings;
 
   const today = todayISO(await getTimeZone());
   const { start, end } = monthRange(today);
   const parsed = parseTxnFilters(get);
   const range = { from: parsed.from ?? start, to: parsed.to ?? end };
-  const profileId = parsed.profileId;
+  // Web default: no `?profile=` shows the first profile; "all" is explicit.
+  const profileId = resolveWebProfile(get("profile"), profiles[0]?.id);
 
   const rangeLabel = `${formatDateLabel(range.from, locale)} – ${formatDateLabel(range.to, locale)}`;
   // Remount the streamed results on any filter change so the skeleton shows

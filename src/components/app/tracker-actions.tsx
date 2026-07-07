@@ -55,7 +55,7 @@ export function TrackerActions({
         allProfiles={allProfiles}
         currency={currency}
         trigger={
-          <Button variant="outline" size="sm">
+          <Button variant="outline" size="sm" className="hidden md:inline-flex">
             <ListPlus className="size-4" />
             <span className="hidden sm:inline">Bulk add</span>
           </Button>

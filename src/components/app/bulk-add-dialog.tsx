@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import { ChevronDown, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -71,6 +71,16 @@ export function BulkAddDialog({
   const idRef = useRef(3);
   const nextKey = () => ++idRef.current;
 
+  // Spreadsheet-style keyboard navigation across the editable text cells.
+  const NAV_COLS = ["amount", "title", "description"];
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // The column an Enter returns to. Set by clicking/entering a cell — Tab moves
+  // across columns without disturbing it, so Amount → Tab → Title → Enter lands
+  // on the next row's Amount (like Google Sheets).
+  const anchorColRef = useRef("amount");
+  const tabbingRef = useRef(false);
+  const pendingFocusRef = useRef<{ row: number; col: string } | null>(null);
+
   const emptyRow = (key: number): DraftRow => ({
     key,
     type: "expense",
@@ -89,6 +99,8 @@ export function BulkAddDialog({
   const [rows, setRows] = useState<DraftRow[]>(() => [0, 1, 2].map((k) => emptyRow(k)));
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
+  // Flip on after a failed import so invalid fields light up (and clear live).
+  const [showErrors, setShowErrors] = useState(false);
   const [pending, startTransition] = useTransition();
 
   const symbol = getCurrency(currency).symbol;
@@ -103,12 +115,81 @@ export function BulkAddDialog({
     setRows((rs) => (rs.length > 1 ? rs.filter((r) => r.key !== key) : rs));
   }
 
-  const drafts: BulkDraft[] = rows
-    .filter((r) => Number(r.amount) > 0)
+  // Move focus to a specific cell (row index + column), selecting its text so
+  // typing overwrites — the way stepping into a spreadsheet cell behaves.
+  function focusCell(row: number, col: string) {
+    const el = scrollRef.current?.querySelector<HTMLInputElement>(
+      `input[data-row="${row}"][data-col="${col}"]`,
+    );
+    el?.focus();
+    el?.select();
+  }
+
+  // After Enter appends a row, focus the cell we queued for it (the row didn't
+  // exist yet when the key was pressed).
+  useEffect(() => {
+    const pf = pendingFocusRef.current;
+    if (!pf) return;
+    pendingFocusRef.current = null;
+    focusCell(pf.row, pf.col);
+  }, [rows.length]);
+
+  // Tab moves across columns (browser default). We only record that the next
+  // focus came from Tab, so it doesn't overwrite the anchor column.
+  function onGridFocus(e: React.FocusEvent<HTMLElement>) {
+    if (tabbingRef.current) {
+      tabbingRef.current = false;
+      return;
+    }
+    const col = e.target.dataset.col;
+    if (col && NAV_COLS.includes(col)) anchorColRef.current = col;
+  }
+
+  // Enter drops down to the anchor column of the next row, spawning a fresh row
+  // when we're already on the last one. Shift+Enter steps back up.
+  function onGridKeyDown(e: React.KeyboardEvent<HTMLElement>) {
+    if (e.key === "Tab") {
+      tabbingRef.current = true;
+      return;
+    }
+    if (e.key !== "Enter") return;
+    const target = e.target as HTMLElement;
+    const col = target.dataset.col;
+    if (!col || !NAV_COLS.includes(col)) return; // let selects/date keep Enter
+    e.preventDefault();
+    const row = Number(target.dataset.row);
+    if (Number.isNaN(row)) return;
+    const dir = e.shiftKey ? -1 : 1;
+    const next = row + dir;
+    if (next < 0) return;
+    if (next >= rows.length) {
+      if (dir < 0) return;
+      pendingFocusRef.current = { row: rows.length, col: anchorColRef.current };
+      addRow();
+      return;
+    }
+    focusCell(next, anchorColRef.current);
+  }
+
+  // Amounts may carry comma thousands separators — strip them before parsing.
+  const parseAmount = (s: string) => Number(s.replace(/,/g, ""));
+  // A row the user hasn't started at all is ignored (the dialog opens with a few
+  // blank rows); a started row must have a valid amount and a title.
+  const isRowEmpty = (r: DraftRow) =>
+    !r.amount.trim() && !r.title.trim() && !r.description.trim() && !r.categoryName;
+  const rowErrors = (r: DraftRow) => ({
+    amount: !(parseAmount(r.amount) > 0),
+    title: !r.title.trim(),
+  });
+
+  const filledRows = rows.filter((r) => !isRowEmpty(r));
+
+  const drafts: BulkDraft[] = filledRows
+    .filter((r) => parseAmount(r.amount) > 0 && r.title.trim())
     .map((r) => ({
       type: r.type,
-      amount: Number(r.amount),
-      title: r.title.trim() || undefined,
+      amount: parseAmount(r.amount),
+      title: r.title.trim(),
       description: r.description.trim() || undefined,
       note: "",
       categoryName: r.categoryName || null,
@@ -142,15 +223,26 @@ export function BulkAddDialog({
   }
 
   function handleImport() {
-    if (drafts.length === 0) {
-      toast.error("Add at least one row with an amount");
+    if (filledRows.length === 0) {
+      toast.error("Add at least one row with an amount and a title");
       return;
     }
+    const invalid = filledRows.some((r) => {
+      const e = rowErrors(r);
+      return e.amount || e.title;
+    });
+    if (invalid) {
+      setShowErrors(true);
+      toast.error("Each row needs a number for the amount and a title");
+      return;
+    }
+    setShowErrors(false);
     startTransition(async () => {
       const res = await addBulkTransactions(drafts);
       if (res.ok) {
         toast.success(`Imported ${res.count} transaction${res.count === 1 ? "" : "s"}`);
         setRows([0, 1, 2].map((k) => emptyRow(k)));
+        setShowErrors(false);
         setOpen(false);
       } else {
         toast.error(res.error);
@@ -165,11 +257,17 @@ export function BulkAddDialog({
         <DialogHeader>
           <DialogTitle>Bulk add transactions</DialogTitle>
           <DialogDescription>
-            Fill in a row per transaction. Only the amount is required.
+            Fill in a row per transaction. Each row needs an amount and a title.
+            Tab moves across, Enter jumps to the next row (and adds one at the end).
           </DialogDescription>
         </DialogHeader>
 
-        <div className="max-h-[55vh] overflow-auto rounded-lg border">
+        <div
+          ref={scrollRef}
+          onKeyDownCapture={onGridKeyDown}
+          onFocusCapture={onGridFocus}
+          className="max-h-[55vh] overflow-auto rounded-lg border"
+        >
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-muted/70 backdrop-blur-sm">
               <tr className="[&>th]:px-2 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium">
@@ -184,8 +282,9 @@ export function BulkAddDialog({
               </tr>
             </thead>
             <tbody className="[&>tr>td]:px-2 [&>tr>td]:py-1.5 [&>tr]:border-t">
-              {rows.map((r) => {
+              {rows.map((r, i) => {
                 const cats = categories.filter((c) => c.kind === r.type);
+                const err = showErrors && !isRowEmpty(r) ? rowErrors(r) : null;
                 return (
                   <tr key={r.key}>
                     <td>
@@ -212,9 +311,16 @@ export function BulkAddDialog({
                         <Input
                           inputMode="decimal"
                           value={r.amount}
-                          onChange={(e) => patch(r.key, { amount: e.target.value })}
+                          // Numbers only — drop anything that isn't a digit or a
+                          // decimal/thousands separator so text can't be entered.
+                          onChange={(e) =>
+                            patch(r.key, { amount: e.target.value.replace(/[^\d.,]/g, "") })
+                          }
                           placeholder="0.00"
                           aria-label="Amount"
+                          aria-invalid={err?.amount || undefined}
+                          data-row={i}
+                          data-col="amount"
                           className="h-8 pl-6 tabular-nums"
                         />
                       </div>
@@ -225,7 +331,10 @@ export function BulkAddDialog({
                         onChange={(e) => patch(r.key, { title: e.target.value })}
                         placeholder="Title"
                         aria-label="Title"
+                        aria-invalid={err?.title || undefined}
                         maxLength={100}
+                        data-row={i}
+                        data-col="title"
                         className="h-8"
                       />
                     </td>
@@ -236,6 +345,8 @@ export function BulkAddDialog({
                         placeholder="Description"
                         aria-label="Description"
                         maxLength={250}
+                        data-row={i}
+                        data-col="description"
                         className="h-8"
                       />
                     </td>
@@ -343,7 +454,7 @@ export function BulkAddDialog({
         )}
 
         <DialogFooter>
-          <Button onClick={handleImport} disabled={pending || drafts.length === 0}>
+          <Button onClick={handleImport} disabled={pending || filledRows.length === 0}>
             Import {drafts.length > 0 ? drafts.length : ""}
           </Button>
         </DialogFooter>

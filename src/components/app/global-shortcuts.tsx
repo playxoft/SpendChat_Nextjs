@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
+import { resolveWebProfile } from "@/lib/filters";
 import { TransactionDialog } from "./transaction-dialog";
 import { BulkAddDialog } from "./bulk-add-dialog";
 import type { Category, Profile } from "@/db/schema";
@@ -32,7 +33,8 @@ export function GlobalShortcuts({
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
 
-  const activeProfileId = sp.get("profile") ?? undefined;
+  // Same default as the pages: no `?profile=` → the first profile.
+  const activeProfileId = resolveWebProfile(sp.get("profile"), profiles[0]?.id);
   const allProfiles = !activeProfileId;
   const nav = { requireNoOverlay: true } as const;
 

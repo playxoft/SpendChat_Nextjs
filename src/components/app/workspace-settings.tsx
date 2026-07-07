@@ -4,9 +4,10 @@ import * as React from "react";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Trash2, UserPlus } from "lucide-react";
+import { Plus, Trash2, UserPlus } from "lucide-react";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -23,11 +24,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
+import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import {
   addWorkspaceMember,
   cancelWorkspaceInvite,
-  createWorkspace,
   removeProfileAccess,
   removeWorkspaceMember,
   renameWorkspace,
@@ -102,7 +102,7 @@ export function WorkspaceSettings({
   const isMember = workspace.role !== null;
 
   const [name, setName] = React.useState(workspace.name);
-  const [newName, setNewName] = React.useState("");
+  const [createOpen, setCreateOpen] = React.useState(false);
 
   // Invite form state.
   const [email, setEmail] = React.useState("");
@@ -125,16 +125,6 @@ export function WorkspaceSettings({
     e.preventDefault();
     if (!name.trim() || name.trim() === workspace.name) return;
     run(() => renameWorkspace(workspace.id, name.trim()), "Workspace renamed");
-  }
-
-  function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newName.trim()) return;
-    run(async () => {
-      const res = await createWorkspace(newName.trim());
-      if (res.ok) setNewName("");
-      return res;
-    }, "Workspace created — you're now in it");
   }
 
   function handleInvite(e: React.FormEvent) {
@@ -173,6 +163,12 @@ export function WorkspaceSettings({
               ? `You're ${workspace.role === "admin" ? "an admin" : `a ${workspace.role}`} of this workspace.`
               : "You have access to shared profiles in this workspace."}
           </CardDescription>
+          <CardAction>
+            <Button variant="secondary" size="sm" onClick={() => setCreateOpen(true)}>
+              <Plus className="size-4" />
+              Create workspace
+            </Button>
+          </CardAction>
         </CardHeader>
         <CardContent className="space-y-6">
           {isAdmin ? (
@@ -200,24 +196,6 @@ export function WorkspaceSettings({
               {workspace.name}
             </p>
           )}
-
-          <Separator />
-
-          <form onSubmit={handleCreate} className="flex max-w-md items-end gap-2">
-            <div className="min-w-0 flex-1 space-y-1.5">
-              <Label htmlFor="workspace-new">New workspace</Label>
-              <Input
-                id="workspace-new"
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Acme Inc."
-                maxLength={60}
-              />
-            </div>
-            <Button type="submit" variant="secondary" disabled={pending || !newName.trim()}>
-              Create
-            </Button>
-          </form>
         </CardContent>
       </Card>
 
@@ -234,9 +212,9 @@ export function WorkspaceSettings({
             {isAdmin && (
               <form
                 onSubmit={handleInvite}
-                className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3"
+                className="flex items-end gap-2 rounded-lg border bg-muted/30 p-3"
               >
-                <div className="min-w-48 flex-1 space-y-1.5">
+                <div className="min-w-0 flex-1 space-y-1.5">
                   <Label htmlFor="invite-email">Add someone by email</Label>
                   <Input
                     id="invite-email"
@@ -244,12 +222,13 @@ export function WorkspaceSettings({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="teammate@example.com"
+                    className="h-8"
                   />
                 </div>
-                <div className="space-y-1.5">
+                <div className="shrink-0 space-y-1.5">
                   <Label>Access to</Label>
                   <Select value={scope} onValueChange={setScope}>
-                    <SelectTrigger className="w-40">
+                    <SelectTrigger className="h-8 w-40">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -263,11 +242,11 @@ export function WorkspaceSettings({
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1.5">
+                <div className="shrink-0 space-y-1.5">
                   <Label>Role</Label>
                   <RoleSelect value={role} onChange={setRole} ariaLabel="Invite role" />
                 </div>
-                <Button type="submit" disabled={pending}>
+                <Button type="submit" size="sm" disabled={pending} className="shrink-0">
                   <UserPlus className="size-4" />
                   Add
                 </Button>
@@ -403,6 +382,8 @@ export function WorkspaceSettings({
           </CardContent>
         </Card>
       )}
+
+      <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
     </>
   );
 }

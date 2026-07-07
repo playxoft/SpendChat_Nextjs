@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { ArrowUp } from "lucide-react";
+import { AlignLeft, ArrowDownCircle, ArrowUp, ArrowUpCircle } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -61,6 +61,8 @@ export function TransactionComposer({
   const [occurredOn, setOccurredOn] = useState(today);
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
   const [editorOpen, setEditorOpen] = useState(false);
+  // Description is off by default; a toggle on the amount/title row reveals it.
+  const [showDescription, setShowDescription] = useState(false);
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const { send } = usePendingMessages();
@@ -172,6 +174,7 @@ export function TransactionComposer({
     setTitle("");
     setCombined("");
     setDescription("");
+    setShowDescription(false);
     setCategoryId(null);
     setOccurredOn(today);
     setSlashDismissed(false);
@@ -213,11 +216,13 @@ export function TransactionComposer({
     }
 
     if (e.key === "Enter") {
-      // Shift+Enter jumps to the description. Otherwise Enter sends, except in
-      // title-first mode where the amount still needs filling in.
+      // Shift+Enter jumps to the description (revealing it first). Otherwise Enter
+      // sends, except in title-first mode where the amount still needs filling in.
       e.preventDefault();
-      if (e.shiftKey) descRef.current?.focus();
-      else if (inputMode === "title_amount") amountRef.current?.focus();
+      if (e.shiftKey) {
+        setShowDescription(true);
+        requestAnimationFrame(() => descRef.current?.focus());
+      } else if (inputMode === "title_amount") amountRef.current?.focus();
       else submit();
     }
   }
@@ -254,7 +259,7 @@ export function TransactionComposer({
         onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ""))}
         onKeyDown={onAmountKeyDown}
         aria-label="Amount"
-        className="h-11 w-28 pl-7 tabular-nums md:h-8"
+        className="h-8 w-28 pl-7 tabular-nums"
       />
     </div>
   );
@@ -273,7 +278,7 @@ export function TransactionComposer({
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Title"
-        className="h-11 w-full md:h-8"
+        className="h-8 w-full"
       />
     </div>
   );
@@ -295,7 +300,7 @@ export function TransactionComposer({
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Amount and title"
-        className="h-11 w-full md:h-8"
+        className="h-8 w-full"
       />
     </div>
   );
@@ -306,64 +311,80 @@ export function TransactionComposer({
         e.preventDefault();
         submit();
       }}
-      className="sticky bottom-16 z-20 border-t bg-background px-3 py-3 md:bottom-0 md:bg-background/95 md:backdrop-blur-sm"
+      className="sticky bottom-16 z-20 border-t bg-background px-3 py-2 md:bottom-0 md:bg-background/95 md:backdrop-blur-sm"
     >
       <div className="mx-auto flex max-w-2xl flex-col gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="inline-flex w-fit items-center rounded-full border bg-muted/50 p-0.5 text-sm">
-            {(["expense", "income"] as const).map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => switchType(t)}
-                aria-pressed={type === t}
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-3.5 py-1.5 capitalize transition-colors md:px-3 md:py-1",
-                  type === t
-                    ? "bg-background font-medium shadow-sm"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                {t}
-                {/* The ⌘E hint rides inside the active capsule. */}
-                {type === t && (
-                  <Kbd combo={toggleCombo} className="hidden opacity-70 sm:inline-flex" />
-                )}
-              </button>
-            ))}
+        {/* Mobile: type + date + categories share one row; desktop stacks them. */}
+        <div className="flex items-center gap-2 md:block md:space-y-2">
+          <div className="flex shrink-0 items-center gap-2 md:w-full md:justify-between">
+            <div className="inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
+              {(["expense", "income"] as const).map((t) => {
+                const active = type === t;
+                const Icon = t === "income" ? ArrowUpCircle : ArrowDownCircle;
+                const color =
+                  t === "income"
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-rose-600 dark:text-rose-400";
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => switchType(t)}
+                    aria-pressed={active}
+                    aria-label={t}
+                    className={cn(
+                      "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 capitalize transition-colors sm:px-3",
+                      active
+                        ? "bg-background font-medium shadow-sm"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <Icon className={cn("size-4", color)} />
+                    <span className="hidden sm:inline">{t}</span>
+                    {/* The ⌘E hint rides inside the active capsule (desktop only). */}
+                    {active && (
+                      <Kbd combo={toggleCombo} className="hidden opacity-70 sm:inline-flex" />
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <DatePicker
+                value={occurredOn}
+                max={today}
+                onChange={setOccurredOn}
+                compact
+                className="h-8 w-auto"
+              />
+              {allProfiles && profiles.length > 0 && (
+                <Select value={profileId} onValueChange={setProfileId}>
+                  <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile for new transaction">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent align="end">
+                    {profiles.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.icon ? `${p.icon} ` : ""}
+                        {p.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <DatePicker
-              value={occurredOn}
-              max={today}
-              onChange={setOccurredOn}
-              className="h-10 w-auto md:h-8"
+          <div className="min-w-0 flex-1">
+            <CategoryRow
+              categories={cats}
+              value={categoryId}
+              onChange={setCategoryId}
+              onEdit={() => setEditorOpen(true)}
             />
-            {allProfiles && profiles.length > 0 && (
-              <Select value={profileId} onValueChange={setProfileId}>
-                <SelectTrigger className="h-10 w-auto gap-1 md:h-8" aria-label="Profile for new transaction">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent align="end">
-                  {profiles.map((p) => (
-                    <SelectItem key={p.id} value={p.id}>
-                      {p.icon ? `${p.icon} ` : ""}
-                      {p.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
           </div>
         </div>
-
-        <CategoryRow
-          categories={cats}
-          value={categoryId}
-          onChange={setCategoryId}
-          onEdit={() => setEditorOpen(true)}
-        />
 
         {/* Live parse feedback for the single-field mode, shown above the input. */}
         {isCombined && combined.trim() && (
@@ -411,6 +432,19 @@ export function TransactionComposer({
             </>
           )}
 
+          {/* Mobile only: toggle the description field. Desktop always shows it. */}
+          <Button
+            type="button"
+            variant={showDescription ? "secondary" : "outline"}
+            size="icon"
+            aria-label={showDescription ? "Hide description" : "Add a description"}
+            aria-pressed={showDescription}
+            onClick={() => setShowDescription((v) => !v)}
+            className="h-8 shrink-0 md:hidden"
+          >
+            <AlignLeft className="size-4" />
+          </Button>
+
           {/* Send sits inline on desktop; on mobile it moves to a full-width
               button at the bottom (see below) for an easier thumb reach. */}
           <div className="hidden md:block">{sendButton}</div>
@@ -449,6 +483,7 @@ export function TransactionComposer({
           )}
         </div>
 
+        {/* Desktop: always visible. Mobile: only when the toggle is on. */}
         <Input
           ref={descRef}
           placeholder="Add a description (optional)"
@@ -457,16 +492,16 @@ export function TransactionComposer({
           onChange={(e) => setDescription(e.target.value)}
           onKeyDown={onDescriptionKeyDown}
           aria-label="Description"
-          className="h-11 md:h-8"
+          className={cn("h-8", !showDescription && "hidden md:block")}
         />
 
         {/* Full-width send on mobile — easy thumb reach at the bottom. */}
         <Button
           type="submit"
           aria-label={`Send transaction (${submitLabel})`}
-          className="h-12 w-full gap-1.5 text-base md:hidden"
+          className="h-9 w-full gap-1.5 text-sm md:hidden"
         >
-          <ArrowUp className="size-5" /> Send
+          <ArrowUp className="size-4" /> Send
         </Button>
       </div>
 

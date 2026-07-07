@@ -1,21 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Building2, Check, ChevronsUpDown, Plus, Settings2 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,9 +15,9 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { createWorkspace, switchWorkspace } from "@/actions/workspaces";
+import { CreateWorkspaceDialog } from "./create-workspace-dialog";
+import { useLoadingOverlay } from "./loading-overlay";
+import { switchWorkspace } from "@/actions/workspaces";
 import type { WorkspaceRole } from "@/db/schema";
 
 export type WorkspaceOption = {
@@ -50,15 +41,16 @@ export function WorkspaceSwitcher({
   onNavigate?: () => void;
 }) {
   const router = useRouter();
-  const [pending, startTransition] = useTransition();
+  const { run, pending } = useLoadingOverlay();
   const [createOpen, setCreateOpen] = React.useState(false);
-  const [name, setName] = React.useState("");
 
   const current = workspaces.find((w) => w.id === currentId) ?? workspaces[0];
 
   function handleSwitch(id: string) {
     if (id === currentId) return;
-    startTransition(async () => {
+    // Run through the overlay provider so a full-screen loader covers the whole
+    // switch (and survives the mobile sheet unmounting) instead of hanging.
+    run(async () => {
       const res = await switchWorkspace(id);
       if (res.ok) {
         onNavigate?.();
@@ -67,29 +59,7 @@ export function WorkspaceSwitcher({
       } else {
         toast.error(res.error);
       }
-    });
-  }
-
-  function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = name.trim();
-    if (!trimmed) {
-      toast.error("Enter a workspace name");
-      return;
-    }
-    startTransition(async () => {
-      const res = await createWorkspace(trimmed);
-      if (res.ok) {
-        toast.success("Workspace created");
-        setCreateOpen(false);
-        setName("");
-        onNavigate?.();
-        router.push("/app");
-        router.refresh();
-      } else {
-        toast.error(res.error);
-      }
-    });
+    }, "Switching workspace…");
   }
 
   return (
@@ -142,38 +112,11 @@ export function WorkspaceSwitcher({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="sm:max-w-sm">
-          <DialogHeader>
-            <DialogTitle>New workspace</DialogTitle>
-            <DialogDescription>
-              A workspace has its own profiles and members — handy for a company,
-              a family, or a side project.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={handleCreate} className="space-y-4">
-            <div className="space-y-1.5">
-              <Label htmlFor="workspace-name">Name</Label>
-              <Input
-                id="workspace-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Acme Inc."
-                maxLength={60}
-                autoFocus
-              />
-            </div>
-            <DialogFooter>
-              <Button type="button" variant="ghost" onClick={() => setCreateOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" disabled={pending}>
-                Create
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <CreateWorkspaceDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={onNavigate}
+      />
     </>
   );
 }

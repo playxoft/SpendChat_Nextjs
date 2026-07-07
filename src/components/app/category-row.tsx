@@ -70,9 +70,12 @@ export function CategoryRow({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-sm text-muted-foreground hover:bg-muted"
+              aria-label="More categories"
+              className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-sm text-muted-foreground hover:bg-muted sm:px-2.5"
             >
-              More <ChevronDown className="size-3.5" />
+              {/* Mobile: just an expand icon; desktop keeps the "More" label. */}
+              <span className="hidden sm:inline">More</span>
+              <ChevronDown className="size-3.5" />
             </button>
           </PopoverTrigger>
           <PopoverContent
