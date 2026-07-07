@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { Users } from "lucide-react";
 import { Logo } from "@/components/logo";
@@ -16,28 +16,41 @@ import {
 } from "@/components/ui/sheet";
 import { ProfileList } from "./profile-list";
 import { UserMenu } from "./user-menu";
+import { MobileBulkAdd } from "./mobile-bulk-add";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
-import type { Profile } from "@/db/schema";
+import type { Category, Profile } from "@/db/schema";
 
 export function AppTopbar({
   email,
   profiles,
   workspaces,
   currentWorkspaceId,
+  categories,
+  currency,
+  today,
 }: {
   email: string | null;
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   workspaces: WorkspaceOption[];
   currentWorkspaceId: string;
+  categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  currency: string;
+  today: string;
 }) {
   const [open, setOpen] = useState(false);
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-background/90 px-4 backdrop-blur-sm md:hidden print:hidden">
       <div className="flex items-center gap-1">
+        <Link href="/app" aria-label="Tracker">
+          <Logo />
+        </Link>
+      </div>
+      <div className="flex items-center gap-1">
+        {/* Workspace + profile switcher, to the left of the bulk-add button. */}
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Profiles">
+            <Button variant="ghost" size="icon" aria-label="Workspaces and profiles">
               <Users className="size-5" />
             </Button>
           </SheetTrigger>
@@ -58,11 +71,14 @@ export function AppTopbar({
             </div>
           </SheetContent>
         </Sheet>
-        <Link href="/app" aria-label="Tracker">
-          <Logo />
-        </Link>
-      </div>
-      <div className="flex items-center gap-1">
+        <Suspense fallback={null}>
+          <MobileBulkAdd
+            categories={categories}
+            profiles={profiles}
+            currency={currency}
+            today={today}
+          />
+        </Suspense>
         <ThemeToggle />
         <UserMenu email={email} compact />
       </div>

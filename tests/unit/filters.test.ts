@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { parseActiveProfile, parseTxnFilters } from "@/lib/filters";
+import { parseActiveProfile, parseTxnFilters, resolveWebProfile } from "@/lib/filters";
 
 const UUID = "11111111-1111-1111-1111-111111111111";
+const FIRST = "22222222-2222-2222-2222-222222222222";
 
 /** Build the (key) => value getter parseTxnFilters expects. */
 const getter = (params: Record<string, string>) => (key: string) =>
@@ -15,6 +16,24 @@ describe("parseActiveProfile", () => {
     expect(parseActiveProfile("all")).toBeUndefined();
     expect(parseActiveProfile("not-a-uuid")).toBeUndefined();
     expect(parseActiveProfile(null)).toBeUndefined();
+  });
+});
+
+describe("resolveWebProfile", () => {
+  it("defaults to the first profile when no param is set", () => {
+    expect(resolveWebProfile(null, FIRST)).toBe(FIRST);
+  });
+  it("returns undefined (All profiles) only for an explicit 'all'", () => {
+    expect(resolveWebProfile("all", FIRST)).toBeUndefined();
+  });
+  it("honours an explicit profile UUID", () => {
+    expect(resolveWebProfile(UUID, FIRST)).toBe(UUID);
+  });
+  it("falls back to the first profile for garbage values", () => {
+    expect(resolveWebProfile("not-a-uuid", FIRST)).toBe(FIRST);
+  });
+  it("returns undefined when there are no profiles to default to", () => {
+    expect(resolveWebProfile(null, undefined)).toBeUndefined();
   });
 });
 

@@ -42,8 +42,8 @@ export function ProfileSwitcher({
 
   function go(id: string | null) {
     const params = new URLSearchParams(sp.toString());
-    if (id) params.set("profile", id);
-    else params.delete("profile");
+    // "All profiles" is explicit now (no param defaults to the first profile).
+    params.set("profile", id ?? "all");
     params.delete("page");
     const qs = params.toString();
     router.push(qs ? `${pathname}?${qs}` : pathname);
@@ -81,15 +81,6 @@ export function ProfileSwitcher({
           <DropdownMenuLabel className="text-xs text-muted-foreground">
             Switch profile
           </DropdownMenuLabel>
-          <DropdownMenuItem
-            className="cursor-pointer gap-2"
-            onClick={() => go(null)}
-          >
-            <LayoutGrid className="size-4" />
-            <span className="flex-1">All profiles</span>
-            {!filterProfileId && <Check className="size-4" />}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
           {profiles.map((p) => (
             <DropdownMenuItem
               key={p.id}
@@ -101,6 +92,15 @@ export function ProfileSwitcher({
               {p.id === filterProfileId && <Check className="size-4" />}
             </DropdownMenuItem>
           ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="cursor-pointer gap-2"
+            onClick={() => go(null)}
+          >
+            <LayoutGrid className="size-4" />
+            <span className="flex-1">All profiles</span>
+            {!filterProfileId && <Check className="size-4" />}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

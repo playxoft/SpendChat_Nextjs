@@ -71,14 +71,18 @@ export function ProfileList({
   const [editing, setEditing] = React.useState<P | null>(null);
   const [deleting, setDeleting] = React.useState<P | null>(null);
 
-  const active = sp.get("profile");
+  // Selection: no `?profile=` defaults to the first profile; "all" is explicit.
+  // `shownActive` is "all" or a profile id (never the empty/no-param state).
+  const firstId = items[0]?.id ?? null;
+  const param = sp.get("profile");
+  const resolved: string | null = param === "all" ? "all" : param || firstId;
   // Optimistic selection so the highlight flips instantly on click, before the
   // navigation (and the chat skeleton) settles.
   const [optimistic, setOptimistic] = React.useState<string | null | undefined>(undefined);
-  if (optimistic !== undefined && optimistic === (active ?? null)) {
+  if (optimistic !== undefined && optimistic === resolved) {
     setOptimistic(undefined);
   }
-  const shownActive = optimistic !== undefined ? optimistic : active;
+  const shownActive = optimistic !== undefined ? optimistic : resolved;
   // Shift+` jumps to "All profiles" (desktop sidebar only); profiles get Shift+1…0.
   const allShortcut = enableShortcuts ? comboFor("profiles.all") : "";
 
@@ -87,16 +91,17 @@ export function ProfileList({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  function go(id: string | null) {
-    setOptimistic(id);
+  // `target` is a profile id or "all" — both are set explicitly on the URL so
+  // the default (no param) can mean "first profile" without ambiguity.
+  function go(target: string) {
+    setOptimistic(target);
     const dataPage =
       pathname.startsWith("/app") ||
       pathname.startsWith("/transactions") ||
       pathname.startsWith("/analytics");
     const targetPath = dataPage ? pathname : "/app";
     const params = new URLSearchParams(sp.toString());
-    if (id) params.set("profile", id);
-    else params.delete("profile");
+    params.set("profile", target);
     params.delete("page");
     const qs = params.toString();
     startTransition(() => router.push(qs ? `${targetPath}?${qs}` : targetPath));
@@ -104,7 +109,7 @@ export function ProfileList({
   }
 
   // No-op when `allShortcut` is "" (e.g. the mobile sheet).
-  useShortcut(allShortcut, () => go(null));
+  useShortcut(allShortcut, () => go("all"));
 
   function handleDragEnd(e: DragEndEvent) {
     const { active: a, over } = e;
@@ -136,26 +141,6 @@ export function ProfileList({
       </div>
 
       <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
-        <button
-          type="button"
-          onClick={() => go(null)}
-          aria-current={!shownActive ? "true" : undefined}
-          className={cn(
-            // Matches the profile rows' resting padding so every shortcut hint
-            // lines up flush on the right (this row has no hover menu to reveal).
-            "flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm transition-colors",
-            !shownActive
-              ? "bg-accent font-medium text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-        >
-          <LayoutGrid className="size-4" />
-          All profiles
-          {allShortcut ? (
-            <Kbd combo={allShortcut} className="ml-auto opacity-60" />
-          ) : null}
-        </button>
-
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
           <SortableContext items={items.map((p) => p.id)} strategy={verticalListSortingStrategy}>
             {items.map((p, index) => (
@@ -171,6 +156,27 @@ export function ProfileList({
             ))}
           </SortableContext>
         </DndContext>
+
+        {/* "All profiles" is the aggregate view — kept last, below the profiles. */}
+        <button
+          type="button"
+          onClick={() => go("all")}
+          aria-current={shownActive === "all" ? "true" : undefined}
+          className={cn(
+            // Matches the profile rows' resting padding so every shortcut hint
+            // lines up flush on the right (this row has no hover menu to reveal).
+            "mt-1 flex w-full items-center gap-2.5 rounded-lg border-t border-border/50 px-2.5 pt-2.5 pb-2 text-sm transition-colors",
+            shownActive === "all"
+              ? "bg-accent font-medium text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+        >
+          <LayoutGrid className="size-4" />
+          All profiles
+          {allShortcut ? (
+            <Kbd combo={allShortcut} className="ml-auto opacity-60" />
+          ) : null}
+        </button>
       </div>
 
       <ProfileFormDialog mode="add" open={addOpen} onOpenChange={setAddOpen} />

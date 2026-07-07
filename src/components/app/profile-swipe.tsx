@@ -29,18 +29,18 @@ export function ProfileSwipe({
 
   useEffect(() => {
     if (profiles.length === 0) return;
-    // View order: All profiles (null) followed by each profile.
-    const seq: (string | null)[] = [null, ...profiles.map((p) => p.id)];
+    // View order: each profile, then "All profiles" last.
+    const seq: string[] = [...profiles.map((p) => p.id), "all"];
 
     let startX = 0;
     let startY = 0;
     let startT = 0;
     let tracking = false;
 
-    function navTo(id: string | null) {
+    function navTo(target: string) {
       const params = new URLSearchParams(sp.toString());
-      if (id) params.set("profile", id);
-      else params.delete("profile");
+      // Profile id or "all" — both explicit (no param means the first profile).
+      params.set("profile", target);
       params.delete("page");
       const qs = params.toString();
       router.push(qs ? `${pathname}?${qs}` : pathname);
@@ -75,7 +75,7 @@ export function ProfileSwipe({
       const dy = t.clientY - startY;
       if (Date.now() - startT > SWIPE_MAX_MS) return;
       if (Math.abs(dx) < SWIPE_MIN_X || Math.abs(dy) > SWIPE_MAX_Y) return;
-      const idx = seq.indexOf(filterProfileId ?? null);
+      const idx = seq.indexOf(filterProfileId ?? "all");
       const base = idx < 0 ? 0 : idx;
       // Swipe left → next profile; swipe right → previous. Wrap around.
       const nextIdx = (base + (dx < 0 ? 1 : -1) + seq.length) % seq.length;

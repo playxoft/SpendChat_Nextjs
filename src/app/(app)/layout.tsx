@@ -7,6 +7,7 @@ import { AppSidebar } from "@/components/app/app-sidebar";
 import { AppTopbar } from "@/components/app/app-topbar";
 import { BottomNav } from "@/components/app/bottom-nav";
 import { GlobalShortcuts } from "@/components/app/global-shortcuts";
+import { LoadingOverlayProvider } from "@/components/app/loading-overlay";
 import { TimezoneSync } from "@/components/app/timezone-sync";
 
 // Auth + DB access — always rendered dynamically per request.
@@ -26,6 +27,7 @@ export default async function AppLayout({
   ]);
 
   return (
+    <LoadingOverlayProvider>
     <div className="flex min-h-svh">
       <AppSidebar
         email={email}
@@ -39,6 +41,9 @@ export default async function AppLayout({
           profiles={profiles}
           workspaces={workspaces}
           currentWorkspaceId={workspace.id}
+          categories={categories}
+          currency={settings.currency}
+          today={todayISO(timeZone)}
         />
         <main className="flex-1 pb-20 md:pb-0">{children}</main>
         <BottomNav />
@@ -55,5 +60,6 @@ export default async function AppLayout({
         />
       </Suspense>
     </div>
+    </LoadingOverlayProvider>
   );
 }

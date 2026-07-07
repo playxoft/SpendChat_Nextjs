@@ -52,6 +52,16 @@ export function formatDateLabel(dateISO: string, locale = "en-US"): string {
   });
 }
 
+/** Compact label without the year, e.g. "6 Jul" / "Jul 6" (locale order). */
+export function formatDateShort(dateISO: string, locale = "en-US"): string {
+  const d = new Date(`${dateISO}T00:00:00Z`);
+  return d.toLocaleDateString(locale, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 /** Relative day divider label: Today / Yesterday / full date. */
 export function dayDividerLabel(dateISO: string, today: string, locale = "en-US"): string {
   if (dateISO === today) return "Today";

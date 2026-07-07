@@ -18,7 +18,7 @@ import {
   listTransactions,
   type TxnFilters,
 } from "@/lib/queries";
-import { parseTxnFilters } from "@/lib/filters";
+import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
 import { parseISODate, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
@@ -78,6 +78,8 @@ export default async function TransactionsPage({
   const today = todayISO(await getTimeZone());
 
   const filters = parseTxnFilters(one);
+  // Web default: no `?profile=` shows the first profile; "all" is explicit.
+  filters.profileId = resolveWebProfile(one("profile"), profiles[0]?.id);
   const allProfiles = !filters.profileId;
   const composerProfileId = filters.profileId ?? profiles[0]?.id;
   const page = Math.max(1, Number(one("page")) || 1);
@@ -86,8 +88,10 @@ export default async function TransactionsPage({
   const baseParams = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) {
     const val = Array.isArray(v) ? v[0] : v;
-    if (val && k !== "page") baseParams.set(k, val);
+    if (val && k !== "page" && k !== "profile") baseParams.set(k, val);
   }
+  // Carry the resolved profile so export/print/pagination links match the view.
+  baseParams.set("profile", filters.profileId ?? "all");
   const base = baseParams.toString();
   const exportHref = `/api/transactions/export${base ? `?${base}` : ""}`;
   // Remount the results on any filter/page change so the skeleton shows at once.
