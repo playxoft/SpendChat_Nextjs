@@ -20,7 +20,9 @@ export function AuthBridge() {
           await fetch("/api/auth/session", {
             method: "POST",
             headers: { "content-type": "application/json" },
-            body: JSON.stringify({ idToken }),
+            // The refresh token lets the server re-mint ID tokens for a month,
+            // so the user isn't logged out an hour after closing the app.
+            body: JSON.stringify({ idToken, refreshToken: user.refreshToken }),
           });
         } else {
           await fetch("/api/auth/session", { method: "DELETE" });

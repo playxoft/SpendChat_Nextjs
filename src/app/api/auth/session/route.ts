@@ -2,23 +2,31 @@ import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { verifyFirebaseIdToken } from "@/lib/firebase-verify";
 import { syncUserProfile } from "@/lib/identity";
-import { SESSION_COOKIE, sessionCookieOptions } from "@/lib/session-cookie";
+import {
+  REFRESH_COOKIE,
+  SESSION_COOKIE,
+  sessionCookieOptions,
+} from "@/lib/session-cookie";
 
 export const dynamic = "force-dynamic";
 
 /**
  * The session bridge between Firebase (client-side) and the server.
  *
- * POST { idToken } — the browser sends a fresh Firebase ID token on sign-in and
- * on every hourly refresh (see `AuthBridge`). We verify it and store it in the
- * httpOnly `__session` cookie that server components read via `getCurrentUser`.
- * DELETE — sign-out; clears the cookie.
+ * POST { idToken, refreshToken } — the browser sends a fresh Firebase ID token
+ * on sign-in and on every hourly refresh (see `AuthBridge`), plus its long-lived
+ * refresh token. We verify the ID token and store both in httpOnly cookies:
+ * `__session` (read/verified by `getCurrentUser`) and `__refresh` (used to
+ * re-mint an ID token once the short-lived one expires). DELETE — sign-out;
+ * clears both cookies.
  */
 export async function POST(request: NextRequest) {
   let idToken: string | undefined;
+  let refreshToken: string | undefined;
   try {
-    const body = (await request.json()) as { idToken?: string };
+    const body = (await request.json()) as { idToken?: string; refreshToken?: string };
     idToken = body?.idToken;
+    refreshToken = body?.refreshToken;
   } catch {
     // fall through to the missing-token response
   }
@@ -45,11 +53,17 @@ export async function POST(request: NextRequest) {
   await syncUserProfile(claims);
   const store = await cookies();
   store.set(SESSION_COOKIE, idToken, sessionCookieOptions());
+  // The refresh token is what keeps the session alive for the month — re-set it
+  // on every sync so its expiry slides forward with each visit.
+  if (refreshToken) {
+    store.set(REFRESH_COOKIE, refreshToken, sessionCookieOptions());
+  }
   return Response.json({ ok: true });
 }
 
 export async function DELETE() {
   const store = await cookies();
   store.delete(SESSION_COOKIE);
+  store.delete(REFRESH_COOKIE);
   return Response.json({ ok: true });
 }
