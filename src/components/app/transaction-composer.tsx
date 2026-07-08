@@ -12,7 +12,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from "@/components/ui/select";
 import { CategoryRow } from "./category-row";
 import { CategoryEditorDialog } from "./category-editor-dialog";
@@ -90,6 +89,9 @@ export function TransactionComposer({
   const targetProfileId = allProfiles
     ? profileId
     : (activeProfileId ?? profiles[0]?.id ?? "");
+  // The profile a new transaction lands in — shown as an emoji-only picker on
+  // mobile (name appears on desktop).
+  const currentProfile = profiles.find((p) => p.id === profileId) ?? profiles[0] ?? null;
 
   // "/" in the title opens an inline category picker.
   const slashMatch = titleSource.match(SLASH_RE);
@@ -105,8 +107,12 @@ export function TransactionComposer({
     setCategoryId(null);
   }
 
-  // ⌘/Ctrl+E toggles expense/income even while typing.
-  useShortcut(toggleCombo, () => switchType(), { allowInInput: true });
+  // ⌘/Ctrl+E toggles expense/income even while typing — but not while a dialog
+  // is open (e.g. bulk add), where ⌘E belongs to the focused row there.
+  useShortcut(toggleCombo, () => switchType(), {
+    allowInInput: true,
+    requireNoOverlay: true,
+  });
 
   function selectSlashCategory(cat: Pick<Category, "id">) {
     setCategoryId(cat.id);
@@ -314,9 +320,11 @@ export function TransactionComposer({
       className="sticky bottom-16 z-20 border-t bg-background px-3 py-2 md:bottom-0 md:bg-background/95 md:backdrop-blur-sm"
     >
       <div className="mx-auto flex max-w-2xl flex-col gap-2">
-        {/* Mobile: type + date + categories share one row; desktop stacks them. */}
-        <div className="flex items-center gap-2 md:block md:space-y-2">
-          <div className="flex shrink-0 items-center gap-2 md:w-full md:justify-between">
+        {/* Controls: type on the left; date / profile / category pushed to the
+            right. On mobile the full category list drops to its own row (in
+            all-profiles it collapses to a tag icon inside the right cluster). */}
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center gap-2">
             <div className="inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
               {(["expense", "income"] as const).map((t) => {
                 const active = type === t;
@@ -350,7 +358,7 @@ export function TransactionComposer({
               })}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="ml-auto flex min-w-0 items-center gap-2">
               <DatePicker
                 value={occurredOn}
                 max={today}
@@ -361,9 +369,16 @@ export function TransactionComposer({
               {allProfiles && profiles.length > 0 && (
                 <Select value={profileId} onValueChange={setProfileId}>
                   <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile for new transaction">
-                    <SelectValue />
+                    <span aria-hidden className="text-base leading-none">
+                      {currentProfile?.icon ?? "👤"}
+                    </span>
+                    <span className="hidden max-w-24 truncate md:inline">
+                      {currentProfile?.name}
+                    </span>
                   </SelectTrigger>
-                  <SelectContent align="end">
+                  {/* popper positioning is reliable for a small trigger pinned at
+                      the bottom of the screen; item-aligned mispositions there. */}
+                  <SelectContent align="end" position="popper">
                     {profiles.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.icon ? `${p.icon} ` : ""}
@@ -373,17 +388,43 @@ export function TransactionComposer({
                   </SelectContent>
                 </Select>
               )}
+              {/* Mobile + all profiles: categories collapse to a tag icon that
+                  rides in the right cluster with date + profile. */}
+              {allProfiles && (
+                <div className="shrink-0 md:hidden">
+                  <CategoryRow
+                    compact
+                    categories={cats}
+                    value={categoryId}
+                    onChange={setCategoryId}
+                    onEdit={() => setEditorOpen(true)}
+                  />
+                </div>
+              )}
             </div>
           </div>
 
-          <div className="min-w-0 flex-1">
-            <CategoryRow
-              categories={cats}
-              value={categoryId}
-              onChange={setCategoryId}
-              onEdit={() => setEditorOpen(true)}
-            />
-          </div>
+          {/* Full category list: desktop always; on mobile only when a single
+              profile is selected (all-profiles uses the tag icon above). */}
+          {allProfiles ? (
+            <div className="hidden min-w-0 md:block">
+              <CategoryRow
+                categories={cats}
+                value={categoryId}
+                onChange={setCategoryId}
+                onEdit={() => setEditorOpen(true)}
+              />
+            </div>
+          ) : (
+            <div className="min-w-0">
+              <CategoryRow
+                categories={cats}
+                value={categoryId}
+                onChange={setCategoryId}
+                onEdit={() => setEditorOpen(true)}
+              />
+            </div>
+          )}
         </div>
 
         {/* Live parse feedback for the single-field mode, shown above the input. */}
