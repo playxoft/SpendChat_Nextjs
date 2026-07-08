@@ -45,7 +45,7 @@ export default async function AppLayout({
           currency={settings.currency}
           today={todayISO(timeZone)}
         />
-        <main className="flex-1 pb-20 md:pb-0">{children}</main>
+        <main className="flex-1 pb-16 md:pb-0">{children}</main>
         <BottomNav />
       </div>
       {/* Reports the browser's timezone so server-rendered times match the viewer's region. */}
