@@ -74,17 +74,21 @@ export function TransactionDetailDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3">
           <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-xl">
             {row.categoryIcon ?? "💸"}
           </div>
           <div className="min-w-0 flex-1">
-            <p className="truncate font-medium">{row.title || row.categoryName || "Transaction"}</p>
+            {/* Long titles wrap onto multiple lines (and break unspaced strings)
+                so they never push the amount past the dialog edge. */}
+            <p className="font-medium break-words [overflow-wrap:anywhere] line-clamp-4">
+              {row.title || row.categoryName || "Transaction"}
+            </p>
             <p className="text-xs text-muted-foreground capitalize">{row.type}</p>
           </div>
           <p
             className={cn(
-              "shrink-0 text-lg font-semibold tabular-nums",
+              "shrink-0 text-right text-lg font-semibold tabular-nums",
               amountToneClass(row.type),
             )}
           >
