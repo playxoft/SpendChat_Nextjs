@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
-import { ChevronDown, Plus, Trash2 } from "lucide-react";
+import { ArrowDownCircle, ArrowUpCircle, ChevronDown, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -23,9 +23,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Kbd } from "@/components/ui/kbd";
 import { parseBulk, type BulkDraft } from "@/lib/bulk-parser";
 import { addBulkTransactions } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
+import { useIsMac } from "@/hooks/use-shortcut";
 import { cn } from "@/lib/utils";
 import type { Category, Profile } from "@/db/schema";
 
@@ -41,6 +44,57 @@ type DraftRow = {
   profileId: string;
   date: string;
 };
+
+/**
+ * Minimized expense/income switch — the tracker's pill toggle stripped to
+ * icons to fit a table cell. Each side carries a hover tooltip so the color +
+ * arrow is never the only cue for what it means.
+ */
+function TypeToggle({
+  value,
+  onChange,
+}: {
+  value: "income" | "expense";
+  onChange: (t: "income" | "expense") => void;
+}) {
+  return (
+    <div className="inline-flex items-center rounded-full border bg-muted/60 p-0.5">
+      {(["expense", "income"] as const).map((t) => {
+        const active = value === t;
+        const Icon = t === "income" ? ArrowUpCircle : ArrowDownCircle;
+        const color =
+          t === "income"
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-rose-600 dark:text-rose-400";
+        const activeBg =
+          t === "income"
+            ? "bg-emerald-500/15 ring-emerald-500/40 dark:bg-emerald-500/25"
+            : "bg-rose-500/15 ring-rose-500/40 dark:bg-rose-500/25";
+        return (
+          <Tooltip key={t}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => onChange(t)}
+                aria-label={t}
+                aria-pressed={active}
+                className={cn(
+                  "inline-flex items-center justify-center rounded-full px-3 py-1 transition-all",
+                  active ? cn("shadow-sm ring-1", activeBg) : "opacity-45 hover:opacity-90",
+                )}
+              >
+                <Icon className={cn("size-4", color)} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">
+              {t === "income" ? "Income · money in" : "Expense · money out"}
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </div>
+  );
+}
 
 export function BulkAddDialog({
   trigger,
@@ -81,6 +135,10 @@ export function BulkAddDialog({
   const tabbingRef = useRef(false);
   const pendingFocusRef = useRef<{ row: number; col: string } | null>(null);
 
+  // Date stamped on rows created from here on. Changing it never rewrites rows
+  // that already exist — they keep whatever date they were given.
+  const [defaultDate, setDefaultDate] = useState(today);
+
   const emptyRow = (key: number): DraftRow => ({
     key,
     type: "expense",
@@ -89,7 +147,7 @@ export function BulkAddDialog({
     description: "",
     categoryName: "",
     profileId: defaultProfile,
-    date: today,
+    date: defaultDate,
   });
 
   const controlled = openProp !== undefined;
@@ -102,6 +160,7 @@ export function BulkAddDialog({
   // Flip on after a failed import so invalid fields light up (and clear live).
   const [showErrors, setShowErrors] = useState(false);
   const [pending, startTransition] = useTransition();
+  const isMac = useIsMac();
 
   const symbol = getCurrency(currency).symbol;
 
@@ -113,6 +172,15 @@ export function BulkAddDialog({
   }
   function removeRow(key: number) {
     setRows((rs) => (rs.length > 1 ? rs.filter((r) => r.key !== key) : rs));
+  }
+
+  // Set the date for new rows, and roll it onto rows the user hasn't started
+  // yet (blank amount *and* title). Rows with real content keep their own date.
+  function changeDefaultDate(iso: string) {
+    setDefaultDate(iso);
+    setRows((rs) =>
+      rs.map((r) => (!r.amount.trim() && !r.title.trim() ? { ...r, date: iso } : r)),
+    );
   }
 
   // Move focus to a specific cell (row index + column), selecting its text so
@@ -148,6 +216,19 @@ export function BulkAddDialog({
   // Enter drops down to the anchor column of the next row, spawning a fresh row
   // when we're already on the last one. Shift+Enter steps back up.
   function onGridKeyDown(e: React.KeyboardEvent<HTMLElement>) {
+    // ⌘E (mac) / Ctrl+E flips the focused row between expense and income — the
+    // same shortcut the tracker uses. Gate on the platform's mod key only so it
+    // doesn't hijack macOS's Ctrl+E "move to end of line" inside the inputs.
+    if ((isMac ? e.metaKey : e.ctrlKey) && (e.key === "e" || e.key === "E")) {
+      const cur = rows[Number((e.target as HTMLElement).dataset.row)];
+      if (!cur) return;
+      e.preventDefault();
+      patch(cur.key, {
+        type: cur.type === "expense" ? "income" : "expense",
+        categoryName: "",
+      });
+      return;
+    }
     if (e.key === "Tab") {
       tabbingRef.current = true;
       return;
@@ -198,7 +279,7 @@ export function BulkAddDialog({
     }));
 
   function handleParse() {
-    const { drafts: parsed, errors } = parseBulk(pasteText, today);
+    const { drafts: parsed, errors } = parseBulk(pasteText, defaultDate);
     if (parsed.length === 0) {
       toast.error("Couldn't read any rows from the pasted text");
       return;
@@ -253,13 +334,49 @@ export function BulkAddDialog({
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="sm:max-w-[min(96rem,95vw)]">
+      <DialogContent
+        onOpenAutoFocus={(e) => {
+          // Land in the first amount cell so typing starts immediately — and so
+          // the type toggle isn't auto-focused, which would pop its tooltip open
+          // the moment the dialog mounts.
+          const first = scrollRef.current?.querySelector<HTMLInputElement>(
+            'input[data-col="amount"]',
+          );
+          if (first) {
+            e.preventDefault();
+            first.focus();
+          }
+        }}
+        className="sm:max-w-[min(86.4rem,85.5vw)]"
+      >
         <DialogHeader>
-          <DialogTitle>Bulk add transactions</DialogTitle>
-          <DialogDescription>
-            Fill in a row per transaction. Each row needs an amount and a title.
-            Tab moves across, Enter jumps to the next row (and adds one at the end).
-          </DialogDescription>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <DialogTitle>Bulk add transactions</DialogTitle>
+            <div className="flex shrink-0 items-center gap-1.5 sm:pr-10">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <label
+                    htmlFor="bulk-default-date"
+                    className="cursor-help text-sm whitespace-nowrap text-muted-foreground"
+                  >
+                    New rows:
+                  </label>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  New rows — and any still-blank rows — use this date. Rows with an
+                  amount or title keep their own.
+                </TooltipContent>
+              </Tooltip>
+              <DatePicker
+                id="bulk-default-date"
+                value={defaultDate}
+                max={today}
+                onChange={changeDefaultDate}
+                compact
+                className="h-8 w-auto"
+              />
+            </div>
+          </div>
         </DialogHeader>
 
         <div
@@ -272,9 +389,9 @@ export function BulkAddDialog({
             <thead className="sticky top-0 bg-muted/70 backdrop-blur-sm">
               <tr className="[&>th]:px-2 [&>th]:py-2 [&>th]:text-left [&>th]:font-medium">
                 <th className="w-28">Type</th>
-                <th className="w-40">Amount</th>
-                <th className="min-w-40">Title</th>
-                <th className="min-w-40">Description</th>
+                <th className="w-28">Amount</th>
+                <th className="min-w-32">Title</th>
+                <th className="min-w-48">Description</th>
                 <th className="w-40">Category</th>
                 <th className="w-40">Date</th>
                 {showProfileColumn && <th className="w-36">Profile</th>}
@@ -288,20 +405,10 @@ export function BulkAddDialog({
                 return (
                   <tr key={r.key}>
                     <td>
-                      <Select
+                      <TypeToggle
                         value={r.type}
-                        onValueChange={(v) =>
-                          patch(r.key, { type: v as "income" | "expense", categoryName: "" })
-                        }
-                      >
-                        <SelectTrigger className="h-8 w-full" aria-label="Type">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="expense">Expense</SelectItem>
-                          <SelectItem value="income">Income</SelectItem>
-                        </SelectContent>
-                      </Select>
+                        onChange={(t) => patch(r.key, { type: t, categoryName: "" })}
+                      />
                     </td>
                     <td>
                       <div className="relative">
@@ -418,13 +525,12 @@ export function BulkAddDialog({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={addRow}>
+          <Button type="button" variant="outline" onClick={addRow}>
             <Plus className="size-4" /> Add row
           </Button>
           <Button
             type="button"
-            variant="ghost"
-            size="sm"
+            variant="outline"
             onClick={() => setPasteOpen((v) => !v)}
           >
             <ChevronDown
@@ -452,6 +558,13 @@ export function BulkAddDialog({
             </Button>
           </div>
         )}
+
+        <DialogDescription className="text-xs leading-relaxed">
+          Fill in a row per transaction. Each row needs an amount and a title. Tab
+          moves across, Enter jumps to the next row (and adds one at the end).
+          Press <Kbd combo="mod+e" className="mx-1 align-middle" /> on a row to
+          switch it between expense and income.
+        </DialogDescription>
 
         <DialogFooter>
           <Button onClick={handleImport} disabled={pending || filledRows.length === 0}>
