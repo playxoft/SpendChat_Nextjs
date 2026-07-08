@@ -2,6 +2,8 @@
 
 import { CalendarPlus, ListPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
+import { comboFor } from "@/lib/shortcuts";
 import { TransactionDialog } from "./transaction-dialog";
 import { BulkAddDialog } from "./bulk-add-dialog";
 import type { Category, Profile } from "@/db/schema";
@@ -55,9 +57,10 @@ export function TrackerActions({
         allProfiles={allProfiles}
         currency={currency}
         trigger={
-          <Button variant="outline" size="sm" className="hidden md:inline-flex">
+          <Button variant="outline" className="hidden md:inline-flex">
             <ListPlus className="size-4" />
             <span className="hidden sm:inline">Bulk add</span>
+            <Kbd combo={comboFor("action.bulk")} className="hidden sm:inline-flex" />
           </Button>
         }
       />

@@ -7,12 +7,13 @@ import { comboFor } from "@/lib/shortcuts";
 import { resolveWebProfile } from "@/lib/filters";
 import { TransactionDialog } from "./transaction-dialog";
 import { BulkAddDialog } from "./bulk-add-dialog";
+import { ShortcutsDialog } from "./shortcuts-dialog";
 import type { Category, Profile } from "@/db/schema";
 
 /**
  * App-wide keyboard shortcuts that work from any page: jump between sections
- * (t/r/a/s), add a transaction (e) or bulk add (b), and focus a page's search
- * box (/). The add/bulk dialogs are mounted here so the keys open them anywhere.
+ * (q/t/a/s), add a transaction (e) or bulk add (b), and show the shortcuts
+ * cheat sheet (/). The dialogs are mounted here so the keys open them anywhere.
  *
  * Single-key shortcuts are suppressed while typing or while another dialog/menu
  * is open (see `requireNoOverlay`), so they never hijack normal input.
@@ -32,6 +33,7 @@ export function GlobalShortcuts({
   const sp = useSearchParams();
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // Same default as the pages: no `?profile=` → the first profile.
   const activeProfileId = resolveWebProfile(sp.get("profile"), profiles[0]?.id);
@@ -44,14 +46,7 @@ export function GlobalShortcuts({
   useShortcut(comboFor("nav.settings"), () => router.push("/settings"), nav);
   useShortcut(comboFor("action.add"), () => setAddOpen(true), nav);
   useShortcut(comboFor("action.bulk"), () => setBulkOpen(true), nav);
-  useShortcut(
-    comboFor("global.search"),
-    () => {
-      const el = document.querySelector<HTMLElement>("[data-shortcut-search]");
-      el?.focus();
-    },
-    nav,
-  );
+  useShortcut(comboFor("global.shortcuts"), () => setShortcutsOpen(true), nav);
 
   return (
     <>
@@ -75,6 +70,7 @@ export function GlobalShortcuts({
         open={bulkOpen}
         onOpenChange={setBulkOpen}
       />
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </>
   );
 }

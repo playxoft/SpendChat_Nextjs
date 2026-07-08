@@ -21,13 +21,13 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "nav.settings", combo: "s", label: "Go to settings", scope: "Navigation" },
   { id: "action.add", combo: "e", label: "Add a transaction", scope: "Actions" },
   { id: "action.bulk", combo: "b", label: "Bulk add transactions", scope: "Actions" },
-  { id: "global.search", combo: "/", label: "Focus search (where a search bar exists)", scope: "Actions" },
   { id: "tracker.submit", combo: "mod+enter", label: "Send the transaction", scope: "Tracker" },
   { id: "tracker.description", combo: "shift+enter", label: "Jump to the description field", scope: "Tracker" },
   { id: "tracker.category", combo: "/", label: "Tag a category from the title field", scope: "Tracker" },
   { id: "tracker.toggle-type", combo: "mod+e", label: "Switch between expense and income", scope: "Tracker" },
   { id: "profiles.all", combo: "shift+`", label: "Show all profiles", scope: "Profiles" },
   { id: "profiles.switch", combo: "shift+1", label: "Switch to a profile (Shift + 1…9, 0 for the 10th)", scope: "Profiles" },
+  { id: "global.shortcuts", combo: "/", label: "Show keyboard shortcuts", scope: "Global" },
   { id: "global.print", combo: "mod+p", label: "Print the current page", scope: "Global" },
 ];
 
