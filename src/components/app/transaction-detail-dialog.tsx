@@ -23,7 +23,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   return (
     <div className="flex items-start justify-between gap-4 py-2 text-sm">
       <span className="shrink-0 text-muted-foreground">{label}</span>
-      <span className="min-w-0 text-right">{children}</span>
+      <span className="min-w-0 text-right break-words">{children}</span>
     </div>
   );
 }
@@ -75,20 +75,25 @@ export function TransactionDetailDialog({
         </DialogHeader>
 
         <div className="flex items-center gap-3">
-          <div className="flex size-11 items-center justify-center rounded-full bg-muted text-xl">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-xl">
             {row.categoryIcon ?? "💸"}
           </div>
           <div className="min-w-0 flex-1">
             <p className="truncate font-medium">{row.title || row.categoryName || "Transaction"}</p>
             <p className="text-xs text-muted-foreground capitalize">{row.type}</p>
           </div>
-          <p className={cn("text-lg font-semibold tabular-nums", amountToneClass(row.type))}>
+          <p
+            className={cn(
+              "shrink-0 text-lg font-semibold tabular-nums",
+              amountToneClass(row.type),
+            )}
+          >
             {amountLabel}
           </p>
         </div>
 
         {row.description ? (
-          <p className="rounded-lg bg-muted/50 p-3 text-sm whitespace-pre-wrap">
+          <p className="max-h-48 overflow-y-auto rounded-lg bg-muted/50 p-3 text-sm break-words whitespace-pre-wrap">
             {row.description}
           </p>
         ) : null}

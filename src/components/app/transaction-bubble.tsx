@@ -69,7 +69,7 @@ export function TransactionBubble({
   return (
     <div
       className={cn(
-        "group flex w-full max-w-md items-start gap-2.5 animate-rise",
+        "group flex w-full max-w-sm items-start gap-2.5 animate-rise",
         side === "right" && "ml-auto flex-row-reverse",
         className,
       )}
