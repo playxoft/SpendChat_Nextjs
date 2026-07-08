@@ -1,7 +1,7 @@
 import { getCurrentUser, getCurrentWorkspace, getUserSettings } from "@/lib/auth";
-import { listTransactions } from "@/lib/queries";
+import { getProfiles, listTransactions } from "@/lib/queries";
 import { parseTxnFilters } from "@/lib/filters";
-import { transactionsToCsv } from "@/lib/transactions-csv";
+import { transactionsToReportCsv } from "@/lib/transactions-csv";
 
 export const dynamic = "force-dynamic";
 
@@ -14,8 +14,23 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const filters = parseTxnFilters((k) => url.searchParams.get(k));
 
-  const rows = await listTransactions(user.id, workspace.id, { ...filters, limit: 5000, offset: 0 });
-  const csv = transactionsToCsv(rows, settings.currency);
+  const [rows, profiles] = await Promise.all([
+    listTransactions(user.id, workspace.id, { ...filters, limit: 5000, offset: 0 }),
+    getProfiles(user.id, workspace.id),
+  ]);
+  const profileName = filters.profileId
+    ? (profiles.find((p) => p.id === filters.profileId)?.name ?? "Selected profile")
+    : "All profiles";
+
+  const csv = transactionsToReportCsv({
+    rows,
+    currency: settings.currency,
+    locale: settings.locale,
+    workspaceName: workspace.name,
+    profileName,
+    from: filters.from,
+    to: filters.to,
+  });
   const stamp = new Date().toISOString().slice(0, 10);
 
   return new Response(csv, {
