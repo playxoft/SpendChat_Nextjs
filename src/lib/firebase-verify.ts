@@ -62,3 +62,37 @@ export async function verifyFirebaseIdToken(token: string): Promise<FirebaseToke
     throw unauthorized(`Invalid or expired token: ${reason}`);
   }
 }
+
+/**
+ * Exchange a Firebase **refresh token** for a fresh ID token via Google's Secure
+ * Token REST API. This is how the web session survives past the ID token's ~1h
+ * life without `firebase-admin` (which is Node-only, unfit for Workers): the
+ * refresh token is long-lived, so `getCurrentUser` re-mints an ID token from it
+ * whenever the cookie's token has expired. Throws a 401 if the refresh token is
+ * revoked/invalid (password change, sign-out elsewhere) → reads as signed-out.
+ */
+export async function refreshFirebaseIdToken(
+  refreshToken: string,
+): Promise<{ idToken: string; refreshToken: string }> {
+  const { apiKey } = firebaseConfig();
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://securetoken.googleapis.com/v1/token?key=${encodeURIComponent(apiKey)}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }),
+      },
+    );
+  } catch {
+    throw unauthorized("could not reach the token service");
+  }
+  if (!res.ok) throw unauthorized("refresh token rejected");
+  const data = (await res.json()) as { id_token?: string; refresh_token?: string };
+  if (!data.id_token) throw unauthorized("token service returned no id_token");
+  return { idToken: data.id_token, refreshToken: data.refresh_token ?? refreshToken };
+}

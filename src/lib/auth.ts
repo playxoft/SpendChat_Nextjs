@@ -5,9 +5,9 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, userSettings, workspaces } from "@/db/schema";
-import { verifyFirebaseIdToken } from "@/lib/firebase-verify";
+import { refreshFirebaseIdToken, verifyFirebaseIdToken } from "@/lib/firebase-verify";
 import { resolveUser } from "@/lib/identity";
-import { SESSION_COOKIE } from "@/lib/session-cookie";
+import { REFRESH_COOKIE, SESSION_COOKIE } from "@/lib/session-cookie";
 import { DEFAULT_CATEGORIES } from "./categories";
 import { detectSettingsDefaults } from "./geo.server";
 import { findUserById } from "./directory";
@@ -31,21 +31,38 @@ export type SessionUser = {
  * Reads the httpOnly `__session` cookie (a Firebase ID token, written by
  * `POST /api/auth/session`) and verifies it statelessly with `jose` against
  * Google's public keys (no network to a session server, no `firebase-admin`).
- * `resolveUser` maps the Firebase UID → our internal `uuidv7` id. A missing,
- * expired, or invalid token reads as signed-out; the browser's `AuthBridge`
- * refreshes the token and re-sets the cookie. Cookie writes never happen here —
- * only in the `/api/auth/session` route handler.
+ * `resolveUser` maps the Firebase UID → our internal `uuidv7` id.
+ *
+ * The ID token lives only ~1h, so when it's expired we re-mint one from the
+ * long-lived `__refresh` cookie (Google's Secure Token API) — that's what keeps
+ * the session alive for the cookie's full month instead of bouncing the user to
+ * sign-in an hour after they close the app. We can't persist the fresh cookie
+ * here (Next forbids cookie writes during render); the browser's `AuthBridge`
+ * re-sets it on load. Cookie writes only happen in `/api/auth/session`.
  */
 export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   const store = await cookies();
+
   const token = store.get(SESSION_COOKIE)?.value;
-  if (!token) return null;
-  try {
-    const claims = await verifyFirebaseIdToken(token);
-    return await resolveUser(claims);
-  } catch {
-    return null;
+  if (token) {
+    try {
+      return await resolveUser(await verifyFirebaseIdToken(token));
+    } catch {
+      // Expired/invalid ID token — fall through to the refresh token below.
+    }
   }
+
+  const refresh = store.get(REFRESH_COOKIE)?.value;
+  if (refresh) {
+    try {
+      const fresh = await refreshFirebaseIdToken(refresh);
+      return await resolveUser(await verifyFirebaseIdToken(fresh.idToken));
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
 });
 
 /** Current user, redirecting to sign-in when absent. Use in protected routes. */

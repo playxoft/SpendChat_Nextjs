@@ -37,7 +37,9 @@ export async function syncSession(): Promise<void> {
   await fetch("/api/auth/session", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ idToken }),
+    // Include the refresh token so the server can keep the session alive for a
+    // month past the ID token's ~1h life (see `session-cookie.ts`).
+    body: JSON.stringify({ idToken, refreshToken: user.refreshToken }),
   });
 }
 
