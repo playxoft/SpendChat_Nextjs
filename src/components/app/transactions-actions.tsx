@@ -39,7 +39,7 @@ export function TransactionsActions({
         currency={currency}
         today={today}
         trigger={
-          <Button size="sm" className="gap-1.5">
+          <Button className="gap-1.5">
             <CalendarPlus className="size-4" />
             Add transaction
             <Kbd combo={comboFor("action.add")} className="hidden sm:inline-flex" />
@@ -53,7 +53,7 @@ export function TransactionsActions({
         activeProfileId={activeProfileId}
         allProfiles={allProfiles}
         trigger={
-          <Button variant="outline" size="sm">
+          <Button variant="outline">
             <ListPlus className="size-4" />
             <span className="hidden sm:inline">Bulk add</span>
             <Kbd combo={comboFor("action.bulk")} className="hidden sm:inline-flex" />

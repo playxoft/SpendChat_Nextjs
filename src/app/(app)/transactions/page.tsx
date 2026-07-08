@@ -22,6 +22,7 @@ import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
 import { parseISODate, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
+import { siteConfig } from "@/lib/site";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TransactionFilters } from "@/components/app/transaction-filters";
@@ -82,6 +83,10 @@ export default async function TransactionsPage({
   filters.profileId = resolveWebProfile(one("profile"), profiles[0]?.id);
   const allProfiles = !filters.profileId;
   const composerProfileId = filters.profileId ?? profiles[0]?.id;
+  const profileName = filters.profileId
+    ? (profiles.find((p) => p.id === filters.profileId)?.name ?? "Selected profile")
+    : "All profiles";
+  const printLabel = printRange(filters.from, filters.to).label;
   const page = Math.max(1, Number(one("page")) || 1);
   const { currency, locale } = settings;
 
@@ -99,6 +104,27 @@ export default async function TransactionsPage({
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
+      {/* Print-only branded report header. */}
+      <div className="mb-4 hidden border-b pb-3 print:block">
+        <div className="flex items-baseline justify-between gap-4">
+          <div>
+            <p className="font-heading text-2xl font-bold tracking-tight">{siteConfig.name}</p>
+            <p className="text-sm text-muted-foreground">Transactions report</p>
+          </div>
+          <div className="text-right text-xs text-muted-foreground">
+            <p>
+              <span className="font-medium text-foreground">Workspace:</span> {workspace.name}
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Profile:</span> {profileName}
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Date range:</span> {printLabel}
+            </p>
+          </div>
+        </div>
+      </div>
+
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <h1 className="text-xl font-semibold">Transactions</h1>
         <div className="flex items-center gap-1.5">
@@ -110,7 +136,7 @@ export default async function TransactionsPage({
             today={today}
             allProfiles={allProfiles}
           />
-          <Button asChild variant="outline" size="sm">
+          <Button asChild variant="outline">
             <a href={exportHref}>
               <Download className="size-4" />
               <span className="hidden sm:inline">CSV</span>
@@ -141,6 +167,12 @@ export default async function TransactionsPage({
             today={today}
           />
         </Suspense>
+      </div>
+
+      {/* Print-only marketing footer. */}
+      <div className="mt-6 hidden border-t pt-3 text-center text-xs text-muted-foreground print:block">
+        <p>{siteConfig.tagline}</p>
+        <p>Track your spending at {siteConfig.domain}</p>
       </div>
     </div>
   );
@@ -177,7 +209,6 @@ async function TransactionsData({
   ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const range = printRange(filters.from, filters.to);
   const pageHref = (p: number) => {
     const pr = new URLSearchParams(base);
     if (p > 1) pr.set("page", String(p));
@@ -192,13 +223,23 @@ async function TransactionsData({
         {formatMoney(summary.balance, currency, locale)}
       </p>
 
-      <div className="mt-4 mb-3 hidden print:block">
-        <h2 className="text-lg font-semibold">SpendChat — Transactions</h2>
-        {range.month && <p className="mt-1 text-3xl font-bold">{range.month}</p>}
-        <p className="mt-0.5 text-sm font-medium">{range.label}</p>
-        <p className="text-sm text-muted-foreground">
-          {total} records · Net {formatMoney(summary.balance, currency, locale)}
-        </p>
+      {/* Print-only totals (the branded header/footer live on the page). */}
+      <div className="mb-3 hidden flex-wrap items-baseline gap-x-6 gap-y-1 border-b pb-2 text-sm print:flex">
+        <span>
+          <span className="text-muted-foreground">Income:</span>{" "}
+          {formatMoney(summary.income, currency, locale)}
+        </span>
+        <span>
+          <span className="text-muted-foreground">Expenses:</span>{" "}
+          {formatMoney(summary.expense, currency, locale)}
+        </span>
+        <span>
+          <span className="text-muted-foreground">Net (income − expense):</span>{" "}
+          {formatMoney(summary.balance, currency, locale)}
+        </span>
+        <span className="ml-auto text-muted-foreground">
+          {total} record{total === 1 ? "" : "s"}
+        </span>
       </div>
 
       <div className="mt-4">

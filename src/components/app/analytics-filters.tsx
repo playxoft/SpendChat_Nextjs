@@ -7,6 +7,7 @@ import { Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DatePicker } from "@/components/ui/date-picker";
 import { parseISODate, toISODate } from "@/lib/dates";
+import { cn } from "@/lib/utils";
 
 const RANGES = [
   { key: "1", label: "This month", months: 1 },
@@ -24,6 +25,7 @@ export function AnalyticsFilters({ today }: { today: string }) {
 
   const from = sp.get("from") ?? "";
   const to = sp.get("to") ?? "";
+  const span = sp.get("span");
 
   function update(next: Record<string, string | undefined>) {
     const params = new URLSearchParams(sp.toString());
@@ -35,45 +37,75 @@ export function AnalyticsFilters({ today }: { today: string }) {
     startTransition(() => router.push(qs ? `${pathname}?${qs}` : pathname));
   }
 
-  function applyRange(months: number) {
-    if (months === 0) {
-      update({ from: undefined, to: undefined });
-      return;
-    }
+  // Date bounds for a preset (months back, anchored to today).
+  function rangeBounds(months: number) {
     const end = parseISODate(today);
     const startMonth = startOfMonth(subMonths(end, months - 1));
-    update({
+    return {
       from: toISODate(startMonth),
       to: toISODate(months === 1 ? endOfMonth(end) : end),
-    });
+    };
   }
 
-  const hasRange = !!from || !!to;
+  // Which preset (if any) the current URL reflects — drives the toggle highlight.
+  const activeKey: string | null = (() => {
+    if (span === "all") return "all";
+    if (from || to) {
+      for (const r of RANGES) {
+        if (r.months === 0) continue;
+        const b = rangeBounds(r.months);
+        if (b.from === from && b.to === to) return r.key;
+      }
+      return null; // a custom From/To range
+    }
+    return "1"; // no params → the default view is the current month
+  })();
+
+  function applyRange(r: (typeof RANGES)[number]) {
+    if (r.months === 0) {
+      // "All time" is explicit so it doesn't collide with the default view.
+      update({ from: undefined, to: undefined, span: "all" });
+      return;
+    }
+    const b = rangeBounds(r.months);
+    update({ from: b.from, to: b.to, span: undefined });
+  }
+
+  const hasRange = !!from || !!to || span === "all";
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      {/* Segmented range control: scrolls horizontally on narrow screens
+      {/* Segmented range toggle: scrolls horizontally on narrow screens
           instead of pushing the page wider than the viewport. */}
       <div className="flex h-9 min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-md border bg-muted/40 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {RANGES.map((r) => (
-          <Button
-            key={r.key}
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 shrink-0 px-2.5 text-xs"
-            onClick={() => applyRange(r.months)}
-          >
-            {r.label}
-          </Button>
-        ))}
+        {RANGES.map((r) => {
+          const active = activeKey === r.key;
+          return (
+            <Button
+              key={r.key}
+              type="button"
+              variant="ghost"
+              size="sm"
+              aria-pressed={active}
+              className={cn(
+                "h-7 shrink-0 px-2.5 text-xs transition-colors",
+                active
+                  ? "bg-background font-medium text-foreground shadow-sm hover:bg-background"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              onClick={() => applyRange(r)}
+            >
+              {r.label}
+            </Button>
+          );
+        })}
       </div>
 
       <DatePicker
         value={from}
         max={to || today}
         placeholder="From"
-        onChange={(iso) => update({ from: iso || undefined })}
+        onChange={(iso) => update({ from: iso || undefined, span: undefined })}
         className="h-9 w-[calc(50%-0.25rem)] sm:w-[9.5rem]"
       />
       <DatePicker
@@ -81,7 +113,7 @@ export function AnalyticsFilters({ today }: { today: string }) {
         min={from || undefined}
         max={today}
         placeholder="To"
-        onChange={(iso) => update({ to: iso || undefined })}
+        onChange={(iso) => update({ to: iso || undefined, span: undefined })}
         className="h-9 w-[calc(50%-0.25rem)] sm:w-[9.5rem]"
       />
 
@@ -90,7 +122,7 @@ export function AnalyticsFilters({ today }: { today: string }) {
           variant="ghost"
           size="sm"
           className="h-9"
-          onClick={() => update({ from: undefined, to: undefined })}
+          onClick={() => update({ from: undefined, to: undefined, span: undefined })}
         >
           <X className="size-4" /> Clear
         </Button>
