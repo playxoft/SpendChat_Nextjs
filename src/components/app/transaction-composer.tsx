@@ -388,43 +388,30 @@ export function TransactionComposer({
                   </SelectContent>
                 </Select>
               )}
-              {/* Mobile + all profiles: categories collapse to a tag icon that
-                  rides in the right cluster with date + profile. */}
-              {allProfiles && (
-                <div className="shrink-0 md:hidden">
-                  <CategoryRow
-                    compact
-                    categories={cats}
-                    value={categoryId}
-                    onChange={setCategoryId}
-                    onEdit={() => setEditorOpen(true)}
-                  />
-                </div>
-              )}
+              {/* Mobile: categories always collapse to a tag icon in the right
+                  cluster (every profile view — the slider is desktop-only). */}
+              <div className="shrink-0 md:hidden">
+                <CategoryRow
+                  compact
+                  categories={cats}
+                  value={categoryId}
+                  onChange={setCategoryId}
+                  onEdit={() => setEditorOpen(true)}
+                />
+              </div>
             </div>
           </div>
 
-          {/* Full category list: desktop always; on mobile only when a single
-              profile is selected (all-profiles uses the tag icon above). */}
-          {allProfiles ? (
-            <div className="hidden min-w-0 md:block">
-              <CategoryRow
-                categories={cats}
-                value={categoryId}
-                onChange={setCategoryId}
-                onEdit={() => setEditorOpen(true)}
-              />
-            </div>
-          ) : (
-            <div className="min-w-0">
-              <CategoryRow
-                categories={cats}
-                value={categoryId}
-                onChange={setCategoryId}
-                onEdit={() => setEditorOpen(true)}
-              />
-            </div>
-          )}
+          {/* Desktop: the full inline category slider. On mobile it's the tag
+              icon in the cluster above instead. */}
+          <div className="hidden min-w-0 md:block">
+            <CategoryRow
+              categories={cats}
+              value={categoryId}
+              onChange={setCategoryId}
+              onEdit={() => setEditorOpen(true)}
+            />
+          </div>
         </div>
 
         {/* Live parse feedback for the single-field mode, shown above the input. */}

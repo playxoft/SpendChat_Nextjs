@@ -69,14 +69,14 @@ export function TransactionBubble({
   return (
     <div
       className={cn(
-        "group flex w-full max-w-sm items-start gap-2.5 animate-rise",
+        "group flex w-full max-w-[80%] items-start gap-2 animate-rise sm:max-w-sm sm:gap-2.5",
         side === "right" && "ml-auto flex-row-reverse",
         className,
       )}
     >
       <Tooltip>
         <TooltipTrigger asChild>
-          <div className="flex size-9 shrink-0 cursor-default items-center justify-center rounded-full bg-muted text-base">
+          <div className="flex size-8 shrink-0 cursor-default items-center justify-center rounded-full bg-muted text-sm sm:size-9 sm:text-base">
             {categoryIcon ?? "💸"}
           </div>
         </TooltipTrigger>
@@ -88,7 +88,7 @@ export function TransactionBubble({
         onClick={onActivate}
         onKeyDown={onActivate ? handleKeyDown : undefined}
         className={cn(
-          "min-w-0 flex-1 rounded-2xl border bg-card px-3.5 py-2.5 shadow-sm outline-none",
+          "min-w-0 flex-1 rounded-2xl border bg-card px-3 py-2 shadow-sm outline-none sm:px-3.5 sm:py-2.5",
           side === "left" ? "rounded-tl-sm" : "rounded-tr-sm",
           onActivate &&
             "cursor-pointer transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50",
