@@ -11,6 +11,7 @@ import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
 import { formatDateLabel, monthLabel, monthRange, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
+import { siteConfig } from "@/lib/site";
 import { cn } from "@/lib/utils";
 import {
   Card,
@@ -61,18 +62,26 @@ export default async function AnalyticsPage({
   const today = todayISO(await getTimeZone());
   const { start, end } = monthRange(today);
   const parsed = parseTxnFilters(get);
-  const range = { from: parsed.from ?? start, to: parsed.to ?? end };
+  // "All time" (span=all) clears the date bounds; otherwise default to this month.
+  const allTime = get("span") === "all";
+  const from = allTime ? undefined : (parsed.from ?? start);
+  const to = allTime ? undefined : (parsed.to ?? end);
   // Web default: no `?profile=` shows the first profile; "all" is explicit.
   const profileId = resolveWebProfile(get("profile"), profiles[0]?.id);
+  const profileName = profileId
+    ? (profiles.find((p) => p.id === profileId)?.name ?? "Selected profile")
+    : "All profiles";
 
-  const rangeLabel = `${formatDateLabel(range.from, locale)} – ${formatDateLabel(range.to, locale)}`;
+  const rangeLabel = allTime
+    ? "All time"
+    : `${formatDateLabel(from ?? start, locale)} – ${formatDateLabel(to ?? end, locale)}`;
   // Remount the streamed results on any filter change so the skeleton shows
   // immediately instead of holding the previous numbers.
-  const streamKey = `${profileId ?? "all"}|${range.from}|${range.to}`;
+  const streamKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}`;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="text-xl font-semibold">Analytics</h1>
           <p className="text-sm text-muted-foreground">{rangeLabel}</p>
@@ -82,23 +91,45 @@ export default async function AnalyticsPage({
 
       <AnalyticsFilters today={today} />
 
-      <div className="hidden print:block">
-        <h2 className="text-lg font-semibold">SpendChat — Analytics</h2>
-        <p className="text-sm">{rangeLabel}</p>
+      {/* Print-only branded report header. */}
+      <div className="mb-4 hidden border-b pb-3 print:block">
+        <div className="flex items-baseline justify-between gap-4">
+          <div>
+            <p className="font-heading text-2xl font-bold tracking-tight">{siteConfig.name}</p>
+            <p className="text-sm text-muted-foreground">Analytics report</p>
+          </div>
+          <div className="text-right text-xs text-muted-foreground">
+            <p>
+              <span className="font-medium text-foreground">Workspace:</span> {workspace.name}
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Profile:</span> {profileName}
+            </p>
+            <p>
+              <span className="font-medium text-foreground">Date range:</span> {rangeLabel}
+            </p>
+          </div>
+        </div>
       </div>
 
       <Suspense key={streamKey} fallback={<AnalyticsResultsSkeleton />}>
         <AnalyticsResults
           userId={user.id}
           workspaceId={workspace.id}
-          from={range.from}
-          to={range.to}
+          from={from}
+          to={to}
           profileId={profileId}
           currency={currency}
           locale={locale}
           today={today}
         />
       </Suspense>
+
+      {/* Print-only marketing footer. */}
+      <div className="mt-6 hidden border-t pt-3 text-center text-xs text-muted-foreground print:block">
+        <p>{siteConfig.tagline}</p>
+        <p>Track your spending at {siteConfig.domain}</p>
+      </div>
     </div>
   );
 }
@@ -115,8 +146,8 @@ async function AnalyticsResults({
 }: {
   userId: string;
   workspaceId: string;
-  from: string;
-  to: string;
+  from?: string;
+  to?: string;
   profileId?: string;
   currency: string;
   locale: string;
