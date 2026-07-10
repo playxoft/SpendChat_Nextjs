@@ -1,0 +1,142 @@
+import { Figure } from "@/components/blog/figure";
+
+export const meta = {
+  title: "Manual vs Automatic Expense Tracking: The Real Trade-Off",
+  date: "2026-07-10",
+  readingMinutes: 7,
+  tag: "Privacy",
+  excerpt:
+    "Bank sync is blind to cash and guesses your categories. The case for an expense tracker without a bank connection, and what manual entry really costs.",
+  image: "/blog/expense-tracker-without-bank-connection.png",
+  imageAlt: "Cover card for a SpendChat post comparing manual and automatic expense tracking.",
+  faqs: [
+    {
+      q: "Is there an expense tracker that doesn't need my bank login?",
+      a: "Yes. SpendChat has no bank integration at all — no aggregator behind it and no screen that asks for banking credentials. Transactions get in because you type them, say them, paste them from a spreadsheet, or let the AI read a sentence you wrote.",
+    },
+    {
+      q: "Why would I track expenses manually instead of automatically?",
+      a: "Three reasons. Cash, transfers and split bills are invisible to a bank feed. Categories chosen by you are more accurate than categories guessed from a merchant string. And entering something yourself is the moment you actually notice what you spent, which is the behaviour change most people were after in the first place.",
+    },
+    {
+      q: "Is it safe to give an app my bank login?",
+      a: "That depends on your appetite for a third party holding credentials that reach your money, and on what happens if that party is breached. The safest version of the question is not having to ask it: an app with no bank integration holds no credentials, so there is nothing there to lose.",
+    },
+    {
+      q: "How long does manual expense tracking take each day?",
+      a: "Roughly ten to thirty seconds if you log at the moment of spending — a few seconds per transaction in a chat-style composer, or one sentence covering several purchases through AI or voice entry. The failure mode isn't the time it takes; it's letting a week pile up and trying to reconstruct it.",
+    },
+    {
+      q: "Does a manual expense tracker work for cash?",
+      a: "It's the only kind that does. A bank feed sees one ATM withdrawal and nothing after it, so cash spending shows up as a single unexplained lump. When you enter transactions yourself, cash is no different from a card payment.",
+    },
+    {
+      q: "What if I forget to log something?",
+      a: "Add it later with the right date — the entry carries the date you give it, not the date you typed it, so a transaction added on Sunday still lands on Wednesday where it belongs. The weekly habit that catches these is skimming your bank statement as a checklist rather than importing from it.",
+    },
+  ],
+};
+
+Ask most people what an expense tracker should do and they'll describe automatic import: connect the bank, watch transactions appear, get a pie chart. That's been the default assumption for fifteen years, and it survived the closure of the app that popularised it.
+
+It's worth questioning, because the trade it asks for is steep and the thing it delivers is less complete than it looks. An **expense tracker without a bank connection** isn't a stripped-down version of the real thing. For a lot of people it's a more accurate one.
+
+## What "connect your bank" actually involves
+
+You don't connect to your bank. You connect to an aggregator — a third company that sits between the app and your bank, and whose business is holding that connection for thousands of apps at once.
+
+Depending on your country, that means either a screen where you type your banking credentials into something that isn't your bank, or an open-banking consent flow that mints a token the aggregator stores. The second is a genuine improvement on the first. Neither changes the shape of the arrangement: a company you didn't pick, and probably couldn't name a week later, holds durable read access to every transaction in your account, and your relationship with it stays invisible until something goes wrong.
+
+For plenty of people that's an acceptable trade. It's just worth naming it as a trade, rather than as a feature.
+
+## Four things a bank feed cannot see
+
+The pitch for sync is completeness — everything, automatically. In practice, a feed is systematically blind to entire categories of spending.
+
+**Cash.** Your feed shows one ATM withdrawal of 100. That's it. Whatever that hundred actually bought — a market, a haircut, three taxis, a birthday present — is one undifferentiated lump. In much of the world, that's not an edge case; that's the majority of daily spending.
+
+**Money that moves between people.** You pay for dinner, three friends send you their share. The feed records one large expense and three small incomes, and no amount of classification will work out that your actual cost was a quarter of the bill.
+
+**Anything on an account it can't reach.** A foreign account, a prepaid card, a new fintech the aggregator doesn't support, a business account with different credentials. Coverage gaps are normal, and the parts of your money life they cover are the parts you didn't choose.
+
+**Intent.** A charge of 70 at a large supermarket might be groceries, a gift, or a car part. The feed has one string to go on, and the string doesn't say.
+
+<Figure
+  src="/blog/expense-tracker-without-bank-connection--sync-vs-manual.png"
+  alt="Two-column comparison. Left: a bank-connected tracker, where card transactions arrive automatically but cash is invisible, merchant strings are guessed at, connections break, and a third party holds credentials. Right: entering transactions yourself, where cash, transfers and split bills all land the same way and there are no credentials to leak."
+  caption="Automatic import genuinely saves effort on card spending. The column on the right is what it costs — and for cash-heavy spending, what it misses."
+/>
+
+## The categorisation myth
+
+The second half of the sync pitch is that categories arrive filled in. They do. The question is whether they're right.
+
+A classifier working from a bank feed has a merchant string, an amount and a date. From that it infers a category — and it's fine on the obvious ones. It's unreliable on exactly the transactions you'd want to understand: the large general-purpose retailer, the ambiguous transfer, the annual charge from a company whose name tells you nothing.
+
+Which means the promised workflow — connect, ignore, read a report — isn't the real one. The real one is: connect, then go and re-categorise whatever share of it came back wrong, in a screen you now have to visit weekly. That's not less work than entering things as they happen. It's the same work, moved to a moment when you no longer remember what the transaction was.
+
+## Questions worth asking before you connect
+
+| Question | Bank-connected app | No bank connection |
+| --- | --- | --- |
+| Who holds credentials that reach my money? | An aggregator you didn't choose | Nobody — there are none |
+| What happens if that party is breached? | Your transaction history, at minimum | No banking credentials exist to lose |
+| What breaks on a bank security update? | The connection, silently | Nothing |
+| Does it see cash? | No | Yes |
+| Who decides the category? | A classifier | You |
+| Can I use it for a business account it doesn't support? | No | Yes |
+| What does it cost to stop? | Revoke, then hope | Close the tab |
+
+## What manual expense tracking actually costs
+
+Let's be straight about the downside, because there is one: you have to do it.
+
+In practice that's a few seconds per transaction. SpendChat's [chat-style composer](/features/chat-expense-tracker) focuses the amount field when it opens, a category is one click or a `#` tag away, and ⌘/Ctrl + Enter sends. For a busier day, one sentence through [AI entry](/blog/how-to-track-expenses-with-ai) covering everything you bought becomes a set of drafts you approve at once. Hands full? [Hold a key and say it.](/blog/voice-expense-tracking-in-any-language)
+
+Call it ten to thirty seconds a day. The failure mode isn't the time; it's letting a week accumulate and then trying to reconstruct Tuesday from a bank statement.
+
+And there's a benefit that automation deliberately removes. Typing "38 — dinner out" is the moment you notice you've done that four times this week. Very few people change a spending habit by reading a chart at the end of the month. They change it at the till. A tracker that makes you type the number puts a two-second pause exactly where the decision is, which is the argument for manual tracking that has nothing to do with data quality.
+
+## What this app holds
+
+If the argument is about what you hand over, the honest thing is to publish the list.
+
+<Figure
+  src="/blog/expense-tracker-without-bank-connection--what-we-hold.png"
+  alt="Table of data types and whether SpendChat holds them: bank login no, card numbers no, your password no, transactions you type yes, receipts you attach yes, audio from voice entry no, data sold to anyone no."
+  caption="Short by construction rather than by policy. There is no feature in the app that would use a bank login, so there is no code path that could ask for one."
+/>
+
+Sign-in is handled by Firebase Authentication, so a password never reaches our servers. Every read is scoped to your own access. Nothing is sold, there are no ads, and the third parties involved are infrastructure — a database host, an authentication provider, file storage, and the AI model if you choose to use AI entry — each doing one job rather than building a profile.
+
+You don't have to believe any of that. SpendChat is [open source under the AGPL](/features/privacy-and-security), so "there is no bank integration" is a claim you can check by searching the repository for one — [which is most of what open source is for](/blog/open-source-expense-tracker).
+
+## The hybrid nobody talks about
+
+There's a middle path that works better than either extreme, and it needs no integration at all.
+
+Your bank already gives you a statement. Once a month, open it next to your [transactions table](/features/transactions) and use it as a **checklist** rather than a source. You're looking for two things: charges in the statement that aren't in your tracker, and charges that surprise you. The first takes a couple of minutes to add. The second is the actually valuable part — the subscription you forgot, the annual renewal, the fee you didn't know you were paying.
+
+This gets you most of what sync promised. Nothing was missed, because the statement caught it. Nothing was mis-categorised, because you entered it. And the review is a deliberate ten minutes rather than a background process you stopped reading.
+
+If you're moving from a spreadsheet or another app, the same idea covers the backlog: export a year, paste the rows into [bulk add](/features/bulk-add), and read the preview before anything is saved. History arrives in a couple of minutes and you only type going forward — [the migration in detail](/blog/spreadsheet-vs-expense-tracker-app).
+
+For self-employed readers, that monthly pass has a second use. Filter to the business [profile](/features/multiple-profiles), check it against the business account, and you've done the bookkeeping that would otherwise wait until the tax deadline. [Export it as CSV](/blog/export-expenses-to-csv-for-taxes) and it's the file your accountant asked for.
+
+The thing to notice is that none of this required a credential, a token, or a connection to maintain. Your bank already produces statements, in most places as a matter of regulation, and they don't break when a security policy changes.
+
+## Making it stick
+
+Three habits separate people who keep manual tracking going from people who quit in week two.
+
+**Log at the till, not at the weekend.** The moment right after paying is the only one where you reliably remember what it was for.
+
+**Keep your [categories](/features/categories) few and blunt.** Eight to fifteen. If picking one takes thought, you'll stop logging.
+
+**Do a two-minute reconciliation weekly, not a two-hour one monthly.** Skim the [transactions table](/features/transactions), fix what's odd, close it.
+
+## The trade, restated
+
+Bank sync buys you card transactions for free and charges you in credentials, coverage gaps and guessed categories. Manual entry charges you ten seconds a day and buys you cash visibility, categories that are actually right, nothing to breach, and the small friction that changes behaviour.
+
+If most of your spending is card-based and you don't much mind the aggregator, sync is a reasonable choice. If any real part of your life runs on cash, or you'd rather not hand your banking credentials to a company you'll never think about again, [start with an empty feed instead](/sign-up). It takes about a minute to set up, and there's nothing to disconnect later.
