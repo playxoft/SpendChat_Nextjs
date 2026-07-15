@@ -1,0 +1,995 @@
+openapi: 3.1.0
+info:
+  title: SpendChat Mobile API
+  version: "1.1.0"
+  description: |
+    REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
+    and served by the same Next.js app as the web UI.
+
+    This spec is the **corrected** contract for the Flutter port. It fixes the
+    following from the original `_developer/api/openapi.yaml`:
+      - adds the `X-Workspace-Id` request header (workspace scoping);
+      - `GET /me` returns a `workspace` object;
+      - `Error.code` includes `forbidden` (403);
+      - `Category` has NO `color` field (DB/serializer/schemas don't have it);
+      - `CurrencyCode` is the full 59-code list;
+      - `TransactionInput` documents the deprecated `note` alias;
+      - documents 403 on mutating endpoints.
+
+    ## Authentication
+    All `/api/v1/*` endpoints require a **Firebase ID token** as a bearer token:
+    `Authorization: Bearer <idToken>`. The server verifies it (RS256) against
+    Google's JWKS, pinning issuer + audience to the Firebase project. Tokens are
+    short-lived (~1h); the Firebase SDK auto-refreshes. Email/password accounts
+    must have a **verified email** (Google always does) — an unverified token
+    gets `403 forbidden`.
+
+    ## Workspaces
+    Profiles live in workspaces. Select one with the `X-Workspace-Id` header
+    (optional). If omitted, the server uses the user's `lastWorkspaceId`, else
+    their first accessible workspace. An unknown id → `404 not_found`.
+
+    ## Conventions
+    - **Envelope:** success = `{ "data": ... }` (plus `"meta"` for lists/
+      analytics); error = `{ "error": { "code", "message", "details"? } }`.
+    - **Money** is integer minor units (`amountMinor`). Each transaction also
+      returns `amount` (major-unit string). One currency per user;
+      `meta.currency`/`settings.currencyDetail` give the `decimals`.
+    - **Dates:** `occurredOn` is a calendar date `YYYY-MM-DD`; timestamps are
+      RFC 3339 date-times. All JSON responses set `Cache-Control: no-store`.
+
+servers:
+  - url: http://localhost:3010
+    description: Local development (`pnpm dev`, port 3010)
+  - url: https://spendchat.example.com
+    description: Production (replace with your Worker/route domain)
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Account
+  - name: Transactions
+  - name: Categories
+  - name: Profiles
+  - name: Settings
+  - name: Analytics
+
+paths:
+  /api/v1/me:
+    get:
+      tags: [Account]
+      summary: Current user, settings, and current workspace
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: The authenticated user, their settings, and the current workspace.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      user: { $ref: "#/components/schemas/User" }
+                      settings: { $ref: "#/components/schemas/Settings" }
+                      workspace: { $ref: "#/components/schemas/WorkspaceSummary" }
+                    required: [user, settings, workspace]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/transactions:
+    get:
+      tags: [Transactions]
+      summary: List transactions (newest first)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - $ref: "#/components/parameters/type"
+        - $ref: "#/components/parameters/category"
+        - $ref: "#/components/parameters/profile"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/q"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: A page of transactions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Transaction" }
+                  meta:
+                    type: object
+                    properties:
+                      total: { type: integer, description: Total matching the filters (ignores paging). }
+                      limit: { type: integer }
+                      offset: { type: integer }
+                      currency: { $ref: "#/components/schemas/CurrencyMeta" }
+                    required: [total, limit, offset, currency]
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Transactions]
+      summary: Create a transaction
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransactionInput" }
+      responses:
+        "201":
+          description: The created transaction.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Transaction" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/transactions/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Transactions]
+      summary: Get a transaction
+      responses:
+        "200":
+          description: The transaction.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Transaction" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Transactions]
+      summary: Update a transaction (full replacement of mutable fields)
+      description: Send the complete transaction body, as the web editor does.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TransactionInput" }
+      responses:
+        "200":
+          description: The updated transaction.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Transaction" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Transactions]
+      summary: Delete a transaction
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/transactions/bulk:
+    post:
+      tags: [Transactions]
+      summary: Create many transactions (1–500)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                items:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items: { $ref: "#/components/schemas/TransactionInput" }
+              required: [items]
+      responses:
+        "201":
+          description: How many rows were inserted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { count: { type: integer } }
+                    required: [count]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/transactions/export:
+    get:
+      tags: [Transactions]
+      summary: Export transactions as CSV
+      description: >
+        Returns text/csv (not the JSON envelope). Columns:
+        Date,Type,Category,Note,Amount,Currency. Honours the same filters,
+        no paging, up to 5000 rows. Amount is signed (expenses negative).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - $ref: "#/components/parameters/type"
+        - $ref: "#/components/parameters/category"
+        - $ref: "#/components/parameters/profile"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/q"
+      responses:
+        "200":
+          description: CSV file.
+          content:
+            text/csv:
+              schema: { type: string }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+
+  /api/v1/transactions/delete-all:
+    post:
+      tags: [Transactions]
+      summary: Delete ALL of the caller's transactions (danger zone)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm:
+                  type: string
+                  description: Must be the exact string "DELETE".
+                  enum: ["DELETE"]
+              required: [confirm]
+      responses:
+        "200":
+          description: How many transactions were removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { deleted: { type: integer } }
+                    required: [deleted]
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/categories:
+    get:
+      tags: [Categories]
+      summary: List categories (income first, then by name)
+      responses:
+        "200":
+          description: The caller's categories.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Category" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Categories]
+      summary: Create a category
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CategoryInput" }
+      responses:
+        "201":
+          description: The created category.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Category" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/categories/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    patch:
+      tags: [Categories]
+      summary: Update a category (partial)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CategoryUpdate" }
+      responses:
+        "200":
+          description: The updated category.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Category" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Categories]
+      summary: Delete a category (referencing transactions keep their data; category set to null)
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/profiles:
+    get:
+      tags: [Profiles]
+      summary: List profiles (sidebar order)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: The caller's accessible profiles in this workspace.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Profile" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Profiles]
+      summary: Create a profile (admin only)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileInput" }
+      responses:
+        "201":
+          description: The created profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Profile" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/profiles/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    patch:
+      tags: [Profiles]
+      summary: Update a profile (partial, admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileUpdate" }
+      responses:
+        "200":
+          description: The updated profile.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Profile" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Profiles]
+      summary: Delete a profile (admin only)
+      description: >
+        409 for the last remaining profile ("You need at least one profile"), or
+        one that still has transactions ("Move this profile's transactions to
+        another profile first" — use /profiles/{id}/move).
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/profiles/reorder:
+    post:
+      tags: [Profiles]
+      summary: Reorder profiles (editor only)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                ids:
+                  type: array
+                  description: The full ordered list of this workspace's profile ids.
+                  items: { type: string, format: uuid }
+                  minItems: 1
+                  maxItems: 100
+              required: [ids]
+      responses:
+        "200":
+          description: The profiles in their new order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Profile" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/profiles/{id}/move:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [Profiles]
+      summary: Move this profile's transactions to another profile (editor only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                toProfileId: { type: string, format: uuid }
+              required: [toProfileId]
+      responses:
+        "200":
+          description: How many transactions were moved.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { moved: { type: integer } }
+                    required: [moved]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/settings:
+    get:
+      tags: [Settings]
+      summary: Get settings
+      responses:
+        "200":
+          description: The caller's settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Settings" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    patch:
+      tags: [Settings]
+      summary: Update settings (partial; at least one field)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SettingsPatch" }
+      responses:
+        "200":
+          description: The updated settings.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Settings" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/analytics/summary:
+    get:
+      tags: [Analytics]
+      summary: Income / expense / balance for the current filters
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - $ref: "#/components/parameters/type"
+        - $ref: "#/components/parameters/category"
+        - $ref: "#/components/parameters/profile"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/q"
+      responses:
+        "200":
+          description: Totals in minor units.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Summary" }
+                  meta:
+                    type: object
+                    properties: { currency: { $ref: "#/components/schemas/CurrencyMeta" } }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/analytics/categories:
+    get:
+      tags: [Analytics]
+      summary: Totals grouped by category (type required)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - name: type
+          in: query
+          required: true
+          schema: { type: string, enum: [income, expense] }
+        - $ref: "#/components/parameters/profile"
+        - $ref: "#/components/parameters/from"
+        - $ref: "#/components/parameters/to"
+        - $ref: "#/components/parameters/q"
+      responses:
+        "200":
+          description: Category totals in minor units, largest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/CategoryBreakdownItem" }
+                  meta:
+                    type: object
+                    properties: { currency: { $ref: "#/components/schemas/CurrencyMeta" } }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/analytics/monthly:
+    get:
+      tags: [Analytics]
+      summary: Income vs expense per month (from required)
+      description: Honours only `from` and `profile`.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - name: from
+          in: query
+          required: true
+          description: Inclusive start date, YYYY-MM-DD.
+          schema: { type: string, format: date }
+        - $ref: "#/components/parameters/profile"
+      responses:
+        "200":
+          description: One point per calendar month (minor units).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/MonthlyPoint" }
+                  meta:
+                    type: object
+                    properties: { currency: { $ref: "#/components/schemas/CurrencyMeta" } }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Firebase ID token (from firebase_auth's getIdToken()).
+
+  parameters:
+    workspaceHeader:
+      name: X-Workspace-Id
+      in: header
+      required: false
+      description: >
+        Selects the workspace to scope reads/creates to. If omitted, the server
+        uses the user's lastWorkspaceId, else the first accessible workspace.
+        An unknown id → 404.
+      schema: { type: string, format: uuid }
+    id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    type:
+      name: type
+      in: query
+      required: false
+      schema: { type: string, enum: [income, expense] }
+    category:
+      name: category
+      in: query
+      required: false
+      description: Category id, or "all" (no filter).
+      schema: { type: string }
+    profile:
+      name: profile
+      in: query
+      required: false
+      description: Profile id (a UUID scopes to it), or "all"/omitted for every accessible profile.
+      schema: { type: string }
+    from:
+      name: from
+      in: query
+      required: false
+      description: Inclusive start date, YYYY-MM-DD.
+      schema: { type: string, format: date }
+    to:
+      name: to
+      in: query
+      required: false
+      description: Inclusive end date, YYYY-MM-DD.
+      schema: { type: string, format: date }
+    q:
+      name: q
+      in: query
+      required: false
+      description: Free-text search over title + description (ILIKE).
+      schema: { type: string }
+    limit:
+      name: limit
+      in: query
+      required: false
+      description: Page size (default 100, clamped 1–500). Invalid values fall back to 100.
+      schema: { type: integer, default: 100, minimum: 1, maximum: 500 }
+    offset:
+      name: offset
+      in: query
+      required: false
+      schema: { type: integer, default: 0, minimum: 0 }
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid bearer token.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: unauthorized, message: "Missing bearer token" } }
+    Forbidden:
+      description: Email not verified, or RBAC role too low for the action.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: forbidden, message: "Email not verified" } }
+    BadRequest:
+      description: Malformed request (e.g. invalid JSON, wrong confirm string).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Resource/workspace/profile not found or not accessible.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: not_found, message: "Transaction not found" } }
+    Conflict:
+      description: Conflicts with current state (duplicate name; last/non-empty profile).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: conflict, message: "A category with that name already exists" } }
+    ValidationError:
+      description: Input failed validation. `details` maps field → message.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error:
+              code: validation_error
+              message: "Amount must be greater than 0"
+              details: { amount: "Amount must be greater than 0" }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          properties:
+            code:
+              type: string
+              enum: [unauthorized, forbidden, bad_request, not_found, conflict, validation_error, internal_error]
+            message: { type: string }
+            details:
+              description: Optional per-field messages for validation errors.
+              type: object
+              additionalProperties: { type: string }
+          required: [code, message]
+      required: [error]
+
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: [string, "null"] }
+        name: { type: [string, "null"] }
+      required: [id, email, name]
+
+    WorkspaceSummary:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        role:
+          description: Effective role in this workspace; null when access is via a per-profile grant only.
+          oneOf:
+            - type: "null"
+            - type: string
+              enum: [viewer, editor, admin]
+      required: [id, name, role]
+
+    CurrencyMeta:
+      type: object
+      description: Enough to format minor-unit amounts client-side.
+      properties:
+        code: { type: string, example: USD }
+        symbol: { type: string, example: "$" }
+        decimals: { type: integer, example: 2 }
+      required: [code, symbol, decimals]
+
+    Settings:
+      type: object
+      properties:
+        currency: { $ref: "#/components/schemas/CurrencyCode" }
+        locale: { type: string, example: en-US }
+        theme: { type: string, enum: [light, dark, system] }
+        inputMode: { type: string, enum: [amount_title, title_amount, combined] }
+        currencyDetail: { $ref: "#/components/schemas/CurrencyMeta" }
+      required: [currency, locale, theme, inputMode, currencyDetail]
+
+    SettingsPatch:
+      type: object
+      minProperties: 1
+      description: Any subset; at least one property required.
+      properties:
+        currency: { $ref: "#/components/schemas/CurrencyCode" }
+        locale: { type: string, minLength: 2, maxLength: 20 }
+        theme: { type: string, enum: [light, dark, system] }
+        inputMode: { type: string, enum: [amount_title, title_amount, combined] }
+
+    CurrencyCode:
+      type: string
+      description: One of the 59 supported ISO 4217 codes.
+      enum: [USD, EUR, GBP, INR, JPY, CAD, AUD, SGD, AED, CHF, CNY, BRL, ZAR, NGN,
+             HKD, NZD, SEK, NOK, DKK, ISK, PLN, CZK, HUF, RON, BGN, TRY, RUB, UAH,
+             ILS, SAR, QAR, KWD, BHD, OMR, JOD, EGP, KES, GHS, MAD, TZS, UGX, ETB,
+             PKR, BDT, LKR, NPR, THB, VND, IDR, MYR, PHP, KRW, TWD, MXN, ARS, CLP,
+             COP, PEN, UYU]
+
+    Transaction:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string, enum: [income, expense] }
+        amountMinor:
+          type: integer
+          description: Positive amount in the user's currency minor units (source of truth).
+          example: 1250
+        amount:
+          type: string
+          description: Same value in major units, formatted to the currency's decimals.
+          example: "12.50"
+        title: { type: [string, "null"] }
+        description: { type: [string, "null"] }
+        occurredOn: { type: string, format: date, example: "2026-06-01" }
+        createdAt: { type: string, format: date-time }
+        category:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                id: { type: string, format: uuid }
+                name: { type: [string, "null"] }
+                icon: { type: [string, "null"] }
+              required: [id, name, icon]
+        profile:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: [string, "null"] }
+            icon: { type: [string, "null"] }
+          required: [id, name, icon]
+      required: [id, type, amountMinor, amount, title, description, occurredOn, createdAt, category, profile]
+
+    TransactionInput:
+      type: object
+      properties:
+        type: { type: string, enum: [income, expense] }
+        amount:
+          type: number
+          description: Positive major-unit amount (e.g. 12.50). Numeric strings are coerced. Converted to minor units server-side.
+          exclusiveMinimum: 0
+          maximum: 1000000000
+        categoryId:
+          type: [string, "null"]
+          format: uuid
+          description: Must belong to the caller; an unknown id is stored as null.
+        profileId:
+          type: [string, "null"]
+          format: uuid
+          description: Must be writable by the caller; an unknown/absent id uses the default (first writable) profile.
+        title: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 250 }
+        note:
+          type: string
+          maxLength: 100
+          deprecated: true
+          description: Deprecated alias for `title`. Use `title`.
+        occurredOn: { type: string, format: date, example: "2026-06-01" }
+      required: [type, amount, occurredOn]
+
+    Category:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        kind: { type: string, enum: [income, expense] }
+        icon: { type: [string, "null"] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, name, kind, icon, createdAt, updatedAt]
+
+    CategoryInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        kind: { type: string, enum: [income, expense] }
+        icon: { type: string, maxLength: 16 }
+      required: [name, kind]
+
+    CategoryUpdate:
+      type: object
+      description: Any subset of the mutable fields.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        icon: { type: [string, "null"], maxLength: 16 }
+
+    Profile:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        icon: { type: [string, "null"] }
+        color: { type: [string, "null"], description: Exists in the schema but no UI sets it. }
+        sortOrder: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, name, icon, color, sortOrder, createdAt, updatedAt]
+
+    ProfileInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        icon: { type: string, maxLength: 16 }
+        color: { type: string, maxLength: 32 }
+      required: [name]
+
+    ProfileUpdate:
+      type: object
+      description: Any subset of the mutable fields.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        icon: { type: [string, "null"], maxLength: 16 }
+        color: { type: [string, "null"], maxLength: 32 }
+
+    Summary:
+      type: object
+      description: All values are minor units.
+      properties:
+        income: { type: integer }
+        expense: { type: integer }
+        balance: { type: integer, description: income - expense }
+      required: [income, expense, balance]
+
+    CategoryBreakdownItem:
+      type: object
+      properties:
+        categoryId: { type: [string, "null"], format: uuid }
+        categoryName: { type: [string, "null"] }
+        categoryIcon: { type: [string, "null"] }
+        total: { type: integer, description: Minor units. }
+      required: [categoryId, categoryName, categoryIcon, total]
+
+    MonthlyPoint:
+      type: object
+      properties:
+        month: { type: string, example: "2026-06", description: "YYYY-MM" }
+        income: { type: integer, description: Minor units. }
+        expense: { type: integer, description: Minor units. }
+      required: [month, income, expense]
+
+    DeletedResult:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        deleted: { type: boolean, enum: [true] }
+      required: [id, deleted]
