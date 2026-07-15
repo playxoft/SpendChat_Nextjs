@@ -10,7 +10,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TransactionDialog } from "./transaction-dialog";
-import { TransactionDetailDialog } from "./transaction-detail-dialog";
 import { amountToneClass } from "./transaction-bubble";
 import { formatMoney, minorToInputString, signedMinor } from "@/lib/money";
 import { formatDateLabel } from "@/lib/dates";
@@ -69,7 +68,6 @@ function Row({
   today,
 }: SharedProps & { row: TransactionRow }) {
   const [editing, setEditing] = useState(false);
-  const [detailOpen, setDetailOpen] = useState(false);
 
   const amountLabel = formatMoney(signedMinor(row.type, row.amountMinor), currency, locale, {
     signed: true,
@@ -78,11 +76,11 @@ function Row({
   return (
     <>
       <TableRow
-        onClick={() => setDetailOpen(true)}
+        onClick={() => setEditing(true)}
         className="cursor-pointer"
         tabIndex={0}
         onKeyDown={(e) => {
-          if (e.key === "Enter") setDetailOpen(true);
+          if (e.key === "Enter") setEditing(true);
         }}
       >
         <TableCell className="whitespace-nowrap text-muted-foreground">
@@ -104,18 +102,6 @@ function Row({
           {amountLabel}
         </TableCell>
       </TableRow>
-
-      <TransactionDetailDialog
-        row={row}
-        currency={currency}
-        locale={locale}
-        open={detailOpen}
-        onOpenChange={setDetailOpen}
-        onEdit={() => {
-          setDetailOpen(false);
-          setEditing(true);
-        }}
-      />
 
       <TransactionDialog
         mode="edit"

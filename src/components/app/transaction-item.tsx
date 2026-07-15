@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { TransactionBubble, bubbleAmountLabel } from "./transaction-bubble";
 import { TransactionDialog } from "./transaction-dialog";
-import { TransactionDetailDialog } from "./transaction-detail-dialog";
 import { minorToInputString } from "@/lib/money";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
@@ -26,7 +25,6 @@ export function TransactionItem({
   timeLabel: string;
 }) {
   const [editing, setEditing] = useState(false);
-  const [detailOpen, setDetailOpen] = useState(false);
 
   const amountLabel = bubbleAmountLabel(row.type, row.amountMinor, currency, locale);
 
@@ -40,19 +38,7 @@ export function TransactionItem({
         categoryName={row.categoryName}
         categoryIcon={row.categoryIcon}
         timeLabel={timeLabel}
-        onActivate={() => setDetailOpen(true)}
-      />
-
-      <TransactionDetailDialog
-        row={row}
-        currency={currency}
-        locale={locale}
-        open={detailOpen}
-        onOpenChange={setDetailOpen}
-        onEdit={() => {
-          setDetailOpen(false);
-          setEditing(true);
-        }}
+        onActivate={() => setEditing(true)}
       />
 
       <TransactionDialog
