@@ -11,9 +11,12 @@ compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 # `wrangler secret put` persist regardless; this also protects dashboard vars.)
 keep_vars = true
 
-# Serve the app from the custom domain (requires the playxoft.com zone in this
-# Cloudflare account). Comment out for a quick *.workers.dev preview.
+# ---------------------------------------------------------------------------
+# Default (production) environment → `pnpm deploy:prod`.
+# Worker `spendchat`, served at spendchat.playxoft.com.
+# Custom domain requires the playxoft.com zone in this Cloudflare account.
 # NOTE: top-level keys must appear before any [table] headers in TOML.
+# ---------------------------------------------------------------------------
 routes = [
   { pattern = "spendchat.playxoft.com", custom_domain = true },
 ]
@@ -27,13 +30,36 @@ binding = "ASSETS"
 enabled = true
 
 # ---------------------------------------------------------------------------
-# Secrets/vars are NOT stored here — manage them on Cloudflare (dashboard) or
-# via `wrangler secret put`. Thanks to keep_vars above, deploys preserve them.
-# Set them once from Doppler, e.g.:
+# Beta (dev) environment → `pnpm deploy:dev` (adds `--env beta`).
+# A SEPARATE worker `spendchat-beta` (wrangler suffixes the env name), served at
+# spendchat-beta.playxoft.com. `routes`, `assets` and `observability` are
+# non-inheritable in Wrangler, so they're repeated here; `main`,
+# `compatibility_*` and `keep_vars` are inherited from the top level.
+# ---------------------------------------------------------------------------
+[env.beta]
+
+[env.beta.observability]
+enabled = true
+
+[env.beta.assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
+[[env.beta.routes]]
+pattern = "spendchat-beta.playxoft.com"
+custom_domain = true
+
+# ---------------------------------------------------------------------------
+# Secrets/vars are NOT stored here — manage them per worker on Cloudflare
+# (dashboard) or via `wrangler secret put`. keep_vars (above) makes deploys
+# preserve them. NEXT_PUBLIC_* values are inlined at build time (from Doppler)
+# and do NOT need a secret. Set the runtime secrets once per environment:
 #
-#   doppler secrets get NEON_POSTGRES_DATABASE_URL --plain | npx wrangler secret put NEON_POSTGRES_DATABASE_URL
-#   doppler secrets get NEON_AUTH_BASE_URL          --plain | npx wrangler secret put NEON_AUTH_BASE_URL
-#   doppler secrets get NEON_AUTH_COOKIE_SECRET     --plain | npx wrangler secret put NEON_AUTH_COOKIE_SECRET
+#   # prod worker (spendchat), from the `prd` Doppler config
+#   doppler secrets get NEON_POSTGRES_DATABASE_URL --config prd --plain \
+#     | npx wrangler secret put NEON_POSTGRES_DATABASE_URL
 #
-# NEXT_PUBLIC_* values are inlined at build time and do not need a secret.
+#   # beta worker (spendchat-beta), from the `dev` Doppler config
+#   doppler secrets get NEON_POSTGRES_DATABASE_URL --config dev --plain \
+#     | npx wrangler secret put NEON_POSTGRES_DATABASE_URL --env beta
 # ---------------------------------------------------------------------------
