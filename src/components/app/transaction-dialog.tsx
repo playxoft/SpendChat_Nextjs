@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition, type ReactNode } from "react";
+import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -25,7 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
-import { addTransaction, updateTransaction } from "@/actions/transactions";
+import { addTransaction, updateTransaction, deleteTransaction } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
 import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
@@ -83,6 +84,20 @@ export function TransactionDialog({
   };
   const [values, setValues] = useState<TransactionValues>(defaultValues ?? emptyValues);
   const [pending, startTransition] = useTransition();
+  const [deletePending, startDeleteTransition] = useTransition();
+
+  // Has the user changed anything from what the form opened with? When dirty we
+  // block click-away dismissal so unsaved edits aren't lost; a pristine form
+  // still closes on an outside click.
+  const baseline = defaultValues ?? emptyValues;
+  const isDirty =
+    values.type !== baseline.type ||
+    values.amount !== baseline.amount ||
+    values.categoryId !== baseline.categoryId ||
+    values.profileId !== baseline.profileId ||
+    values.title !== baseline.title ||
+    values.description !== baseline.description ||
+    values.occurredOn !== baseline.occurredOn;
 
   // Reset the form to the row being edited each time the dialog opens.
   useEffect(() => {
@@ -142,10 +157,24 @@ export function TransactionDialog({
     });
   }
 
+  function handleDelete() {
+    if (!values.id) return;
+    const id = values.id;
+    startDeleteTransition(async () => {
+      const res = await deleteTransaction(id);
+      if (res.ok) {
+        toast.success("Transaction deleted");
+        setOpen(false);
+      } else {
+        toast.error(res.error);
+      }
+    });
+  }
+
   return (
     <Dialog open={isOpen} onOpenChange={setOpen}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" closeOnOutsideClick={!isDirty}>
         <DialogHeader>
           <DialogTitle>
             {mode === "edit" ? "Edit transaction" : "Add transaction"}
@@ -276,8 +305,18 @@ export function TransactionDialog({
             />
           </div>
 
-          <DialogFooter>
-            <Button type="submit" disabled={pending}>
+          <DialogFooter className={cn(mode === "edit" && "sm:justify-between")}>
+            {mode === "edit" ? (
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={deletePending || pending}
+              >
+                <Trash2 className="size-4" /> Delete
+              </Button>
+            ) : null}
+            <Button type="submit" disabled={pending || deletePending}>
               {mode === "edit" ? "Save changes" : "Add transaction"}
             </Button>
           </DialogFooter>
