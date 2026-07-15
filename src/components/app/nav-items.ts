@@ -11,3 +11,15 @@ export const navItems = [
 export function isActive(pathname: string, href: string, exact: boolean): boolean {
   return exact ? pathname === href : pathname === href || pathname.startsWith(`${href}`);
 }
+
+/**
+ * Carry the currently-selected profile across section navigation. The active
+ * profile lives entirely in the `?profile=` query param, so a plain section
+ * link would drop it and the destination would fall back to the first profile.
+ * Appending it here keeps the user on their chosen profile until they switch it
+ * explicitly (profile button or Shift+n shortcut). `profile` is the raw param:
+ * a profile id, "all", or null (the default first-profile state → no param).
+ */
+export function hrefWithProfile(href: string, profile: string | null): string {
+  return profile ? `${href}?profile=${encodeURIComponent(profile)}` : href;
+}
