@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -10,7 +10,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { ProfileList } from "./profile-list";
 import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
-import { isActive, navItems } from "./nav-items";
+import { hrefWithProfile, isActive, navItems } from "./nav-items";
 import type { Profile } from "@/db/schema";
 
 export function AppSidebar({
@@ -25,11 +25,12 @@ export function AppSidebar({
   currentWorkspaceId: string;
 }) {
   const pathname = usePathname();
+  const profile = useSearchParams().get("profile");
 
   return (
     <aside className="sticky top-0 hidden h-svh w-60 shrink-0 flex-col border-r bg-background md:flex print:hidden">
       <div className="flex h-14 shrink-0 items-center px-5">
-        <Link href="/app" aria-label="Tracker">
+        <Link href={hrefWithProfile("/app", profile)} aria-label="Tracker">
           <Logo />
         </Link>
       </div>
@@ -48,7 +49,7 @@ export function AppSidebar({
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={hrefWithProfile(item.href, profile)}
               aria-current={active ? "page" : undefined}
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",

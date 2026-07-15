@@ -2,6 +2,7 @@
 
 import { Suspense, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Users } from "lucide-react";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -18,6 +19,7 @@ import { ProfileList } from "./profile-list";
 import { UserMenu } from "./user-menu";
 import { MobileBulkAdd } from "./mobile-bulk-add";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
+import { hrefWithProfile } from "./nav-items";
 import type { Category, Profile } from "@/db/schema";
 
 export function AppTopbar({
@@ -38,11 +40,12 @@ export function AppTopbar({
   today: string;
 }) {
   const [open, setOpen] = useState(false);
+  const profile = useSearchParams().get("profile");
 
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-background/90 px-4 backdrop-blur-sm md:hidden print:hidden">
       <div className="flex items-center gap-1">
-        <Link href="/app" aria-label="Tracker">
+        <Link href={hrefWithProfile("/app", profile)} aria-label="Tracker">
           <Logo />
         </Link>
       </div>

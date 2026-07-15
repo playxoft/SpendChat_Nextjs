@@ -8,6 +8,7 @@ import { resolveWebProfile } from "@/lib/filters";
 import { TransactionDialog } from "./transaction-dialog";
 import { BulkAddDialog } from "./bulk-add-dialog";
 import { ShortcutsDialog } from "./shortcuts-dialog";
+import { hrefWithProfile } from "./nav-items";
 import type { Category, Profile } from "@/db/schema";
 
 /**
@@ -36,14 +37,16 @@ export function GlobalShortcuts({
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   // Same default as the pages: no `?profile=` → the first profile.
-  const activeProfileId = resolveWebProfile(sp.get("profile"), profiles[0]?.id);
+  const profileParam = sp.get("profile");
+  const activeProfileId = resolveWebProfile(profileParam, profiles[0]?.id);
   const allProfiles = !activeProfileId;
   const nav = { requireNoOverlay: true } as const;
 
-  useShortcut(comboFor("nav.tracker"), () => router.push("/app"), nav);
-  useShortcut(comboFor("nav.transactions"), () => router.push("/transactions"), nav);
-  useShortcut(comboFor("nav.analytics"), () => router.push("/analytics"), nav);
-  useShortcut(comboFor("nav.settings"), () => router.push("/settings"), nav);
+  // Section jumps carry the active profile so switching pages never resets it.
+  useShortcut(comboFor("nav.tracker"), () => router.push(hrefWithProfile("/app", profileParam)), nav);
+  useShortcut(comboFor("nav.transactions"), () => router.push(hrefWithProfile("/transactions", profileParam)), nav);
+  useShortcut(comboFor("nav.analytics"), () => router.push(hrefWithProfile("/analytics", profileParam)), nav);
+  useShortcut(comboFor("nav.settings"), () => router.push(hrefWithProfile("/settings", profileParam)), nav);
   useShortcut(comboFor("action.add"), () => setAddOpen(true), nav);
   useShortcut(comboFor("action.bulk"), () => setBulkOpen(true), nav);
   useShortcut(comboFor("global.shortcuts"), () => setShortcutsOpen(true), nav);

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import {
   Building2,
   Keyboard,
@@ -11,6 +11,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { hrefWithProfile } from "./nav-items";
 
 export const SETTINGS_SECTIONS = [
   { href: "/settings/account", label: "Account", icon: UserRound },
@@ -27,6 +28,7 @@ export const SETTINGS_SECTIONS = [
  */
 export function SettingsNav() {
   const pathname = usePathname();
+  const profile = useSearchParams().get("profile");
 
   return (
     <nav
@@ -38,7 +40,7 @@ export function SettingsNav() {
         return (
           <Link
             key={s.href}
-            href={s.href}
+            href={hrefWithProfile(s.href, profile)}
             aria-current={active ? "page" : undefined}
             className={cn(
               "flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors",

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 import { LogOut, Settings as SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "firebase/auth";
 import { clearSession, getFirebaseAuth } from "@/lib/firebase";
+import { hrefWithProfile } from "./nav-items";
 
 export function UserMenu({
   email,
@@ -24,6 +25,7 @@ export function UserMenu({
   compact?: boolean;
 }) {
   const router = useRouter();
+  const profile = useSearchParams().get("profile");
   const [pending, startTransition] = useTransition();
   const initial = (email ?? "?").charAt(0).toUpperCase();
 
@@ -63,7 +65,7 @@ export function UserMenu({
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href="/settings" className="cursor-pointer">
+          <Link href={hrefWithProfile("/settings", profile)} className="cursor-pointer">
             <SettingsIcon className="size-4" /> Settings
           </Link>
         </DropdownMenuItem>
