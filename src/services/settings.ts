@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, inArray } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   categories,
@@ -12,6 +12,7 @@ import {
   workspaces,
 } from "@/db/schema";
 import { ensureBootstrap, getUserSettings } from "@/lib/auth";
+import { accessibleProfileIds } from "@/lib/workspaces";
 import { badRequest, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
@@ -72,16 +73,28 @@ export async function updateInputMode(userId: string, mode: string): Promise<Use
   return getUserSettings(userId);
 }
 
-/** Wipe every transaction for the user. Requires the exact "DELETE" confirmation. */
+/**
+ * Wipe the transactions the user authored in the *current* workspace — and only
+ * in profiles they can still write to (editor+). `transactions.user_id` alone
+ * is attribution, not access: without the workspace/role scope, a demoted or
+ * removed collaborator could destroy rows inside someone else's workspace on
+ * the strength of past authorship. Requires the exact "DELETE" confirmation.
+ */
 export async function deleteAllTransactions(
   userId: string,
+  workspaceId: string,
   confirm: string,
 ): Promise<{ deleted: number }> {
   if (confirm !== "DELETE") throw badRequest("Type DELETE to confirm");
   const db = getDb();
   const deleted = await db
     .delete(transactions)
-    .where(eq(transactions.userId, userId))
+    .where(
+      and(
+        eq(transactions.userId, userId),
+        inArray(transactions.profileId, accessibleProfileIds(userId, workspaceId, "editor")),
+      ),
+    )
     .returning({ id: transactions.id });
   return { deleted: deleted.length };
 }

@@ -92,3 +92,25 @@ describe("verifyFirebaseIdToken", () => {
     await expect(verifyFirebaseIdToken("not.a.jwt")).rejects.toMatchObject({ status: 401 });
   });
 });
+
+describe("hasVerifiedEmail", () => {
+  it("passes a token with a verified email", async () => {
+    const { hasVerifiedEmail } = await import("@/lib/firebase-verify");
+    expect(hasVerifiedEmail({ sub: "u", email: "a@x.com", email_verified: true })).toBe(true);
+  });
+
+  it("rejects an explicit email_verified: false", async () => {
+    const { hasVerifiedEmail } = await import("@/lib/firebase-verify");
+    expect(hasVerifiedEmail({ sub: "u", email: "a@x.com", email_verified: false })).toBe(false);
+  });
+
+  it("fails closed when the claim is absent but an email is present", async () => {
+    const { hasVerifiedEmail } = await import("@/lib/firebase-verify");
+    expect(hasVerifiedEmail({ sub: "u", email: "a@x.com" })).toBe(false);
+  });
+
+  it("passes a token with no email at all (nothing email-gated)", async () => {
+    const { hasVerifiedEmail } = await import("@/lib/firebase-verify");
+    expect(hasVerifiedEmail({ sub: "u" })).toBe(true);
+  });
+});

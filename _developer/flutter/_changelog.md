@@ -19,6 +19,46 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 2.0.0 — 2026-07-16
+
+Security-review hardening pass. Breaking because observable statuses/semantics
+changed on existing endpoints; request/response *shapes* are unchanged.
+
+### Changed
+- **Single-transaction ops are now workspace-scoped.** `GET`/`PATCH`/`DELETE
+  /transactions/{id}` honour `X-Workspace-Id`: an id that lives in another of
+  the caller's workspaces now returns **404** `not_found` (previously it
+  resolved by profile role across all workspaces). This matches the list
+  endpoints' scoping.
+- **`POST /transactions/delete-all` is scoped to the current workspace.** It
+  now deletes only the rows the caller **authored in the current workspace**,
+  and only in profiles they can still write to (editor+). Previously it deleted
+  every row the caller had ever authored, in *any* workspace, regardless of
+  their current role. Honours `X-Workspace-Id` (unknown id → 404).
+- **`POST /profiles/reorder` now requires admin** (was editor), matching every
+  other profile-management operation. Editors now get **403**.
+- **Verified-email gate is fail-closed.** A token that carries an email without
+  `email_verified: true` is rejected with 403 (previously only an explicit
+  `false` was rejected). No effect on real Firebase tokens, which always set
+  the claim.
+
+### Added
+- **Cross-provider account linking.** Signing in with a new Firebase account
+  whose **verified** email already belongs to an existing SpendChat account
+  links the new provider to that account instead of failing. With an
+  **unverified** email this returns **409** `conflict` ("This email is already
+  registered with a different sign-in method") — previously this scenario was
+  an unhandled **500** on every request.
+
+**Flutter impact:** no model or request changes. Ensure single-transaction
+reads/edits/deletes are made with the same `X-Workspace-Id` under which the
+transaction was listed (an id from another workspace now 404s). Treat 404 from
+those endpoints as "not in this workspace". Hide the profile-reorder UI for
+non-admins (editors now get 403). Optionally surface the new 409 sign-in
+conflict message.
+
+---
+
 ## 1.3.0 — 2026-07-16
 
 ### Added

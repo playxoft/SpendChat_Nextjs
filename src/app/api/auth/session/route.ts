@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
-import { verifyFirebaseIdToken } from "@/lib/firebase-verify";
+import { hasVerifiedEmail, verifyFirebaseIdToken } from "@/lib/firebase-verify";
 import { syncUserProfile } from "@/lib/identity";
 import {
   REFRESH_COOKIE,
@@ -11,6 +11,26 @@ import {
 export const dynamic = "force-dynamic";
 
 /**
+ * Login-CSRF guard: a cross-site page must never set (or clear) the session
+ * cookies — a hostile page could otherwise silently log the victim into the
+ * attacker's account with a `text/plain` POST that skips the CORS preflight.
+ * Browsers send `Sec-Fetch-Site` on every fetch (and `Origin` on POSTs);
+ * a request with neither header comes from a non-browser client, which carries
+ * no ambient cookies to abuse.
+ */
+function isCrossSite(request: NextRequest): boolean {
+  const site = request.headers.get("sec-fetch-site");
+  if (site) return site !== "same-origin" && site !== "none";
+  const origin = request.headers.get("origin");
+  if (!origin) return false;
+  try {
+    return new URL(origin).host !== request.headers.get("host");
+  } catch {
+    return true;
+  }
+}
+
+/**
  * The session bridge between Firebase (client-side) and the server.
  *
  * POST { idToken, refreshToken } — the browser sends a fresh Firebase ID token
@@ -19,8 +39,16 @@ export const dynamic = "force-dynamic";
  * `__session` (read/verified by `getCurrentUser`) and `__refresh` (used to
  * re-mint an ID token once the short-lived one expires). DELETE — sign-out;
  * clears both cookies.
+ *
+ * Known limitation: sign-out clears cookies only — it does NOT revoke the
+ * Firebase refresh token server-side (that needs admin credentials, which this
+ * Workers deployment doesn't hold). A stolen `__refresh` value stays usable
+ * until Firebase expires/rotates it; "sign out everywhere" is not supported.
  */
 export async function POST(request: NextRequest) {
+  if (isCrossSite(request)) {
+    return Response.json({ error: "Cross-site request rejected" }, { status: 403 });
+  }
   let idToken: string | undefined;
   let refreshToken: string | undefined;
   try {
@@ -44,7 +72,7 @@ export async function POST(request: NextRequest) {
   // Email/password accounts must verify their email before getting a session
   // (Google is always verified). Firebase itself allows unverified sign-in, so
   // we gate here — the client keeps the live user for the /verify-email flow.
-  if (claims.email_verified === false) {
+  if (!hasVerifiedEmail(claims)) {
     return Response.json({ error: "email_not_verified" }, { status: 403 });
   }
 
@@ -61,7 +89,11 @@ export async function POST(request: NextRequest) {
   return Response.json({ ok: true });
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  // Same gate as POST: a cross-site page shouldn't be able to force-log-out.
+  if (isCrossSite(request)) {
+    return Response.json({ error: "Cross-site request rejected" }, { status: 403 });
+  }
   const store = await cookies();
   store.delete(SESSION_COOKIE);
   store.delete(REFRESH_COOKIE);

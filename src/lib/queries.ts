@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, profiles, transactions } from "@/db/schema";
-import { accessibleProfileIds, getEffectiveProfileRole } from "@/lib/workspaces";
+import { accessibleProfileIds } from "@/lib/workspaces";
 
 export type TxnFilters = {
   from?: string;
@@ -94,10 +94,13 @@ export async function listTransactions(
 
 /**
  * A single transaction (joined with its category + profile), or null when it
- * doesn't exist or the user can't view its profile.
+ * doesn't exist or isn't in a profile the user can view in the *current*
+ * workspace — the same scoping as the list path, so a transaction from one of
+ * the user's other workspaces reads as absent, never as accessible.
  */
 export async function getTransactionById(
   userId: string,
+  workspaceId: string,
   id: string,
 ): Promise<TransactionRow | null> {
   const db = getDb();
@@ -106,11 +109,14 @@ export async function getTransactionById(
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(profiles, eq(transactions.profileId, profiles.id))
-    .where(eq(transactions.id, id))
+    .where(
+      and(
+        eq(transactions.id, id),
+        inArray(transactions.profileId, accessibleProfileIds(userId, workspaceId)),
+      ),
+    )
     .limit(1);
-  if (!row) return null;
-  const access = await getEffectiveProfileRole(userId, row.profileId);
-  return access ? row : null;
+  return row ?? null;
 }
 
 /** Oldest-first, for the chat feed (messages read top to bottom). */

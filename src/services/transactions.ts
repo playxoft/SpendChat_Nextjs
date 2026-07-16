@@ -7,8 +7,10 @@ import { badRequest, forbidden, validationError } from "@/lib/errors";
 import { toMinorUnits } from "@/lib/money";
 import { getTransactionById, type TransactionRow } from "@/lib/queries";
 import { parseOrThrow, withId } from "@/lib/api-response";
+import { rolesAtLeast } from "@/lib/rbac";
 import {
   accessibleProfileIds,
+  getEffectiveProfileRole,
   getWorkspaceRole,
   requireProfileRole,
 } from "@/lib/workspaces";
@@ -111,17 +113,38 @@ export async function createTransaction(
     })
     .returning({ id: transactions.id });
 
-  const created = await getTransactionById(userId, row!.id);
+  const created = await getTransactionById(userId, workspaceId, row!.id);
   return created!;
 }
 
 /**
- * Update a transaction the user can edit. Returns the updated row, or `null`
- * when no row matched — callers decide whether that is a 404 (API) or a
- * silent no-op (web action). Throws on invalid input or a viewer role.
+ * Editor-or-better access to the profile of an existing transaction, scoped to
+ * the current workspace: a transaction living in one of the user's *other*
+ * workspaces resolves to null (callers 404), matching the read scoping — the
+ * `X-Workspace-Id` a client sends always bounds what single-row ops can touch.
+ */
+async function editableInWorkspace(
+  userId: string,
+  workspaceId: string,
+  profileId: string,
+): Promise<boolean> {
+  const access = await getEffectiveProfileRole(userId, profileId);
+  if (!access || access.workspaceId !== workspaceId) return false;
+  if (!rolesAtLeast("editor").includes(access.role)) {
+    throw forbidden("You don't have permission to do that");
+  }
+  return true;
+}
+
+/**
+ * Update a transaction the user can edit in the current workspace. Returns the
+ * updated row, or `null` when no row matched (including a row that lives in
+ * another workspace) — callers surface that as a 404 / "not found" error.
+ * Throws on invalid input or a viewer role.
  */
 export async function updateTransaction(
   userId: string,
+  workspaceId: string,
   id: string,
   input: unknown,
 ): Promise<TransactionRow | null> {
@@ -133,7 +156,7 @@ export async function updateTransaction(
     columns: { id: true, profileId: true },
   });
   if (!existing) return null;
-  const access = await requireProfileRole(userId, existing.profileId, "editor");
+  if (!(await editableInWorkspace(userId, workspaceId, existing.profileId))) return null;
 
   const settings = await getUserSettings(userId);
   const categoryId = await ownedCategoryId(userId, data.categoryId);
@@ -141,7 +164,7 @@ export async function updateTransaction(
   let profileId = existing.profileId;
   if (data.profileId && data.profileId !== existing.profileId) {
     const target = await requireProfileRole(userId, data.profileId, "editor");
-    if (target.workspaceId !== access.workspaceId) throw validationError("Invalid profile");
+    if (target.workspaceId !== workspaceId) throw validationError("Invalid profile");
     profileId = data.profileId;
   }
 
@@ -159,14 +182,19 @@ export async function updateTransaction(
     })
     .where(eq(transactions.id, data.id));
 
-  return getTransactionById(userId, data.id);
+  return getTransactionById(userId, workspaceId, data.id);
 }
 
 /**
- * Delete a transaction (requires editor on its profile). Returns whether a
- * row was removed. Throws a validation error for a non-UUID id.
+ * Delete a transaction (requires editor on its profile, in the current
+ * workspace). Returns whether a row was removed — false when it doesn't exist
+ * or lives in another workspace. Throws a validation error for a non-UUID id.
  */
-export async function deleteTransaction(userId: string, id: string): Promise<boolean> {
+export async function deleteTransaction(
+  userId: string,
+  workspaceId: string,
+  id: string,
+): Promise<boolean> {
   if (!z.string().uuid().safeParse(id).success) {
     throw validationError("Invalid transaction");
   }
@@ -176,7 +204,7 @@ export async function deleteTransaction(userId: string, id: string): Promise<boo
     columns: { id: true, profileId: true },
   });
   if (!existing) return false;
-  await requireProfileRole(userId, existing.profileId, "editor");
+  if (!(await editableInWorkspace(userId, workspaceId, existing.profileId))) return false;
 
   const deleted = await db
     .delete(transactions)

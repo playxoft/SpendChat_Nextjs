@@ -9,11 +9,18 @@ import {
 } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { getProfiles } from "@/lib/queries";
+import { deleteAllTransactions } from "@/services/settings";
 import { createTransaction, deleteTransaction } from "@/services/transactions";
 import * as ws from "@/services/workspaces";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
-import { bootstrapUser, firstProfileId, insertTxn, workspaceIdOf } from "./helpers/seed";
+import {
+  bootstrapUser,
+  countTxns,
+  firstProfileId,
+  insertTxn,
+  workspaceIdOf,
+} from "./helpers/seed";
 
 const db = () => getTestDb();
 
@@ -95,7 +102,7 @@ describe("members & RBAC", () => {
     });
     expect(created.amountMinor).toBe(200);
     // …and editors can delete inside the shared profile.
-    expect(await deleteTransaction(uid("b"), created.id)).toBe(true);
+    expect(await deleteTransaction(uid("b"), W, created.id)).toBe(true);
   });
 
   it("non-members see nothing in the workspace", async () => {
@@ -277,5 +284,62 @@ describe("create & switch workspaces", () => {
     await expect(ws.switchWorkspace(uid("a"), foreign)).rejects.toMatchObject({
       status: 404,
     });
+  });
+});
+
+describe("deleteAllTransactions scoping", () => {
+  it("wipes only rows the caller authored in profiles they can still write, in the given workspace", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    await bootstrapUser("b");
+    const W = await workspaceIdOf("a");
+    await ws.addMember(uid("a"), W, { email: "b@example.com", role: "editor" });
+    const sharedProfile = await firstProfileId("a");
+
+    // b authors a row in a's shared profile, a authors one there too, and b has
+    // a row in their own workspace.
+    await insertTxn("b", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-01",
+      profileId: sharedProfile,
+    });
+    await insertTxn("a", {
+      type: "expense",
+      amountMinor: 200,
+      occurredOn: "2026-06-01",
+      profileId: sharedProfile,
+    });
+    await insertTxn("b", { type: "expense", amountMinor: 300, occurredOn: "2026-06-01" });
+
+    // Demoted to viewer, b can no longer wipe the rows they authored in W —
+    // past authorship alone must not grant a destructive write.
+    await ws.updateMemberRole(uid("a"), W, { userId: uid("b"), role: "viewer" });
+    expect(await deleteAllTransactions(uid("b"), W, "DELETE")).toEqual({ deleted: 0 });
+
+    // In their own workspace the wipe works, and touches only their row there.
+    const ownW = await workspaceIdOf("b");
+    expect(await deleteAllTransactions(uid("b"), ownW, "DELETE")).toEqual({ deleted: 1 });
+    expect(await countTxns("b")).toBe(1); // the shared-workspace row survives
+    expect(await countTxns("a")).toBe(1); // a's row untouched throughout
+  });
+});
+
+describe("invite email rate limiting", () => {
+  it("caps user-triggered invite emails per hour (429 past the cap)", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+
+    for (let i = 0; i < 20; i++) {
+      const res = await ws.addMember(uid("a"), W, {
+        email: `guest${i}@example.com`,
+        role: "viewer",
+      });
+      expect(res.status).toBe("invited");
+    }
+    await expect(
+      ws.addMember(uid("a"), W, { email: "one-too-many@example.com", role: "viewer" }),
+    ).rejects.toMatchObject({ status: 429, code: "rate_limited" });
   });
 });

@@ -159,8 +159,9 @@ export async function moveProfileTransactions(
 }
 
 /**
- * Persist the sidebar order (requires editor in the workspace). `ids` is the
- * full ordered list; only profiles of this workspace are touched.
+ * Persist the sidebar order (requires admin in the workspace, like every other
+ * profile-management op). `ids` is the full ordered list; only profiles of
+ * this workspace are touched.
  */
 export async function reorderProfiles(
   userId: string,
@@ -168,7 +169,7 @@ export async function reorderProfiles(
   ids: string[],
 ): Promise<void> {
   const data = parseOrThrow(reorderProfilesSchema, { ids });
-  await requireWorkspaceRole(userId, workspaceId, "editor");
+  await requireWorkspaceRole(userId, workspaceId, "admin");
   const db = getDb();
   await Promise.all(
     data.ids.map((id, i) =>

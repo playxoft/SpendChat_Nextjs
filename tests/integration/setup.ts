@@ -62,13 +62,17 @@ vi.mock("next/navigation", () => ({
 // real getCurrentUser/requireApiUser run driven by `signInAs()`. `resolveUser`
 // returns the deterministic test id AND seeds a `users` row, so the real
 // directory lookups (member names) work exactly as in production.
-vi.mock("@/lib/firebase-verify", async () => {
+vi.mock("@/lib/firebase-verify", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/firebase-verify")>();
   const { getSessionUser } = await import("./helpers/session");
   return {
+    // Keep the real pure helpers (`hasVerifiedEmail`) — only the token
+    // verification edge is faked. Claims mirror a real verified account.
+    ...actual,
     verifyFirebaseIdToken: async () => {
       const user = getSessionUser();
       if (!user) throw new Error("no session");
-      return { sub: user.id, email: user.email, name: user.name };
+      return { sub: user.id, email: user.email, email_verified: true, name: user.name };
     },
   };
 });

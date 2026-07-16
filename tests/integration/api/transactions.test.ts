@@ -6,7 +6,7 @@ import {
   DELETE as deleteTxn,
 } from "@/app/api/v1/transactions/[id]/route";
 import { POST as bulkTxns } from "@/app/api/v1/transactions/bulk/route";
-import { setSession, signInAs } from "../helpers/session";
+import { setSession, signInAs, uid } from "../helpers/session";
 import { bootstrapUser, categoryId, firstProfileId, insertTxn } from "../helpers/seed";
 import { apiReq, jsonBody, ctx } from "./helpers";
 
@@ -140,5 +140,52 @@ describe("/api/v1/transactions", () => {
       apiReq("/api/v1/transactions/bulk", { method: "POST", body: jsonBody({ items: [] }) }),
     );
     expect(empty.status).toBe(422);
+  });
+});
+
+describe("workspace scoping on /api/v1/transactions/{id}", () => {
+  it("404s for a transaction that lives in another of the user's workspaces", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const id = await insertTxn("a", {
+      type: "expense",
+      amountMinor: 500,
+      occurredOn: "2026-06-01",
+    });
+    const { createWorkspaceWithDefaults } = await import("@/lib/workspaces");
+    const other = await createWorkspaceWithDefaults(uid("a"), "Second");
+
+    // The row belongs to the default workspace; addressing it under "Second"
+    // must read as absent for GET, PATCH and DELETE alike.
+    const got = await getTxn(
+      apiReq(`/api/v1/transactions/${id}`, { headers: { "x-workspace-id": other.id } }),
+      ctx({ id }),
+    );
+    expect(got.status).toBe(404);
+
+    const patched = await patchTxn(
+      apiReq(`/api/v1/transactions/${id}`, {
+        method: "PATCH",
+        headers: { "x-workspace-id": other.id },
+        body: jsonBody({ type: "expense", amount: 9, occurredOn: "2026-06-02" }),
+      }),
+      ctx({ id }),
+    );
+    expect(patched.status).toBe(404);
+
+    const deleted = await deleteTxn(
+      apiReq(`/api/v1/transactions/${id}`, {
+        method: "DELETE",
+        headers: { "x-workspace-id": other.id },
+      }),
+      ctx({ id }),
+    );
+    expect(deleted.status).toBe(404);
+
+    // Under its own workspace the row is still there, unmodified.
+    const same = await getTxn(apiReq(`/api/v1/transactions/${id}`), ctx({ id }));
+    expect(same.status).toBe(200);
+    const { data } = await same.json();
+    expect(data.amountMinor).toBe(500);
   });
 });
