@@ -6,6 +6,10 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
+**API spec version: 1.3.0.** Every API change bumps this version and is logged
+in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
+needs to update.
+
 - **Base URL (dev):** `http://localhost:3010` (Android emulator: `http://10.0.2.2:3010`)
 - **Base URL (prod):** your Worker/route domain (HTTPS)
 - **Auth:** `Authorization: Bearer <firebase-id-token>`
@@ -104,9 +108,15 @@ attribution).
   accessible workspace. Bootstrap guarantees ≥1.
 - **Unknown / inaccessible id → 404** `not_found` "Workspace not found".
 - The **current workspace** (id, name, role) is returned by `GET /me` under
-  `data.workspace`. List all workspaces the user can reach — the API surface for
-  that on mobile is `/me` (current) plus the web's workspace list; for v1, read
-  the current workspace from `/me` and let the user switch by remembering an id.
+  `data.workspace`.
+- **List every workspace** the user can open with **`GET /workspaces`** (for a
+  switcher). It ignores `X-Workspace-Id` and never 404s. To switch: send the
+  chosen id as `X-Workspace-Id` on subsequent requests and re-fetch `/me` — the
+  server persists it as `lastWorkspaceId`.
+- **Create a workspace** with **`POST /workspaces`** `{ name }` — the caller
+  becomes its **admin** and a default "Personal" profile is seeded. The server
+  makes it the current workspace (persists `lastWorkspaceId`); pin the returned
+  id as `X-Workspace-Id` and re-fetch `/me` + data.
 
 `role` is `viewer | editor | admin | null` (null = access via a per-profile grant
 only). See [08-settings.md](./08-settings.md) § Workspaces for RBAC and what's in
@@ -258,6 +268,12 @@ codes are listed per row.
 |---|---|---|---|
 | `GET /me` | — | 200 `{ user, settings, workspace }` | Current user + settings + current workspace |
 
+### Workspaces
+| Method & path | Body | Success | Notes |
+|---|---|---|---|
+| `GET /workspaces` | — | 200 `data: WorkspaceSummary[]` | Every workspace the user can open (for a switcher). **Ignores `X-Workspace-Id`; never 404s.** Memberships first (`createdAt asc`), then grant-only (`role: null`). Always ≥1. Item shape = `{ id, name, role }` (same as `/me`'s `workspace`). |
+| `POST /workspaces` | `WorkspaceInput` `{ name }` | 201 `data: WorkspaceSummary` | Caller becomes **admin** (`role` always `"admin"`); seeds a default "Personal" profile; becomes the current workspace (server persists `lastWorkspaceId`). Ignores `X-Workspace-Id`. 400 bad JSON; 422 blank/long name. |
+
 ### Transactions
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
@@ -317,6 +333,8 @@ codes are listed per row.
 - `occurredOn` — `^\d{4}-\d{2}-\d{2}$`, **required** ("Date must be YYYY-MM-DD").
 - *(deprecated)* `note` — alias for `title`, `≤ 100`; use `title` instead.
 
+`WorkspaceInput` — `name` (1–60, trimmed; "Workspace name is required" /
+"…too long (max 60 characters)").
 `CategoryInput` — `name` (1–40), `kind` (income|expense), `icon?` (≤16). **No `color`.**
 `CategoryUpdate` — `name?` (1–40), `icon?` (≤16, nullable). **No `color`.**
 `ProfileInput` — `name` (1–40), `icon?` (≤16), `color?` (≤32).
