@@ -35,6 +35,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Notes
 - Requires a Neon project (Postgres + Neon Auth) and Doppler-provided secrets to run. See `README.md`.
-- Not yet done: connect a live Neon database + Doppler config, first deploy to `spendchat.playxoft.com`, optional Postgres RLS, and unit tests.
+- Not yet done: connect a live Neon database + Doppler config, first deploy to `spendchat.app`, optional Postgres RLS, and unit tests.
 
-[Unreleased]: https://spendchat.playxoft.com
+[Unreleased]: https://spendchat.app

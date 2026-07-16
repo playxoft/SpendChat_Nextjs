@@ -10,7 +10,7 @@ import { logger } from "@/lib/logger";
  *   ZEPTOMAIL_TOKEN     – the Mail Agent's "Send Mail Token"
  *   ZEPTOMAIL_API_URL   – regional endpoint, default https://api.zeptomail.com/v1.1/email
  *                         (use https://api.zeptomail.in/v1.1/email for the IN DC)
- *   MAIL_FROM_ADDRESS   – verified sender, e.g. noreply@spendchat.playxoft.com
+ *   MAIL_FROM_ADDRESS   – verified sender, e.g. noreply@spendchat.app
  *   MAIL_FROM_NAME      – display name, default "SpendChat"
  *
  * Like the logger, delivery is deferred with `after()` (waitUntil on Workers)
