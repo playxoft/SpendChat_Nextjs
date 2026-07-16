@@ -146,7 +146,7 @@ const sections: Section[] = [
     blocks: [
       {
         kind: "p",
-        text: `SpendChat is open source under the ${siteConfig.license} license. You can read the full source, file issues, and self-host your own instance. The app is built on Next.js (App Router), Tailwind CSS with shadcn/ui, Neon Postgres with Drizzle, Neon Auth, and deploys to Cloudflare Workers via OpenNext.`,
+        text: `SpendChat is open source under the ${siteConfig.license} license. You can read the full source, file issues, and self-host your own instance. The app is built on Next.js (App Router), Tailwind CSS with shadcn/ui, Neon Postgres with Drizzle, Firebase Authentication, and deploys to Cloudflare Workers via OpenNext.`,
       },
       {
         kind: "steps",
