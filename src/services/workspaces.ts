@@ -1,7 +1,8 @@
 import "server-only";
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, count, eq, gte } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  emailSendLog,
   profileAccess,
   profiles,
   userSettings,
@@ -13,8 +14,8 @@ import {
 } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { findUserByEmail, findUsersByIds } from "@/lib/directory";
-import { sendEmail } from "@/lib/email";
-import { badRequest, conflict, forbidden, notFound } from "@/lib/errors";
+import { escapeHtml, redactEmail, sendEmail } from "@/lib/email";
+import { badRequest, conflict, forbidden, notFound, tooManyRequests } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
 import {
@@ -128,10 +129,12 @@ export async function listInvites(
     .orderBy(asc(workspaceInvites.createdAt));
 }
 
+// Workspace/profile names are user-controlled — always `escapeHtml` them
+// before interpolating into an HTML body (subjects are plain text, not HTML).
 function invitationEmail(workspaceName: string, role: WorkspaceRole, profileName?: string) {
   const scope = profileName
-    ? `the "${profileName}" profile in the workspace "${workspaceName}"`
-    : `the workspace "${workspaceName}"`;
+    ? `the "${escapeHtml(profileName)}" profile in the workspace "${escapeHtml(workspaceName)}"`
+    : `the workspace "${escapeHtml(workspaceName)}"`;
   return {
     subject: `You've been invited to ${workspaceName} on ${siteConfig.name}`,
     html:
@@ -143,8 +146,8 @@ function invitationEmail(workspaceName: string, role: WorkspaceRole, profileName
 
 function addedEmail(workspaceName: string, role: WorkspaceRole, profileName?: string) {
   const scope = profileName
-    ? `the "${profileName}" profile in "${workspaceName}"`
-    : `the workspace "${workspaceName}"`;
+    ? `the "${escapeHtml(profileName)}" profile in "${escapeHtml(workspaceName)}"`
+    : `the workspace "${escapeHtml(workspaceName)}"`;
   return {
     subject: `You now have access to ${workspaceName} on ${siteConfig.name}`,
     html:
@@ -152,6 +155,28 @@ function addedEmail(workspaceName: string, role: WorkspaceRole, profileName?: st
       `<p><a href="${siteConfig.url}/app">Open ${siteConfig.name}</a> and switch ` +
       `workspaces from the sidebar.</p>`,
   };
+}
+
+/** Max invite/notification emails one user may trigger per hour. */
+const EMAIL_SENDS_PER_HOUR = 20;
+
+/**
+ * Per-user hourly cap on user-triggered emails, enforced *before* the send and
+ * after the permission checks (denied calls must not burn quota). Recipients
+ * are arbitrary addresses, so without this a single account could pump
+ * phishing/spam through our verified sending domain.
+ */
+async function assertEmailSendAllowed(userId: string): Promise<void> {
+  const db = getDb();
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const [row] = await db
+    .select({ sent: count() })
+    .from(emailSendLog)
+    .where(and(eq(emailSendLog.userId, userId), gte(emailSendLog.createdAt, oneHourAgo)));
+  if ((row?.sent ?? 0) >= EMAIL_SENDS_PER_HOUR) {
+    throw tooManyRequests("Too many invites in the last hour — try again later");
+  }
+  await db.insert(emailSendLog).values({ userId, kind: "member_invite" });
 }
 
 export type AddMemberResult = { status: "added" | "invited"; email: string };
@@ -188,6 +213,9 @@ export async function addMember(
   } else {
     await requireWorkspaceRole(userId, workspaceId, "admin");
   }
+
+  // Both branches below send an email to a caller-chosen address.
+  await assertEmailSendAllowed(userId);
 
   const existing = await findUserByEmail(data.email);
   if (existing) {
@@ -234,7 +262,7 @@ export async function addMember(
   logger.info("workspace.invite_sent", {
     workspaceId,
     userId,
-    email: data.email,
+    email: redactEmail(data.email),
     role: data.role,
     profileId: data.profileId ?? null,
   });
