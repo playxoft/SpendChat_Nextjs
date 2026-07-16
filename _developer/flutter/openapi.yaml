@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "2.0.0"
+  version: "2.1.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 2.0.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 2.1.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     This spec is the **corrected** contract for the Flutter port. It fixes the
@@ -45,6 +45,11 @@ info:
     ## Conventions
     - **Envelope:** success = `{ "data": ... }` (plus `"meta"` for lists/
       analytics); error = `{ "error": { "code", "message", "details"? } }`.
+    - **Statuses:** every workspace-scoped endpoint (all of them except
+      `GET`/`POST /workspaces`) can return `403` (email not verified) and
+      `404` (unknown/inaccessible `X-Workspace-Id`) — both are listed per
+      path. Any endpoint that reads a JSON body can return `400` (malformed
+      JSON). The account-linking `409` above can surface on any endpoint.
     - **Money** is integer minor units (`amountMinor`). Each transaction also
       returns `amount` (major-unit string). One currency per user;
       `meta.currency`/`settings.currencyDetail` give the `decimals`.
@@ -208,6 +213,7 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
   /api/v1/transactions/{id}:
@@ -230,6 +236,7 @@ paths:
                 properties: { data: { $ref: "#/components/schemas/Transaction" } }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
       tags: [Transactions]
@@ -251,6 +258,7 @@ paths:
                 type: object
                 properties: { data: { $ref: "#/components/schemas/Transaction" } }
                 required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -307,8 +315,10 @@ paths:
                     properties: { count: { type: integer } }
                     required: [count]
                 required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
   /api/v1/transactions/export:
@@ -319,6 +329,12 @@ paths:
         Returns text/csv (not the JSON envelope). Columns:
         Date,Type,Category,Note,Amount,Currency. Honours the same filters,
         no paging, up to 5000 rows. Amount is signed (expenses negative).
+
+        Text cells that would otherwise be executed as a formula by
+        Excel/Sheets (those starting with `=`, `+`, `-`, `@`, tab or CR) are
+        prefixed with a single quote and quoted, e.g. a title `=SUM(A1)`
+        exports as `"'=SUM(A1)"`. Numeric cells (including negative amounts
+        like `-40.00`) are never prefixed, so the Amount column stays numeric.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/type"
@@ -335,6 +351,7 @@ paths:
               schema: { type: string }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/transactions/delete-all:
     post:
@@ -374,6 +391,7 @@ paths:
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/categories:
@@ -393,6 +411,8 @@ paths:
                     items: { $ref: "#/components/schemas/Category" }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [Categories]
       summary: Create a category
@@ -410,7 +430,10 @@ paths:
                 type: object
                 properties: { data: { $ref: "#/components/schemas/Category" } }
                 required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
@@ -434,7 +457,9 @@ paths:
                 type: object
                 properties: { data: { $ref: "#/components/schemas/Category" } }
                 required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
@@ -451,6 +476,7 @@ paths:
                 properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
@@ -473,6 +499,7 @@ paths:
                     items: { $ref: "#/components/schemas/Profile" }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
     post:
       tags: [Profiles]
@@ -493,6 +520,7 @@ paths:
                 type: object
                 properties: { data: { $ref: "#/components/schemas/Profile" } }
                 required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -519,6 +547,7 @@ paths:
                 type: object
                 properties: { data: { $ref: "#/components/schemas/Profile" } }
                 required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -578,6 +607,7 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/Profile" }
                 required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -611,6 +641,7 @@ paths:
                     properties: { moved: { type: integer } }
                     required: [moved]
                 required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -630,6 +661,8 @@ paths:
                 properties: { data: { $ref: "#/components/schemas/Settings" } }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
     patch:
       tags: [Settings]
       summary: Update settings (partial; at least one field)
@@ -647,7 +680,10 @@ paths:
                 type: object
                 properties: { data: { $ref: "#/components/schemas/Settings" } }
                 required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
   /api/v1/analytics/summary:
@@ -676,6 +712,7 @@ paths:
                     properties: { currency: { $ref: "#/components/schemas/CurrencyMeta" } }
                 required: [data, meta]
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/analytics/categories:
@@ -708,6 +745,8 @@ paths:
                     properties: { currency: { $ref: "#/components/schemas/CurrencyMeta" } }
                 required: [data, meta]
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
   /api/v1/analytics/monthly:
@@ -739,6 +778,8 @@ paths:
                     properties: { currency: { $ref: "#/components/schemas/CurrencyMeta" } }
                 required: [data, meta]
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
 components:

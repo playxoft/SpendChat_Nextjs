@@ -24,3 +24,21 @@ describe("toCsv", () => {
     expect(toCsv(["A", "B", "C"], [[null, undefined, 42]])).toBe("A,B,C\r\n,,42");
   });
 });
+
+describe("toCsv — formula injection (B6)", () => {
+  it("neutralises cells that Excel/Sheets would execute", () => {
+    expect(toCsv(["A"], [["=cmd|'/c calc'!A1"]])).toBe(`A\r\n"'=cmd|'/c calc'!A1"`);
+    expect(toCsv(["A"], [["@SUM(1,2)"]])).toBe(`A\r\n"'@SUM(1,2)"`);
+    expect(toCsv(["A"], [["+1+1"]])).toBe(`A\r\n"'+1+1"`);
+    expect(toCsv(["A"], [["-1-1"]])).toBe(`A\r\n"'-1-1"`);
+    expect(toCsv(["A"], [["\tTabbed"]])).toBe(`A\r\n"'\tTabbed"`);
+  });
+
+  it("leaves genuine numbers alone so amount columns stay numeric", () => {
+    expect(toCsv(["A"], [["-40.00"]])).toBe("A\r\n-40.00");
+    expect(toCsv(["A"], [["+2000"]])).toBe("A\r\n+2000");
+    expect(toCsv(["A"], [[-40]])).toBe("A\r\n-40");
+    expect(toCsv(["A"], [["0.5"]])).toBe("A\r\n0.5");
+  });
+});
+

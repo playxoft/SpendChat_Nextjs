@@ -11,6 +11,15 @@ import type { Category, Profile, UserSettings } from "@/db/schema";
  * currency's decimal count.
  */
 
+/**
+ * Timestamps come back from drizzle as `Date` (`mode:'date'`), but every
+ * serializer guards the same way so a driver that ever hands back a string
+ * can't 500 one endpoint while the others keep working.
+ */
+function toIso(value: Date | string): string {
+  return value instanceof Date ? value.toISOString() : String(value);
+}
+
 export type ApiTransaction = {
   id: string;
   type: "income" | "expense";
@@ -34,7 +43,7 @@ export function serializeTransaction(row: TransactionRow, currency: string): Api
     title: row.title,
     description: row.description,
     occurredOn: row.occurredOn,
-    createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : String(row.createdAt),
+    createdAt: toIso(row.createdAt),
     category: row.categoryId
       ? { id: row.categoryId, name: row.categoryName, icon: row.categoryIcon }
       : null,
@@ -57,8 +66,8 @@ export function serializeCategory(c: Category): ApiCategory {
     name: c.name,
     kind: c.kind,
     icon: c.icon,
-    createdAt: c.createdAt.toISOString(),
-    updatedAt: c.updatedAt.toISOString(),
+    createdAt: toIso(c.createdAt),
+    updatedAt: toIso(c.updatedAt),
   };
 }
 
@@ -79,8 +88,8 @@ export function serializeProfile(p: Profile): ApiProfile {
     icon: p.icon,
     color: p.color,
     sortOrder: p.sortOrder,
-    createdAt: p.createdAt.toISOString(),
-    updatedAt: p.updatedAt.toISOString(),
+    createdAt: toIso(p.createdAt),
+    updatedAt: toIso(p.updatedAt),
   };
 }
 

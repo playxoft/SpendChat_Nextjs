@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { transactionsToReportCsv } from "@/lib/transactions-csv";
+import { transactionsToCsv, transactionsToReportCsv } from "@/lib/transactions-csv";
 import { siteConfig } from "@/lib/site";
 import type { TransactionRow } from "@/lib/queries";
 
@@ -90,3 +90,43 @@ describe("transactionsToReportCsv", () => {
     expect(bounded).toContain(`Date range,"Jan 1, 2026 to Dec 31, 2026"`);
   });
 });
+
+describe("CSV exports neutralise formula injection (B6)", () => {
+  // A shared workspace means the author of a title and the person opening the
+  // export are different people — an executing formula is cross-user.
+  const hostile: TransactionRow[] = [
+    row({
+      type: "expense",
+      amountMinor: 4000,
+      title: "=cmd|'/c calc'!A1",
+      categoryName: "@SUM(1,2)",
+      note: "=cmd|'/c calc'!A1",
+      occurredOn: "2026-01-01",
+    }),
+  ];
+
+  it("escapes hostile cells in the mobile export", () => {
+    const csv = transactionsToCsv(hostile, "USD");
+    expect(csv).toContain(`"'=cmd|'/c calc'!A1"`);
+    expect(csv).toContain(`"'@SUM(1,2)"`);
+    expect(csv).not.toMatch(/(^|,)=cmd/m);
+    // The signed amount stays a plain number.
+    expect(csv).toContain("-40.00");
+    expect(csv).not.toContain(`"'-40.00"`);
+  });
+
+  it("escapes hostile cells in the branded report export", () => {
+    const csv = transactionsToReportCsv({
+      rows: hostile,
+      currency: "USD",
+      locale: "en-US",
+      workspaceName: "=HYPERLINK(\"http://evil\")",
+      profileName: "Personal",
+    });
+    expect(csv).toContain(`"'=cmd|'/c calc'!A1"`);
+    expect(csv).toContain(`"'=HYPERLINK(""http://evil"")"`);
+    expect(csv).not.toMatch(/(^|,)=cmd/m);
+    expect(csv).toContain("-40.00");
+  });
+});
+
