@@ -240,14 +240,14 @@ export default function DocsPage() {
           ))}
 
           {/* CTA */}
-          <div className="rounded-3xl border bg-card p-7">
+          <div className="rounded-3xl border bg-card p-7 text-center">
             <h2 className="text-xl font-semibold tracking-tight">
               Ready to start tracking?
             </h2>
             <p className="mt-2 text-muted-foreground">
               Create a free account, or dive into the source on GitHub.
             </p>
-            <div className="mt-6 flex flex-wrap gap-3">
+            <div className="mt-6 flex flex-wrap justify-center gap-3">
               <Button asChild className={marketingCta}>
                 <Link href="/sign-up">
                   Get started <ArrowRight />

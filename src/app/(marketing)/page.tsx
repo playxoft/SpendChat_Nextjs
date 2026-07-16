@@ -84,7 +84,7 @@ export default function LandingPage() {
       {/* Hero — fills the viewport (minus the fixed top nav). */}
       <section className="mx-auto flex min-h-[calc(100svh-5rem)] max-w-6xl flex-col justify-center px-4 py-10">
         <div className="grid items-center gap-10 lg:grid-cols-2 lg:gap-12">
-          <div className="animate-rise">
+          <div className="animate-rise min-w-0 text-center lg:text-left">
             <a
               href={siteConfig.links.github}
               target="_blank"
@@ -96,35 +96,43 @@ export default function LandingPage() {
             <h1 className="mt-5 text-balance text-4xl font-semibold tracking-tight sm:text-5xl lg:text-6xl">
               Track your money like a conversation.
             </h1>
-            <p className="mt-5 max-w-lg text-pretty text-lg text-muted-foreground">
+            <p className="mt-5 max-w-lg text-pretty text-lg text-muted-foreground mx-auto lg:mx-0">
               SpendChat is a minimal, fast, open-source expense and income
               tracker. Add a transaction in seconds, then filter, download, and
               print whenever you need. Free to use.
             </p>
-            <div className="mt-8 flex items-center gap-2.5">
-              <Button asChild className={marketingCta}>
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5 lg:justify-start">
+              <Button asChild className={`${marketingCta} w-full lg:w-auto`}>
                 <Link href="/sign-up">
                   Start tracking free <ArrowRight />
                 </Link>
               </Button>
-              <Button asChild variant="outline" className={marketingCta}>
-                <Link href="/features">See features</Link>
-              </Button>
-              <Button
-                asChild
-                variant="outline"
-                size="icon"
-                aria-label="View SpendChat on GitHub"
-                className="size-12 shrink-0 rounded-xl"
-              >
-                <a href={siteConfig.links.github} target="_blank" rel="noreferrer">
-                  <GithubIcon className="size-5" />
-                </a>
-              </Button>
+              {/* On mobile these two share one row and together span the same
+                  width as the button above; on desktop they sit inline. */}
+              <div className="grid w-full grid-cols-[1fr_auto] items-center gap-2.5 lg:flex lg:w-auto">
+                <Button
+                  asChild
+                  variant="outline"
+                  className={`${marketingCta} w-full lg:w-auto`}
+                >
+                  <Link href="/features">See features</Link>
+                </Button>
+                <Button
+                  asChild
+                  variant="outline"
+                  size="icon"
+                  aria-label="View SpendChat on GitHub"
+                  className="size-12 shrink-0 rounded-xl"
+                >
+                  <a href={siteConfig.links.github} target="_blank" rel="noreferrer">
+                    <GithubIcon className="size-5" />
+                  </a>
+                </Button>
+              </div>
             </div>
           </div>
 
-          <div className="animate-rise lg:pl-4">
+          <div className="animate-rise min-w-0 lg:pl-4">
             <TrackerDemo />
             <p className="mt-3 text-center text-xs text-muted-foreground">
               Live demo — type an amount, pick a category, and hit send.

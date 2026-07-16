@@ -2,9 +2,13 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, BookOpen, Check, Heart, Server, Tag, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { GithubIcon } from "@/components/icons/github";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
+
+/** Pricing cards use a slightly shorter, full-width CTA than the hero-sized
+ *  `marketingCta`, so each card's button sits comfortably at its foot. */
+const pricingCta =
+  "h-11 w-full gap-2 rounded-xl px-6 text-base [&_svg:not([class*='size-'])]:size-5";
 
 export const metadata: Metadata = {
   title: "Pricing",
@@ -70,8 +74,8 @@ export default function PricingPage() {
               </li>
             ))}
           </ul>
-          <div className="mt-auto flex flex-col gap-3 pt-7 sm:flex-row">
-            <Button asChild className={`${marketingCta} flex-1`}>
+          <div className="mt-auto pt-7">
+            <Button asChild className={pricingCta}>
               <Link href="/sign-up">
                 Get started <ArrowRight />
               </Link>
@@ -111,22 +115,11 @@ export default function PricingPage() {
               </li>
             ))}
           </ul>
-          <div className="mt-auto flex flex-col gap-3 pt-7 sm:flex-row">
-            <Button asChild className={`${marketingCta} flex-1`}>
+          <div className="mt-auto pt-7">
+            <Button asChild className={pricingCta}>
               <Link href="/docs#self-hosting">
                 <BookOpen /> Read the docs
               </Link>
-            </Button>
-            <Button
-              asChild
-              variant="outline"
-              size="icon"
-              aria-label="View SpendChat source on GitHub"
-              className="h-12 w-12 shrink-0 rounded-xl [&_svg:not([class*='size-'])]:size-5"
-            >
-              <a href={siteConfig.links.github} target="_blank" rel="noreferrer">
-                <GithubIcon />
-              </a>
             </Button>
           </div>
         </div>
