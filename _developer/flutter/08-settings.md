@@ -184,11 +184,15 @@ max of the two).
   delete and profile-management affordances. Treat `role: null` (grant-only) like
   a viewer at the workspace level.
 
+**In scope since spec 1.3.0:** **creating workspaces** — Settings has a "New
+workspace" dialog backed by `POST /api/v1/workspaces` (name ≤60; the caller
+becomes admin, gets a default "Personal" profile, and the app switches to the
+new workspace).
+
 **Likely out of scope for v1 (admin web flows):** renaming workspaces, inviting/
 removing members, changing roles, cancelling invites, per-profile sharing
-management, creating workspaces. These are admin-only and can stay on the web.
-If you do add them later, they're server actions today — they'd need `/api/v1`
-endpoints first.
+management. These are admin-only and can stay on the web. If you do add them
+later, they're server actions today — they'd need `/api/v1` endpoints first.
 
 **Workspace copy (for reference if you build the admin UI):**
 - Create dialog: "New workspace" / "A workspace has its own profiles and members
