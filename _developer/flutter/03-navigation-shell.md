@@ -88,9 +88,11 @@ Profiles live inside a **workspace**. The current workspace comes from
 - Send the chosen workspace as **`X-Workspace-Id`** on every API call, and
   persist the id locally (`shared_preferences`) so it survives restarts. The
   server also remembers it (`lastWorkspaceId`) when you switch.
-- **v1 scope:** a read/switch-only workspace picker is enough. Full workspace
-  admin (rename, invite members, roles, per-profile sharing, create) is an
-  admin-only web flow — defer it. See [08](./08-settings.md) § Workspaces.
+- **v1 scope:** the picker switches workspaces; **creating** one lives in
+  Settings (`POST /workspaces`, spec ≥1.3.0 — the app switches to it on
+  success). Full workspace admin (rename, invite members, roles, per-profile
+  sharing) stays an admin-only web flow — defer it. See
+  [08](./08-settings.md) § Workspaces.
 - Respect the effective **role**: `viewer` = read-only (hide add/edit/delete),
   `editor` = can write transactions, `admin` = can manage profiles. `role: null`
   means access via a per-profile grant (treat like a viewer at workspace level,
