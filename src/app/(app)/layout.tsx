@@ -43,6 +43,7 @@ export default async function AppLayout({
           currentWorkspaceId={workspace.id}
           categories={categories}
           currency={settings.currency}
+          locale={settings.locale}
           today={todayISO(timeZone)}
         />
         <main className="flex-1 pb-16 md:pb-0">{children}</main>
@@ -56,6 +57,7 @@ export default async function AppLayout({
           categories={categories}
           profiles={profiles}
           currency={settings.currency}
+          locale={settings.locale}
           today={todayISO(timeZone)}
         />
       </Suspense>

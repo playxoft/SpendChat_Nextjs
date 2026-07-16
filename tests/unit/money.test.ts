@@ -31,12 +31,20 @@ describe("toMinorUnits", () => {
     expect(toMinorUnits("-40", "USD")).toBe(-4000);
   });
 
-  it("falls back to USD decimals for an unknown currency", () => {
-    expect(toMinorUnits(10, "ZZZ")).toBe(1000);
+  it("reads a string against the caller's locale", () => {
+    // "1,50" is 1.50 in de-DE and malformed grouping in en-US — never 150.
+    expect(toMinorUnits("1,50", "EUR", "de-DE")).toBe(150);
+    expect(toMinorUnits("1.234,56", "EUR", "de-DE")).toBe(123456);
+    expect(() => toMinorUnits("1,50", "USD", "en-US")).toThrow("Invalid amount");
   });
 
-  it("strips all non-numeric chars from a string (so pure letters → 0)", () => {
-    expect(toMinorUnits("abc", "USD")).toBe(0);
+  it("throws on an unknown currency instead of guessing USD decimals", () => {
+    expect(() => toMinorUnits(10, "ZZZ")).toThrow("Unsupported currency code");
+  });
+
+  it("throws on an unreadable amount rather than silently returning 0", () => {
+    expect(() => toMinorUnits("abc", "USD")).toThrow("Invalid amount");
+    expect(() => toMinorUnits("", "USD")).toThrow("Invalid amount");
   });
 
   it("throws on a non-finite amount", () => {

@@ -23,11 +23,13 @@ export function GlobalShortcuts({
   categories,
   profiles,
   currency,
+  locale,
   today,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   currency: string;
+  locale: string;
   today: string;
 }) {
   const router = useRouter();
@@ -59,6 +61,7 @@ export function GlobalShortcuts({
         profiles={profiles}
         activeProfileId={activeProfileId}
         currency={currency}
+        locale={locale}
         today={today}
         open={addOpen}
         onOpenChange={setAddOpen}
@@ -70,6 +73,7 @@ export function GlobalShortcuts({
         activeProfileId={activeProfileId}
         allProfiles={allProfiles}
         currency={currency}
+        locale={locale}
         open={bulkOpen}
         onOpenChange={setBulkOpen}
       />

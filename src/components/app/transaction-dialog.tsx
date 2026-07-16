@@ -28,6 +28,7 @@ import {
 import { cn } from "@/lib/utils";
 import { addTransaction, updateTransaction, deleteTransaction } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
+import { amountPlaceholder, formatAmountInput, parseAmountInput } from "@/lib/parse-amount";
 import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
 import type { Category, Profile } from "@/db/schema";
@@ -50,6 +51,7 @@ export function TransactionDialog({
   categories,
   profiles = [],
   currency,
+  locale = "en-US",
   today,
   defaultValues,
   activeProfileId,
@@ -61,6 +63,8 @@ export function TransactionDialog({
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles?: Pick<Profile, "id" | "name" | "icon">[];
   currency: string;
+  /** Drives how a typed amount is read ("1,50" is 1.50 for a de-DE user). */
+  locale?: string;
   today: string;
   defaultValues?: TransactionValues;
   activeProfileId?: string;
@@ -124,9 +128,15 @@ export function TransactionDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    const amount = Number(values.amount);
-    if (!amount || amount <= 0) {
-      toast.error("Enter an amount greater than 0");
+    // Read against the user's locale, so "1,50" is 1.50 for a de-DE user
+    // and "1,000" is 1000 for an en-US one; ambiguous input is rejected.
+    const amount = parseAmountInput(values.amount, locale);
+    if (amount === null || amount <= 0) {
+      toast.error(
+        amount === null && values.amount.trim()
+          ? `That amount isn't clear — try ${formatAmountInput(12.5, locale)}`
+          : "Enter an amount greater than 0",
+      );
       return;
     }
     if (!values.occurredOn) {
@@ -218,7 +228,7 @@ export function TransactionDialog({
                 <Input
                   id="amount"
                   inputMode="decimal"
-                  placeholder="0.00"
+                  placeholder={amountPlaceholder(locale)}
                   value={values.amount}
                   onChange={(e) => setValues((v) => ({ ...v, amount: e.target.value }))}
                   className="pl-7 tabular-nums"

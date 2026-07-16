@@ -20,6 +20,7 @@ import { usePendingMessages } from "./pending-messages";
 import { useLoadingOverlay } from "./loading-overlay";
 import { getCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
+import { amountPlaceholder, formatAmountInput, parseAmountInput } from "@/lib/parse-amount";
 import { parseQuickEntry } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
@@ -34,6 +35,7 @@ const SLASH_RE = /(?:^|\s)\/([^\s/]*)$/;
 export function TransactionComposer({
   categories,
   currency,
+  locale = "en-US",
   today,
   profiles,
   activeProfileId,
@@ -42,6 +44,8 @@ export function TransactionComposer({
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   currency: string;
+  /** Drives how a typed amount is read ("1,50" is 1.50 for a de-DE user). */
+  locale?: string;
   today: string;
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   activeProfileId?: string;
@@ -76,13 +80,15 @@ export function TransactionComposer({
   const cats = useMemo(() => categories.filter((c) => c.kind === type), [categories, type]);
   const symbol = getCurrency(currency).symbol;
   const isMac = useIsMac();
+  // "0.00" / "0,00" — the placeholder has to show the separator this user types.
+  const placeholder = useMemo(() => amountPlaceholder(locale), [locale]);
 
   const isCombined = inputMode === "combined";
   // The "/" category picker reads/writes whichever field holds the title text.
   const titleSource = isCombined ? combined : title;
   const setTitleSource = isCombined ? setCombined : setTitle;
   // Live parse of the combined field for the inline preview + submit.
-  const quick = isCombined ? parseQuickEntry(combined) : null;
+  const quick = isCombined ? parseQuickEntry(combined, locale) : null;
 
   const toggleCombo = comboFor("tracker.toggle-type");
   const submitCombo = comboFor("tracker.submit");
@@ -128,14 +134,20 @@ export function TransactionComposer({
   function submit() {
     // Ignore sends while switching profile — the target profile is changing.
     if (switching) return;
-    // In combined mode the amount + title come from one parsed field.
-    // Standalone amount may carry comma thousands separators — drop them to parse.
-    const value = isCombined ? quick!.amount ?? 0 : Number(amount.replace(/,/g, ""));
+    // In combined mode the amount + title come from one parsed field. Both
+    // paths read the amount against the user's locale, and both yield null for
+    // anything ambiguous — never a silently mis-scaled number.
+    const value = isCombined ? quick!.amount : parseAmountInput(amount, locale);
     const finalTitle = (isCombined ? quick!.title : title).trim();
 
-    if (!value || value <= 0) {
+    if (value === null || value <= 0) {
+      const example = formatAmountInput(12.5, locale);
       toast.error(
-        isCombined ? "Start with an amount, e.g. 100 fruits" : "Enter an amount greater than 0",
+        isCombined
+          ? `Start with an amount, e.g. ${formatAmountInput(100, locale)} fruits`
+          : value === null && amount.trim()
+            ? `That amount isn't clear — try ${example}`
+            : "Enter an amount greater than 0",
       );
       titleRef.current?.focus();
       return;
@@ -172,7 +184,7 @@ export function TransactionComposer({
     send({
       input,
       type,
-      amountMinor: toMinorUnits(value, currency),
+      amountMinor: toMinorUnits(value, currency, locale),
       title: finalTitle,
       description: input.description ?? null,
       categoryName: cat?.name ?? null,
@@ -265,10 +277,11 @@ export function TransactionComposer({
       <Input
         ref={amountRef}
         inputMode="decimal"
-        placeholder="0.00"
+        placeholder={placeholder}
         value={amount}
-        // Numbers only — allow digits plus comma/period separators, drop the rest.
-        onChange={(e) => setAmount(e.target.value.replace(/[^\d.,]/g, ""))}
+        // Numbers only — allow digits plus the separators any locale groups or
+        // points with (comma, period, space); the parser rejects the rest.
+        onChange={(e) => setAmount(e.target.value.replace(/[^\d.,\s]/g, ""))}
         onKeyDown={onAmountKeyDown}
         aria-label="Amount"
         className="h-8 w-28 pl-7 tabular-nums"

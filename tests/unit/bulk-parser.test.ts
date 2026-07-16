@@ -109,3 +109,45 @@ describe("parseBulk — errors (with line numbers)", () => {
     expect(errors[0].line).toBe(2);
   });
 });
+
+describe("parseBulk — locale-aware amounts and quoting (B3)", () => {
+  it("uses ';' as the delimiter where ',' is the decimal separator", () => {
+    const { drafts, errors } = parseBulk("-40,50; Lebensmittel; Groceries", TODAY, "de-DE");
+    expect(errors).toEqual([]);
+    expect(drafts[0]).toMatchObject({
+      type: "expense",
+      amount: 40.5,
+      note: "Lebensmittel",
+      categoryName: "Groceries",
+    });
+  });
+
+  it("rejects a comma-delimited line in a comma-decimal locale instead of mangling it", () => {
+    // Used to parse as amount 40 with the decimal part "50" becoming the note.
+    const { drafts, errors } = parseBulk("-40,50, Groceries", TODAY, "de-DE");
+    expect(drafts).toEqual([]);
+    expect(errors[0].message).toBe("Could not read an amount");
+  });
+
+  it("keeps a comma-decimal amount out of the en-US path", () => {
+    const { errors } = parseBulk("1,50, Lunch", TODAY);
+    expect(errors[0].message).toBe("Could not read an amount");
+  });
+
+  it("supports a quoted note containing the delimiter", () => {
+    const { drafts, errors } = parseBulk('12.50, "Lunch, with team", Food', TODAY);
+    expect(errors).toEqual([]);
+    expect(drafts[0]).toMatchObject({ amount: 12.5, note: "Lunch, with team", categoryName: "Food" });
+  });
+
+  it("accepts a tab-delimited spreadsheet paste in any locale", () => {
+    const { drafts, errors } = parseBulk("-40,50\tLebensmittel\tGroceries", TODAY, "de-DE");
+    expect(errors).toEqual([]);
+    expect(drafts[0]).toMatchObject({ amount: 40.5, note: "Lebensmittel" });
+  });
+
+  it("reads grouped amounts", () => {
+    expect(parseBulk("1,250.50, Rent", TODAY).drafts[0].amount).toBe(1250.5);
+  });
+});
+

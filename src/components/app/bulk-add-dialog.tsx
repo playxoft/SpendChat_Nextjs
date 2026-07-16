@@ -25,7 +25,12 @@ import {
 } from "@/components/ui/select";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Kbd } from "@/components/ui/kbd";
-import { parseBulk, type BulkDraft } from "@/lib/bulk-parser";
+import { bulkDelimiter, parseBulk, type BulkDraft } from "@/lib/bulk-parser";
+import {
+  amountPlaceholder,
+  formatAmountInput,
+  parseAmountInput,
+} from "@/lib/parse-amount";
 import { addBulkTransactions } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
 import { useIsMac } from "@/hooks/use-shortcut";
@@ -104,6 +109,7 @@ export function BulkAddDialog({
   activeProfileId,
   allProfiles = false,
   currency = "USD",
+  locale = "en-US",
   open: openProp,
   onOpenChange,
 }: {
@@ -117,6 +123,8 @@ export function BulkAddDialog({
    * otherwise every row goes to the active profile. */
   allProfiles?: boolean;
   currency?: string;
+  /** Drives how typed/pasted amounts are read, and the paste delimiter. */
+  locale?: string;
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
 }) {
@@ -163,6 +171,15 @@ export function BulkAddDialog({
   const isMac = useIsMac();
 
   const symbol = getCurrency(currency).symbol;
+  // "0.00" / "0,00", and the delimiter the paste box expects (";" where a comma
+  // is the decimal point) — both have to match what this user actually types.
+  const placeholder = amountPlaceholder(locale);
+  const delimiter = bulkDelimiter("", locale);
+  const pasteExample = [
+    `${formatAmountInput(12.5, locale)}${delimiter} Lunch${delimiter} Food & Dining`,
+    `-40${delimiter} Groceries${delimiter} Groceries${delimiter} expense${delimiter} 2026-06-15`,
+    `+2000${delimiter} June salary${delimiter} Salary${delimiter} income`,
+  ].join("\n");
 
   function patch(key: number, change: Partial<DraftRow>) {
     setRows((rs) => rs.map((r) => (r.key === key ? { ...r, ...change } : r)));
@@ -252,24 +269,29 @@ export function BulkAddDialog({
     focusCell(next, anchorColRef.current);
   }
 
-  // Amounts may carry comma thousands separators — strip them before parsing.
-  const parseAmount = (s: string) => Number(s.replace(/,/g, ""));
+  // Amounts are read against the user's locale: "1,50" is 1.50 for a de-DE
+  // user and 1000 (from "1,000") for an en-US one. null = unreadable.
+  const parseAmount = (s: string) => parseAmountInput(s, locale);
+  const isPositiveAmount = (s: string) => {
+    const n = parseAmount(s);
+    return n !== null && n > 0;
+  };
   // A row the user hasn't started at all is ignored (the dialog opens with a few
   // blank rows); a started row must have a valid amount and a title.
   const isRowEmpty = (r: DraftRow) =>
     !r.amount.trim() && !r.title.trim() && !r.description.trim() && !r.categoryName;
   const rowErrors = (r: DraftRow) => ({
-    amount: !(parseAmount(r.amount) > 0),
+    amount: !isPositiveAmount(r.amount),
     title: !r.title.trim(),
   });
 
   const filledRows = rows.filter((r) => !isRowEmpty(r));
 
   const drafts: BulkDraft[] = filledRows
-    .filter((r) => parseAmount(r.amount) > 0 && r.title.trim())
+    .filter((r) => isPositiveAmount(r.amount) && r.title.trim())
     .map((r) => ({
       type: r.type,
-      amount: parseAmount(r.amount),
+      amount: parseAmount(r.amount)!,
       title: r.title.trim(),
       description: r.description.trim() || undefined,
       note: "",
@@ -279,17 +301,17 @@ export function BulkAddDialog({
     }));
 
   function handleParse() {
-    const { drafts: parsed, errors } = parseBulk(pasteText, defaultDate);
+    const { drafts: parsed, errors } = parseBulk(pasteText, defaultDate, locale);
     if (parsed.length === 0) {
       toast.error("Couldn't read any rows from the pasted text");
       return;
     }
     setRows((rs) => {
-      const kept = rs.filter((r) => Number(r.amount) > 0);
+      const kept = rs.filter((r) => isPositiveAmount(r.amount));
       const added = parsed.map((d) => ({
         key: nextKey(),
         type: d.type,
-        amount: String(d.amount),
+        amount: formatAmountInput(d.amount, locale),
         title: d.note ?? "",
         description: "",
         categoryName: d.categoryName ?? "",
@@ -421,9 +443,11 @@ export function BulkAddDialog({
                           // Numbers only — drop anything that isn't a digit or a
                           // decimal/thousands separator so text can't be entered.
                           onChange={(e) =>
-                            patch(r.key, { amount: e.target.value.replace(/[^\d.,]/g, "") })
+                            patch(r.key, {
+                              amount: e.target.value.replace(/[^\d.,\s]/g, ""),
+                            })
                           }
-                          placeholder="0.00"
+                          placeholder={placeholder}
                           aria-label="Amount"
                           aria-invalid={err?.amount || undefined}
                           data-row={i}
@@ -549,7 +573,7 @@ export function BulkAddDialog({
               rows={4}
               value={pasteText}
               onChange={(e) => setPasteText(e.target.value)}
-              placeholder={`12.50, Lunch, Food & Dining\n-40, Groceries, Groceries, expense, 2026-06-15\n+2000, June salary, Salary, income`}
+              placeholder={pasteExample}
               className="font-mono text-xs"
               aria-label="Paste rows"
             />

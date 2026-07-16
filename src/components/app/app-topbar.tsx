@@ -29,6 +29,7 @@ export function AppTopbar({
   currentWorkspaceId,
   categories,
   currency,
+  locale,
   today,
 }: {
   email: string | null;
@@ -37,6 +38,7 @@ export function AppTopbar({
   currentWorkspaceId: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   currency: string;
+  locale: string;
   today: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -79,6 +81,7 @@ export function AppTopbar({
             categories={categories}
             profiles={profiles}
             currency={currency}
+            locale={locale}
             today={today}
           />
         </Suspense>

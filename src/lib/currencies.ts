@@ -85,6 +85,16 @@ export function isSupportedCurrency(code: string): boolean {
   return code in CURRENCY_BY_CODE;
 }
 
+/**
+ * Look up a currency, throwing on an unknown code.
+ *
+ * Falling back to USD here would scale a 0-decimal (JPY) or 3-decimal (KWD)
+ * amount with 2 decimals — an `amount_minor` off by 100x/10x with no error.
+ * Codes are validated on write (`settingsSchema`), so an unknown one means bad
+ * data upstream and should surface loudly rather than corrupt the maths.
+ */
 export function getCurrency(code: string): Currency {
-  return CURRENCY_BY_CODE[code] ?? CURRENCY_BY_CODE[DEFAULT_CURRENCY];
+  const currency = CURRENCY_BY_CODE[code];
+  if (!currency) throw new Error(`Unsupported currency code: ${code}`);
+  return currency;
 }

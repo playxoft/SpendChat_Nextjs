@@ -48,11 +48,12 @@ export function TransactionItem({
         categories={categories}
         profiles={profiles}
         currency={currency}
+        locale={locale}
         today={today}
         defaultValues={{
           id: row.id,
           type: row.type,
-          amount: minorToInputString(row.amountMinor, currency),
+          amount: minorToInputString(row.amountMinor, currency, locale),
           categoryId: row.categoryId,
           profileId: row.profileId,
           title: row.title ?? "",

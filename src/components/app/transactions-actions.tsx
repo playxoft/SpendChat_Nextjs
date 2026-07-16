@@ -19,6 +19,7 @@ export function TransactionsActions({
   profiles,
   activeProfileId,
   currency,
+  locale,
   today,
   allProfiles,
 }: {
@@ -26,6 +27,7 @@ export function TransactionsActions({
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   activeProfileId?: string;
   currency: string;
+  locale: string;
   today: string;
   allProfiles: boolean;
 }) {
@@ -37,6 +39,7 @@ export function TransactionsActions({
         profiles={profiles}
         activeProfileId={activeProfileId}
         currency={currency}
+        locale={locale}
         today={today}
         trigger={
           <Button className="gap-1.5">
@@ -52,6 +55,8 @@ export function TransactionsActions({
         profiles={profiles}
         activeProfileId={activeProfileId}
         allProfiles={allProfiles}
+        currency={currency}
+        locale={locale}
         trigger={
           <Button variant="outline">
             <ListPlus className="size-4" />

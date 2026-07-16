@@ -17,11 +17,13 @@ export function MobileBulkAdd({
   categories,
   profiles,
   currency,
+  locale,
   today,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   currency: string;
+  locale: string;
   today: string;
 }) {
   const sp = useSearchParams();
@@ -46,6 +48,7 @@ export function MobileBulkAdd({
         activeProfileId={activeProfileId}
         allProfiles={allProfiles}
         currency={currency}
+        locale={locale}
         open={open}
         onOpenChange={setOpen}
       />

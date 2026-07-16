@@ -75,6 +75,7 @@ export default async function ChatPage({
                     profiles={profiles}
                     activeProfileId={composerProfileId}
                     currency={currency}
+                    locale={locale}
                     today={today}
                     allProfiles={allProfiles}
                   />
@@ -118,6 +119,7 @@ export default async function ChatPage({
         <TransactionComposer
           categories={categories}
           currency={currency}
+          locale={locale}
           today={today}
           profiles={profiles}
           activeProfileId={composerProfileId}
