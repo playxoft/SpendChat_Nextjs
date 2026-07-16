@@ -141,6 +141,28 @@ export const workspaceInvites = pgTable(
 );
 
 /**
+ * Outbound-email audit log: one row per user-triggered send (invites/member
+ * notifications are the only ones today). Exists to rate-limit sends per user —
+ * recipients are arbitrary addresses, so without a cap a malicious account
+ * could use our verified sending domain as a spam/phishing primitive.
+ * Deliberately stores no recipient address (it's PII we don't need here).
+ */
+export const emailSendLog = pgTable(
+  "email_send_log",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    /** The user whose action triggered the send (the sender, not the recipient). */
+    userId: uuid("user_id").notNull(),
+    kind: text("kind").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The rate-limit query: sends by this user in the last hour.
+    index("email_send_log_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/**
  * Per-user preferences. `user_id` is the Neon Auth user id (a UUID minted by
  * Neon Auth — v4, since we don't control their generator; everything we mint
  * ourselves is v7). One row per user; created on first sign-in (bootstrap).

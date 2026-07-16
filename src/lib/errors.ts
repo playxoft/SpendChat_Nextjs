@@ -50,3 +50,8 @@ export function conflict(message: string): ApiError {
 export function validationError(message: string, details?: unknown): ApiError {
   return new ApiError(422, "validation_error", message, details);
 }
+
+/** 429 — the caller hit a rate limit; try again later. */
+export function tooManyRequests(message = "Too many requests — try again later"): ApiError {
+  return new ApiError(429, "rate_limited", message);
+}

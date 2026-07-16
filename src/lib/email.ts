@@ -27,6 +27,31 @@ export type EmailMessage = {
   html: string;
 };
 
+/**
+ * Escape a string for interpolation into an HTML email body. User-controlled
+ * names (workspace, profile) land in `htmlbody` — unescaped, a workspace named
+ * `<a href="https://evil…">Verify your account</a>` becomes attacker markup
+ * sent from our verified domain.
+ */
+export function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+/**
+ * Mask an email address for log payloads (`j***@example.com`) — recipient
+ * addresses are PII and logs ship to a third-party vendor (BetterStack).
+ */
+export function redactEmail(email: string): string {
+  const at = email.indexOf("@");
+  if (at <= 0) return "***";
+  return `${email[0]}***${email.slice(at)}`;
+}
+
 async function deliver(message: EmailMessage): Promise<void> {
   // Accept the token with or without the "Zoho-enczapikey " prefix the
   // ZeptoMail console displays — we add the scheme ourselves.
@@ -34,8 +59,7 @@ async function deliver(message: EmailMessage): Promise<void> {
   const from = process.env.MAIL_FROM_ADDRESS;
   if (!token || !from) {
     logger.warn("email.skipped", {
-      to: message.to,
-      subject: message.subject,
+      to: redactEmail(message.to),
       reason: "ZEPTOMAIL_TOKEN / MAIL_FROM_ADDRESS not configured",
     });
     return;
@@ -59,16 +83,15 @@ async function deliver(message: EmailMessage): Promise<void> {
     });
     if (!res.ok) {
       logger.error("email.failed", {
-        to: message.to,
-        subject: message.subject,
+        to: redactEmail(message.to),
         status: res.status,
         body: (await res.text()).slice(0, 500),
       });
     } else {
-      logger.info("email.sent", { to: message.to, subject: message.subject });
+      logger.info("email.sent", { to: redactEmail(message.to) });
     }
   } catch (err) {
-    logger.error("email.failed", { to: message.to, subject: message.subject, error: err });
+    logger.error("email.failed", { to: redactEmail(message.to), error: err });
   }
 }
 
