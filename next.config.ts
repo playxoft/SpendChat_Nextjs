@@ -7,8 +7,13 @@ import createMDX from "@next/mdx";
  * browser: it calls Google's Identity Toolkit / Secure Token / JWKS endpoints
  * (`*.googleapis.com`) and opens a Google sign-in popup + a hidden iframe on the
  * Firebase auth domain — hence the extra script/connect/frame sources below.
- * Tighten to a nonce-based policy as a future step.
+ * `unsafe-eval` is dev-only (Turbopack/webpack eval source maps); production
+ * Next.js and the Firebase SDK don't eval. `unsafe-inline` stays until a
+ * nonce-based policy is possible (needs middleware, which OpenNext on Workers
+ * can't run).
  */
+const isDev = process.env.NODE_ENV === "development";
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -25,7 +30,7 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://apis.google.com https://www.gstatic.com",
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://apis.google.com https://www.gstatic.com`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
