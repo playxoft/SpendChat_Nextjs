@@ -30,8 +30,9 @@ export default function PrivacyPage() {
           <ul className="list-inside list-disc space-y-2">
             <li>
               <span className="text-foreground">Account information</span> — your email
-              address, managed by our authentication provider (Neon Auth) to create and
-              secure your account.
+              address, managed by our authentication provider (Firebase Authentication, a
+              Google service) to create and secure your account. If you sign in with
+              Google, your basic Google profile (name and email) is shared with the app.
             </li>
             <li>
               <span className="text-foreground">Your transactions</span> — the amounts,
@@ -63,8 +64,8 @@ export default function PrivacyPage() {
           <p>
             We do not sell your personal data or use it for advertising. Data is
             processed by the infrastructure providers required to run the app — our
-            database host (Neon) and authentication provider (Neon Auth / Stack Auth) —
-            acting on our behalf.
+            database host (Neon) and authentication provider (Firebase Authentication, a
+            Google service) — acting on our behalf.
           </p>
         </section>
 
