@@ -5,6 +5,7 @@ import {
   Download,
   Filter,
   Gauge,
+  Keyboard,
   ListPlus,
   Lock,
   MessageSquare,
@@ -101,7 +102,7 @@ const groups = [
       {
         icon: Lock,
         title: "Security first",
-        body: "Authentication is handled by Neon Auth with email and password. Every query is scoped to your account, all input is validated, and the app ships with strict security headers.",
+        body: "Authentication is handled by Firebase Authentication, with Google and email/password sign-in. Every query is scoped to your account, all input is validated, and the app ships with strict security headers.",
       },
       {
         icon: Smartphone,
@@ -112,6 +113,11 @@ const groups = [
         icon: Moon,
         title: "Light & dark, minimal by design",
         body: "A calm, neutral interface with no noisy gradients. Switch between light, dark, or system themes whenever you like.",
+      },
+      {
+        icon: Keyboard,
+        title: "Keyboard-friendly",
+        body: "Fly without reaching for the mouse. Single-key shortcuts jump between views and add transactions, with ⌘/Ctrl combos that adapt to macOS, Windows, and Linux.",
       },
     ],
   },
@@ -132,14 +138,11 @@ export default function FeaturesPage() {
           A focused toolkit for personal finance — quick to use, easy to trust, and
           open source.
         </p>
-        <div className="mt-8 flex flex-wrap justify-center gap-3">
+        <div className="mt-8 flex justify-center">
           <Button asChild className={marketingCta}>
             <Link href="/sign-up">
               Start tracking free <ArrowRight />
             </Link>
-          </Button>
-          <Button asChild variant="outline" className={marketingCta}>
-            <Link href="/">Try the live demo</Link>
           </Button>
         </div>
       </div>

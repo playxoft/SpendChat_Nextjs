@@ -47,7 +47,7 @@ const stack = [
   { layer: "Framework", choice: "Next.js (App Router) + TypeScript" },
   { layer: "Interface", choice: "Tailwind CSS + shadcn/ui" },
   { layer: "Database", choice: "Neon Postgres + Drizzle ORM" },
-  { layer: "Auth", choice: "Neon Auth (email & password)" },
+  { layer: "Auth", choice: "Firebase Authentication (Google & email/password)" },
   { layer: "Hosting", choice: "Cloudflare Workers via OpenNext" },
 ];
 
@@ -102,7 +102,7 @@ export default function AboutPage() {
           your data is handled, self-host it, file an issue, or send a pull request.
           Transparency isn&apos;t a marketing line here; it&apos;s the license.
         </p>
-        <div className="mt-6 flex flex-wrap gap-3">
+        <div className="mt-6 flex flex-wrap justify-center gap-3">
           <Button asChild className={marketingCta}>
             <a href={siteConfig.links.github} target="_blank" rel="noreferrer">
               <GithubIcon /> View on GitHub
