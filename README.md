@@ -2,7 +2,7 @@
 
 A minimal, fast, and secure personal **money tracker** — add, view, filter, download, and print your income and expenses. Free to use.
 
-🌐 **Live demo:** coming soon — will be deployed to [spendchat.playxoft.com](https://spendchat.playxoft.com)
+🌐 **Live demo:** coming soon — will be deployed to [spendchat.app](https://spendchat.app)
 
 ---
 
@@ -108,7 +108,7 @@ Managed by **Doppler** — see [`.env.example`](./.env.example) for the full lis
 
 ## 🌍 Deployment
 
-Deployed to **Cloudflare Workers** and served at `spendchat.playxoft.com`.
+Deployed to **Cloudflare Workers** and served at `spendchat.app`.
 
 ```bash
 pnpm deploy   # builds + deploys using the Doppler `prd` config

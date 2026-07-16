@@ -1,8 +1,8 @@
 export const siteConfig = {
   name: "SpendChat",
-  domain: "spendchat.playxoft.com",
-  url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://spendchat.playxoft.com")
-    // Tolerate a bare hostname in the env (e.g. "spendchat.playxoft.com"):
+  domain: "spendchat.app",
+  url: (process.env.NEXT_PUBLIC_SITE_URL ?? "https://spendchat.app")
+    // Tolerate a bare hostname in the env (e.g. "spendchat.app"):
     // new URL() requires a scheme, so default to https:// when none is given.
     .replace(/^(?!https?:\/\/)/i, "https://")
     .replace(/\/$/, ""),

@@ -13,12 +13,12 @@ keep_vars = true
 
 # ---------------------------------------------------------------------------
 # Default (production) environment → `pnpm deploy:prod`.
-# Worker `spendchat`, served at spendchat.playxoft.com.
-# Custom domain requires the playxoft.com zone in this Cloudflare account.
+# Worker `spendchat`, served at spendchat.app.
+# Custom domain requires the spendchat.app zone in this Cloudflare account.
 # NOTE: top-level keys must appear before any [table] headers in TOML.
 # ---------------------------------------------------------------------------
 routes = [
-  { pattern = "spendchat.playxoft.com", custom_domain = true },
+  { pattern = "spendchat.app", custom_domain = true },
 ]
 
 # Static assets emitted by OpenNext
@@ -32,7 +32,7 @@ enabled = true
 # ---------------------------------------------------------------------------
 # Beta (dev) environment → `pnpm deploy:dev` (adds `--env beta`).
 # A SEPARATE worker `spendchat-beta` (wrangler suffixes the env name), served at
-# spendchat-beta.playxoft.com. `routes`, `assets` and `observability` are
+# beta.spendchat.app. `routes`, `assets` and `observability` are
 # non-inheritable in Wrangler, so they're repeated here; `main`,
 # `compatibility_*` and `keep_vars` are inherited from the top level.
 # ---------------------------------------------------------------------------
@@ -46,7 +46,7 @@ directory = ".open-next/assets"
 binding = "ASSETS"
 
 [[env.beta.routes]]
-pattern = "spendchat-beta.playxoft.com"
+pattern = "beta.spendchat.app"
 custom_domain = true
 
 # ---------------------------------------------------------------------------
