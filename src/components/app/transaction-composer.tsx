@@ -17,6 +17,7 @@ import { CategoryRow } from "./category-row";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { cn } from "@/lib/utils";
 import { usePendingMessages } from "./pending-messages";
+import { useLoadingOverlay } from "./loading-overlay";
 import { getCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
 import { parseQuickEntry } from "@/lib/quick-entry";
@@ -65,6 +66,9 @@ export function TransactionComposer({
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const { send } = usePendingMessages();
+  // True while a profile/workspace switch is in flight — the fields belong to
+  // the outgoing profile, so lock the composer until the new one has loaded.
+  const { pending: switching } = useLoadingOverlay();
 
   const titleRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
@@ -122,6 +126,8 @@ export function TransactionComposer({
   }
 
   function submit() {
+    // Ignore sends while switching profile — the target profile is changing.
+    if (switching) return;
     // In combined mode the amount + title come from one parsed field.
     // Standalone amount may carry comma thousands separators — drop them to parse.
     const value = isCombined ? quick!.amount ?? 0 : Number(amount.replace(/,/g, ""));
@@ -319,6 +325,12 @@ export function TransactionComposer({
       }}
       className="sticky bottom-16 z-20 border-t bg-background px-3 py-2 md:bottom-0 md:bg-background/95 md:backdrop-blur-sm"
     >
+      {/* Disable every field/button while a profile switch is in flight — the
+          native `disabled` on a fieldset cascades to all controls inside. */}
+      <fieldset
+        disabled={switching}
+        className="m-0 min-w-0 border-0 p-0 transition-opacity disabled:opacity-60"
+      >
       <div className="mx-auto flex max-w-2xl flex-col gap-2">
         {/* Controls: type on the left; date / profile / category pushed to the
             right. On mobile the full category list drops to its own row (in
@@ -532,6 +544,7 @@ export function TransactionComposer({
           <ArrowUp className="size-4" /> Send
         </Button>
       </div>
+      </fieldset>
 
       <CategoryEditorDialog
         open={editorOpen}

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useLoadingOverlay } from "./loading-overlay";
 import type { Profile } from "@/db/schema";
 
 type P = Pick<Profile, "id" | "name" | "icon">;
@@ -26,6 +27,7 @@ export function ProfileSwipe({
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
+  const { runQuiet } = useLoadingOverlay();
 
   useEffect(() => {
     if (profiles.length === 0) return;
@@ -43,7 +45,9 @@ export function ProfileSwipe({
       params.set("profile", target);
       params.delete("page");
       const qs = params.toString();
-      router.push(qs ? `${pathname}?${qs}` : pathname);
+      // Quiet transition: disables the composer until the swiped-to profile
+      // loads, while the feed shows its own skeletons.
+      runQuiet(() => router.push(qs ? `${pathname}?${qs}` : pathname));
     }
 
     function onStart(e: TouchEvent) {
@@ -88,7 +92,7 @@ export function ProfileSwipe({
       window.removeEventListener("touchstart", onStart);
       window.removeEventListener("touchend", onEnd);
     };
-  }, [profiles, filterProfileId, router, pathname, sp]);
+  }, [profiles, filterProfileId, router, pathname, sp, runQuiet]);
 
   return null;
 }

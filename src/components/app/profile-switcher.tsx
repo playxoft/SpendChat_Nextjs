@@ -11,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { useLoadingOverlay } from "./loading-overlay";
 import type { Profile } from "@/db/schema";
 
 type P = Pick<Profile, "id" | "name" | "icon">;
@@ -32,6 +33,7 @@ export function ProfileSwitcher({
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
+  const { runQuiet } = useLoadingOverlay();
 
   const active = profiles.find((p) => p.id === filterProfileId) ?? null;
   const icon = active?.icon ?? (filterProfileId ? "👤" : "🗂️");
@@ -46,7 +48,8 @@ export function ProfileSwitcher({
     params.set("profile", id ?? "all");
     params.delete("page");
     const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    // Quiet transition: gate the composer until the new profile loads.
+    runQuiet(() => router.push(qs ? `${pathname}?${qs}` : pathname));
   }
 
   const iconEl = (
