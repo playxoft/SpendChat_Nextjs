@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { ProfileFormDialog } from "./profile-form-dialog";
 import { ProfileDeleteDialog } from "./profile-delete-dialog";
+import { useLoadingOverlay } from "./loading-overlay";
 import { Kbd } from "@/components/ui/kbd";
 import { reorderProfiles } from "@/actions/profiles";
 import { useShortcut } from "@/hooks/use-shortcut";
@@ -57,6 +58,7 @@ export function ProfileList({
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
+  const { runQuiet } = useLoadingOverlay();
   const [, startTransition] = useTransition();
 
   const [items, setItems] = React.useState<P[]>(profiles);
@@ -104,7 +106,10 @@ export function ProfileList({
     params.set("profile", target);
     params.delete("page");
     const qs = params.toString();
-    startTransition(() => router.push(qs ? `${targetPath}?${qs}` : targetPath));
+    // Route through the shared (quiet) transition so `pending` gates the
+    // composer until the new profile loads — no full-screen overlay, since the
+    // feed streams its own skeletons. Survives the mobile sheet unmounting.
+    runQuiet(() => router.push(qs ? `${targetPath}?${qs}` : targetPath));
     onNavigate?.();
   }
 

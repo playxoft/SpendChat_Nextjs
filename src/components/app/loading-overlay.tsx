@@ -5,10 +5,18 @@ import { createContext, useCallback, useContext, useState, useTransition } from 
 import { FullscreenLoader } from "./fullscreen-loader";
 
 type RunFn = (action: () => void | Promise<void>, label?: string) => void;
+type QuietFn = (action: () => void | Promise<void>) => void;
 
 type LoadingOverlayCtx = {
   /** Run a blocking navigation with a full-screen loader until it settles. */
   run: RunFn;
+  /**
+   * Like `run` but WITHOUT the full-screen loader — for soft profile switches
+   * where the page already streams its own skeletons. `pending` still flips,
+   * so consumers (e.g. the composer) can disable themselves until the new
+   * profile has loaded, without covering the page.
+   */
+  runQuiet: QuietFn;
   pending: boolean;
 };
 
@@ -16,6 +24,9 @@ type LoadingOverlayCtx = {
 // somehow render outside the provider (tests, isolated stories).
 const Context = createContext<LoadingOverlayCtx>({
   run: (action) => {
+    void Promise.resolve(action());
+  },
+  runQuiet: (action) => {
     void Promise.resolve(action());
   },
   pending: false,
@@ -30,10 +41,24 @@ const Context = createContext<LoadingOverlayCtx>({
 export function LoadingOverlayProvider({ children }: { children: React.ReactNode }) {
   const [pending, startTransition] = useTransition();
   const [label, setLabel] = useState("Loading…");
+  // Whether the current transition should paint the full-screen loader. Quiet
+  // transitions (profile switches) still set `pending` but skip the overlay.
+  const [showOverlay, setShowOverlay] = useState(true);
 
   const run = useCallback<RunFn>(
     (action, nextLabel) => {
       if (nextLabel) setLabel(nextLabel);
+      setShowOverlay(true);
+      startTransition(async () => {
+        await action();
+      });
+    },
+    [],
+  );
+
+  const runQuiet = useCallback<QuietFn>(
+    (action) => {
+      setShowOverlay(false);
       startTransition(async () => {
         await action();
       });
@@ -42,9 +67,9 @@ export function LoadingOverlayProvider({ children }: { children: React.ReactNode
   );
 
   return (
-    <Context.Provider value={{ run, pending }}>
+    <Context.Provider value={{ run, runQuiet, pending }}>
       {children}
-      {pending && <FullscreenLoader label={label} />}
+      {pending && showOverlay && <FullscreenLoader label={label} />}
     </Context.Provider>
   );
 }
