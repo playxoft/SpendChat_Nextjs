@@ -19,6 +19,50 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 2.1.0 — 2026-07-16
+
+Correctness-review pass. Additive: no field, path or status was removed or
+retyped. One response *body* changes (CSV escaping) and several statuses that
+the server already returned are now documented.
+
+### Changed
+- **`GET /transactions/export` escapes formula-looking cells.** A text cell
+  starting with `=`, `+`, `-`, `@`, tab or CR is now prefixed with a single
+  quote and quoted: a transaction titled `=SUM(A1)` exports as `"'=SUM(A1)"`.
+  This closes a CSV/formula-injection hole — in a shared workspace the person
+  who typed the title and the person opening the file are different people.
+  **Numeric cells are exempt**, so the signed `Amount` column (`-40.00`) is
+  byte-for-byte unchanged.
+
+### Fixed (documentation — no server change)
+- Added the `403`/`404` responses that every workspace-scoped endpoint could
+  already return (`getApiContext` throws `403` for an unverified email and
+  `404` for an unknown `X-Workspace-Id`). They were missing from `GET
+  /settings`, `GET`/`POST /categories`, `PATCH`/`DELETE /categories/{id}`,
+  `GET /profiles`, `GET /transactions/{id}`, `POST /transactions`,
+  `POST /transactions/bulk`, `GET /transactions/export`,
+  `POST /transactions/delete-all`, `PATCH /settings`, and all three analytics
+  endpoints — so a generated client modelled them as unknown/parse failures.
+- Added `400` (malformed JSON) to every endpoint that reads a request body.
+- Documented under Conventions that `403`/`404` apply to every
+  workspace-scoped endpoint and that the account-linking `409` can surface
+  anywhere.
+
+### Not changed (verified, previously reported as a defect)
+- The `422` on `DELETE /transactions/{id}`, `DELETE /categories/{id}` and
+  `DELETE /profiles/{id}` is **correct and stays**: those handlers validate the
+  **path id** with `z.string().uuid()` and return `422` ("Invalid transaction")
+  for a non-UUID segment, even though they take no body.
+
+**Flutter impact:** *Low, but check one thing.* If the app re-parses the
+exported CSV (rather than just sharing the file), strip a leading `'` from text
+columns; the `Amount` column is unaffected. Otherwise this is additive — but
+regenerating the client is worth it, since `403`/`404`/`400` on the endpoints
+above are now modelled instead of surfacing as parse errors. No request shape,
+field or existing status changed.
+
+---
+
 ## 2.0.0 — 2026-07-16
 
 Security-review hardening pass. Breaking because observable statuses/semantics

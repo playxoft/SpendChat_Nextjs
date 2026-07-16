@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 2.0.0.** Every API change bumps this version and is logged
+**API spec version: 2.1.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -290,7 +290,7 @@ codes are listed per row.
 | `PATCH /transactions/{id}` | `TransactionInput` (full body) | 200 `data: Transaction` | Full replacement of mutable fields. Workspace-scoped (cross-workspace id → 404). 422; 404; 403 (editor role required on its profile; also on target profile if `profileId` changes) |
 | `DELETE /transactions/{id}` | — | 200 `data: { id, deleted: true }` | Workspace-scoped (cross-workspace id → 404). 422 "Invalid transaction" (non-UUID); 404; 403 (editor) |
 | `POST /transactions/bulk` | `{ items: TransactionInput[] }` (1–500) | 201 `data: { count }` | 422; 403. Unknown categoryId → null; non-writable profileId → default profile |
-| `GET /transactions/export` | — | 200 `text/csv` | **Not the JSON envelope.** Filters only (no paging; max 5000 rows). See § CSV. |
+| `GET /transactions/export` | — | 200 `text/csv` | **Not the JSON envelope.** Filters only (no paging; max 5000 rows). Text cells that look like formulas are apostrophe-prefixed. See § CSV. |
 | `POST /transactions/delete-all` | `{ confirm: "DELETE" }` | 200 `data: { deleted }` | 400 "Type DELETE to confirm" if `confirm !== "DELETE"`. Deletes rows the caller **authored in the current workspace**, in profiles they can still write to (editor+). Other workspaces are untouched. |
 
 ### Categories (scoped to the user, not the workspace)
@@ -363,8 +363,14 @@ date) and `Cache-Control: no-store`. Up to 5000 rows, honouring the same filters
 - Each row: `occurredOn` (raw `YYYY-MM-DD`), `type` (`income`/`expense`),
   `categoryName ?? "Uncategorized"`, `note` (= title) `?? ""`, **signed** major
   amount (`.toFixed(decimals)`, expenses negative), currency code.
-- Cells are quoted only when they contain `"`, `,`, `\n`, or `\r`; lines joined
+- Cells are quoted when they contain `"`, `,`, `\n`, or `\r`; lines joined
   with **CRLF**.
+- **Formula-injection guard (2.1.0):** a *text* cell starting with `=`, `+`,
+  `-`, `@`, tab or CR is prefixed with a single quote and quoted, so
+  Excel/Sheets treat it as text — a title `=SUM(A1)` exports as `"'=SUM(A1)"`.
+  Numeric cells are exempt, so the signed Amount column (`-40.00`) is
+  unchanged. If the app parses the CSV back, strip a leading `'` from text
+  columns.
 
 On mobile: fetch the response bytes, write to a temp file via `path_provider`,
 then `share_plus` it. (The web app also has a *branded report* CSV at
