@@ -34,3 +34,42 @@ describe("parseQuickEntry", () => {
     expect(parseQuickEntry("")).toEqual({ amount: null, title: "" });
   });
 });
+
+describe("parseQuickEntry — grouped and locale-formatted amounts (B2)", () => {
+  it("keeps a thousands separator with the amount, not the title", () => {
+    // Used to yield { amount: 1, title: ",000 rent" } — a 1000x error.
+    expect(parseQuickEntry("$1,000 rent")).toEqual({ amount: 1000, title: "rent" });
+    expect(parseQuickEntry("1,250.50 rent")).toEqual({ amount: 1250.5, title: "rent" });
+  });
+
+  it("reads the amount against the locale", () => {
+    expect(parseQuickEntry("12,50 Mittagessen", "de-DE")).toEqual({
+      amount: 12.5,
+      title: "Mittagessen",
+    });
+    expect(parseQuickEntry("1.000 Miete", "de-DE")).toEqual({
+      amount: 1000,
+      title: "Miete",
+    });
+  });
+
+  it("treats a space as grouping only where the locale groups with one", () => {
+    expect(parseQuickEntry("1 000 loyer", "fr-FR")).toEqual({ amount: 1000, title: "loyer" });
+    // ...and still splits a normal title that starts with a digit.
+    expect(parseQuickEntry("100 2x tickets", "fr-FR")).toEqual({
+      amount: 100,
+      title: "2x tickets",
+    });
+  });
+
+  it("refuses to guess when the split would land inside a number", () => {
+    // "1 000 rent" in en-US is not a number this locale can express.
+    expect(parseQuickEntry("1 000 rent")).toEqual({ amount: null, title: "1 000 rent" });
+    expect(parseQuickEntry("1,50 lunch")).toEqual({ amount: null, title: "1,50 lunch" });
+  });
+
+  it("does not mistake a title starting with digits for a dropped group", () => {
+    expect(parseQuickEntry("50 500ml water")).toEqual({ amount: 50, title: "500ml water" });
+  });
+});
+

@@ -1,3 +1,5 @@
+import { localeSeparators, parseAmountInput } from "./parse-amount";
+
 export type BulkDraft = {
   type: "income" | "expense";
   amount: number; // major units, positive
@@ -35,21 +37,86 @@ function isValidDate(s: string): boolean {
 }
 
 /**
+ * The field delimiter for a locale. A comma can't be both the decimal
+ * separator and the delimiter, so comma-decimal locales use `;` (the same
+ * convention Excel follows). A tab always wins when the line has one, which
+ * makes a spreadsheet paste work in every locale.
+ */
+export function bulkDelimiter(line: string, locale = "en-US"): string {
+  if (line.includes("\t")) return "\t";
+  if (localeSeparators(locale).decimal === ",") return ";";
+  return line.includes(";") ? ";" : ",";
+}
+
+const isDigit = (ch: string | undefined) => !!ch && ch >= "0" && ch <= "9";
+
+/**
+ * Split one line into fields, honouring `"…"` quoting so a field may contain
+ * the delimiter. A doubled `""` inside a quoted field is a literal quote.
+ *
+ * When the delimiter is a comma it is also the thousands separator, so a comma
+ * sitting directly between two digits ("1,250.50") is grouping, not a field
+ * break — a delimiter is written "…, next". Without this, "1,250.50, Rent"
+ * would split into ["1", "250.50", "Rent"] and record an amount of 1.
+ */
+function splitFields(line: string, delimiter: string): string[] {
+  const guardDigits = delimiter === ",";
+  const fields: string[] = [];
+  let cur = "";
+  let quoted = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]!;
+    if (quoted) {
+      if (ch !== '"') cur += ch;
+      else if (line[i + 1] === '"') {
+        cur += '"';
+        i++;
+      } else quoted = false;
+    } else if (ch === '"' && cur.trim() === "") {
+      quoted = true;
+      cur = "";
+    } else if (
+      ch === delimiter &&
+      !(guardDigits && isDigit(line[i - 1]) && isDigit(line[i + 1]))
+    ) {
+      fields.push(cur.trim());
+      cur = "";
+    } else cur += ch;
+  }
+  fields.push(cur.trim());
+  return fields;
+}
+
+/**
  * Parse pasted text into transaction drafts.
  *
- * One transaction per line, comma-separated:
+ * One transaction per line, delimiter-separated:
  *   amount, note, category, type, date
  *
- * Only `amount` is required. A leading `-`/`+` on the amount sets the type
- * (default: expense). The `type` column (income/expense) overrides the sign.
- * `date` defaults to `today` (YYYY-MM-DD).
+ * The delimiter is a tab if the line has one, otherwise `;` for comma-decimal
+ * locales (where `,` is the decimal point) and `,` elsewhere — see
+ * `bulkDelimiter`. Wrap a field in `"…"` to include the delimiter in it.
  *
- * Examples:
+ * Only `amount` is required, and it is read with the user's locale separators.
+ * A leading `-`/`+` on the amount sets the type (default: expense). The `type`
+ * column (income/expense) overrides the sign. `date` defaults to `today`
+ * (YYYY-MM-DD).
+ *
+ * Examples (en-US):
  *   12.50, Lunch, Food & Dining
  *   -40, Groceries, Groceries, expense, 2026-06-15
  *   +2000, June salary, Salary, income
+ *   -12.50, "Lunch, with team", Food & Dining
+ *
+ * Examples (de-DE):
+ *   -40,50; Lebensmittel; Groceries; expense; 2026-06-15
  */
-export function parseBulk(input: string, today: string): BulkParseResult {
+export function parseBulk(
+  input: string,
+  today: string,
+  locale = "en-US",
+): BulkParseResult {
   const drafts: BulkDraft[] = [];
   const errors: BulkParseError[] = [];
 
@@ -59,19 +126,20 @@ export function parseBulk(input: string, today: string): BulkParseResult {
     if (!line || line.startsWith("#")) return; // skip blanks/comments
     const lineNo = i + 1;
 
-    const parts = line.split(",").map((p) => p.trim());
+    const parts = splitFields(line, bulkDelimiter(line, locale));
     const [amountRaw = "", note = "", categoryName = "", typeRaw = "", dateRaw = ""] =
       parts;
 
-    // Amount + sign
-    const signMatch = amountRaw.match(/^([+-])?\s*([0-9].*)$/);
-    if (!signMatch) {
+    // Amount + sign. The sign is read off the raw field because it selects the
+    // type; the magnitude comes from the locale-aware parser.
+    const sign = amountRaw.match(/^\s*([+-])/)?.[1];
+    const parsed = parseAmountInput(amountRaw, locale);
+    if (parsed === null) {
       errors.push({ line: lineNo, raw, message: "Could not read an amount" });
       return;
     }
-    const sign = signMatch[1];
-    const amount = Number(signMatch[2].replace(/[^0-9.]/g, ""));
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const amount = Math.abs(parsed);
+    if (amount <= 0) {
       errors.push({ line: lineNo, raw, message: "Amount must be a positive number" });
       return;
     }

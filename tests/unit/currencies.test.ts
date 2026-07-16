@@ -40,7 +40,9 @@ describe("getCurrency", () => {
     }
   });
 
-  it("falls back to USD for an unknown code", () => {
-    expect(getCurrency("ZZZ").code).toBe("USD");
+  it("throws on an unknown code", () => {
+    // Falling back to USD would scale JPY/KWD amounts with the wrong number of
+    // decimals — a silent 100x/10x error in amount_minor. Fail loudly instead.
+    expect(() => getCurrency("ZZZ")).toThrow("Unsupported currency code");
   });
 });

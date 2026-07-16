@@ -133,6 +133,7 @@ export default async function TransactionsPage({
             profiles={profiles}
             activeProfileId={composerProfileId}
             currency={currency}
+            locale={locale}
             today={today}
             allProfiles={allProfiles}
           />

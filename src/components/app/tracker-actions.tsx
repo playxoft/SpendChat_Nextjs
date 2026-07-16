@@ -19,6 +19,7 @@ export function TrackerActions({
   profiles,
   activeProfileId,
   currency,
+  locale,
   today,
   allProfiles,
 }: {
@@ -26,6 +27,7 @@ export function TrackerActions({
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   activeProfileId?: string;
   currency: string;
+  locale: string;
   today: string;
   allProfiles: boolean;
 }) {
@@ -37,6 +39,7 @@ export function TrackerActions({
         profiles={profiles}
         activeProfileId={activeProfileId}
         currency={currency}
+        locale={locale}
         today={today}
         trigger={
           <Button
@@ -56,6 +59,7 @@ export function TrackerActions({
         activeProfileId={activeProfileId}
         allProfiles={allProfiles}
         currency={currency}
+        locale={locale}
         trigger={
           <Button variant="outline" className="hidden md:inline-flex">
             <ListPlus className="size-4" />

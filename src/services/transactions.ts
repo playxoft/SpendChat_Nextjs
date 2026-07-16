@@ -104,7 +104,7 @@ export async function createTransaction(
     .values({
       userId,
       type: data.type,
-      amountMinor: toMinorUnits(data.amount, settings.currency),
+      amountMinor: toMinorUnits(data.amount, settings.currency, settings.locale),
       categoryId,
       profileId,
       title: pickTitle(data),
@@ -172,7 +172,7 @@ export async function updateTransaction(
     .update(transactions)
     .set({
       type: data.type,
-      amountMinor: toMinorUnits(data.amount, settings.currency),
+      amountMinor: toMinorUnits(data.amount, settings.currency, settings.locale),
       categoryId,
       profileId,
       title: pickTitle(data),
@@ -245,7 +245,7 @@ export async function createManyTransactions(
   const values = items.map((d) => ({
     userId,
     type: d.type,
-    amountMinor: toMinorUnits(d.amount, settings.currency),
+    amountMinor: toMinorUnits(d.amount, settings.currency, settings.locale),
     categoryId: d.categoryId && ownedCats.has(d.categoryId) ? d.categoryId : null,
     profileId: d.profileId && writableSet.has(d.profileId) ? d.profileId : defaultProfileId,
     title: pickTitle(d),
@@ -305,7 +305,7 @@ export async function createBulkFromDrafts(
     values.push({
       userId,
       type: d.type,
-      amountMinor: toMinorUnits(d.amount, settings.currency),
+      amountMinor: toMinorUnits(d.amount, settings.currency, settings.locale),
       categoryId,
       profileId,
       title: pickTitle({ title: d.title, note: d.note }),
