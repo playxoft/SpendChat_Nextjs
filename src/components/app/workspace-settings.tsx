@@ -24,6 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { cn } from "@/lib/utils";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import {
   addWorkspaceMember,
@@ -46,15 +47,17 @@ function RoleSelect({
   onChange,
   disabled,
   ariaLabel,
+  className,
 }: {
   value: WorkspaceRole;
   onChange: (role: WorkspaceRole) => void;
   disabled?: boolean;
   ariaLabel?: string;
+  className?: string;
 }) {
   return (
     <Select value={value} onValueChange={(v) => onChange(v as WorkspaceRole)} disabled={disabled}>
-      <SelectTrigger className="h-8 w-28" aria-label={ariaLabel ?? "Role"}>
+      <SelectTrigger className={cn("h-8 w-28", className)} aria-label={ariaLabel ?? "Role"}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -212,9 +215,9 @@ export function WorkspaceSettings({
             {isAdmin && (
               <form
                 onSubmit={handleInvite}
-                className="flex items-end gap-2 rounded-lg border bg-muted/30 p-3"
+                className="space-y-2 rounded-lg border bg-muted/30 p-3 lg:flex lg:items-end lg:gap-2 lg:space-y-0"
               >
-                <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="min-w-0 space-y-1.5 lg:flex-1">
                   <Label htmlFor="invite-email">Add someone by email</Label>
                   <Input
                     id="invite-email"
@@ -225,28 +228,42 @@ export function WorkspaceSettings({
                     className="h-8"
                   />
                 </div>
-                <div className="shrink-0 space-y-1.5">
-                  <Label>Access to</Label>
-                  <Select value={scope} onValueChange={setScope}>
-                    <SelectTrigger className="h-8 w-40">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="workspace">All profiles</SelectItem>
-                      {profiles.map((p) => (
-                        <SelectItem key={p.id} value={p.id}>
-                          {p.icon ? `${p.icon} ` : ""}
-                          {p.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                {/* On phones the two selects share a row; on desktop this wrapper
+                    collapses (contents) so all fields flow inline. */}
+                <div className="flex gap-2 lg:contents">
+                  <div className="min-w-0 flex-1 space-y-1.5 lg:flex-none lg:shrink-0">
+                    <Label>Access to</Label>
+                    <Select value={scope} onValueChange={setScope}>
+                      <SelectTrigger className="h-8 w-full lg:w-40">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="workspace">All profiles</SelectItem>
+                        {profiles.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.icon ? `${p.icon} ` : ""}
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="min-w-0 flex-1 space-y-1.5 lg:flex-none lg:shrink-0">
+                    <Label>Role</Label>
+                    <RoleSelect
+                      value={role}
+                      onChange={setRole}
+                      ariaLabel="Invite role"
+                      className="w-full lg:w-28"
+                    />
+                  </div>
                 </div>
-                <div className="shrink-0 space-y-1.5">
-                  <Label>Role</Label>
-                  <RoleSelect value={role} onChange={setRole} ariaLabel="Invite role" />
-                </div>
-                <Button type="submit" size="sm" disabled={pending} className="shrink-0">
+                <Button
+                  type="submit"
+                  size="sm"
+                  disabled={pending}
+                  className="w-full lg:w-auto lg:shrink-0"
+                >
                   <UserPlus className="size-4" />
                   Add
                 </Button>
