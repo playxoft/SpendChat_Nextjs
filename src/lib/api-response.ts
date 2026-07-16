@@ -61,8 +61,9 @@ export function handleApiError(err: unknown): Response {
     logger.warn("api.validation", { error: first });
     return apiError(422, "validation_error", first, zodDetails(err));
   }
-  // Unknown/unexpected: don't leak internals to the client.
-  logger.error("api.error", { error: err });
+  // Unknown/unexpected: don't leak internals to the client. Non-Error throws
+  // are stringified so raw objects never ship to the log vendor as-is.
+  logger.error("api.error", { error: err instanceof Error ? err : String(err) });
   return apiError(500, "internal_error", "Something went wrong");
 }
 

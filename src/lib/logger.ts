@@ -65,10 +65,30 @@ function toConsole(level: LogLevel, message: string, meta?: LogMeta): void {
   else write(line);
 }
 
+/**
+ * What leaves the process for the external vendor: keep error name/message but
+ * drop stack traces (frames can embed file paths and, via driver messages
+ * interpolated into them, query values). The console keeps the full detail.
+ */
+function scrubForShipping(meta?: LogMeta): LogMeta | undefined {
+  if (!meta) return undefined;
+  const out: LogMeta = {};
+  for (const [key, value] of Object.entries(meta)) {
+    if (value && typeof value === "object" && "stack" in value) {
+      const rest = { ...(value as Record<string, unknown>) };
+      delete rest.stack;
+      out[key] = rest;
+    } else {
+      out[key] = value;
+    }
+  }
+  return out;
+}
+
 function ship(level: LogLevel, message: string, meta?: LogMeta): void {
   if (!SOURCE_TOKEN || !INGEST_HOST) return;
   const event = {
-    ...meta,
+    ...scrubForShipping(meta),
     dt: new Date().toISOString(),
     level,
     message,

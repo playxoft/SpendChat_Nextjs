@@ -38,7 +38,14 @@ export async function runAction<T extends object = Record<never, never>>(
       });
       return { ok: false, error: err.message };
     }
-    logger.error("action.error", { action, ...meta, error: err, durationMs });
+    // Non-Error throws are stringified so raw objects (which could carry query
+    // values or other internals) never ship to the log vendor as-is.
+    logger.error("action.error", {
+      action,
+      ...meta,
+      error: err instanceof Error ? err : String(err),
+      durationMs,
+    });
     throw err;
   }
 }
