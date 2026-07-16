@@ -3,6 +3,10 @@ info:
   title: SpendChat Mobile API
   version: "1.0.0"
   description: |
+    ⚠️ **DEPRECATED — do not use or update this file.** The canonical, current
+    contract is `_developer/flutter/openapi.yaml` (with `_developer/flutter/_changelog.md`).
+    This copy is kept only for historical reference and is not maintained.
+
     REST API for the SpendChat mobile (Flutter) client. It is versioned under
     `/api/v1` and served by the same Next.js app as the web UI.
 
