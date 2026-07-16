@@ -21,7 +21,8 @@ export async function onRequestError(
 ): Promise<void> {
   const { logger } = await import("@/lib/logger");
   logger.error("request.error", {
-    error,
+    // Stringify non-Error throws so raw objects never ship to the log vendor.
+    error: error instanceof Error ? error : String(error),
     path: request.path,
     method: request.method,
     routeType: context.routeType,
