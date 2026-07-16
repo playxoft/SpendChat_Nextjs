@@ -1,7 +1,8 @@
 import "server-only";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { users } from "@/db/schema";
+import { conflict } from "@/lib/errors";
 import type { FirebaseTokenClaims } from "@/lib/firebase-verify";
 import type { SessionUser } from "@/lib/auth";
 
@@ -13,6 +14,32 @@ import type { SessionUser } from "@/lib/auth";
  */
 function normalizeEmail(email: unknown): string | null {
   return typeof email === "string" && email.trim() ? email.trim().toLowerCase() : null;
+}
+
+/** Postgres unique-violation (23505), possibly wrapped by the driver/ORM. */
+function isUniqueViolation(err: unknown): boolean {
+  for (let e = err, depth = 0; e && depth < 5; e = (e as { cause?: unknown }).cause, depth++) {
+    if (typeof e === "object" && (e as { code?: unknown }).code === "23505") return true;
+  }
+  return false;
+}
+
+/**
+ * Attach `firebaseUid` to the existing account with this (already normalized)
+ * email, returning it — or null when no such account exists. A single UPDATE
+ * keyed on `lower(email)` (unique), so concurrent linkers can't duplicate.
+ */
+async function linkAccountByEmail(
+  firebaseUid: string,
+  email: string,
+): Promise<SessionUser | null> {
+  const db = getDb();
+  const [row] = await db
+    .update(users)
+    .set({ firebaseUid, updatedAt: new Date() })
+    .where(sql`lower(${users.email}) = ${email}`)
+    .returning({ id: users.id, email: users.email, name: users.name });
+  return row ?? null;
 }
 
 /**
@@ -27,6 +54,12 @@ function normalizeEmail(email: unknown): string | null {
  * Hot path is a single indexed SELECT (returning user). A first-seen user is
  * inserted (with a concurrency-safe upsert). Email/name/image are seeded on
  * insert; they refresh via the session route rather than on every read.
+ *
+ * Account linking: when a new Firebase UID arrives with a *verified* email that
+ * already has an account (e.g. Google sign-in after an email/password sign-up),
+ * the UID is linked to that account instead of inserting a duplicate — the
+ * `users_email_lower_uq` index would otherwise turn every such sign-in into a
+ * 500. Unverified emails never claim an existing account; they get a clear 409.
  */
 export async function resolveUser(claims: FirebaseTokenClaims): Promise<SessionUser> {
   const db = getDb();
@@ -42,15 +75,34 @@ export async function resolveUser(claims: FirebaseTokenClaims): Promise<SessionU
   const email = normalizeEmail(claims.email);
   const name = (claims.name as string | undefined) ?? null;
   const image = (claims.picture as string | undefined) ?? null;
+  const emailVerified = claims.email_verified === true;
+
+  // Same email, different provider: link rather than insert a duplicate.
+  if (email && emailVerified) {
+    const linked = await linkAccountByEmail(firebaseUid, email);
+    if (linked) return linked;
+  }
 
   // First sign-in: create the row. onConflictDoUpdate keeps it safe if two
   // concurrent requests race to insert the same new user.
-  const [row] = await db
-    .insert(users)
-    .values({ firebaseUid, email, name, image })
-    .onConflictDoUpdate({ target: users.firebaseUid, set: { updatedAt: new Date() } })
-    .returning({ id: users.id, email: users.email, name: users.name });
-  return row!;
+  try {
+    const [row] = await db
+      .insert(users)
+      .values({ firebaseUid, email, name, image })
+      .onConflictDoUpdate({ target: users.firebaseUid, set: { updatedAt: new Date() } })
+      .returning({ id: users.id, email: users.email, name: users.name });
+    return row!;
+  } catch (err) {
+    if (!isUniqueViolation(err)) throw err;
+    // The email index rejected the insert: either we lost a race with a
+    // concurrent first sign-in (retry the link), or the email is unverified
+    // and already belongs to an account it must not claim.
+    if (email && emailVerified) {
+      const linked = await linkAccountByEmail(firebaseUid, email);
+      if (linked) return linked;
+    }
+    throw conflict("This email is already registered with a different sign-in method");
+  }
 }
 
 /** Refresh the mutable profile fields from a fresh token (called on sign-in). */

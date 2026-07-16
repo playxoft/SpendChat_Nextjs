@@ -26,7 +26,10 @@ const THIRTY_DAYS = 60 * 60 * 24 * 30;
 export function sessionCookieOptions(maxAge: number = THIRTY_DAYS) {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // Fail closed: only plain `next dev` may drop Secure. Deriving this from
+    // NODE_ENV === "production" would silently ship insecure cookies whenever a
+    // deployed environment sets the var to anything else.
+    secure: process.env.NODE_ENV !== "development",
     sameSite: "lax" as const,
     path: "/",
     maxAge,

@@ -5,7 +5,11 @@ import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, userSettings, workspaces } from "@/db/schema";
-import { refreshFirebaseIdToken, verifyFirebaseIdToken } from "@/lib/firebase-verify";
+import {
+  hasVerifiedEmail,
+  refreshFirebaseIdToken,
+  verifyFirebaseIdToken,
+} from "@/lib/firebase-verify";
 import { resolveUser } from "@/lib/identity";
 import { REFRESH_COOKIE, SESSION_COOKIE } from "@/lib/session-cookie";
 import { DEFAULT_CATEGORIES } from "./categories";
@@ -46,7 +50,11 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   const token = store.get(SESSION_COOKIE)?.value;
   if (token) {
     try {
-      return await resolveUser(await verifyFirebaseIdToken(token));
+      const claims = await verifyFirebaseIdToken(token);
+      // Same verified-email gate as the session route / API — a cookie minted
+      // before verification (or with the claim missing) must not grant access.
+      if (hasVerifiedEmail(claims)) return await resolveUser(claims);
+      return null;
     } catch {
       // Expired/invalid ID token — fall through to the refresh token below.
     }
@@ -56,7 +64,8 @@ export const getCurrentUser = cache(async (): Promise<SessionUser | null> => {
   if (refresh) {
     try {
       const fresh = await refreshFirebaseIdToken(refresh);
-      return await resolveUser(await verifyFirebaseIdToken(fresh.idToken));
+      const claims = await verifyFirebaseIdToken(fresh.idToken);
+      return hasVerifiedEmail(claims) ? await resolveUser(claims) : null;
     } catch {
       return null;
     }

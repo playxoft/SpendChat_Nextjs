@@ -98,10 +98,10 @@ export function DangerZone() {
     <div className="space-y-3">
       <DangerRow
         title="Delete all transactions"
-        description="Permanently remove every transaction. Your categories and settings are kept. This cannot be undone."
+        description="Permanently remove every transaction you added in the current workspace. Your categories and settings are kept. This cannot be undone."
         buttonLabel="Delete all"
         dialogTitle="Delete all transactions?"
-        dialogDescription="This permanently removes all of your transactions."
+        dialogDescription="This permanently removes all transactions you added in the current workspace."
         confirmLabel="Delete everything"
         onConfirm={(confirm, done) => {
           void deleteAllTransactions(confirm).then((res) => {

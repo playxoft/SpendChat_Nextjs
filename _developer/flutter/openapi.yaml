@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "1.3.0"
+  version: "2.0.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 1.3.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 2.0.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     This spec is the **corrected** contract for the Flutter port. It fixes the
@@ -24,8 +24,13 @@ info:
     `Authorization: Bearer <idToken>`. The server verifies it (RS256) against
     Google's JWKS, pinning issuer + audience to the Firebase project. Tokens are
     short-lived (~1h); the Firebase SDK auto-refreshes. Email/password accounts
-    must have a **verified email** (Google always does) — an unverified token
-    gets `403 forbidden`.
+    must have a **verified email** (Google always does) — a token that carries
+    an email without `email_verified: true` gets `403 forbidden`.
+
+    Signing in with a *new* Firebase account whose **verified** email already
+    belongs to an existing SpendChat account links the new provider to that
+    account (same data). With an **unverified** email, any request returns
+    `409 conflict` ("already registered with a different sign-in method").
 
     ## Workspaces
     Profiles live in workspaces. Select one with the `X-Workspace-Id` header
@@ -208,9 +213,13 @@ paths:
   /api/v1/transactions/{id}:
     parameters:
       - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
     get:
       tags: [Transactions]
       summary: Get a transaction
+      description: >
+        Scoped to the current workspace: a transaction that lives in another of
+        the caller's workspaces is a 404 (send the right `X-Workspace-Id`).
       responses:
         "200":
           description: The transaction.
@@ -225,7 +234,9 @@ paths:
     patch:
       tags: [Transactions]
       summary: Update a transaction (full replacement of mutable fields)
-      description: Send the complete transaction body, as the web editor does.
+      description: >
+        Send the complete transaction body, as the web editor does. Scoped to
+        the current workspace — a transaction in another workspace is a 404.
       requestBody:
         required: true
         content:
@@ -247,6 +258,9 @@ paths:
     delete:
       tags: [Transactions]
       summary: Delete a transaction
+      description: >
+        Scoped to the current workspace — a transaction in another workspace is
+        a 404.
       responses:
         "200":
           description: Deletion acknowledged.
@@ -325,7 +339,14 @@ paths:
   /api/v1/transactions/delete-all:
     post:
       tags: [Transactions]
-      summary: Delete ALL of the caller's transactions (danger zone)
+      summary: Delete the caller's own transactions in the current workspace (danger zone)
+      description: >
+        Deletes the transactions the caller **authored** in the **current
+        workspace**, and only in profiles they can still write to (editor+).
+        Rows authored in other workspaces — or in profiles the caller lost
+        write access to — are untouched.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
         required: true
         content:
@@ -353,6 +374,7 @@ paths:
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/categories:
     get:
@@ -527,7 +549,7 @@ paths:
   /api/v1/profiles/reorder:
     post:
       tags: [Profiles]
-      summary: Reorder profiles (editor only)
+      summary: Reorder profiles (admin only)
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:

@@ -25,6 +25,17 @@ export type FirebaseTokenClaims = JWTPayload & {
   picture?: string | null;
 };
 
+/**
+ * Fail-closed email-verification gate: a token that carries an email must carry
+ * `email_verified: true` (Google always does; email/password gets it after the
+ * verify-email flow). Checking `=== false` instead would pass a token where the
+ * claim is merely absent. Applied at every trust boundary — the session route,
+ * the API bearer path, and both `getCurrentUser` verify paths.
+ */
+export function hasVerifiedEmail(claims: FirebaseTokenClaims): boolean {
+  return !claims.email || claims.email_verified === true;
+}
+
 /** Google's Secure Token public keys, in JWKS form (not the x509 endpoint). */
 const JWKS_URL = new URL(
   "https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com",

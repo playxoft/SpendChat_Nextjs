@@ -2,7 +2,7 @@ import "server-only";
 import { ensureBootstrap, getUserSettings, type SessionUser } from "@/lib/auth";
 import { listUserWorkspaces, type WorkspaceSummary } from "@/lib/workspaces";
 import { forbidden, notFound, unauthorized } from "@/lib/errors";
-import { verifyFirebaseIdToken } from "@/lib/firebase-verify";
+import { hasVerifiedEmail, verifyFirebaseIdToken } from "@/lib/firebase-verify";
 import { resolveUser } from "@/lib/identity";
 
 /**
@@ -30,7 +30,7 @@ export async function requireApiUser(request: Request): Promise<SessionUser> {
   const claims = await verifyFirebaseIdToken(token);
   // Email/password accounts must verify their email first (Google is always
   // verified). Enforced here since Firebase itself lets unverified users sign in.
-  if (claims.email_verified === false) throw forbidden("Email not verified");
+  if (!hasVerifiedEmail(claims)) throw forbidden("Email not verified");
   return resolveUser(claims);
 }
 

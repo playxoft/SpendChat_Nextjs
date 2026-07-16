@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/auth";
+import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as settingsService from "@/services/settings";
 import { type SettingsInput } from "@/lib/validation";
@@ -81,13 +81,14 @@ export async function deleteAccount(confirm: string): Promise<ActionResult> {
   );
 }
 
-/** Wipe every transaction for the user (danger zone). */
+/** Wipe the user's own transactions in the current workspace (danger zone). */
 export async function deleteAllTransactions(confirm: string): Promise<ActionResult> {
   const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "deleteAllTransactions",
     async () => {
-      await settingsService.deleteAllTransactions(user.id, confirm);
+      await settingsService.deleteAllTransactions(user.id, workspace.id, confirm);
       revalidatePath("/app");
       revalidatePath("/transactions");
       revalidatePath("/analytics");

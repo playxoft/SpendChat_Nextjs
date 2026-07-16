@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 1.3.0.** Every API change bumps this version and is logged
+**API spec version: 2.0.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -46,7 +46,7 @@ Every JSON response uses one of two shapes:
 | `unauthorized` | 401 | Missing/invalid/expired bearer token |
 | `forbidden` | 403 | Email not verified; RBAC role too low; no writable profile |
 | `not_found` | 404 | Resource / workspace / profile not accessible to the caller |
-| `conflict` | 409 | Duplicate name; last profile; non-empty profile delete |
+| `conflict` | 409 | Duplicate name; last profile; non-empty profile delete; email already registered with a different sign-in method (unverified email only — see § Authentication) |
 | `validation_error` | 422 | Zod validation failed (`details` = field→message) |
 | `internal_error` | 500 | Unhandled server error (generic message; no internals leaked) |
 
@@ -78,13 +78,18 @@ tokens.
   `https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com`.
 - **401** `unauthorized` — missing token ("Missing bearer token") or any
   verification failure ("Invalid or expired token: …").
-- **403** `forbidden` "Email not verified" — when the token's
-  `email_verified === false`. (Missing/undefined passes — Google accounts are
-  always verified.) **Gate the app on `user.emailVerified` before calling the
-  API.**
+- **403** `forbidden` "Email not verified" — when the token carries an email
+  without `email_verified: true` (fail-closed: a missing claim is rejected too;
+  Google accounts are always verified). **Gate the app on `user.emailVerified`
+  before calling the API.**
 - The server maps the Firebase UID → an internal `uuidv7` user id on first sight
   (bootstrap). The client never sees the internal id except as `user.id` in
   `/me`.
+- **Account linking:** a new Firebase account whose **verified** email already
+  belongs to an existing SpendChat account is linked to that account (same
+  data — e.g. Google sign-in after an email/password sign-up). If the email is
+  **unverified**, every request returns **409** `conflict` "This email is
+  already registered with a different sign-in method".
 
 **Token lifecycle (Flutter):** ID tokens last ~1 hour; the SDK refreshes
 automatically. Attach `await user.getIdToken()` per request. On a **401**, call
@@ -101,9 +106,11 @@ Profiles live in **workspaces**. Reads are scoped to the profiles you can access
 attribution).
 
 - Send **`X-Workspace-Id: <uuid>`** to pick the workspace. Endpoints that honour
-  it: `/me`, all `transactions` list/create/bulk/export, `analytics/*`,
-  `profiles` list/create/reorder. (Item-level mutations resolve access by
-  profile role instead.)
+  it: `/me`, **all** `transactions` endpoints (list/create/bulk/export,
+  single-item get/patch/delete, delete-all), `analytics/*`, `profiles`
+  list/create/reorder. Single-transaction ops are scoped to the current
+  workspace: an id from another of the user's workspaces is a **404**.
+  (Profile item-level mutations resolve access by profile role instead.)
 - **If absent:** the server uses the user's `lastWorkspaceId`, else their first
   accessible workspace. Bootstrap guarantees ≥1.
 - **Unknown / inaccessible id → 404** `not_found` "Workspace not found".
@@ -279,12 +286,12 @@ codes are listed per row.
 |---|---|---|---|
 | `GET /transactions` | — | 200 `data: Transaction[]`, `meta: { total, limit, offset, currency }` | Newest first (`occurredOn desc, createdAt desc`). Filters + paging (§5). |
 | `POST /transactions` | `TransactionInput` | 201 `data: Transaction` | 422 validation; **403** "You don't have permission to add transactions in this workspace" (no writable profile) |
-| `GET /transactions/{id}` | — | 200 `data: Transaction` | 404 "Transaction not found" |
-| `PATCH /transactions/{id}` | `TransactionInput` (full body) | 200 `data: Transaction` | Full replacement of mutable fields. 422; 404; 403 (editor role required on its profile; also on target profile if `profileId` changes) |
-| `DELETE /transactions/{id}` | — | 200 `data: { id, deleted: true }` | 422 "Invalid transaction" (non-UUID); 404; 403 (editor) |
+| `GET /transactions/{id}` | — | 200 `data: Transaction` | 404 "Transaction not found" (also when the id lives in another workspace — workspace-scoped) |
+| `PATCH /transactions/{id}` | `TransactionInput` (full body) | 200 `data: Transaction` | Full replacement of mutable fields. Workspace-scoped (cross-workspace id → 404). 422; 404; 403 (editor role required on its profile; also on target profile if `profileId` changes) |
+| `DELETE /transactions/{id}` | — | 200 `data: { id, deleted: true }` | Workspace-scoped (cross-workspace id → 404). 422 "Invalid transaction" (non-UUID); 404; 403 (editor) |
 | `POST /transactions/bulk` | `{ items: TransactionInput[] }` (1–500) | 201 `data: { count }` | 422; 403. Unknown categoryId → null; non-writable profileId → default profile |
 | `GET /transactions/export` | — | 200 `text/csv` | **Not the JSON envelope.** Filters only (no paging; max 5000 rows). See § CSV. |
-| `POST /transactions/delete-all` | `{ confirm: "DELETE" }` | 200 `data: { deleted }` | 400 "Type DELETE to confirm" if `confirm !== "DELETE"`. Deletes rows the caller authored. |
+| `POST /transactions/delete-all` | `{ confirm: "DELETE" }` | 200 `data: { deleted }` | 400 "Type DELETE to confirm" if `confirm !== "DELETE"`. Deletes rows the caller **authored in the current workspace**, in profiles they can still write to (editor+). Other workspaces are untouched. |
 
 ### Categories (scoped to the user, not the workspace)
 | Method & path | Body | Success | Notes / errors |
@@ -301,7 +308,7 @@ codes are listed per row.
 | `POST /profiles` | `ProfileInput` `{ name, icon?, color? }` | 201 `data: Profile` | Requires **admin**. 422; 409 duplicate name; 403/404 |
 | `PATCH /profiles/{id}` | `{ name?, icon?, color? }` | 200 `data: Profile` | Requires **admin** on the profile. 422; 404; 409; 403 |
 | `DELETE /profiles/{id}` | — | 200 `data: { id, deleted: true }` | Requires admin. 422; 404; **409 "You need at least one profile"** (last one); **409 "Move this profile's transactions to another profile first"** (non-empty); 403 |
-| `POST /profiles/reorder` | `{ ids: uuid[] }` (1–100, full list) | 200 `data: Profile[]` | Requires **editor**. 422; 403/404 |
+| `POST /profiles/reorder` | `{ ids: uuid[] }` (1–100, full list) | 200 `data: Profile[]` | Requires **admin** (like all profile management). 422; 403/404 |
 | `POST /profiles/{id}/move` | `{ toProfileId: uuid }` | 200 `data: { moved }` | Requires **editor** on both; same workspace. 422 "Invalid profiles" (bad/equal/cross-workspace ids); 403/404 |
 
 ### Settings

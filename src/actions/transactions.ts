@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
+import { notFound } from "@/lib/errors";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as txns from "@/services/transactions";
 import { updateTransactionSchema, type TransactionInput } from "@/lib/validation";
@@ -34,10 +35,14 @@ export async function updateTransaction(
   input: z.input<typeof updateTransactionSchema>,
 ): Promise<ActionResult> {
   const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "updateTransaction",
     async () => {
-      await txns.updateTransaction(user.id, input.id, input);
+      // Null = no such transaction in the current workspace (or no access) —
+      // surface it rather than reporting a save that didn't happen.
+      const updated = await txns.updateTransaction(user.id, workspace.id, input.id, input);
+      if (!updated) throw notFound("Transaction not found");
       revalidateApp();
       return {};
     },
@@ -47,10 +52,11 @@ export async function updateTransaction(
 
 export async function deleteTransaction(id: string): Promise<ActionResult> {
   const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "deleteTransaction",
     async () => {
-      await txns.deleteTransaction(user.id, id);
+      await txns.deleteTransaction(user.id, workspace.id, id);
       revalidateApp();
       return {};
     },
