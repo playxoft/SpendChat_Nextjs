@@ -8,6 +8,24 @@ import { after } from "next/server";
  * the terminal in dev show everything) and, when BetterStack is configured, the
  * same event is shipped to BetterStack Telemetry over HTTP.
  *
+ * ## `message` is prose, `event` is the slug
+ *
+ * BetterStack's list view shows only `message`, so the message MUST read as a
+ * sentence describing what actually happened — the thing you'd want to read
+ * without expanding the row:
+ *
+ *   logger.info(`Action ${action} succeeded in ${ms}ms`, { event: "action.ok", action });
+ *   logger.warn(`Email skipped for ${to} — no token configured`, { event: "email.skipped" });
+ *
+ * Never pass a slug as the message (`logger.info("db.write", …)`) — a list of
+ * identical "db.write" rows is unreadable and forces a click per row. The stable
+ * machine-readable name goes in `event` instead, which is what you filter and
+ * chart on (`event:"db.write"`), and keeps that filtering working even as the
+ * prose is reworded.
+ *
+ * Message text is interpolated, so keep user data out of it (or redact it —
+ * `redactEmail()`); ids and other structured values belong in `meta`.
+ *
  * Configuration (managed in Doppler — all optional; shipping is simply skipped
  * when the token/host are absent, so local dev needs nothing):
  *   BETTERSTACK_SOURCE_TOKEN   – the source's ingest token (sent as Bearer)
@@ -23,7 +41,13 @@ import { after } from "next/server";
  */
 
 export type LogLevel = "debug" | "info" | "warn" | "error";
-export type LogMeta = Record<string, unknown>;
+export type LogMeta = Record<string, unknown> & {
+  /**
+   * Stable dot-separated event name (`db.write`, `action.ok`) to filter and
+   * chart on. Never put this in the message — see the note above.
+   */
+  event?: string;
+};
 
 const RANK: Record<LogLevel | "silent", number> = {
   debug: 10,
@@ -43,6 +67,17 @@ const MIN_RANK = RANK[configuredLevel] ?? RANK.info;
 const SOURCE_TOKEN = process.env.BETTERSTACK_SOURCE_TOKEN;
 const INGEST_HOST = process.env.BETTERSTACK_INGESTING_HOST;
 const SERVICE = "spendchat";
+
+/**
+ * Render a thrown value as a short string for a log `message`. Non-Error throws
+ * are stringified rather than interpolated, so a raw object can't spill its
+ * internals into the message (`String({})` is just "[object Object]"); the full
+ * value still goes to `meta.error`, which is normalized and scrubbed.
+ */
+export function describeError(err: unknown): string {
+  if (err instanceof Error) return err.message || err.name;
+  return String(err);
+}
 
 /** Expand Error values into plain, queryable fields (name/message/stack). */
 function normalize(meta?: LogMeta): LogMeta | undefined {

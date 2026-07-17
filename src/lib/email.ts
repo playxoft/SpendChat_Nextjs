@@ -1,6 +1,6 @@
 import "server-only";
 import { after } from "next/server";
-import { logger } from "@/lib/logger";
+import { describeError, logger } from "@/lib/logger";
 
 /**
  * Transactional email via Zoho ZeptoMail's HTTP API (API mode, not SMTP).
@@ -58,10 +58,14 @@ async function deliver(message: EmailMessage): Promise<void> {
   const token = process.env.ZEPTOMAIL_TOKEN?.replace(/^Zoho-enczapikey\s+/i, "");
   const from = process.env.MAIL_FROM_ADDRESS;
   if (!token || !from) {
-    logger.warn("email.skipped", {
-      to: redactEmail(message.to),
-      reason: "ZEPTOMAIL_TOKEN / MAIL_FROM_ADDRESS not configured",
-    });
+    logger.warn(
+      `Email to ${redactEmail(message.to)} skipped — ZEPTOMAIL_TOKEN / MAIL_FROM_ADDRESS not configured`,
+      {
+        event: "email.skipped",
+        to: redactEmail(message.to),
+        reason: "ZEPTOMAIL_TOKEN / MAIL_FROM_ADDRESS not configured",
+      },
+    );
     return;
   }
   const url = process.env.ZEPTOMAIL_API_URL ?? "https://api.zeptomail.com/v1.1/email";
@@ -82,16 +86,24 @@ async function deliver(message: EmailMessage): Promise<void> {
       }),
     });
     if (!res.ok) {
-      logger.error("email.failed", {
+      logger.error(`Email to ${redactEmail(message.to)} failed with status ${res.status}`, {
+        event: "email.failed",
         to: redactEmail(message.to),
         status: res.status,
         body: (await res.text()).slice(0, 500),
       });
     } else {
-      logger.info("email.sent", { to: redactEmail(message.to) });
+      logger.info(`Email sent to ${redactEmail(message.to)}`, {
+        event: "email.sent",
+        to: redactEmail(message.to),
+      });
     }
   } catch (err) {
-    logger.error("email.failed", { to: redactEmail(message.to), error: err });
+    logger.error(`Email to ${redactEmail(message.to)} failed: ${describeError(err)}`, {
+      event: "email.failed",
+      to: redactEmail(message.to),
+      error: err,
+    });
   }
 }
 

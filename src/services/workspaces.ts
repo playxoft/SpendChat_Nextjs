@@ -56,7 +56,7 @@ export async function createWorkspace(userId: string, input: unknown): Promise<W
   const { name } = parseOrThrow(createWorkspaceSchema, input);
   await ensureBootstrap(userId);
   const created = await createWorkspaceWithDefaults(userId, name, { makeCurrent: true });
-  logger.info("workspace.created", { workspaceId: created.id, userId });
+  logger.info("Workspace created", { event: "workspace.created", workspaceId: created.id, userId });
   return created;
 }
 
@@ -72,7 +72,7 @@ export async function renameWorkspace(
     .update(workspaces)
     .set({ name: parsed, updatedAt: new Date() })
     .where(eq(workspaces.id, workspaceId));
-  logger.info("workspace.renamed", { workspaceId, userId });
+  logger.info("Workspace renamed", { event: "workspace.renamed", workspaceId, userId });
 }
 
 /** Point the user's session at another workspace they can access. */
@@ -238,7 +238,8 @@ export async function addMember(
         });
     }
     sendEmail({ to: data.email, ...addedEmail(workspace.name, data.role, profileName) });
-    logger.info("workspace.member_added", {
+    logger.info(`Workspace member added as ${data.role}`, {
+      event: "workspace.member_added",
       workspaceId,
       userId,
       memberId: existing.id,
@@ -259,7 +260,8 @@ export async function addMember(
     })
     .onConflictDoNothing();
   sendEmail({ to: data.email, ...invitationEmail(workspace.name, data.role, profileName) });
-  logger.info("workspace.invite_sent", {
+  logger.info(`Workspace invite sent to ${redactEmail(data.email)} as ${data.role}`, {
+    event: "workspace.invite_sent",
     workspaceId,
     userId,
     email: redactEmail(data.email),
@@ -297,7 +299,8 @@ export async function updateMemberRole(
     )
     .returning({ userId: workspaceMembers.userId });
   if (updated.length === 0) throw notFound("Member not found");
-  logger.info("workspace.member_role_changed", {
+  logger.info(`Workspace member role changed to ${data.role}`, {
+    event: "workspace.member_role_changed",
     workspaceId,
     userId,
     memberId: data.userId,
@@ -339,7 +342,12 @@ export async function removeMember(
     .where(
       and(eq(userSettings.userId, memberId), eq(userSettings.lastWorkspaceId, workspaceId)),
     );
-  logger.info("workspace.member_removed", { workspaceId, userId, memberId });
+  logger.info(memberId === userId ? "Workspace member left" : "Workspace member removed", {
+    event: "workspace.member_removed",
+    workspaceId,
+    userId,
+    memberId,
+  });
 }
 
 /** Revoke a pending invite (admin). */
@@ -351,7 +359,12 @@ export async function cancelInvite(userId: string, inviteId: string): Promise<vo
   if (!invite) throw notFound("Invite not found");
   await requireWorkspaceRole(userId, invite.workspaceId, "admin");
   await db.delete(workspaceInvites).where(eq(workspaceInvites.id, inviteId));
-  logger.info("workspace.invite_cancelled", { workspaceId: invite.workspaceId, userId, inviteId });
+  logger.info("Workspace invite cancelled", {
+    event: "workspace.invite_cancelled",
+    workspaceId: invite.workspaceId,
+    userId,
+    inviteId,
+  });
 }
 
 export type ProfileGrantRow = {
@@ -420,5 +433,10 @@ export async function removeProfileAccess(
     )
     .returning({ userId: profileAccess.userId });
   if (removed.length === 0) throw notFound("Access not found");
-  logger.info("workspace.profile_access_removed", { profileId, userId, memberId: targetUserId });
+  logger.info("Profile access removed for member", {
+    event: "workspace.profile_access_removed",
+    profileId,
+    userId,
+    memberId: targetUserId,
+  });
 }

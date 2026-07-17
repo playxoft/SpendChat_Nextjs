@@ -141,5 +141,9 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
   await db.delete(userSettings).where(eq(userSettings.userId, userId));
   // The identity row last (the Firebase account itself is deleted client-side).
   await db.delete(users).where(eq(users.id, userId));
-  logger.info("account.deleted", { userId, workspaces: ownedIds.length });
+  logger.info(`Account deleted, removing ${ownedIds.length} owned workspace(s)`, {
+    event: "account.deleted",
+    userId,
+    workspaces: ownedIds.length,
+  });
 }

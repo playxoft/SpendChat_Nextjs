@@ -19,14 +19,18 @@ export async function onRequestError(
     revalidateReason?: string;
   },
 ): Promise<void> {
-  const { logger } = await import("@/lib/logger");
-  logger.error("request.error", {
-    // Stringify non-Error throws so raw objects never ship to the log vendor.
-    error: error instanceof Error ? error : String(error),
-    path: request.path,
-    method: request.method,
-    routeType: context.routeType,
-    routePath: context.routePath,
-    renderSource: context.renderSource,
-  });
+  const { logger, describeError } = await import("@/lib/logger");
+  logger.error(
+    `Unhandled error in ${request.method} ${request.path}: ${describeError(error)}`,
+    {
+      event: "request.error",
+      // Stringify non-Error throws so raw objects never ship to the log vendor.
+      error: error instanceof Error ? error : String(error),
+      path: request.path,
+      method: request.method,
+      routeType: context.routeType,
+      routePath: context.routePath,
+      renderSource: context.renderSource,
+    },
+  );
 }
