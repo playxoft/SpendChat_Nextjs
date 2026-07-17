@@ -1,13 +1,36 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { notFound } from "@/lib/errors";
+import { parseOrThrow } from "@/lib/api-response";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as txns from "@/services/transactions";
+import {
+  listTransactions,
+  TRANSACTIONS_PAGE_SIZE,
+  type TransactionRow,
+} from "@/lib/queries";
 import { updateTransactionSchema, type TransactionInput } from "@/lib/validation";
-import type { z } from "zod";
 import type { BulkDraft } from "@/lib/bulk-parser";
+
+/** Filters + offset for a load-more request. Access is still enforced server
+ * side by `listTransactions` (scoped to the caller's accessible profiles), so a
+ * tampered profile/category id simply returns nothing. */
+const loadMoreSchema = z.object({
+  filters: z.object({
+    from: z.string().optional(),
+    to: z.string().optional(),
+    type: z.enum(["income", "expense"]).optional(),
+    categoryId: z.string().optional(),
+    profileId: z.string().optional(),
+    search: z.string().optional(),
+    sort: z.enum(["date", "category", "title", "description", "amount"]).optional(),
+    dir: z.enum(["asc", "desc"]).optional(),
+  }),
+  offset: z.number().int().min(0).max(1_000_000),
+});
 
 function revalidateApp() {
   revalidatePath("/app");
@@ -61,6 +84,32 @@ export async function deleteTransaction(id: string): Promise<ActionResult> {
       return {};
     },
     { userId: user.id, transactionId: id },
+  );
+}
+
+/**
+ * The next page of transactions for the infinite-scroll list. A read (not a
+ * mutation), but a server action so the client can fetch more without an API
+ * route — it re-derives the user/workspace from the session and never trusts
+ * the client for access.
+ */
+export async function loadMoreTransactions(
+  input: z.input<typeof loadMoreSchema>,
+): Promise<ActionResult<{ rows: TransactionRow[] }>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "loadMoreTransactions",
+    async () => {
+      const { filters, offset } = parseOrThrow(loadMoreSchema, input);
+      const rows = await listTransactions(user.id, workspace.id, {
+        ...filters,
+        limit: TRANSACTIONS_PAGE_SIZE,
+        offset,
+      });
+      return { rows };
+    },
+    { userId: user.id, workspaceId: workspace.id },
   );
 }
 

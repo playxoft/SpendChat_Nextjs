@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import Link from "next/link";
 import { Download } from "lucide-react";
 import {
   endOfMonth,
@@ -16,19 +15,20 @@ import {
   getProfiles,
   getSummary,
   listTransactions,
+  TRANSACTIONS_PAGE_SIZE,
   type TxnFilters,
 } from "@/lib/queries";
-import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
+import { parseTxnFilters, parseTxnSort, resolveWebProfile } from "@/lib/filters";
 import { parseISODate, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
 import { siteConfig } from "@/lib/site";
-import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TransactionFilters } from "@/components/app/transaction-filters";
-import { TransactionsTable } from "@/components/app/transactions-table";
+import { TransactionsList } from "@/components/app/transactions-list";
 import { TransactionsResultsSkeleton } from "@/components/app/transactions-skeleton";
 import { TransactionsActions } from "@/components/app/transactions-actions";
+import { TransactionColumnsMenu } from "@/components/app/transaction-columns-menu";
 import { PrintButton } from "@/components/app/print-button";
 
 export const dynamic = "force-dynamic";
@@ -37,8 +37,6 @@ export const metadata: Metadata = {
   title: "Transactions",
   robots: { index: false, follow: false },
 };
-
-const PAGE_SIZE = 50;
 
 /** Human date-range label for the print header. When the range is exactly one
  * calendar month, the month name is surfaced separately so it can be shown big. */
@@ -81,13 +79,15 @@ export default async function TransactionsPage({
   const filters = parseTxnFilters(one);
   // Web default: no `?profile=` shows the first profile; "all" is explicit.
   filters.profileId = resolveWebProfile(one("profile"), profiles[0]?.id);
+  const { sort, dir } = parseTxnSort(one("sort"), one("dir"));
+  filters.sort = sort;
+  filters.dir = dir;
   const allProfiles = !filters.profileId;
   const composerProfileId = filters.profileId ?? profiles[0]?.id;
   const profileName = filters.profileId
     ? (profiles.find((p) => p.id === filters.profileId)?.name ?? "Selected profile")
     : "All profiles";
   const printLabel = printRange(filters.from, filters.to).label;
-  const page = Math.max(1, Number(one("page")) || 1);
   const { currency, locale } = settings;
 
   const baseParams = new URLSearchParams();
@@ -95,12 +95,17 @@ export default async function TransactionsPage({
     const val = Array.isArray(v) ? v[0] : v;
     if (val && k !== "page" && k !== "profile") baseParams.set(k, val);
   }
-  // Carry the resolved profile so export/print/pagination links match the view.
+  // Carry the resolved profile so export/print links match the view.
   baseParams.set("profile", filters.profileId ?? "all");
   const base = baseParams.toString();
   const exportHref = `/api/transactions/export${base ? `?${base}` : ""}`;
-  // Remount the results on any filter/page change so the skeleton shows at once.
-  const streamKey = `${base}|${page}`;
+  // Remount the results on a filter change (fresh count + skeleton). Sort is left
+  // out so it doesn't remount — the list re-sorts in place and shows its own
+  // instant skeleton, keeping the (unchanged) count line visible.
+  const streamParams = new URLSearchParams(base);
+  streamParams.delete("sort");
+  streamParams.delete("dir");
+  const streamKey = streamParams.toString() || "all";
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -137,6 +142,7 @@ export default async function TransactionsPage({
             today={today}
             allProfiles={allProfiles}
           />
+          <TransactionColumnsMenu />
           <Button asChild variant="outline">
             <a href={exportHref}>
               <Download className="size-4" />
@@ -159,8 +165,6 @@ export default async function TransactionsPage({
             userId={user.id}
             workspaceId={workspace.id}
             filters={filters}
-            page={page}
-            base={base}
             currency={currency}
             locale={locale}
             categories={categories}
@@ -183,8 +187,6 @@ async function TransactionsData({
   userId,
   workspaceId,
   filters,
-  page,
-  base,
   currency,
   locale,
   categories,
@@ -194,27 +196,29 @@ async function TransactionsData({
   userId: string;
   workspaceId: string;
   filters: TxnFilters;
-  page: number;
-  base: string;
   currency: string;
   locale: string;
   categories: Awaited<ReturnType<typeof getCategories>>;
   profiles: Awaited<ReturnType<typeof getProfiles>>;
   today: string;
 }) {
-  const offset = (page - 1) * PAGE_SIZE;
   const [rows, total, summary] = await Promise.all([
-    listTransactions(userId, workspaceId, { ...filters, limit: PAGE_SIZE, offset }),
+    listTransactions(userId, workspaceId, { ...filters, limit: TRANSACTIONS_PAGE_SIZE, offset: 0 }),
     countTransactions(userId, workspaceId, filters),
     getSummary(userId, workspaceId, filters),
   ]);
 
-  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const pageHref = (p: number) => {
-    const pr = new URLSearchParams(base);
-    if (p > 1) pr.set("page", String(p));
-    const qs = pr.toString();
-    return qs ? `/transactions?${qs}` : "/transactions";
+  // Only the fields the load-more action re-queries with (serializable, no access
+  // to trust — the action re-scopes to the caller's profiles).
+  const queryFilters = {
+    from: filters.from,
+    to: filters.to,
+    type: filters.type,
+    categoryId: filters.categoryId,
+    profileId: filters.profileId,
+    search: filters.search,
+    sort: filters.sort,
+    dir: filters.dir,
   };
 
   return (
@@ -244,8 +248,11 @@ async function TransactionsData({
       </div>
 
       <div className="mt-4">
-        <TransactionsTable
-          rows={rows}
+        <TransactionsList
+          initialRows={rows}
+          total={total}
+          pageSize={TRANSACTIONS_PAGE_SIZE}
+          filters={queryFilters}
           currency={currency}
           locale={locale}
           categories={categories}
@@ -253,34 +260,6 @@ async function TransactionsData({
           today={today}
         />
       </div>
-
-      {totalPages > 1 && (
-        <div className="mt-4 flex items-center justify-between text-sm print:hidden">
-          <span className="text-muted-foreground">
-            Page {page} of {totalPages}
-          </span>
-          <div className="flex gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link
-                href={pageHref(page - 1)}
-                className={cn(page <= 1 && "pointer-events-none opacity-50")}
-                aria-disabled={page <= 1}
-              >
-                Previous
-              </Link>
-            </Button>
-            <Button asChild variant="outline" size="sm">
-              <Link
-                href={pageHref(page + 1)}
-                className={cn(page >= totalPages && "pointer-events-none opacity-50")}
-                aria-disabled={page >= totalPages}
-              >
-                Next
-              </Link>
-            </Button>
-          </div>
-        </div>
-      )}
     </>
   );
 }
