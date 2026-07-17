@@ -29,6 +29,33 @@ binding = "ASSETS"
 [observability]
 enabled = true
 
+# Smart Placement runs the Worker close to Neon (single-region DB) instead of
+# close to the user, so the per-request Worker↔DB round-trips are fast. Safe and
+# reversible — remove this block to revert.
+[placement]
+mode = "smart"
+
+# Cloudflare Hyperdrive fronting Neon Postgres. Keeps warm, pooled connections
+# to Neon in Cloudflare's network so the Worker skips the TCP+TLS+auth handshake
+# per request. Query caching is left at its default and NOT relied on — the app
+# treats reads as always-fresh (money data), so create the config with caching
+# disabled (see below). Consumed in src/db/index.ts via `env.HYPERDRIVE`.
+#
+# Create the config once (prod Neon URL, from the `prd` Doppler config), then
+# paste the returned id below:
+#   doppler run --config prd -- sh -c 'npx wrangler hyperdrive create spendchat-prod \
+#     --connection-string="$NEON_POSTGRES_DATABASE_URL" --caching-disabled'
+#
+# Local `pnpm dev` / `pnpm preview` emulate this binding and need a local
+# connection string. The npm scripts derive it from Doppler's
+# NEON_POSTGRES_DATABASE_URL (your Neon dev branch) into both
+# CLOUDFLARE_/WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE — no local
+# Postgres and no committed secret. (`next dev` reads the CLOUDFLARE_ prefix,
+# `wrangler dev`/preview the WRANGLER_ one.)
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "4858a2aa60374cd28c60539f0c0b85e6"
+
 # ---------------------------------------------------------------------------
 # Beta (dev) environment → `pnpm deploy:dev` (adds `--env beta`).
 # A SEPARATE worker `spendchat-beta` (wrangler suffixes the env name), served at
@@ -48,6 +75,18 @@ binding = "ASSETS"
 [[env.beta.routes]]
 pattern = "beta.spendchat.app"
 custom_domain = true
+
+# Placement and bindings are non-inheritable, so the beta worker repeats them.
+[env.beta.placement]
+mode = "smart"
+
+# Separate Hyperdrive config for the beta/dev Neon database (from the `dev`
+# Doppler config):
+#   doppler run --config dev -- sh -c 'npx wrangler hyperdrive create spendchat-beta \
+#     --connection-string="$NEON_POSTGRES_DATABASE_URL" --caching-disabled'
+[[env.beta.hyperdrive]]
+binding = "HYPERDRIVE"
+id = "07826a33089d4b4db1650922ac12da22"
 
 # ---------------------------------------------------------------------------
 # Secrets/vars are NOT stored here — manage them per worker on Cloudflare

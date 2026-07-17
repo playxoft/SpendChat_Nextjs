@@ -51,6 +51,18 @@ const nextConfig: NextConfig = {
   // Let `.md`/`.mdx` files be imported as React components (blog content lives in
   // `src/content/blog`). The default page extensions must stay listed too.
   pageExtensions: ["ts", "tsx", "js", "jsx", "md", "mdx"],
+  // pg's Cloudflare socket shim (pg-cloudflare) only exposes its real build
+  // (dist/index.js) under the "workerd" export condition; the `default` is a
+  // stub (dist/empty.js). Next's dependency tracing runs in a node context, so
+  // it resolves `default` and copies only the stub — but OpenNext bundles the
+  // server with the workerd condition and needs dist/index.js, which then isn't
+  // in the traced output ("Could not resolve pg-cloudflare"). Force the real
+  // workerd build into the trace so esbuild can bundle it.
+  outputFileTracingIncludes: {
+    "**/*": [
+      "./node_modules/.pnpm/pg-cloudflare@*/node_modules/pg-cloudflare/dist/**/*",
+    ],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },
@@ -67,5 +79,13 @@ const withMDX = createMDX({
 export default withMDX(nextConfig);
 
 // Enables Cloudflare bindings (env, secrets) during `next dev` via OpenNext.
+// Gate to actual dev: OpenNext's `shouldContextInitializationRun` only checks for
+// a global AsyncLocalStorage, which is also present during `next build` — so
+// without this guard the production build spins up the Miniflare platform proxy
+// and fails on the Hyperdrive binding's missing local connection string. The
+// build doesn't need it (the deployed worker initializes its own context, and
+// getDb() falls back to NEON_POSTGRES_DATABASE_URL).
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
-initOpenNextCloudflareForDev();
+if (process.env.NODE_ENV === "development") {
+  initOpenNextCloudflareForDev();
+}
