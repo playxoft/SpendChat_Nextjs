@@ -1,5 +1,7 @@
 import { ApiError } from "@/lib/errors";
 import { describeError, logger, type LogMeta } from "@/lib/logger";
+import { setLogContext } from "@/lib/log-context";
+import { withRequestContext } from "@/lib/request-context";
 
 /**
  * Bridges the shared service layer to the web server actions. Services throw
@@ -21,7 +23,26 @@ export async function runAction<T extends object = Record<never, never>>(
   fn: () => Promise<T>,
   meta: LogMeta = {},
 ): Promise<ActionResult<T>> {
-  const startedAt = Date.now();
+  // Actions only ever run from the web app; establish the "web" log context and
+  // seed the identity from the caller-provided meta, so the action's own log
+  // lines *and* the DB queries it triggers all carry it. The service layer may
+  // refine `profileId` to the actually-resolved profile.
+  return withRequestContext("web", () => {
+    setLogContext({
+      userId: typeof meta.userId === "string" ? meta.userId : null,
+      workspaceId: typeof meta.workspaceId === "string" ? meta.workspaceId : null,
+      profileId: typeof meta.profileId === "string" ? meta.profileId : null,
+    });
+    return runActionInner(action, fn, meta, Date.now());
+  });
+}
+
+async function runActionInner<T extends object>(
+  action: string,
+  fn: () => Promise<T>,
+  meta: LogMeta,
+  startedAt: number,
+): Promise<ActionResult<T>> {
   try {
     const extra = await fn();
     const durationMs = Date.now() - startedAt;
