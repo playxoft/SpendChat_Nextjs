@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
 import { getPost, formatPostDate } from "@/lib/blog";
+import { ogImage } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
@@ -23,7 +24,12 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   if (!post) return {};
 
   const url = `/blog/${post.slug}`;
-  const image = post.image ?? siteConfig.ogImage;
+  // Falls back to the shared card. Only that card's dimensions are known up
+  // front — a post's own image can be any size, so don't claim 1200×630 for it.
+  const image = post.image
+    ? { url: post.image, alt: post.title }
+    : { ...ogImage, alt: post.title };
+
   return {
     title: post.title,
     description: post.excerpt,
@@ -31,12 +37,13 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
     openGraph: {
       type: "article",
       url,
+      siteName: siteConfig.name,
       title: post.title,
       description: post.excerpt,
       publishedTime: post.date,
       modifiedTime: post.updated ?? post.date,
       authors: [post.author ?? siteConfig.author],
-      images: [{ url: image }],
+      images: [image],
     },
     twitter: {
       card: "summary_large_image",

@@ -1,0 +1,139 @@
+<!doctype html>
+<!--
+  Source for public/opengraph-image.png — the 1200x630 preview card shown when a
+  SpendChat link is shared on WhatsApp, Telegram, X, Slack, etc.
+
+  It's a static PNG on purpose: generating it at runtime with next/og makes
+  OpenNext bundle @vercel/og + resvg.wasm (~2.2 MB) into the Worker.
+
+  To regenerate after editing this file, run from the repo root (needs Chrome;
+  keep the result <300 KB or WhatsApp falls back to a small thumbnail):
+
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+      --headless=new --disable-gpu --hide-scrollbars \
+      --force-device-scale-factor=1 --window-size=1200,630 \
+      --virtual-time-budget=4000 \
+      --screenshot=public/opengraph-image.png \
+      "file://$PWD/scripts/og-image.html"
+
+  If the wording changes, update the `alt` in src/lib/seo.ts to match. Chat apps
+  cache previews hard — re-share through developers.facebook.com/tools/debug/
+  (WhatsApp) or @WebpageBot (Telegram) to force a refresh.
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+      }
+      body {
+        background: #0a0a0a;
+        color: #fafafa;
+        font-family: "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        padding: 0 96px;
+        /* Hairline inset frame — keeps the card from bleeding into a dark chat
+           background (WhatsApp/Telegram dark mode) without adding decoration. */
+        box-shadow: inset 0 0 0 1px #1f1f1f;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 22px;
+      }
+      .mark {
+        width: 68px;
+        height: 68px;
+        flex: none;
+      }
+      .wordmark {
+        font-size: 62px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        line-height: 1;
+      }
+
+      .rule {
+        width: 96px;
+        height: 2px;
+        background: #2e2e2e;
+        margin: 44px 0;
+      }
+
+      .tagline {
+        font-size: 52px;
+        font-weight: 500;
+        line-height: 1.22;
+        letter-spacing: -0.02em;
+        color: #e4e4e7;
+        max-width: 15ch;
+      }
+
+      .meta {
+        margin-top: 52px;
+        font-size: 25px;
+        font-weight: 400;
+        letter-spacing: 0.01em;
+        color: #8b8b93;
+      }
+      .dot {
+        margin: 0 12px;
+        color: #3f3f46;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="brand">
+      <!-- SpendChat mark — same chat bubble + currency symbol as app/icon.svg -->
+      <svg class="mark" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+          fill="none"
+          stroke="#fafafa"
+          stroke-width="1.75"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+        <text
+          x="12"
+          y="10.4"
+          text-anchor="middle"
+          dominant-baseline="middle"
+          font-size="9"
+          font-weight="600"
+          fill="#fafafa"
+          font-family="Geist, -apple-system, system-ui, sans-serif"
+        >
+          $
+        </text>
+      </svg>
+      <div class="wordmark">SpendChat</div>
+    </div>
+
+    <div class="rule"></div>
+
+    <div class="tagline">Track your money like a conversation.</div>
+
+    <div class="meta">
+      Free<span class="dot">•</span>Open source<span class="dot">•</span>Private
+    </div>
+  </body>
+</html>

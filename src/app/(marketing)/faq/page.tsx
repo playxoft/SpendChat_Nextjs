@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import { createMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,12 +6,12 @@ import { JsonLd } from "@/components/json-ld";
 import { faqs } from "@/lib/faq";
 import { marketingCta } from "@/lib/marketing";
 
-export const metadata: Metadata = {
+export const metadata = createMetadata({
   title: "FAQ",
   description:
     "Answers to common questions about SpendChat — pricing, adding and bulk-importing transactions, exporting and printing, currencies, and privacy.",
-  alternates: { canonical: "/faq" },
-};
+  path: "/faq",
+});
 
 export default function FaqPage() {
   const faqJsonLd = {

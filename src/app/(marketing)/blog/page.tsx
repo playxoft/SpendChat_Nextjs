@@ -3,14 +3,22 @@ import Link from "next/link";
 import { ArrowRight, Newspaper } from "lucide-react";
 import { JsonLd } from "@/components/json-ld";
 import { getPosts, formatPostDate } from "@/lib/blog";
+import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
-export const metadata: Metadata = {
+const base = createMetadata({
   title: "Blog",
   description:
     "Updates, ideas, and notes from the team behind SpendChat — a minimal, open-source money tracker.",
+  path: "/blog",
+});
+
+// Spread rather than replace: `alternates` also has to advertise the RSS feed,
+// and overwriting it wholesale would drop the canonical URL createMetadata set.
+export const metadata: Metadata = {
+  ...base,
   alternates: {
-    canonical: "/blog",
+    ...base.alternates,
     types: { "application/rss+xml": `${siteConfig.url}/blog/rss.xml` },
   },
 };
