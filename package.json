@@ -8,7 +8,7 @@
     "node": ">=20"
   },
   "scripts": {
-    "dev": "doppler run -- next dev -p 3010",
+    "dev": "doppler run -- sh -c 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=$NEON_POSTGRES_DATABASE_URL WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=$NEON_POSTGRES_DATABASE_URL next dev -p 3010'",
     "build": "doppler run -- next build",
     "start": "doppler run -- next start",
     "lint": "eslint",
@@ -18,7 +18,7 @@
     "test:cov": "vitest run --coverage",
     "test:unit": "vitest run --project unit",
     "test:integration": "vitest run --project integration",
-    "preview": "doppler run -- opennextjs-cloudflare build && doppler run -- opennextjs-cloudflare preview",
+    "preview": "doppler run -- opennextjs-cloudflare build && doppler run -- sh -c 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=$NEON_POSTGRES_DATABASE_URL WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=$NEON_POSTGRES_DATABASE_URL opennextjs-cloudflare preview'",
     "build:worker": "doppler run -- opennextjs-cloudflare build",
     "deploy:dev": "doppler run --config dev -- opennextjs-cloudflare build --env beta && doppler run --config dev -- opennextjs-cloudflare deploy --env beta",
     "deploy:prod": "doppler run --config prd -- opennextjs-cloudflare build && doppler run --config prd -- opennextjs-cloudflare deploy",
@@ -48,6 +48,7 @@
     "lucide-react": "^1.20.0",
     "next": "16.2.9",
     "next-themes": "^0.4.6",
+    "pg": "^8.22.0",
     "radix-ui": "^1.6.0",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -64,6 +65,7 @@
     "@electric-sql/pglite": "^0.5.3",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^3",
