@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { AlignLeft, ArrowDownCircle, ArrowUp, ArrowUpCircle } from "lucide-react";
+import { AlignLeft, ArrowUp, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -353,7 +353,8 @@ export function TransactionComposer({
             <div className="inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
               {(["expense", "income"] as const).map((t) => {
                 const active = type === t;
-                const Icon = t === "income" ? ArrowUpCircle : ArrowDownCircle;
+                // "+" reads as money in, "−" as money out (clearer than arrows).
+                const Icon = t === "income" ? Plus : Minus;
                 const color =
                   t === "income"
                     ? "text-emerald-600 dark:text-emerald-400"

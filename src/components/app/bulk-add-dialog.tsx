@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition, type ReactNode } from "react";
-import { ArrowDownCircle, ArrowUpCircle, ChevronDown, Plus, Trash2 } from "lucide-react";
+import { ChevronDown, Minus, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -53,7 +53,7 @@ type DraftRow = {
 /**
  * Minimized expense/income switch — the tracker's pill toggle stripped to
  * icons to fit a table cell. Each side carries a hover tooltip so the color +
- * arrow is never the only cue for what it means.
+ * sign ("+" in / "−" out) is never the only cue for what it means.
  */
 function TypeToggle({
   value,
@@ -66,7 +66,7 @@ function TypeToggle({
     <div className="inline-flex items-center rounded-full border bg-muted/60 p-0.5">
       {(["expense", "income"] as const).map((t) => {
         const active = value === t;
-        const Icon = t === "income" ? ArrowUpCircle : ArrowDownCircle;
+        const Icon = t === "income" ? Plus : Minus;
         const color =
           t === "income"
             ? "text-emerald-600 dark:text-emerald-400"
