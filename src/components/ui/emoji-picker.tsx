@@ -5,7 +5,7 @@ import { EmojiPicker as Frimousse } from "frimousse";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
-/** The emoji grid + a "paste any character" custom field. */
+/** The emoji grid the user picks from. */
 export function EmojiPickerPanel({
   onSelect,
   className,
@@ -13,17 +13,6 @@ export function EmojiPickerPanel({
   onSelect: (value: string) => void;
   className?: string;
 }) {
-  const [custom, setCustom] = React.useState("");
-
-  function submitCustom(e: React.FormEvent) {
-    e.preventDefault();
-    const v = custom.trim();
-    if (v) {
-      onSelect(v);
-      setCustom("");
-    }
-  }
-
   return (
     <div className={cn("flex w-66 flex-col", className)}>
       <Frimousse.Root
@@ -73,22 +62,6 @@ export function EmojiPickerPanel({
           />
         </Frimousse.Viewport>
       </Frimousse.Root>
-
-      <form onSubmit={submitCustom} className="flex items-center gap-1.5 border-t p-1.5">
-        <input
-          value={custom}
-          onChange={(e) => setCustom(e.target.value)}
-          placeholder="Or paste any emoji / icon"
-          maxLength={16}
-          className="h-7 flex-1 rounded-md border bg-transparent px-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-        />
-        <button
-          type="submit"
-          className="rounded-md bg-muted px-2 py-1 text-xs font-medium hover:bg-muted/70"
-        >
-          Set
-        </button>
-      </form>
     </div>
   );
 }
@@ -105,9 +78,14 @@ export function EmojiPicker({
 }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    // `modal` is load-bearing: this picker is often opened from inside a Dialog
+    // (category/profile editors), whose react-remove-scroll scroll-lock would
+    // otherwise swallow wheel/touch events over the portaled popover, making the
+    // emoji list impossible to scroll. Modal registers the popover's own content
+    // as the active scroll surface so the frimousse viewport scrolls normally.
+    <Popover open={open} onOpenChange={setOpen} modal>
       <PopoverTrigger asChild>{trigger}</PopoverTrigger>
-      <PopoverContent align={align} className="w-auto p-0">
+      <PopoverContent align={align} closeOnOutsideClick className="w-auto p-0">
         <EmojiPickerPanel
           onSelect={(v) => {
             onSelect(v);
