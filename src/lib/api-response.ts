@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { ApiError, validationError } from "@/lib/errors";
-import { logger } from "@/lib/logger";
+import { describeError, logger } from "@/lib/logger";
 
 /**
  * JSON response conventions for the mobile REST API (`/api/v1/*`).
@@ -53,17 +53,30 @@ function zodDetails(err: z.ZodError): Record<string, string> {
  */
 export function handleApiError(err: unknown): Response {
   if (err instanceof ApiError) {
-    logger.warn("api.rejected", { code: err.code, status: err.status, error: err.message });
+    logger.warn(`API rejected with ${err.status} ${err.code}: ${err.message}`, {
+      event: "api.rejected",
+      code: err.code,
+      status: err.status,
+      error: err.message,
+    });
     return apiError(err.status, err.code, err.message, err.details);
   }
   if (err instanceof z.ZodError) {
     const first = err.issues[0]?.message ?? "Invalid request";
-    logger.warn("api.validation", { error: first });
+    logger.warn(`API request failed validation: ${first}`, {
+      event: "api.validation",
+      status: 422,
+      error: first,
+    });
     return apiError(422, "validation_error", first, zodDetails(err));
   }
   // Unknown/unexpected: don't leak internals to the client. Non-Error throws
   // are stringified so raw objects never ship to the log vendor as-is.
-  logger.error("api.error", { error: err instanceof Error ? err : String(err) });
+  logger.error(`API request failed: ${describeError(err)}`, {
+    event: "api.error",
+    status: 500,
+    error: err instanceof Error ? err : String(err),
+  });
   return apiError(500, "internal_error", "Something went wrong");
 }
 

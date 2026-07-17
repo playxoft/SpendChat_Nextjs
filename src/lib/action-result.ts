@@ -1,5 +1,5 @@
 import { ApiError } from "@/lib/errors";
-import { logger, type LogMeta } from "@/lib/logger";
+import { describeError, logger, type LogMeta } from "@/lib/logger";
 
 /**
  * Bridges the shared service layer to the web server actions. Services throw
@@ -24,12 +24,19 @@ export async function runAction<T extends object = Record<never, never>>(
   const startedAt = Date.now();
   try {
     const extra = await fn();
-    logger.info("action.ok", { action, ...meta, durationMs: Date.now() - startedAt });
+    const durationMs = Date.now() - startedAt;
+    logger.info(`Action ${action} succeeded in ${durationMs}ms`, {
+      event: "action.ok",
+      action,
+      ...meta,
+      durationMs,
+    });
     return { ok: true, ...extra };
   } catch (err) {
     const durationMs = Date.now() - startedAt;
     if (err instanceof ApiError) {
-      logger.warn("action.rejected", {
+      logger.warn(`Action ${action} rejected: ${err.message}`, {
+        event: "action.rejected",
         action,
         ...meta,
         code: err.code,
@@ -40,7 +47,8 @@ export async function runAction<T extends object = Record<never, never>>(
     }
     // Non-Error throws are stringified so raw objects (which could carry query
     // values or other internals) never ship to the log vendor as-is.
-    logger.error("action.error", {
+    logger.error(`Action ${action} failed: ${describeError(err)}`, {
+      event: "action.error",
       action,
       ...meta,
       error: err instanceof Error ? err : String(err),
