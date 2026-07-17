@@ -25,8 +25,7 @@ export const siteConfig = {
   /** AGPL-3.0; source is public. */
   license: "AGPL-3.0",
   links: {
-    twitter: "https://twitter.com/",
-    github: "https://github.com/rnithin133/MoneyTracker_Nextjs",
+    github: "https://github.com/playxoft/SpendChat_Nextjs",
     playxoft: "https://playxoft.com",
   },
 } as const;
