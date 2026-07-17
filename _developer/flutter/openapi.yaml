@@ -1,13 +1,17 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "2.1.0"
+  version: "3.1.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 2.1.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 3.1.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
+
+    **Telemetry header.** Send `X-Client-Platform: android | ios` on every
+    request so server logs attribute the platform. It's optional and never
+    changes a response; omitting it just records the platform as `api`.
 
     This spec is the **corrected** contract for the Flutter port. It fixes the
     following from the original `_developer/api/openapi.yaml`:
@@ -800,6 +804,16 @@ components:
         uses the user's lastWorkspaceId, else the first accessible workspace.
         An unknown id → 404.
       schema: { type: string, format: uuid }
+    clientPlatformHeader:
+      name: X-Client-Platform
+      in: header
+      required: false
+      description: >
+        Optional telemetry header, accepted on every request. Identifies the
+        client platform for server-side logging only — it never affects the
+        response. Send "android" or "ios"; unknown/absent values are logged as
+        "api".
+      schema: { type: string, enum: [android, ios, web] }
     id:
       name: id
       in: path
@@ -938,7 +952,7 @@ components:
         name:
           type: string
           minLength: 1
-          maxLength: 60
+          maxLength: 20
           description: Workspace name (trimmed server-side).
       required: [name]
 
@@ -1021,9 +1035,9 @@ components:
         type: { type: string, enum: [income, expense] }
         amount:
           type: number
-          description: Positive major-unit amount (e.g. 12.50). Numeric strings are coerced. Converted to minor units server-side.
+          description: Positive major-unit amount (e.g. 12.50). Numeric strings are coerced. Converted to minor units server-side. Whole-number part capped at 9 digits.
           exclusiveMinimum: 0
-          maximum: 1000000000
+          maximum: 999999999.99
         categoryId:
           type: [string, "null"]
           format: uuid
@@ -1032,11 +1046,11 @@ components:
           type: [string, "null"]
           format: uuid
           description: Must be writable by the caller; an unknown/absent id uses the default (first writable) profile.
-        title: { type: string, maxLength: 100 }
-        description: { type: string, maxLength: 250 }
+        title: { type: string, maxLength: 40 }
+        description: { type: string, maxLength: 150 }
         note:
           type: string
-          maxLength: 100
+          maxLength: 40
           deprecated: true
           description: Deprecated alias for `title`. Use `title`.
         occurredOn: { type: string, format: date, example: "2026-06-01" }
@@ -1056,7 +1070,7 @@ components:
     CategoryInput:
       type: object
       properties:
-        name: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 20 }
         kind: { type: string, enum: [income, expense] }
         icon: { type: string, maxLength: 16 }
       required: [name, kind]
@@ -1065,7 +1079,7 @@ components:
       type: object
       description: Any subset of the mutable fields.
       properties:
-        name: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 20 }
         icon: { type: [string, "null"], maxLength: 16 }
 
     Profile:
@@ -1083,7 +1097,7 @@ components:
     ProfileInput:
       type: object
       properties:
-        name: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 20 }
         icon: { type: string, maxLength: 16 }
         color: { type: string, maxLength: 32 }
       required: [name]
@@ -1092,7 +1106,7 @@ components:
       type: object
       description: Any subset of the mutable fields.
       properties:
-        name: { type: string, minLength: 1, maxLength: 40 }
+        name: { type: string, minLength: 1, maxLength: 20 }
         icon: { type: [string, "null"], maxLength: 16 }
         color: { type: [string, "null"], maxLength: 32 }
 

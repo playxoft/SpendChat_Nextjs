@@ -76,8 +76,8 @@ describe("parseBulk — errors (with line numbers)", () => {
   });
 
   it("rejects an oversized amount", () => {
-    expect(parseBulk("1000000001, x", TODAY).errors[0].message).toBe(
-      "Amount is too large",
+    expect(parseBulk("1000000000, x", TODAY).errors[0].message).toBe(
+      "Amount is too large (max 9 digits)",
     );
   });
 

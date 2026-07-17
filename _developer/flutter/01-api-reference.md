@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 2.1.0.** Every API change bumps this version and is logged
+**API spec version: 3.1.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -14,6 +14,9 @@ needs to update.
 - **Base URL (prod):** your Worker/route domain (HTTPS)
 - **Auth:** `Authorization: Bearer <firebase-id-token>`
 - **Workspace:** `X-Workspace-Id: <uuid>` (optional; see § Workspaces)
+- **Platform:** `X-Client-Platform: android | ios` (optional telemetry; send it on
+  every request so server logs attribute the platform. It never changes a
+  response — omitting it just logs the platform as `api`.)
 - **Content type:** `application/json` (CSV export is `text/csv`)
 - Every JSON response sets `Cache-Control: no-store`.
 
@@ -146,7 +149,8 @@ to the currency's decimals (e.g. `"12.50"`).
   decimals.
 - **Amounts sent in request bodies are major units** (`amount: 12.50`); the
   server converts with `Math.round(amount * 10^decimals)`. Numeric strings are
-  accepted (coerced). Constraints: `> 0`, finite, `≤ 1,000,000,000`.
+  accepted (coerced). Constraints: `> 0`, finite, `≤ 999,999,999.99` (whole-number
+  part capped at 9 digits).
 - Sign convention: the API returns **positive** `amountMinor` + a `type`. Apply
   the sign in the UI (`expense → negative`). The negative glyph used across the
   app is **U+2212 MINUS SIGN "−"**, not an ASCII hyphen. See
@@ -330,22 +334,22 @@ codes are listed per row.
 
 `TransactionInput`:
 - `type` — `income | expense`, **required**.
-- `amount` — number (numeric strings coerced), `> 0`, finite, `≤ 1,000,000,000`,
-  **required**. Major units.
+- `amount` — number (numeric strings coerced), `> 0`, finite, `≤ 999,999,999.99`
+  (whole-number part capped at 9 digits), **required**. Major units.
 - `categoryId` — uuid, optional/nullable. Unknown id → stored `null`.
 - `profileId` — uuid, optional/nullable. Absent/not-writable → default (first
   writable) profile.
-- `title` — string, trimmed, `≤ 100`, optional (default `""`; empty → `null`).
-- `description` — string, trimmed, `≤ 250`, optional (default `""`; empty → `null`).
+- `title` — string, trimmed, `≤ 40`, optional (default `""`; empty → `null`).
+- `description` — string, trimmed, `≤ 150`, optional (default `""`; empty → `null`).
 - `occurredOn` — `^\d{4}-\d{2}-\d{2}$`, **required** ("Date must be YYYY-MM-DD").
-- *(deprecated)* `note` — alias for `title`, `≤ 100`; use `title` instead.
+- *(deprecated)* `note` — alias for `title`, `≤ 40`; use `title` instead.
 
-`WorkspaceInput` — `name` (1–60, trimmed; "Workspace name is required" /
-"…too long (max 60 characters)").
-`CategoryInput` — `name` (1–40), `kind` (income|expense), `icon?` (≤16). **No `color`.**
-`CategoryUpdate` — `name?` (1–40), `icon?` (≤16, nullable). **No `color`.**
-`ProfileInput` — `name` (1–40), `icon?` (≤16), `color?` (≤32).
-`ProfileUpdate` — `name?` (1–40), `icon?` (≤16, nullable), `color?` (≤32, nullable).
+`WorkspaceInput` — `name` (1–20, trimmed; "Workspace name is required" /
+"…too long (max 20 characters)").
+`CategoryInput` — `name` (1–20), `kind` (income|expense), `icon?` (≤16). **No `color`.**
+`CategoryUpdate` — `name?` (1–20), `icon?` (≤16, nullable). **No `color`.**
+`ProfileInput` — `name` (1–20), `icon?` (≤16), `color?` (≤32).
+`ProfileUpdate` — `name?` (1–20), `icon?` (≤16, nullable), `color?` (≤32, nullable).
 `SettingsPatch` — subset of `{ currency (one of 59 codes), locale (2–20 chars),
 theme (light|dark|system), inputMode (amount_title|title_amount|combined) }`;
 at least one key.

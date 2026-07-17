@@ -77,7 +77,7 @@ export function CreateWorkspaceDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="Acme Inc."
-              maxLength={60}
+              maxLength={20}
               autoFocus
             />
           </div>

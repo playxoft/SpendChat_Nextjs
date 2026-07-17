@@ -143,8 +143,9 @@ export function parseBulk(
       errors.push({ line: lineNo, raw, message: "Amount must be a positive number" });
       return;
     }
-    if (amount > 1_000_000_000) {
-      errors.push({ line: lineNo, raw, message: "Amount is too large" });
+    // Mirror `amountSchema`: the whole-number part is capped at 9 digits.
+    if (amount > 999_999_999.99) {
+      errors.push({ line: lineNo, raw, message: "Amount is too large (max 9 digits)" });
       return;
     }
 
