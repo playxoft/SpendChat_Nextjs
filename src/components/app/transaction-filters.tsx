@@ -5,7 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { DatePicker } from "@/components/ui/date-picker";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
 import {
   Select,
   SelectContent,
@@ -17,8 +17,12 @@ import type { Category } from "@/db/schema";
 
 export function TransactionFilters({
   categories,
+  today,
+  locale,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  today: string;
+  locale: string;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -57,19 +61,12 @@ export function TransactionFilters({
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      <DatePicker
-        value={from}
-        max={to || undefined}
-        placeholder="From"
-        onChange={(iso) => update({ from: iso || undefined })}
-        className="w-[9.5rem]"
-      />
-      <DatePicker
-        value={to}
-        min={from || undefined}
-        placeholder="To"
-        onChange={(iso) => update({ to: iso || undefined })}
-        className="w-[9.5rem]"
+      <DateRangeFilter
+        from={from}
+        to={to}
+        today={today}
+        locale={locale}
+        onChange={update}
       />
       <Select value={type} onValueChange={(v) => update({ type: v === "all" ? undefined : v })}>
         <SelectTrigger className="w-32" aria-label="Type">

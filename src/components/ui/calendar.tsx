@@ -24,34 +24,55 @@ const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
  * A small, dependency-free month calendar. Values are passed and returned as
  * `YYYY-MM-DD` strings parsed in local time, so the selected day always matches
  * what the user clicked (the bug the native date input had).
+ *
+ * Two selection modes:
+ * - `"single"` (default): one day; `onSelect(iso)` fires per click.
+ * - `"range"`: pick a start then an end (either click order works); the span is
+ *   previewed on hover and `onRangeSelect(start, end)` fires on the second click.
  */
 export function Calendar({
   selected,
   onSelect,
+  selectionMode = "single",
+  startDate,
+  endDate,
+  onRangeSelect,
   min,
   max,
   className,
 }: {
   selected?: string | null;
-  onSelect: (iso: string) => void;
+  onSelect?: (iso: string) => void;
+  selectionMode?: "single" | "range";
+  startDate?: string | null;
+  endDate?: string | null;
+  onRangeSelect?: (start: string, end: string) => void;
   min?: string;
   max?: string;
   className?: string;
 }) {
+  const isRange = selectionMode === "range";
+  // The value that anchors the initially-visible month for either mode.
+  const anchorISO = (isRange ? startDate : selected) ?? null;
   const selectedDate = selected ? parseISODate(selected) : null;
   const [view, setView] = React.useState<Date>(() =>
-    startOfMonth(selectedDate ?? new Date()),
+    startOfMonth(anchorISO ? parseISODate(anchorISO) : new Date()),
   );
   // "days" shows the day grid; "months" shows a 12-month quick picker so you can
   // jump to any month (Jan…Dec) without stepping one month at a time.
   const [mode, setMode] = React.useState<"days" | "months">("days");
 
-  // Jump the visible month to follow an externally-changed selection
+  // In range mode: the first-clicked endpoint, held until the second click
+  // completes the span; and the day under the cursor, for the hover preview.
+  const [pendingStart, setPendingStart] = React.useState<string | null>(null);
+  const [hovered, setHovered] = React.useState<string | null>(null);
+
+  // Jump the visible month to follow an externally-changed anchor
   // (adjust-state-during-render pattern — no effect needed).
-  const [syncedSelected, setSyncedSelected] = React.useState(selected ?? null);
-  if ((selected ?? null) !== syncedSelected) {
-    setSyncedSelected(selected ?? null);
-    if (selected) setView(startOfMonth(parseISODate(selected)));
+  const [syncedAnchor, setSyncedAnchor] = React.useState(anchorISO);
+  if (anchorISO !== syncedAnchor) {
+    setSyncedAnchor(anchorISO);
+    if (anchorISO) setView(startOfMonth(parseISODate(anchorISO)));
   }
 
   const minDate = min ? parseISODate(min) : null;
@@ -67,6 +88,33 @@ export function Calendar({
     if (minDate && isBefore(d, minDate)) return true;
     if (maxDate && isAfter(d, maxDate)) return true;
     return false;
+  }
+
+  function handleRangeClick(iso: string) {
+    if (pendingStart == null) {
+      setPendingStart(iso);
+      return;
+    }
+    // Second click completes the span; order the two endpoints chronologically
+    // (YYYY-MM-DD compares correctly as plain strings).
+    const [s, e] = iso < pendingStart ? [iso, pendingStart] : [pendingStart, iso];
+    setPendingStart(null);
+    setHovered(null);
+    onRangeSelect?.(s, e);
+  }
+
+  // The span to highlight: the live preview while picking, else the committed range.
+  let rangeStart: string | null = null;
+  let rangeEnd: string | null = null;
+  if (isRange) {
+    if (pendingStart != null) {
+      const other = hovered ?? pendingStart;
+      [rangeStart, rangeEnd] =
+        pendingStart <= other ? [pendingStart, other] : [other, pendingStart];
+    } else {
+      rangeStart = startDate ?? null;
+      rangeEnd = endDate ?? null;
+    }
   }
 
   return (
@@ -135,7 +183,10 @@ export function Calendar({
           })}
         </div>
       ) : (
-        <div className="grid grid-cols-7 gap-0.5">
+        <div
+          className="grid grid-cols-7 gap-0.5"
+          onMouseLeave={() => isRange && setHovered(null)}
+        >
           {WEEKDAYS.map((w) => (
             <div
               key={w}
@@ -145,24 +196,31 @@ export function Calendar({
             </div>
           ))}
           {days.map((d) => {
+            const iso = toISODate(d);
             const inMonth = isSameMonth(d, view);
             const isSel = selectedDate ? isSameDay(d, selectedDate) : false;
             const isToday = isSameDay(d, today);
             const disabled = isDisabled(d);
+            const isEndpoint =
+              isRange && ((!!rangeStart && iso === rangeStart) || (!!rangeEnd && iso === rangeEnd));
+            const inRange =
+              isRange && !!rangeStart && !!rangeEnd && iso > rangeStart && iso < rangeEnd;
+            const highlighted = isSel || isEndpoint;
             return (
               <button
                 key={d.toISOString()}
                 type="button"
                 disabled={disabled}
-                onClick={() => onSelect(toISODate(d))}
+                onClick={() => (isRange ? handleRangeClick(iso) : onSelect?.(iso))}
+                onMouseEnter={() => isRange && !disabled && setHovered(iso)}
                 className={cn(
                   "flex h-8 items-center justify-center rounded-md text-sm tabular-nums transition-colors",
                   !inMonth && "text-muted-foreground/40",
                   disabled && "cursor-not-allowed opacity-30 hover:bg-transparent",
-                  isSel
-                    ? "bg-foreground font-medium text-background"
-                    : "hover:bg-muted",
-                  !isSel && isToday && "ring-1 ring-foreground/30",
+                  highlighted && "bg-foreground font-medium text-background",
+                  inRange && "bg-muted",
+                  !highlighted && !inRange && "hover:bg-muted",
+                  !highlighted && isToday && "ring-1 ring-foreground/30",
                 )}
               >
                 {d.getDate()}

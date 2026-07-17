@@ -149,7 +149,7 @@ export default async function TransactionsPage({
 
       <div className="mt-4">
         <Suspense fallback={null}>
-          <TransactionFilters categories={categories} />
+          <TransactionFilters categories={categories} today={today} locale={locale} />
         </Suspense>
       </div>
 
