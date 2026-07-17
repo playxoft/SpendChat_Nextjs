@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { ApiError, validationError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
+import { withRequestContext } from "@/lib/request-context";
 
 /**
  * JSON response conventions for the mobile REST API (`/api/v1/*`).
@@ -87,9 +88,13 @@ export function handleApiError(err: unknown): Response {
  *   export async function GET(req: NextRequest) {
  *     return handle(async () => { ...; return apiOk(data); });
  *   }
+ *
+ * Also establishes the per-request log context (requestId + platform, defaulting
+ * to "api"; `getApiContext` fills in user/workspace), so every log emitted while
+ * serving the request carries the request identity.
  */
 export function handle(fn: () => Promise<Response>): Promise<Response> {
-  return fn().catch(handleApiError);
+  return withRequestContext("api", () => fn().catch(handleApiError));
 }
 
 /** Parse a JSON request body, throwing a 400 when it isn't valid JSON. */

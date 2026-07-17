@@ -4,6 +4,7 @@ import { listUserWorkspaces, type WorkspaceSummary } from "@/lib/workspaces";
 import { forbidden, notFound, unauthorized } from "@/lib/errors";
 import { hasVerifiedEmail, verifyFirebaseIdToken } from "@/lib/firebase-verify";
 import { resolveUser } from "@/lib/identity";
+import { setLogContext } from "@/lib/log-context";
 
 /**
  * Authentication for the mobile REST API (`/api/v1/*`).
@@ -31,7 +32,9 @@ export async function requireApiUser(request: Request): Promise<SessionUser> {
   // Email/password accounts must verify their email first (Google is always
   // verified). Enforced here since Firebase itself lets unverified users sign in.
   if (!hasVerifiedEmail(claims)) throw forbidden("Email not verified");
-  return resolveUser(claims);
+  const user = await resolveUser(claims);
+  setLogContext({ userId: user.id }); // stamp every subsequent log for this request
+  return user;
 }
 
 /**
@@ -58,5 +61,6 @@ export async function getApiContext(request: Request): Promise<{
   } else {
     workspace = list.find((w) => w.id === settings.lastWorkspaceId) ?? list[0];
   }
+  setLogContext({ workspaceId: workspace!.id });
   return { user, settings, workspace: workspace! };
 }

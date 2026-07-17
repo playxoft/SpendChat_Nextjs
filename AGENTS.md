@@ -80,6 +80,22 @@ means filters and dashboards survive a reworded message.
   amounts, names, or raw emails (redact with `redactEmail()`). Ids and
   structured values belong in `meta`, which is normalized and scrubbed.
 
+**Every log automatically carries the request identity** — `requestId`,
+`platform`, `userId`, `workspaceId`, `profileId` — merged in from a per-request
+`AsyncLocalStorage` context (`src/lib/log-context.ts`). You never pass these by
+hand; they're always present (null outside a request or before auth resolves).
+The context is established at the two entry seams — `handle()` for the REST API
+and `runAction()` for server actions (`withRequestContext` in
+`src/lib/request-context.ts`) — and enriched as identity is resolved
+(`getApiContext` stamps user+workspace; the transaction service stamps the
+resolved `profileId`; `runAction` seeds from the action's `meta`). If you add a
+new request entry point outside those seams, wrap it in `withRequestContext(...)`
+so its logs aren't identity-less. `requestId` is Cloudflare's `cf-ray` in prod
+(a generated uuid in dev); `platform` comes from the `X-Client-Platform` header
+(`web` for server actions, `api` when a mobile request omits it) — documented in
+the mobile API contract (`_developer/flutter/*`), so a change there follows the
+API-docs lockstep rule below.
+
 ## SEO — every new public page must be indexable
 **Every new page under `(marketing)` (or any other publicly reachable route) MUST
 export metadata built with `createMetadata()` from `src/lib/seo.ts`:**

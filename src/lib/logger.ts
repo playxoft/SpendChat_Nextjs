@@ -1,5 +1,6 @@
 import "server-only";
 import { after } from "next/server";
+import { getLogContext } from "@/lib/log-context";
 
 /**
  * Structured application logger.
@@ -25,6 +26,14 @@ import { after } from "next/server";
  *
  * Message text is interpolated, so keep user data out of it (or redact it —
  * `redactEmail()`); ids and other structured values belong in `meta`.
+ *
+ * ## Every log carries the request identity
+ *
+ * `requestId`, `platform`, `userId`, `workspaceId`, and `profileId` are attached
+ * to every event automatically from the per-request `AsyncLocalStorage` context
+ * (`src/lib/log-context.ts`), so you never pass them by hand — they're always
+ * present (null when outside a request or not yet resolved). Explicit `meta`
+ * wins over the context for the same key.
  *
  * Configuration (managed in Doppler — all optional; shipping is simply skipped
  * when the token/host are absent, so local dev needs nothing):
@@ -150,9 +159,26 @@ function ship(level: LogLevel, message: string, meta?: LogMeta): void {
   }
 }
 
+/**
+ * Prepend the current request's identity (requestId/platform/user/workspace/
+ * profile) so every log line carries it. The context is the base; an explicit
+ * `meta` value for the same key wins.
+ */
+function withRequestFields(meta?: LogMeta): LogMeta {
+  const ctx = getLogContext();
+  return {
+    requestId: ctx.requestId,
+    platform: ctx.platform,
+    userId: ctx.userId,
+    workspaceId: ctx.workspaceId,
+    profileId: ctx.profileId,
+    ...meta,
+  };
+}
+
 function emit(level: LogLevel, message: string, meta?: LogMeta): void {
   if (RANK[level] < MIN_RANK) return;
-  const clean = normalize(meta);
+  const clean = withRequestFields(normalize(meta));
   toConsole(level, message, clean);
   ship(level, message, clean);
 }

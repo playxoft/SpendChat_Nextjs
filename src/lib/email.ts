@@ -1,6 +1,7 @@
 import "server-only";
 import { after } from "next/server";
 import { describeError, logger } from "@/lib/logger";
+import { getLogContext, runWithLogContext } from "@/lib/log-context";
 
 /**
  * Transactional email via Zoho ZeptoMail's HTTP API (API mode, not SMTP).
@@ -109,9 +110,14 @@ async function deliver(message: EmailMessage): Promise<void> {
 
 /** Fire-and-forget send, deferred past the response when in a request scope. */
 export function sendEmail(message: EmailMessage): void {
+  // `after()` runs post-response, outside the request's log context, so snapshot
+  // it now and replay it inside deliver() — otherwise its email.sent/failed logs
+  // would lose the request identity (requestId/user/workspace/…).
+  const ctx = getLogContext();
+  const run = () => runWithLogContext(ctx, () => deliver(message));
   try {
-    after(() => deliver(message));
+    after(run);
   } catch {
-    void deliver(message);
+    void run();
   }
 }

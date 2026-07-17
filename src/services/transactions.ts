@@ -6,6 +6,7 @@ import { ensureBootstrap, getUserSettings } from "@/lib/auth";
 import { badRequest, forbidden, validationError } from "@/lib/errors";
 import { toMinorUnits } from "@/lib/money";
 import { getTransactionById, type TransactionRow } from "@/lib/queries";
+import { setLogContext } from "@/lib/log-context";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { rolesAtLeast } from "@/lib/rbac";
 import {
@@ -97,6 +98,7 @@ export async function createTransaction(
   const settings = await getUserSettings(userId);
   const categoryId = await ownedCategoryId(userId, data.categoryId);
   const profileId = await resolveProfileId(userId, workspaceId, data.profileId);
+  setLogContext({ profileId }); // log lines for this write carry the resolved profile
 
   const db = getDb();
   const [row] = await db
@@ -133,6 +135,7 @@ async function editableInWorkspace(
   if (!rolesAtLeast("editor").includes(access.role)) {
     throw forbidden("You don't have permission to do that");
   }
+  setLogContext({ profileId }); // the profile this single-row op touches
   return true;
 }
 
