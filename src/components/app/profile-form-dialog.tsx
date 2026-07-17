@@ -89,6 +89,7 @@ export function ProfileFormDialog({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Profile name"
+                maxLength={20}
                 autoFocus
                 className="flex-1"
               />

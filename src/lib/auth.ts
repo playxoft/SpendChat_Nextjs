@@ -21,6 +21,7 @@ import {
   listUserWorkspaces,
   type WorkspaceSummary,
 } from "./workspaces";
+import { WORKSPACE_NAME_MAX } from "./validation";
 
 export type SessionUser = {
   id: string;
@@ -81,10 +82,17 @@ export async function requireUser(): Promise<SessionUser> {
   return user;
 }
 
-/** "<name>'s Workspace", from the best identity evidence available. */
+/** "<name>'s Workspace", from the best identity evidence available. Kept within
+ *  `WORKSPACE_NAME_MAX` by trimming the name part (never the suffix), so the
+ *  generated default satisfies the same limit the rename form enforces. */
 export function defaultWorkspaceName(name?: string | null, email?: string | null): string {
   const display = name?.trim() || email?.split("@")[0]?.trim();
-  return display ? `${display}'s Workspace` : "My Workspace";
+  if (!display) return "My Workspace";
+  const suffix = "'s Workspace";
+  const room = WORKSPACE_NAME_MAX - suffix.length;
+  const trimmed = display.length > room ? display.slice(0, room).trimEnd() : display;
+  // A name so short there's no room for a readable prefix falls back cleanly.
+  return trimmed ? `${trimmed}${suffix}` : "My Workspace";
 }
 
 /**

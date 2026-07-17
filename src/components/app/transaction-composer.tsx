@@ -20,17 +20,36 @@ import { usePendingMessages } from "./pending-messages";
 import { useLoadingOverlay } from "./loading-overlay";
 import { getCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
-import { amountPlaceholder, formatAmountInput, parseAmountInput } from "@/lib/parse-amount";
+import {
+  amountPlaceholder,
+  formatAmountInput,
+  localeSeparators,
+  parseAmountInput,
+} from "@/lib/parse-amount";
 import { parseQuickEntry } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
 import type { InputMode, TransactionInput } from "@/lib/validation";
 import type { Category, Profile } from "@/db/schema";
 
-const TITLE_MAX = 100;
-const DESCRIPTION_MAX = 250;
+const TITLE_MAX = 40;
+const DESCRIPTION_MAX = 150;
+// The amount's whole-number part is capped at 9 digits (max 999,999,999.99); the
+// authoritative check lives in `amountSchema`, these just stop extra typing and
+// give an inline error before the optimistic send.
+const AMOUNT_INTEGER_DIGITS_MAX = 9;
+const AMOUNT_MAX = 999_999_999.99;
 // Matches a trailing "/query" token typed into the title field.
 const SLASH_RE = /(?:^|\s)\/([^\s/]*)$/;
+
+/** Count the digits in the whole-number part of a typed amount (locale-aware:
+ *  everything before the first decimal separator, ignoring grouping). */
+function integerDigitCount(value: string, locale: string): number {
+  const { decimal } = localeSeparators(locale);
+  const decimalAt = value.indexOf(decimal);
+  const intPart = decimalAt === -1 ? value : value.slice(0, decimalAt);
+  return (intPart.match(/\d/g) ?? []).length;
+}
 
 export function TransactionComposer({
   categories,
@@ -89,6 +108,10 @@ export function TransactionComposer({
   const setTitleSource = isCombined ? setCombined : setTitle;
   // Live parse of the combined field for the inline preview + submit.
   const quick = isCombined ? parseQuickEntry(combined, locale) : null;
+  // The combined field mixes amount + title, so blocking a keystroke would drop
+  // the title too. Instead flag the field red when the parsed amount is over the
+  // 9-digit cap; submit is blocked by the same check below.
+  const combinedAmountOverLimit = quick?.amount != null && quick.amount > AMOUNT_MAX;
 
   const toggleCombo = comboFor("tracker.toggle-type");
   const submitCombo = comboFor("tracker.submit");
@@ -150,6 +173,13 @@ export function TransactionComposer({
             : "Enter an amount greater than 0",
       );
       titleRef.current?.focus();
+      return;
+    }
+    // Whole-number part capped at 9 digits; catches combined mode too, where the
+    // amount doesn't pass through the per-keystroke guard.
+    if (value > AMOUNT_MAX) {
+      toast.error("Amount is too large (max 9 digits)");
+      (isCombined ? titleRef : amountRef).current?.focus();
       return;
     }
     // A transaction needs an amount, a title, a date and a profile.
@@ -281,7 +311,13 @@ export function TransactionComposer({
         value={amount}
         // Numbers only — allow digits plus the separators any locale groups or
         // points with (comma, period, space); the parser rejects the rest.
-        onChange={(e) => setAmount(e.target.value.replace(/[^\d.,\s]/g, ""))}
+        // Reject the keystroke once the whole-number part hits 9 digits.
+        onChange={(e) => {
+          const next = e.target.value.replace(/[^\d.,\s]/g, "");
+          setAmount((prev) =>
+            integerDigitCount(next, locale) > AMOUNT_INTEGER_DIGITS_MAX ? prev : next,
+          );
+        }}
         onKeyDown={onAmountKeyDown}
         aria-label="Amount"
         className="h-8 w-28 pl-7 tabular-nums"
@@ -317,7 +353,8 @@ export function TransactionComposer({
         ref={titleRef}
         placeholder="e.g. 100 fruits"
         value={combined}
-        maxLength={TITLE_MAX + 12}
+        // Room for the title plus a leading "999,999,999.99 " amount + space.
+        maxLength={TITLE_MAX + 18}
         onChange={(e) => {
           setCombined(e.target.value);
           setSlashDismissed(false);
@@ -325,6 +362,8 @@ export function TransactionComposer({
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Amount and title"
+        // Red bar when the amount is over the 9-digit cap (submit is blocked too).
+        aria-invalid={combinedAmountOverLimit || undefined}
         className="h-8 w-full"
       />
     </div>
@@ -441,7 +480,10 @@ export function TransactionComposer({
         </div>
 
         {/* Live parse feedback for the single-field mode, shown above the input. */}
-        {isCombined && combined.trim() && (
+        {isCombined && combined.trim() && combinedAmountOverLimit && (
+          <p className="px-0.5 text-xs text-destructive">Amount is too large (max 9 digits)</p>
+        )}
+        {isCombined && combined.trim() && !combinedAmountOverLimit && (
           <p className="px-0.5 text-xs text-muted-foreground">
             {quick!.amount != null && quick!.title ? (
               <>

@@ -182,7 +182,7 @@ export function WorkspaceSettings({
                   id="workspace-rename"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  maxLength={60}
+                  maxLength={20}
                 />
               </div>
               <Button
@@ -225,6 +225,7 @@ export function WorkspaceSettings({
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="teammate@example.com"
+                    maxLength={100}
                     className="h-8"
                   />
                 </div>

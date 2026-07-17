@@ -19,6 +19,55 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 3.1.0 — 2026-07-17
+
+Added an optional telemetry request header. Purely additive — no endpoint, field,
+status, or response shape changed — so this is a **minor** bump.
+
+### Added
+- **`X-Client-Platform` request header** (optional, accepted on every endpoint).
+  Identifies the client platform for server-side logging only; it never affects
+  a response. Recognised values: `android`, `ios`, `web`. Unknown or absent →
+  the request is logged with platform `api`.
+
+**Flutter impact:** optional but recommended. Send `X-Client-Platform: android`
+or `ios` (alongside the existing `Authorization` / `X-Workspace-Id` headers) on
+every request so server logs and dashboards can attribute traffic to the mobile
+platform. No change is required for the app to keep working.
+
+---
+
+## 3.0.0 — 2026-07-17
+
+Tightened input length/size limits across write endpoints to match the product's
+new field limits. No field, path, or status was removed or retyped — but values
+that were accepted before are now rejected with `400` (`ValidationError`), so
+this is a **major** bump.
+
+### Changed (stricter validation — previously-valid bodies now 400)
+- **`TransactionInput` / `TransactionUpdate` (`POST`/`PATCH /transactions`,
+  `POST /transactions/bulk`):**
+  - `amount` maximum lowered from `1,000,000,000` to `999,999,999.99` (whole-number
+    part capped at 9 digits). Message: "Amount is too large (max 9 digits)".
+  - `title` max length `100 → 40`. Message: "Title is too long (max 40 characters)".
+  - `description` max length `250 → 150`. Message: "Description is too long (max 150 characters)".
+  - deprecated `note` alias max length `100 → 40`.
+- **`CategoryInput` / `CategoryUpdate` (`POST`/`PATCH /categories`):** `name` max
+  length `40 → 20`. Message: "Name is too long (max 20 characters)".
+- **`ProfileInput` / `ProfileUpdate` (`POST`/`PATCH /profiles`):** `name` max
+  length `40 → 20`.
+- **`WorkspaceInput` (`POST /workspaces`):** `name` max length `60 → 20`. Message:
+  "Workspace name is too long (max 20 characters)". The auto-generated default
+  workspace name is now also trimmed to fit 20 characters.
+
+**Flutter impact:** enforce the new limits client-side (input `maxLength`) so the
+app never sends a body the server will reject: title 40, description 150, amount
+≤ 999,999,999.99 (≤ 9 whole digits), category/profile/workspace name 20. Surface
+the `400` validation `message` if a longer value slips through. No decoding or
+model-shape changes are required (all fields keep their types).
+
+---
+
 ## 2.1.0 — 2026-07-16
 
 Correctness-review pass. Additive: no field, path or status was removed or

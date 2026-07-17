@@ -463,7 +463,7 @@ export function BulkAddDialog({
                         placeholder="Title"
                         aria-label="Title"
                         aria-invalid={err?.title || undefined}
-                        maxLength={100}
+                        maxLength={40}
                         data-row={i}
                         data-col="title"
                         className="h-8"
@@ -475,7 +475,7 @@ export function BulkAddDialog({
                         onChange={(e) => patch(r.key, { description: e.target.value })}
                         placeholder="Description"
                         aria-label="Description"
-                        maxLength={250}
+                        maxLength={150}
                         data-row={i}
                         data-col="description"
                         className="h-8"

@@ -27,7 +27,7 @@ describe("txnTypeSchema", () => {
 describe("amountSchema", () => {
   it("accepts positive finite numbers within range", () => {
     expect(amountSchema.parse(0.01)).toBe(0.01);
-    expect(amountSchema.parse(1_000_000_000)).toBe(1_000_000_000);
+    expect(amountSchema.parse(999_999_999.99)).toBe(999_999_999.99);
   });
   it("coerces numeric strings", () => {
     expect(amountSchema.parse("12.5")).toBe(12.5);
@@ -36,7 +36,7 @@ describe("amountSchema", () => {
     expect(amountSchema.safeParse(0).success).toBe(false);
     expect(amountSchema.safeParse(-1).success).toBe(false);
     expect(amountSchema.safeParse(Infinity).success).toBe(false);
-    expect(amountSchema.safeParse(1_000_000_001).success).toBe(false);
+    expect(amountSchema.safeParse(1_000_000_000).success).toBe(false);
   });
 });
 
@@ -79,7 +79,7 @@ describe("transactionInputSchema", () => {
         type: "income",
         amount: 5,
         occurredOn: "2026-06-01",
-        title: "x".repeat(101),
+        title: "x".repeat(41),
       }).success,
     ).toBe(false);
     expect(
@@ -145,7 +145,7 @@ describe("category schemas", () => {
       false,
     );
     expect(
-      categoryInputSchema.safeParse({ name: "x".repeat(41), kind: "expense" }).success,
+      categoryInputSchema.safeParse({ name: "x".repeat(21), kind: "expense" }).success,
     ).toBe(false);
   });
   it("allows partial updates keyed by id", () => {
