@@ -12,7 +12,7 @@ discussions, or pull requests.**
 
 Instead, report them privately using **GitHub's private vulnerability reporting**:
 
-1. Go to the [**Security** tab](https://github.com/rnithin133/MoneyTracker_Nextjs/security/advisories/new) of this repository.
+1. Go to the [**Security** tab](https://github.com/playxoft/SpendChat_Nextjs/security/advisories/new) of this repository.
 2. Click **"Report a vulnerability"**.
 3. Fill in the details — what you found, how to reproduce it, and the potential impact.
 
