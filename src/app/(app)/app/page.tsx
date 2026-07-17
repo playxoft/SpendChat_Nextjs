@@ -1,17 +1,22 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { requireUser, getUserSettings, getCurrentWorkspace } from "@/lib/auth";
-import { getCategories, getProfiles, getSummary, listTransactionsAsc } from "@/lib/queries";
+import {
+  getCategories,
+  getProfiles,
+  getSummary,
+  listTransactionIds,
+  listTransactionsAsc,
+} from "@/lib/queries";
 import { resolveWebProfile } from "@/lib/filters";
 import type { InputMode } from "@/lib/validation";
-import { monthLabel, monthRange, todayISO } from "@/lib/dates";
+import { monthRange, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
-import { formatMoney } from "@/lib/money";
-import { cn } from "@/lib/utils";
 import { ChatFeed } from "@/components/app/chat-feed";
 import { ChatFeedSkeleton } from "@/components/app/chat-skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FeedRegion, PendingMessagesProvider } from "@/components/app/pending-messages";
+import { SummaryBar } from "@/components/app/summary-bar";
 import { TransactionComposer } from "@/components/app/transaction-composer";
 import { TrackerActions } from "@/components/app/tracker-actions";
 import { ScrollToBottom } from "@/components/app/scroll-to-bottom";
@@ -153,43 +158,24 @@ async function SummaryStream({
   locale: string;
   today: string;
 }) {
-  const summary = await getSummary(userId, workspaceId, { from, to, profileId });
-  const negative = summary.balance < 0 && "text-rose-600 dark:text-rose-400";
+  // Totals and the ids they cover come from one server render, so the client
+  // summary can reconcile its optimistic amounts without a flicker.
+  const [summary, txnIds] = await Promise.all([
+    getSummary(userId, workspaceId, { from, to, profileId }),
+    listTransactionIds(userId, workspaceId, { from, to, profileId }),
+  ]);
   return (
-    <div className="shrink-0 md:mt-3">
-      {/* Mobile: compact balance + in/out sit on the profile row itself. */}
-      <div className="flex flex-col items-end leading-tight md:hidden">
-        <p className={cn("text-base font-semibold tabular-nums", negative)}>
-          {formatMoney(summary.balance, currency, locale)}
-        </p>
-        <p className="flex gap-2 text-[11px]">
-          <span className="text-emerald-600 dark:text-emerald-400">
-            +{formatMoney(summary.income, currency, locale)}
-          </span>
-          <span className="text-muted-foreground">
-            −{formatMoney(summary.expense, currency, locale)}
-          </span>
-        </p>
-      </div>
-
-      {/* Desktop: the full balance block on its own line below the profile. */}
-      <div className="hidden flex-wrap items-end justify-between gap-x-3 gap-y-1 md:flex">
-        <div>
-          <p className="text-xs text-muted-foreground">{monthLabel(today, locale)} balance</p>
-          <p className={cn("text-xl font-semibold tabular-nums", negative)}>
-            {formatMoney(summary.balance, currency, locale)}
-          </p>
-        </div>
-        <div className="flex gap-4 pb-1 text-xs">
-          <span className="text-emerald-600 dark:text-emerald-400">
-            +{formatMoney(summary.income, currency, locale)} in
-          </span>
-          <span className="text-muted-foreground">
-            −{formatMoney(summary.expense, currency, locale)} out
-          </span>
-        </div>
-      </div>
-    </div>
+    <SummaryBar
+      income={summary.income}
+      expense={summary.expense}
+      serverTxnIds={txnIds}
+      currency={currency}
+      locale={locale}
+      today={today}
+      monthStart={from}
+      monthEnd={to}
+      profileId={profileId ?? null}
+    />
   );
 }
 
