@@ -1,11 +1,11 @@
-import type { Metadata } from "next";
+import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
-export const metadata: Metadata = {
+export const metadata = createMetadata({
   title: "Terms of Service",
-  description: `The terms for using ${siteConfig.name}.`,
-  alternates: { canonical: "/terms" },
-};
+  description: `The terms for using ${siteConfig.name} — your account, acceptable use, and the limits of the service.`,
+  path: "/terms",
+});
 
 const LAST_UPDATED = "June 17, 2026";
 

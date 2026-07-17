@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import { createMetadata } from "@/lib/seo";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -13,12 +13,12 @@ import { GithubIcon } from "@/components/icons/github";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
-export const metadata: Metadata = {
+export const metadata = createMetadata({
   title: "About",
   description:
     "SpendChat is a minimal, privacy-first, open-source money tracker built to make logging income and expenses as easy as sending a message.",
-  alternates: { canonical: "/about" },
-};
+  path: "/about",
+});
 
 const values = [
   {

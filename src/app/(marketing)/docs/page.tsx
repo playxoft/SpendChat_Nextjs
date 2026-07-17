@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import { createMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { ArrowRight, BookOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -6,12 +6,12 @@ import { GithubIcon } from "@/components/icons/github";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
-export const metadata: Metadata = {
+export const metadata = createMetadata({
   title: "Docs",
   description:
     "Documentation for SpendChat — getting started, adding transactions, categories, bulk import, filtering, exporting, keyboard shortcuts, privacy, and self-hosting the open-source app.",
-  alternates: { canonical: "/docs" },
-};
+  path: "/docs",
+});
 
 type Section = {
   id: string;

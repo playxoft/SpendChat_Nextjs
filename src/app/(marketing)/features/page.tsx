@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import { createMetadata } from "@/lib/seo";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -21,12 +21,12 @@ import { GithubIcon } from "@/components/icons/github";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
-export const metadata: Metadata = {
+export const metadata = createMetadata({
   title: "Features",
   description:
     "Chat-style transaction entry, bulk import, powerful filters, CSV export, printing, and a private, secure, mobile-friendly design. See what SpendChat can do.",
-  alternates: { canonical: "/features" },
-};
+  path: "/features",
+});
 
 const highlights = [
   {

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import { createMetadata } from "@/lib/seo";
 import Link from "next/link";
 import { ArrowRight, BookOpen, Check, Heart, Server, Tag, Wallet } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,11 +10,11 @@ import { marketingCta } from "@/lib/marketing";
 const pricingCta =
   "h-11 w-full gap-2 rounded-xl px-6 text-base [&_svg:not([class*='size-'])]:size-5";
 
-export const metadata: Metadata = {
+export const metadata = createMetadata({
   title: "Pricing",
   description: `${siteConfig.name} is free and open source. There are no paid plans today — host it yourself or use the hosted app at no cost. Paid plans may be announced later.`,
-  alternates: { canonical: "/pricing" },
-};
+  path: "/pricing",
+});
 
 const included = [
   "Unlimited income & expense tracking",
