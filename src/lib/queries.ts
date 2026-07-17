@@ -142,6 +142,26 @@ export async function countTransactions(
   return row?.count ?? 0;
 }
 
+/**
+ * Just the ids matching a filter — cheap (no joins). The tracker's optimistic
+ * summary uses this to reconcile: once an added transaction's id lands here the
+ * server total already counts it, so the pending amount is dropped (no double
+ * count). Fetched alongside `getSummary` in the same request, so both land in
+ * one commit.
+ */
+export async function listTransactionIds(
+  userId: string,
+  workspaceId: string,
+  f: TxnFilters = {},
+): Promise<string[]> {
+  const db = getDb();
+  const rows = await db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .where(buildConditions(userId, workspaceId, f));
+  return rows.map((r) => r.id);
+}
+
 export type Summary = { income: number; expense: number; balance: number };
 
 export async function getSummary(
