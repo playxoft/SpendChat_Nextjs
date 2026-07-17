@@ -48,6 +48,10 @@ export function CategoryEditorDialog({
 
   function handleAdd(e: React.FormEvent) {
     e.preventDefault();
+    // This dialog is portaled but still a React-tree child of the tracker's
+    // composer <form>, so its submit would otherwise bubble up and trigger the
+    // composer's "Start with an amount…" validation. Keep it self-contained.
+    e.stopPropagation();
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error("Enter a category name");
