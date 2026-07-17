@@ -7,8 +7,14 @@ import * as cats from "@/services/categories";
 import { type CategoryInput, type UpdateCategoryInput } from "@/lib/validation";
 
 function revalidateApp() {
-  revalidatePath("/settings");
+  // Transactions join their category by id, so a rename changes what every
+  // route that lists one renders — not just the settings page. "/settings" is a
+  // layout revalidation to reach the nested category manager at
+  // "/settings/categories".
   revalidatePath("/app");
+  revalidatePath("/transactions");
+  revalidatePath("/analytics");
+  revalidatePath("/settings", "layout");
 }
 
 export async function addCategory(input: CategoryInput): Promise<ActionResult> {
