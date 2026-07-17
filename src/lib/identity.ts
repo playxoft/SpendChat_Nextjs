@@ -105,10 +105,16 @@ export async function resolveUser(claims: FirebaseTokenClaims): Promise<SessionU
   }
 }
 
-/** Refresh the mutable profile fields from a fresh token (called on sign-in). */
-export async function syncUserProfile(claims: FirebaseTokenClaims): Promise<void> {
+/**
+ * Refresh the mutable profile fields from a fresh token (called on sign-in).
+ * Returns our internal user id for the account, or null when no row exists yet
+ * (a brand-new user's row is created lazily on first `getCurrentUser`). The id
+ * comes from the UPDATE's `RETURNING`, so there's no extra query — the caller
+ * uses it to attribute the request in logs.
+ */
+export async function syncUserProfile(claims: FirebaseTokenClaims): Promise<string | null> {
   const db = getDb();
-  await db
+  const [row] = await db
     .update(users)
     .set({
       email: normalizeEmail(claims.email),
@@ -116,5 +122,7 @@ export async function syncUserProfile(claims: FirebaseTokenClaims): Promise<void
       image: (claims.picture as string | undefined) ?? null,
       updatedAt: new Date(),
     })
-    .where(eq(users.firebaseUid, claims.sub));
+    .where(eq(users.firebaseUid, claims.sub))
+    .returning({ id: users.id });
+  return row?.id ?? null;
 }
