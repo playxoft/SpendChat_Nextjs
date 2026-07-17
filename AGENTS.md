@@ -43,7 +43,95 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
   `app/api/auth/[...path]`. Route protection is enforced in the `(app)` layout via `requireUser()`
   (no `proxy.ts`/middleware — OpenNext on Workers can't run Next 16's Node-only middleware).
 - DB client is lazy via `getDb()` so env is read inside the request context (Workers-safe).
+  Driver is **node-postgres** (`drizzle-orm/node-postgres`). In the deployed Worker it connects
+  through the Cloudflare **Hyperdrive** binding (`env.HYPERDRIVE`, defined in `wrangler.toml`),
+  which pools warm connections to Neon; the in-Worker pool is created **per request** (keyed on the
+  execution context) because Workers forbid reusing a socket across requests. Everywhere else (local
+  `next dev`, tests, `drizzle-kit` migrations) it falls back to a direct Neon connection via
+  `NEON_POSTGRES_DATABASE_URL`. Hyperdrive **query caching is disabled** (create the config with
+  `--caching-disabled`) so a just-written balance is never served stale. `[placement] mode = "smart"`
+  co-locates the Worker with Neon's region to cut round-trip latency.
 - Keep the design minimal and neutral (no gradients); income uses a single emerald accent.
+
+## Logging — the message is prose, the slug goes in `event`
+Logs ship to BetterStack (`src/lib/logger.ts`), whose list view shows **only the
+`message` field**. So `message` MUST be a sentence that reads on its own — the
+whole point is to scan the list without clicking into every row. The stable
+machine-readable name goes in `event`:
+
+```ts
+logger.info(`Action ${action} succeeded in ${durationMs}ms`, {
+  event: "action.ok",        // filter/chart on this — event:"action.ok"
+  action,
+  durationMs,
+});
+```
+
+**Never pass a slug as the message** (`logger.info("db.write", { op })`) — it
+renders as a wall of identical `db.write` rows. Keeping the slug in `event` also
+means filters and dashboards survive a reworded message.
+
+- Write the message at the level's altitude: `warn`/`error` messages should say
+  what went wrong (`` `Email to ${to} failed with status ${res.status}` ``),
+  since those are what you scan for.
+- Use `describeError(err)` from `@/lib/logger` to interpolate a thrown value —
+  it stringifies non-Errors so a raw object can't spill internals into the text.
+- **Keep user data out of the message.** It's interpolated free text: no notes,
+  amounts, names, or raw emails (redact with `redactEmail()`). Ids and
+  structured values belong in `meta`, which is normalized and scrubbed.
+
+## SEO — every new public page must be indexable
+**Every new page under `(marketing)` (or any other publicly reachable route) MUST
+export metadata built with `createMetadata()` from `src/lib/seo.ts`:**
+
+```ts
+import { createMetadata } from "@/lib/seo";
+
+export const metadata = createMetadata({
+  title: "Features",          // no site name — the root template appends " — SpendChat"
+  description: "50–160 chars; this is the Google snippet and the chat preview subtitle.",
+  path: "/features",          // REQUIRED — sets the canonical URL
+});
+```
+
+Never hand-write a bare `Metadata` object for a public page. **Metadata is
+inherited in Next**, so a page that omits `alternates` silently inherits the root
+layout's `canonical: "/"` and tells Google it's a duplicate of the homepage —
+which deindexes it. Omitting `openGraph.url` likewise makes the page report the
+homepage as its `og:url`. `createMetadata` takes `path` as a required argument so
+neither can be forgotten. If a page needs extra `alternates` (e.g. an RSS feed),
+**spread** the result and merge — don't replace `alternates` wholesale, or you
+drop the canonical (see `(marketing)/blog/page.tsx`).
+
+Also for each new public page:
+- **Add it to `src/app/sitemap.ts`** — it isn't automatic. Give it a sensible
+  `priority`/`changeFrequency`. Private/auth routes instead go in the `disallow`
+  list in `src/app/robots.ts`.
+- **One `<h1>` per page**, matching the page's search intent; use real heading
+  levels rather than styled `<div>`s.
+- Add **JSON-LD** via `<JsonLd data={...} />` (`src/components/json-ld.tsx`) when a
+  schema.org type genuinely fits (`FAQPage`, `BlogPosting`, `WebApplication`, …).
+  Don't mark up content that isn't visible on the page — Google treats that as spam.
+- Use `noIndex: true` for pages that shouldn't rank (thank-you, gated pages).
+
+**Social/chat previews (WhatsApp, Telegram, X, Slack)** come from the branded
+`public/opengraph-image.png` (1200×630), declared once as `ogImage` in
+`src/lib/seo.ts` and used by both `createMetadata` and the root layout. Pages get
+it automatically: `createMetadata` sets it, and pages without their own
+`openGraph` inherit the root layout's.
+
+Three constraints to respect if you touch it:
+- **Keep it a static PNG in `public/`.** Generating it with `next/og`/`ImageResponse`
+  makes OpenNext bundle `@vercel/og` + `resvg.wasm` (~2.2 MB) into the Worker, and
+  Next's `opengraph-image` file convention serves it from a route handler (a Worker
+  invocation) instead of straight off Cloudflare's CDN.
+- **Always restate `images` when you define `openGraph` on a page.** Next replaces
+  `openGraph` per segment rather than deep-merging it, so a page that defines
+  `openGraph` without `images` ships with **no preview image at all** — it fails
+  silently, and only a crawler or `curl | grep og:image` will tell you.
+- **Keep it under ~300 KB**, or WhatsApp falls back to a small thumbnail.
+
+Regenerate from `scripts/og-image.html` (the command is in its header comment).
 
 ## Mobile API (`/api/v1`) — keep docs in lockstep
 The Flutter app consumes the versioned REST API under `src/app/api/v1/*`. Its
