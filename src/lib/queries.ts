@@ -4,6 +4,13 @@ import { getDb } from "@/db";
 import { categories, profiles, transactions } from "@/db/schema";
 import { accessibleProfileIds } from "@/lib/workspaces";
 
+/** The page size shared by the transactions list, its infinite-scroll loader,
+ * and the load-more server action. */
+export const TRANSACTIONS_PAGE_SIZE = 50;
+
+export type SortColumn = "date" | "category" | "title" | "description" | "amount";
+export type SortDir = "asc" | "desc";
+
 export type TxnFilters = {
   from?: string;
   to?: string;
@@ -11,6 +18,10 @@ export type TxnFilters = {
   categoryId?: string;
   profileId?: string;
   search?: string;
+  /** Web-only column sort. The mobile API never sets these, so its ordering
+   * (newest first) is unchanged. */
+  sort?: SortColumn;
+  dir?: SortDir;
   limit?: number;
   offset?: number;
 };
@@ -57,6 +68,29 @@ function buildConditions(userId: string, workspaceId: string, f: TxnFilters) {
   return and(...conds);
 }
 
+/**
+ * Ordering for the list. No `sort` → the original newest-first order (unchanged,
+ * so the mobile API is unaffected). A `sort` adds `createdAt`+`id` tiebreakers so
+ * the total order is deterministic and offset paging (infinite scroll) is stable.
+ */
+function orderByFor(f: TxnFilters) {
+  if (!f.sort) {
+    return [desc(transactions.occurredOn), desc(transactions.createdAt)];
+  }
+  const direction = f.dir === "asc" ? asc : desc;
+  // Sort by the signed value so "Amount" ascending runs largest-expense →
+  // largest-income, matching what the column displays.
+  const amountSigned = sql`case when ${transactions.type} = 'income' then ${transactions.amountMinor} else -${transactions.amountMinor} end`;
+  const target = {
+    date: transactions.occurredOn,
+    category: categories.name,
+    title: transactions.title,
+    description: transactions.description,
+    amount: amountSigned,
+  }[f.sort];
+  return [direction(target), desc(transactions.createdAt), desc(transactions.id)];
+}
+
 const txnSelection = {
   id: transactions.id,
   type: transactions.type,
@@ -87,7 +121,7 @@ export async function listTransactions(
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(profiles, eq(transactions.profileId, profiles.id))
     .where(buildConditions(userId, workspaceId, f))
-    .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt))
+    .orderBy(...orderByFor(f))
     .limit(f.limit ?? 100)
     .offset(f.offset ?? 0);
 }

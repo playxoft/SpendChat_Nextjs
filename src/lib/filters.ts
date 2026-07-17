@@ -1,6 +1,7 @@
-import type { TxnFilters } from "./queries";
+import type { SortColumn, SortDir, TxnFilters } from "./queries";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const SORT_COLUMNS: SortColumn[] = ["date", "category", "title", "description", "amount"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A `?profile=` value that names a real profile, or undefined for "all". */
@@ -39,4 +40,17 @@ export function parseTxnFilters(get: (key: string) => string | null): TxnFilters
     to: to && DATE_RE.test(to) ? to : undefined,
     search: q?.trim() ? q.trim() : undefined,
   };
+}
+
+/**
+ * Parse the web table's column sort. Kept out of `parseTxnFilters` on purpose so
+ * the mobile API (which parses filters the same way) never gains a sort it
+ * doesn't document. An unknown column yields no sort (the default order).
+ */
+export function parseTxnSort(
+  sort: string | null,
+  dir: string | null,
+): { sort?: SortColumn; dir?: SortDir } {
+  if (!sort || !SORT_COLUMNS.includes(sort as SortColumn)) return {};
+  return { sort: sort as SortColumn, dir: dir === "asc" ? "asc" : "desc" };
 }
