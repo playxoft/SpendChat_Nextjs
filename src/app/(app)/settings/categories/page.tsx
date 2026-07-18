@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
-import { requireUser } from "@/lib/auth";
+import { getAppContext } from "@/lib/auth";
 import { getCategories } from "@/lib/queries";
+import { atLeastRole } from "@/lib/rbac";
 import {
   Card,
   CardContent,
@@ -18,20 +19,22 @@ export const metadata: Metadata = {
 };
 
 export default async function CategorySettingsPage() {
-  const user = await requireUser();
-  const categories = await getCategories(user.id);
+  const { workspace } = await getAppContext();
+  const categories = await getCategories(workspace.id);
+  // Editors and admins manage the shared list; viewers see it read-only.
+  const canEdit = atLeastRole(workspace.role, "editor");
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Categories</CardTitle>
         <CardDescription>
-          Organize your income and expenses. Deleting a category leaves its
+          Shared by everyone in this workspace. Deleting a category leaves its
           transactions uncategorized.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <CategoryManager categories={categories} />
+        <CategoryManager categories={categories} canEdit={canEdit} />
       </CardContent>
     </Card>
   );

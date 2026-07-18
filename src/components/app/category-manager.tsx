@@ -12,7 +12,14 @@ import { useCategoryRename } from "@/hooks/use-category-rename";
 import { cn } from "@/lib/utils";
 import type { Category } from "@/db/schema";
 
-export function CategoryManager({ categories }: { categories: Category[] }) {
+export function CategoryManager({
+  categories,
+  canEdit,
+}: {
+  categories: Category[];
+  /** Editors and admins can add/rename/delete; viewers see the list read-only. */
+  canEdit: boolean;
+}) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -38,19 +45,24 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-2">
         <p className="text-sm text-muted-foreground">
-          {categories.length} categor{categories.length === 1 ? "y" : "ies"}
+          {categories.length} categor{categories.length === 1 ? "y" : "ies"} · shared with
+          everyone in this workspace
         </p>
-        <Button type="button" onClick={() => setEditorOpen(true)}>
-          <Plus className="size-4" /> Add category
-        </Button>
+        {canEdit && (
+          <Button type="button" onClick={() => setEditorOpen(true)}>
+            <Plus className="size-4" /> Add category
+          </Button>
+        )}
       </div>
 
-      <CategoryEditorDialog
-        open={editorOpen}
-        onOpenChange={setEditorOpen}
-        categories={categories}
-        defaultKind="expense"
-      />
+      {canEdit && (
+        <CategoryEditorDialog
+          open={editorOpen}
+          onOpenChange={setEditorOpen}
+          categories={categories}
+          defaultKind="expense"
+        />
+      )}
 
       <div className="grid gap-6 sm:grid-cols-2">
         <CategoryGroup
@@ -59,6 +71,7 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
           onRemove={handleRemove}
           onIcon={handleIcon}
           pending={pending}
+          canEdit={canEdit}
         />
         <CategoryGroup
           title="Income"
@@ -66,6 +79,7 @@ export function CategoryManager({ categories }: { categories: Category[] }) {
           onRemove={handleRemove}
           onIcon={handleIcon}
           pending={pending}
+          canEdit={canEdit}
         />
       </div>
     </div>
@@ -78,12 +92,14 @@ function CategoryGroup({
   onRemove,
   onIcon,
   pending,
+  canEdit,
 }: {
   title: string;
   items: Category[];
   onRemove: (id: string) => void;
   onIcon: (id: string, value: string) => void;
   pending: boolean;
+  canEdit: boolean;
 }) {
   const rename = useCategoryRename(items);
 
@@ -108,19 +124,25 @@ function CategoryGroup({
                 )}
               >
                 <span className="inline-flex min-w-0 flex-1 items-center gap-1.5">
-                  <EmojiPicker
-                    onSelect={(v) => onIcon(c.id, v)}
-                    trigger={
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label={`Change icon for ${c.name}`}
-                      >
-                        <span className="text-base">{c.icon ?? "🏷️"}</span>
-                      </Button>
-                    }
-                  />
+                  {canEdit ? (
+                    <EmojiPicker
+                      onSelect={(v) => onIcon(c.id, v)}
+                      trigger={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon-sm"
+                          aria-label={`Change icon for ${c.name}`}
+                        >
+                          <span className="text-base">{c.icon ?? "🏷️"}</span>
+                        </Button>
+                      }
+                    />
+                  ) : (
+                    <span className="flex size-7 items-center justify-center text-base">
+                      {c.icon ?? "🏷️"}
+                    </span>
+                  )}
                   {editing ? (
                     <Input
                       value={rename.draft}
@@ -135,6 +157,7 @@ function CategoryGroup({
                     <span className="truncate">{c.name}</span>
                   )}
                 </span>
+                {canEdit && (
                 <span className="flex shrink-0 items-center">
                   {editing ? (
                     <>
@@ -194,6 +217,7 @@ function CategoryGroup({
                     </>
                   )}
                 </span>
+                )}
               </li>
             );
           })}
