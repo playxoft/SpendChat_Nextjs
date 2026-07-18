@@ -1,60 +1,54 @@
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
-import { userSettings } from "@/db/schema";
-import {
-  updateSettings,
-  updateCurrency,
-  deleteAllTransactions,
-} from "@/actions/settings";
+import { workspaceMembers, workspaces } from "@/db/schema";
+import { deleteAllTransactions } from "@/actions/settings";
+import { updateWorkspaceCurrency } from "@/actions/workspaces";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
-import { bootstrapUser, insertTxn, countTxns } from "./helpers/seed";
+import { bootstrapUser, insertTxn, countTxns, workspaceIdOf } from "./helpers/seed";
 
-const settingsRow = (userId: string) =>
+const workspaceRow = (id: string) =>
   getTestDb()
     .select()
-    .from(userSettings)
-    .where(eq(userSettings.userId, uid(userId)))
+    .from(workspaces)
+    .where(eq(workspaces.id, id))
     .then((r) => r[0]);
 
-describe("updateSettings", () => {
-  it("persists a valid currency/locale/theme", async () => {
+describe("updateWorkspaceCurrency", () => {
+  it("persists a valid currency + locale on the workspace", async () => {
     signInAs("a");
     await bootstrapUser("a");
-    const res = await updateSettings({
-      currency: "EUR",
-      locale: "en-GB",
-      theme: "dark",
-    });
+    const ws = await workspaceIdOf("a");
+    const res = await updateWorkspaceCurrency(ws, { currency: "EUR", locale: "en-GB" });
     expect(res.ok).toBe(true);
-    const row = await settingsRow("a");
-    expect(row).toMatchObject({ currency: "EUR", locale: "en-GB", theme: "dark" });
-  });
-
-  it("rejects invalid settings", async () => {
-    signInAs("a");
-    await bootstrapUser("a");
-    expect(
-      (await updateSettings({ currency: "ZZZ", locale: "en", theme: "dark" })).ok,
-    ).toBe(false);
-  });
-});
-
-describe("updateCurrency", () => {
-  it("updates just the currency", async () => {
-    signInAs("a");
-    await bootstrapUser("a");
-    expect((await updateCurrency("INR")).ok).toBe(true);
-    expect((await settingsRow("a")).currency).toBe("INR");
+    expect(await workspaceRow(ws)).toMatchObject({ currency: "EUR", locale: "en-GB" });
   });
 
   it("rejects an unsupported currency", async () => {
     signInAs("a");
     await bootstrapUser("a");
-    expect(await updateCurrency("ZZZ")).toEqual({
-      ok: false,
-      error: "Unsupported currency",
-    });
+    const ws = await workspaceIdOf("a");
+    expect((await updateWorkspaceCurrency(ws, { currency: "ZZZ", locale: "en-US" })).ok).toBe(
+      false,
+    );
+  });
+
+  it("forbids a non-admin (viewer) from changing it", async () => {
+    // b is a viewer in a's workspace; the admin gate must reject them.
+    await bootstrapUser("a");
+    await bootstrapUser("b");
+    const ws = await workspaceIdOf("a");
+    const db = getTestDb();
+    await db
+      .insert(workspaceMembers)
+      .values({ workspaceId: ws, userId: uid("b"), role: "viewer" })
+      .onConflictDoNothing();
+
+    signInAs("b");
+    expect((await updateWorkspaceCurrency(ws, { currency: "EUR", locale: "en-GB" })).ok).toBe(
+      false,
+    );
+    expect(await workspaceRow(ws)).toMatchObject({ currency: "USD" }); // unchanged
   });
 });
 

@@ -39,11 +39,15 @@ describe("GET /api/transactions/export", () => {
 
     const body = await res.text();
     const lines = body.split("\r\n");
-    expect(lines[0]).toBe("Date,Type,Category,Note,Amount,Currency");
-    // newest first: income row (no category → Uncategorized, blank note, +50.00)
-    expect(lines[1]).toBe("2026-06-15,income,Uncategorized,,50.00,USD");
+    // Branded report header block, with the workspace it was exported from.
+    expect(lines[0]).toBe("SpendChat");
+    expect(body).toContain("a's Workspace");
+    // The data table: this header row, then signed rows in the workspace currency (USD).
+    expect(lines).toContain("Date,Type,Category,Title,Amount,Currency");
+    // income row (no category → Uncategorized, blank title, +50.00)
+    expect(lines.some((l) => /,Income,Uncategorized,,50\.00,USD$/.test(l))).toBe(true);
     // expense row is signed negative
-    expect(lines[2]).toBe("2026-06-01,expense,Groceries,Veg,-10.00,USD");
+    expect(lines.some((l) => /,Expense,Groceries,Veg,-10\.00,USD$/.test(l))).toBe(true);
   });
 
   it("applies query-string filters", async () => {
@@ -54,7 +58,8 @@ describe("GET /api/transactions/export", () => {
 
     const res = await GET(req("?type=income"));
     const lines = (await res.text()).split("\r\n");
-    expect(lines).toHaveLength(2); // header + 1 income row
-    expect(lines[1]).toContain("income");
+    // The income row is in the data table; the expense row is filtered out.
+    expect(lines.some((l) => /,Income,/.test(l))).toBe(true);
+    expect(lines.some((l) => /,Expense,/.test(l))).toBe(false);
   });
 });

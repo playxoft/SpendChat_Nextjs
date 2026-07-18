@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as ws from "@/services/workspaces";
-import type { AddMemberInput } from "@/lib/validation";
+import type { AddMemberInput, AccessGrant, WorkspaceCurrencyInput } from "@/lib/validation";
 
 function revalidateApp() {
   revalidatePath("/app");
@@ -39,6 +39,23 @@ export async function renameWorkspace(id: string, name: string): Promise<ActionR
   );
 }
 
+/** Set a workspace's currency + number format (admin only). */
+export async function updateWorkspaceCurrency(
+  workspaceId: string,
+  input: WorkspaceCurrencyInput,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "updateWorkspaceCurrency",
+    async () => {
+      await ws.updateWorkspaceCurrency(user.id, workspaceId, input);
+      revalidateApp();
+      return {};
+    },
+    { userId: user.id, workspaceId },
+  );
+}
+
 export async function switchWorkspace(id: string): Promise<ActionResult> {
   const user = await requireUser();
   return runAction(
@@ -61,39 +78,24 @@ export async function addWorkspaceMember(
     "addWorkspaceMember",
     async () => {
       const result = await ws.addMember(user.id, workspaceId, input);
-      revalidatePath("/settings");
+      revalidateApp();
       return { status: result.status };
     },
-    { userId: user.id, workspaceId, profileId: input.profileId ?? null },
+    { userId: user.id, workspaceId },
   );
 }
 
-export async function updateWorkspaceMemberRole(
+/** Re-scope a registered member's access (all profiles or a chosen set). */
+export async function setMemberAccess(
   workspaceId: string,
   memberId: string,
-  role: string,
+  access: AccessGrant,
 ): Promise<ActionResult> {
   const user = await requireUser();
   return runAction(
-    "updateWorkspaceMemberRole",
+    "setMemberAccess",
     async () => {
-      await ws.updateMemberRole(user.id, workspaceId, { userId: memberId, role });
-      revalidatePath("/settings");
-      return {};
-    },
-    { userId: user.id, workspaceId, memberId },
-  );
-}
-
-export async function removeWorkspaceMember(
-  workspaceId: string,
-  memberId: string,
-): Promise<ActionResult> {
-  const user = await requireUser();
-  return runAction(
-    "removeWorkspaceMember",
-    async () => {
-      await ws.removeMember(user.id, workspaceId, memberId);
+      await ws.setMemberAccess(user.id, workspaceId, { userId: memberId, access });
       revalidateApp();
       return {};
     },
@@ -101,31 +103,52 @@ export async function removeWorkspaceMember(
   );
 }
 
-export async function cancelWorkspaceInvite(inviteId: string): Promise<ActionResult> {
+/** Re-scope a pending invite (keyed by email). */
+export async function setInviteAccess(
+  workspaceId: string,
+  email: string,
+  access: AccessGrant,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "setInviteAccess",
+    async () => {
+      await ws.setInviteAccess(user.id, workspaceId, { email, access });
+      revalidatePath("/settings");
+      return {};
+    },
+    { userId: user.id, workspaceId },
+  );
+}
+
+export async function removeCollaborator(
+  workspaceId: string,
+  memberId: string,
+): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "removeCollaborator",
+    async () => {
+      await ws.removeCollaborator(user.id, workspaceId, memberId);
+      revalidateApp();
+      return {};
+    },
+    { userId: user.id, workspaceId, memberId },
+  );
+}
+
+export async function cancelWorkspaceInvite(
+  workspaceId: string,
+  email: string,
+): Promise<ActionResult> {
   const user = await requireUser();
   return runAction(
     "cancelWorkspaceInvite",
     async () => {
-      await ws.cancelInvite(user.id, inviteId);
+      await ws.cancelInviteByEmail(user.id, workspaceId, email);
       revalidatePath("/settings");
       return {};
     },
-    { userId: user.id, inviteId },
-  );
-}
-
-export async function removeProfileAccess(
-  profileId: string,
-  targetUserId: string,
-): Promise<ActionResult> {
-  const user = await requireUser();
-  return runAction(
-    "removeProfileAccess",
-    async () => {
-      await ws.removeProfileAccess(user.id, profileId, targetUserId);
-      revalidatePath("/settings");
-      return {};
-    },
-    { userId: user.id, profileId, memberId: targetUserId },
+    { userId: user.id, workspaceId },
   );
 }

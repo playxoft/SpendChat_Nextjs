@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/auth";
+import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as cats from "@/services/categories";
 import { type CategoryInput, type UpdateCategoryInput } from "@/lib/validation";
@@ -19,39 +19,42 @@ function revalidateApp() {
 
 export async function addCategory(input: CategoryInput): Promise<ActionResult> {
   const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "addCategory",
     async () => {
-      await cats.createCategory(user.id, input);
+      await cats.createCategory(user.id, workspace.id, input);
       revalidateApp();
       return {};
     },
-    { userId: user.id },
+    { userId: user.id, workspaceId: workspace.id },
   );
 }
 
 export async function updateCategory(input: UpdateCategoryInput): Promise<ActionResult> {
   const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "updateCategory",
     async () => {
-      await cats.updateCategory(user.id, input.id, input);
+      await cats.updateCategory(user.id, workspace.id, input.id, input);
       revalidateApp();
       return {};
     },
-    { userId: user.id, categoryId: input.id },
+    { userId: user.id, workspaceId: workspace.id, categoryId: input.id },
   );
 }
 
 export async function deleteCategory(id: string): Promise<ActionResult> {
   const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "deleteCategory",
     async () => {
-      await cats.deleteCategory(user.id, id);
+      await cats.deleteCategory(user.id, workspace.id, id);
       revalidateApp();
       return {};
     },
-    { userId: user.id, categoryId: id },
+    { userId: user.id, workspaceId: workspace.id, categoryId: id },
   );
 }

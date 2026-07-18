@@ -2,7 +2,6 @@ import "server-only";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
-  categories,
   profileAccess,
   profiles,
   transactions,
@@ -16,27 +15,17 @@ import { accessibleProfileIds } from "@/lib/workspaces";
 import { badRequest, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
-import { patchSettingsSchema, settingsSchema, inputModeSchema } from "@/lib/validation";
+import { patchSettingsSchema, inputModeSchema } from "@/lib/validation";
 import type { UserSettings } from "@/db/schema";
 
 /**
- * Settings business logic shared by the web actions and the REST API. Returns
+ * User-settings business logic shared by the web actions and the REST API.
+ * These settings follow the user across workspaces (theme, input mode); currency
+ * and number format live on the workspace (`services/workspaces.ts`). Returns
  * the updated row (for the API) or throws `ApiError`; scoped to `userId`.
  */
 
-/** Full replace of currency/locale/theme (web settings form). */
-export async function updateSettings(userId: string, input: unknown): Promise<UserSettings> {
-  const data = parseOrThrow(settingsSchema, input);
-  await ensureBootstrap(userId);
-  const db = getDb();
-  await db
-    .update(userSettings)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(userSettings.userId, userId));
-  return getUserSettings(userId);
-}
-
-/** Partial update of any settings fields (REST `PATCH /settings`). */
+/** Partial update of user settings (REST `PATCH /settings`): theme, input mode. */
 export async function patchSettings(userId: string, input: unknown): Promise<UserSettings> {
   const data = parseOrThrow(patchSettingsSchema, input);
   await ensureBootstrap(userId);
@@ -44,19 +33,6 @@ export async function patchSettings(userId: string, input: unknown): Promise<Use
   await db
     .update(userSettings)
     .set({ ...data, updatedAt: new Date() })
-    .where(eq(userSettings.userId, userId));
-  return getUserSettings(userId);
-}
-
-export async function updateCurrency(userId: string, currency: string): Promise<UserSettings> {
-  if (!settingsSchema.shape.currency.safeParse(currency).success) {
-    throw validationError("Unsupported currency");
-  }
-  await ensureBootstrap(userId);
-  const db = getDb();
-  await db
-    .update(userSettings)
-    .set({ currency, updatedAt: new Date() })
     .where(eq(userSettings.userId, userId));
   return getUserSettings(userId);
 }
@@ -101,11 +77,12 @@ export async function deleteAllTransactions(
 
 /**
  * Erase everything the user owns in SpendChat: the transactions they wrote,
- * their owned workspaces (including all profiles and transactions inside,
- * even ones written by members), their memberships/grants, categories, and
- * settings. Requires the exact "DELETE" confirmation. The Neon Auth account
- * itself is managed by Neon — after this wipe, signing in again starts from a
- * fresh bootstrap.
+ * their owned workspaces (including all profiles, categories, and transactions
+ * inside — even ones authored by members, all via the workspace cascade), their
+ * memberships/grants, and settings. Categories they authored in *other* people's
+ * workspaces stay (they belong to that workspace). Requires the exact "DELETE"
+ * confirmation. The Firebase account itself is deleted client-side — after this
+ * wipe, signing in again starts from a fresh bootstrap.
  */
 export async function deleteAccount(userId: string, confirm: string): Promise<void> {
   if (confirm !== "DELETE") throw badRequest("Type DELETE to confirm");
@@ -137,7 +114,6 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
   }
   await db.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
   await db.delete(profileAccess).where(eq(profileAccess.userId, userId));
-  await db.delete(categories).where(eq(categories.userId, userId));
   await db.delete(userSettings).where(eq(userSettings.userId, userId));
   // The identity row last (the Firebase account itself is deleted client-side).
   await db.delete(users).where(eq(users.id, userId));

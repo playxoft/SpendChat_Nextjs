@@ -42,12 +42,14 @@ export const bulkTransactionsSchema = z.object({
   items: z.array(transactionInputSchema).min(1).max(500),
 });
 
-export const settingsSchema = z.object({
+export const themeSchema = z.enum(["light", "dark", "system"]);
+
+/** Currency + number format (locale) — a per-workspace setting, admin-gated. */
+export const workspaceCurrencySchema = z.object({
   currency: z.enum(CURRENCY_CODES as [string, ...string[]]),
   locale: z.string().trim().min(2).max(20),
-  theme: z.enum(["light", "dark", "system"]),
 });
-export type SettingsInput = z.infer<typeof settingsSchema>;
+export type WorkspaceCurrencyInput = z.infer<typeof workspaceCurrencySchema>;
 
 /** Layout of the transaction composer inputs. Stored on `user_settings`. */
 export const INPUT_MODES = ["amount_title", "title_amount", "combined"] as const;
@@ -55,14 +57,14 @@ export const inputModeSchema = z.enum(INPUT_MODES);
 export type InputMode = (typeof INPUT_MODES)[number];
 
 /**
- * Partial settings update for the REST API's `PATCH /settings`. Any subset of
- * fields may be supplied; at least one is required.
+ * Partial user-settings update for the REST API's `PATCH /settings`. These
+ * settings follow the user across workspaces (theme, input mode). Currency and
+ * number format are per-workspace and live on a separate endpoint. Any subset
+ * may be supplied; at least one is required.
  */
 export const patchSettingsSchema = z
   .object({
-    currency: settingsSchema.shape.currency,
-    locale: settingsSchema.shape.locale,
-    theme: settingsSchema.shape.theme,
+    theme: themeSchema,
     inputMode: inputModeSchema,
   })
   .partial()
@@ -124,18 +126,56 @@ export const renameWorkspaceSchema = z.object({
   name: workspaceNameSchema,
 });
 
-/** Add a user to a workspace (or to a single profile when `profileId` is set). */
+const inviteEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(100, "Email is too long (max 100 characters)")
+  .email("Enter a valid email address");
+
+/** Max profiles a single grant/invite may target at once. */
+export const ACCESS_PROFILES_MAX = 50;
+
+/**
+ * How much of a workspace a person can reach. `all` = workspace-wide membership
+ * (one role). `profiles` = per-profile grants, each carrying its own role, so a
+ * user can be an editor on one profile and a viewer on another.
+ */
+export const accessGrantSchema = z.discriminatedUnion("mode", [
+  z.object({ mode: z.literal("all"), role: workspaceRoleSchema }),
+  z.object({
+    mode: z.literal("profiles"),
+    entries: z
+      .array(z.object({ profileId: z.string().uuid(), role: workspaceRoleSchema }))
+      .min(1, "Pick at least one profile")
+      .max(ACCESS_PROFILES_MAX, `Too many profiles (max ${ACCESS_PROFILES_MAX})`)
+      // Guard against the same profile appearing twice with conflicting roles.
+      .refine(
+        (entries) => new Set(entries.map((e) => e.profileId)).size === entries.length,
+        "Duplicate profile in access grant",
+      ),
+  }),
+]);
+export type AccessGrant = z.infer<typeof accessGrantSchema>;
+
+/** Add someone to a workspace by email, at the given access scope. */
 export const addMemberSchema = z.object({
-  email: z
-    .string()
-    .trim()
-    .toLowerCase()
-    .max(100, "Email is too long (max 100 characters)")
-    .email("Enter a valid email address"),
-  role: workspaceRoleSchema,
-  profileId: z.string().uuid().nullish(),
+  email: inviteEmailSchema,
+  access: accessGrantSchema,
 });
 export type AddMemberInput = z.input<typeof addMemberSchema>;
+
+/** Re-scope a registered member's access. */
+export const setMemberAccessSchema = z.object({
+  userId: z.string().uuid(),
+  access: accessGrantSchema,
+});
+
+/** Re-scope a pending invite (keyed by email). */
+export const setInviteAccessSchema = z.object({
+  email: inviteEmailSchema,
+  access: accessGrantSchema,
+});
 
 export const updateMemberRoleSchema = z.object({
   userId: z.string().uuid(),
