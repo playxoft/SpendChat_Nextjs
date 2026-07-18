@@ -1,7 +1,8 @@
 # 07 · Profiles & Categories
 
 Two "manage" features. **Profiles** are WhatsApp-style threads that scope the
-data; **categories** are per-user income/expense buckets with emoji icons.
+data; **categories** are per-workspace income/expense buckets (shared by every
+member of the workspace) with emoji icons.
 
 ---
 
@@ -63,13 +64,14 @@ so nothing is lost."
 
 ## 2. Categories
 
-Per-user income/expense buckets. A category has `name`, `kind`
-(`income`/`expense`), and `icon` (emoji). **No color.** Names are unique per
-(user, kind). Categories are **per-user**, not per-workspace — they're shared
-across all your workspaces/profiles.
+Per-**workspace** income/expense buckets, shared by every member of the
+workspace. A category has `name`, `kind` (`income`/`expense`), and `icon`
+(emoji). **No color.** Names are unique per (workspace, kind). Scoped by
+`X-Workspace-Id` — switching workspace changes the list, so re-fetch on switch.
 
 API: `GET/POST /categories`, `PATCH/DELETE /categories/{id}`. Ordered income
-first, then by name.
+first, then by name. Reads need workspace access; **writes require the editor
+role** (viewer → 403) — gate add/rename/delete on the current workspace role.
 
 ### 2.1 Manager (Settings › Categories)
 - Header: a count (`"{n} categories"`) + an **"Add category"** button (opens the

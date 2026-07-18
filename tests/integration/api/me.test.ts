@@ -12,7 +12,7 @@ describe("GET /api/v1/me", () => {
     expect(body.error.code).toBe("unauthorized");
   });
 
-  it("returns the user and bootstrapped settings", async () => {
+  it("returns the user, user settings, and the current workspace with its currency", async () => {
     signInAs("user-1");
     const res = await GET(apiReq("/api/v1/me"));
     expect(res.status).toBe(200);
@@ -22,8 +22,12 @@ describe("GET /api/v1/me", () => {
       email: "user-1@example.com",
       name: "user-1",
     });
-    expect(data.settings.currency).toBe("USD");
-    expect(data.settings.currencyDetail).toEqual({ code: "USD", symbol: "$", decimals: 2 });
+    // User settings no longer carry currency/locale — only theme + input mode.
     expect(data.settings.inputMode).toBe("amount_title");
+    expect(data.settings.currency).toBeUndefined();
+    // Currency + number format now live on the workspace.
+    expect(data.workspace.currency).toBe("USD");
+    expect(data.workspace.locale).toBe("en-US");
+    expect(data.workspace.currencyDetail).toEqual({ code: "USD", symbol: "$", decimals: 2 });
   });
 });

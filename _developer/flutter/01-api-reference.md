@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 3.1.0.** Every API change bumps this version and is logged
+**API spec version: 4.0.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -140,9 +140,10 @@ Amounts are **integer minor units** (`amountMinor`, e.g. cents) — the source o
 truth. Each transaction also returns `amount`, a major-unit **string** formatted
 to the currency's decimals (e.g. `"12.50"`).
 
-- A user has a **single currency**. List/analytics responses include
-  `meta.currency` = `{ code, symbol, decimals }`; `GET /settings` includes
-  `currencyDetail` (same shape). Use `decimals` to format any minor-unit value:
+- A **workspace** has a **single currency** (shared by every member). List/
+  analytics responses include `meta.currency` = `{ code, symbol, decimals }`;
+  the `workspace` object (in `/me`, `GET /workspaces`) includes `currencyDetail`
+  (same shape). Use `decimals` to format any minor-unit value:
   `major = amountMinor / 10^decimals`.
 - Analytics values (`income`, `expense`, `balance`, category `total`,
   monthly `income`/`expense`) are **minor units** — format with the currency's
@@ -232,12 +233,23 @@ No `color` on the category/profile sub-objects; no `sortOrder` on the sub-object
 ```
 
 ### Settings
+User-level settings that follow the user across every workspace. **Currency and
+number format are NOT here — they're per-workspace** (see the `workspace` object).
 ```jsonc
 {
+  "theme": "light" | "dark" | "system",
+  "inputMode": "amount_title" | "title_amount" | "combined"
+}
+```
+
+### Workspace
+```jsonc
+{
+  "id": "uuid",
+  "name": "Ada's Workspace",
+  "role": "admin" | "editor" | "viewer" | null,
   "currency": "USD",
   "locale": "en-US",
-  "theme": "light" | "dark" | "system",
-  "inputMode": "amount_title" | "title_amount" | "combined",
   "currencyDetail": { "code": "USD", "symbol": "$", "decimals": 2 }
 }
 ```
@@ -247,7 +259,7 @@ No `color` on the category/profile sub-objects; no `sortOrder` on the sub-object
 {
   "user": { "id": "uuid", "email": "a@b.com" | null, "name": "Ada" | null },
   "settings": { …Settings },
-  "workspace": { "id": "uuid", "name": "Ada's Workspace", "role": "admin" | "editor" | "viewer" | null }
+  "workspace": { …Workspace }
 }
 ```
 
@@ -282,8 +294,9 @@ codes are listed per row.
 ### Workspaces
 | Method & path | Body | Success | Notes |
 |---|---|---|---|
-| `GET /workspaces` | — | 200 `data: WorkspaceSummary[]` | Every workspace the user can open (for a switcher). **Ignores `X-Workspace-Id`; never 404s.** Memberships first (`createdAt asc`), then grant-only (`role: null`). Always ≥1. Item shape = `{ id, name, role }` (same as `/me`'s `workspace`). |
-| `POST /workspaces` | `WorkspaceInput` `{ name }` | 201 `data: WorkspaceSummary` | Caller becomes **admin** (`role` always `"admin"`); seeds a default "Personal" profile; becomes the current workspace (server persists `lastWorkspaceId`). Ignores `X-Workspace-Id`. 400 bad JSON; 422 blank/long name. |
+| `GET /workspaces` | — | 200 `data: WorkspaceSummary[]` | Every workspace the user can open (for a switcher). **Ignores `X-Workspace-Id`; never 404s.** Memberships first (`createdAt asc`), then grant-only (`role: null`). Always ≥1. Item shape = the `Workspace` object (`{ id, name, role, currency, locale, currencyDetail }`, same as `/me`'s `workspace`). |
+| `POST /workspaces` | `WorkspaceInput` `{ name }` | 201 `data: WorkspaceSummary` | Caller becomes **admin** (`role` always `"admin"`); seeds a default "Personal" profile + the default category list; inherits the creator's current currency/number format; becomes the current workspace (server persists `lastWorkspaceId`). Ignores `X-Workspace-Id`. 400 bad JSON; 422 blank/long name. |
+| `PATCH /workspaces/{id}` | `WorkspaceCurrencyPatch` `{ currency, locale }` | 200 `data: WorkspaceSummary` | Set the workspace's currency + number format (every member sees it). **Admin only** → 403 otherwise. Uses the path `id`, not `X-Workspace-Id`. 400; 404; 422 unsupported currency. |
 
 ### Transactions
 | Method & path | Body | Success | Notes / errors |
@@ -297,13 +310,16 @@ codes are listed per row.
 | `GET /transactions/export` | — | 200 `text/csv` | **Not the JSON envelope.** Filters only (no paging; max 5000 rows). Text cells that look like formulas are apostrophe-prefixed. See § CSV. |
 | `POST /transactions/delete-all` | `{ confirm: "DELETE" }` | 200 `data: { deleted }` | 400 "Type DELETE to confirm" if `confirm !== "DELETE"`. Deletes rows the caller **authored in the current workspace**, in profiles they can still write to (editor+). Other workspaces are untouched. |
 
-### Categories (scoped to the user, not the workspace)
+### Categories (scoped to the current workspace via `X-Workspace-Id`)
+Shared by every member of the workspace. Reads need workspace access; writes
+require the **editor** role (viewer → 403). Switching `X-Workspace-Id` changes
+the list.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /categories` | — | 200 `data: Category[]` | Ordered `kind asc, name asc` (income first). |
-| `POST /categories` | `CategoryInput` `{ name, kind, icon? }` | 201 `data: Category` | 422; 409 "A category with that name already exists" (unique per user+kind) |
-| `PATCH /categories/{id}` | `{ name?, icon? }` | 200 `data: Category` | 422; 404 "Category not found"; 409 duplicate name |
-| `DELETE /categories/{id}` | — | 200 `data: { id, deleted: true }` | Referencing transactions get `categoryId = null`. 422; 404 |
+| `GET /categories` | — | 200 `data: Category[]` | The current workspace's list, `kind asc, name asc` (income first). |
+| `POST /categories` | `CategoryInput` `{ name, kind, icon? }` | 201 `data: Category` | Editor+ (403 for viewer). 422; 409 "A category with that name already exists" (unique per workspace+kind) |
+| `PATCH /categories/{id}` | `{ name?, icon? }` | 200 `data: Category` | Editor+ (403). 422; 404 "Category not found"; 409 duplicate name |
+| `DELETE /categories/{id}` | — | 200 `data: { id, deleted: true }` | Editor+ (403). Referencing transactions get `categoryId = null`. 422; 404 |
 
 ### Profiles (RBAC: 404 = no access, 403 = role too low)
 | Method & path | Body | Success | Notes / errors |
@@ -318,8 +334,8 @@ codes are listed per row.
 ### Settings
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /settings` | — | 200 `data: Settings` | |
-| `PATCH /settings` | `SettingsPatch` (any subset of `currency, locale, theme, inputMode`; ≥1 required) | 200 `data: Settings` | 422 (incl. "Provide at least one setting to update"; unsupported currency) |
+| `GET /settings` | — | 200 `data: Settings` | User-level (theme, input mode). |
+| `PATCH /settings` | `SettingsPatch` (any subset of `theme, inputMode`; ≥1 required) | 200 `data: Settings` | 422 "Provide at least one setting to update". **Currency/number format moved to `PATCH /workspaces/{id}`.** |
 
 ### Analytics (all add `meta: { currency }`)
 | Method & path | Required | Success | Notes / errors |
@@ -350,9 +366,10 @@ codes are listed per row.
 `CategoryUpdate` — `name?` (1–20), `icon?` (≤16, nullable). **No `color`.**
 `ProfileInput` — `name` (1–20), `icon?` (≤16), `color?` (≤32).
 `ProfileUpdate` — `name?` (1–20), `icon?` (≤16, nullable), `color?` (≤32, nullable).
-`SettingsPatch` — subset of `{ currency (one of 59 codes), locale (2–20 chars),
-theme (light|dark|system), inputMode (amount_title|title_amount|combined) }`;
-at least one key.
+`SettingsPatch` — subset of `{ theme (light|dark|system),
+inputMode (amount_title|title_amount|combined) }`; at least one key.
+`WorkspaceCurrencyPatch` — `{ currency (one of 59 codes), locale (2–20 chars) }`;
+both required. Admin only (`PATCH /workspaces/{id}`).
 
 ---
 
