@@ -29,7 +29,8 @@
     "db:push:dev": "doppler run --config dev -- drizzle-kit push",
     "db:push:prod": "doppler run --config prd -- drizzle-kit push",
     "db:studio:dev": "doppler run --config dev -- drizzle-kit studio",
-    "db:studio:prod": "doppler run --config prd -- drizzle-kit studio"
+    "db:studio:prod": "doppler run --config prd -- drizzle-kit studio",
+    "kill-port": "lsof -ti:3010 | xargs kill -9"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
