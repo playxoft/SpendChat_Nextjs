@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
-import { categories, profiles, userSettings } from "@/db/schema";
+import { categories, profiles, userSettings, workspaces } from "@/db/schema";
 import {
   getCurrentUser,
   requireUser,
@@ -62,7 +62,15 @@ describe("ensureBootstrap", () => {
       .select()
       .from(userSettings)
       .where(eq(userSettings.userId, uid("u1")));
-    expect(settings.currency).toBe("USD");
+    expect(settings.theme).toBe("system");
+
+    // Currency + locale live on the workspace now (geo-detected; USD/en-US in tests).
+    const [workspace] = await getTestDb()
+      .select()
+      .from(workspaces)
+      .where(eq(workspaces.ownerId, uid("u1")));
+    expect(workspace.currency).toBe("USD");
+    expect(workspace.locale).toBe("en-US");
 
     const [profile] = await getTestDb()
       .select()
@@ -83,7 +91,7 @@ describe("getUserSettings", () => {
   it("bootstraps settings on first read", async () => {
     const settings = await getUserSettings(uid("fresh"));
     expect(settings.userId).toBe(uid("fresh"));
-    expect(settings.locale).toBe("en-US");
+    expect(settings.theme).toBe("system");
   });
 
   it("returns existing settings without re-seeding", async () => {
@@ -99,6 +107,6 @@ describe("getAppContext", () => {
     signInAs("u1");
     const ctx = await getAppContext();
     expect(ctx.user.id).toBe(uid("u1"));
-    expect(ctx.settings.currency).toBe("USD");
+    expect(ctx.workspace.currency).toBe("USD");
   });
 });

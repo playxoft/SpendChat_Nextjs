@@ -4,7 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, userSettings, workspaces } from "@/db/schema";
+import { userSettings, workspaces } from "@/db/schema";
 import {
   hasVerifiedEmail,
   refreshFirebaseIdToken,
@@ -12,7 +12,6 @@ import {
 } from "@/lib/firebase-verify";
 import { resolveUser } from "@/lib/identity";
 import { REFRESH_COOKIE, SESSION_COOKIE } from "@/lib/session-cookie";
-import { DEFAULT_CATEGORIES } from "./categories";
 import { detectSettingsDefaults } from "./geo.server";
 import { findUserById } from "./directory";
 import {
@@ -109,37 +108,26 @@ export function defaultWorkspaceName(name?: string | null, email?: string | null
  */
 export async function ensureBootstrap(userId: string) {
   const db = getDb();
-  const defaults = await detectSettingsDefaults();
-  await db.insert(userSettings).values({ userId, ...defaults }).onConflictDoNothing();
-
-  const existing = await db.query.categories.findFirst({
-    where: eq(categories.userId, userId),
-    columns: { id: true },
-  });
-  if (!existing) {
-    await db
-      .insert(categories)
-      .values(
-        DEFAULT_CATEGORIES.map((c) => ({
-          userId,
-          name: c.name,
-          kind: c.kind,
-          icon: c.icon,
-        })),
-      )
-      .onConflictDoNothing();
-  }
+  // Theme + input mode default at the DB level; currency/locale live on the
+  // workspace (seeded below with geo-detected defaults).
+  await db.insert(userSettings).values({ userId }).onConflictDoNothing();
 
   const ownWorkspace = await db.query.workspaces.findFirst({
     where: eq(workspaces.ownerId, userId),
     columns: { id: true },
   });
   if (!ownWorkspace) {
-    const identity = await findUserById(userId);
-    await createWorkspaceWithDefaults(
-      userId,
-      defaultWorkspaceName(identity?.name, identity?.email),
-    );
+    const [identity, defaults] = await Promise.all([
+      findUserById(userId),
+      detectSettingsDefaults(),
+    ]);
+    // The default workspace carries the new user's geo-detected currency/locale
+    // and is seeded with the default category list (both inside
+    // `createWorkspaceWithDefaults`).
+    await createWorkspaceWithDefaults(userId, defaultWorkspaceName(identity?.name, identity?.email), {
+      currency: defaults.currency,
+      locale: defaults.locale,
+    });
     if (identity?.email) await acceptPendingInvites(userId, identity.email);
   }
 }

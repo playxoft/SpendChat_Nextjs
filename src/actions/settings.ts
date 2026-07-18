@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as settingsService from "@/services/settings";
-import { type SettingsInput } from "@/lib/validation";
 
 function revalidateAll() {
   revalidatePath("/settings");
@@ -13,33 +12,7 @@ function revalidateAll() {
   revalidatePath("/analytics");
 }
 
-export async function updateSettings(input: SettingsInput): Promise<ActionResult> {
-  const user = await requireUser();
-  return runAction(
-    "updateSettings",
-    async () => {
-      await settingsService.updateSettings(user.id, input);
-      revalidateAll();
-      return {};
-    },
-    { userId: user.id },
-  );
-}
-
-export async function updateCurrency(currency: string): Promise<ActionResult> {
-  const user = await requireUser();
-  return runAction(
-    "updateCurrency",
-    async () => {
-      await settingsService.updateCurrency(user.id, currency);
-      revalidateAll();
-      return {};
-    },
-    { userId: user.id, currency },
-  );
-}
-
-/** Partial settings update (any subset of currency/locale/theme/inputMode). */
+/** Partial user-settings update (theme, input mode — these follow the user). */
 export async function patchSettings(input: Record<string, unknown>): Promise<ActionResult> {
   const user = await requireUser();
   return runAction(

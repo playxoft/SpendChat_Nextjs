@@ -1,4 +1,4 @@
-import { getCurrentUser, getCurrentWorkspace, getUserSettings } from "@/lib/auth";
+import { getCurrentUser, getCurrentWorkspace } from "@/lib/auth";
 import { getProfiles, listTransactions } from "@/lib/queries";
 import { parseTxnFilters } from "@/lib/filters";
 import { transactionsToReportCsv } from "@/lib/transactions-csv";
@@ -14,7 +14,6 @@ export async function GET(request: Request) {
     if (!user) return new Response("Unauthorized", { status: 401 });
     setLogContext({ userId: user.id });
 
-    const settings = await getUserSettings(user.id);
     const workspace = await getCurrentWorkspace(user.id);
     const url = new URL(request.url);
     const filters = parseTxnFilters((k) => url.searchParams.get(k));
@@ -30,8 +29,8 @@ export async function GET(request: Request) {
 
     const csv = transactionsToReportCsv({
       rows,
-      currency: settings.currency,
-      locale: settings.locale,
+      currency: workspace.currency,
+      locale: workspace.locale,
       workspaceName: workspace.name,
       profileName,
       from: filters.from,
