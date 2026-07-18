@@ -19,6 +19,48 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 4.0.0 — 2026-07-18
+
+Currency, number format (locale), and the category list moved from **per-user**
+to **per-workspace**. Each workspace now has its own currency and its own shared
+category list; theme and input mode stay per-user (they follow the user across
+workspaces). This removes fields from `Settings` and re-scopes categories, so
+it's a **breaking** change.
+
+### Changed
+- **`Settings` no longer has `currency`, `locale`, or `currencyDetail`.** It is
+  now just `{ theme, inputMode }`. `GET /me` and `GET /settings` reflect this.
+- **`PATCH /settings` no longer accepts `currency` or `locale`** — only
+  `{ theme, inputMode }` (any subset, ≥1).
+- **The `workspace` object (in `GET /me` and `GET /workspaces`) gained
+  `currency`, `locale`, and `currencyDetail`** (`{ code, symbol, decimals }`).
+  Format minor-unit amounts using `workspace.currencyDetail.decimals` (or
+  `meta.currency` on list/analytics responses, unchanged).
+- **`GET`/`POST`/`PATCH`/`DELETE /categories` are now scoped to the current
+  workspace** (`X-Workspace-Id`), not the user. Switching workspace changes the
+  list. Writes require the **editor** role (viewer → 403); the unique-name
+  constraint is now per **workspace**+kind. `POST /workspaces` also seeds the new
+  workspace's default category list.
+
+### Added
+- **`PATCH /api/v1/workspaces/{id}`** — set a workspace's `currency` + `locale`.
+  Body `WorkspaceCurrencyPatch` `{ currency, locale }`. **Admin only** (403
+  otherwise). Returns the updated workspace. This replaces the old
+  currency/locale path through `PATCH /settings`.
+
+**Flutter impact:** required.
+- Read `currency` / `locale` / `currencyDetail` from the **workspace** object
+  (`/me`, `/workspaces`), not from `settings`. Anything binding
+  `settings.currency` / `settings.locale` / `settings.currencyDetail` must move
+  to `workspace.*` or it will break.
+- Change the currency/number-format editor to call
+  `PATCH /workspaces/{id}` (admin only) instead of `PATCH /settings`. Keep
+  theme/input-mode edits on `PATCH /settings`.
+- Categories now change when the active workspace changes — re-fetch
+  `/categories` on workspace switch, and gate add/edit/delete on the editor role.
+
+---
+
 ## 3.1.0 — 2026-07-17
 
 Added an optional telemetry request header. Purely additive — no endpoint, field,

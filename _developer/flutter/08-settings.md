@@ -1,23 +1,36 @@
 # 08 · Settings
 
 Route: `/settings`, which lands on **Account**. Sections (in nav order): Account,
-Workspace, Theme, Input, Categories, Shortcuts. All settings persist server-side
-via `PATCH /settings` (partial) and follow the account across devices.
+Workspace, Theme, Input, Categories, Shortcuts.
 
-Persisted `settings` fields: `currency`, `locale`, `theme`, `inputMode` (plus
-`lastWorkspaceId`, managed by workspace switching). **There is no timezone
-setting** — timezone is device-derived (see [11](./11-additional-details.md)).
+**User** settings (`theme`, `inputMode`) persist via `PATCH /settings` (partial)
+and follow the account across devices and workspaces. **Currency + number format
+(locale) are per-workspace** — edited under Workspace settings via
+`PATCH /workspaces/{id}` (admin only), and read from the `workspace` object
+(`/me`, `/workspaces`).
+
+Persisted user `settings` fields: `theme`, `inputMode` (plus `lastWorkspaceId`,
+managed by workspace switching). **There is no timezone setting** — timezone is
+device-derived (see [11](./11-additional-details.md)).
 
 ---
 
-## 1. Account (currency + number format)
+## 1. Account
 
-Card "Account" ("Signed in as {email}"). Contains the currency + locale form and,
-below it, the **Danger zone** (§6).
+Card "Account" ("Signed in as {email}") holds the **Danger zone** (§6). Currency
+and number format used to live here; they moved to **Workspace settings** (§ 1a).
+
+## 1a. Workspace currency + number format
+
+Under **Settings › Workspace**, a "Currency & number format" card. Everyone in
+the workspace sees amounts in this currency; **only admins can change it** —
+non-admins see the controls read-only (no Save/Cancel). Values come from the
+`workspace` object; on save → `PATCH /workspaces/{id} { currency, locale }`,
+toast "Workspace currency saved".
 
 - **Currency** — a searchable combobox over the **59 supported currencies**
-  (§2). Helper: "Currency is applied across the whole app. Existing amounts keep
-  their stored value; only how they're displayed changes."
+  (§2). Helper: "Everyone in this workspace sees amounts in this currency.
+  Existing amounts keep their stored value; only how they're displayed changes."
 - **Number format (locale)** — a select from this fixed list (value · sample):
 
   | Value | Label |
@@ -31,9 +44,10 @@ below it, the **Danger zone** (§6).
   | `pt-BR` | Portuguese (BR) · 1.234,56 |
   | `ja-JP` | Japanese · 1,234 |
 
-- **Dirty-state save:** a **Save changes** button enabled only when the form
-  differs from the loaded values, and a **Cancel** that reverts. On save →
-  `PATCH /settings { currency, locale }`, toast "Settings saved".
+- **Dirty-state save (admins only):** a **Save changes** button enabled only
+  when the form differs from the loaded values, and a **Cancel** that reverts. On
+  save → `PATCH /workspaces/{id} { currency, locale }`, toast "Workspace currency
+  saved". Non-admins get no Save/Cancel — the controls are read-only.
 
 > **Currency vs. locale are separate.** Currency provides the symbol + decimals
 > (money math); locale controls number grouping/decimal separators for display

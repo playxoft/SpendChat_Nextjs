@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { requireApiUser } from "@/lib/api-auth";
 import { ensureBootstrap } from "@/lib/auth";
 import { apiOk, handle, readJson } from "@/lib/api-response";
+import { serializeWorkspace } from "@/lib/api-serializers";
 import { listUserWorkspaces } from "@/lib/workspaces";
 import { createWorkspace } from "@/services/workspaces";
 
@@ -12,7 +13,8 @@ export const dynamic = "force-dynamic";
  * app can build a workspace switcher. Not scoped to one workspace: the
  * `X-Workspace-Id` header is ignored here (this lists all of them, never 404s).
  * Ordering mirrors `listUserWorkspaces`: memberships first (workspace createdAt
- * ascending), then grant-only workspaces.
+ * ascending), then grant-only workspaces. Each carries its currency + number
+ * format, so the switcher can format amounts without a follow-up request.
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
@@ -20,8 +22,7 @@ export async function GET(request: NextRequest) {
     // Guarantee a default workspace on the first ever call, like getApiContext().
     await ensureBootstrap(user.id);
     const list = await listUserWorkspaces(user.id);
-    // Keep the surface minimal — drop ownerId; the mobile model is { id, name, role }.
-    return apiOk(list.map((w) => ({ id: w.id, name: w.name, role: w.role })));
+    return apiOk(list.map(serializeWorkspace));
   });
 }
 
@@ -39,6 +40,6 @@ export async function POST(request: NextRequest) {
     const body = await readJson(request);
     // createWorkspace validates { name } (1–60) and runs ensureBootstrap.
     const created = await createWorkspace(user.id, body);
-    return apiOk({ id: created.id, name: created.name, role: created.role }, 201);
+    return apiOk(serializeWorkspace(created), 201);
   });
 }

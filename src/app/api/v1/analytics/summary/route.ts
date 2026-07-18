@@ -14,10 +14,10 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
-    const { user, settings, workspace } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const url = new URL(request.url);
     const filters = parseTxnFilters((k) => url.searchParams.get(k));
     const summary = await getSummary(user.id, workspace.id, filters);
-    return apiOk(summary, 200, currencyMeta(settings.currency));
+    return apiOk(summary, 200, currencyMeta(workspace.currency));
   });
 }

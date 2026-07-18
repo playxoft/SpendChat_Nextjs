@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "3.1.0"
+  version: "4.0.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 3.1.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 4.0.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
@@ -55,8 +55,8 @@ info:
       path. Any endpoint that reads a JSON body can return `400` (malformed
       JSON). The account-linking `409` above can surface on any endpoint.
     - **Money** is integer minor units (`amountMinor`). Each transaction also
-      returns `amount` (major-unit string). One currency per user;
-      `meta.currency`/`settings.currencyDetail` give the `decimals`.
+      returns `amount` (major-unit string). One currency **per workspace**;
+      `meta.currency`/`workspace.currencyDetail` give the `decimals`.
     - **Dates:** `occurredOn` is a calendar date `YYYY-MM-DD`; timestamps are
       RFC 3339 date-times. All JSON responses set `Cache-Control: no-store`.
 
@@ -156,6 +156,36 @@ paths:
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/workspaces/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    patch:
+      tags: [Workspaces]
+      summary: Update a workspace's currency + number format
+      description: |
+        Sets the workspace's `currency` and `locale` (number format), which
+        every member sees. **Admin only** — a non-admin gets 403. The
+        `X-Workspace-Id` header is not used here; the workspace is the path `id`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WorkspaceCurrencyPatch" }
+      responses:
+        "200":
+          description: The updated workspace (with `currencyDetail`).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/WorkspaceSummary" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
   /api/v1/transactions:
@@ -402,9 +432,14 @@ paths:
     get:
       tags: [Categories]
       summary: List categories (income first, then by name)
+      description: |
+        The current workspace's shared category list (scoped by `X-Workspace-Id`).
+        Every member of a workspace sees the same categories.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
       responses:
         "200":
-          description: The caller's categories.
+          description: The current workspace's categories.
           content:
             application/json:
               schema:
@@ -420,6 +455,11 @@ paths:
     post:
       tags: [Categories]
       summary: Create a category
+      description: |
+        Creates a category in the current workspace (`X-Workspace-Id`). Requires
+        the **editor** role or higher — a viewer gets 403.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
         required: true
         content:
@@ -444,9 +484,13 @@ paths:
   /api/v1/categories/{id}:
     parameters:
       - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
     patch:
       tags: [Categories]
       summary: Update a category (partial)
+      description: |
+        Updates a category in the current workspace (`X-Workspace-Id`). Requires
+        the **editor** role or higher.
       requestBody:
         required: true
         content:
@@ -470,6 +514,9 @@ paths:
     delete:
       tags: [Categories]
       summary: Delete a category (referencing transactions keep their data; category set to null)
+      description: |
+        Deletes a category from the current workspace (`X-Workspace-Id`).
+        Requires the **editor** role or higher.
       responses:
         "200":
           description: Deletion acknowledged.
@@ -944,7 +991,10 @@ components:
             - type: "null"
             - type: string
               enum: [viewer, editor, admin]
-      required: [id, name, role]
+        currency: { $ref: "#/components/schemas/CurrencyCode" }
+        locale: { type: string, example: en-US }
+        currencyDetail: { $ref: "#/components/schemas/CurrencyMeta" }
+      required: [id, name, role, currency, locale, currencyDetail]
 
     WorkspaceInput:
       type: object
@@ -967,23 +1017,29 @@ components:
 
     Settings:
       type: object
+      description: >
+        User settings that follow the user across every workspace. Currency and
+        number format are per-workspace (see WorkspaceSummary), not here.
       properties:
-        currency: { $ref: "#/components/schemas/CurrencyCode" }
-        locale: { type: string, example: en-US }
         theme: { type: string, enum: [light, dark, system] }
         inputMode: { type: string, enum: [amount_title, title_amount, combined] }
-        currencyDetail: { $ref: "#/components/schemas/CurrencyMeta" }
-      required: [currency, locale, theme, inputMode, currencyDetail]
+      required: [theme, inputMode]
 
     SettingsPatch:
       type: object
       minProperties: 1
       description: Any subset; at least one property required.
       properties:
-        currency: { $ref: "#/components/schemas/CurrencyCode" }
-        locale: { type: string, minLength: 2, maxLength: 20 }
         theme: { type: string, enum: [light, dark, system] }
         inputMode: { type: string, enum: [amount_title, title_amount, combined] }
+
+    WorkspaceCurrencyPatch:
+      type: object
+      description: Update a workspace's currency + number format (admin only).
+      properties:
+        currency: { $ref: "#/components/schemas/CurrencyCode" }
+        locale: { type: string, minLength: 2, maxLength: 20 }
+      required: [currency, locale]
 
     CurrencyCode:
       type: string

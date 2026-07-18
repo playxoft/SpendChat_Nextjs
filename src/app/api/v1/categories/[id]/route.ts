@@ -9,24 +9,24 @@ export const dynamic = "force-dynamic";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/** PATCH /api/v1/categories/:id — partial update (name, icon, color). */
+/** PATCH /api/v1/categories/:id — partial update (name, icon) in the current workspace (editor+). */
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   return handle(async () => {
-    const { user } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const { id } = await ctx.params;
     const body = await readJson(request);
-    const updated = await updateCategory(user.id, id, body);
+    const updated = await updateCategory(user.id, workspace.id, id, body);
     if (!updated) throw notFound("Category not found");
     return apiOk(serializeCategory(updated));
   });
 }
 
-/** DELETE /api/v1/categories/:id — referencing transactions are set to NULL. */
+/** DELETE /api/v1/categories/:id — referencing transactions are set to NULL (editor+). */
 export async function DELETE(request: NextRequest, ctx: Ctx) {
   return handle(async () => {
-    const { user } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const { id } = await ctx.params;
-    const deleted = await deleteCategory(user.id, id);
+    const deleted = await deleteCategory(user.id, workspace.id, id);
     if (!deleted) throw notFound("Category not found");
     return apiOk({ id, deleted: true });
   });
