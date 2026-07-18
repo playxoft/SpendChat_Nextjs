@@ -212,13 +212,21 @@ export function WorkspaceSettings({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* On phones each field stacks (email full width, the two selects
+                share a row, then the button). On desktop the group wrappers
+                collapse to `contents` and everything flows into a 4-column grid
+                whose first row holds the labels and second row the controls — so
+                labels and inputs each stay aligned as a band even when the long
+                email label wraps in a narrow column. */}
             {isAdmin && (
               <form
                 onSubmit={handleInvite}
-                className="space-y-2 rounded-lg border bg-muted/30 p-3 lg:flex lg:items-end lg:gap-2 lg:space-y-0"
+                className="space-y-2 rounded-lg border bg-muted/30 p-3 lg:grid lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-start lg:gap-x-2 lg:gap-y-1.5 lg:space-y-0"
               >
-                <div className="min-w-0 space-y-1.5 lg:flex-1">
-                  <Label htmlFor="invite-email">Add someone by email</Label>
+                <div className="min-w-0 space-y-1.5 lg:contents lg:space-y-0">
+                  <Label htmlFor="invite-email" className="lg:col-start-1 lg:row-start-1">
+                    Add someone by email
+                  </Label>
                   <Input
                     id="invite-email"
                     type="email"
@@ -226,16 +234,14 @@ export function WorkspaceSettings({
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="teammate@example.com"
                     maxLength={100}
-                    className="h-8"
+                    className="h-8 lg:col-start-1 lg:row-start-2"
                   />
                 </div>
-                {/* On phones the two selects share a row; on desktop this wrapper
-                    collapses (contents) so all fields flow inline. */}
                 <div className="flex gap-2 lg:contents">
-                  <div className="min-w-0 flex-1 space-y-1.5 lg:flex-none lg:shrink-0">
-                    <Label>Access to</Label>
+                  <div className="min-w-0 flex-1 space-y-1.5 lg:contents lg:space-y-0">
+                    <Label className="lg:col-start-2 lg:row-start-1">Access to</Label>
                     <Select value={scope} onValueChange={setScope}>
-                      <SelectTrigger className="h-8 w-full lg:w-40">
+                      <SelectTrigger className="h-8 w-full lg:col-start-2 lg:row-start-2 lg:w-40">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -249,21 +255,20 @@ export function WorkspaceSettings({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="min-w-0 flex-1 space-y-1.5 lg:flex-none lg:shrink-0">
-                    <Label>Role</Label>
+                  <div className="min-w-0 flex-1 space-y-1.5 lg:contents lg:space-y-0">
+                    <Label className="lg:col-start-3 lg:row-start-1">Role</Label>
                     <RoleSelect
                       value={role}
                       onChange={setRole}
                       ariaLabel="Invite role"
-                      className="w-full lg:w-28"
+                      className="w-full lg:col-start-3 lg:row-start-2 lg:w-28"
                     />
                   </div>
                 </div>
                 <Button
                   type="submit"
-                  size="sm"
                   disabled={pending}
-                  className="w-full lg:w-auto lg:shrink-0"
+                  className="w-full lg:col-start-4 lg:row-start-2 lg:w-auto"
                 >
                   <UserPlus className="size-4" />
                   Add
