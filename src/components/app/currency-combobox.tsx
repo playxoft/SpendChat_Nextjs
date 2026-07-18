@@ -16,10 +16,12 @@ export function CurrencyCombobox({
   value,
   onValueChange,
   id,
+  disabled,
 }: {
   value: string;
   onValueChange: (code: string) => void;
   id?: string;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const [query, setQuery] = React.useState("");
@@ -83,6 +85,7 @@ export function CurrencyCombobox({
           variant="outline"
           role="combobox"
           aria-expanded={open}
+          disabled={disabled}
           className="w-full justify-between font-normal"
         >
           <span className="truncate">

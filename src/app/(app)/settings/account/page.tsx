@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { getUserSettings, requireUser } from "@/lib/auth";
+import { getAppContext } from "@/lib/auth";
 import {
   Card,
   CardContent,
@@ -7,8 +7,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { SettingsForm } from "@/components/app/settings-form";
 import { DangerZone } from "@/components/app/danger-zone";
+import { WorkspaceCurrencyForm } from "@/components/app/workspace-currency-form";
 
 export const dynamic = "force-dynamic";
 
@@ -18,8 +18,8 @@ export const metadata: Metadata = {
 };
 
 export default async function AccountSettingsPage() {
-  const user = await requireUser();
-  const settings = await getUserSettings(user.id);
+  const { user, workspace } = await getAppContext();
+  const isAdmin = workspace.role === "admin";
 
   return (
     <>
@@ -30,8 +30,22 @@ export default async function AccountSettingsPage() {
             Signed in as {user.email ?? user.name ?? "unknown"}.
           </CardDescription>
         </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Currency &amp; number format</CardTitle>
+          <CardDescription>
+            Applies to everyone in the “{workspace.name}” workspace.
+          </CardDescription>
+        </CardHeader>
         <CardContent>
-          <SettingsForm currency={settings.currency} locale={settings.locale} />
+          <WorkspaceCurrencyForm
+            workspaceId={workspace.id}
+            currency={workspace.currency}
+            locale={workspace.locale}
+            canEdit={isAdmin}
+          />
         </CardContent>
       </Card>
 
