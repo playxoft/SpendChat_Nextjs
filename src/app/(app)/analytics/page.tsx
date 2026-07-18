@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { getCurrentWorkspace, getUserSettings, requireUser } from "@/lib/auth";
+import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import {
   getCategoryBreakdown,
   getMonthlyTrend,
@@ -54,10 +54,9 @@ export default async function AnalyticsPage({
   };
 
   const user = await requireUser();
-  const settings = await getUserSettings(user.id);
   const workspace = await getCurrentWorkspace(user.id);
   const profiles = await getProfiles(user.id, workspace.id);
-  const { currency, locale } = settings;
+  const { currency, locale } = workspace;
 
   const today = todayISO(await getTimeZone());
   const { start, end } = monthRange(today);
@@ -77,7 +76,7 @@ export default async function AnalyticsPage({
     : `${formatDateLabel(from ?? start, locale)} – ${formatDateLabel(to ?? end, locale)}`;
   // Remount the streamed results on any filter change so the skeleton shows
   // immediately instead of holding the previous numbers.
-  const streamKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}`;
+  const streamKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}|${parsed.type ?? "all"}`;
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
@@ -89,7 +88,7 @@ export default async function AnalyticsPage({
         <PrintButton />
       </div>
 
-      <AnalyticsFilters today={today} />
+      <AnalyticsFilters today={today} locale={locale} />
 
       {/* Print-only branded report header. */}
       <div className="mb-4 hidden border-b pb-3 print:block">
@@ -119,6 +118,7 @@ export default async function AnalyticsPage({
           from={from}
           to={to}
           profileId={profileId}
+          type={parsed.type}
           currency={currency}
           locale={locale}
           today={today}
@@ -140,6 +140,7 @@ async function AnalyticsResults({
   from,
   to,
   profileId,
+  type,
   currency,
   locale,
   today,
@@ -149,17 +150,21 @@ async function AnalyticsResults({
   from?: string;
   to?: string;
   profileId?: string;
+  type?: "income" | "expense";
   currency: string;
   locale: string;
   today: string;
 }) {
   const filters = { from, to, profileId };
+  // The Type filter scopes the category breakdown; without it we keep the
+  // default expense view. The overview cards and trend stay the full picture.
+  const breakdownType = type ?? "expense";
   const months = lastNMonths(6, today);
   const fromISO = `${months[0]}-01`;
 
   const [summary, breakdown, trendRows] = await Promise.all([
     getSummary(userId, workspaceId, filters),
-    getCategoryBreakdown(userId, workspaceId, "expense", filters),
+    getCategoryBreakdown(userId, workspaceId, breakdownType, filters),
     getMonthlyTrend(userId, workspaceId, fromISO, profileId),
   ]);
 
@@ -193,8 +198,12 @@ async function AnalyticsResults({
 
       <Card>
         <CardHeader>
-          <CardTitle>Spending by category</CardTitle>
-          <CardDescription>Expenses for the selected range</CardDescription>
+          <CardTitle>
+            {breakdownType === "income" ? "Income by category" : "Spending by category"}
+          </CardTitle>
+          <CardDescription>
+            {breakdownType === "income" ? "Income" : "Expenses"} for the selected range
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <CategoryPieChart data={pieData} currency={currency} locale={locale} />
