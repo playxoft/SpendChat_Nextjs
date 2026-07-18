@@ -1,7 +1,8 @@
 import { MessageSquarePlus } from "lucide-react";
 import { DayDivider } from "./day-divider";
+import { MonthDivider } from "./month-divider";
 import { TransactionItem } from "./transaction-item";
-import { dayDividerLabel } from "@/lib/dates";
+import { dayDividerLabel, monthDividerLabel, monthKey } from "@/lib/dates";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 
@@ -45,34 +46,48 @@ export function ChatFeed({
     );
   }
 
-  // rows are oldest-first; group consecutively by date.
-  const groups: { date: string; items: TransactionRow[] }[] = [];
+  // rows are oldest-first; group by month, then consecutively by date within it.
+  // Each month section carries `data-month` so the scroll spy can tell which
+  // month is under the header and drive the summary bar's balance.
+  type DayGroup = { date: string; items: TransactionRow[] };
+  const months: { month: string; days: DayGroup[] }[] = [];
   for (const r of rows) {
-    const last = groups[groups.length - 1];
-    if (last && last.date === r.occurredOn) last.items.push(r);
-    else groups.push({ date: r.occurredOn, items: [r] });
+    const mk = monthKey(r.occurredOn);
+    let month = months[months.length - 1];
+    if (!month || month.month !== mk) {
+      month = { month: mk, days: [] };
+      months.push(month);
+    }
+    const lastDay = month.days[month.days.length - 1];
+    if (lastDay && lastDay.date === r.occurredOn) lastDay.items.push(r);
+    else month.days.push({ date: r.occurredOn, items: [r] });
   }
 
   return (
     <div className="space-y-1">
-      {groups.map((g) => (
-        <div key={g.date}>
-          <DayDivider label={dayDividerLabel(g.date, today, locale)} />
-          <div className="space-y-2">
-            {g.items.map((r) => (
-              <TransactionItem
-                key={r.id}
-                row={r}
-                currency={currency}
-                locale={locale}
-                categories={categories}
-                profiles={profiles}
-                today={today}
-                timeLabel={timeLabel(r.createdAt, locale, timeZone)}
-              />
-            ))}
-          </div>
-        </div>
+      {months.map((m) => (
+        <section key={m.month} data-month={m.month}>
+          <MonthDivider label={monthDividerLabel(m.month, today, locale)} />
+          {m.days.map((g) => (
+            <div key={g.date}>
+              <DayDivider label={dayDividerLabel(g.date, today, locale)} />
+              <div className="space-y-2">
+                {g.items.map((r) => (
+                  <TransactionItem
+                    key={r.id}
+                    row={r}
+                    currency={currency}
+                    locale={locale}
+                    categories={categories}
+                    profiles={profiles}
+                    today={today}
+                    timeLabel={timeLabel(r.createdAt, locale, timeZone)}
+                  />
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
       ))}
     </div>
   );

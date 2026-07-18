@@ -3,12 +3,13 @@
 import { useState } from "react";
 import { TransactionBubble, bubbleAmountLabel } from "./transaction-bubble";
 import { TransactionDialog } from "./transaction-dialog";
+import { useOptimisticRow } from "@/hooks/use-optimistic-row";
 import { minorToInputString } from "@/lib/money";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 
 export function TransactionItem({
-  row,
+  row: serverRow,
   currency,
   locale,
   categories,
@@ -25,6 +26,11 @@ export function TransactionItem({
   timeLabel: string;
 }) {
   const [editing, setEditing] = useState(false);
+  // An edit patches the bubble / a delete hides it in the same commit as the
+  // toast, then the server revalidation reconciles.
+  const { row, removed, patch, remove } = useOptimisticRow(serverRow);
+
+  if (removed) return null;
 
   const amountLabel = bubbleAmountLabel(row.type, row.amountMinor, currency, locale);
 
@@ -45,6 +51,8 @@ export function TransactionItem({
         mode="edit"
         open={editing}
         onOpenChange={setEditing}
+        onSaved={patch}
+        onDeleted={remove}
         categories={categories}
         profiles={profiles}
         currency={currency}

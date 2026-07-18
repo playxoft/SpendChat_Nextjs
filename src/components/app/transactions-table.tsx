@@ -38,6 +38,7 @@ import {
   useColumnLayout,
   type ColumnId,
 } from "./transaction-columns-store";
+import { useOptimisticRow } from "@/hooks/use-optimistic-row";
 import { formatMoney, minorToInputString, signedMinor } from "@/lib/money";
 import { formatDateLabel } from "@/lib/dates";
 import { cn } from "@/lib/utils";
@@ -308,7 +309,7 @@ function SortableHeader({
 }
 
 function Row({
-  row,
+  row: serverRow,
   columns,
   currency,
   locale,
@@ -317,7 +318,12 @@ function Row({
   today,
 }: SharedProps & { row: TransactionRow; columns: ColumnId[] }) {
   const [editing, setEditing] = useState(false);
+  // An edit patches the cells / a delete hides the row in the same commit as the
+  // toast, then the server revalidation reconciles.
+  const { row, removed, patch, remove } = useOptimisticRow(serverRow);
   const ctx: CellContext = { currency, locale };
+
+  if (removed) return null;
 
   return (
     <>
@@ -347,6 +353,8 @@ function Row({
         mode="edit"
         open={editing}
         onOpenChange={setEditing}
+        onSaved={patch}
+        onDeleted={remove}
         categories={categories}
         profiles={profiles}
         currency={currency}
