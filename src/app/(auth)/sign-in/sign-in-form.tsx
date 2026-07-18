@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { sendEmailVerification, signInWithEmailAndPassword } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { getFirebaseAuth, syncSession } from "@/lib/firebase";
 import { firebaseAuthErrorMessage } from "@/lib/auth-errors";
@@ -99,10 +100,9 @@ export function SignInForm() {
               Forgot password?
             </Link>
           </div>
-          <Input
+          <PasswordInput
             id="password"
             name="password"
-            type="password"
             autoComplete="current-password"
             required
             placeholder="••••••••"
