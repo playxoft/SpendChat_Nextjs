@@ -31,6 +31,7 @@ import {
 import { ProfileFormDialog } from "./profile-form-dialog";
 import { ProfileDeleteDialog } from "./profile-delete-dialog";
 import { useLoadingOverlay } from "./loading-overlay";
+import { usePermissions } from "./permissions";
 import { Kbd } from "@/components/ui/kbd";
 import { reorderProfiles } from "@/actions/profiles";
 import { useShortcut } from "@/hooks/use-shortcut";
@@ -59,6 +60,7 @@ export function ProfileList({
   const pathname = usePathname();
   const sp = useSearchParams();
   const { runQuiet } = useLoadingOverlay();
+  const { canManage } = usePermissions();
   const [, startTransition] = useTransition();
 
   const [items, setItems] = React.useState<P[]>(profiles);
@@ -135,14 +137,17 @@ export function ProfileList({
         <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Profiles
         </span>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label="Add profile"
-          onClick={() => setAddOpen(true)}
-        >
-          <Plus className="size-3.5" />
-        </Button>
+        {/* Only workspace admins can create profiles. */}
+        {canManage && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label="Add profile"
+            onClick={() => setAddOpen(true)}
+          >
+            <Plus className="size-3.5" />
+          </Button>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
@@ -154,6 +159,7 @@ export function ProfileList({
                 profile={p}
                 active={shownActive === p.id}
                 shortcut={enableShortcuts ? profileShortcut(index) : ""}
+                canManage={canManage}
                 onSelect={() => go(p.id)}
                 onEdit={() => setEditing(p)}
                 onDelete={() => setDeleting(p)}
@@ -209,6 +215,7 @@ function ProfileRow({
   profile,
   active,
   shortcut,
+  canManage,
   onSelect,
   onEdit,
   onDelete,
@@ -216,6 +223,7 @@ function ProfileRow({
   profile: P;
   active: boolean;
   shortcut: string;
+  canManage: boolean;
   onSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -244,15 +252,20 @@ function ProfileRow({
         isDragging && "bg-accent shadow-sm",
       )}
     >
-      <button
-        type="button"
-        aria-label="Drag to reorder"
-        className="cursor-grab touch-none px-1 py-2 text-muted-foreground/50 hover:text-muted-foreground"
-        {...attributes}
-        {...listeners}
-      >
-        <GripVertical className="size-3.5" />
-      </button>
+      {/* Reordering is admin-only — no drag handle for viewers/editors. */}
+      {canManage ? (
+        <button
+          type="button"
+          aria-label="Drag to reorder"
+          className="cursor-grab touch-none px-1 py-2 text-muted-foreground/50 hover:text-muted-foreground"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="size-3.5" />
+        </button>
+      ) : (
+        <span className="w-2.5 shrink-0" aria-hidden />
+      )}
       <button
         type="button"
         onClick={onSelect}
@@ -271,29 +284,32 @@ function ProfileRow({
           className="ml-auto shrink-0 opacity-60 transition-transform duration-200 group-hover:-translate-x-7"
         />
       ) : null}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={`${profile.name} options`}
-            className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 transition-opacity duration-200 group-hover:opacity-100 aria-expanded:opacity-100"
-          >
-            <MoreVertical className="size-3.5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem className="cursor-pointer" onClick={onEdit}>
-            <Pencil className="size-4" /> Edit
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            className="cursor-pointer text-destructive focus:text-destructive"
-            onClick={onDelete}
-          >
-            <Trash2 className="size-4" /> Delete
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {/* Rename/delete a profile is admin-only. */}
+      {canManage && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`${profile.name} options`}
+              className="absolute top-1/2 right-1.5 -translate-y-1/2 opacity-0 transition-opacity duration-200 group-hover:opacity-100 aria-expanded:opacity-100"
+            >
+              <MoreVertical className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem className="cursor-pointer" onClick={onEdit}>
+              <Pencil className="size-4" /> Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="cursor-pointer text-destructive focus:text-destructive"
+              onClick={onDelete}
+            >
+              <Trash2 className="size-4" /> Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

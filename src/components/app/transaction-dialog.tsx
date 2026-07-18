@@ -42,6 +42,7 @@ import { getCurrency } from "@/lib/currencies";
 import { amountPlaceholder, formatAmountInput, parseAmountInput } from "@/lib/parse-amount";
 import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
+import { usePermissions } from "./permissions";
 import type { TransactionRow } from "@/lib/queries";
 import type { Category, Profile } from "@/db/schema";
 
@@ -92,6 +93,11 @@ export function TransactionDialog({
    * optimistically in the same commit as the toast. */
   onDeleted?: () => void;
 }) {
+  // Viewers (no editor access anywhere) get a read-only dialog: fields are
+  // disabled and the Save/Delete buttons are hidden. The server enforces this too.
+  const { canWrite } = usePermissions();
+  const readOnly = !canWrite;
+
   const controlled = open !== undefined;
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = controlled ? open : internalOpen;
@@ -143,11 +149,12 @@ export function TransactionDialog({
   useShortcut(
     toggleCombo,
     () => setValues((v) => ({ ...v, type: v.type === "expense" ? "income" : "expense", categoryId: null })),
-    { enabled: !!isOpen, allowInInput: true },
+    { enabled: !!isOpen && !readOnly, allowInInput: true },
   );
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (readOnly) return;
     // Read against the user's locale, so "1,50" is 1.50 for a de-DE user
     // and "1,000" is 1000 for an en-US one; ambiguous input is rejected.
     const amount = parseAmountInput(values.amount, locale);
@@ -214,7 +221,7 @@ export function TransactionDialog({
   }
 
   function handleDelete() {
-    if (!values.id) return;
+    if (readOnly || !values.id) return;
     const id = values.id;
     startDeleteTransition(async () => {
       const res = await deleteTransaction(id);
@@ -236,7 +243,7 @@ export function TransactionDialog({
       <DialogContent className="sm:max-w-md" closeOnOutsideClick={!isDirty}>
         <DialogHeader>
           <DialogTitle>
-            {mode === "edit" ? "Edit transaction" : "Add transaction"}
+            {readOnly ? "Transaction" : mode === "edit" ? "Edit transaction" : "Add transaction"}
           </DialogTitle>
           <DialogDescription>
             Amounts are recorded in {getCurrency(currency).code}.
@@ -244,6 +251,7 @@ export function TransactionDialog({
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <fieldset disabled={readOnly} className="m-0 space-y-4 border-0 p-0">
           <div className="flex w-full items-center rounded-lg border bg-muted/50 p-0.5 text-sm">
             {(["expense", "income"] as const).map((t) => (
               <button
@@ -364,42 +372,53 @@ export function TransactionDialog({
             />
           </div>
 
-          <DialogFooter className={cn(mode === "edit" && "sm:justify-between")}>
-            {mode === "edit" ? (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button type="button" variant="destructive" disabled={deletePending || pending}>
-                    <Trash2 className="size-4" /> Delete
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Delete this transaction?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      This removes it for good and updates your balance. This can’t be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel disabled={deletePending}>Cancel</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDelete}
-                      disabled={deletePending}
-                      className={buttonVariants({ variant: "destructive" })}
-                    >
-                      Delete
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            ) : null}
-            {/* In edit mode, Save stays disabled until something actually changes. */}
-            <Button
-              type="submit"
-              disabled={pending || deletePending || (mode === "edit" && !isDirty)}
-            >
-              {mode === "edit" ? "Save changes" : "Add transaction"}
-            </Button>
-          </DialogFooter>
+          </fieldset>
+
+          {/* Viewers see a read-only record — no Save/Delete, just Close. */}
+          {readOnly ? (
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setOpen(false)}>
+                Close
+              </Button>
+            </DialogFooter>
+          ) : (
+            <DialogFooter className={cn(mode === "edit" && "sm:justify-between")}>
+              {mode === "edit" ? (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button type="button" variant="destructive" disabled={deletePending || pending}>
+                      <Trash2 className="size-4" /> Delete
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete this transaction?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This removes it for good and updates your balance. This can’t be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel disabled={deletePending}>Cancel</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleDelete}
+                        disabled={deletePending}
+                        className={buttonVariants({ variant: "destructive" })}
+                      >
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              ) : null}
+              {/* In edit mode, Save stays disabled until something actually changes. */}
+              <Button
+                type="submit"
+                disabled={pending || deletePending || (mode === "edit" && !isDirty)}
+              >
+                {mode === "edit" ? "Save changes" : "Add transaction"}
+              </Button>
+            </DialogFooter>
+          )}
         </form>
       </DialogContent>
     </Dialog>

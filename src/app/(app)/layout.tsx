@@ -9,6 +9,7 @@ import { AppTopbar } from "@/components/app/app-topbar";
 import { BottomNav } from "@/components/app/bottom-nav";
 import { GlobalShortcuts } from "@/components/app/global-shortcuts";
 import { LoadingOverlayProvider } from "@/components/app/loading-overlay";
+import { PermissionsProvider } from "@/components/app/permissions";
 import { TimezoneSync } from "@/components/app/timezone-sync";
 
 // Auth + DB access — always rendered dynamically per request.
@@ -26,9 +27,12 @@ export default async function AppLayout({
     getUserWorkspaces(user.id),
     canWriteInWorkspace(user.id, workspace.id),
   ]);
+  // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
+  const canManage = workspace.role === "admin";
 
   return (
     <LoadingOverlayProvider>
+    <PermissionsProvider canWrite={canWrite} canManage={canManage}>
     <div className="flex min-h-svh">
       <AppSidebar
         email={email}
@@ -65,6 +69,7 @@ export default async function AppLayout({
         />
       </Suspense>
     </div>
+    </PermissionsProvider>
     </LoadingOverlayProvider>
   );
 }
