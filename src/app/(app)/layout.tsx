@@ -1,5 +1,6 @@
 import { Suspense } from "react";
-import { getAppContext, getUserSettings, getUserWorkspaces } from "@/lib/auth";
+import { getAppContext, getUserWorkspaces } from "@/lib/auth";
+import { canWriteInWorkspace } from "@/lib/workspaces";
 import { getCategories, getProfiles } from "@/lib/queries";
 import { todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
@@ -19,11 +20,11 @@ export default async function AppLayout({
   const { user, workspace } = await getAppContext();
   const email = user.email;
   const timeZone = await getTimeZone();
-  const [profiles, categories, settings, workspaces] = await Promise.all([
+  const [profiles, categories, workspaces, canWrite] = await Promise.all([
     getProfiles(user.id, workspace.id),
-    getCategories(user.id),
-    getUserSettings(user.id),
+    getCategories(workspace.id),
     getUserWorkspaces(user.id),
+    canWriteInWorkspace(user.id, workspace.id),
   ]);
 
   return (
@@ -42,9 +43,10 @@ export default async function AppLayout({
           workspaces={workspaces}
           currentWorkspaceId={workspace.id}
           categories={categories}
-          currency={settings.currency}
-          locale={settings.locale}
+          currency={workspace.currency}
+          locale={workspace.locale}
           today={todayISO(timeZone)}
+          canWrite={canWrite}
         />
         <main className="flex-1 pb-16 md:pb-0">{children}</main>
         <BottomNav />
@@ -56,9 +58,10 @@ export default async function AppLayout({
         <GlobalShortcuts
           categories={categories}
           profiles={profiles}
-          currency={settings.currency}
-          locale={settings.locale}
+          currency={workspace.currency}
+          locale={workspace.locale}
           today={todayISO(timeZone)}
+          canWrite={canWrite}
         />
       </Suspense>
     </div>
