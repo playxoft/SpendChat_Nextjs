@@ -40,6 +40,7 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
+import { usePermissions } from "./permissions";
 import {
   addWorkspaceMember,
   cancelWorkspaceInvite,
@@ -365,6 +366,7 @@ export function WorkspaceSettings({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const { canWrite } = usePermissions();
   const isAdmin = workspace.role === "admin";
   const isMember = workspace.role !== null;
 
@@ -433,12 +435,14 @@ export function WorkspaceSettings({
               ? `You're ${workspace.role === "admin" ? "an admin" : `a ${workspace.role}`} of this workspace.`
               : "You have access to shared profiles in this workspace."}
           </CardDescription>
-          <CardAction>
-            <Button variant="secondary" size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus className="size-4" />
-              Create workspace
-            </Button>
-          </CardAction>
+          {canWrite && (
+            <CardAction>
+              <Button variant="secondary" size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" />
+                Create workspace
+              </Button>
+            </CardAction>
+          )}
         </CardHeader>
         <CardContent className="space-y-6">
           {isAdmin ? (
