@@ -50,16 +50,20 @@ export function WorkspaceSwitcher({
     if (id === currentId) return;
     // Run through the overlay provider so a full-screen loader covers the whole
     // switch (and survives the mobile sheet unmounting) instead of hanging.
-    run(async () => {
-      const res = await switchWorkspace(id);
-      if (res.ok) {
-        onNavigate?.();
-        router.push("/app");
-        router.refresh();
-      } else {
-        toast.error(res.error);
-      }
-    }, "Switching workspace…");
+    run(
+      async () => {
+        const res = await switchWorkspace(id);
+        if (res.ok) {
+          onNavigate?.();
+          router.push("/app");
+          router.refresh();
+        } else {
+          toast.error(res.error);
+        }
+      },
+      "Switching workspace…",
+      { variant: "spinner" },
+    );
   }
 
   return (

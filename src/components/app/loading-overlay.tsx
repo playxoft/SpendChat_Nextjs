@@ -4,11 +4,16 @@ import * as React from "react";
 import { createContext, useCallback, useContext, useState, useTransition } from "react";
 import { FullscreenLoader } from "./fullscreen-loader";
 
-type RunFn = (action: () => void | Promise<void>, label?: string) => void;
+type RunOptions = { variant?: "skeleton" | "spinner" };
+type RunFn = (action: () => void | Promise<void>, label?: string, opts?: RunOptions) => void;
 type QuietFn = (action: () => void | Promise<void>) => void;
 
 type LoadingOverlayCtx = {
-  /** Run a blocking navigation with a full-screen loader until it settles. */
+  /**
+   * Run a blocking navigation with a full-screen loader until it settles.
+   * `opts.variant` picks the loader style ("skeleton" default, or "spinner"
+   * for a plain centered spinner — e.g. switching workspaces).
+   */
   run: RunFn;
   /**
    * Like `run` but WITHOUT the full-screen loader — for soft profile switches
@@ -41,13 +46,15 @@ const Context = createContext<LoadingOverlayCtx>({
 export function LoadingOverlayProvider({ children }: { children: React.ReactNode }) {
   const [pending, startTransition] = useTransition();
   const [label, setLabel] = useState("Loading…");
+  const [variant, setVariant] = useState<"skeleton" | "spinner">("skeleton");
   // Whether the current transition should paint the full-screen loader. Quiet
   // transitions (profile switches) still set `pending` but skip the overlay.
   const [showOverlay, setShowOverlay] = useState(true);
 
   const run = useCallback<RunFn>(
-    (action, nextLabel) => {
+    (action, nextLabel, opts) => {
       if (nextLabel) setLabel(nextLabel);
+      setVariant(opts?.variant ?? "skeleton");
       setShowOverlay(true);
       startTransition(async () => {
         await action();
@@ -69,7 +76,7 @@ export function LoadingOverlayProvider({ children }: { children: React.ReactNode
   return (
     <Context.Provider value={{ run, runQuiet, pending }}>
       {children}
-      {pending && showOverlay && <FullscreenLoader label={label} />}
+      {pending && showOverlay && <FullscreenLoader label={label} variant={variant} />}
     </Context.Provider>
   );
 }

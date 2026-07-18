@@ -8,7 +8,7 @@ import {
   isSameMonth,
   startOfMonth,
 } from "date-fns";
-import { getCurrentWorkspace, getUserSettings, requireUser } from "@/lib/auth";
+import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import {
   countTransactions,
   getCategories,
@@ -19,6 +19,7 @@ import {
   type TxnFilters,
 } from "@/lib/queries";
 import { parseTxnFilters, parseTxnSort, resolveWebProfile } from "@/lib/filters";
+import { canWriteInWorkspace } from "@/lib/workspaces";
 import { parseISODate, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
@@ -30,6 +31,7 @@ import { TransactionsResultsSkeleton } from "@/components/app/transactions-skele
 import { TransactionsActions } from "@/components/app/transactions-actions";
 import { TransactionColumnsMenu } from "@/components/app/transaction-columns-menu";
 import { PrintButton } from "@/components/app/print-button";
+import { ViewerNotice } from "@/components/app/viewer-notice";
 
 export const dynamic = "force-dynamic";
 
@@ -68,11 +70,11 @@ export default async function TransactionsPage({
   };
 
   const user = await requireUser();
-  const settings = await getUserSettings(user.id);
   const workspace = await getCurrentWorkspace(user.id);
-  const [categories, profiles] = await Promise.all([
-    getCategories(user.id),
+  const [categories, profiles, canWrite] = await Promise.all([
+    getCategories(workspace.id),
     getProfiles(user.id, workspace.id),
+    canWriteInWorkspace(user.id, workspace.id),
   ]);
   const today = todayISO(await getTimeZone());
 
@@ -88,7 +90,7 @@ export default async function TransactionsPage({
     ? (profiles.find((p) => p.id === filters.profileId)?.name ?? "Selected profile")
     : "All profiles";
   const printLabel = printRange(filters.from, filters.to).label;
-  const { currency, locale } = settings;
+  const { currency, locale } = workspace;
 
   const baseParams = new URLSearchParams();
   for (const [k, v] of Object.entries(sp)) {
@@ -133,15 +135,17 @@ export default async function TransactionsPage({
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <h1 className="text-xl font-semibold">Transactions</h1>
         <div className="flex items-center gap-1.5">
-          <TransactionsActions
-            categories={categories}
-            profiles={profiles}
-            activeProfileId={composerProfileId}
-            currency={currency}
-            locale={locale}
-            today={today}
-            allProfiles={allProfiles}
-          />
+          {canWrite && (
+            <TransactionsActions
+              categories={categories}
+              profiles={profiles}
+              activeProfileId={composerProfileId}
+              currency={currency}
+              locale={locale}
+              today={today}
+              allProfiles={allProfiles}
+            />
+          )}
           <TransactionColumnsMenu />
           <Button asChild variant="outline">
             <a href={exportHref}>
@@ -152,6 +156,8 @@ export default async function TransactionsPage({
           <PrintButton />
         </div>
       </div>
+
+      {!canWrite && <ViewerNotice className="mt-4 print:hidden" />}
 
       <div className="mt-4">
         <Suspense fallback={null}>
