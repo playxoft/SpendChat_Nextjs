@@ -34,6 +34,8 @@ describe("bootstrap workspaces", () => {
       .from(workspaces)
       .where(eq(workspaces.ownerId, uid("ann")));
     expect(row.name).toBe("ann's Workspace");
+    // A new workspace is seeded with the default emoji.
+    expect(row.icon).toBe("🏢");
 
     const [member] = await db()
       .select()
@@ -143,16 +145,26 @@ describe("members & RBAC", () => {
     await expect(
       ws.addMember(uid("b"), W, { email: "c@example.com", access: { mode: "all", role: "viewer" } }),
     ).rejects.toMatchObject({ status: 403 });
-    await expect(ws.renameWorkspace(uid("b"), W, "Taken over")).rejects.toMatchObject({
+    await expect(
+      ws.updateWorkspace(uid("b"), W, { name: "Taken over" }),
+    ).rejects.toMatchObject({
       status: 403,
     });
   });
 
-  it("admins can rename the workspace", async () => {
+  it("admins can rename the workspace and set its icon", async () => {
     const W = await setup();
-    await ws.renameWorkspace(uid("a"), W, "Family budget");
+    await ws.updateWorkspace(uid("a"), W, { name: "Family budget", icon: "🏠" });
     const [row] = await db().select().from(workspaces).where(eq(workspaces.id, W));
     expect(row.name).toBe("Family budget");
+    expect(row.icon).toBe("🏠");
+  });
+
+  it("clears the icon when passed an empty string", async () => {
+    const W = await setup();
+    await ws.updateWorkspace(uid("a"), W, { name: "Family budget", icon: "" });
+    const [row] = await db().select().from(workspaces).where(eq(workspaces.id, W));
+    expect(row.icon).toBeNull();
   });
 });
 
@@ -257,8 +269,9 @@ describe("create & switch workspaces", () => {
     await bootstrapUser("a");
     const home = await workspaceIdOf("a");
 
-    const created = await ws.createWorkspace(uid("a"), { name: "Side project" });
+    const created = await ws.createWorkspace(uid("a"), { name: "Side project", icon: "🚀" });
     expect(created.role).toBe("admin");
+    expect(created.icon).toBe("🚀");
 
     // Creating switches to it; it gets its own default profile.
     let [settings] = await db()

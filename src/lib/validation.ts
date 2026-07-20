@@ -73,6 +73,15 @@ export const patchSettingsSchema = z
   });
 export type PatchSettingsInput = z.infer<typeof patchSettingsSchema>;
 
+/** A user's own display name (`users.name`), editable on the account page. */
+export const accountNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Name is required")
+  .max(50, "Name is too long (max 50 characters)");
+export const updateAccountNameSchema = z.object({ name: accountNameSchema });
+export type UpdateAccountNameInput = z.infer<typeof updateAccountNameSchema>;
+
 export const categoryInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(20, "Name is too long (max 20 characters)"),
   kind: txnTypeSchema,
@@ -110,7 +119,10 @@ export const workspaceRoleSchema = z.enum(["viewer", "editor", "admin"]);
 
 /** Shared so the bootstrap auto-name generator (`defaultWorkspaceName`) can keep
  *  generated names within the same limit the schema enforces. */
-export const WORKSPACE_NAME_MAX = 20;
+export const WORKSPACE_NAME_MAX = 30;
+
+/** Emoji a new/blank workspace gets by default (like a profile's `👤`). */
+export const DEFAULT_WORKSPACE_ICON = "🏢";
 
 export const workspaceNameSchema = z
   .string()
@@ -118,13 +130,21 @@ export const workspaceNameSchema = z
   .min(1, "Workspace name is required")
   .max(WORKSPACE_NAME_MAX, `Workspace name is too long (max ${WORKSPACE_NAME_MAX} characters)`);
 
-export const createWorkspaceSchema = z.object({ name: workspaceNameSchema });
+/** Emoji for a workspace — same rule as a profile/category icon. */
+export const workspaceIconSchema = z.string().trim().max(16);
+
+export const createWorkspaceSchema = z.object({
+  name: workspaceNameSchema,
+  icon: workspaceIconSchema.optional(),
+});
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>;
 
-export const renameWorkspaceSchema = z.object({
-  id: z.string().uuid(),
+/** Update a workspace's display details (name + icon), admin-gated. */
+export const updateWorkspaceSchema = z.object({
   name: workspaceNameSchema,
+  icon: workspaceIconSchema.nullish(),
 });
+export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceSchema>;
 
 const inviteEmailSchema = z
   .string()

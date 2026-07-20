@@ -6,7 +6,7 @@ import { setSession, signInAs, uid } from "../helpers/session";
 import { bootstrapUser, firstProfileId, workspaceIdOf } from "../helpers/seed";
 import { apiReq, jsonBody } from "./helpers";
 
-type WorkspaceItem = { id: string; name: string; role: string | null };
+type WorkspaceItem = { id: string; name: string; icon: string | null; role: string | null };
 
 describe("GET /api/v1/workspaces", () => {
   it("401s without a bearer token", async () => {
@@ -104,11 +104,12 @@ describe("POST /api/v1/workspaces", () => {
     signInAs("a");
     await bootstrapUser("a");
     const res = await POST(
-      apiReq("/api/v1/workspaces", { method: "POST", body: jsonBody({ name: "Trip" }) }),
+      apiReq("/api/v1/workspaces", { method: "POST", body: jsonBody({ name: "Trip", icon: "🏝️" }) }),
     );
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as { data: WorkspaceItem };
     expect(data.name).toBe("Trip");
+    expect(data.icon).toBe("🏝️");
     expect(data.role).toBe("admin");
     expect(data.id).toMatch(/^[0-9a-f-]{36}$/);
 

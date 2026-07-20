@@ -14,6 +14,7 @@ import {
 import { DEFAULT_CATEGORIES } from "@/lib/categories";
 import { forbidden, notFound } from "@/lib/errors";
 import { maxRole, rolesAtLeast } from "@/lib/rbac";
+import { DEFAULT_WORKSPACE_ICON } from "@/lib/validation";
 
 /**
  * Workspace access resolution — the single source of truth for "which
@@ -25,6 +26,8 @@ import { maxRole, rolesAtLeast } from "@/lib/rbac";
 export type WorkspaceSummary = {
   id: string;
   name: string;
+  /** Optional emoji shown beside the name; null until set. */
+  icon: string | null;
   ownerId: string;
   /** Currency + number format (locale) are per-workspace. */
   currency: string;
@@ -41,6 +44,7 @@ export async function listUserWorkspaces(userId: string): Promise<WorkspaceSumma
     .select({
       id: workspaces.id,
       name: workspaces.name,
+      icon: workspaces.icon,
       ownerId: workspaces.ownerId,
       currency: workspaces.currency,
       locale: workspaces.locale,
@@ -58,6 +62,7 @@ export async function listUserWorkspaces(userId: string): Promise<WorkspaceSumma
     .selectDistinct({
       id: workspaces.id,
       name: workspaces.name,
+      icon: workspaces.icon,
       ownerId: workspaces.ownerId,
       currency: workspaces.currency,
       locale: workspaces.locale,
@@ -258,13 +263,15 @@ export async function requireWorkspaceRole(
 export async function createWorkspaceWithDefaults(
   userId: string,
   name: string,
-  opts: { makeCurrent?: boolean; currency?: string; locale?: string } = {},
+  opts: { makeCurrent?: boolean; currency?: string; locale?: string; icon?: string | null } = {},
 ): Promise<WorkspaceSummary> {
   const db = getDb();
   const [workspace] = await db
     .insert(workspaces)
     .values({
       name,
+      // Seed a default emoji so every workspace shows one (like a profile's 👤).
+      icon: opts.icon || DEFAULT_WORKSPACE_ICON,
       ownerId: userId,
       ...(opts.currency ? { currency: opts.currency } : {}),
       ...(opts.locale ? { locale: opts.locale } : {}),
@@ -313,6 +320,7 @@ export async function createWorkspaceWithDefaults(
   return {
     id: workspace!.id,
     name: workspace!.name,
+    icon: workspace!.icon,
     ownerId: userId,
     currency: workspace!.currency,
     locale: workspace!.locale,

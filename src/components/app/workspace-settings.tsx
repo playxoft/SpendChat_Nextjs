@@ -38,6 +38,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
+import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { cn } from "@/lib/utils";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { usePermissions } from "./permissions";
@@ -45,10 +46,11 @@ import {
   addWorkspaceMember,
   cancelWorkspaceInvite,
   removeCollaborator,
-  renameWorkspace,
   setInviteAccess,
   setMemberAccess,
+  updateWorkspace,
 } from "@/actions/workspaces";
+import { DEFAULT_WORKSPACE_ICON, WORKSPACE_NAME_MAX } from "@/lib/validation";
 import type { WorkspaceRole } from "@/db/schema";
 
 /** Editable access value — mirrors the server `AccessGrant` (ids + roles only;
@@ -358,7 +360,7 @@ export function WorkspaceSettings({
   invites,
   profiles,
 }: {
-  workspace: { id: string; name: string; role: WorkspaceRole | null };
+  workspace: { id: string; name: string; icon: string | null; role: WorkspaceRole | null };
   currentUserId: string;
   collaborators: Collaborator[];
   invites: PendingInvite[];
@@ -371,6 +373,7 @@ export function WorkspaceSettings({
   const isMember = workspace.role !== null;
 
   const [name, setName] = React.useState(workspace.name);
+  const [icon, setIcon] = React.useState(workspace.icon ?? DEFAULT_WORKSPACE_ICON);
   const [createOpen, setCreateOpen] = React.useState(false);
 
   // Invite form state.
@@ -389,10 +392,13 @@ export function WorkspaceSettings({
     });
   }
 
-  function handleRename(e: React.FormEvent) {
+  const currentIcon = workspace.icon ?? DEFAULT_WORKSPACE_ICON;
+  const detailsChanged = name.trim() !== workspace.name || icon !== currentIcon;
+
+  function handleSaveDetails(e: React.FormEvent) {
     e.preventDefault();
-    if (!name.trim() || name.trim() === workspace.name) return;
-    run(() => renameWorkspace(workspace.id, name.trim()), "Workspace renamed");
+    if (!name.trim() || !detailsChanged) return;
+    run(() => updateWorkspace(workspace.id, { name: name.trim(), icon }), "Workspace updated");
   }
 
   function handleInvite(e: React.FormEvent) {
@@ -446,27 +452,41 @@ export function WorkspaceSettings({
         </CardHeader>
         <CardContent className="space-y-6">
           {isAdmin ? (
-            <form onSubmit={handleRename} className="flex max-w-md items-end gap-2">
+            <form onSubmit={handleSaveDetails} className="flex max-w-md items-end gap-2">
               <div className="min-w-0 flex-1 space-y-1.5">
-                <Label htmlFor="workspace-rename">Name</Label>
-                <Input
-                  id="workspace-rename"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  maxLength={20}
-                />
+                <Label htmlFor="workspace-rename">Name & icon</Label>
+                <div className="flex items-center gap-2">
+                  <EmojiPicker
+                    onSelect={setIcon}
+                    trigger={
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="icon"
+                        aria-label="Pick an icon"
+                      >
+                        <span className="text-base">{icon}</span>
+                      </Button>
+                    }
+                  />
+                  <Input
+                    id="workspace-rename"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    maxLength={WORKSPACE_NAME_MAX}
+                    className="flex-1"
+                  />
+                </div>
               </div>
-              <Button
-                type="submit"
-                variant="secondary"
-                disabled={pending || !name.trim() || name.trim() === workspace.name}
-              >
-                Rename
+              <Button type="submit" variant="secondary" disabled={pending || !name.trim() || !detailsChanged}>
+                Save
               </Button>
             </form>
           ) : (
-            <p className="text-sm">
-              <span className="text-muted-foreground">Name: </span>
+            <p className="flex items-center gap-2 text-sm">
+              <span aria-hidden className="text-base">
+                {workspace.icon ?? DEFAULT_WORKSPACE_ICON}
+              </span>
               {workspace.name}
             </p>
           )}

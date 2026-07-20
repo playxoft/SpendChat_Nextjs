@@ -1,8 +1,7 @@
 import "server-only";
-import { and, asc, count, eq, gte, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
-  emailSendLog,
   profileAccess,
   profiles,
   userSettings,
@@ -15,7 +14,8 @@ import {
 import { ensureBootstrap, getCurrentWorkspace } from "@/lib/auth";
 import { findUserByEmail, findUsersByIds } from "@/lib/directory";
 import { escapeHtml, redactEmail, sendEmail } from "@/lib/email";
-import { badRequest, conflict, forbidden, notFound, tooManyRequests } from "@/lib/errors";
+import { assertEmailSendAllowed } from "@/lib/email-quota";
+import { badRequest, conflict, forbidden, notFound } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
 import {
@@ -32,8 +32,8 @@ import {
   setInviteAccessSchema,
   setMemberAccessSchema,
   updateMemberRoleSchema,
+  updateWorkspaceSchema,
   workspaceCurrencySchema,
-  workspaceNameSchema,
   type AccessGrant,
 } from "@/lib/validation";
 import { siteConfig } from "@/lib/site";
@@ -57,7 +57,7 @@ export async function listWorkspaces(userId: string): Promise<WorkspaceSummary[]
 }
 
 export async function createWorkspace(userId: string, input: unknown): Promise<WorkspaceSummary> {
-  const { name } = parseOrThrow(createWorkspaceSchema, input);
+  const { name, icon } = parseOrThrow(createWorkspaceSchema, input);
   await ensureBootstrap(userId);
   // A new workspace inherits the creator's current currency/number format, so a
   // non-USD user doesn't land on a USD workspace by default.
@@ -66,6 +66,8 @@ export async function createWorkspace(userId: string, input: unknown): Promise<W
     makeCurrent: true,
     currency: current.currency,
     locale: current.locale,
+    // Empty/omitted icon falls back to the default inside the helper.
+    icon: icon || undefined,
   });
   logger.info("Workspace created", { event: "workspace.created", workspaceId: created.id, userId });
   return created;
@@ -96,19 +98,26 @@ export async function updateWorkspaceCurrency(
   return row!;
 }
 
-export async function renameWorkspace(
+/**
+ * Update a workspace's display details — name and emoji icon. Admin-only. The
+ * icon is only touched when the field is present (`undefined` leaves it as-is);
+ * an empty string clears it back to null.
+ */
+export async function updateWorkspace(
   userId: string,
   workspaceId: string,
-  name: unknown,
+  input: unknown,
 ): Promise<void> {
-  const parsed = parseOrThrow(workspaceNameSchema, name);
+  const data = parseOrThrow(updateWorkspaceSchema, input);
   await requireWorkspaceRole(userId, workspaceId, "admin");
+  const patch: { name: string; icon?: string | null; updatedAt: Date } = {
+    name: data.name,
+    updatedAt: new Date(),
+  };
+  if (data.icon !== undefined) patch.icon = data.icon || null;
   const db = getDb();
-  await db
-    .update(workspaces)
-    .set({ name: parsed, updatedAt: new Date() })
-    .where(eq(workspaces.id, workspaceId));
-  logger.info("Workspace renamed", { event: "workspace.renamed", workspaceId, userId });
+  await db.update(workspaces).set(patch).where(eq(workspaces.id, workspaceId));
+  logger.info("Workspace updated", { event: "workspace.updated", workspaceId, userId });
 }
 
 /** Point the user's session at another workspace they can access. */
@@ -482,26 +491,13 @@ async function applyInviteAccess(
   );
 }
 
-/** Max invite/notification emails one user may trigger per hour. */
-const EMAIL_SENDS_PER_HOUR = 20;
-
-/**
- * Per-user hourly cap on user-triggered emails, enforced *before* the send and
- * after the permission checks (denied calls must not burn quota). Recipients
- * are arbitrary addresses, so without this a single account could pump
- * phishing/spam through our verified sending domain.
- */
-async function assertEmailSendAllowed(userId: string): Promise<void> {
-  const db = getDb();
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  const [row] = await db
-    .select({ sent: count() })
-    .from(emailSendLog)
-    .where(and(eq(emailSendLog.userId, userId), gte(emailSendLog.createdAt, oneHourAgo)));
-  if ((row?.sent ?? 0) >= EMAIL_SENDS_PER_HOUR) {
-    throw tooManyRequests("Too many invites in the last hour — try again later");
-  }
-  await db.insert(emailSendLog).values({ userId, kind: "member_invite" });
+/** Cap invite emails at the shared per-user hourly budget (`email-quota.ts`). */
+function assertInviteEmailAllowed(userId: string): Promise<void> {
+  return assertEmailSendAllowed(
+    userId,
+    "member_invite",
+    "Too many invites in the last hour — try again later",
+  );
 }
 
 export type AddMemberResult = { status: "added" | "invited"; email: string };
@@ -531,7 +527,7 @@ export async function addMember(
   const scope = await describeAccessScope(db, workspaceId, data.access);
 
   // Both branches below send an email to a caller-chosen address.
-  await assertEmailSendAllowed(userId);
+  await assertInviteEmailAllowed(userId);
 
   const existing = await findUserByEmail(data.email);
   if (existing) {

@@ -118,6 +118,8 @@ export function serializeSettings(s: UserSettings): ApiSettings {
 export type ApiWorkspace = {
   id: string;
   name: string;
+  /** Emoji shown beside the name; null when unset. */
+  icon: string | null;
   role: WorkspaceSummary["role"];
   currency: string;
   locale: string;
@@ -129,6 +131,7 @@ export function serializeWorkspace(w: WorkspaceSummary): ApiWorkspace {
   return {
     id: w.id,
     name: w.name,
+    icon: w.icon,
     role: w.role,
     currency: w.currency,
     locale: w.locale,
