@@ -61,6 +61,9 @@ export const workspaces = pgTable(
   {
     id: uuid("id").primaryKey().default(uuidV7),
     name: text("name").notNull(),
+    // Optional emoji shown beside the workspace name (like `profiles.icon`).
+    // Nullable; the app seeds a default at creation and the UI falls back.
+    icon: text("icon"),
     // Neon Auth user id of the creator. Owners always have the admin role.
     ownerId: uuid("owner_id").notNull(),
     // Currency + number format (locale) are per-workspace: every member of a

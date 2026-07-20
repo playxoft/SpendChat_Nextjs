@@ -29,6 +29,8 @@ function roleLabel(role: WorkspaceRole | null): string {
 export type WorkspaceOption = {
   id: string;
   name: string;
+  /** Emoji shown beside the name; null falls back to a neutral glyph. */
+  icon: string | null;
   /** Workspace-wide role; null = access via shared profiles only. */
   role: WorkspaceRole | null;
 };
@@ -84,7 +86,11 @@ export function WorkspaceSwitcher({
             aria-label="Switch workspace"
           >
             <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent">
-              <Building2 className="size-3.5" />
+              {current?.icon ? (
+                <span className="text-sm leading-none">{current.icon}</span>
+              ) : (
+                <Building2 className="size-3.5" />
+              )}
             </span>
             <span className="min-w-0 flex-1 text-left">
               <span className="block truncate text-sm leading-tight font-medium">
@@ -109,6 +115,9 @@ export function WorkspaceSwitcher({
               onSelect={() => handleSwitch(w.id)}
               className="gap-2"
             >
+              <span aria-hidden className="w-5 shrink-0 text-center text-sm leading-none">
+                {w.icon ?? ""}
+              </span>
               <span className="min-w-0 flex-1 truncate">{w.name}</span>
               <span className="text-[10px] text-muted-foreground capitalize">
                 {roleLabel(w.role)}

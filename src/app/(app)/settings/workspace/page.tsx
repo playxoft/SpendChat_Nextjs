@@ -51,7 +51,12 @@ export default async function WorkspaceSettingsPage() {
 
   return (
     <WorkspaceSettings
-      workspace={{ id: workspace.id, name: workspace.name, role: workspace.role }}
+      workspace={{
+        id: workspace.id,
+        name: workspace.name,
+        icon: workspace.icon,
+        role: workspace.role,
+      }}
       currentUserId={user.id}
       collaborators={collaborators.map((c) => ({
         userId: c.userId,

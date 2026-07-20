@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as ws from "@/services/workspaces";
-import type { AddMemberInput, AccessGrant, WorkspaceCurrencyInput } from "@/lib/validation";
+import type {
+  AddMemberInput,
+  AccessGrant,
+  UpdateWorkspaceInput,
+  WorkspaceCurrencyInput,
+} from "@/lib/validation";
 
 function revalidateApp() {
   revalidatePath("/app");
@@ -13,12 +18,15 @@ function revalidateApp() {
   revalidatePath("/settings");
 }
 
-export async function createWorkspace(name: string): Promise<ActionResult<{ id?: string }>> {
+export async function createWorkspace(
+  name: string,
+  icon?: string,
+): Promise<ActionResult<{ id?: string }>> {
   const user = await requireUser();
   return runAction(
     "createWorkspace",
     async () => {
-      const created = await ws.createWorkspace(user.id, { name });
+      const created = await ws.createWorkspace(user.id, { name, icon });
       revalidateApp();
       return { id: created.id };
     },
@@ -26,12 +34,16 @@ export async function createWorkspace(name: string): Promise<ActionResult<{ id?:
   );
 }
 
-export async function renameWorkspace(id: string, name: string): Promise<ActionResult> {
+/** Update a workspace's name + emoji icon (admin only). */
+export async function updateWorkspace(
+  id: string,
+  input: UpdateWorkspaceInput,
+): Promise<ActionResult> {
   const user = await requireUser();
   return runAction(
-    "renameWorkspace",
+    "updateWorkspace",
     async () => {
-      await ws.renameWorkspace(user.id, id, name);
+      await ws.updateWorkspace(user.id, id, input);
       revalidateApp();
       return {};
     },

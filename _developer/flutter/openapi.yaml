@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.0.0"
+  version: "5.1.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 5.0.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 5.1.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
@@ -993,6 +993,10 @@ components:
       properties:
         id: { type: string, format: uuid }
         name: { type: string }
+        icon:
+          type: [string, "null"]
+          description: Emoji shown beside the workspace name; null when unset.
+          example: "🏢"
         role:
           description: Effective role in this workspace; null when access is via a per-profile grant only.
           oneOf:
@@ -1002,7 +1006,7 @@ components:
         currency: { $ref: "#/components/schemas/CurrencyCode" }
         locale: { type: string, example: en-US }
         currencyDetail: { $ref: "#/components/schemas/CurrencyMeta" }
-      required: [id, name, role, currency, locale, currencyDetail]
+      required: [id, name, icon, role, currency, locale, currencyDetail]
 
     WorkspaceInput:
       type: object
@@ -1010,8 +1014,13 @@ components:
         name:
           type: string
           minLength: 1
-          maxLength: 20
+          maxLength: 30
           description: Workspace name (trimmed server-side).
+        icon:
+          type: string
+          maxLength: 16
+          description: Optional emoji for the workspace. Omitted/empty seeds the default (🏢).
+          example: "🏢"
       required: [name]
 
     CurrencyMeta:

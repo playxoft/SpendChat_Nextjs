@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 5.0.0.** Every API change bumps this version and is logged
+**API spec version: 5.1.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -247,6 +247,7 @@ number format are NOT here — they're per-workspace** (see the `workspace` obje
 {
   "id": "uuid",
   "name": "Ada's Workspace",
+  "icon": "🏢" | null,                 // emoji beside the name; null when unset
   "role": "admin" | "editor" | "viewer" | null,
   "currency": "USD",
   "locale": "en-US",
@@ -294,8 +295,8 @@ codes are listed per row.
 ### Workspaces
 | Method & path | Body | Success | Notes |
 |---|---|---|---|
-| `GET /workspaces` | — | 200 `data: WorkspaceSummary[]` | Every workspace the user can open (for a switcher). **Ignores `X-Workspace-Id`; never 404s.** Memberships first (`createdAt asc`), then grant-only (`role: null`). Always ≥1. Item shape = the `Workspace` object (`{ id, name, role, currency, locale, currencyDetail }`, same as `/me`'s `workspace`). |
-| `POST /workspaces` | `WorkspaceInput` `{ name }` | 201 `data: WorkspaceSummary` | Caller becomes **admin** (`role` always `"admin"`); seeds a default "Personal" profile + the default category list; inherits the creator's current currency/number format; becomes the current workspace (server persists `lastWorkspaceId`). Ignores `X-Workspace-Id`. 400 bad JSON; 422 blank/long name. |
+| `GET /workspaces` | — | 200 `data: WorkspaceSummary[]` | Every workspace the user can open (for a switcher). **Ignores `X-Workspace-Id`; never 404s.** Memberships first (`createdAt asc`), then grant-only (`role: null`). Always ≥1. Item shape = the `Workspace` object (`{ id, name, icon, role, currency, locale, currencyDetail }`, same as `/me`'s `workspace`). |
+| `POST /workspaces` | `WorkspaceInput` `{ name, icon? }` | 201 `data: WorkspaceSummary` | Caller becomes **admin** (`role` always `"admin"`); seeds a default "Personal" profile + the default category list; inherits the creator's current currency/number format; becomes the current workspace (server persists `lastWorkspaceId`). `icon` is an optional emoji (omitted/empty → default 🏢). Ignores `X-Workspace-Id`. 400 bad JSON; 422 blank/long name. |
 | `PATCH /workspaces/{id}` | `WorkspaceCurrencyPatch` `{ currency, locale }` | 200 `data: WorkspaceSummary` | Set the workspace's currency + number format (every member sees it). **Admin only** → 403 otherwise. Uses the path `id`, not `X-Workspace-Id`. 400; 404; 422 unsupported currency. |
 
 ### Transactions
@@ -360,8 +361,8 @@ the list.
 - `occurredOn` — `^\d{4}-\d{2}-\d{2}$`, **required** ("Date must be YYYY-MM-DD").
 - *(deprecated)* `note` — alias for `title`, `≤ 40`; use `title` instead.
 
-`WorkspaceInput` — `name` (1–20, trimmed; "Workspace name is required" /
-"…too long (max 20 characters)").
+`WorkspaceInput` — `name` (1–30, trimmed; "Workspace name is required" /
+"…too long (max 30 characters)"), `icon?` (≤16 emoji; omitted/empty → default 🏢).
 `CategoryInput` — `name` (1–20), `kind` (income|expense), `icon?` (≤16). **No `color`.**
 `CategoryUpdate` — `name?` (1–20), `icon?` (≤16, nullable). **No `color`.**
 `ProfileInput` — `name` (1–20), `icon?` (≤16), `color?` (≤32).

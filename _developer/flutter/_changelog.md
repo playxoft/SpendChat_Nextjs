@@ -19,6 +19,33 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.1.0 — 2026-07-21
+
+Workspaces now carry an optional emoji `icon` (like profiles), returned on every
+workspace object and settable when creating one. The workspace-name limit also
+grew from 20 to 30 characters. Backward-compatible additions.
+
+### Added
+- **`icon` on the `Workspace` object** (`GET /me` → `data.workspace`,
+  `GET /workspaces`, `POST /workspaces`, `PATCH /workspaces/{id}`) — a string
+  emoji, or `null` when unset. It's a **required** property of the response
+  object (always present; value may be null). Existing workspaces were
+  backfilled with the default 🏢.
+- **`WorkspaceInput.icon` (optional)** on `POST /workspaces` — an emoji (≤16
+  chars). Omitted or empty seeds the default 🏢.
+
+### Changed
+- **`WorkspaceInput.name` max length raised 20 → 30** on `POST /workspaces`.
+  Names of 21–30 chars now succeed (previously **422**); the error message is
+  now "Workspace name is too long (max 30 characters)".
+
+**Flutter impact:** none required (both additive/loosening). To match the web
+UI, render `workspace.icon` beside the workspace name (fall back to a neutral
+glyph when null), optionally let users pick an emoji in the create-workspace
+form, and widen any client-side name validation to 30 chars.
+
+---
+
 ## 5.0.0 — 2026-07-19
 
 `POST /transactions/delete-all` is now **admin-only** and **profile-scoped**, and
