@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { getAppContext } from "@/lib/auth";
+import { getProfiles } from "@/lib/queries";
 import {
   Card,
   CardContent,
@@ -20,6 +21,7 @@ export const metadata: Metadata = {
 export default async function AccountSettingsPage() {
   const { user, workspace } = await getAppContext();
   const isAdmin = workspace.role === "admin";
+  const profiles = await getProfiles(user.id, workspace.id);
 
   return (
     <>
@@ -55,7 +57,7 @@ export default async function AccountSettingsPage() {
           <CardDescription>Irreversible actions.</CardDescription>
         </CardHeader>
         <CardContent>
-          <DangerZone />
+          <DangerZone profiles={profiles.map((p) => ({ id: p.id, name: p.name, icon: p.icon }))} />
         </CardContent>
       </Card>
     </>

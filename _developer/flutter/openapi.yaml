@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "4.0.0"
+  version: "5.0.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 4.0.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 5.0.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
@@ -390,12 +390,14 @@ paths:
   /api/v1/transactions/delete-all:
     post:
       tags: [Transactions]
-      summary: Delete the caller's own transactions in the current workspace (danger zone)
+      summary: Clear transactions in the current workspace, per profile (danger zone, admin only)
       description: >
-        Deletes the transactions the caller **authored** in the **current
-        workspace**, and only in profiles they can still write to (editor+).
-        Rows authored in other workspaces — or in profiles the caller lost
-        write access to — are untouched.
+        **Workspace admins only** (a non-admin caller gets 403). Permanently
+        deletes **every** transaction (regardless of who authored it) in the
+        selected profiles of the **current workspace**. `profileIds` omitted or
+        empty clears every profile in the workspace; otherwise only the listed
+        profiles are cleared (ids not in the current workspace are ignored).
+        Categories and settings are kept.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -409,6 +411,12 @@ paths:
                   type: string
                   description: Must be the exact string "DELETE".
                   enum: ["DELETE"]
+                profileIds:
+                  type: array
+                  description: >
+                    Profiles to clear. Omit or send an empty array to clear every
+                    profile in the current workspace.
+                  items: { type: string, format: uuid }
               required: [confirm]
       responses:
         "200":

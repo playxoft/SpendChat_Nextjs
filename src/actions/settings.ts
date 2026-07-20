@@ -55,18 +55,26 @@ export async function deleteAccount(confirm: string): Promise<ActionResult> {
 }
 
 /** Wipe the user's own transactions in the current workspace (danger zone). */
-export async function deleteAllTransactions(confirm: string): Promise<ActionResult> {
+export async function deleteAllTransactions(
+  confirm: string,
+  profileIds: string[],
+): Promise<ActionResult<{ deleted?: number }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "deleteAllTransactions",
     async () => {
-      await settingsService.deleteAllTransactions(user.id, workspace.id, confirm);
+      const res = await settingsService.deleteAllTransactions(
+        user.id,
+        workspace.id,
+        confirm,
+        profileIds,
+      );
       revalidatePath("/app");
       revalidatePath("/transactions");
       revalidatePath("/analytics");
-      return {};
+      return { deleted: res.deleted };
     },
-    { userId: user.id },
+    { userId: user.id, workspaceId: workspace.id },
   );
 }

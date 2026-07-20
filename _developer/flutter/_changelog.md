@@ -19,6 +19,31 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.0.0 — 2026-07-19
+
+`POST /transactions/delete-all` is now **admin-only** and **profile-scoped**, and
+it deletes **every** transaction in the targeted profiles (not just the caller's
+own). This is a **breaking** change to who can call it and what it removes.
+
+### Changed
+- **`POST /transactions/delete-all` requires the workspace `admin` role** — a
+  viewer/editor caller now gets **403** (previously any member could clear their
+  own rows).
+- **It now deletes every transaction in the selected profiles, regardless of
+  author** — a profile is fully wiped, not just the caller's contributions.
+- **Request body gained optional `profileIds: string[]`.** Omit or send `[]` to
+  clear **all** profiles in the current workspace (the previous "wipe
+  everything" behaviour); otherwise only the listed profiles are cleared (ids
+  outside the current workspace are ignored). Response is unchanged:
+  `data: { deleted }`.
+
+**Flutter impact:** if the app exposes "delete all transactions", gate it to
+workspace admins (hide/disable for viewers/editors) and optionally add a profile
+picker sending `profileIds`. Sending only `{ confirm: "DELETE" }` still clears
+the whole workspace, but the call now 403s for non-admins.
+
+---
+
 ## 4.0.0 — 2026-07-18
 
 Currency, number format (locale), and the category list moved from **per-user**
