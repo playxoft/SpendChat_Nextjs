@@ -23,33 +23,23 @@ import { toMinorUnits } from "@/lib/money";
 import {
   amountPlaceholder,
   formatAmountInput,
-  localeSeparators,
+  integerDigitCount,
   parseAmountInput,
 } from "@/lib/parse-amount";
 import { parseQuickEntry } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
+import {
+  AMOUNT_INTEGER_DIGITS_MAX,
+  TRANSACTION_AMOUNT_MAX as AMOUNT_MAX,
+  TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
+  TRANSACTION_TITLE_MAX as TITLE_MAX,
+} from "@/lib/validation";
 import type { InputMode, TransactionInput } from "@/lib/validation";
 import type { Category, Profile } from "@/db/schema";
 
-const TITLE_MAX = 40;
-const DESCRIPTION_MAX = 150;
-// The amount's whole-number part is capped at 9 digits (max 999,999,999.99); the
-// authoritative check lives in `amountSchema`, these just stop extra typing and
-// give an inline error before the optimistic send.
-const AMOUNT_INTEGER_DIGITS_MAX = 9;
-const AMOUNT_MAX = 999_999_999.99;
 // Matches a trailing "/query" token typed into the title field.
 const SLASH_RE = /(?:^|\s)\/([^\s/]*)$/;
-
-/** Count the digits in the whole-number part of a typed amount (locale-aware:
- *  everything before the first decimal separator, ignoring grouping). */
-function integerDigitCount(value: string, locale: string): number {
-  const { decimal } = localeSeparators(locale);
-  const decimalAt = value.indexOf(decimal);
-  const intPart = decimalAt === -1 ? value : value.slice(0, decimalAt);
-  return (intPart.match(/\d/g) ?? []).length;
-}
 
 export function TransactionComposer({
   categories,
