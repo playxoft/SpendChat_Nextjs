@@ -11,7 +11,11 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  varchar,
 } from "drizzle-orm/pg-core";
+// Relative (not "@/…") so drizzle-kit's schema loader resolves it without the
+// tsconfig path alias. Keeps the DB column length in lockstep with the Zod cap.
+import { TRANSACTION_DESCRIPTION_MAX, TRANSACTION_TITLE_MAX } from "../lib/validation";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -265,10 +269,12 @@ export const transactions = pgTable(
     profileId: uuid("profile_id")
       .notNull()
       .references(() => profiles.id, { onDelete: "restrict" }),
-    // Short headline for the transaction (was `note`).
-    title: text("title"),
-    // Longer free-text body shown on expand / in the detail dialog.
-    description: text("description"),
+    // Short headline for the transaction (was `note`). Length matches the Zod
+    // cap (`TRANSACTION_TITLE_MAX`) so the DB rejects anything the app would.
+    title: varchar("title", { length: TRANSACTION_TITLE_MAX }),
+    // Longer free-text body shown on expand / in the detail dialog. Length is
+    // the shared `TRANSACTION_DESCRIPTION_MAX`, in lockstep with validation.
+    description: varchar("description", { length: TRANSACTION_DESCRIPTION_MAX }),
     occurredOn: date("occurred_on").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

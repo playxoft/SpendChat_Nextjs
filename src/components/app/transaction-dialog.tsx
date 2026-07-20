@@ -39,7 +39,17 @@ import {
 import { cn } from "@/lib/utils";
 import { addTransaction, updateTransaction, deleteTransaction } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
-import { amountPlaceholder, formatAmountInput, parseAmountInput } from "@/lib/parse-amount";
+import {
+  amountPlaceholder,
+  formatAmountInput,
+  integerDigitCount,
+  parseAmountInput,
+} from "@/lib/parse-amount";
+import {
+  AMOUNT_INTEGER_DIGITS_MAX,
+  TRANSACTION_DESCRIPTION_MAX,
+  TRANSACTION_TITLE_MAX,
+} from "@/lib/validation";
 import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
 import { usePermissions } from "./permissions";
@@ -287,7 +297,17 @@ export function TransactionDialog({
                   inputMode="decimal"
                   placeholder={amountPlaceholder(locale)}
                   value={values.amount}
-                  onChange={(e) => setValues((v) => ({ ...v, amount: e.target.value }))}
+                  // Numbers only (digits + the separators any locale groups/points
+                  // with); reject the keystroke once the whole-number part hits the
+                  // 9-digit cap. The authoritative check is still `amountSchema`.
+                  onChange={(e) => {
+                    const next = e.target.value.replace(/[^\d.,\s]/g, "");
+                    setValues((v) =>
+                      integerDigitCount(next, locale) > AMOUNT_INTEGER_DIGITS_MAX
+                        ? v
+                        : { ...v, amount: next },
+                    );
+                  }}
                   className="pl-7 tabular-nums"
                 />
               </div>
@@ -355,7 +375,7 @@ export function TransactionDialog({
               id="title"
               placeholder="Add title"
               value={values.title}
-              maxLength={100}
+              maxLength={TRANSACTION_TITLE_MAX}
               onChange={(e) => setValues((v) => ({ ...v, title: e.target.value }))}
             />
           </div>
@@ -367,8 +387,14 @@ export function TransactionDialog({
               rows={2}
               placeholder="Optional description"
               value={values.description}
-              maxLength={250}
+              maxLength={TRANSACTION_DESCRIPTION_MAX}
               onChange={(e) => setValues((v) => ({ ...v, description: e.target.value }))}
+              // Bounded box that can't stretch the dialog: `overflow-wrap:anywhere`
+              // breaks a long no-space string onto the next line *and* shrinks the
+              // textarea's min-content width, so the base `field-sizing-content`
+              // can't grow it sideways; `max-h` caps its height (scrolls past that)
+              // and `resize-none` blocks a manual drag. `min-w-0` lets it shrink.
+              className="max-h-28 min-w-0 resize-none overflow-y-auto [overflow-wrap:anywhere]"
             />
           </div>
 
@@ -376,13 +402,13 @@ export function TransactionDialog({
 
           {/* Viewers see a read-only record — no Save/Delete, just Close. */}
           {readOnly ? (
-            <DialogFooter>
+            <DialogFooter className="pt-4">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Close
               </Button>
             </DialogFooter>
           ) : (
-            <DialogFooter className={cn(mode === "edit" && "sm:justify-between")}>
+            <DialogFooter className={cn("pt-4", mode === "edit" && "sm:justify-between")}>
               {mode === "edit" ? (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>

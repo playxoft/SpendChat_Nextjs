@@ -3,13 +3,27 @@ import { CURRENCY_CODES } from "./currencies";
 
 export const txnTypeSchema = z.enum(["income", "expense"]);
 
+/**
+ * Transaction field limits — the single source of truth. The Zod schemas below
+ * enforce them at every write boundary (server actions + REST API); the
+ * transaction inputs (composer, edit dialog, bulk grid) mirror them as input
+ * `maxLength` / digit caps so the client stops over-long input before the send.
+ * If any of these change, update the mobile API docs (`_developer/flutter/*`)
+ * in lockstep — they publish these caps to the Flutter client.
+ */
+export const TRANSACTION_TITLE_MAX = 40;
+export const TRANSACTION_DESCRIPTION_MAX = 150;
+/** The amount's whole-number part is capped at 9 digits (max 999,999,999.99). */
+export const AMOUNT_INTEGER_DIGITS_MAX = 9;
+export const TRANSACTION_AMOUNT_MAX = 999_999_999.99;
+
 /** Positive amount in major units, up to 2dp tolerance handled at conversion.
  *  Capped at a 9-digit whole-number part (999,999,999.99). */
 export const amountSchema = z.coerce
   .number()
   .positive("Amount must be greater than 0")
   .finite()
-  .max(999_999_999.99, "Amount is too large (max 9 digits)");
+  .max(TRANSACTION_AMOUNT_MAX, "Amount is too large (max 9 digits)");
 
 const dateSchema = z
   .string()
@@ -20,15 +34,23 @@ export const transactionInputSchema = z.object({
   amount: amountSchema,
   categoryId: z.string().uuid().nullish(),
   profileId: z.string().uuid().nullish(),
-  title: z.string().trim().max(40, "Title is too long (max 40 characters)").optional().default(""),
+  title: z
+    .string()
+    .trim()
+    .max(TRANSACTION_TITLE_MAX, `Title is too long (max ${TRANSACTION_TITLE_MAX} characters)`)
+    .optional()
+    .default(""),
   description: z
     .string()
     .trim()
-    .max(150, "Description is too long (max 150 characters)")
+    .max(
+      TRANSACTION_DESCRIPTION_MAX,
+      `Description is too long (max ${TRANSACTION_DESCRIPTION_MAX} characters)`,
+    )
     .optional()
     .default(""),
   // Deprecated alias for `title`; accepted until every caller passes `title`.
-  note: z.string().trim().max(40).optional(),
+  note: z.string().trim().max(TRANSACTION_TITLE_MAX).optional(),
   occurredOn: dateSchema,
 });
 // `input` type accounts for fields with defaults being optional for callers.
