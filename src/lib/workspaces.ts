@@ -197,6 +197,28 @@ export async function canWriteInWorkspace(
   return rows.length > 0;
 }
 
+/**
+ * Whether more than one distinct user has access to the workspace — via
+ * workspace membership or a per-profile grant on one of its profiles. Drives the
+ * tracker chat's author labels (WhatsApp-group style): a solo workspace shows no
+ * names, a shared one shows who entered each row.
+ */
+export async function workspaceHasMultipleUsers(workspaceId: string): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.workspaceId, workspaceId))
+    .union(
+      db
+        .select({ userId: profileAccess.userId })
+        .from(profileAccess)
+        .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
+        .where(eq(profiles.workspaceId, workspaceId)),
+    );
+  return new Set(rows.map((r) => r.userId)).size > 1;
+}
+
 /** Throw 403/404 unless the user has ≥ `minRole` on the profile. */
 export async function requireProfileRole(
   userId: string,
