@@ -13,8 +13,16 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
 ## Commands (secrets come from Doppler)
 - `doppler run -- pnpm dev` — local dev
 - `pnpm typecheck` / `pnpm lint` — must stay clean
-- `pnpm db:generate` then `doppler run -- pnpm db:migrate` — schema changes
-- `pnpm preview` / `doppler run -- pnpm deploy` — Worker build / deploy
+- `pnpm db:generate` (no DB — writes SQL only), then `pnpm db:migrate:dev` /
+  `pnpm db:migrate:prod` — schema changes. Every DB script names its env
+  explicitly (`:dev` = config `dev`, `:prod` = config `prd`) — there is no bare
+  default. Each already wraps its own `doppler run --config <env>`, so **don't**
+  prefix another `doppler run --` (that nests and the inner config wins).
+  `db:push:dev` / `db:push:prod` push the schema directly, bypassing migration
+  files — reserve them for dev; prefer `db:migrate:prod` for prod so prod stays a
+  reviewed, replayable migration history. `db:studio:dev` / `db:studio:prod`
+  open Studio.
+- `pnpm preview` / `pnpm deploy:dev` / `pnpm deploy:prod` — Worker build / deploy
 
 ## Conventions
 - **Money** is stored as integer minor units (`amount_minor`). Convert with `src/lib/money.ts`

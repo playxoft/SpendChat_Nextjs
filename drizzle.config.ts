@@ -5,7 +5,7 @@ export default defineConfig({
   out: "./src/db/migrations",
   dialect: "postgresql",
   dbCredentials: {
-    // Provided by Doppler at runtime: `doppler run -- pnpm db:migrate`
+    // Provided by Doppler at runtime: `pnpm db:migrate:dev` / `pnpm db:migrate:prod`
     url: process.env.NEON_POSTGRES_DATABASE_URL!,
   },
   strict: true,
