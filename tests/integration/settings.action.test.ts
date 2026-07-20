@@ -58,23 +58,24 @@ describe("deleteAllTransactions", () => {
     await bootstrapUser("a");
     await insertTxn("a", { type: "expense", amountMinor: 100, occurredOn: "2026-06-01" });
 
-    expect(await deleteAllTransactions("delete")).toEqual({
+    expect(await deleteAllTransactions("delete", [])).toEqual({
       ok: false,
       error: "Type DELETE to confirm",
     });
     expect(await countTxns("a")).toBe(1); // untouched
   });
 
-  it("wipes all of the user's transactions when confirmed", async () => {
+  it("wipes every transaction in the current workspace when confirmed (empty = all profiles)", async () => {
     signInAs("a");
     await bootstrapUser("a");
     await bootstrapUser("b");
     await insertTxn("a", { type: "expense", amountMinor: 100, occurredOn: "2026-06-01" });
     await insertTxn("a", { type: "income", amountMinor: 200, occurredOn: "2026-06-02" });
+    // b's row lives in b's own workspace, so a's wipe never touches it.
     await insertTxn("b", { type: "expense", amountMinor: 50, occurredOn: "2026-06-01" });
 
-    expect((await deleteAllTransactions("DELETE")).ok).toBe(true);
+    expect((await deleteAllTransactions("DELETE", [])).ok).toBe(true);
     expect(await countTxns("a")).toBe(0);
-    expect(await countTxns("b")).toBe(1); // other users untouched
+    expect(await countTxns("b")).toBe(1); // a different workspace — untouched
   });
 });

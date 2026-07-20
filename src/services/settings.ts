@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   profileAccess,
@@ -11,7 +11,7 @@ import {
   workspaces,
 } from "@/db/schema";
 import { ensureBootstrap, getUserSettings } from "@/lib/auth";
-import { accessibleProfileIds } from "@/lib/workspaces";
+import { requireWorkspaceRole } from "@/lib/workspaces";
 import { badRequest, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
@@ -56,22 +56,45 @@ export async function updateInputMode(userId: string, mode: string): Promise<Use
  * removed collaborator could destroy rows inside someone else's workspace on
  * the strength of past authorship. Requires the exact "DELETE" confirmation.
  */
+/**
+ * Clear transactions in the current workspace — a workspace-admin action.
+ * Deletes **every** transaction in the selected profiles (regardless of who
+ * authored it), so a profile is fully wiped. `profileIds` empty = every profile
+ * in the workspace; otherwise only the chosen ones (any id not in the workspace
+ * is ignored). Categories and settings are kept.
+ */
 export async function deleteAllTransactions(
   userId: string,
   workspaceId: string,
   confirm: string,
+  profileIds: string[] = [],
 ): Promise<{ deleted: number }> {
   if (confirm !== "DELETE") throw badRequest("Type DELETE to confirm");
+  await requireWorkspaceRole(userId, workspaceId, "admin");
   const db = getDb();
+
+  const wsProfiles = await db
+    .select({ id: profiles.id })
+    .from(profiles)
+    .where(eq(profiles.workspaceId, workspaceId));
+  const allowed = new Set(wsProfiles.map((p) => p.id));
+  const targets =
+    profileIds.length === 0
+      ? [...allowed]
+      : [...new Set(profileIds)].filter((id) => allowed.has(id));
+  if (targets.length === 0) throw badRequest("Select at least one profile to clear");
+
   const deleted = await db
     .delete(transactions)
-    .where(
-      and(
-        eq(transactions.userId, userId),
-        inArray(transactions.profileId, accessibleProfileIds(userId, workspaceId, "editor")),
-      ),
-    )
+    .where(inArray(transactions.profileId, targets))
     .returning({ id: transactions.id });
+  logger.info(`Cleared ${deleted.length} transactions across ${targets.length} profile(s)`, {
+    event: "settings.transactions_cleared",
+    workspaceId,
+    userId,
+    profileCount: targets.length,
+    deleted: deleted.length,
+  });
   return { deleted: deleted.length };
 }
 

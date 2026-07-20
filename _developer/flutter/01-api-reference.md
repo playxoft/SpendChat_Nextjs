@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 4.0.0.** Every API change bumps this version and is logged
+**API spec version: 5.0.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -308,7 +308,7 @@ codes are listed per row.
 | `DELETE /transactions/{id}` | — | 200 `data: { id, deleted: true }` | Workspace-scoped (cross-workspace id → 404). 422 "Invalid transaction" (non-UUID); 404; 403 (editor) |
 | `POST /transactions/bulk` | `{ items: TransactionInput[] }` (1–500) | 201 `data: { count }` | 422; 403. Unknown categoryId → null; non-writable profileId → default profile |
 | `GET /transactions/export` | — | 200 `text/csv` | **Not the JSON envelope.** Filters only (no paging; max 5000 rows). Text cells that look like formulas are apostrophe-prefixed. See § CSV. |
-| `POST /transactions/delete-all` | `{ confirm: "DELETE" }` | 200 `data: { deleted }` | 400 "Type DELETE to confirm" if `confirm !== "DELETE"`. Deletes rows the caller **authored in the current workspace**, in profiles they can still write to (editor+). Other workspaces are untouched. |
+| `POST /transactions/delete-all` | `{ confirm: "DELETE", profileIds?: string[] }` | 200 `data: { deleted }` | **Workspace admins only** (403 otherwise). 400 "Type DELETE to confirm" if `confirm !== "DELETE"`. Deletes **every** transaction (any author) in the selected profiles of the current workspace; `profileIds` omitted/empty clears **all** profiles in the workspace (ids outside it are ignored). |
 
 ### Categories (scoped to the current workspace via `X-Workspace-Id`)
 Shared by every member of the workspace. Reads need workspace access; writes

@@ -293,17 +293,18 @@ describe("create & switch workspaces", () => {
   });
 });
 
-describe("deleteAllTransactions scoping", () => {
-  it("wipes only rows the caller authored in profiles they can still write, in the given workspace", async () => {
+describe("deleteAllTransactions (admin, profile-scoped)", () => {
+  it("admins wipe every transaction in the chosen profiles; non-admins are refused", async () => {
     signInAs("a");
     await bootstrapUser("a");
     await bootstrapUser("b");
     const W = await workspaceIdOf("a");
     await ws.addMember(uid("a"), W, { email: "b@example.com", access: { mode: "all", role: "editor" } });
     const sharedProfile = await firstProfileId("a");
+    const { createProfile } = await import("@/services/profiles");
+    const other = await createProfile(uid("a"), W, { name: "Other" });
 
-    // b authors a row in a's shared profile, a authors one there too, and b has
-    // a row in their own workspace.
+    // Both members author rows in the shared profile; a also has one in `other`.
     await insertTxn("b", {
       type: "expense",
       amountMinor: 100,
@@ -316,18 +317,48 @@ describe("deleteAllTransactions scoping", () => {
       occurredOn: "2026-06-01",
       profileId: sharedProfile,
     });
-    await insertTxn("b", { type: "expense", amountMinor: 300, occurredOn: "2026-06-01" });
+    await insertTxn("a", {
+      type: "expense",
+      amountMinor: 300,
+      occurredOn: "2026-06-01",
+      profileId: other.id,
+    });
 
-    // Demoted to viewer, b can no longer wipe the rows they authored in W —
-    // past authorship alone must not grant a destructive write.
-    await ws.updateMemberRole(uid("a"), W, { userId: uid("b"), role: "viewer" });
-    expect(await deleteAllTransactions(uid("b"), W, "DELETE")).toEqual({ deleted: 0 });
+    // An editor can't clear transactions — it's an admin-only action.
+    await expect(
+      deleteAllTransactions(uid("b"), W, "DELETE", [sharedProfile]),
+    ).rejects.toMatchObject({ status: 403 });
 
-    // In their own workspace the wipe works, and touches only their row there.
-    const ownW = await workspaceIdOf("b");
-    expect(await deleteAllTransactions(uid("b"), ownW, "DELETE")).toEqual({ deleted: 1 });
-    expect(await countTxns("b")).toBe(1); // the shared-workspace row survives
-    expect(await countTxns("a")).toBe(1); // a's row untouched throughout
+    // Admin clears just the shared profile: BOTH authors' rows go (2), and the
+    // `other` profile is untouched.
+    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [sharedProfile])).toEqual({
+      deleted: 2,
+    });
+    expect(await countTxns("a")).toBe(1); // a's row in `other` survives
+    expect(await countTxns("b")).toBe(0); // b's shared-profile row is gone
+  });
+
+  it("empty profileIds clears every profile in the workspace", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+    const p1 = await firstProfileId("a");
+    const { createProfile } = await import("@/services/profiles");
+    const p2 = await createProfile(uid("a"), W, { name: "Second" });
+    await insertTxn("a", { type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: p1 });
+    await insertTxn("a", { type: "expense", amountMinor: 200, occurredOn: "2026-06-01", profileId: p2.id });
+
+    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [])).toEqual({ deleted: 2 });
+    expect(await countTxns("a")).toBe(0);
+  });
+
+  it("rejects a wrong confirmation string", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+    await expect(deleteAllTransactions(uid("a"), W, "nope", [])).rejects.toMatchObject({
+      status: 400,
+    });
   });
 });
 
