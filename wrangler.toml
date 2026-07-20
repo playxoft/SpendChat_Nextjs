@@ -12,34 +12,51 @@ compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 keep_vars = true
 
 # ---------------------------------------------------------------------------
-# Default (production) environment → `pnpm deploy:prod`.
-# Worker `spendchat`, served at spendchat.app.
-# Custom domain requires the spendchat.app zone in this Cloudflare account.
-# NOTE: top-level keys must appear before any [table] headers in TOML.
+# There is NO deployable top-level environment: prod and beta are BOTH named
+# environments, so every build/deploy must pass `-e|--env` — prod via
+# `pnpm deploy:prod` (--env production), beta via `pnpm deploy:dev` (--env beta).
+# Wrangler suffixes the env name onto the worker, so the deployed workers are
+# `spendchat-production` and `spendchat-beta`. Because both envs are named, a
+# plain `wrangler deploy` no longer targets a real prod worker — always go
+# through the pnpm scripts.
+#
+# The top level holds only the INHERITABLE keys both envs share (`main`,
+# `compatibility_*`, `keep_vars`). `routes`, `assets`, `observability`,
+# `placement` and bindings are non-inheritable in Wrangler, so each env repeats
+# them below. `cf-typegen` reads `--env production`, so keep the binding shape
+# (HYPERDRIVE, ASSETS) identical across envs or the generated types drift.
 # ---------------------------------------------------------------------------
-routes = [
-  { pattern = "spendchat.app", custom_domain = true },
-]
 
-# Static assets emitted by OpenNext
-[assets]
+# ---------------------------------------------------------------------------
+# Production → `pnpm deploy:prod` (--env production).
+# Worker `spendchat-production`, served at spendchat.app.
+# Custom domain requires the spendchat.app zone in this Cloudflare account; the
+# first deploy moves the spendchat.app custom domain onto this worker.
+# ---------------------------------------------------------------------------
+[env.production]
+
+[env.production.observability]
+enabled = true
+
+[env.production.assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
 
-[observability]
-enabled = true
+[[env.production.routes]]
+pattern = "spendchat.app"
+custom_domain = true
 
 # Smart Placement runs the Worker close to Neon (single-region DB) instead of
 # close to the user, so the per-request Worker↔DB round-trips are fast. Safe and
 # reversible — remove this block to revert.
-[placement]
+[env.production.placement]
 mode = "smart"
 
-# Cloudflare Hyperdrive fronting Neon Postgres. Keeps warm, pooled connections
-# to Neon in Cloudflare's network so the Worker skips the TCP+TLS+auth handshake
-# per request. Query caching is left at its default and NOT relied on — the app
-# treats reads as always-fresh (money data), so create the config with caching
-# disabled (see below). Consumed in src/db/index.ts via `env.HYPERDRIVE`.
+# Cloudflare Hyperdrive fronting Neon Postgres (prod). Keeps warm, pooled
+# connections to Neon in Cloudflare's network so the Worker skips the
+# TCP+TLS+auth handshake per request. Query caching is left disabled — the app
+# treats reads as always-fresh (money data). Consumed in src/db/index.ts via
+# `env.HYPERDRIVE`.
 #
 # Create the config once (prod Neon URL, from the `prd` Doppler config), then
 # paste the returned id below:
@@ -52,16 +69,14 @@ mode = "smart"
 # CLOUDFLARE_/WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE — no local
 # Postgres and no committed secret. (`next dev` reads the CLOUDFLARE_ prefix,
 # `wrangler dev`/preview the WRANGLER_ one.)
-[[hyperdrive]]
+[[env.production.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "4858a2aa60374cd28c60539f0c0b85e6"
 
 # ---------------------------------------------------------------------------
-# Beta (dev) environment → `pnpm deploy:dev` (adds `--env beta`).
-# A SEPARATE worker `spendchat-beta` (wrangler suffixes the env name), served at
-# beta.spendchat.app. `routes`, `assets` and `observability` are
-# non-inheritable in Wrangler, so they're repeated here; `main`,
-# `compatibility_*` and `keep_vars` are inherited from the top level.
+# Beta (dev) → `pnpm deploy:dev` (--env beta).
+# Worker `spendchat-beta` (wrangler suffixes the env name), served at
+# beta.spendchat.app.
 # ---------------------------------------------------------------------------
 [env.beta]
 
@@ -89,14 +104,17 @@ binding = "HYPERDRIVE"
 id = "07826a33089d4b4db1650922ac12da22"
 
 # ---------------------------------------------------------------------------
-# Secrets/vars are NOT stored here — manage them per worker on Cloudflare
+# Secrets/vars are NOT stored here — manage them PER WORKER on Cloudflare
 # (dashboard) or via `wrangler secret put`. keep_vars (above) makes deploys
 # preserve them. NEXT_PUBLIC_* values are inlined at build time (from Doppler)
-# and do NOT need a secret. Set the runtime secrets once per environment:
+# and do NOT need a secret. Secrets are per-worker, so `spendchat-production`
+# and `spendchat-beta` each need their own copies. Set the runtime secrets once
+# per environment (repeat for every runtime secret — NEON_POSTGRES_DATABASE_URL,
+# R2_*, ZEPTOMAIL_*, MAIL_FROM_*, BETTERSTACK_*, LOG_LEVEL):
 #
-#   # prod worker (spendchat), from the `prd` Doppler config
+#   # prod worker (spendchat-production), from the `prd` Doppler config
 #   doppler secrets get NEON_POSTGRES_DATABASE_URL --config prd --plain \
-#     | npx wrangler secret put NEON_POSTGRES_DATABASE_URL
+#     | npx wrangler secret put NEON_POSTGRES_DATABASE_URL --env production
 #
 #   # beta worker (spendchat-beta), from the `dev` Doppler config
 #   doppler secrets get NEON_POSTGRES_DATABASE_URL --config dev --plain \
