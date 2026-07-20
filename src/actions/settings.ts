@@ -26,6 +26,38 @@ export async function patchSettings(input: Record<string, unknown>): Promise<Act
   );
 }
 
+/** Update the signed-in user's account display name. */
+export async function updateAccountName(name: string): Promise<ActionResult<{ name: string }>> {
+  const user = await requireUser();
+  return runAction(
+    "updateAccountName",
+    async () => {
+      const res = await settingsService.updateAccountName(user.id, { name });
+      revalidatePath("/settings");
+      revalidatePath("/app");
+      return { name: res.name };
+    },
+    { userId: user.id },
+  );
+}
+
+/**
+ * Notify the user by email that their password was created/changed. Called from
+ * the client *after* the Firebase Web-SDK password operation succeeds — the
+ * change itself happens in the browser; the server only sends the notice.
+ */
+export async function notifyPasswordChanged(): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "notifyPasswordChanged",
+    async () => {
+      await settingsService.notifyPasswordChanged(user.id);
+      return {};
+    },
+    { userId: user.id },
+  );
+}
+
 /** Change how the transaction composer lays out its inputs. */
 export async function updateInputMode(mode: string): Promise<ActionResult> {
   const user = await requireUser();

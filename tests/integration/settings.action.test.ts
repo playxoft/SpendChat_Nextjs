@@ -1,7 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
-import { workspaceMembers, workspaces } from "@/db/schema";
-import { deleteAllTransactions } from "@/actions/settings";
+import { emailSendLog, users, workspaceMembers, workspaces } from "@/db/schema";
+import {
+  deleteAllTransactions,
+  notifyPasswordChanged,
+  updateAccountName,
+} from "@/actions/settings";
 import { updateWorkspaceCurrency } from "@/actions/workspaces";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
@@ -77,5 +81,71 @@ describe("deleteAllTransactions", () => {
     expect((await deleteAllTransactions("DELETE", [])).ok).toBe(true);
     expect(await countTxns("a")).toBe(0);
     expect(await countTxns("b")).toBe(1); // a different workspace — untouched
+  });
+});
+
+const userRow = (alias: string) =>
+  getTestDb()
+    .select()
+    .from(users)
+    .where(eq(users.id, uid(alias)))
+    .then((r) => r[0]);
+
+describe("updateAccountName", () => {
+  it("persists a trimmed display name on the user row", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+
+    const res = await updateAccountName("  Ada Lovelace  ");
+    expect(res).toMatchObject({ ok: true, name: "Ada Lovelace" });
+    expect((await userRow("a"))?.name).toBe("Ada Lovelace");
+  });
+
+  it("rejects a blank name", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+
+    expect((await updateAccountName("   ")).ok).toBe(false);
+    expect((await userRow("a"))?.name).toBe("a"); // unchanged (seeded alias)
+  });
+
+  it("rejects a name over 50 characters", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+
+    expect((await updateAccountName("x".repeat(51))).ok).toBe(false);
+    expect((await userRow("a"))?.name).toBe("a");
+  });
+});
+
+describe("notifyPasswordChanged", () => {
+  const sendLogCount = async (alias: string) =>
+    (await getTestDb().select().from(emailSendLog).where(eq(emailSendLog.userId, uid(alias)))).length;
+
+  it("records a password_changed send for the signed-in user", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+
+    const res = await notifyPasswordChanged();
+    expect(res.ok).toBe(true);
+    const rows = await getTestDb()
+      .select()
+      .from(emailSendLog)
+      .where(eq(emailSendLog.userId, uid("a")));
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.kind).toBe("password_changed");
+  });
+
+  it("stays best-effort past the hourly cap (no throw, no extra send)", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    // Fill the shared per-user email budget.
+    await getTestDb()
+      .insert(emailSendLog)
+      .values(Array.from({ length: 20 }, () => ({ userId: uid("a"), kind: "member_invite" })));
+
+    const res = await notifyPasswordChanged();
+    expect(res.ok).toBe(true); // the password already changed — never a failure
+    expect(await sendLogCount("a")).toBe(20); // capped: no additional send recorded
   });
 });
