@@ -10,7 +10,7 @@ import {
   listTransactionIds,
 } from "@/lib/queries";
 import { resolveWebProfile } from "@/lib/filters";
-import { canWriteInWorkspace } from "@/lib/workspaces";
+import { canWriteInWorkspace, workspaceHasMultipleUsers } from "@/lib/workspaces";
 import type { InputMode } from "@/lib/validation";
 import { monthKey, monthRange, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
@@ -44,10 +44,12 @@ export default async function ChatPage({
   const user = await requireUser();
   const settings = await getUserSettings(user.id);
   const workspace = await getCurrentWorkspace(user.id);
-  const [categories, profiles, canWrite] = await Promise.all([
+  const [categories, profiles, canWrite, showAuthor] = await Promise.all([
     getCategories(workspace.id),
     getProfiles(user.id, workspace.id),
     canWriteInWorkspace(user.id, workspace.id),
+    // Shared workspaces label each bubble with its author (WhatsApp-group style).
+    workspaceHasMultipleUsers(workspace.id),
   ]);
 
   // Web default: no `?profile=` shows the first profile; "all" is explicit.
@@ -128,6 +130,8 @@ export default async function ChatPage({
               today={today}
               categories={categories}
               profiles={profiles}
+              showAuthor={showAuthor}
+              currentUser={{ id: user.id, name: user.name, email: user.email }}
             />
           </Suspense>
         </div>
@@ -224,6 +228,8 @@ async function FeedStream({
   today,
   categories,
   profiles,
+  showAuthor,
+  currentUser,
 }: {
   userId: string;
   workspaceId: string;
@@ -234,6 +240,8 @@ async function FeedStream({
   today: string;
   categories: Awaited<ReturnType<typeof getCategories>>;
   profiles: Awaited<ReturnType<typeof getProfiles>>;
+  showAuthor: boolean;
+  currentUser: { id: string; name: string | null; email: string | null };
 }) {
   // The latest page across all history (newest-first), reversed to oldest-first
   // for the chat. Older pages stream in as the user scrolls up.
@@ -250,6 +258,8 @@ async function FeedStream({
       locale={locale}
       timeZone={timeZone}
       profileId={profileId ?? null}
+      showAuthor={showAuthor}
+      currentUser={currentUser}
     >
       <InfiniteChatFeed
         initialRows={rows}
@@ -262,6 +272,7 @@ async function FeedStream({
         today={today}
         categories={categories}
         profiles={profiles}
+        showAuthor={showAuthor}
       />
     </FeedRegion>
   );

@@ -23,6 +23,7 @@ export function ChatFeed({
   today,
   categories,
   profiles = [],
+  showAuthor = false,
 }: {
   rows: TransactionRow[];
   currency: string;
@@ -31,6 +32,8 @@ export function ChatFeed({
   today: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles?: Pick<Profile, "id" | "name" | "icon">[];
+  /** Shared workspaces only: label each bubble with its author. */
+  showAuthor?: boolean;
 }) {
   if (rows.length === 0) {
     return (
@@ -82,6 +85,7 @@ export function ChatFeed({
                     profiles={profiles}
                     today={today}
                     timeLabel={timeLabel(r.createdAt, locale, timeZone)}
+                    showAuthor={showAuthor}
                   />
                 ))}
               </div>

@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, profiles, transactions } from "@/db/schema";
+import { categories, profiles, transactions, users } from "@/db/schema";
 import { accessibleProfileIds } from "@/lib/workspaces";
 
 /** The page size shared by the transactions list, its infinite-scroll loader,
@@ -42,6 +42,12 @@ export type TransactionRow = {
   profileId: string;
   profileName: string | null;
   profileIcon: string | null;
+  /** Author attribution: who entered the row. `userId` is always present
+   * (`transactions.user_id` is notNull); name/email come from the joined
+   * `users` row and may be null. Surfaced in shared workspaces. */
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
 };
 
 /**
@@ -107,6 +113,9 @@ const txnSelection = {
   profileId: transactions.profileId,
   profileName: profiles.name,
   profileIcon: profiles.icon,
+  userId: transactions.userId,
+  userName: users.name,
+  userEmail: users.email,
 };
 
 export async function listTransactions(
@@ -120,6 +129,7 @@ export async function listTransactions(
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(profiles, eq(transactions.profileId, profiles.id))
+    .leftJoin(users, eq(transactions.userId, users.id))
     .where(buildConditions(userId, workspaceId, f))
     .orderBy(...orderByFor(f))
     .limit(f.limit ?? 100)
@@ -143,6 +153,7 @@ export async function getTransactionById(
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(profiles, eq(transactions.profileId, profiles.id))
+    .leftJoin(users, eq(transactions.userId, users.id))
     .where(
       and(
         eq(transactions.id, id),
@@ -203,6 +214,7 @@ export async function listFeedPage(
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(profiles, eq(transactions.profileId, profiles.id))
+    .leftJoin(users, eq(transactions.userId, users.id))
     .where(where)
     .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id))
     .limit(opts.limit);
@@ -377,4 +389,19 @@ export async function getProfiles(userId: string, workspaceId: string) {
     .from(profiles)
     .where(inArray(profiles.id, accessibleProfileIds(userId, workspaceId)))
     .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt));
+}
+
+/**
+ * The signed-in user's own account row for the settings page — name, email, and
+ * avatar. `getAppContext().user` (a `SessionUser`) carries no `image`, so the
+ * account page reads it here rather than widening the hot auth path's shape.
+ */
+export async function getAccountProfile(userId: string) {
+  const db = getDb();
+  const [row] = await db
+    .select({ id: users.id, name: users.name, email: users.email, image: users.image })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row ?? null;
 }

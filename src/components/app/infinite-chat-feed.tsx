@@ -48,6 +48,7 @@ export function InfiniteChatFeed({
   today,
   categories,
   profiles = [],
+  showAuthor = false,
 }: {
   initialRows: TransactionRow[];
   profileId: string | null;
@@ -59,6 +60,8 @@ export function InfiniteChatFeed({
   today: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles?: Pick<Profile, "id" | "name" | "icon">[];
+  /** Shared workspaces only: label each bubble with its author. */
+  showAuthor?: boolean;
 }) {
   const [rows, setRows] = useState(initialRows);
   const [syncedInitial, setSyncedInitial] = useState(initialRows);
@@ -173,6 +176,7 @@ export function InfiniteChatFeed({
         today={today}
         categories={categories}
         profiles={profiles}
+        showAuthor={showAuthor}
       />
     </>
   );

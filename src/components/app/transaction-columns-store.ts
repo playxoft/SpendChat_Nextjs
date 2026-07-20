@@ -2,9 +2,16 @@
 
 import { useSyncExternalStore } from "react";
 
-export type ColumnId = "date" | "category" | "title" | "description" | "amount";
+export type ColumnId = "date" | "category" | "title" | "description" | "amount" | "user";
 
-export const COLUMN_IDS: ColumnId[] = ["date", "category", "title", "description", "amount"];
+export const COLUMN_IDS: ColumnId[] = [
+  "date",
+  "category",
+  "title",
+  "description",
+  "amount",
+  "user",
+];
 
 export const COLUMN_LABELS: Record<ColumnId, string> = {
   date: "Date",
@@ -12,6 +19,7 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
   title: "Title",
   description: "Description",
   amount: "Amount",
+  user: "User",
 };
 
 /** Starting width (px) for each column; user resizes are stored as overrides. */
@@ -21,7 +29,14 @@ export const DEFAULT_WIDTHS: Record<ColumnId, number> = {
   title: 220,
   description: 256,
   amount: 132,
+  user: 220,
 };
+
+/** Columns that start hidden — visible only when the user opts in via the
+ * columns menu. `user` (author name + email) is noise in a solo workspace, so
+ * it's off by default. A column added here is hidden for existing users too
+ * (see `normalizeHidden`), without resetting their saved layout. */
+const DEFAULT_HIDDEN: ColumnId[] = ["user"];
 
 export const MIN_COLUMN_WIDTH = 72;
 
@@ -35,27 +50,39 @@ const STORAGE_KEY = "spendchat:txn-columns";
 
 // A single stable default reference — used as the server snapshot so hydration
 // always matches the server-rendered HTML (see the store notes below).
-const DEFAULT_LAYOUT: ColumnLayout = { order: COLUMN_IDS, hidden: [], widths: {} };
+const DEFAULT_LAYOUT: ColumnLayout = { order: COLUMN_IDS, hidden: DEFAULT_HIDDEN, widths: {} };
 
 function isColumnId(value: unknown): value is ColumnId {
   return typeof value === "string" && (COLUMN_IDS as string[]).includes(value);
 }
 
-/** Only trust a stored order that's an exact permutation of the known columns. */
+/**
+ * Normalize a stored order without discarding it: keep the known ids in their
+ * saved order, drop any that no longer exist, and append columns added since the
+ * layout was saved (so a new column lands at the end, not a full reset).
+ */
 function normalizeOrder(value: unknown): ColumnId[] {
-  if (
-    Array.isArray(value) &&
-    value.length === COLUMN_IDS.length &&
-    COLUMN_IDS.every((id) => value.includes(id))
-  ) {
-    return value as ColumnId[];
-  }
-  return COLUMN_IDS;
+  const stored = Array.isArray(value) ? value.filter(isColumnId) : [];
+  const seen = new Set(stored);
+  return [...stored, ...COLUMN_IDS.filter((id) => !seen.has(id))];
 }
 
-function normalizeHidden(value: unknown): ColumnId[] {
-  if (!Array.isArray(value)) return [];
-  const ids = [...new Set(value.filter(isColumnId))];
+/**
+ * Normalize the hidden set. A column in `DEFAULT_HIDDEN` that's *missing* from
+ * the stored order is one added after this layout was saved — start it hidden,
+ * so a new default-hidden column is off for existing users too. Once the user
+ * toggles it, it's in their stored order and this no longer applies (their
+ * choice sticks).
+ */
+function normalizeHidden(value: unknown, storedOrder: unknown): ColumnId[] {
+  const stored = Array.isArray(value) ? value.filter(isColumnId) : [];
+  const knownOrder = Array.isArray(storedOrder) ? storedOrder.filter(isColumnId) : [];
+  const inOrder = new Set(knownOrder);
+  const hidden = new Set<ColumnId>(stored);
+  for (const id of DEFAULT_HIDDEN) {
+    if (!inOrder.has(id)) hidden.add(id);
+  }
+  const ids = [...hidden];
   // Never let every column be hidden — keep at least one visible.
   return ids.length >= COLUMN_IDS.length ? ids.slice(0, COLUMN_IDS.length - 1) : ids;
 }
@@ -78,12 +105,12 @@ function readStored(): ColumnLayout {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null");
     // Legacy format: the store used to hold just the order array.
     if (Array.isArray(parsed)) {
-      return { order: normalizeOrder(parsed), hidden: [], widths: {} };
+      return { order: normalizeOrder(parsed), hidden: normalizeHidden([], parsed), widths: {} };
     }
     if (parsed && typeof parsed === "object") {
       return {
         order: normalizeOrder(parsed.order),
-        hidden: normalizeHidden(parsed.hidden),
+        hidden: normalizeHidden(parsed.hidden, parsed.order),
         widths: normalizeWidths(parsed.widths),
       };
     }
