@@ -12,10 +12,14 @@ import {
 } from "@/db/schema";
 import { ensureBootstrap, getUserSettings } from "@/lib/auth";
 import { requireWorkspaceRole } from "@/lib/workspaces";
+import { findUserById } from "@/lib/directory";
+import { sendEmail } from "@/lib/email";
+import { assertEmailSendAllowed } from "@/lib/email-quota";
+import { siteConfig } from "@/lib/site";
 import { badRequest, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
-import { patchSettingsSchema, inputModeSchema } from "@/lib/validation";
+import { patchSettingsSchema, inputModeSchema, updateAccountNameSchema } from "@/lib/validation";
 import type { UserSettings } from "@/db/schema";
 
 /**
@@ -144,5 +148,84 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
     event: "account.deleted",
     userId,
     workspaces: ownedIds.length,
+  });
+}
+
+/**
+ * Update the user's own display name (`users.name`). Once set here, the hourly
+ * session refresh (`syncUserProfile`) no longer overwrites it from the Google
+ * token — the `coalesce` there keeps the user's value.
+ */
+export async function updateAccountName(userId: string, input: unknown): Promise<{ name: string }> {
+  const { name } = parseOrThrow(updateAccountNameSchema, input);
+  const db = getDb();
+  await db.update(users).set({ name, updatedAt: new Date() }).where(eq(users.id, userId));
+  logger.info("Account display name updated", { event: "account.name_updated", userId });
+  return { name };
+}
+
+/**
+ * Point the user's avatar at `url` (an object we just stored in R2) or clear it
+ * (`null`, on removal). Returns the *previous* image URL so the caller can
+ * best-effort delete the now-orphaned R2 object. Read-then-write because
+ * Postgres `UPDATE … RETURNING` yields the new value, not the old.
+ */
+export async function setUserImage(
+  userId: string,
+  url: string | null,
+): Promise<{ previousUrl: string | null }> {
+  const db = getDb();
+  const [existing] = await db
+    .select({ image: users.image })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  await db.update(users).set({ image: url, updatedAt: new Date() }).where(eq(users.id, userId));
+  logger.info(url ? "Account avatar updated" : "Account avatar removed", {
+    event: url ? "account.avatar_updated" : "account.avatar_removed",
+    userId,
+  });
+  return { previousUrl: existing?.image ?? null };
+}
+
+/** Security notice body — no user data is interpolated, so no escaping needed. */
+function passwordChangedEmail() {
+  return {
+    subject: `Your ${siteConfig.name} password was changed`,
+    html:
+      `<p>Your <b>${siteConfig.name}</b> password was just changed.</p>` +
+      `<p>If this was you, no action is needed. If you didn't change it, ` +
+      `<a href="${siteConfig.url}/forgot-password">reset your password</a> right ` +
+      `away to secure your account.</p>`,
+  };
+}
+
+/**
+ * Email the user that their password was created/changed. Called after the
+ * Firebase Web-SDK password operation succeeds client-side — the recipient is
+ * always the authenticated user's own address (never a caller-chosen one).
+ * Best-effort: the password is already changed, so a missing email or a spent
+ * hourly quota must not surface as a failure.
+ */
+export async function notifyPasswordChanged(userId: string): Promise<void> {
+  const user = await findUserById(userId);
+  if (!user?.email) return;
+  try {
+    await assertEmailSendAllowed(
+      userId,
+      "password_changed",
+      "Too many security emails in the last hour — try again later",
+    );
+  } catch {
+    logger.warn("Password-changed email skipped after hitting the hourly cap", {
+      event: "account.password_email_skipped",
+      userId,
+    });
+    return;
+  }
+  sendEmail({ to: user.email, ...passwordChangedEmail() });
+  logger.info("Password-changed notification queued", {
+    event: "account.password_changed",
+    userId,
   });
 }
