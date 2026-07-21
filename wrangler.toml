@@ -35,6 +35,13 @@ keep_vars = true
 # ---------------------------------------------------------------------------
 [env.production]
 
+# Plain (non-secret) vars, deployed with the worker. APP_ENV tags shipped logs
+# as `environment` so BetterStack can filter production vs beta (NODE_ENV is
+# "production" on both, so it can't) — see src/lib/logger.ts. keep_vars (above)
+# only stops deploys DELETING dashboard vars; vars declared here are still set.
+[env.production.vars]
+APP_ENV = "production"
+
 [env.production.observability]
 enabled = true
 
@@ -79,6 +86,10 @@ id = "4858a2aa60374cd28c60539f0c0b85e6"
 # beta.spendchat.app.
 # ---------------------------------------------------------------------------
 [env.beta]
+
+# Tags shipped logs as environment="beta" (see the production note above).
+[env.beta.vars]
+APP_ENV = "beta"
 
 [env.beta.observability]
 enabled = true
