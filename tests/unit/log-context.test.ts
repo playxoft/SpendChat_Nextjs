@@ -12,6 +12,7 @@ describe("log context store", () => {
     expect(getLogContext()).toEqual({
       requestId: null,
       platform: null,
+      host: null,
       userId: null,
       workspaceId: null,
       profileId: null,
@@ -31,6 +32,7 @@ describe("log context store", () => {
       expect(getLogContext()).toEqual({
         requestId: "ray-1",
         platform: "web",
+        host: null,
         userId: "u1",
         workspaceId: "w1",
         profileId: "p1",
@@ -66,21 +68,24 @@ describe("normalizePlatform", () => {
 });
 
 describe("seedFromHeaders", () => {
-  it("uses cf-ray as the request id and the client platform header", () => {
+  it("uses cf-ray as the request id, the client platform, and the host header", () => {
     const headers: Record<string, string> = {
       "cf-ray": "8abc123def-SIN",
       "x-client-platform": "ios",
+      host: "spendchat.app",
     };
     expect(seedFromHeaders((n) => headers[n] ?? null, "api")).toEqual({
       requestId: "8abc123def-SIN",
       platform: "ios",
+      host: "spendchat.app",
     });
   });
 
-  it("falls back to a generated uuid and the fallback platform", () => {
+  it("falls back to a generated uuid, the fallback platform, and a null host", () => {
     const seed = seedFromHeaders(() => null, "web");
     expect(seed.platform).toBe("web");
     expect(seed.requestId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(seed.host).toBeNull();
   });
 });
 
@@ -91,7 +96,7 @@ describe("logger attaches the request identity to every line", () => {
     vi.resetModules();
   });
 
-  it("merges the five context fields, with explicit meta winning", async () => {
+  it("merges the six context fields, with explicit meta winning", async () => {
     vi.resetModules();
     vi.stubEnv("LOG_LEVEL", "info");
     // Fresh module graph so logger + log-context share one ALS instance and the
@@ -100,7 +105,7 @@ describe("logger attaches the request identity to every line", () => {
     const ctx = await import("@/lib/log-context");
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
 
-    ctx.runWithLogContext({ requestId: "ray-9", platform: "android" }, () => {
+    ctx.runWithLogContext({ requestId: "ray-9", platform: "android", host: "spendchat.app" }, () => {
       ctx.setLogContext({ userId: "u1", workspaceId: "w1", profileId: "p1" });
       logger.info("Database insert into transactions", { event: "db.write" });
     });
@@ -110,6 +115,7 @@ describe("logger attaches the request identity to every line", () => {
     expect(meta).toMatchObject({
       requestId: "ray-9",
       platform: "android",
+      host: "spendchat.app",
       userId: "u1",
       workspaceId: "w1",
       profileId: "p1",
@@ -129,6 +135,7 @@ describe("logger attaches the request identity to every line", () => {
     expect(meta).toMatchObject({
       requestId: null,
       platform: null,
+      host: null,
       userId: null,
       workspaceId: null,
       profileId: null,
