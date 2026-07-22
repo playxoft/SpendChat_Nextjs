@@ -18,6 +18,10 @@ import { CategoryEditorDialog } from "./category-editor-dialog";
 import { cn } from "@/lib/utils";
 import { usePendingMessages } from "./pending-messages";
 import { useLoadingOverlay } from "./loading-overlay";
+import { AttachmentDropzone } from "./attachments/attachment-dropzone";
+import { StagedAttachmentList, useStagedAttachments } from "./attachments/staged-attachments";
+import { PageAttachmentDrop } from "./attachments/page-attachment-drop";
+import { pickAcceptedFiles } from "./attachments/upload-client";
 import { getCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
 import {
@@ -31,6 +35,7 @@ import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
+  ATTACHMENT_MAX_PER_TRANSACTION,
   TRANSACTION_AMOUNT_MAX as AMOUNT_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX as TITLE_MAX,
@@ -79,6 +84,8 @@ export function TransactionComposer({
   const [slashDismissed, setSlashDismissed] = useState(false);
   const [slashIndex, setSlashIndex] = useState(0);
   const { send } = usePendingMessages();
+  // Files staged for the next send; uploaded to the row once it's created.
+  const staged = useStagedAttachments();
   // True while a profile/workspace switch is in flight — the fields belong to
   // the outgoing profile, so lock the composer until the new one has loaded.
   const { pending: switching } = useLoadingOverlay();
@@ -201,6 +208,7 @@ export function TransactionComposer({
 
     // Optimistic: paint the bubble now, save in the background. On failure the
     // ghost bubble surfaces a "Try again" — the composer doesn't wait or block.
+    // Staged files (if any) ride along and upload once the row's id is known.
     send({
       input,
       type,
@@ -210,10 +218,13 @@ export function TransactionComposer({
       categoryName: cat?.name ?? null,
       categoryIcon: cat?.icon ?? null,
       profileId: targetProfileId,
+      attachments: staged.items.length > 0 ? staged.toInputs() : undefined,
     });
 
     // Clear the composer immediately so the next entry can start (WhatsApp-style),
-    // and keep focus in the first field for rapid successive sends.
+    // and keep focus in the first field for rapid successive sends. `staged.clear`
+    // drops the local previews — the File refs live on in the pending draft.
+    staged.clear();
     setAmount("");
     setTitle("");
     setCombined("");
@@ -223,6 +234,15 @@ export function TransactionComposer({
     setOccurredOn(today);
     setSlashDismissed(false);
     (isCombined || inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
+  }
+
+  // Files dropped anywhere on the tracker page: filter to the free slots and
+  // stage them in the composer (the inline paperclip pre-filters its own).
+  function stageDropped(files: File[]) {
+    const remaining = ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length;
+    const { accepted, errors } = pickAcceptedFiles(files, remaining);
+    errors.forEach((e) => toast.error(e));
+    if (accepted.length) staged.add(accepted);
   }
 
   function onAmountKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
@@ -367,6 +387,12 @@ export function TransactionComposer({
       }}
       className="sticky bottom-16 z-20 border-t bg-background px-3 py-2 md:bottom-0 md:bg-background/95 md:backdrop-blur-sm"
     >
+      {/* Drop files anywhere on the tracker to stage them for the next send. */}
+      <PageAttachmentDrop
+        onFiles={stageDropped}
+        disabled={switching}
+        label="Drop files to attach to your transaction"
+      />
       {/* Disable every field/button while a profile switch is in flight — the
           native `disabled` on a fieldset cascades to all controls inside. */}
       <fieldset
@@ -414,6 +440,14 @@ export function TransactionComposer({
             </div>
 
             <div className="ml-auto flex min-w-0 items-center gap-2">
+              {/* Attach receipts/bills/invoices — sits to the left of the date. */}
+              <AttachmentDropzone
+                variant="inline"
+                onFiles={staged.add}
+                remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
+                disabled={switching}
+                className="size-8 border"
+              />
               <DatePicker
                 value={occurredOn}
                 max={today}
@@ -501,6 +535,19 @@ export function TransactionComposer({
             )}
           </p>
         )}
+
+        {/* Staged files sit just above the input row, like drafted photos in a
+            chat composer. Scrolls if several are queued. */}
+        {staged.items.length > 0 ? (
+          <div className="max-h-40 space-y-2 overflow-y-auto">
+            <StagedAttachmentList
+              items={staged.items}
+              onRemove={staged.remove}
+              onUpdate={staged.update}
+              disabled={switching}
+            />
+          </div>
+        ) : null}
 
         <div className="relative flex flex-wrap items-end gap-2">
           {/* Field order follows the user's chosen input mode. */}
