@@ -1,8 +1,9 @@
 import "server-only";
 import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, profiles, transactions, users } from "@/db/schema";
+import { categories, profiles, transactionAttachments, transactions, users } from "@/db/schema";
 import { accessibleProfileIds } from "@/lib/workspaces";
+import type { AttachmentDTO } from "@/lib/attachments";
 
 /** The page size shared by the transactions list, its infinite-scroll loader,
  * and the load-more server action. */
@@ -48,6 +49,11 @@ export type TransactionRow = {
   userId: string;
   userName: string | null;
   userEmail: string | null;
+  /** Files attached to this transaction (receipts/bills/invoices), oldest-first.
+   * Embedded from the DB in the same query so the detail dialog opens instantly
+   * and the feed/table render clickable chips — no extra round-trip. `[]` when
+   * none; `attachments.length` is the count for the 📎 indicators. */
+  attachments: AttachmentDTO[];
 };
 
 /**
@@ -116,6 +122,32 @@ const txnSelection = {
   userId: transactions.userId,
   userName: users.name,
   userEmail: users.email,
+  // Files attached to the row, embedded as JSON so the detail dialog and the
+  // feed/table chips render straight from this query — no per-row round-trip.
+  // Correlated + ordered oldest-first (indexed on transaction_id, created_at);
+  // coalesced to an empty array when the row has none. node-postgres parses the
+  // jsonb, so this is already an `AttachmentDTO[]` on the row.
+  attachments: sql<AttachmentDTO[]>`(
+    select coalesce(
+      jsonb_agg(
+        jsonb_build_object(
+          'id', ${transactionAttachments.id},
+          'transactionId', ${transactionAttachments.transactionId},
+          'fileName', ${transactionAttachments.fileName},
+          'contentType', ${transactionAttachments.contentType},
+          'sizeBytes', ${transactionAttachments.sizeBytes},
+          'kind', ${transactionAttachments.kind},
+          'label', ${transactionAttachments.label},
+          'hasThumbnail', (${transactionAttachments.thumbnailKey} is not null),
+          'createdAt', ${transactionAttachments.createdAt}
+        )
+        order by ${transactionAttachments.createdAt}
+      ),
+      '[]'::jsonb
+    )
+    from ${transactionAttachments}
+    where ${transactionAttachments.transactionId} = ${transactions.id}
+  )`,
 };
 
 export async function listTransactions(
@@ -402,6 +434,57 @@ export async function getAccountProfile(userId: string) {
     .select({ id: users.id, name: users.name, email: users.email, image: users.image })
     .from(users)
     .where(eq(users.id, userId))
+    .limit(1);
+  return row ?? null;
+}
+
+/** Full attachment row (metadata only; the bytes live in R2 under `r2Key`). */
+export type AttachmentRow = typeof transactionAttachments.$inferSelect;
+
+/**
+ * Attachments for a transaction, scoped to profiles the user can view in the
+ * current workspace. Scopes on the denormalized `profile_id`, so a transaction
+ * in another workspace (or a profile the user can't reach) returns an empty
+ * list — same access model as `getTransactionById`. Oldest-first.
+ */
+export async function listTransactionAttachments(
+  userId: string,
+  workspaceId: string,
+  transactionId: string,
+): Promise<AttachmentRow[]> {
+  const db = getDb();
+  return db
+    .select()
+    .from(transactionAttachments)
+    .where(
+      and(
+        eq(transactionAttachments.transactionId, transactionId),
+        inArray(transactionAttachments.profileId, accessibleProfileIds(userId, workspaceId)),
+      ),
+    )
+    .orderBy(asc(transactionAttachments.createdAt));
+}
+
+/**
+ * A single attachment the user can view in the current workspace, or null when
+ * it doesn't exist or lives outside the user's accessible profiles. Backs the
+ * download route's access check (viewer-or-better).
+ */
+export async function getAttachmentById(
+  userId: string,
+  workspaceId: string,
+  attachmentId: string,
+): Promise<AttachmentRow | null> {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(transactionAttachments)
+    .where(
+      and(
+        eq(transactionAttachments.id, attachmentId),
+        inArray(transactionAttachments.profileId, accessibleProfileIds(userId, workspaceId)),
+      ),
+    )
     .limit(1);
   return row ?? null;
 }
