@@ -11,11 +11,14 @@ import {
   type ReactNode,
 } from "react";
 import { RotateCcw, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { TransactionBubble, bubbleAmountLabel } from "./transaction-bubble";
 import { addTransaction } from "@/actions/transactions";
+import { uploadStagedAttachments, type StagedInput } from "./attachments/upload-client";
 import { authorColorClass, authorDisplayName } from "@/lib/author-color";
 import { cn } from "@/lib/utils";
-import type { TransactionInput } from "@/lib/validation";
+import { resolveAttachmentType, type TransactionInput } from "@/lib/validation";
 
 /** The current user, for labelling their own optimistic bubbles in a shared
  * workspace (a pending send is always the current user's). */
@@ -48,6 +51,8 @@ export type PendingTx = {
   categoryIcon: string | null;
   /** Target profile — used to keep a ghost from leaking into another profile's view. */
   profileId: string | null;
+  /** Files to upload once the row is created (kept for a retry replay too). */
+  attachments?: StagedInput[];
 };
 
 /** What the composer hands to `send()` (identity/status/time are assigned internally). */
@@ -83,9 +88,10 @@ export function PendingMessagesProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<PendingTx[]>([]);
   // Keeps the RSC revalidation that `addTransaction` triggers off the main thread.
   const [, startTransition] = useTransition();
+  const router = useRouter();
 
   const run = useCallback(
-    (tempId: string, input: TransactionInput) => {
+    (tempId: string, input: TransactionInput, attachments?: StagedInput[]) => {
       startTransition(async () => {
         const res = await addTransaction(input);
         setPending((prev) =>
@@ -99,9 +105,19 @@ export function PendingMessagesProvider({ children }: { children: ReactNode }) {
               : { ...m, status: "failed", error: res.error };
           }),
         );
+        // The row exists now — upload any staged files to it. A failure here only
+        // warns (the transaction is saved); the refresh reflects the 📎 count.
+        if (res.ok && attachments && attachments.length > 0) {
+          try {
+            await uploadStagedAttachments(res.id, attachments);
+            router.refresh();
+          } catch {
+            toast.error("Some files couldn't be attached to that transaction");
+          }
+        }
       });
     },
-    [startTransition],
+    [startTransition, router],
   );
 
   const send = useCallback(
@@ -111,7 +127,7 @@ export function PendingMessagesProvider({ children }: { children: ReactNode }) {
         ...prev,
         { ...draft, tempId, status: "sending", createdAt: new Date() },
       ]);
-      run(tempId, draft.input);
+      run(tempId, draft.input, draft.attachments);
     },
     [run],
   );
@@ -125,7 +141,7 @@ export function PendingMessagesProvider({ children }: { children: ReactNode }) {
           m.tempId === tempId ? { ...m, status: "sending", error: undefined } : m,
         ),
       );
-      run(tempId, target.input);
+      run(tempId, target.input, target.attachments);
     },
     [pending, run],
   );
@@ -272,6 +288,16 @@ function PendingBubble({
       description={tx.description}
       categoryName={tx.categoryName}
       categoryIcon={tx.categoryIcon}
+      // Staged files have no server id yet, so they show as non-clickable rows
+      // (no preview) until the row is created and the real feed row takes over.
+      attachments={(tx.attachments ?? []).map((a) => ({
+        id: null,
+        fileName: a.file.name,
+        contentType: resolveAttachmentType(a.file.name, a.file.type)?.contentType ?? a.file.type,
+        label: a.label,
+        kind: a.kind,
+        sizeBytes: a.file.size,
+      }))}
       authorName={authorName}
       authorColorClass={authorColorClass}
       // Once sent it reads exactly like a real bubble (time in the corner);
