@@ -3,18 +3,10 @@
 import { useRef, useState } from "react";
 import { Eye, Loader2, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { attachmentGlyph } from "./attachment-icon";
-import { ATTACHMENT_KIND_LABELS, attachmentTypeLabel, formatFileSize } from "@/lib/attachments";
-import { ATTACHMENT_KINDS, ATTACHMENT_LABEL_MAX, type AttachmentKind } from "@/lib/validation";
-
-const NO_KIND = "none";
+import { attachmentTypeLabel, formatFileSize } from "@/lib/attachments";
+import { ATTACHMENT_LABEL_MAX, type AttachmentKind } from "@/lib/validation";
 
 export type AttachmentTileProps = {
   fileName: string;
@@ -22,6 +14,8 @@ export type AttachmentTileProps = {
   sizeBytes: number;
   label: string | null;
   kind: AttachmentKind | null;
+  /** Stored thumbnail URL for a saved file; falls back to the type icon. */
+  thumbnailUrl?: string | null;
   status?: "idle" | "uploading" | "error";
   errorMessage?: string | null;
   /** When true, the name is click-to-edit and the tag/remove controls show. */
@@ -46,6 +40,7 @@ export function AttachmentTile({
   sizeBytes,
   label,
   kind,
+  thumbnailUrl,
   status = "idle",
   errorMessage,
   editable = false,
@@ -80,8 +75,13 @@ export function AttachmentTile({
         status === "error" && "border-destructive/40",
       )}
     >
-      <div className="flex size-10 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
-        {attachmentGlyph(contentType, "size-5")}
+      <div className="flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted text-muted-foreground">
+        {thumbnailUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={thumbnailUrl} alt="" loading="lazy" className="size-full object-cover" />
+        ) : (
+          attachmentGlyph(contentType, "size-5")
+        )}
       </div>
 
       <div className="min-w-0 flex-1">
@@ -131,35 +131,8 @@ export function AttachmentTile({
         )}
 
         <div className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          {editable ? (
-            <Select
-              value={kind ?? NO_KIND}
-              onValueChange={(v) => onSave?.({ label, kind: v === NO_KIND ? null : (v as AttachmentKind) })}
-            >
-              <SelectTrigger
-                aria-label="Tag"
-                className="h-5 w-auto shrink-0 gap-0.5 rounded-full border-0 bg-muted px-2 py-0 text-[11px] leading-none shadow-none [&>svg]:size-3"
-              >
-                {kind ? (
-                  <span className="font-medium text-foreground">{ATTACHMENT_KIND_LABELS[kind]}</span>
-                ) : (
-                  <span className="text-muted-foreground">Tag</span>
-                )}
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={NO_KIND}>No tag</SelectItem>
-                {ATTACHMENT_KINDS.map((k) => (
-                  <SelectItem key={k} value={k}>
-                    {ATTACHMENT_KIND_LABELS[k]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : kind ? (
-            <span className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] font-medium tracking-wide text-foreground uppercase">
-              {ATTACHMENT_KIND_LABELS[kind]}
-            </span>
-          ) : null}
+          {/* File tag intentionally hidden for now — the `kind` field is kept in
+              the data model and threaded through `onSave` for a later revival. */}
           <span className="truncate">
             {attachmentTypeLabel(contentType)} · <span className="tabular-nums">{formatFileSize(sizeBytes)}</span>
           </span>

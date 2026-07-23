@@ -46,6 +46,7 @@ export function TransactionItem({
     label: a.label,
     kind: a.kind,
     sizeBytes: a.sizeBytes,
+    hasThumbnail: a.hasThumbnail,
   }));
 
   return (

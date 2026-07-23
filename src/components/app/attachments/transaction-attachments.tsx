@@ -15,7 +15,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { buttonVariants } from "@/components/ui/button";
-import { AttachmentDropzone } from "./attachment-dropzone";
+import { AttachmentBox } from "./attachment-box";
 import { AttachmentTile } from "./attachment-tile";
 import { useAttachmentViewer } from "./attachment-viewer";
 import { uploadAttachments } from "./upload-client";
@@ -23,7 +23,7 @@ import {
   deleteAttachment as deleteAttachmentAction,
   updateAttachment as updateAttachmentAction,
 } from "@/actions/attachments";
-import { type AttachmentDTO } from "@/lib/attachments";
+import { attachmentThumbUrl, type AttachmentDTO } from "@/lib/attachments";
 import { ATTACHMENT_MAX_PER_TRANSACTION } from "@/lib/validation";
 
 /**
@@ -92,49 +92,53 @@ export function TransactionAttachments({
     router.refresh();
   }
 
+  // The file rows, shared by the editable box and the read-only list.
+  const tiles = (
+    <ul className="space-y-2">
+      {items.map((a) => (
+        <li key={a.id}>
+          <AttachmentTile
+            fileName={a.fileName}
+            contentType={a.contentType}
+            sizeBytes={a.sizeBytes}
+            label={a.label}
+            kind={a.kind}
+            thumbnailUrl={a.hasThumbnail ? attachmentThumbUrl(a.id) : null}
+            editable={canEdit}
+            onOpen={() =>
+              openViewer({
+                id: a.id,
+                fileName: a.fileName,
+                contentType: a.contentType,
+                label: a.label,
+              })
+            }
+            onSave={(meta) => handleSaveMeta(a.id, meta)}
+            onRemove={canEdit ? () => setConfirmId(a.id) : undefined}
+          />
+        </li>
+      ))}
+    </ul>
+  );
+
   return (
     <div className="space-y-2">
-      {items.length > 0 ? (
-        // Cap the height so the dialog doesn't grow with the file count — the
-        // list scrolls past a few rows instead.
-        <ul className="max-h-56 space-y-2 overflow-y-auto pr-0.5">
-          {items.map((a) => (
-            <li key={a.id}>
-              <AttachmentTile
-                fileName={a.fileName}
-                contentType={a.contentType}
-                sizeBytes={a.sizeBytes}
-                label={a.label}
-                kind={a.kind}
-                editable={canEdit}
-                onOpen={() =>
-                  openViewer({
-                    id: a.id,
-                    fileName: a.fileName,
-                    contentType: a.contentType,
-                    label: a.label,
-                  })
-                }
-                onSave={(meta) => handleSaveMeta(a.id, meta)}
-                onRemove={canEdit ? () => setConfirmId(a.id) : undefined}
-              />
-            </li>
-          ))}
-        </ul>
-      ) : !canEdit ? (
-        <p className="py-1 text-sm text-muted-foreground">No files attached.</p>
-      ) : null}
-
       {canEdit ? (
-        uploading ? (
-          <div className="flex items-center justify-center gap-2 rounded-lg border border-dashed py-4 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" aria-hidden />
-            Uploading…
-          </div>
-        ) : (
-          <AttachmentDropzone onFiles={handleUpload} remaining={remaining} />
-        )
-      ) : null}
+        // The box IS the dropzone: drag onto it (or the "Add file" row) to upload.
+        // Fixed height so the dialog doesn't grow with the file count.
+        <AttachmentBox
+          onFiles={handleUpload}
+          remaining={remaining}
+          uploading={uploading}
+          hasItems={items.length > 0}
+        >
+          {tiles}
+        </AttachmentBox>
+      ) : items.length > 0 ? (
+        <div className="max-h-44 overflow-y-auto rounded-lg border p-2">{tiles}</div>
+      ) : (
+        <p className="py-1 text-sm text-muted-foreground">No files attached.</p>
+      )}
 
       <AlertDialog open={confirmId !== null} onOpenChange={(o) => !o && setConfirmId(null)}>
         <AlertDialogContent>

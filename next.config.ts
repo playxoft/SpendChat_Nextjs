@@ -36,6 +36,8 @@ const securityHeaders = [
       "font-src 'self' data:",
       "connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com",
       "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://apis.google.com",
+      // pdf.js renders PDF thumbnails in a same-origin (bundled) module worker.
+      "worker-src 'self' blob:",
       "frame-ancestors 'none'",
       "object-src 'none'",
       "base-uri 'self'",

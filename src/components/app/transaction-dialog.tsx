@@ -54,7 +54,7 @@ import {
 import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
 import { usePermissions } from "./permissions";
-import { AttachmentDropzone } from "./attachments/attachment-dropzone";
+import { AttachmentBox } from "./attachments/attachment-box";
 import { StagedAttachmentList, useStagedAttachments } from "./attachments/staged-attachments";
 import { TransactionAttachments } from "./attachments/transaction-attachments";
 import { uploadStagedAttachments } from "./attachments/upload-client";
@@ -287,8 +287,10 @@ export function TransactionDialog({
   return (
     <Dialog open={isOpen} onOpenChange={setOpen}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="sm:max-w-md" closeOnOutsideClick={!isDirty}>
-        <DialogHeader>
+      {/* Capped height with a scrollable body + pinned footer, so the dialog
+          stays a consistent size no matter how many fields/files it holds. */}
+      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-md" closeOnOutsideClick={!isDirty}>
+        <DialogHeader className="shrink-0">
           <DialogTitle>
             {readOnly ? "Transaction" : mode === "edit" ? "Edit transaction" : "Add transaction"}
           </DialogTitle>
@@ -301,8 +303,8 @@ export function TransactionDialog({
             (which otherwise has an intrinsic `min-width: min-content`) lets the
             attachment tiles' `truncate` actually engage — without it a long
             unbreakable filename forces the whole dialog wider. */}
-        <form onSubmit={handleSubmit} className="min-w-0 space-y-4">
-          <fieldset disabled={readOnly} className="m-0 min-w-0 space-y-4 border-0 p-0">
+        <form onSubmit={handleSubmit} className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <fieldset disabled={readOnly} className="m-0 min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto border-0 p-0 pr-1">
           <div className="flex w-full items-center rounded-lg border bg-muted/50 p-0.5 text-sm">
             {(["expense", "income"] as const).map((t) => (
               <button
@@ -453,23 +455,20 @@ export function TransactionDialog({
                 initialAttachments={attachments}
               />
             ) : (
-              <>
-                {/* Cap the height so the dialog doesn't grow with the file count. */}
-                <div className="max-h-56 space-y-2 overflow-y-auto pr-0.5 empty:hidden">
-                  <StagedAttachmentList
-                    items={staged.items}
-                    onRemove={staged.remove}
-                    onUpdate={staged.update}
-                    disabled={readOnly}
-                  />
-                </div>
-                {!readOnly && staged.items.length < ATTACHMENT_MAX_PER_TRANSACTION ? (
-                  <AttachmentDropzone
-                    onFiles={staged.add}
-                    remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
-                  />
-                ) : null}
-              </>
+              // The box IS the dropzone; fixed height keeps the dialog steady.
+              <AttachmentBox
+                onFiles={staged.add}
+                remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
+                disabled={readOnly}
+                hasItems={staged.items.length > 0}
+              >
+                <StagedAttachmentList
+                  items={staged.items}
+                  onRemove={staged.remove}
+                  onUpdate={staged.update}
+                  disabled={readOnly}
+                />
+              </AttachmentBox>
             )}
           </div>
 
@@ -477,13 +476,13 @@ export function TransactionDialog({
 
           {/* Viewers see a read-only record — no Save/Delete, just Close. */}
           {readOnly ? (
-            <DialogFooter className="pt-4">
+            <DialogFooter className="mt-4 shrink-0 border-t pt-4">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Close
               </Button>
             </DialogFooter>
           ) : (
-            <DialogFooter className={cn("pt-4", mode === "edit" && "sm:justify-between")}>
+            <DialogFooter className={cn("mt-4 shrink-0 border-t pt-4", mode === "edit" && "sm:justify-between")}>
               {mode === "edit" ? (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>

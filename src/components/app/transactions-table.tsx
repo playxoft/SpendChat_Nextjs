@@ -28,7 +28,7 @@ import {
 } from "@/components/ui/table";
 import { TransactionDialog } from "./transaction-dialog";
 import { amountToneClass } from "./transaction-bubble";
-import { AttachmentChips } from "./attachments/attachment-chips";
+import { AttachmentSquares } from "./attachments/attachment-squares";
 import { useAttachmentViewer } from "./attachments/attachment-viewer";
 import {
   COLUMN_LABELS,
@@ -105,9 +105,6 @@ const COLUMNS: Record<ColumnId, ColumnDef> = {
   },
   attachments: {
     sortable: false,
-    // Its own horizontal scroll inside the fixed-width cell — clicking a chip
-    // opens the file in the in-page preview.
-    cellClassName: "overflow-hidden",
     render: (row) => <AttachmentsCell attachments={row.attachments} />,
   },
   description: {
@@ -134,21 +131,21 @@ const COLUMNS: Record<ColumnId, ColumnDef> = {
   },
 };
 
-/** The attachments column cell: a horizontally scrollable strip of chips that
- * open the file in the shared in-page preview. A dedicated component so it can
- * call the viewer hook (the `COLUMNS` render map is a plain object). */
+/** The attachments column cell: square file icons + a "+N" dropdown that opens a
+ * popover list. A dedicated component so it can call the viewer hook (the
+ * `COLUMNS` render map is a plain object). */
 function AttachmentsCell({ attachments }: { attachments: TransactionRow["attachments"] }) {
   const openViewer = useAttachmentViewer();
-  if (attachments.length === 0) {
-    return <span className="text-muted-foreground">—</span>;
-  }
   return (
-    <AttachmentChips
+    <AttachmentSquares
       attachments={attachments.map((a) => ({
         id: a.id,
         fileName: a.fileName,
         contentType: a.contentType,
         label: a.label,
+        kind: a.kind,
+        sizeBytes: a.sizeBytes,
+        hasThumbnail: a.hasThumbnail,
       }))}
       onOpen={(a) =>
         a.id && openViewer({ id: a.id, fileName: a.fileName, contentType: a.contentType, label: a.label })

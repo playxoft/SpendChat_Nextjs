@@ -297,6 +297,7 @@ function PendingBubble({
         label: a.label,
         kind: a.kind,
         sizeBytes: a.file.size,
+        hasThumbnail: false,
       }))}
       authorName={authorName}
       authorColorClass={authorColorClass}

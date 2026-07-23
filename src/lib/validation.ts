@@ -75,7 +75,8 @@ export const bulkTransactionsSchema = z.object({
  * means a future plan could raise them in one place.
  */
 export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
-export const ATTACHMENT_MAX_PER_TRANSACTION = 10;
+// 2 today; a future paid plan would raise this (it's read everywhere from here).
+export const ATTACHMENT_MAX_PER_TRANSACTION = 2;
 /** Optional per-file display name/label. Not mandatory; falls back to fileName. */
 export const ATTACHMENT_LABEL_MAX = 80;
 /** Original filename we persist for the download's `Content-Disposition`. */
@@ -126,6 +127,13 @@ export const ATTACHMENT_INLINE_TYPES = new Set<string>([
   "application/pdf",
   "text/plain",
   "text/csv",
+]);
+
+/** Excel types. Not browser-renderable, but the download route proxies their
+ * bytes same-origin so the in-app viewer can parse + preview them client-side. */
+export const ATTACHMENT_SPREADSHEET_TYPES = new Set<string>([
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
 
 const filenameExt = (name: string): string => {
