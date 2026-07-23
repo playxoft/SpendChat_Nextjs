@@ -2,7 +2,12 @@
 
 import { Eye } from "lucide-react";
 import { attachmentGlyph } from "./attachment-icon";
-import { ATTACHMENT_KIND_LABELS, attachmentDisplayName, attachmentTypeLabel, formatFileSize } from "@/lib/attachments";
+import {
+  attachmentDisplayName,
+  attachmentThumbUrl,
+  attachmentTypeLabel,
+  formatFileSize,
+} from "@/lib/attachments";
 import type { AttachmentKind } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +20,8 @@ export type ListAttachment = {
   label?: string | null;
   kind?: AttachmentKind | null;
   sizeBytes?: number | null;
+  /** True when a stored thumbnail exists — show it instead of the type icon. */
+  hasThumbnail?: boolean | null;
 };
 
 /**
@@ -75,19 +82,22 @@ function AttachmentListItem({
           : "cursor-default",
       )}
     >
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-md border bg-muted text-muted-foreground">
-        {attachmentGlyph(a.contentType, "size-5")}
+      <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-md border bg-muted text-muted-foreground">
+        {a.hasThumbnail && a.id ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={attachmentThumbUrl(a.id)}
+            alt=""
+            loading="lazy"
+            className="size-full object-cover"
+          />
+        ) : (
+          attachmentGlyph(a.contentType, "size-5")
+        )}
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium text-foreground">{name}</span>
-        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-          {a.kind ? (
-            <span className="shrink-0 rounded-full bg-muted px-1.5 py-px text-[10px] font-medium tracking-wide text-foreground uppercase">
-              {ATTACHMENT_KIND_LABELS[a.kind]}
-            </span>
-          ) : null}
-          <span className="truncate">{meta}</span>
-        </span>
+        <span className="mt-0.5 block truncate text-xs text-muted-foreground">{meta}</span>
       </span>
       {interactive ? <Eye className="size-4 shrink-0 text-muted-foreground" aria-hidden /> : null}
     </button>

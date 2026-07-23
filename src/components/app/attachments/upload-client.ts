@@ -5,6 +5,7 @@ import {
   type AttachmentKind,
 } from "@/lib/validation";
 import type { AttachmentDTO } from "@/lib/attachments";
+import { generateThumbnail } from "./thumbnail";
 import { updateAttachment } from "@/actions/attachments";
 
 /**
@@ -50,36 +51,10 @@ export function pickAcceptedFiles(files: File[], remaining: number): FilePick {
 }
 
 /**
- * Downscale an image to a small preview (max ~256px, WebP) in the browser, so
- * the tile can show it instantly without ever pulling the full-size original.
- * Returns null for non-images or if the browser can't decode the file.
- */
-export async function makeThumbnail(file: File, max = 256): Promise<Blob | null> {
-  if (!file.type.startsWith("image/")) return null;
-  try {
-    const bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, max / Math.max(bitmap.width, bitmap.height));
-    const w = Math.max(1, Math.round(bitmap.width * scale));
-    const h = Math.max(1, Math.round(bitmap.height * scale));
-    const canvas = document.createElement("canvas");
-    canvas.width = w;
-    canvas.height = h;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    ctx.drawImage(bitmap, 0, 0, w, h);
-    bitmap.close?.();
-    return await new Promise((resolve) =>
-      canvas.toBlob((b) => resolve(b), "image/webp", 0.72),
-    );
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Upload files to a transaction. The route returns the created attachments in
  * input order, so callers can line up per-file metadata with the results. Each
- * image also uploads a client-generated thumbnail under `thumb_<index>`.
+ * file also uploads a client-generated thumbnail under `thumb_<index>` when one
+ * could be rendered (images, CSV/text, PDF); other types skip it and show an icon.
  */
 export async function uploadAttachments(
   transactionId: string,
@@ -89,7 +64,7 @@ export async function uploadAttachments(
   for (let i = 0; i < files.length; i++) {
     const file = files[i]!;
     form.append("files", file, file.name);
-    const thumb = await makeThumbnail(file);
+    const thumb = await generateThumbnail(file);
     if (thumb) form.append(`thumb_${i}`, thumb, "thumb.webp");
   }
   const res = await fetch(`/api/transactions/${transactionId}/attachments`, {

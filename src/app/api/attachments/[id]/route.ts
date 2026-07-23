@@ -5,7 +5,7 @@ import { withRequestContext } from "@/lib/request-context";
 import { describeError, logger } from "@/lib/logger";
 import { isR2Configured, signedGetUrl } from "@/lib/r2";
 import { getAttachmentForDownload } from "@/services/attachments";
-import { ATTACHMENT_INLINE_TYPES } from "@/lib/validation";
+import { ATTACHMENT_INLINE_TYPES, ATTACHMENT_SPREADSHEET_TYPES } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -58,13 +58,16 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     // The tile requests `?variant=thumb` — serve the small preview object.
     const wantThumb = params.get("variant") === "thumb" && row.thumbnailKey != null;
     const forceDownload = params.get("download") === "1";
-    const isPreviewable = ATTACHMENT_INLINE_TYPES.has(row.contentType);
+    const isInline = ATTACHMENT_INLINE_TYPES.has(row.contentType);
+    // Images/PDF/text render inline; Excel isn't browser-renderable but the
+    // viewer fetches its bytes to parse client-side, so it's proxied too.
+    const canProxy = isInline || ATTACHMENT_SPREADSHEET_TYPES.has(row.contentType);
 
     try {
       // Proxy previewable bytes through this same-origin route so the in-app
-      // viewer can embed them (see the header note above). Streamed, not
+      // viewer can embed/fetch them (see the header note above). Streamed, not
       // buffered — the 5 MB cap bounds it.
-      if (!wantThumb && !forceDownload && isPreviewable) {
+      if (!wantThumb && !forceDownload && canProxy) {
         const url = await signedGetUrl(row.r2Key, { expiresSeconds: URL_TTL_SECONDS });
         const upstream = await fetch(url);
         if (!upstream.ok || !upstream.body) {
@@ -76,7 +79,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
         }
         const headers = new Headers({
           "content-type": row.contentType,
-          "content-disposition": contentDisposition(row.fileName, true),
+          "content-disposition": contentDisposition(row.fileName, isInline),
           "cache-control": "private, no-store",
           "x-content-type-options": "nosniff",
         });
