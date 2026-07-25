@@ -7,6 +7,7 @@ import { badRequest, forbidden, validationError } from "@/lib/errors";
 import { toMinorUnits } from "@/lib/money";
 import { getTransactionById, type TransactionRow } from "@/lib/queries";
 import { setLogContext } from "@/lib/log-context";
+import { time } from "@/lib/timing";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { rolesAtLeast } from "@/lib/rbac";
 import {
@@ -88,35 +89,82 @@ function pickTitle(data: { title?: string; note?: string }): string | null {
   return t ? t : null;
 }
 
-/** Create a transaction; returns the created row (joined). Throws on invalid input. */
+/** Currency + number format for the write, passed in by callers that already
+ *  hold the workspace (avoids a re-select) or fetched from the workspace. */
+type MoneyFormat = { currency: string; locale: string };
+
+/**
+ * Insert a transaction and return its id — the shared core of the create path.
+ * The web send only needs the id (its optimistic UI keys off it to retire the
+ * ghost bubble), so it calls this directly and skips the joined re-read that
+ * `createTransaction` does.
+ *
+ * Two deliberate omissions keep the hot path short:
+ *  - No `ensureBootstrap`: every caller resolves the workspace first
+ *    (`getCurrentWorkspace` / `getApiContext`), which already bootstraps a
+ *    first-time user — repeating it here was an insert+select of pure latency.
+ *  - `money` is passed in when the caller has the workspace in hand, saving the
+ *    `getWorkspaceMoneyFormat` round-trip; it's only fetched as a fallback.
+ */
+export async function createTransactionId(
+  userId: string,
+  workspaceId: string,
+  input: unknown,
+  money?: MoneyFormat,
+): Promise<{ id: string }> {
+  const data = await time("createTransaction.validate", async () =>
+    parseOrThrow(transactionInputSchema, input),
+  );
+  const fmt =
+    money ??
+    (await time("createTransaction.moneyFormat", () => getWorkspaceMoneyFormat(workspaceId)));
+  // Category validation and profile resolution touch different tables and don't
+  // depend on each other — run them in one round-trip instead of two.
+  const [categoryId, profileId] = await Promise.all([
+    time("createTransaction.categoryLookup", () =>
+      workspaceCategoryId(workspaceId, data.categoryId),
+    ),
+    time("createTransaction.resolveProfile", () =>
+      resolveProfileId(userId, workspaceId, data.profileId),
+    ),
+  ]);
+  setLogContext({ profileId }); // log lines for this write carry the resolved profile
+
+  const db = getDb();
+  const [row] = await time("createTransaction.insert", () =>
+    db
+      .insert(transactions)
+      .values({
+        userId,
+        type: data.type,
+        amountMinor: toMinorUnits(data.amount, fmt.currency, fmt.locale),
+        categoryId,
+        profileId,
+        title: pickTitle(data),
+        description: data.description?.trim() ? data.description.trim() : null,
+        occurredOn: data.occurredOn,
+      })
+      .returning({ id: transactions.id }),
+  );
+  return { id: row!.id };
+}
+
+/**
+ * Create a transaction and return the full joined row (category/profile/author +
+ * attachments). Used by the mobile API, which serializes the row in its
+ * response; the web path uses `createTransactionId` to skip this extra read.
+ * Throws on invalid input.
+ */
 export async function createTransaction(
   userId: string,
   workspaceId: string,
   input: unknown,
+  money?: MoneyFormat,
 ): Promise<TransactionRow> {
-  const data = parseOrThrow(transactionInputSchema, input);
-  await ensureBootstrap(userId);
-  const money = await getWorkspaceMoneyFormat(workspaceId);
-  const categoryId = await workspaceCategoryId(workspaceId, data.categoryId);
-  const profileId = await resolveProfileId(userId, workspaceId, data.profileId);
-  setLogContext({ profileId }); // log lines for this write carry the resolved profile
-
-  const db = getDb();
-  const [row] = await db
-    .insert(transactions)
-    .values({
-      userId,
-      type: data.type,
-      amountMinor: toMinorUnits(data.amount, money.currency, money.locale),
-      categoryId,
-      profileId,
-      title: pickTitle(data),
-      description: data.description?.trim() ? data.description.trim() : null,
-      occurredOn: data.occurredOn,
-    })
-    .returning({ id: transactions.id });
-
-  const created = await getTransactionById(userId, workspaceId, row!.id);
+  const { id } = await createTransactionId(userId, workspaceId, input, money);
+  const created = await time("createTransaction.readCreated", () =>
+    getTransactionById(userId, workspaceId, id),
+  );
   return created!;
 }
 
