@@ -14,6 +14,7 @@ import { canWriteInWorkspace, workspaceHasMultipleUsers } from "@/lib/workspaces
 import type { InputMode } from "@/lib/validation";
 import { monthKey, monthRange, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
+import { time, timedScope } from "@/lib/timing";
 import { InfiniteChatFeed } from "@/components/app/infinite-chat-feed";
 import { ChatFeedSkeleton } from "@/components/app/chat-skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -41,16 +42,33 @@ export default async function ChatPage({
   const sp = await searchParams;
   const profileParam = Array.isArray(sp.profile) ? sp.profile[0] : sp.profile;
 
-  const user = await requireUser();
-  const settings = await getUserSettings(user.id);
-  const workspace = await getCurrentWorkspace(user.id);
-  const [categories, profiles, canWrite, showAuthor] = await Promise.all([
-    getCategories(workspace.id),
-    getProfiles(user.id, workspace.id),
-    canWriteInWorkspace(user.id, workspace.id),
-    // Shared workspaces label each bubble with its author (WhatsApp-group style).
-    workspaceHasMultipleUsers(workspace.id),
-  ]);
+  // A send's `revalidatePath("/app")` re-renders this page, so its data load is a
+  // big slice of the perceived send latency. One summary line per render carries
+  // the total, DB count/ms + slowest query, and the auth/workspace-data split
+  // (the inner `time()` spans are debug, so they enrich the summary without
+  // adding their own lines). The feed/summary streams log at debug too.
+  const { user, settings, workspace, categories, profiles, canWrite, showAuthor } = await timedScope(
+    "tracker.page render",
+    "tracker.page.timing",
+    async () => {
+      const { user, settings, workspace } = await time("auth", async () => {
+        const user = await requireUser();
+        const settings = await getUserSettings(user.id);
+        const workspace = await getCurrentWorkspace(user.id);
+        return { user, settings, workspace };
+      });
+      const [categories, profiles, canWrite, showAuthor] = await time("workspaceData", () =>
+        Promise.all([
+          getCategories(workspace.id),
+          getProfiles(user.id, workspace.id),
+          canWriteInWorkspace(user.id, workspace.id),
+          // Shared workspaces label each bubble with its author (WhatsApp-group style).
+          workspaceHasMultipleUsers(workspace.id),
+        ]),
+      );
+      return { user, settings, workspace, categories, profiles, canWrite, showAuthor };
+    },
+  );
 
   // Web default: no `?profile=` shows the first profile; "all" is explicit.
   const filterProfileId = resolveWebProfile(profileParam ?? null, profiles[0]?.id);
@@ -182,10 +200,15 @@ async function SummaryStream({
   // The summary shows the current month. Its totals and the ids they cover come
   // from one server render, so the client summary reconciles optimistic amounts
   // without a flicker (a pending amount is dropped once its saved id lands here).
-  const [monthTotals, txnIds] = await Promise.all([
-    getMonthlyTotals(userId, workspaceId, { from: currentStart, to: currentEnd, profileId }),
-    listTransactionIds(userId, workspaceId, { from: currentStart, to: currentEnd, profileId }),
-  ]);
+  const [monthTotals, txnIds] = await time(
+    "tracker.summary",
+    () =>
+      Promise.all([
+        getMonthlyTotals(userId, workspaceId, { from: currentStart, to: currentEnd, profileId }),
+        listTransactionIds(userId, workspaceId, { from: currentStart, to: currentEnd, profileId }),
+      ]),
+    { event: "tracker.summary.timing" },
+  );
   return (
     <SummaryBar
       monthTotals={monthTotals}
@@ -245,10 +268,11 @@ async function FeedStream({
 }) {
   // The latest page across all history (newest-first), reversed to oldest-first
   // for the chat. Older pages stream in as the user scrolls up.
-  const newestFirst = await listFeedPage(userId, workspaceId, {
-    profileId,
-    limit: FEED_PAGE_SIZE,
-  });
+  const newestFirst = await time(
+    "tracker.feed",
+    () => listFeedPage(userId, workspaceId, { profileId, limit: FEED_PAGE_SIZE }),
+    { event: "tracker.feed.timing" },
+  );
   const rows = [...newestFirst].reverse();
   return (
     <FeedRegion

@@ -6,6 +6,7 @@ import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { notFound } from "@/lib/errors";
 import { parseOrThrow } from "@/lib/api-response";
 import { runAction, type ActionResult } from "@/lib/action-result";
+import { recordSpan, time } from "@/lib/timing";
 import * as txns from "@/services/transactions";
 import {
   FEED_PAGE_SIZE,
@@ -54,18 +55,34 @@ function revalidateApp() {
 }
 
 export async function addTransaction(input: TransactionInput): Promise<ActionResult<{ id: string }>> {
+  // Auth + workspace resolution runs before `runAction` opens its timing scope,
+  // and it's a fresh request (the React `cache()` is cold), so these hit the DB /
+  // Firebase and can be a real slice of the send. Measure them here, then replay
+  // the durations into the scope below so they land in the same breakdown line.
+  const authStart = Date.now();
   const user = await requireUser();
+  const authMs = Date.now() - authStart;
+  const wsStart = Date.now();
   const workspace = await getCurrentWorkspace(user.id);
+  const workspaceMs = Date.now() - wsStart;
   return runAction(
     "addTransaction",
     async () => {
-      // The optimistic UI keys off the created id to retire its ghost bubble
-      // once the revalidated feed shows the real row.
-      const created = await txns.createTransaction(user.id, workspace.id, input);
-      revalidateApp();
+      recordSpan("requireUser", authMs);
+      recordSpan("getCurrentWorkspace", workspaceMs);
+      // The optimistic UI keys off the created id to retire its ghost bubble once
+      // the revalidated feed shows the real row — so we only need the id, not the
+      // full joined row. Currency/locale come from the workspace we already hold.
+      const created = await txns.createTransactionId(user.id, workspace.id, input, {
+        currency: workspace.currency,
+        locale: workspace.locale,
+      });
+      // `revalidatePath` only marks the routes stale (cheap); the actual RSC
+      // re-render + feed queries happen after this returns — see `tracker.page.*`.
+      await time("revalidate", async () => revalidateApp());
       return { id: created.id };
     },
-    { userId: user.id, workspaceId: workspace.id, profileId: input.profileId ?? null },
+    { userId: user.id, workspaceId: workspace.id, profileId: input.profileId ?? null, authMs, workspaceMs },
   );
 }
 
