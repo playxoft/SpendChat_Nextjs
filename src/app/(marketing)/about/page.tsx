@@ -168,6 +168,13 @@ export default function AboutPage() {
         >
           {siteConfig.author}
         </a>
+        . Questions or feedback? Reach us at{" "}
+        <a
+          href={`mailto:${siteConfig.supportEmail}`}
+          className="font-medium text-foreground underline-offset-4 hover:underline"
+        >
+          {siteConfig.supportEmail}
+        </a>
         .
       </p>
 
