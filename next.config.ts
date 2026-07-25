@@ -10,7 +10,10 @@ import createMDX from "@next/mdx";
  * `unsafe-eval` is dev-only (Turbopack/webpack eval source maps); production
  * Next.js and the Firebase SDK don't eval. `unsafe-inline` stays until a
  * nonce-based policy is possible (needs middleware, which OpenNext on Workers
- * can't run).
+ * can't run). The googletagmanager.com/google-analytics.com/clarity.ms sources
+ * are GA4 + Microsoft Clarity, consent-gated and marketing-pages-only
+ * (see src/components/marketing/analytics-provider.tsx) — they still need to
+ * be allow-listed everywhere since this header applies to every route.
  */
 const isDev = process.env.NODE_ENV === "development";
 
@@ -30,11 +33,11 @@ const securityHeaders = [
     key: "Content-Security-Policy",
     value: [
       "default-src 'self'",
-      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://apis.google.com https://www.gstatic.com`,
+      `script-src 'self' 'unsafe-inline'${isDev ? " 'unsafe-eval'" : ""} https://apis.google.com https://www.gstatic.com https://www.googletagmanager.com https://www.clarity.ms`,
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com",
+      "connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://www.clarity.ms https://*.clarity.ms",
       "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://apis.google.com",
       // pdf.js renders PDF thumbnails in a same-origin (bundled) module worker.
       "worker-src 'self' blob:",

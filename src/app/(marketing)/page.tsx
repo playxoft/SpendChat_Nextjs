@@ -89,6 +89,8 @@ export default function LandingPage() {
               href={siteConfig.links.github}
               target="_blank"
               rel="noreferrer"
+              data-track-event="outbound_click"
+              data-track-params={JSON.stringify({ destination: "github", location: "hero_badge" })}
               className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
             >
               <Star className="size-3.5" /> Open source • Free • Private
@@ -103,7 +105,14 @@ export default function LandingPage() {
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-2.5 lg:justify-start">
               <Button asChild className={`${marketingCta} w-full lg:w-auto`}>
-                <Link href="/sign-up">
+                <Link
+                  href="/sign-up"
+                  data-track-event="cta_click"
+                  data-track-params={JSON.stringify({
+                    location: "hero",
+                    label: "start_tracking_free",
+                  })}
+                >
                   Start tracking free <ArrowRight />
                 </Link>
               </Button>
@@ -115,7 +124,16 @@ export default function LandingPage() {
                   variant="outline"
                   className={`${marketingCta} w-full lg:w-auto`}
                 >
-                  <Link href="/features">See features</Link>
+                  <Link
+                    href="/features"
+                    data-track-event="nav_link_click"
+                    data-track-params={JSON.stringify({
+                      location: "hero",
+                      label: "see_features",
+                    })}
+                  >
+                    See features
+                  </Link>
                 </Button>
                 <Button
                   asChild
@@ -124,7 +142,13 @@ export default function LandingPage() {
                   aria-label="View SpendChat on GitHub"
                   className="size-12 shrink-0 rounded-xl"
                 >
-                  <a href={siteConfig.links.github} target="_blank" rel="noreferrer">
+                  <a
+                    href={siteConfig.links.github}
+                    target="_blank"
+                    rel="noreferrer"
+                    data-track-event="outbound_click"
+                    data-track-params={JSON.stringify({ destination: "github", location: "hero" })}
+                  >
                     <GithubIcon className="size-5" />
                   </a>
                 </Button>
@@ -206,7 +230,16 @@ export default function LandingPage() {
           </dl>
           <div className="mt-8 text-center">
             <Button asChild variant="outline" className={marketingCta}>
-              <Link href="/faq">Read all FAQs</Link>
+              <Link
+                href="/faq"
+                data-track-event="nav_link_click"
+                data-track-params={JSON.stringify({
+                  location: "faq_teaser",
+                  label: "read_all_faqs",
+                })}
+              >
+                Read all FAQs
+              </Link>
             </Button>
           </div>
         </div>
@@ -222,7 +255,14 @@ export default function LandingPage() {
             It&apos;s free, private, and takes less than a minute to set up.
           </p>
           <Button asChild className={`mt-8 ${marketingCta}`}>
-            <Link href="/sign-up">
+            <Link
+              href="/sign-up"
+              data-track-event="cta_click"
+              data-track-params={JSON.stringify({
+                location: "final_cta",
+                label: "create_free_account",
+              })}
+            >
               Create your free account <ArrowRight />
             </Link>
           </Button>

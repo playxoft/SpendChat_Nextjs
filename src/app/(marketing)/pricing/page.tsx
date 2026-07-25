@@ -76,7 +76,14 @@ export default function PricingPage() {
           </ul>
           <div className="mt-auto pt-7">
             <Button asChild className={pricingCta}>
-              <Link href="/sign-up">
+              <Link
+                href="/sign-up"
+                data-track-event="cta_click"
+                data-track-params={JSON.stringify({
+                  location: "pricing_free_plan",
+                  label: "get_started",
+                })}
+              >
                 Get started <ArrowRight />
               </Link>
             </Button>
@@ -117,7 +124,14 @@ export default function PricingPage() {
           </ul>
           <div className="mt-auto pt-7">
             <Button asChild className={pricingCta}>
-              <Link href="/docs#self-hosting">
+              <Link
+                href="/docs#self-hosting"
+                data-track-event="cta_click"
+                data-track-params={JSON.stringify({
+                  location: "pricing_selfhost_plan",
+                  label: "read_the_docs",
+                })}
+              >
                 <BookOpen /> Read the docs
               </Link>
             </Button>
@@ -152,12 +166,28 @@ export default function PricingPage() {
         </p>
         <div className="mt-8 flex flex-wrap justify-center gap-3">
           <Button asChild className={marketingCta}>
-            <Link href="/sign-up">
+            <Link
+              href="/sign-up"
+              data-track-event="cta_click"
+              data-track-params={JSON.stringify({
+                location: "pricing_bottom_cta",
+                label: "get_started",
+              })}
+            >
               Get started <ArrowRight />
             </Link>
           </Button>
           <Button asChild variant="outline" className={marketingCta}>
-            <Link href="/docs">Read the docs</Link>
+            <Link
+              href="/docs"
+              data-track-event="cta_click"
+              data-track-params={JSON.stringify({
+                location: "pricing_bottom_cta",
+                label: "read_the_docs",
+              })}
+            >
+              Read the docs
+            </Link>
           </Button>
         </div>
       </div>
