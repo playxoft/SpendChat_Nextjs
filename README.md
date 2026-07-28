@@ -2,7 +2,7 @@
 
 A minimal, fast, and secure personal **money tracker** — add, view, filter, download, and print your income and expenses. Free to use.
 
-🌐 **Live demo:** coming soon — will be deployed to [spendchat.app](https://spendchat.app)
+🌐 **App Link:** [spendchat.app](https://spendchat.app)
 
 ---
 
