@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ArrowUp, Loader2, Minus, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import {
+  ArrowUp,
+  CornerDownRight,
+  Loader2,
+  Minus,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +34,7 @@ import { addBulkTransactions, parseTransactionsWithAI } from "@/actions/transact
 import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
+  TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX as TITLE_MAX,
 } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
@@ -88,6 +98,88 @@ function RowTypeToggle({
           </button>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * The review row's description, on its own 2nd line under the title column. Reads
+ * as plain muted text (or a faint prompt when empty) and turns into an input on
+ * click — so a description is editable without adding a permanent field that
+ * would crowd the fixed columns. Enter/Escape or blur commits.
+ */
+function DescriptionCell({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editing) ref.current?.focus();
+  }, [editing]);
+
+  // The ↵-style corner arrow marks this line as the title's description (it
+  // points down-and-into the text on its right).
+  const marker = (
+    <CornerDownRight
+      className="size-3.5 shrink-0 text-muted-foreground"
+      aria-hidden
+    />
+  );
+
+  if (editing) {
+    return (
+      <div className="col-span-3 col-start-3 flex min-w-0 items-center gap-1.5">
+        {marker}
+        <Input
+          ref={ref}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={() => setEditing(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === "Escape") {
+              e.preventDefault();
+              setEditing(false);
+            }
+          }}
+          placeholder="Add a description"
+          aria-label="Description"
+          maxLength={DESCRIPTION_MAX}
+          className="h-7 flex-1 text-sm"
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="col-span-3 col-start-3 flex min-w-0 items-center gap-1.5">
+      {marker}
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        title="Click to edit the description"
+        // No flex-1: the text sizes to its content (truncating only when it runs
+        // out of room), so the pencil sits right after the last letter rather
+        // than pinned to the cell's far edge.
+        className="min-w-0 truncate text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {value.trim() || (
+          <span className="italic opacity-70">Add a description</span>
+        )}
+      </button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Edit description"
+        title="Edit description"
+        onClick={() => setEditing(true)}
+        className="size-6 shrink-0"
+      >
+        <Pencil className="size-3.5" />
+      </Button>
     </div>
   );
 }
@@ -185,6 +277,27 @@ export function AiTransactionInput({
   }
   function removeRow(key: number) {
     setRows((rs) => (rs ? rs.filter((r) => r.key !== key) : rs));
+  }
+  // Add a blank draft to the review list — for a transaction the note missed.
+  // It starts invalid (no amount/title), so it isn't counted or saved until
+  // filled in.
+  function addRow() {
+    setRows((rs) =>
+      rs
+        ? [
+            ...rs,
+            {
+              key: nextKey(),
+              type: "expense",
+              amount: "",
+              title: "",
+              description: "",
+              categoryName: "",
+              occurredOn: today,
+            },
+          ]
+        : rs,
+    );
   }
   function reset() {
     setText("");
@@ -588,15 +701,25 @@ export function AiTransactionInput({
                 >
                   <Trash2 className="size-3.5" />
                 </Button>
-                {/* Description on its own line, aligned under the title column. */}
-                {r.description.trim() && (
-                  <p className="col-span-3 col-start-3 truncate text-xs text-muted-foreground">
-                    {r.description.trim()}
-                  </p>
-                )}
+                {/* Description on its own line, aligned under the title column —
+                    click-to-edit so it can be added or fixed after the parse. */}
+                <DescriptionCell
+                  value={r.description}
+                  onChange={(v) => patch(r.key, { description: v })}
+                />
               </div>
             );
           })}
+          {/* Add a row the note missed — a blank draft to fill in by hand. */}
+          <button
+            type="button"
+            onClick={addRow}
+            disabled={saving}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed py-2 text-sm text-muted-foreground transition-colors hover:border-solid hover:bg-muted/50 hover:text-foreground"
+          >
+            <Plus className="size-4" />
+            Add transaction
+          </button>
         </div>
       </div>
 
