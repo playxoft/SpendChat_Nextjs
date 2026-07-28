@@ -10,6 +10,7 @@ export const siteConfig = {
   description:
     "A minimal, fast, and private money tracker. Add income and expenses in seconds with a chat-style tracker, then filter, download, and print whenever you need. Free to use.",
   author: "Playxoft",
+  supportEmail: "support@spendchat.app",
   /** Shared social/chat preview card: `public/opengraph-image.png`, 1200×630. */
   ogImage: "/opengraph-image.png",
   keywords: [
