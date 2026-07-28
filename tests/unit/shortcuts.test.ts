@@ -21,8 +21,14 @@ describe("registry", () => {
 
 describe("getShortcut / comboFor", () => {
   it("resolves a known id", () => {
-    expect(getShortcut("action.add")?.combo).toBe("e");
-    expect(comboFor("action.add")).toBe("e");
+    expect(getShortcut("action.add")?.combo).toBe("r");
+    expect(comboFor("action.add")).toBe("r");
+    // The remapped bindings: analytics moved to `e`, the Manual/AI toggle took
+    // `a`, and category tagging moved from `/` to `#`.
+    expect(comboFor("nav.analytics")).toBe("e");
+    expect(comboFor("tracker.toggle-mode")).toBe("a");
+    expect(comboFor("tracker.category")).toBe("#");
+    expect(comboFor("workspace.switch")).toBe("switchmod+shift");
   });
   it("handles an unknown id", () => {
     expect(getShortcut("nope")).toBeUndefined();
@@ -47,6 +53,12 @@ describe("formatShortcutKeys", () => {
       "Alt",
       "Ctrl",
     ]);
+  });
+
+  it("localizes the workspace-peek modifier per platform", () => {
+    // ⌘ on macOS, Alt off-Mac (Ctrl+Shift is word-wise selection there).
+    expect(formatShortcutKeys("switchmod+shift", true)).toEqual(["⌘", "⇧"]);
+    expect(formatShortcutKeys("switchmod+shift", false)).toEqual(["Alt", "Shift"]);
   });
 
   it("renders named keys", () => {

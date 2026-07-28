@@ -8,6 +8,7 @@ import { AppSidebar } from "@/components/app/app-sidebar";
 import { AppTopbar } from "@/components/app/app-topbar";
 import { BottomNav } from "@/components/app/bottom-nav";
 import { GlobalShortcuts } from "@/components/app/global-shortcuts";
+import { WorkspaceSwitchHud } from "@/components/app/workspace-switch-hud";
 import { LoadingOverlayProvider } from "@/components/app/loading-overlay";
 import { PermissionsProvider } from "@/components/app/permissions";
 import { AttachmentViewerProvider } from "@/components/app/attachments/attachment-viewer";
@@ -57,6 +58,8 @@ export default async function AppLayout({
         <main className="flex-1 pb-16 md:pb-0">{children}</main>
         <BottomNav />
       </div>
+      {/* Hold ⌘⇧ (Alt+⇧ off-Mac) to peek/switch workspaces from anywhere. */}
+      <WorkspaceSwitchHud workspaces={workspaces} currentWorkspaceId={workspace.id} />
       {/* Reports the browser's timezone so server-rendered times match the viewer's region. */}
       <TimezoneSync current={timeZone} />
       {/* App-wide keyboard shortcuts (nav, add, bulk add, focus search). */}
