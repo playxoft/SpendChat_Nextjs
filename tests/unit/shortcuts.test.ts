@@ -37,7 +37,7 @@ describe("getShortcut / comboFor", () => {
     expect(comboFor("nav.analytics")).toBe("e");
     expect(comboFor("tracker.toggle-mode")).toBe("a");
     expect(comboFor("tracker.category")).toBe("#");
-    expect(comboFor("workspace.switch")).toBe("switchmod+shift");
+    expect(comboFor("workspace.switch")).toBe("g");
   });
   it("handles an unknown id", () => {
     expect(getShortcut("nope")).toBeUndefined();
@@ -64,10 +64,11 @@ describe("formatShortcutKeys", () => {
     ]);
   });
 
-  it("localizes the workspace-peek modifier per platform", () => {
-    // ⌘ on macOS, Alt off-Mac (Ctrl+Shift is word-wise selection there).
-    expect(formatShortcutKeys("switchmod+shift", true)).toEqual(["⌘", "⇧"]);
-    expect(formatShortcutKeys("switchmod+shift", false)).toEqual(["Alt", "Shift"]);
+  it("renders the workspace picker key the same on every platform", () => {
+    // A plain key, deliberately: a held modifier chord can be swallowed by the
+    // OS (⌘⇧3, Alt+Shift) before the page ever sees it.
+    expect(formatShortcutKeys("g", true)).toEqual(["G"]);
+    expect(formatShortcutKeys("g", false)).toEqual(["G"]);
   });
 
   it("renders named keys", () => {

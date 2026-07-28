@@ -3,9 +3,7 @@
  *   "mod+e"        → Cmd on macOS, Ctrl elsewhere
  *   "shift+enter"  → Shift + Enter
  *   "/"            → a single key
- * `mod` renders as ⌘ on macOS and "Ctrl" on Windows/Linux. `switchmod` renders
- * as ⌘ on macOS and "Alt" elsewhere (the workspace peek avoids Ctrl off-Mac,
- * where Ctrl+Shift is word-wise selection).
+ * `mod` renders as ⌘ on macOS and "Ctrl" on Windows/Linux.
  */
 export type ShortcutDef = {
   id: string;
@@ -34,8 +32,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "tracker.toggle-type", combo: "mod+e", label: "Switch between expense and income", scope: "Tracker" },
   { id: "profiles.all", combo: "shift+`", label: "Show all profiles", scope: "Profiles" },
   { id: "profiles.switch", combo: "shift+1", label: "Switch to a profile (Shift + 1…9, 0 for the 10th)", scope: "Profiles" },
-  // Display-only: the hold gesture is handled by WorkspaceSwitchHud, not `useShortcut`.
-  { id: "workspace.switch", combo: "switchmod+shift", label: "Hold to switch workspace", scope: "Workspaces" },
+  { id: "workspace.switch", combo: "g", label: "Switch workspace (then 1…9)", scope: "Workspaces" },
   { id: "global.shortcuts", combo: "/", label: "Show keyboard shortcuts", scope: "Global" },
   { id: "global.print", combo: "mod+p", label: "Print the current page", scope: "Global" },
 ];
@@ -56,8 +53,6 @@ export function formatShortcutKeys(combo: string, isMac: boolean): string[] {
     switch (part) {
       case "mod":
         return isMac ? "⌘" : "Ctrl";
-      case "switchmod":
-        return isMac ? "⌘" : "Alt";
       case "shift":
         return isMac ? "⇧" : "Shift";
       case "alt":
