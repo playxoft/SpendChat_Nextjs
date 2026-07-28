@@ -4,6 +4,7 @@ import type { Logger } from "drizzle-orm";
 import { getCloudflareContext } from "@opennextjs/cloudflare";
 import * as schema from "./schema";
 import { logger } from "@/lib/logger";
+import { recordDbQuery } from "@/lib/timing";
 
 export type Db = NodePgDatabase<typeof schema>;
 
@@ -38,9 +39,63 @@ const queryLogger: Logger = {
   },
 };
 
+/**
+ * Fold a completed query's duration into the active request timing scope, so the
+ * request's single summary line can report total DB time and name the slowest
+ * query. Kept to `debug` (console / `wrangler tail` only, or BetterStack at
+ * LOG_LEVEL=debug) — one line per query would flood the logs, so the aggregate in
+ * the summary is the default view and this is detail-on-demand.
+ */
+function logQueryTiming(query: string, durationMs: number): void {
+  const op = query.trim().split(/\s+/)[0]?.toLowerCase() ?? "query";
+  const table = tableOf(query);
+  recordDbQuery(durationMs, table);
+  const preposition = op === "insert" ? "into" : op === "update" ? "on" : "from";
+  const target = table ? ` ${preposition} ${table}` : "";
+  logger.debug(`Database ${op}${target} took ${durationMs}ms`, {
+    event: "db.timing",
+    op,
+    table,
+    durationMs,
+  });
+}
+
+/**
+ * Wrap `pool.query` so every DB round-trip is timed at completion. Drizzle runs
+ * every (non-transaction) statement through `pool.query` in its promise form, so
+ * this sees them all; a callback-style call (unused by Drizzle) is delegated
+ * untimed. Timing failures must never break a query, so extracting the SQL text
+ * is defensive and the original result is passed straight through.
+ */
+function instrumentPoolTiming(pool: Pool): void {
+  const original = pool.query.bind(pool) as (...args: unknown[]) => unknown;
+  const patched = (...args: unknown[]): unknown => {
+    if (typeof args[args.length - 1] === "function") return original(...args);
+    const startedAt = Date.now();
+    const first = args[0] as string | { text?: string } | undefined;
+    const text = (typeof first === "string" ? first : first?.text) ?? "";
+    const finish = () => logQueryTiming(text, Date.now() - startedAt);
+    try {
+      const result = original(...args) as Promise<unknown>;
+      return result.then(
+        (value) => (finish(), value),
+        (err) => {
+          finish();
+          throw err;
+        },
+      );
+    } catch (err) {
+      finish();
+      throw err;
+    }
+  };
+  (pool as unknown as { query: (...args: unknown[]) => unknown }).query = patched;
+}
+
 /** Build a Drizzle client over a fresh pg pool for `connectionString`. */
 function createDb(connectionString: string, max: number): { db: Db; pool: Pool } {
   const pool = new Pool({ connectionString, max });
+  instrumentPoolTiming(pool);
   return { db: drizzle(pool, { schema, logger: queryLogger }), pool };
 }
 
