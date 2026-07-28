@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as settingsService from "@/services/settings";
-import { type SettingsInput } from "@/lib/validation";
 
 function revalidateAll() {
   revalidatePath("/settings");
@@ -13,33 +12,7 @@ function revalidateAll() {
   revalidatePath("/analytics");
 }
 
-export async function updateSettings(input: SettingsInput): Promise<ActionResult> {
-  const user = await requireUser();
-  return runAction(
-    "updateSettings",
-    async () => {
-      await settingsService.updateSettings(user.id, input);
-      revalidateAll();
-      return {};
-    },
-    { userId: user.id },
-  );
-}
-
-export async function updateCurrency(currency: string): Promise<ActionResult> {
-  const user = await requireUser();
-  return runAction(
-    "updateCurrency",
-    async () => {
-      await settingsService.updateCurrency(user.id, currency);
-      revalidateAll();
-      return {};
-    },
-    { userId: user.id, currency },
-  );
-}
-
-/** Partial settings update (any subset of currency/locale/theme/inputMode). */
+/** Partial user-settings update (theme, input mode — these follow the user). */
 export async function patchSettings(input: Record<string, unknown>): Promise<ActionResult> {
   const user = await requireUser();
   return runAction(
@@ -47,6 +20,38 @@ export async function patchSettings(input: Record<string, unknown>): Promise<Act
     async () => {
       await settingsService.patchSettings(user.id, input);
       revalidateAll();
+      return {};
+    },
+    { userId: user.id },
+  );
+}
+
+/** Update the signed-in user's account display name. */
+export async function updateAccountName(name: string): Promise<ActionResult<{ name: string }>> {
+  const user = await requireUser();
+  return runAction(
+    "updateAccountName",
+    async () => {
+      const res = await settingsService.updateAccountName(user.id, { name });
+      revalidatePath("/settings");
+      revalidatePath("/app");
+      return { name: res.name };
+    },
+    { userId: user.id },
+  );
+}
+
+/**
+ * Notify the user by email that their password was created/changed. Called from
+ * the client *after* the Firebase Web-SDK password operation succeeds — the
+ * change itself happens in the browser; the server only sends the notice.
+ */
+export async function notifyPasswordChanged(): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "notifyPasswordChanged",
+    async () => {
+      await settingsService.notifyPasswordChanged(user.id);
       return {};
     },
     { userId: user.id },
@@ -82,18 +87,26 @@ export async function deleteAccount(confirm: string): Promise<ActionResult> {
 }
 
 /** Wipe the user's own transactions in the current workspace (danger zone). */
-export async function deleteAllTransactions(confirm: string): Promise<ActionResult> {
+export async function deleteAllTransactions(
+  confirm: string,
+  profileIds: string[],
+): Promise<ActionResult<{ deleted?: number }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "deleteAllTransactions",
     async () => {
-      await settingsService.deleteAllTransactions(user.id, workspace.id, confirm);
+      const res = await settingsService.deleteAllTransactions(
+        user.id,
+        workspace.id,
+        confirm,
+        profileIds,
+      );
       revalidatePath("/app");
       revalidatePath("/transactions");
       revalidatePath("/analytics");
-      return {};
+      return { deleted: res.deleted };
     },
-    { userId: user.id },
+    { userId: user.id, workspaceId: workspace.id },
   );
 }

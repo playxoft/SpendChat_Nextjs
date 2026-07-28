@@ -13,16 +13,29 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
 ## Commands (secrets come from Doppler)
 - `doppler run -- pnpm dev` — local dev
 - `pnpm typecheck` / `pnpm lint` — must stay clean
-- `pnpm db:generate` then `doppler run -- pnpm db:migrate` — schema changes
-- `pnpm preview` / `doppler run -- pnpm deploy` — Worker build / deploy
+- `pnpm db:generate` (no DB — writes SQL only), then `pnpm db:migrate:dev` /
+  `pnpm db:migrate:prod` — schema changes. Every DB script names its env
+  explicitly (`:dev` = config `dev`, `:prod` = config `prd`) — there is no bare
+  default. Each already wraps its own `doppler run --config <env>`, so **don't**
+  prefix another `doppler run --` (that nests and the inner config wins).
+  `db:push:dev` / `db:push:prod` push the schema directly, bypassing migration
+  files — reserve them for dev; prefer `db:migrate:prod` for prod so prod stays a
+  reviewed, replayable migration history. `db:studio:dev` / `db:studio:prod`
+  open Studio.
+- `pnpm preview` / `pnpm deploy:dev` / `pnpm deploy:prod` — Worker build / deploy
 
 ## Conventions
 - **Money** is stored as integer minor units (`amount_minor`). Convert with `src/lib/money.ts`
   (`toMinorUnits` / `fromMinorUnits` / `formatMoney`). Never use floats for amounts.
-- **Single currency per user** (in `user_settings`). Don't introduce per-transaction currency.
-  New users default to a geo-detected currency/locale (`src/lib/geo.ts` + `geo.server.ts`:
-  Cloudflare `cf-ipcountry`, then `Accept-Language` region) applied only at bootstrap —
-  never silently change an existing user's currency.
+- **Single currency + number format per workspace** (`workspaces.currency` / `.locale`, admin-
+  editable via `updateWorkspaceCurrency`). Every member of a workspace sees amounts in that
+  currency; read it from the *workspace* (`getAppContext`/`getApiContext` → `workspace`, or
+  `getWorkspaceMoneyFormat`), never from `user_settings`. Don't introduce per-transaction
+  currency. A new user's default workspace is seeded with a geo-detected currency/locale
+  (`src/lib/geo.ts` + `geo.server.ts`: Cloudflare `cf-ipcountry`, then `Accept-Language` region)
+  at bootstrap only; a new workspace an existing user creates inherits their current one.
+  `user_settings` holds only per-user prefs that follow the user across workspaces: `theme`
+  and `input_mode`.
 - **Ids are UUIDv7** (`uuid` columns, Postgres 18's `uuidv7()` as the DB default). No text
   or v4 ids for anything we mint. Exception: `user_id` values come from Neon Auth (v4,
   outside our control) — the columns are typed `uuid`, but the version isn't ours to choose.
@@ -32,7 +45,9 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
   effective role on a profile = max of the two (`src/lib/rbac.ts`, `src/lib/workspaces.ts`).
   Transaction/profile reads scope to accessible profiles in the *current* workspace
   (`user_settings.last_workspace_id`, `X-Workspace-Id` header on the API); `transactions.user_id`
-  is attribution, not access. Categories remain per-user. Member invites go through ZeptoMail
+  is attribution, not access. Categories are **per-workspace** (shared by every member;
+  `categories.workspace_id`, seeded from `DEFAULT_CATEGORIES` when a workspace is created);
+  reads need workspace access, writes need the editor role. Member invites go through ZeptoMail
   (`src/lib/email.ts`, `ZEPTOMAIL_TOKEN`/`MAIL_FROM_ADDRESS` in Doppler); unknown emails become
   `workspace_invites` rows accepted at the invitee's first bootstrap.
 - **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,

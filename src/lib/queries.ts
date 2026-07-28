@@ -1,7 +1,7 @@
 import "server-only";
-import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, profiles, transactions } from "@/db/schema";
+import { categories, profiles, transactions, users } from "@/db/schema";
 import { accessibleProfileIds } from "@/lib/workspaces";
 
 /** The page size shared by the transactions list, its infinite-scroll loader,
@@ -42,6 +42,12 @@ export type TransactionRow = {
   profileId: string;
   profileName: string | null;
   profileIcon: string | null;
+  /** Author attribution: who entered the row. `userId` is always present
+   * (`transactions.user_id` is notNull); name/email come from the joined
+   * `users` row and may be null. Surfaced in shared workspaces. */
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
 };
 
 /**
@@ -107,6 +113,9 @@ const txnSelection = {
   profileId: transactions.profileId,
   profileName: profiles.name,
   profileIcon: profiles.icon,
+  userId: transactions.userId,
+  userName: users.name,
+  userEmail: users.email,
 };
 
 export async function listTransactions(
@@ -120,6 +129,7 @@ export async function listTransactions(
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(profiles, eq(transactions.profileId, profiles.id))
+    .leftJoin(users, eq(transactions.userId, users.id))
     .where(buildConditions(userId, workspaceId, f))
     .orderBy(...orderByFor(f))
     .limit(f.limit ?? 100)
@@ -143,6 +153,7 @@ export async function getTransactionById(
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
     .leftJoin(profiles, eq(transactions.profileId, profiles.id))
+    .leftJoin(users, eq(transactions.userId, users.id))
     .where(
       and(
         eq(transactions.id, id),
@@ -161,6 +172,52 @@ export async function listTransactionsAsc(
 ): Promise<TransactionRow[]> {
   const rows = await listTransactions(userId, workspaceId, f);
   return rows.reverse();
+}
+
+/** The tracker chat feed's page size. Smaller than the table's — bubbles are
+ * taller — and the feed pages back through all history as you scroll up. */
+export const FEED_PAGE_SIZE = 40;
+
+/** A cursor into the feed's (occurredOn, createdAt, id) order. */
+export type FeedCursor = { occurredOn: string; createdAt: Date; id: string };
+
+/**
+ * One page of the tracker chat feed, newest-first, optionally older than a
+ * cursor. Keyset paginated on (occurredOn, createdAt, id) so paging stays stable
+ * as new rows land at the top (an offset would drift). Not month-scoped —
+ * scrolling up walks further into history. The caller reverses to oldest-first.
+ */
+export async function listFeedPage(
+  userId: string,
+  workspaceId: string,
+  opts: { profileId?: string; limit: number; before?: FeedCursor },
+): Promise<TransactionRow[]> {
+  const db = getDb();
+  const base = buildConditions(userId, workspaceId, { profileId: opts.profileId });
+  const b = opts.before;
+  const where = b
+    ? and(
+        base,
+        or(
+          lt(transactions.occurredOn, b.occurredOn),
+          and(eq(transactions.occurredOn, b.occurredOn), lt(transactions.createdAt, b.createdAt)),
+          and(
+            eq(transactions.occurredOn, b.occurredOn),
+            eq(transactions.createdAt, b.createdAt),
+            lt(transactions.id, b.id),
+          ),
+        ),
+      )
+    : base;
+  return db
+    .select(txnSelection)
+    .from(transactions)
+    .leftJoin(categories, eq(transactions.categoryId, categories.id))
+    .leftJoin(profiles, eq(transactions.profileId, profiles.id))
+    .leftJoin(users, eq(transactions.userId, users.id))
+    .where(where)
+    .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id))
+    .limit(opts.limit);
 }
 
 export async function countTransactions(
@@ -222,6 +279,42 @@ export async function getSummary(
   return { income, expense, balance: income - expense };
 }
 
+export type MonthTotals = { month: string; income: number; expense: number };
+
+/**
+ * Per-calendar-month income/expense totals (minor units), keyed "YYYY-MM".
+ * Powers the tracker's scroll: the sticky header can show any month's balance
+ * without loading that month's rows. Grouped in SQL and honoring the same access
+ * scoping + filters (from/to/profileId) as the feed, so the numbers line up with
+ * what's on screen.
+ */
+export async function getMonthlyTotals(
+  userId: string,
+  workspaceId: string,
+  f: TxnFilters = {},
+): Promise<MonthTotals[]> {
+  const db = getDb();
+  const monthExpr = sql<string>`to_char(${transactions.occurredOn}, 'YYYY-MM')`;
+  const rows = await db
+    .select({
+      month: monthExpr,
+      type: transactions.type,
+      total: sql<string>`coalesce(sum(${transactions.amountMinor}), 0)`,
+    })
+    .from(transactions)
+    .where(buildConditions(userId, workspaceId, f))
+    .groupBy(monthExpr, transactions.type);
+
+  const byMonth = new Map<string, MonthTotals>();
+  for (const r of rows) {
+    const m = byMonth.get(r.month) ?? { month: r.month, income: 0, expense: 0 };
+    if (r.type === "income") m.income = Number(r.total);
+    else m.expense = Number(r.total);
+    byMonth.set(r.month, m);
+  }
+  return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
+}
+
 export type CategoryBreakdownRow = {
   categoryId: string | null;
   categoryName: string | null;
@@ -278,12 +371,13 @@ export async function getMonthlyTrend(
   return rows.map((r) => ({ month: r.month, type: r.type, total: Number(r.total) }));
 }
 
-export async function getCategories(userId: string) {
+/** The workspace's shared category list, in income/expense then name order. */
+export async function getCategories(workspaceId: string) {
   const db = getDb();
   return db
     .select()
     .from(categories)
-    .where(eq(categories.userId, userId))
+    .where(eq(categories.workspaceId, workspaceId))
     .orderBy(asc(categories.kind), asc(categories.name));
 }
 
@@ -295,4 +389,19 @@ export async function getProfiles(userId: string, workspaceId: string) {
     .from(profiles)
     .where(inArray(profiles.id, accessibleProfileIds(userId, workspaceId)))
     .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt));
+}
+
+/**
+ * The signed-in user's own account row for the settings page — name, email, and
+ * avatar. `getAppContext().user` (a `SessionUser`) carries no `image`, so the
+ * account page reads it here rather than widening the hot auth path's shape.
+ */
+export async function getAccountProfile(userId: string) {
+  const db = getDb();
+  const [row] = await db
+    .select({ id: users.id, name: users.name, email: users.email, image: users.image })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row ?? null;
 }

@@ -1,6 +1,7 @@
 import { fromMinorUnits } from "@/lib/money";
 import { getCurrency } from "@/lib/currencies";
 import type { TransactionRow } from "@/lib/queries";
+import type { WorkspaceSummary } from "@/lib/workspaces";
 import type { Category, Profile, UserSettings } from "@/db/schema";
 
 /**
@@ -93,21 +94,47 @@ export function serializeProfile(p: Profile): ApiProfile {
   };
 }
 
+/**
+ * User settings that follow the user across workspaces. Currency + number format
+ * moved to the workspace (see `ApiWorkspace`) — they are no longer here.
+ */
 export type ApiSettings = {
-  currency: string;
-  locale: string;
   theme: string;
   inputMode: string;
-  currencyDetail: { code: string; symbol: string; decimals: number };
 };
 
 export function serializeSettings(s: UserSettings): ApiSettings {
-  const c = getCurrency(s.currency);
   return {
-    currency: s.currency,
-    locale: s.locale,
     theme: s.theme,
     inputMode: s.inputMode,
+  };
+}
+
+/**
+ * A workspace the caller can open, including its currency + number format
+ * (which every member shares). `currencyDetail` saves the client re-deriving the
+ * decimal count. `role` is null when access is via a per-profile grant only.
+ */
+export type ApiWorkspace = {
+  id: string;
+  name: string;
+  /** Emoji shown beside the name; null when unset. */
+  icon: string | null;
+  role: WorkspaceSummary["role"];
+  currency: string;
+  locale: string;
+  currencyDetail: { code: string; symbol: string; decimals: number };
+};
+
+export function serializeWorkspace(w: WorkspaceSummary): ApiWorkspace {
+  const c = getCurrency(w.currency);
+  return {
+    id: w.id,
+    name: w.name,
+    icon: w.icon,
+    role: w.role,
+    currency: w.currency,
+    locale: w.locale,
     currencyDetail: { code: c.code, symbol: c.symbol, decimals: c.decimals },
   };
 }

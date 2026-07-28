@@ -14,8 +14,10 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { useLoadingOverlay } from "./loading-overlay";
 import { createWorkspace } from "@/actions/workspaces";
+import { DEFAULT_WORKSPACE_ICON, WORKSPACE_NAME_MAX } from "@/lib/validation";
 
 /**
  * Modal for creating a new workspace. Reused by the sidebar workspace switcher
@@ -35,6 +37,17 @@ export function CreateWorkspaceDialog({
   const router = useRouter();
   const { run, pending } = useLoadingOverlay();
   const [name, setName] = React.useState("");
+  const [icon, setIcon] = React.useState(DEFAULT_WORKSPACE_ICON);
+
+  // Reset fields each time the dialog opens.
+  const [wasOpen, setWasOpen] = React.useState(open);
+  if (open !== wasOpen) {
+    setWasOpen(open);
+    if (open) {
+      setName("");
+      setIcon(DEFAULT_WORKSPACE_ICON);
+    }
+  }
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -45,11 +58,12 @@ export function CreateWorkspaceDialog({
     }
     // Full-screen loader covers the create + switch into the new workspace.
     run(async () => {
-      const res = await createWorkspace(trimmed);
+      const res = await createWorkspace(trimmed, icon);
       if (res.ok) {
         toast.success("Workspace created");
         onOpenChange(false);
         setName("");
+        setIcon(DEFAULT_WORKSPACE_ICON);
         onCreated?.();
         router.push("/app");
         router.refresh();
@@ -71,15 +85,26 @@ export function CreateWorkspaceDialog({
         </DialogHeader>
         <form onSubmit={handleCreate} className="space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="workspace-name">Name</Label>
-            <Input
-              id="workspace-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Acme Inc."
-              maxLength={20}
-              autoFocus
-            />
+            <Label htmlFor="workspace-name">Name & icon</Label>
+            <div className="flex items-center gap-2">
+              <EmojiPicker
+                onSelect={setIcon}
+                trigger={
+                  <Button type="button" variant="outline" size="icon" aria-label="Pick an icon">
+                    <span className="text-base">{icon}</span>
+                  </Button>
+                }
+              />
+              <Input
+                id="workspace-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Acme Inc."
+                maxLength={WORKSPACE_NAME_MAX}
+                autoFocus
+                className="flex-1"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>

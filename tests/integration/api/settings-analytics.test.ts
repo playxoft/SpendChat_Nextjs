@@ -8,26 +8,32 @@ import { bootstrapUser, categoryId, insertTxn } from "../helpers/seed";
 import { apiReq, jsonBody } from "./helpers";
 
 describe("/api/v1/settings", () => {
-  it("returns settings and patches a subset", async () => {
+  it("returns user settings and patches a subset (theme, inputMode)", async () => {
     signInAs("a");
     const got = await getSettings(apiReq("/api/v1/settings"));
-    expect((await got.json()).data.currency).toBe("USD");
+    const settings = (await got.json()).data;
+    expect(settings.theme).toBe("system");
+    expect(settings.inputMode).toBe("amount_title");
+    // Currency/locale are per-workspace now — not in user settings.
+    expect(settings.currency).toBeUndefined();
 
     const patched = await patchSettings(
-      apiReq("/api/v1/settings", { method: "PATCH", body: jsonBody({ currency: "EUR", theme: "dark" }) }),
+      apiReq("/api/v1/settings", { method: "PATCH", body: jsonBody({ theme: "dark" }) }),
     );
     const { data } = await patched.json();
-    expect(data.currency).toBe("EUR");
     expect(data.theme).toBe("dark");
-    expect(data.currencyDetail.code).toBe("EUR");
   });
 
-  it("422s an empty patch or bad currency", async () => {
+  it("422s an empty patch or a bad theme (currency is no longer a settings field)", async () => {
     signInAs("a");
     await bootstrapUser("a");
     expect((await patchSettings(apiReq("/api/v1/settings", { method: "PATCH", body: jsonBody({}) }))).status).toBe(422);
     expect(
-      (await patchSettings(apiReq("/api/v1/settings", { method: "PATCH", body: jsonBody({ currency: "ZZZ" }) }))).status,
+      (await patchSettings(apiReq("/api/v1/settings", { method: "PATCH", body: jsonBody({ theme: "neon" }) }))).status,
+    ).toBe(422);
+    // currency is stripped as unknown → empty patch → 422.
+    expect(
+      (await patchSettings(apiReq("/api/v1/settings", { method: "PATCH", body: jsonBody({ currency: "EUR" }) }))).status,
     ).toBe(422);
   });
 });

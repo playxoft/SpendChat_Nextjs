@@ -38,6 +38,8 @@ import {
   useColumnLayout,
   type ColumnId,
 } from "./transaction-columns-store";
+import { useOptimisticRow } from "@/hooks/use-optimistic-row";
+import { authorColorClass, authorDisplayName } from "@/lib/author-color";
 import { formatMoney, minorToInputString, signedMinor } from "@/lib/money";
 import { formatDateLabel } from "@/lib/dates";
 import { cn } from "@/lib/utils";
@@ -56,6 +58,9 @@ type CellContext = { currency: string; locale: string };
 
 type ColumnDef = {
   cellClassName?: string | ((row: TransactionRow) => string);
+  /** Whether the header sorts on click. Defaults to true; `user` opts out (the
+   * server only sorts the five documented columns — see `parseTxnSort`). */
+  sortable?: boolean;
   render: (row: TransactionRow, ctx: CellContext) => ReactNode;
 };
 
@@ -90,6 +95,19 @@ const COLUMNS: Record<ColumnId, ColumnDef> = {
     cellClassName: (row) => cn("truncate text-right font-medium tabular-nums", amountToneClass(row.type)),
     render: (row, { currency, locale }) =>
       formatMoney(signedMinor(row.type, row.amountMinor), currency, locale, { signed: true }),
+  },
+  user: {
+    sortable: false,
+    render: (row) => (
+      <span className="flex min-w-0 flex-col leading-tight">
+        <span className={cn("truncate font-medium", authorColorClass(row.userId))}>
+          {authorDisplayName(row.userName, row.userEmail)}
+        </span>
+        {row.userEmail ? (
+          <span className="truncate text-xs text-muted-foreground">{row.userEmail}</span>
+        ) : null}
+      </span>
+    ),
   },
 };
 
@@ -192,6 +210,7 @@ export function TransactionsTable({
                   <SortableHeader
                     key={id}
                     id={id}
+                    sortable={COLUMNS[id].sortable !== false}
                     sortDir={activeSort === id ? activeDir : null}
                     onSort={onSort}
                     onResizeStart={handleResizeStart}
@@ -227,11 +246,13 @@ function SortIndicator({ dir }: { dir: "asc" | "desc" | null }) {
  * the right-edge strip resizes (also stops propagation). */
 function SortableHeader({
   id,
+  sortable,
   sortDir,
   onSort,
   onResizeStart,
 }: {
   id: ColumnId;
+  sortable: boolean;
   sortDir: "asc" | "desc" | null;
   onSort: (id: ColumnId) => void;
   onResizeStart: (id: ColumnId, startX: number, startWidth: number) => void;
@@ -273,17 +294,23 @@ function SortableHeader({
           rightAligned && "justify-end",
         )}
       >
-        <button
-          type="button"
-          onClick={() => onSort(id)}
-          // Don't let a click on the label kick off a dnd-kit reorder drag.
-          onPointerDown={(e) => e.stopPropagation()}
-          aria-label={`Sort by ${COLUMN_LABELS[id]}`}
-          className="flex min-w-0 cursor-pointer items-center gap-1 rounded-sm transition-colors hover:text-foreground"
-        >
-          <span className="truncate">{COLUMN_LABELS[id]}</span>
-          <SortIndicator dir={sortDir} />
-        </button>
+        {sortable ? (
+          <button
+            type="button"
+            onClick={() => onSort(id)}
+            // Don't let a click on the label kick off a dnd-kit reorder drag.
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label={`Sort by ${COLUMN_LABELS[id]}`}
+            className="flex min-w-0 cursor-pointer items-center gap-1 rounded-sm transition-colors hover:text-foreground"
+          >
+            <span className="truncate">{COLUMN_LABELS[id]}</span>
+            <SortIndicator dir={sortDir} />
+          </button>
+        ) : (
+          // Non-sortable column (e.g. User): a plain label — the header still
+          // drags to reorder and resizes, it just doesn't sort.
+          <span className="min-w-0 truncate">{COLUMN_LABELS[id]}</span>
+        )}
       </div>
       {/* Drag affordance: hints the column can be dragged to reorder. The whole
           header is the grab area, so this is decorative (pointer-events-none) and
@@ -308,7 +335,7 @@ function SortableHeader({
 }
 
 function Row({
-  row,
+  row: serverRow,
   columns,
   currency,
   locale,
@@ -317,7 +344,12 @@ function Row({
   today,
 }: SharedProps & { row: TransactionRow; columns: ColumnId[] }) {
   const [editing, setEditing] = useState(false);
+  // An edit patches the cells / a delete hides the row in the same commit as the
+  // toast, then the server revalidation reconciles.
+  const { row, removed, patch, remove } = useOptimisticRow(serverRow);
   const ctx: CellContext = { currency, locale };
+
+  if (removed) return null;
 
   return (
     <>
@@ -347,6 +379,8 @@ function Row({
         mode="edit"
         open={editing}
         onOpenChange={setEditing}
+        onSaved={patch}
+        onDeleted={remove}
         categories={categories}
         profiles={profiles}
         currency={currency}

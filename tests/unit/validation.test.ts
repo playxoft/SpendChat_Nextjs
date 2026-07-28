@@ -5,7 +5,8 @@ import {
   transactionInputSchema,
   updateTransactionSchema,
   bulkTransactionsSchema,
-  settingsSchema,
+  workspaceCurrencySchema,
+  patchSettingsSchema,
   categoryInputSchema,
   updateCategorySchema,
   profileInputSchema,
@@ -117,22 +118,36 @@ describe("bulkTransactionsSchema", () => {
   });
 });
 
-describe("settingsSchema", () => {
-  it("accepts a supported currency/locale/theme", () => {
+describe("workspaceCurrencySchema", () => {
+  it("accepts a supported currency + locale", () => {
     expect(
-      settingsSchema.safeParse({ currency: "USD", locale: "en-US", theme: "dark" })
-        .success,
+      workspaceCurrencySchema.safeParse({ currency: "USD", locale: "en-US" }).success,
     ).toBe(true);
   });
-  it("rejects an unsupported currency or theme", () => {
+  it("rejects an unsupported currency or a too-short locale", () => {
     expect(
-      settingsSchema.safeParse({ currency: "ZZZ", locale: "en-US", theme: "dark" })
-        .success,
+      workspaceCurrencySchema.safeParse({ currency: "ZZZ", locale: "en-US" }).success,
     ).toBe(false);
     expect(
-      settingsSchema.safeParse({ currency: "USD", locale: "en-US", theme: "neon" })
-        .success,
+      workspaceCurrencySchema.safeParse({ currency: "USD", locale: "e" }).success,
     ).toBe(false);
+  });
+});
+
+describe("patchSettingsSchema", () => {
+  it("accepts a subset of theme/inputMode", () => {
+    expect(patchSettingsSchema.safeParse({ theme: "dark" }).success).toBe(true);
+    expect(patchSettingsSchema.safeParse({ inputMode: "combined" }).success).toBe(true);
+  });
+  it("rejects an empty object and an invalid theme", () => {
+    expect(patchSettingsSchema.safeParse({}).success).toBe(false);
+    expect(patchSettingsSchema.safeParse({ theme: "neon" }).success).toBe(false);
+  });
+  it("no longer accepts currency/locale", () => {
+    // currency/locale moved to the workspace — they aren't user settings anymore.
+    const parsed = patchSettingsSchema.safeParse({ currency: "EUR", locale: "en-GB" });
+    // Unknown keys are stripped; with no valid key left it fails the ≥1 refine.
+    expect(parsed.success).toBe(false);
   });
 });
 

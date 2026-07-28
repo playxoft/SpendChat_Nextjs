@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, eq, exists, inArray, isNull, or } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  categories,
   profileAccess,
   profiles,
   userSettings,
@@ -10,8 +11,10 @@ import {
   workspaces,
   type WorkspaceRole,
 } from "@/db/schema";
+import { DEFAULT_CATEGORIES } from "@/lib/categories";
 import { forbidden, notFound } from "@/lib/errors";
 import { maxRole, rolesAtLeast } from "@/lib/rbac";
+import { DEFAULT_WORKSPACE_ICON } from "@/lib/validation";
 
 /**
  * Workspace access resolution — the single source of truth for "which
@@ -23,7 +26,12 @@ import { maxRole, rolesAtLeast } from "@/lib/rbac";
 export type WorkspaceSummary = {
   id: string;
   name: string;
+  /** Optional emoji shown beside the name; null until set. */
+  icon: string | null;
   ownerId: string;
+  /** Currency + number format (locale) are per-workspace. */
+  currency: string;
+  locale: string;
   /** Workspace-wide role; null when access comes via per-profile grants only. */
   role: WorkspaceRole | null;
 };
@@ -36,7 +44,10 @@ export async function listUserWorkspaces(userId: string): Promise<WorkspaceSumma
     .select({
       id: workspaces.id,
       name: workspaces.name,
+      icon: workspaces.icon,
       ownerId: workspaces.ownerId,
+      currency: workspaces.currency,
+      locale: workspaces.locale,
       role: workspaceMembers.role,
     })
     .from(workspaceMembers)
@@ -51,7 +62,10 @@ export async function listUserWorkspaces(userId: string): Promise<WorkspaceSumma
     .selectDistinct({
       id: workspaces.id,
       name: workspaces.name,
+      icon: workspaces.icon,
       ownerId: workspaces.ownerId,
+      currency: workspaces.currency,
+      locale: workspaces.locale,
     })
     .from(profileAccess)
     .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
@@ -64,6 +78,22 @@ export async function listUserWorkspaces(userId: string): Promise<WorkspaceSumma
       .filter((w) => !memberIds.has(w.id))
       .map((w) => ({ ...w, role: null as WorkspaceRole | null })),
   ];
+}
+
+/**
+ * A workspace's currency + number format (locale), for parsing/formatting money.
+ * Falls back to USD/en-US if the workspace vanished mid-request. Access is
+ * assumed already checked by the caller (it resolved this workspace id).
+ */
+export async function getWorkspaceMoneyFormat(
+  workspaceId: string,
+): Promise<{ currency: string; locale: string }> {
+  const db = getDb();
+  const row = await db.query.workspaces.findFirst({
+    where: eq(workspaces.id, workspaceId),
+    columns: { currency: true, locale: true },
+  });
+  return { currency: row?.currency ?? "USD", locale: row?.locale ?? "en-US" };
 }
 
 /** The user's workspace-wide role, or null when not a member. */
@@ -158,6 +188,42 @@ export function accessibleProfileIds(
     );
 }
 
+/**
+ * Whether the user can write (≥ editor) to at least one profile in the
+ * workspace. Drives the UI's viewer gate: a "pure viewer" (no editor access
+ * anywhere) sees the compose/add controls replaced with a read-only notice.
+ * Backend mutations enforce the per-profile role regardless.
+ */
+export async function canWriteInWorkspace(
+  userId: string,
+  workspaceId: string,
+): Promise<boolean> {
+  const rows = await accessibleProfileIds(userId, workspaceId, "editor").limit(1);
+  return rows.length > 0;
+}
+
+/**
+ * Whether more than one distinct user has access to the workspace — via
+ * workspace membership or a per-profile grant on one of its profiles. Drives the
+ * tracker chat's author labels (WhatsApp-group style): a solo workspace shows no
+ * names, a shared one shows who entered each row.
+ */
+export async function workspaceHasMultipleUsers(workspaceId: string): Promise<boolean> {
+  const db = getDb();
+  const rows = await db
+    .select({ userId: workspaceMembers.userId })
+    .from(workspaceMembers)
+    .where(eq(workspaceMembers.workspaceId, workspaceId))
+    .union(
+      db
+        .select({ userId: profileAccess.userId })
+        .from(profileAccess)
+        .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
+        .where(eq(profiles.workspaceId, workspaceId)),
+    );
+  return new Set(rows.map((r) => r.userId)).size > 1;
+}
+
 /** Throw 403/404 unless the user has ≥ `minRole` on the profile. */
 export async function requireProfileRole(
   userId: string,
@@ -187,19 +253,29 @@ export async function requireWorkspaceRole(
 }
 
 /**
- * Create a workspace with its admin membership and default "Personal"
- * profile, and point the creator's `last_workspace_id` at it when unset
- * (`makeCurrent` forces the switch, for explicit "create workspace" flows).
+ * Create a workspace with its currency/locale, admin membership, default
+ * "Personal" profile, and default category list, and point the creator's
+ * `last_workspace_id` at it when unset (`makeCurrent` forces the switch, for
+ * explicit "create workspace" flows). Currency/locale default to USD/en-US;
+ * bootstrap passes geo-detected values, and the "create workspace" flow can pass
+ * the creator's current-workspace values so a new workspace inherits them.
  */
 export async function createWorkspaceWithDefaults(
   userId: string,
   name: string,
-  opts: { makeCurrent?: boolean } = {},
+  opts: { makeCurrent?: boolean; currency?: string; locale?: string; icon?: string | null } = {},
 ): Promise<WorkspaceSummary> {
   const db = getDb();
   const [workspace] = await db
     .insert(workspaces)
-    .values({ name, ownerId: userId })
+    .values({
+      name,
+      // Seed a default emoji so every workspace shows one (like a profile's 👤).
+      icon: opts.icon || DEFAULT_WORKSPACE_ICON,
+      ownerId: userId,
+      ...(opts.currency ? { currency: opts.currency } : {}),
+      ...(opts.locale ? { locale: opts.locale } : {}),
+    })
     .returning();
   await db
     .insert(workspaceMembers)
@@ -216,6 +292,20 @@ export async function createWorkspaceWithDefaults(
     })
     .onConflictDoNothing();
 
+  // Seed the workspace's shared category list.
+  await db
+    .insert(categories)
+    .values(
+      DEFAULT_CATEGORIES.map((c) => ({
+        userId,
+        workspaceId: workspace!.id,
+        name: c.name,
+        kind: c.kind,
+        icon: c.icon,
+      })),
+    )
+    .onConflictDoNothing();
+
   // Point last_workspace_id here — always for an explicit "create workspace",
   // otherwise only when the user has no current workspace yet (first bootstrap).
   await db
@@ -227,7 +317,15 @@ export async function createWorkspaceWithDefaults(
         : and(eq(userSettings.userId, userId), isNull(userSettings.lastWorkspaceId)),
     );
 
-  return { id: workspace!.id, name: workspace!.name, ownerId: userId, role: "admin" };
+  return {
+    id: workspace!.id,
+    name: workspace!.name,
+    icon: workspace!.icon,
+    ownerId: userId,
+    currency: workspace!.currency,
+    locale: workspace!.locale,
+    role: "admin",
+  };
 }
 
 /**

@@ -49,6 +49,22 @@ export function localeSeparators(locale: string = DEFAULT_LOCALE): Separators {
 }
 
 /**
+ * Count the digits in the whole-number part of a typed amount, locale-aware:
+ * everything before the first decimal separator, with grouping ignored. Amount
+ * inputs use this to stop typing once the whole-number part hits the digit cap
+ * (`AMOUNT_INTEGER_DIGITS_MAX`), before the amount is even parsed.
+ */
+export function integerDigitCount(
+  value: string,
+  locale: string = DEFAULT_LOCALE,
+): number {
+  const { decimal } = localeSeparators(locale);
+  const decimalAt = value.indexOf(decimal);
+  const intPart = decimalAt === -1 ? value : value.slice(0, decimalAt);
+  return (intPart.match(/\d/g) ?? []).length;
+}
+
+/**
  * Grouping is valid when the last group is exactly 3 digits and any earlier
  * group is 2–3 digits — which admits both Western ("1,250,000") and Indian
  * ("2,00,000") grouping, and rejects a lone comma-decimal ("1,50") that would

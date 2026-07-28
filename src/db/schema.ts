@@ -11,7 +11,11 @@ import {
   timestamp,
   uniqueIndex,
   uuid,
+  varchar,
 } from "drizzle-orm/pg-core";
+// Relative (not "@/…") so drizzle-kit's schema loader resolves it without the
+// tsconfig path alias. Keeps the DB column length in lockstep with the Zod cap.
+import { TRANSACTION_DESCRIPTION_MAX, TRANSACTION_TITLE_MAX } from "../lib/validation";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -61,8 +65,16 @@ export const workspaces = pgTable(
   {
     id: uuid("id").primaryKey().default(uuidV7),
     name: text("name").notNull(),
+    // Optional emoji shown beside the workspace name (like `profiles.icon`).
+    // Nullable; the app seeds a default at creation and the UI falls back.
+    icon: text("icon"),
     // Neon Auth user id of the creator. Owners always have the admin role.
     ownerId: uuid("owner_id").notNull(),
+    // Currency + number format (locale) are per-workspace: every member of a
+    // workspace sees amounts in this currency, formatted with this locale.
+    // (Theme and input mode stay per-user in user_settings.)
+    currency: text("currency").notNull().default("USD"),
+    locale: text("locale").notNull().default("en-US"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -163,14 +175,14 @@ export const emailSendLog = pgTable(
 );
 
 /**
- * Per-user preferences. `user_id` is the Neon Auth user id (a UUID minted by
- * Neon Auth — v4, since we don't control their generator; everything we mint
- * ourselves is v7). One row per user; created on first sign-in (bootstrap).
+ * Per-user preferences that follow the user across every workspace: theme and
+ * the transaction-composer input mode. Currency and number format are NOT here —
+ * they belong to the workspace (see `workspaces.currency` / `.locale`).
+ * `user_id` is our internal uuidv7 (resolved from Firebase at the auth boundary).
+ * One row per user; created on first sign-in (bootstrap).
  */
 export const userSettings = pgTable("user_settings", {
   userId: uuid("user_id").primaryKey(),
-  currency: text("currency").notNull().default("USD"),
-  locale: text("locale").notNull().default("en-US"),
   theme: text("theme").notNull().default("system"),
   // How the transaction composer lays out its inputs:
   //   amount_title — amount field, then title (default / original layout)
@@ -185,8 +197,8 @@ export const userSettings = pgTable("user_settings", {
 
 /**
  * A "profile" groups transactions like a chat thread (Personal, Company, Home…).
- * Every user has at least one ("Personal"), created on bootstrap. Single currency
- * per user still applies — profiles do not carry their own currency.
+ * Every user has at least one ("Personal"), created on bootstrap. Currency is a
+ * workspace-level setting (`workspaces.currency`) — profiles don't carry one.
  */
 export const profiles = pgTable(
   "profiles",
@@ -214,11 +226,20 @@ export const profiles = pgTable(
   ],
 );
 
+/**
+ * Categories are workspace-scoped: everyone in a workspace shares one list, and
+ * creating one only affects the current workspace. `userId` is created-by
+ * attribution (like `profiles.userId` / `transactions.userId`), not the access
+ * key — access is the workspace.
+ */
 export const categories = pgTable(
   "categories",
   {
     id: uuid("id").primaryKey().default(uuidV7),
     userId: uuid("user_id").notNull(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     kind: txnTypeEnum("kind").notNull(),
     icon: text("icon"),
@@ -226,10 +247,10 @@ export const categories = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // Filter categories by user + income/expense.
-    index("categories_user_kind_idx").on(t.userId, t.kind),
-    // Prevent duplicate category names per user/kind.
-    uniqueIndex("categories_user_name_kind_uq").on(t.userId, t.name, t.kind),
+    // Filter categories by workspace + income/expense.
+    index("categories_workspace_kind_idx").on(t.workspaceId, t.kind),
+    // Prevent duplicate category names per workspace/kind.
+    uniqueIndex("categories_workspace_name_kind_uq").on(t.workspaceId, t.name, t.kind),
   ],
 );
 
@@ -248,10 +269,12 @@ export const transactions = pgTable(
     profileId: uuid("profile_id")
       .notNull()
       .references(() => profiles.id, { onDelete: "restrict" }),
-    // Short headline for the transaction (was `note`).
-    title: text("title"),
-    // Longer free-text body shown on expand / in the detail dialog.
-    description: text("description"),
+    // Short headline for the transaction (was `note`). Length matches the Zod
+    // cap (`TRANSACTION_TITLE_MAX`) so the DB rejects anything the app would.
+    title: varchar("title", { length: TRANSACTION_TITLE_MAX }),
+    // Longer free-text body shown on expand / in the detail dialog. Length is
+    // the shared `TRANSACTION_DESCRIPTION_MAX`, in lockstep with validation.
+    description: varchar("description", { length: TRANSACTION_DESCRIPTION_MAX }),
     occurredOn: date("occurred_on").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

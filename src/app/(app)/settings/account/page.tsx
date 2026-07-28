@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
-import { getUserSettings, requireUser } from "@/lib/auth";
+import { getAppContext } from "@/lib/auth";
+import { getAccountProfile, getProfiles } from "@/lib/queries";
 import {
   Card,
   CardContent,
@@ -7,8 +8,11 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { SettingsForm } from "@/components/app/settings-form";
+import { AccountProfileForm } from "@/components/app/account-profile-form";
+import { AccountSecurityCard } from "@/components/app/account-security-card";
+import { AccountSignOut } from "@/components/app/account-sign-out";
 import { DangerZone } from "@/components/app/danger-zone";
+import { WorkspaceCurrencyForm } from "@/components/app/workspace-currency-form";
 
 export const dynamic = "force-dynamic";
 
@@ -18,20 +22,63 @@ export const metadata: Metadata = {
 };
 
 export default async function AccountSettingsPage() {
-  const user = await requireUser();
-  const settings = await getUserSettings(user.id);
+  const { user, workspace } = await getAppContext();
+  const isAdmin = workspace.role === "admin";
+  const [profiles, account] = await Promise.all([
+    getProfiles(user.id, workspace.id),
+    getAccountProfile(user.id),
+  ]);
 
   return (
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Account</CardTitle>
+          <CardTitle>Profile</CardTitle>
+          <CardDescription>Your name and picture across SpendChat.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AccountProfileForm
+            initialName={account?.name ?? user.name}
+            initialImage={account?.image ?? null}
+            email={user.email}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Currency &amp; number format</CardTitle>
           <CardDescription>
-            Signed in as {user.email ?? user.name ?? "unknown"}.
+            Applies to everyone in the “{workspace.name}” workspace.
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <SettingsForm currency={settings.currency} locale={settings.locale} />
+          <WorkspaceCurrencyForm
+            workspaceId={workspace.id}
+            currency={workspace.currency}
+            locale={workspace.locale}
+            canEdit={isAdmin}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sign-in &amp; password</CardTitle>
+          <CardDescription>How you sign in, and your account password.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AccountSecurityCard email={user.email} />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Sign out</CardTitle>
+          <CardDescription>End your session on this device.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <AccountSignOut />
         </CardContent>
       </Card>
 
@@ -41,7 +88,7 @@ export default async function AccountSettingsPage() {
           <CardDescription>Irreversible actions.</CardDescription>
         </CardHeader>
         <CardContent>
-          <DangerZone />
+          <DangerZone profiles={profiles.map((p) => ({ id: p.id, name: p.name, icon: p.icon }))} />
         </CardContent>
       </Card>
     </>

@@ -19,6 +19,100 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.1.0 — 2026-07-21
+
+Workspaces now carry an optional emoji `icon` (like profiles), returned on every
+workspace object and settable when creating one. The workspace-name limit also
+grew from 20 to 30 characters. Backward-compatible additions.
+
+### Added
+- **`icon` on the `Workspace` object** (`GET /me` → `data.workspace`,
+  `GET /workspaces`, `POST /workspaces`, `PATCH /workspaces/{id}`) — a string
+  emoji, or `null` when unset. It's a **required** property of the response
+  object (always present; value may be null). Existing workspaces were
+  backfilled with the default 🏢.
+- **`WorkspaceInput.icon` (optional)** on `POST /workspaces` — an emoji (≤16
+  chars). Omitted or empty seeds the default 🏢.
+
+### Changed
+- **`WorkspaceInput.name` max length raised 20 → 30** on `POST /workspaces`.
+  Names of 21–30 chars now succeed (previously **422**); the error message is
+  now "Workspace name is too long (max 30 characters)".
+
+**Flutter impact:** none required (both additive/loosening). To match the web
+UI, render `workspace.icon` beside the workspace name (fall back to a neutral
+glyph when null), optionally let users pick an emoji in the create-workspace
+form, and widen any client-side name validation to 30 chars.
+
+---
+
+## 5.0.0 — 2026-07-19
+
+`POST /transactions/delete-all` is now **admin-only** and **profile-scoped**, and
+it deletes **every** transaction in the targeted profiles (not just the caller's
+own). This is a **breaking** change to who can call it and what it removes.
+
+### Changed
+- **`POST /transactions/delete-all` requires the workspace `admin` role** — a
+  viewer/editor caller now gets **403** (previously any member could clear their
+  own rows).
+- **It now deletes every transaction in the selected profiles, regardless of
+  author** — a profile is fully wiped, not just the caller's contributions.
+- **Request body gained optional `profileIds: string[]`.** Omit or send `[]` to
+  clear **all** profiles in the current workspace (the previous "wipe
+  everything" behaviour); otherwise only the listed profiles are cleared (ids
+  outside the current workspace are ignored). Response is unchanged:
+  `data: { deleted }`.
+
+**Flutter impact:** if the app exposes "delete all transactions", gate it to
+workspace admins (hide/disable for viewers/editors) and optionally add a profile
+picker sending `profileIds`. Sending only `{ confirm: "DELETE" }` still clears
+the whole workspace, but the call now 403s for non-admins.
+
+---
+
+## 4.0.0 — 2026-07-18
+
+Currency, number format (locale), and the category list moved from **per-user**
+to **per-workspace**. Each workspace now has its own currency and its own shared
+category list; theme and input mode stay per-user (they follow the user across
+workspaces). This removes fields from `Settings` and re-scopes categories, so
+it's a **breaking** change.
+
+### Changed
+- **`Settings` no longer has `currency`, `locale`, or `currencyDetail`.** It is
+  now just `{ theme, inputMode }`. `GET /me` and `GET /settings` reflect this.
+- **`PATCH /settings` no longer accepts `currency` or `locale`** — only
+  `{ theme, inputMode }` (any subset, ≥1).
+- **The `workspace` object (in `GET /me` and `GET /workspaces`) gained
+  `currency`, `locale`, and `currencyDetail`** (`{ code, symbol, decimals }`).
+  Format minor-unit amounts using `workspace.currencyDetail.decimals` (or
+  `meta.currency` on list/analytics responses, unchanged).
+- **`GET`/`POST`/`PATCH`/`DELETE /categories` are now scoped to the current
+  workspace** (`X-Workspace-Id`), not the user. Switching workspace changes the
+  list. Writes require the **editor** role (viewer → 403); the unique-name
+  constraint is now per **workspace**+kind. `POST /workspaces` also seeds the new
+  workspace's default category list.
+
+### Added
+- **`PATCH /api/v1/workspaces/{id}`** — set a workspace's `currency` + `locale`.
+  Body `WorkspaceCurrencyPatch` `{ currency, locale }`. **Admin only** (403
+  otherwise). Returns the updated workspace. This replaces the old
+  currency/locale path through `PATCH /settings`.
+
+**Flutter impact:** required.
+- Read `currency` / `locale` / `currencyDetail` from the **workspace** object
+  (`/me`, `/workspaces`), not from `settings`. Anything binding
+  `settings.currency` / `settings.locale` / `settings.currencyDetail` must move
+  to `workspace.*` or it will break.
+- Change the currency/number-format editor to call
+  `PATCH /workspaces/{id}` (admin only) instead of `PATCH /settings`. Keep
+  theme/input-mode edits on `PATCH /settings`.
+- Categories now change when the active workspace changes — re-fetch
+  `/categories` on workspace switch, and gate add/edit/delete on the editor role.
+
+---
+
 ## 3.1.0 — 2026-07-17
 
 Added an optional telemetry request header. Purely additive — no endpoint, field,

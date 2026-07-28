@@ -25,12 +25,15 @@ export function GlobalShortcuts({
   currency,
   locale,
   today,
+  canWrite,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   currency: string;
   locale: string;
   today: string;
+  /** Viewers (no editor access anywhere) can't add — the e/b shortcuts no-op. */
+  canWrite: boolean;
 }) {
   const router = useRouter();
   const sp = useSearchParams();
@@ -49,34 +52,38 @@ export function GlobalShortcuts({
   useShortcut(comboFor("nav.transactions"), () => router.push(hrefWithProfile("/transactions", profileParam)), nav);
   useShortcut(comboFor("nav.analytics"), () => router.push(hrefWithProfile("/analytics", profileParam)), nav);
   useShortcut(comboFor("nav.settings"), () => router.push(hrefWithProfile("/settings", profileParam)), nav);
-  useShortcut(comboFor("action.add"), () => setAddOpen(true), nav);
-  useShortcut(comboFor("action.bulk"), () => setBulkOpen(true), nav);
+  useShortcut(comboFor("action.add"), () => canWrite && setAddOpen(true), nav);
+  useShortcut(comboFor("action.bulk"), () => canWrite && setBulkOpen(true), nav);
   useShortcut(comboFor("global.shortcuts"), () => setShortcutsOpen(true), nav);
 
   return (
     <>
-      <TransactionDialog
-        mode="add"
-        categories={categories}
-        profiles={profiles}
-        activeProfileId={activeProfileId}
-        currency={currency}
-        locale={locale}
-        today={today}
-        open={addOpen}
-        onOpenChange={setAddOpen}
-      />
-      <BulkAddDialog
-        today={today}
-        categories={categories}
-        profiles={profiles}
-        activeProfileId={activeProfileId}
-        allProfiles={allProfiles}
-        currency={currency}
-        locale={locale}
-        open={bulkOpen}
-        onOpenChange={setBulkOpen}
-      />
+      {canWrite && (
+        <>
+          <TransactionDialog
+            mode="add"
+            categories={categories}
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            currency={currency}
+            locale={locale}
+            today={today}
+            open={addOpen}
+            onOpenChange={setAddOpen}
+          />
+          <BulkAddDialog
+            today={today}
+            categories={categories}
+            profiles={profiles}
+            activeProfileId={activeProfileId}
+            allProfiles={allProfiles}
+            currency={currency}
+            locale={locale}
+            open={bulkOpen}
+            onOpenChange={setBulkOpen}
+          />
+        </>
+      )}
       <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
     </>
   );

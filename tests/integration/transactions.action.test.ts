@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { profiles, transactions, userSettings } from "@/db/schema";
+import { profiles, transactions, workspaces } from "@/db/schema";
 import {
   addTransaction,
   updateTransaction,
@@ -45,10 +45,11 @@ describe("addTransaction", () => {
   it("converts using a non-USD, zero-decimal currency", async () => {
     signInAs("a");
     await bootstrapUser("a");
+    // Currency is a workspace setting now.
     await getTestDb()
-      .update(userSettings)
+      .update(workspaces)
       .set({ currency: "JPY" })
-      .where(eq(userSettings.userId, uid("a")));
+      .where(eq(workspaces.ownerId, uid("a")));
 
     await addTransaction({ type: "income", amount: 1500, occurredOn: "2026-06-01" });
     const [row] = await rows("a");

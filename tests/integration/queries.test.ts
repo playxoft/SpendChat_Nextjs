@@ -205,7 +205,7 @@ describe("getMonthlyTrend", () => {
 
 describe("getCategories / getProfiles", () => {
   it("returns categories ordered by kind then name", async () => {
-    const cats = await getCategories(U);
+    const cats = await getCategories(W);
     expect(cats).toHaveLength(15);
     // Postgres orders the enum by its declared order: ENUM('income','expense').
     expect(cats[0].kind).toBe("income");

@@ -6,7 +6,7 @@ import { patchSettings } from "@/services/settings";
 
 export const dynamic = "force-dynamic";
 
-/** GET /api/v1/settings — the caller's settings. */
+/** GET /api/v1/settings — the caller's user settings (theme, input mode). */
 export async function GET(request: NextRequest) {
   return handle(async () => {
     const { settings } = await getApiContext(request);
@@ -15,8 +15,9 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * PATCH /api/v1/settings — partial update. Any subset of
- * { currency, locale, theme, inputMode }; at least one required.
+ * PATCH /api/v1/settings — partial update of the user's own settings. Any subset
+ * of { theme, inputMode }; at least one required. Currency + number format are
+ * per-workspace now — set them via PATCH /api/v1/workspaces/{id}.
  */
 export async function PATCH(request: NextRequest) {
   return handle(async () => {

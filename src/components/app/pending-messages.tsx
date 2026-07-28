@@ -13,8 +13,13 @@ import {
 import { RotateCcw, X } from "lucide-react";
 import { TransactionBubble, bubbleAmountLabel } from "./transaction-bubble";
 import { addTransaction } from "@/actions/transactions";
+import { authorColorClass, authorDisplayName } from "@/lib/author-color";
 import { cn } from "@/lib/utils";
 import type { TransactionInput } from "@/lib/validation";
+
+/** The current user, for labelling their own optimistic bubbles in a shared
+ * workspace (a pending send is always the current user's). */
+export type FeedAuthor = { id: string; name: string | null; email: string | null };
 
 /**
  * A transaction the user just sent, rendered as a chat bubble beneath the real
@@ -156,6 +161,8 @@ export function FeedRegion({
   locale,
   timeZone,
   profileId,
+  showAuthor = false,
+  currentUser,
   children,
 }: {
   hasRows: boolean;
@@ -166,6 +173,9 @@ export function FeedRegion({
   timeZone: string;
   /** Profile currently in view; null = "All profiles" (shows every bubble). */
   profileId: string | null;
+  /** Shared workspaces only: label pending bubbles with the current user. */
+  showAuthor?: boolean;
+  currentUser?: FeedAuthor;
   children: ReactNode;
 }) {
   const { pending, retry, dismiss } = usePendingMessages();
@@ -213,6 +223,14 @@ export function FeedRegion({
               currency={currency}
               locale={locale}
               timeZone={timeZone}
+              authorName={
+                showAuthor && currentUser
+                  ? authorDisplayName(currentUser.name, currentUser.email)
+                  : undefined
+              }
+              authorColorClass={
+                showAuthor && currentUser ? authorColorClass(currentUser.id) : undefined
+              }
               onRetry={() => retry(m.tempId)}
               onDismiss={() => dismiss(m.tempId)}
             />
@@ -228,6 +246,8 @@ function PendingBubble({
   currency,
   locale,
   timeZone,
+  authorName,
+  authorColorClass,
   onRetry,
   onDismiss,
 }: {
@@ -235,6 +255,8 @@ function PendingBubble({
   currency: string;
   locale: string;
   timeZone: string;
+  authorName?: string;
+  authorColorClass?: string;
   onRetry: () => void;
   onDismiss: () => void;
 }) {
@@ -250,6 +272,8 @@ function PendingBubble({
       description={tx.description}
       categoryName={tx.categoryName}
       categoryIcon={tx.categoryIcon}
+      authorName={authorName}
+      authorColorClass={authorColorClass}
       // Once sent it reads exactly like a real bubble (time in the corner);
       // while sending it dims and shows the coin instead.
       timeLabel={tx.status === "sent" ? formatTime(tx.createdAt, locale, timeZone) : undefined}

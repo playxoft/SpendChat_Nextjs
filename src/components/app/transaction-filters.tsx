@@ -6,6 +6,7 @@ import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
+import { TypeFilterOptions } from "@/components/app/type-filter-options";
 import {
   Select,
   SelectContent,
@@ -73,9 +74,7 @@ export function TransactionFilters({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          <SelectItem value="all">All types</SelectItem>
-          <SelectItem value="income">Income</SelectItem>
-          <SelectItem value="expense">Expense</SelectItem>
+          <TypeFilterOptions />
         </SelectContent>
       </Select>
       <Select
@@ -88,10 +87,17 @@ export function TransactionFilters({
         <SelectContent>
           <SelectItem value="all">All categories</SelectItem>
           {categories.map((c) => (
-            <SelectItem key={c.id} value={c.id}>
+            <SelectItem
+              key={c.id}
+              value={c.id}
+              className={
+                c.kind === "income"
+                  ? "text-emerald-600 focus:text-emerald-600 dark:text-emerald-400 dark:focus:text-emerald-400"
+                  : "text-red-600 focus:text-red-600 dark:text-red-400 dark:focus:text-red-400"
+              }
+            >
               {c.icon ? `${c.icon} ` : ""}
               {c.name}
-              {c.kind === "income" ? " · in" : ""}
             </SelectItem>
           ))}
         </SelectContent>

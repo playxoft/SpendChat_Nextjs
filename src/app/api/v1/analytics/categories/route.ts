@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
-    const { user, settings, workspace } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const url = new URL(request.url);
     const parsedType = txnTypeSchema.safeParse(url.searchParams.get("type"));
     if (!parsedType.success) {
@@ -24,6 +24,6 @@ export async function GET(request: NextRequest) {
     }
     const filters = parseTxnFilters((k) => url.searchParams.get(k));
     const rows = await getCategoryBreakdown(user.id, workspace.id, parsedType.data, filters);
-    return apiOk(rows, 200, currencyMeta(settings.currency));
+    return apiOk(rows, 200, currencyMeta(workspace.currency));
   });
 }
