@@ -8,7 +8,9 @@ import {
   workspaces,
 } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
-import { getProfiles } from "@/lib/queries";
+import { canWriteInWorkspace } from "@/lib/workspaces";
+import { getCategories, getProfiles } from "@/lib/queries";
+import { DEFAULT_CATEGORIES } from "@/lib/categories";
 import { deleteAllTransactions } from "@/services/settings";
 import { createTransaction, deleteTransaction } from "@/services/transactions";
 import * as ws from "@/services/workspaces";
@@ -32,6 +34,8 @@ describe("bootstrap workspaces", () => {
       .from(workspaces)
       .where(eq(workspaces.ownerId, uid("ann")));
     expect(row.name).toBe("ann's Workspace");
+    // A new workspace is seeded with the default emoji.
+    expect(row.icon).toBe("🏢");
 
     const [member] = await db()
       .select()
@@ -67,7 +71,7 @@ describe("members & RBAC", () => {
 
   it("adds a registered user directly, with the chosen role", async () => {
     const W = await setup();
-    const res = await ws.addMember(uid("a"), W, { email: "b@example.com", role: "viewer" });
+    const res = await ws.addMember(uid("a"), W, { email: "b@example.com", access: { mode: "all", role: "viewer" } });
     expect(res.status).toBe("added");
 
     const members = await ws.listMembers(uid("b"), W);
@@ -79,7 +83,7 @@ describe("members & RBAC", () => {
 
   it("viewer can read but not write; editor can write", async () => {
     const W = await setup();
-    await ws.addMember(uid("a"), W, { email: "b@example.com", role: "viewer" });
+    await ws.addMember(uid("a"), W, { email: "b@example.com", access: { mode: "all", role: "viewer" } });
     await insertTxn("a", { type: "expense", amountMinor: 100, occurredOn: "2026-06-01" });
 
     // Viewer sees the workspace's profiles…
@@ -113,7 +117,7 @@ describe("members & RBAC", () => {
 
   it("the owner cannot be demoted or removed", async () => {
     const W = await setup();
-    await ws.addMember(uid("a"), W, { email: "b@example.com", role: "admin" });
+    await ws.addMember(uid("a"), W, { email: "b@example.com", access: { mode: "all", role: "admin" } });
     await expect(
       ws.updateMemberRole(uid("b"), W, { userId: uid("a"), role: "viewer" }),
     ).rejects.toMatchObject({ status: 409 });
@@ -124,7 +128,7 @@ describe("members & RBAC", () => {
 
   it("members can leave; removal clears their last-open pointer", async () => {
     const W = await setup();
-    await ws.addMember(uid("a"), W, { email: "b@example.com", role: "editor" });
+    await ws.addMember(uid("a"), W, { email: "b@example.com", access: { mode: "all", role: "editor" } });
     await ws.switchWorkspace(uid("b"), W);
     await ws.removeMember(uid("b"), W, uid("b")); // self-leave
     const [settings] = await db()
@@ -137,20 +141,30 @@ describe("members & RBAC", () => {
 
   it("non-admins cannot manage members or rename", async () => {
     const W = await setup();
-    await ws.addMember(uid("a"), W, { email: "b@example.com", role: "editor" });
+    await ws.addMember(uid("a"), W, { email: "b@example.com", access: { mode: "all", role: "editor" } });
     await expect(
-      ws.addMember(uid("b"), W, { email: "c@example.com", role: "viewer" }),
+      ws.addMember(uid("b"), W, { email: "c@example.com", access: { mode: "all", role: "viewer" } }),
     ).rejects.toMatchObject({ status: 403 });
-    await expect(ws.renameWorkspace(uid("b"), W, "Taken over")).rejects.toMatchObject({
+    await expect(
+      ws.updateWorkspace(uid("b"), W, { name: "Taken over" }),
+    ).rejects.toMatchObject({
       status: 403,
     });
   });
 
-  it("admins can rename the workspace", async () => {
+  it("admins can rename the workspace and set its icon", async () => {
     const W = await setup();
-    await ws.renameWorkspace(uid("a"), W, "Family budget");
+    await ws.updateWorkspace(uid("a"), W, { name: "Family budget", icon: "🏠" });
     const [row] = await db().select().from(workspaces).where(eq(workspaces.id, W));
     expect(row.name).toBe("Family budget");
+    expect(row.icon).toBe("🏠");
+  });
+
+  it("clears the icon when passed an empty string", async () => {
+    const W = await setup();
+    await ws.updateWorkspace(uid("a"), W, { name: "Family budget", icon: "" });
+    const [row] = await db().select().from(workspaces).where(eq(workspaces.id, W));
+    expect(row.icon).toBeNull();
   });
 });
 
@@ -167,8 +181,7 @@ describe("per-profile grants", () => {
 
     await ws.addMember(uid("a"), W, {
       email: "b@example.com",
-      role: "editor",
-      profileId: personal,
+      access: { mode: "profiles", entries: [{ profileId: personal, role: "editor" }] },
     });
 
     const visible = await getProfiles(uid("b"), W);
@@ -200,7 +213,10 @@ describe("invites", () => {
     await bootstrapUser("a");
     const W = await workspaceIdOf("a");
 
-    const res = await ws.addMember(uid("a"), W, { email: "c@example.com", role: "editor" });
+    const res = await ws.addMember(uid("a"), W, {
+      email: "c@example.com",
+      access: { mode: "all", role: "editor" },
+    });
     expect(res.status).toBe("invited");
     expect(await ws.listInvites(uid("a"), W)).toHaveLength(1);
 
@@ -224,8 +240,7 @@ describe("invites", () => {
 
     await ws.addMember(uid("a"), W, {
       email: "d@example.com",
-      role: "viewer",
-      profileId: personal,
+      access: { mode: "profiles", entries: [{ profileId: personal, role: "viewer" }] },
     });
     await bootstrapUser("d");
 
@@ -242,12 +257,8 @@ describe("invites", () => {
     signInAs("a");
     await bootstrapUser("a");
     const W = await workspaceIdOf("a");
-    await ws.addMember(uid("a"), W, { email: "e@example.com", role: "viewer" });
-    const [invite] = await db()
-      .select()
-      .from(workspaceInvites)
-      .where(eq(workspaceInvites.workspaceId, W));
-    await ws.cancelInvite(uid("a"), invite.id);
+    await ws.addMember(uid("a"), W, { email: "e@example.com", access: { mode: "all", role: "viewer" } });
+    await ws.cancelInviteByEmail(uid("a"), W, "e@example.com");
     expect(await ws.listInvites(uid("a"), W)).toHaveLength(0);
   });
 });
@@ -258,8 +269,9 @@ describe("create & switch workspaces", () => {
     await bootstrapUser("a");
     const home = await workspaceIdOf("a");
 
-    const created = await ws.createWorkspace(uid("a"), { name: "Side project" });
+    const created = await ws.createWorkspace(uid("a"), { name: "Side project", icon: "🚀" });
     expect(created.role).toBe("admin");
+    expect(created.icon).toBe("🚀");
 
     // Creating switches to it; it gets its own default profile.
     let [settings] = await db()
@@ -270,6 +282,13 @@ describe("create & switch workspaces", () => {
     expect((await getProfiles(uid("a"), created.id)).map((p) => p.name)).toEqual([
       "Personal",
     ]);
+
+    // ...and its own full default category list (workspace-scoped, shared).
+    const newCats = await getCategories(created.id);
+    expect(newCats).toHaveLength(DEFAULT_CATEGORIES.length);
+    expect(new Set(newCats.map((c) => `${c.kind}:${c.name}`))).toEqual(
+      new Set(DEFAULT_CATEGORIES.map((c) => `${c.kind}:${c.name}`)),
+    );
 
     await ws.switchWorkspace(uid("a"), home);
     [settings] = await db()
@@ -287,17 +306,18 @@ describe("create & switch workspaces", () => {
   });
 });
 
-describe("deleteAllTransactions scoping", () => {
-  it("wipes only rows the caller authored in profiles they can still write, in the given workspace", async () => {
+describe("deleteAllTransactions (admin, profile-scoped)", () => {
+  it("admins wipe every transaction in the chosen profiles; non-admins are refused", async () => {
     signInAs("a");
     await bootstrapUser("a");
     await bootstrapUser("b");
     const W = await workspaceIdOf("a");
-    await ws.addMember(uid("a"), W, { email: "b@example.com", role: "editor" });
+    await ws.addMember(uid("a"), W, { email: "b@example.com", access: { mode: "all", role: "editor" } });
     const sharedProfile = await firstProfileId("a");
+    const { createProfile } = await import("@/services/profiles");
+    const other = await createProfile(uid("a"), W, { name: "Other" });
 
-    // b authors a row in a's shared profile, a authors one there too, and b has
-    // a row in their own workspace.
+    // Both members author rows in the shared profile; a also has one in `other`.
     await insertTxn("b", {
       type: "expense",
       amountMinor: 100,
@@ -310,18 +330,48 @@ describe("deleteAllTransactions scoping", () => {
       occurredOn: "2026-06-01",
       profileId: sharedProfile,
     });
-    await insertTxn("b", { type: "expense", amountMinor: 300, occurredOn: "2026-06-01" });
+    await insertTxn("a", {
+      type: "expense",
+      amountMinor: 300,
+      occurredOn: "2026-06-01",
+      profileId: other.id,
+    });
 
-    // Demoted to viewer, b can no longer wipe the rows they authored in W —
-    // past authorship alone must not grant a destructive write.
-    await ws.updateMemberRole(uid("a"), W, { userId: uid("b"), role: "viewer" });
-    expect(await deleteAllTransactions(uid("b"), W, "DELETE")).toEqual({ deleted: 0 });
+    // An editor can't clear transactions — it's an admin-only action.
+    await expect(
+      deleteAllTransactions(uid("b"), W, "DELETE", [sharedProfile]),
+    ).rejects.toMatchObject({ status: 403 });
 
-    // In their own workspace the wipe works, and touches only their row there.
-    const ownW = await workspaceIdOf("b");
-    expect(await deleteAllTransactions(uid("b"), ownW, "DELETE")).toEqual({ deleted: 1 });
-    expect(await countTxns("b")).toBe(1); // the shared-workspace row survives
-    expect(await countTxns("a")).toBe(1); // a's row untouched throughout
+    // Admin clears just the shared profile: BOTH authors' rows go (2), and the
+    // `other` profile is untouched.
+    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [sharedProfile])).toEqual({
+      deleted: 2,
+    });
+    expect(await countTxns("a")).toBe(1); // a's row in `other` survives
+    expect(await countTxns("b")).toBe(0); // b's shared-profile row is gone
+  });
+
+  it("empty profileIds clears every profile in the workspace", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+    const p1 = await firstProfileId("a");
+    const { createProfile } = await import("@/services/profiles");
+    const p2 = await createProfile(uid("a"), W, { name: "Second" });
+    await insertTxn("a", { type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: p1 });
+    await insertTxn("a", { type: "expense", amountMinor: 200, occurredOn: "2026-06-01", profileId: p2.id });
+
+    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [])).toEqual({ deleted: 2 });
+    expect(await countTxns("a")).toBe(0);
+  });
+
+  it("rejects a wrong confirmation string", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+    await expect(deleteAllTransactions(uid("a"), W, "nope", [])).rejects.toMatchObject({
+      status: 400,
+    });
   });
 });
 
@@ -334,12 +384,225 @@ describe("invite email rate limiting", () => {
     for (let i = 0; i < 20; i++) {
       const res = await ws.addMember(uid("a"), W, {
         email: `guest${i}@example.com`,
-        role: "viewer",
+        access: { mode: "all", role: "viewer" },
       });
       expect(res.status).toBe("invited");
     }
     await expect(
-      ws.addMember(uid("a"), W, { email: "one-too-many@example.com", role: "viewer" }),
+      ws.addMember(uid("a"), W, {
+        email: "one-too-many@example.com",
+        access: { mode: "all", role: "viewer" },
+      }),
     ).rejects.toMatchObject({ status: 429, code: "rate_limited" });
+  });
+});
+
+describe("multi-profile access", () => {
+  async function twoProfiles() {
+    signInAs("a");
+    await bootstrapUser("a");
+    await bootstrapUser("b");
+    const W = await workspaceIdOf("a");
+    const personal = await firstProfileId("a");
+    const { createProfile } = await import("@/services/profiles");
+    const business = await createProfile(uid("a"), W, { name: "Business" });
+    return { W, personal, business: business.id };
+  }
+
+  const grantMap = async (userId: string) =>
+    Object.fromEntries(
+      (await db().select().from(profileAccess).where(eq(profileAccess.userId, userId))).map((g) => [
+        g.profileId,
+        g.role,
+      ]),
+    );
+  const memberRow = (W: string, userId: string) =>
+    db()
+      .select()
+      .from(workspaceMembers)
+      .where(and(eq(workspaceMembers.workspaceId, W), eq(workspaceMembers.userId, userId)));
+
+  it("grants several profiles at once, each at its own role", async () => {
+    const { W, personal, business } = await twoProfiles();
+    await ws.addMember(uid("a"), W, {
+      email: "b@example.com",
+      access: {
+        mode: "profiles",
+        entries: [
+          { profileId: personal, role: "viewer" },
+          { profileId: business, role: "editor" },
+        ],
+      },
+    });
+
+    expect(await grantMap(uid("b"))).toEqual({ [personal]: "viewer", [business]: "editor" });
+    // Both profiles visible; no workspace-wide membership created.
+    expect((await getProfiles(uid("b"), W)).map((p) => p.id).sort()).toEqual(
+      [personal, business].sort(),
+    );
+    expect(await memberRow(W, uid("b"))).toHaveLength(0);
+  });
+
+  it("setMemberAccess reconciles both directions and can't touch the owner", async () => {
+    const { W, personal, business } = await twoProfiles();
+    await ws.addMember(uid("a"), W, {
+      email: "b@example.com",
+      access: { mode: "all", role: "editor" },
+    });
+
+    // Narrow to a single profile: membership dropped, one grant remains.
+    await ws.setMemberAccess(uid("a"), W, {
+      userId: uid("b"),
+      access: { mode: "profiles", entries: [{ profileId: business, role: "viewer" }] },
+    });
+    expect(await memberRow(W, uid("b"))).toHaveLength(0);
+    expect(await grantMap(uid("b"))).toEqual({ [business]: "viewer" });
+    expect((await getProfiles(uid("b"), W)).map((p) => p.id)).toEqual([business]);
+
+    // Widen back to all profiles: grants cleared, membership recreated at the new role.
+    await ws.setMemberAccess(uid("a"), W, {
+      userId: uid("b"),
+      access: { mode: "all", role: "admin" },
+    });
+    expect(await grantMap(uid("b"))).toEqual({});
+    const [m] = await memberRow(W, uid("b"));
+    expect(m.role).toBe("admin");
+
+    // The owner can never be re-scoped away from full access.
+    await expect(
+      ws.setMemberAccess(uid("a"), W, {
+        userId: uid("a"),
+        access: { mode: "profiles", entries: [{ profileId: personal, role: "viewer" }] },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("invites an unknown email to several profiles; each converts to a grant", async () => {
+    const { W, personal, business } = await twoProfiles();
+    await ws.addMember(uid("a"), W, {
+      email: "z@example.com",
+      access: {
+        mode: "profiles",
+        entries: [
+          { profileId: personal, role: "viewer" },
+          { profileId: business, role: "admin" },
+        ],
+      },
+    });
+    expect(
+      await db().select().from(workspaceInvites).where(eq(workspaceInvites.email, "z@example.com")),
+    ).toHaveLength(2);
+
+    await bootstrapUser("z");
+    expect(await grantMap(uid("z"))).toEqual({ [personal]: "viewer", [business]: "admin" });
+  });
+
+  it("setInviteAccess replaces the whole invite set for an email", async () => {
+    const { W, personal, business } = await twoProfiles();
+    await ws.addMember(uid("a"), W, {
+      email: "z@example.com",
+      access: { mode: "all", role: "viewer" },
+    });
+    await ws.setInviteAccess(uid("a"), W, {
+      email: "z@example.com",
+      access: {
+        mode: "profiles",
+        entries: [
+          { profileId: personal, role: "editor" },
+          { profileId: business, role: "viewer" },
+        ],
+      },
+    });
+    const invites = await db()
+      .select()
+      .from(workspaceInvites)
+      .where(eq(workspaceInvites.email, "z@example.com"));
+    expect(invites).toHaveLength(2);
+    expect(invites.every((i) => i.profileId !== null)).toBe(true);
+  });
+
+  it("removeCollaborator drops both membership and every profile grant", async () => {
+    const { W, personal, business } = await twoProfiles();
+    await ws.addMember(uid("a"), W, {
+      email: "b@example.com",
+      access: {
+        mode: "profiles",
+        entries: [
+          { profileId: personal, role: "viewer" },
+          { profileId: business, role: "editor" },
+        ],
+      },
+    });
+    await ws.removeCollaborator(uid("a"), W, uid("b"));
+    expect(await getProfiles(uid("b"), W)).toEqual([]);
+    expect(await grantMap(uid("b"))).toEqual({});
+    // The owner can never be removed.
+    await expect(ws.removeCollaborator(uid("a"), W, uid("a"))).rejects.toMatchObject({
+      status: 403,
+    });
+  });
+
+  it("listCollaborators reports members as all-profiles and grantees per-profile", async () => {
+    const { W, business } = await twoProfiles();
+    await ws.addMember(uid("a"), W, {
+      email: "b@example.com",
+      access: { mode: "profiles", entries: [{ profileId: business, role: "editor" }] },
+    });
+    const people = await ws.listCollaborators(uid("a"), W);
+    const owner = people.find((p) => p.userId === uid("a"));
+    expect(owner?.isOwner).toBe(true);
+    expect(owner?.access.mode).toBe("all");
+    const grantee = people.find((p) => p.userId === uid("b"));
+    expect(grantee?.access).toMatchObject({
+      mode: "profiles",
+      entries: [{ profileId: business, role: "editor" }],
+    });
+  });
+});
+
+describe("canWriteInWorkspace (viewer gate)", () => {
+  it("is true for admins/editors, false for viewers", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    await bootstrapUser("b");
+    const W = await workspaceIdOf("a");
+    // The owner/admin can always write.
+    expect(await canWriteInWorkspace(uid("a"), W)).toBe(true);
+
+    // A workspace viewer can't write anywhere.
+    await ws.addMember(uid("a"), W, {
+      email: "b@example.com",
+      access: { mode: "all", role: "viewer" },
+    });
+    expect(await canWriteInWorkspace(uid("b"), W)).toBe(false);
+
+    // Promoted to editor → can write.
+    await ws.setMemberAccess(uid("a"), W, {
+      userId: uid("b"),
+      access: { mode: "all", role: "editor" },
+    });
+    expect(await canWriteInWorkspace(uid("b"), W)).toBe(true);
+  });
+
+  it("is true for a per-profile editor with no workspace membership", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    await bootstrapUser("c");
+    const W = await workspaceIdOf("a");
+    const personal = await firstProfileId("a");
+
+    // A per-profile viewer still can't write.
+    await ws.addMember(uid("a"), W, {
+      email: "c@example.com",
+      access: { mode: "profiles", entries: [{ profileId: personal, role: "viewer" }] },
+    });
+    expect(await canWriteInWorkspace(uid("c"), W)).toBe(false);
+
+    // Bump that single grant to editor → can write (no workspace membership needed).
+    await ws.setMemberAccess(uid("a"), W, {
+      userId: uid("c"),
+      access: { mode: "profiles", entries: [{ profileId: personal, role: "editor" }] },
+    });
+    expect(await canWriteInWorkspace(uid("c"), W)).toBe(true);
   });
 });

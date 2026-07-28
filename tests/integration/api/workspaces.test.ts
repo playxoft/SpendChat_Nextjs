@@ -6,7 +6,7 @@ import { setSession, signInAs, uid } from "../helpers/session";
 import { bootstrapUser, firstProfileId, workspaceIdOf } from "../helpers/seed";
 import { apiReq, jsonBody } from "./helpers";
 
-type WorkspaceItem = { id: string; name: string; role: string | null };
+type WorkspaceItem = { id: string; name: string; icon: string | null; role: string | null };
 
 describe("GET /api/v1/workspaces", () => {
   it("401s without a bearer token", async () => {
@@ -24,7 +24,10 @@ describe("GET /api/v1/workspaces", () => {
     const Wa = await workspaceIdOf("a");
     const Wb = await workspaceIdOf("b");
     // b becomes an editor of a's workspace, on top of owning theirs.
-    await ws.addMember(uid("a"), Wa, { email: "b@example.com", role: "editor" });
+    await ws.addMember(uid("a"), Wa, {
+      email: "b@example.com",
+      access: { mode: "all", role: "editor" },
+    });
 
     signInAs("b");
     const res = await GET(apiReq("/api/v1/workspaces"));
@@ -33,8 +36,14 @@ describe("GET /api/v1/workspaces", () => {
 
     expect(data).toHaveLength(2);
     const byId = Object.fromEntries(data.map((w) => [w.id, w]));
-    expect(byId[Wa]).toEqual({ id: Wa, name: "a's Workspace", role: "editor" });
-    expect(byId[Wb]).toEqual({ id: Wb, name: "b's Workspace", role: "admin" });
+    expect(byId[Wa]).toMatchObject({ id: Wa, name: "a's Workspace", role: "editor" });
+    expect(byId[Wb]).toMatchObject({ id: Wb, name: "b's Workspace", role: "admin" });
+    // Each workspace carries its currency + number format now.
+    expect(byId[Wb]).toMatchObject({
+      currency: "USD",
+      locale: "en-US",
+      currencyDetail: { code: "USD", symbol: "$", decimals: 2 },
+    });
   });
 
   it("returns role null for a grant-only workspace, after memberships", async () => {
@@ -47,8 +56,7 @@ describe("GET /api/v1/workspaces", () => {
     // c gets a per-profile grant on a's profile — no workspace membership.
     await ws.addMember(uid("a"), Wa, {
       email: "c@example.com",
-      role: "viewer",
-      profileId: aProfile,
+      access: { mode: "profiles", entries: [{ profileId: aProfile, role: "viewer" }] },
     });
 
     signInAs("c");
@@ -58,8 +66,8 @@ describe("GET /api/v1/workspaces", () => {
 
     expect(data).toHaveLength(2);
     // Membership first, grant-only workspace last with role null.
-    expect(data[0]).toEqual({ id: Wc, name: "c's Workspace", role: "admin" });
-    expect(data[1]).toEqual({ id: Wa, name: "a's Workspace", role: null });
+    expect(data[0]).toMatchObject({ id: Wc, name: "c's Workspace", role: "admin" });
+    expect(data[1]).toMatchObject({ id: Wa, name: "a's Workspace", role: null });
   });
 
   it("ignores X-Workspace-Id (never 404s) and returns the full list", async () => {
@@ -96,11 +104,12 @@ describe("POST /api/v1/workspaces", () => {
     signInAs("a");
     await bootstrapUser("a");
     const res = await POST(
-      apiReq("/api/v1/workspaces", { method: "POST", body: jsonBody({ name: "Trip" }) }),
+      apiReq("/api/v1/workspaces", { method: "POST", body: jsonBody({ name: "Trip", icon: "🏝️" }) }),
     );
     expect(res.status).toBe(201);
     const { data } = (await res.json()) as { data: WorkspaceItem };
     expect(data.name).toBe("Trip");
+    expect(data.icon).toBe("🏝️");
     expect(data.role).toBe("admin");
     expect(data.id).toMatch(/^[0-9a-f-]{36}$/);
 
@@ -108,7 +117,7 @@ describe("POST /api/v1/workspaces", () => {
     // workspace header now resolves to the new workspace.
     const meRes = await getMe(apiReq("/api/v1/me"));
     const me = await meRes.json();
-    expect(me.data.workspace).toEqual({ id: data.id, name: "Trip", role: "admin" });
+    expect(me.data.workspace).toMatchObject({ id: data.id, name: "Trip", role: "admin" });
 
     // And it shows up in the switcher list.
     const listRes = await GET(apiReq("/api/v1/workspaces"));

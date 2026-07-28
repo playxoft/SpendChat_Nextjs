@@ -81,3 +81,34 @@ export function monthLabel(value: string, locale = "en-US"): string {
     timeZone: "UTC",
   });
 }
+
+/** "YYYY-MM" month key for a YYYY-MM-DD (or longer) date string. */
+export function monthKey(dateISO: string): string {
+  return dateISO.slice(0, 7);
+}
+
+/**
+ * First day (YYYY-MM-DD) of the month `n` months before the one containing
+ * `dateISO`. Used to bound the tracker's multi-month scroll window.
+ */
+export function monthStartBack(dateISO: string, n: number): string {
+  const [y, m] = dateISO.split("-").map(Number);
+  const d = new Date(Date.UTC(y, (m ?? 1) - 1 - n, 1));
+  const yy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  return `${yy}-${mm}-01`;
+}
+
+/**
+ * Long month label for the feed's month dividers, e.g. "July 2026"; "This month"
+ * for the current one (mirrors the day divider's "Today"/"Yesterday" style).
+ */
+export function monthDividerLabel(monthKeyValue: string, today: string, locale = "en-US"): string {
+  if (monthKeyValue === today.slice(0, 7)) return "This month";
+  const [y, m] = monthKeyValue.split("-").map(Number);
+  return new Date(Date.UTC(y, (m ?? 1) - 1, 1)).toLocaleDateString(locale, {
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+}

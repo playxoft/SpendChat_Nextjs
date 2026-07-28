@@ -31,6 +31,7 @@ export function AppTopbar({
   currency,
   locale,
   today,
+  canWrite,
 }: {
   email: string | null;
   profiles: Pick<Profile, "id" | "name" | "icon">[];
@@ -40,6 +41,8 @@ export function AppTopbar({
   currency: string;
   locale: string;
   today: string;
+  /** Viewers (no editor access anywhere) don't get the bulk-add button. */
+  canWrite: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const profile = useSearchParams().get("profile");
@@ -76,15 +79,17 @@ export function AppTopbar({
             </div>
           </SheetContent>
         </Sheet>
-        <Suspense fallback={null}>
-          <MobileBulkAdd
-            categories={categories}
-            profiles={profiles}
-            currency={currency}
-            locale={locale}
-            today={today}
-          />
-        </Suspense>
+        {canWrite && (
+          <Suspense fallback={null}>
+            <MobileBulkAdd
+              categories={categories}
+              profiles={profiles}
+              currency={currency}
+              locale={locale}
+              today={today}
+            />
+          </Suspense>
+        )}
         <ThemeToggle />
         <UserMenu email={email} compact />
       </div>

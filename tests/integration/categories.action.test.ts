@@ -52,7 +52,7 @@ describe("addCategory", () => {
 });
 
 describe("updateCategory", () => {
-  it("updates name, icon and color, and clears blanks to null", async () => {
+  it("updates name and icon, clearing a blank icon to null", async () => {
     signInAs("a");
     await bootstrapUser("a");
     const id = await categoryId("a", "Shopping", "expense");
@@ -60,15 +60,9 @@ describe("updateCategory", () => {
     expect((await updateCategory({ id, name: "Retail" })).ok).toBe(true);
     expect((await cat("a", "Retail", "expense")).name).toBe("Retail");
 
-    await updateCategory({ id, icon: "", color: "#fff" });
-    let [row] = await getTestDb().select().from(categories).where(eq(categories.id, id));
+    await updateCategory({ id, icon: "" });
+    const [row] = await getTestDb().select().from(categories).where(eq(categories.id, id));
     expect(row.icon).toBeNull();
-    expect(row.color).toBe("#fff");
-
-    // clearing a blank color also nulls it
-    await updateCategory({ id, color: "" });
-    [row] = await getTestDb().select().from(categories).where(eq(categories.id, id));
-    expect(row.color).toBeNull();
   });
 
   it("rejects an invalid id", async () => {

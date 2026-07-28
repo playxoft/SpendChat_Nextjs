@@ -2,7 +2,7 @@ import "server-only";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, profiles, transactions } from "@/db/schema";
-import { ensureBootstrap, getUserSettings } from "@/lib/auth";
+import { ensureBootstrap } from "@/lib/auth";
 import { badRequest, forbidden, validationError } from "@/lib/errors";
 import { toMinorUnits } from "@/lib/money";
 import { getTransactionById, type TransactionRow } from "@/lib/queries";
@@ -12,6 +12,7 @@ import { rolesAtLeast } from "@/lib/rbac";
 import {
   accessibleProfileIds,
   getEffectiveProfileRole,
+  getWorkspaceMoneyFormat,
   getWorkspaceRole,
   requireProfileRole,
 } from "@/lib/workspaces";
@@ -31,12 +32,12 @@ import { z } from "zod";
  * the author, not access.
  */
 
-/** Confirm a category id belongs to the user; returns null otherwise. */
-async function ownedCategoryId(userId: string, categoryId?: string | null) {
+/** Confirm a category id belongs to this workspace; returns null otherwise. */
+async function workspaceCategoryId(workspaceId: string, categoryId?: string | null) {
   if (!categoryId) return null;
   const db = getDb();
   const cat = await db.query.categories.findFirst({
-    where: and(eq(categories.id, categoryId), eq(categories.userId, userId)),
+    where: and(eq(categories.id, categoryId), eq(categories.workspaceId, workspaceId)),
     columns: { id: true },
   });
   return cat?.id ?? null;
@@ -95,8 +96,8 @@ export async function createTransaction(
 ): Promise<TransactionRow> {
   const data = parseOrThrow(transactionInputSchema, input);
   await ensureBootstrap(userId);
-  const settings = await getUserSettings(userId);
-  const categoryId = await ownedCategoryId(userId, data.categoryId);
+  const money = await getWorkspaceMoneyFormat(workspaceId);
+  const categoryId = await workspaceCategoryId(workspaceId, data.categoryId);
   const profileId = await resolveProfileId(userId, workspaceId, data.profileId);
   setLogContext({ profileId }); // log lines for this write carry the resolved profile
 
@@ -106,7 +107,7 @@ export async function createTransaction(
     .values({
       userId,
       type: data.type,
-      amountMinor: toMinorUnits(data.amount, settings.currency, settings.locale),
+      amountMinor: toMinorUnits(data.amount, money.currency, money.locale),
       categoryId,
       profileId,
       title: pickTitle(data),
@@ -161,8 +162,8 @@ export async function updateTransaction(
   if (!existing) return null;
   if (!(await editableInWorkspace(userId, workspaceId, existing.profileId))) return null;
 
-  const settings = await getUserSettings(userId);
-  const categoryId = await ownedCategoryId(userId, data.categoryId);
+  const money = await getWorkspaceMoneyFormat(workspaceId);
+  const categoryId = await workspaceCategoryId(workspaceId, data.categoryId);
   // Moving to another profile requires editor there too (same workspace).
   let profileId = existing.profileId;
   if (data.profileId && data.profileId !== existing.profileId) {
@@ -175,7 +176,7 @@ export async function updateTransaction(
     .update(transactions)
     .set({
       type: data.type,
-      amountMinor: toMinorUnits(data.amount, settings.currency, settings.locale),
+      amountMinor: toMinorUnits(data.amount, money.currency, money.locale),
       categoryId,
       profileId,
       title: pickTitle(data),
@@ -227,7 +228,7 @@ export async function createManyTransactions(
 ): Promise<{ count: number }> {
   const { items } = parseOrThrow(bulkTransactionsSchema, input);
   await ensureBootstrap(userId);
-  const settings = await getUserSettings(userId);
+  const money = await getWorkspaceMoneyFormat(workspaceId);
   const db = getDb();
 
   const ownedCats = new Set(
@@ -235,7 +236,7 @@ export async function createManyTransactions(
       await db
         .select({ id: categories.id })
         .from(categories)
-        .where(eq(categories.userId, userId))
+        .where(eq(categories.workspaceId, workspaceId))
     ).map((c) => c.id),
   );
   const writable = await writableProfileIds(userId, workspaceId);
@@ -248,7 +249,7 @@ export async function createManyTransactions(
   const values = items.map((d) => ({
     userId,
     type: d.type,
-    amountMinor: toMinorUnits(d.amount, settings.currency, settings.locale),
+    amountMinor: toMinorUnits(d.amount, money.currency, money.locale),
     categoryId: d.categoryId && ownedCats.has(d.categoryId) ? d.categoryId : null,
     profileId: d.profileId && writableSet.has(d.profileId) ? d.profileId : defaultProfileId,
     title: pickTitle(d),
@@ -277,15 +278,15 @@ export async function createBulkFromDrafts(
     throw badRequest("Too many rows (max 500 at a time)");
   }
 
-  const settings = await getUserSettings(userId);
+  const money = await getWorkspaceMoneyFormat(workspaceId);
   const db = getDb();
 
-  const userCats = await db
+  const workspaceCats = await db
     .select({ id: categories.id, name: categories.name, kind: categories.kind })
     .from(categories)
-    .where(eq(categories.userId, userId));
+    .where(eq(categories.workspaceId, workspaceId));
   const catMap = new Map<string, string>();
-  for (const c of userCats) catMap.set(`${c.kind}:${c.name.toLowerCase()}`, c.id);
+  for (const c of workspaceCats) catMap.set(`${c.kind}:${c.name.toLowerCase()}`, c.id);
 
   const writable = await writableProfileIds(userId, workspaceId);
   if (writable.length === 0) {
@@ -308,7 +309,7 @@ export async function createBulkFromDrafts(
     values.push({
       userId,
       type: d.type,
-      amountMinor: toMinorUnits(d.amount, settings.currency, settings.locale),
+      amountMinor: toMinorUnits(d.amount, money.currency, money.locale),
       categoryId,
       profileId,
       title: pickTitle({ title: d.title, note: d.note }),

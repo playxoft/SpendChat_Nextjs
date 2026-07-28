@@ -5,7 +5,14 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { DatePicker } from "@/components/ui/date-picker";
+import { DateRangeFilter } from "@/components/app/date-range-filter";
+import { TypeFilterOptions } from "@/components/app/type-filter-options";
+import {
+  Select,
+  SelectContent,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { parseISODate, toISODate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
@@ -17,7 +24,7 @@ const RANGES = [
   { key: "all", label: "All time", months: 0 },
 ] as const;
 
-export function AnalyticsFilters({ today }: { today: string }) {
+export function AnalyticsFilters({ today, locale }: { today: string; locale?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
@@ -26,6 +33,7 @@ export function AnalyticsFilters({ today }: { today: string }) {
   const from = sp.get("from") ?? "";
   const to = sp.get("to") ?? "";
   const span = sp.get("span");
+  const type = sp.get("type") ?? "all";
 
   function update(next: Record<string, string | undefined>) {
     const params = new URLSearchParams(sp.toString());
@@ -71,7 +79,23 @@ export function AnalyticsFilters({ today }: { today: string }) {
     update({ from: b.from, to: b.to, span: undefined });
   }
 
-  const hasRange = !!from || !!to || span === "all";
+  // The range shown in the calendar control. With no date params the page
+  // defaults to the current month, so surface that (not an empty "All dates").
+  const monthFrom = toISODate(startOfMonth(parseISODate(today)));
+  const monthTo = toISODate(endOfMonth(parseISODate(today)));
+  const effFrom = span === "all" ? "" : from || monthFrom;
+  const effTo = span === "all" ? "" : to || monthTo;
+
+  function handleRange(next: { from?: string; to?: string }) {
+    // "All dates" (both cleared) means "All time" for analytics.
+    if (!next.from && !next.to) {
+      update({ from: undefined, to: undefined, span: "all" });
+    } else {
+      update({ from: next.from, to: next.to, span: undefined });
+    }
+  }
+
+  const hasFilters = !!from || !!to || span === "all" || type !== "all";
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
@@ -101,28 +125,23 @@ export function AnalyticsFilters({ today }: { today: string }) {
         })}
       </div>
 
-      <DatePicker
-        value={from}
-        max={to || today}
-        placeholder="From"
-        onChange={(iso) => update({ from: iso || undefined, span: undefined })}
-        className="h-9 w-[calc(50%-0.25rem)] sm:w-[9.5rem]"
-      />
-      <DatePicker
-        value={to}
-        min={from || undefined}
-        max={today}
-        placeholder="To"
-        onChange={(iso) => update({ to: iso || undefined, span: undefined })}
-        className="h-9 w-[calc(50%-0.25rem)] sm:w-[9.5rem]"
-      />
+      <DateRangeFilter from={effFrom} to={effTo} today={today} locale={locale} onChange={handleRange} />
 
-      {hasRange && (
+      <Select value={type} onValueChange={(v) => update({ type: v === "all" ? undefined : v })}>
+        <SelectTrigger className="h-9 w-32" aria-label="Type">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <TypeFilterOptions />
+        </SelectContent>
+      </Select>
+
+      {hasFilters && (
         <Button
           variant="ghost"
           size="sm"
           className="h-9"
-          onClick={() => update({ from: undefined, to: undefined, span: undefined })}
+          onClick={() => update({ from: undefined, to: undefined, span: undefined, type: undefined })}
         >
           <X className="size-4" /> Clear
         </Button>

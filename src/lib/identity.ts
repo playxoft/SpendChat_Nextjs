@@ -106,20 +106,29 @@ export async function resolveUser(claims: FirebaseTokenClaims): Promise<SessionU
 }
 
 /**
- * Refresh the mutable profile fields from a fresh token (called on sign-in).
- * Returns our internal user id for the account, or null when no row exists yet
- * (a brand-new user's row is created lazily on first `getCurrentUser`). The id
- * comes from the UPDATE's `RETURNING`, so there's no extra query — the caller
- * uses it to attribute the request in logs.
+ * Refresh the mutable profile fields from a fresh token (called on sign-in and
+ * on every hourly session refresh). Returns our internal user id for the
+ * account, or null when no row exists yet (a brand-new user's row is created
+ * lazily on first `getCurrentUser`). The id comes from the UPDATE's `RETURNING`,
+ * so there's no extra query — the caller uses it to attribute the request in logs.
+ *
+ * `email` is always kept in step with the provider (it's the login identity).
+ * `name`/`image` are only *seeded* from the token — `coalesce(existing, claim)`
+ * keeps whatever the user already has, so an edited username or an uploaded
+ * avatar (`users.image` pointing at our R2 bucket) survives the hourly refresh
+ * instead of being overwritten by the Google `name`/`picture` claim. The very
+ * first seed still happens: `resolveUser` sets them on the initial INSERT.
  */
 export async function syncUserProfile(claims: FirebaseTokenClaims): Promise<string | null> {
   const db = getDb();
+  const name = (claims.name as string | undefined) ?? null;
+  const image = (claims.picture as string | undefined) ?? null;
   const [row] = await db
     .update(users)
     .set({
       email: normalizeEmail(claims.email),
-      name: (claims.name as string | undefined) ?? null,
-      image: (claims.picture as string | undefined) ?? null,
+      name: sql`coalesce(${users.name}, ${name})`,
+      image: sql`coalesce(${users.image}, ${image})`,
       updatedAt: new Date(),
     })
     .where(eq(users.firebaseUid, claims.sub))

@@ -17,12 +17,20 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { useLoadingOverlay } from "./loading-overlay";
+import { usePermissions } from "./permissions";
 import { switchWorkspace } from "@/actions/workspaces";
 import type { WorkspaceRole } from "@/db/schema";
+
+/** Label for a workspace-wide role; grant-only access (null) reads as "shared". */
+function roleLabel(role: WorkspaceRole | null): string {
+  return role ?? "shared";
+}
 
 export type WorkspaceOption = {
   id: string;
   name: string;
+  /** Emoji shown beside the name; null falls back to a neutral glyph. */
+  icon: string | null;
   /** Workspace-wide role; null = access via shared profiles only. */
   role: WorkspaceRole | null;
 };
@@ -42,6 +50,7 @@ export function WorkspaceSwitcher({
 }) {
   const router = useRouter();
   const { run, pending } = useLoadingOverlay();
+  const { canWrite } = usePermissions();
   const [createOpen, setCreateOpen] = React.useState(false);
 
   const current = workspaces.find((w) => w.id === currentId) ?? workspaces[0];
@@ -50,16 +59,20 @@ export function WorkspaceSwitcher({
     if (id === currentId) return;
     // Run through the overlay provider so a full-screen loader covers the whole
     // switch (and survives the mobile sheet unmounting) instead of hanging.
-    run(async () => {
-      const res = await switchWorkspace(id);
-      if (res.ok) {
-        onNavigate?.();
-        router.push("/app");
-        router.refresh();
-      } else {
-        toast.error(res.error);
-      }
-    }, "Switching workspace…");
+    run(
+      async () => {
+        const res = await switchWorkspace(id);
+        if (res.ok) {
+          onNavigate?.();
+          router.push("/app");
+          router.refresh();
+        } else {
+          toast.error(res.error);
+        }
+      },
+      "Switching workspace…",
+      { variant: "spinner" },
+    );
   }
 
   return (
@@ -73,10 +86,21 @@ export function WorkspaceSwitcher({
             aria-label="Switch workspace"
           >
             <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent">
-              <Building2 className="size-3.5" />
+              {current?.icon ? (
+                <span className="text-sm leading-none">{current.icon}</span>
+              ) : (
+                <Building2 className="size-3.5" />
+              )}
             </span>
-            <span className="min-w-0 flex-1 truncate text-left text-sm font-medium">
-              {current?.name ?? "Workspace"}
+            <span className="min-w-0 flex-1 text-left">
+              <span className="block truncate text-sm leading-tight font-medium">
+                {current?.name ?? "Workspace"}
+              </span>
+              {current && (
+                <span className="block truncate text-xs leading-tight text-muted-foreground capitalize">
+                  {roleLabel(current.role)}
+                </span>
+              )}
             </span>
             <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
           </Button>
@@ -91,10 +115,13 @@ export function WorkspaceSwitcher({
               onSelect={() => handleSwitch(w.id)}
               className="gap-2"
             >
+              <span aria-hidden className="w-5 shrink-0 text-center text-sm leading-none">
+                {w.icon ?? ""}
+              </span>
               <span className="min-w-0 flex-1 truncate">{w.name}</span>
-              {w.role === null && (
-                <span className="text-[10px] text-muted-foreground">shared</span>
-              )}
+              <span className="text-[10px] text-muted-foreground capitalize">
+                {roleLabel(w.role)}
+              </span>
               <Check className={cn("size-4", w.id === currentId ? "opacity-100" : "opacity-0")} />
             </DropdownMenuItem>
           ))}
@@ -105,10 +132,12 @@ export function WorkspaceSwitcher({
               Workspace settings
             </Link>
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setCreateOpen(true)}>
-            <Plus className="size-4" />
-            New workspace
-          </DropdownMenuItem>
+          {canWrite && (
+            <DropdownMenuItem onSelect={() => setCreateOpen(true)}>
+              <Plus className="size-4" />
+              New workspace
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

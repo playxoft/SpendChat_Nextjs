@@ -8,6 +8,8 @@ import { parseOrThrow } from "@/lib/api-response";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as txns from "@/services/transactions";
 import {
+  FEED_PAGE_SIZE,
+  listFeedPage,
   listTransactions,
   TRANSACTIONS_PAGE_SIZE,
   type TransactionRow,
@@ -30,6 +32,19 @@ const loadMoreSchema = z.object({
     dir: z.enum(["asc", "desc"]).optional(),
   }),
   offset: z.number().int().min(0).max(1_000_000),
+});
+
+/** Cursor + profile for loading the next older page of the tracker feed. Access
+ * is still enforced server side by `listFeedPage` (scoped to the caller's
+ * accessible profiles), so a tampered profile id simply returns nothing. */
+const loadOlderFeedSchema = z.object({
+  profileId: z.string().optional(),
+  before: z.object({
+    occurredOn: z.string(),
+    createdAt: z.coerce.date(),
+    id: z.string(),
+  }),
+  limit: z.number().int().min(1).max(100).optional(),
 });
 
 function revalidateApp() {
@@ -108,6 +123,33 @@ export async function loadMoreTransactions(
         offset,
       });
       return { rows };
+    },
+    { userId: user.id, workspaceId: workspace.id },
+  );
+}
+
+/**
+ * The next older page of the tracker chat feed (keyset paginated). A read, but a
+ * server action so the feed can page back through history without an API route —
+ * it re-derives the user/workspace from the session and never trusts the client
+ * for access.
+ */
+export async function loadOlderFeed(
+  input: z.input<typeof loadOlderFeedSchema>,
+): Promise<ActionResult<{ rows: TransactionRow[] }>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "loadOlderFeed",
+    async () => {
+      const { profileId, before, limit } = parseOrThrow(loadOlderFeedSchema, input);
+      const newestFirst = await listFeedPage(user.id, workspace.id, {
+        profileId,
+        before,
+        limit: limit ?? FEED_PAGE_SIZE,
+      });
+      // Oldest-first for the chat feed; the client prepends these above.
+      return { rows: newestFirst.reverse() };
     },
     { userId: user.id, workspaceId: workspace.id },
   );

@@ -6,34 +6,43 @@ import { categories } from "@/db/schema";
 import { conflict, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { categoryInputSchema, updateCategorySchema } from "@/lib/validation";
+import { requireWorkspaceRole } from "@/lib/workspaces";
 import type { Category } from "@/db/schema";
 
 /**
- * Category business logic shared by the web actions and the REST API. Returns
- * data or throws `ApiError`; all writes are scoped to `userId`. A unique-name
- * violation surfaces as a 409 with the same message the web app shows.
+ * Category business logic shared by the web actions and the REST API. Categories
+ * are workspace-scoped — everyone in a workspace shares one list. Reads only
+ * need workspace access (checked upstream when the workspace was resolved);
+ * writes require the editor role. A unique-name violation surfaces as a 409 with
+ * the same message the web app shows. `userId` on a write is the author.
  */
 
 const DUPLICATE = "A category with that name already exists";
 
-/** List the user's categories (income first, then by name). */
-export async function listCategories(userId: string): Promise<Category[]> {
+/** List the workspace's categories (income first, then by name). */
+export async function listCategories(workspaceId: string): Promise<Category[]> {
   const db = getDb();
   return db
     .select()
     .from(categories)
-    .where(eq(categories.userId, userId))
+    .where(eq(categories.workspaceId, workspaceId))
     .orderBy(asc(categories.kind), asc(categories.name));
 }
 
-export async function createCategory(userId: string, input: unknown): Promise<Category> {
+export async function createCategory(
+  userId: string,
+  workspaceId: string,
+  input: unknown,
+): Promise<Category> {
   const data = parseOrThrow(categoryInputSchema, input);
+  await requireWorkspaceRole(userId, workspaceId, "editor");
   const db = getDb();
   try {
     const [row] = await db
       .insert(categories)
       .values({
         userId,
+        workspaceId,
         name: data.name,
         kind: data.kind,
         icon: data.icon || null,
@@ -45,13 +54,15 @@ export async function createCategory(userId: string, input: unknown): Promise<Ca
   }
 }
 
-/** Update an owned category. Returns the row, or null when none matched. */
+/** Update a category in the workspace. Returns the row, or null when none matched. */
 export async function updateCategory(
   userId: string,
+  workspaceId: string,
   id: string,
   input: unknown,
 ): Promise<Category | null> {
   const data = parseOrThrow(updateCategorySchema, withId(input, id));
+  await requireWorkspaceRole(userId, workspaceId, "editor");
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   if (data.name !== undefined) patch.name = data.name;
   if (data.icon !== undefined) patch.icon = data.icon || null;
@@ -61,7 +72,7 @@ export async function updateCategory(
     const rows = await db
       .update(categories)
       .set(patch)
-      .where(and(eq(categories.id, data.id), eq(categories.userId, userId)))
+      .where(and(eq(categories.id, data.id), eq(categories.workspaceId, workspaceId)))
       .returning();
     return rows[0] ?? null;
   } catch {
@@ -70,17 +81,22 @@ export async function updateCategory(
 }
 
 /**
- * Delete an owned category (referencing transactions are set to NULL by the FK
- * rule). Returns whether a row was removed. Throws for a non-UUID id.
+ * Delete a category from the workspace (referencing transactions are set to NULL
+ * by the FK rule). Returns whether a row was removed. Throws for a non-UUID id.
  */
-export async function deleteCategory(userId: string, id: string): Promise<boolean> {
+export async function deleteCategory(
+  userId: string,
+  workspaceId: string,
+  id: string,
+): Promise<boolean> {
   if (!z.string().uuid().safeParse(id).success) {
     throw validationError("Invalid category");
   }
+  await requireWorkspaceRole(userId, workspaceId, "editor");
   const db = getDb();
   const deleted = await db
     .delete(categories)
-    .where(and(eq(categories.id, id), eq(categories.userId, userId)))
+    .where(and(eq(categories.id, id), eq(categories.workspaceId, workspaceId)))
     .returning({ id: categories.id });
   return deleted.length > 0;
 }

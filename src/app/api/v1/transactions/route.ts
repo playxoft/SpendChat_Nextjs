@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
-    const { user, settings, workspace } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const url = new URL(request.url);
     const filters = parseTxnFilters((k) => url.searchParams.get(k));
     const { limit, offset } = parsePagination(url.searchParams);
@@ -26,9 +26,9 @@ export async function GET(request: NextRequest) {
     ]);
 
     return apiOk(
-      rows.map((r) => serializeTransaction(r, settings.currency)),
+      rows.map((r) => serializeTransaction(r, workspace.currency)),
       200,
-      { total, limit, offset, ...currencyMeta(settings.currency) },
+      { total, limit, offset, ...currencyMeta(workspace.currency) },
     );
   });
 }
@@ -36,9 +36,9 @@ export async function GET(request: NextRequest) {
 /** POST /api/v1/transactions — create a transaction. */
 export async function POST(request: NextRequest) {
   return handle(async () => {
-    const { user, settings, workspace } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const body = await readJson(request);
     const created = await createTransaction(user.id, workspace.id, body);
-    return apiOk(serializeTransaction(created, settings.currency), 201);
+    return apiOk(serializeTransaction(created, workspace.currency), 201);
   });
 }

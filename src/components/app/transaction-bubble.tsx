@@ -41,6 +41,8 @@ export function TransactionBubble({
   categoryName,
   categoryIcon,
   timeLabel,
+  authorName,
+  authorColorClass,
   onActivate,
   actions,
   className,
@@ -52,6 +54,11 @@ export function TransactionBubble({
   categoryName?: string | null;
   categoryIcon?: string | null;
   timeLabel?: string;
+  /** WhatsApp-group-style author label; when set, shown atop the bubble. Only
+   * passed in shared workspaces — a solo workspace leaves it undefined. */
+  authorName?: string | null;
+  /** Tailwind text-color classes for the author name (stable per user). */
+  authorColorClass?: string;
   onActivate?: () => void;
   actions?: ReactNode;
   className?: string;
@@ -94,6 +101,12 @@ export function TransactionBubble({
             "cursor-pointer transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50",
         )}
       >
+        {authorName ? (
+          <div className={cn("mb-0.5 truncate text-xs font-semibold", authorColorClass)}>
+            {authorName}
+          </div>
+        ) : null}
+
         <div className="flex items-start justify-between gap-3">
           <span className="min-w-0 text-sm font-medium break-words">{heading}</span>
           <span

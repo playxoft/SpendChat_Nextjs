@@ -16,7 +16,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
-    const { user, settings, workspace } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const url = new URL(request.url);
     const from = url.searchParams.get("from");
     if (!from || !DATE_RE.test(from)) {
@@ -33,6 +33,6 @@ export async function GET(request: NextRequest) {
       byMonth.set(r.month, point);
     }
     const points = [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
-    return apiOk(points, 200, currencyMeta(settings.currency));
+    return apiOk(points, 200, currencyMeta(workspace.currency));
   });
 }

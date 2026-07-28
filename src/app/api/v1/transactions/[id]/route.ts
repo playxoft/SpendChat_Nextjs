@@ -13,11 +13,11 @@ type Ctx = { params: Promise<{ id: string }> };
 /** GET /api/v1/transactions/:id */
 export async function GET(request: NextRequest, ctx: Ctx) {
   return handle(async () => {
-    const { user, settings, workspace } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const { id } = await ctx.params;
     const row = await getTransactionById(user.id, workspace.id, id);
     if (!row) throw notFound("Transaction not found");
-    return apiOk(serializeTransaction(row, settings.currency));
+    return apiOk(serializeTransaction(row, workspace.currency));
   });
 }
 
@@ -28,12 +28,12 @@ export async function GET(request: NextRequest, ctx: Ctx) {
  */
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   return handle(async () => {
-    const { user, settings, workspace } = await getApiContext(request);
+    const { user, workspace } = await getApiContext(request);
     const { id } = await ctx.params;
     const body = await readJson(request);
     const updated = await updateTransaction(user.id, workspace.id, id, body);
     if (!updated) throw notFound("Transaction not found");
-    return apiOk(serializeTransaction(updated, settings.currency));
+    return apiOk(serializeTransaction(updated, workspace.currency));
   });
 }
 
