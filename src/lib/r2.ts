@@ -136,6 +136,37 @@ export async function deleteObject(key: string): Promise<void> {
   }
 }
 
+/**
+ * A short-lived **presigned GET URL** for a private object, signed with SigV4
+ * query auth (`aws4fetch` `signQuery`). Unlike `avatarPublicUrl`, this never
+ * touches the bucket's public base — it points straight at the S3 API endpoint
+ * and is authorized by the signature alone, so it works regardless of whether
+ * the bucket serves anything publicly. Used to serve transaction attachments,
+ * which are private financial documents: the app authorizes the caller (RBAC)
+ * and only then mints a URL that expires in minutes.
+ *
+ * `disposition` sets the `response-content-disposition` override (S3 lets a GET
+ * request restate the header), so we can hand back the original filename and
+ * choose inline preview vs. download without proxying the bytes through the
+ * Worker.
+ */
+export async function signedGetUrl(
+  key: string,
+  opts: { expiresSeconds: number; disposition?: string } = { expiresSeconds: 300 },
+): Promise<string> {
+  const cfg = requireConfig();
+  const url = new URL(objectUrl(cfg, key));
+  url.searchParams.set("X-Amz-Expires", String(opts.expiresSeconds));
+  if (opts.disposition) {
+    url.searchParams.set("response-content-disposition", opts.disposition);
+  }
+  const signed = await getClient(cfg).sign(url.toString(), {
+    method: "GET",
+    aws: { signQuery: true },
+  });
+  return signed.url;
+}
+
 /** Public URL an object is served from (what we persist in `users.image`). */
 export function avatarPublicUrl(key: string): string {
   return `${requireConfig().publicBaseUrl}/${key}`;

@@ -2,12 +2,20 @@
 
 import { useSyncExternalStore } from "react";
 
-export type ColumnId = "date" | "category" | "title" | "description" | "amount" | "user";
+export type ColumnId =
+  | "date"
+  | "category"
+  | "title"
+  | "attachments"
+  | "description"
+  | "amount"
+  | "user";
 
 export const COLUMN_IDS: ColumnId[] = [
   "date",
   "category",
   "title",
+  "attachments",
   "description",
   "amount",
   "user",
@@ -17,6 +25,7 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
   date: "Date",
   category: "Category",
   title: "Title",
+  attachments: "Attachments",
   description: "Description",
   amount: "Amount",
   user: "User",
@@ -27,6 +36,7 @@ export const DEFAULT_WIDTHS: Record<ColumnId, number> = {
   date: 128,
   category: 176,
   title: 220,
+  attachments: 200,
   description: 256,
   amount: 132,
   user: 220,

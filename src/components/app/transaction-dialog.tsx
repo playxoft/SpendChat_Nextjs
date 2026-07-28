@@ -47,12 +47,18 @@ import {
 } from "@/lib/parse-amount";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
+  ATTACHMENT_MAX_PER_TRANSACTION,
   TRANSACTION_DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX,
 } from "@/lib/validation";
 import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
 import { usePermissions } from "./permissions";
+import { AttachmentBox } from "./attachments/attachment-box";
+import { StagedAttachmentList, useStagedAttachments } from "./attachments/staged-attachments";
+import { TransactionAttachments } from "./attachments/transaction-attachments";
+import { uploadStagedAttachments } from "./attachments/upload-client";
+import type { AttachmentDTO } from "@/lib/attachments";
 import type { TransactionRow } from "@/lib/queries";
 import type { Category, Profile } from "@/db/schema";
 
@@ -83,6 +89,8 @@ export function TransactionDialog({
   onOpenChange,
   onSaved,
   onDeleted,
+  initialFiles,
+  attachments = [],
 }: {
   mode: "add" | "edit";
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
@@ -96,6 +104,11 @@ export function TransactionDialog({
   trigger?: ReactNode;
   open?: boolean;
   onOpenChange?: (v: boolean) => void;
+  /** (add) Files dropped onto the page, staged when the dialog opens. */
+  initialFiles?: File[];
+  /** (edit) The row's attachments, embedded in the query — rendered instantly
+   * so the section never shows a loading spinner. */
+  attachments?: AttachmentDTO[];
   /** (edit) Called on a successful save with a row patch, so the caller can
    * update the row optimistically in the same commit as the toast. */
   onSaved?: (patch: Partial<TransactionRow>) => void;
@@ -125,6 +138,9 @@ export function TransactionDialog({
   const [values, setValues] = useState<TransactionValues>(defaultValues ?? emptyValues);
   const [pending, startTransition] = useTransition();
   const [deletePending, startDeleteTransition] = useTransition();
+  // (add) Files chosen before the transaction exists; uploaded once it's created.
+  const staged = useStagedAttachments();
+  const [uploading, setUploading] = useState(false);
 
   // Has the user changed anything from what the form opened with? When dirty we
   // block click-away dismissal so unsaved edits aren't lost; a pristine form
@@ -139,11 +155,16 @@ export function TransactionDialog({
     values.description !== baseline.description ||
     values.occurredOn !== baseline.occurredOn;
 
-  // Reset the form to the row being edited each time the dialog opens.
+  // Reset the form to the row being edited each time the dialog opens, and (add
+  // mode) seed any files dropped onto the page as staged attachments.
   useEffect(() => {
     if (!isOpen) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setValues(defaultValues ?? emptyValues);
+    if (mode === "add") {
+      staged.clear();
+      if (initialFiles?.length) staged.add(initialFiles);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
@@ -195,6 +216,22 @@ export function TransactionDialog({
           ? await updateTransaction({ ...payload, id: values.id })
           : await addTransaction(payload);
       if (res.ok) {
+        // (add) Upload any staged files to the transaction we just created. The
+        // row is already saved, so an attachment failure only warns — it doesn't
+        // roll the transaction back.
+        if (mode === "add" && "id" in res && typeof res.id === "string" && staged.items.length > 0) {
+          setUploading(true);
+          try {
+            await uploadStagedAttachments(res.id, staged.toInputs());
+          } catch (err) {
+            toast.error(
+              err instanceof Error ? err.message : "Some files couldn't be attached",
+            );
+          } finally {
+            setUploading(false);
+          }
+        }
+        if (mode === "add") staged.clear();
         // Paint the edit onto the row in this same commit (before the server
         // revalidation lands) so the change and the toast happen together.
         if (mode === "edit" && values.id) {
@@ -250,8 +287,10 @@ export function TransactionDialog({
   return (
     <Dialog open={isOpen} onOpenChange={setOpen}>
       {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
-      <DialogContent className="sm:max-w-md" closeOnOutsideClick={!isDirty}>
-        <DialogHeader>
+      {/* Capped height with a scrollable body + pinned footer, so the dialog
+          stays a consistent size no matter how many fields/files it holds. */}
+      <DialogContent className="flex max-h-[90vh] flex-col sm:max-w-md" closeOnOutsideClick={!isDirty}>
+        <DialogHeader className="shrink-0">
           <DialogTitle>
             {readOnly ? "Transaction" : mode === "edit" ? "Edit transaction" : "Add transaction"}
           </DialogTitle>
@@ -260,8 +299,12 @@ export function TransactionDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <fieldset disabled={readOnly} className="m-0 space-y-4 border-0 p-0">
+        {/* `min-w-0` on the form (a grid child of DialogContent) and the fieldset
+            (which otherwise has an intrinsic `min-width: min-content`) lets the
+            attachment tiles' `truncate` actually engage — without it a long
+            unbreakable filename forces the whole dialog wider. */}
+        <form onSubmit={handleSubmit} className="flex min-h-0 min-w-0 flex-1 flex-col">
+          <fieldset disabled={readOnly} className="m-0 min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto border-0 p-0 pr-1">
           <div className="flex w-full items-center rounded-lg border bg-muted/50 p-0.5 text-sm">
             {(["expense", "income"] as const).map((t) => (
               <button
@@ -398,17 +441,48 @@ export function TransactionDialog({
             />
           </div>
 
+          <div className="space-y-2">
+            <Label>
+              Attachments{" "}
+              <span className="font-normal text-muted-foreground">
+                — receipts, bills, invoices
+              </span>
+            </Label>
+            {mode === "edit" && values.id ? (
+              <TransactionAttachments
+                transactionId={values.id}
+                canEdit={!readOnly}
+                initialAttachments={attachments}
+              />
+            ) : (
+              // The box IS the dropzone; fixed height keeps the dialog steady.
+              <AttachmentBox
+                onFiles={staged.add}
+                remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
+                disabled={readOnly}
+                hasItems={staged.items.length > 0}
+              >
+                <StagedAttachmentList
+                  items={staged.items}
+                  onRemove={staged.remove}
+                  onUpdate={staged.update}
+                  disabled={readOnly}
+                />
+              </AttachmentBox>
+            )}
+          </div>
+
           </fieldset>
 
           {/* Viewers see a read-only record — no Save/Delete, just Close. */}
           {readOnly ? (
-            <DialogFooter className="pt-4">
+            <DialogFooter className="mt-4 shrink-0 border-t pt-4">
               <Button type="button" variant="outline" onClick={() => setOpen(false)}>
                 Close
               </Button>
             </DialogFooter>
           ) : (
-            <DialogFooter className={cn("pt-4", mode === "edit" && "sm:justify-between")}>
+            <DialogFooter className={cn("mt-4 shrink-0 border-t pt-4", mode === "edit" && "sm:justify-between")}>
               {mode === "edit" ? (
                 <AlertDialog>
                   <AlertDialogTrigger asChild>
@@ -441,7 +515,11 @@ export function TransactionDialog({
                 type="submit"
                 disabled={pending || deletePending || (mode === "edit" && !isDirty)}
               >
-                {mode === "edit" ? "Save changes" : "Add transaction"}
+                {uploading
+                  ? "Uploading files…"
+                  : mode === "edit"
+                    ? "Save changes"
+                    : "Add transaction"}
               </Button>
             </DialogFooter>
           )}

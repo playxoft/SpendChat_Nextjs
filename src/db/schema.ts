@@ -15,7 +15,13 @@ import {
 } from "drizzle-orm/pg-core";
 // Relative (not "@/…") so drizzle-kit's schema loader resolves it without the
 // tsconfig path alias. Keeps the DB column length in lockstep with the Zod cap.
-import { TRANSACTION_DESCRIPTION_MAX, TRANSACTION_TITLE_MAX } from "../lib/validation";
+import {
+  ATTACHMENT_FILENAME_MAX,
+  ATTACHMENT_KINDS,
+  ATTACHMENT_LABEL_MAX,
+  TRANSACTION_DESCRIPTION_MAX,
+  TRANSACTION_TITLE_MAX,
+} from "../lib/validation";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -30,6 +36,9 @@ export const txnTypeEnum = pgEnum("txn_type", ["income", "expense"]);
  * a user's effective role on a profile is the higher of the two.
  */
 export const workspaceRoleEnum = pgEnum("workspace_role", ["viewer", "editor", "admin"]);
+
+/** Optional preset tag for a transaction attachment (receipt/bill/invoice/other). */
+export const attachmentKindEnum = pgEnum("attachment_kind", ATTACHMENT_KINDS);
 
 /**
  * Application identity. `id` is our own uuidv7 — the value stored in every
@@ -298,6 +307,56 @@ export const transactions = pgTable(
   ],
 );
 
+/**
+ * A file (receipt / bill / invoice / any document) attached to a transaction.
+ * Access is inherited from the transaction's profile — `profileId` and
+ * `workspaceId` are denormalized from the parent so attachment reads scope the
+ * same profile-wise + workspace-wise way transactions do, without a join back.
+ * The bytes live in R2 under `r2Key`; the row is metadata only. A transaction
+ * delete cascades these rows away (the service also deletes the R2 objects).
+ * `userId` is uploader attribution, never the access key.
+ */
+export const transactionAttachments = pgTable(
+  "transaction_attachments",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    transactionId: uuid("transaction_id")
+      .notNull()
+      .references(() => transactions.id, { onDelete: "cascade" }),
+    // Denormalized from the parent transaction for access scoping + cascade.
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    // Who uploaded it (attribution). Access is the transaction's profile role.
+    userId: uuid("user_id").notNull(),
+    // The R2 object key the bytes live under (never a public URL — served only
+    // through the authenticated download route).
+    r2Key: text("r2_key").notNull(),
+    // A small preview object (image attachments only), so the tile loads instantly
+    // without pulling the full-size original. Null for non-images / legacy rows.
+    thumbnailKey: text("thumbnail_key"),
+    // Original filename, used for the download's Content-Disposition.
+    fileName: varchar("file_name", { length: ATTACHMENT_FILENAME_MAX }).notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    // Optional preset tag and optional custom display name — neither mandatory.
+    kind: attachmentKindEnum("kind"),
+    label: varchar("label", { length: ATTACHMENT_LABEL_MAX }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The primary read: all attachments for a transaction, oldest first.
+    index("txn_attachments_txn_idx").on(t.transactionId, t.createdAt),
+    // FK maintenance for the profile/workspace cascade deletes.
+    index("txn_attachments_profile_idx").on(t.profileId),
+    // Per-workspace listing / future storage metering.
+    index("txn_attachments_workspace_idx").on(t.workspaceId, t.createdAt),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserSettings = typeof userSettings.$inferSelect;
@@ -307,6 +366,8 @@ export type Category = typeof categories.$inferSelect;
 export type NewCategory = typeof categories.$inferInsert;
 export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;
+export type TransactionAttachment = typeof transactionAttachments.$inferSelect;
+export type NewTransactionAttachment = typeof transactionAttachments.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type ProfileAccess = typeof profileAccess.$inferSelect;

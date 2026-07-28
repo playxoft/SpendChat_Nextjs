@@ -36,6 +36,8 @@ const securityHeaders = [
       "font-src 'self' data:",
       "connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com",
       "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://apis.google.com",
+      // pdf.js renders PDF thumbnails in a same-origin (bundled) module worker.
+      "worker-src 'self' blob:",
       "frame-ancestors 'none'",
       "object-src 'none'",
       "base-uri 'self'",
@@ -43,6 +45,28 @@ const securityHeaders = [
       "upgrade-insecure-requests",
     ].join("; "),
   },
+];
+
+/**
+ * The attachments API streams file bytes that the in-app preview embeds in a
+ * same-origin `<iframe>` (PDFs). The app-wide `X-Frame-Options: DENY` +
+ * `frame-ancestors 'none'` would block even that same-origin frame, so this route
+ * gets a relaxed pair — framing is allowed from our own origin only. It's still
+ * an authenticated route, so this doesn't widen access.
+ */
+const attachmentHeaders = [
+  { key: "X-Content-Type-Options", value: "nosniff" },
+  { key: "X-Frame-Options", value: "SAMEORIGIN" },
+  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
+  {
+    key: "Permissions-Policy",
+    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+  },
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains; preload",
+  },
+  { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
 ];
 
 const nextConfig: NextConfig = {
@@ -64,7 +88,14 @@ const nextConfig: NextConfig = {
     ],
   },
   async headers() {
-    return [{ source: "/:path*", headers: securityHeaders }];
+    return [
+      // The attachments API allows same-origin framing (for the in-app preview);
+      // every other route keeps the strict DENY / frame-ancestors 'none'. Only
+      // one source matches a given path (the negative lookahead excludes the
+      // attachments route from the general rule) so headers never conflict.
+      { source: "/api/attachments/:path*", headers: attachmentHeaders },
+      { source: "/((?!api/attachments).*)", headers: securityHeaders },
+    ];
   },
 };
 

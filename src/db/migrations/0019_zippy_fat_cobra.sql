@@ -1,0 +1,1 @@
+ALTER TABLE "transaction_attachments" ADD COLUMN "thumbnail_key" text;

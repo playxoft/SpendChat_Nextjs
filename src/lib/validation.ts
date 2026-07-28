@@ -64,6 +64,114 @@ export const bulkTransactionsSchema = z.object({
   items: z.array(transactionInputSchema).min(1).max(500),
 });
 
+/* -------------------------------------------------------------------------- */
+/* Transaction attachments (receipts / bills / invoices)                       */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Per-file size cap and per-transaction count cap — the single source of truth,
+ * enforced on both the upload route and the client dropzone. Deliberately not
+ * plan-gated (the app has no paid tier today); keeping them as named constants
+ * means a future plan could raise them in one place.
+ */
+export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
+// 2 today; a future paid plan would raise this (it's read everywhere from here).
+export const ATTACHMENT_MAX_PER_TRANSACTION = 2;
+/** Optional per-file display name/label. Not mandatory; falls back to fileName. */
+export const ATTACHMENT_LABEL_MAX = 80;
+/** Original filename we persist for the download's `Content-Disposition`. */
+export const ATTACHMENT_FILENAME_MAX = 200;
+
+/** Optional preset category a user can tag a file with (all optional). */
+export const ATTACHMENT_KINDS = ["receipt", "bill", "invoice", "other"] as const;
+export type AttachmentKind = (typeof ATTACHMENT_KINDS)[number];
+export const attachmentKindSchema = z.enum(ATTACHMENT_KINDS);
+
+/**
+ * Content-type allowlist → the extension we store the object under. Images,
+ * PDFs, office docs, CSV and plain text only. Deliberately excludes SVG and
+ * HTML (script-carrying → stored-XSS when served inline) and all video/audio.
+ */
+export const ATTACHMENT_CONTENT_TYPES: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+  "image/gif": "gif",
+  "application/pdf": "pdf",
+  "application/msword": "doc",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+  "application/vnd.ms-excel": "xls",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+  "text/csv": "csv",
+  "text/plain": "txt",
+};
+
+/** Reverse map: extension → canonical content-type, for the octet-stream fallback. */
+export const ATTACHMENT_EXTENSIONS: Record<string, string> = Object.fromEntries(
+  Object.entries(ATTACHMENT_CONTENT_TYPES).map(([type, ext]) => [ext, type]),
+);
+
+/** `accept` value for the file input — extensions + MIME types, so browsers that
+ *  report a generic type for office docs still offer the right files. */
+export const ATTACHMENT_ACCEPT = [
+  ...Object.keys(ATTACHMENT_CONTENT_TYPES),
+  ...Object.keys(ATTACHMENT_EXTENSIONS).map((ext) => `.${ext}`),
+].join(",");
+
+/** Content types we render inline (preview in a tab); everything else downloads. */
+export const ATTACHMENT_INLINE_TYPES = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+  "text/plain",
+  "text/csv",
+]);
+
+/** Excel types. Not browser-renderable, but the download route proxies their
+ * bytes same-origin so the in-app viewer can parse + preview them client-side. */
+export const ATTACHMENT_SPREADSHEET_TYPES = new Set<string>([
+  "application/vnd.ms-excel",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
+
+const filenameExt = (name: string): string => {
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot + 1).toLowerCase() : "";
+};
+
+/**
+ * Resolve an upload's canonical `{ contentType, ext }`, or null when the file
+ * isn't an allowed type. Trusts the declared MIME type when it's on the
+ * allowlist; otherwise (a browser handing us `application/octet-stream` for a
+ * .docx, say) falls back to the filename extension. A blocked/unknown type with
+ * a non-allowed extension is rejected.
+ */
+export function resolveAttachmentType(
+  fileName: string,
+  declaredType: string | null | undefined,
+): { contentType: string; ext: string } | null {
+  const declared = (declaredType ?? "").split(";")[0]!.trim().toLowerCase();
+  const byType = ATTACHMENT_CONTENT_TYPES[declared];
+  if (byType) return { contentType: declared, ext: byType };
+  const ext = filenameExt(fileName);
+  const byExt = ATTACHMENT_EXTENSIONS[ext];
+  if (byExt) return { contentType: byExt, ext };
+  return null;
+}
+
+/** Optional metadata a client may set on an attachment (both fields optional). */
+export const attachmentMetaSchema = z.object({
+  label: z
+    .string()
+    .trim()
+    .max(ATTACHMENT_LABEL_MAX, `Name is too long (max ${ATTACHMENT_LABEL_MAX} characters)`)
+    .nullish(),
+  kind: attachmentKindSchema.nullish(),
+});
+export type AttachmentMetaInput = z.infer<typeof attachmentMetaSchema>;
+
 export const themeSchema = z.enum(["light", "dark", "system"]);
 
 /** Currency + number format (locale) — a per-workspace setting, admin-gated. */
