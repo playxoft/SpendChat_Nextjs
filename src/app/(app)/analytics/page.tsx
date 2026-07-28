@@ -79,7 +79,7 @@ export default async function AnalyticsPage({
   const streamKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}|${parsed.type ?? "all"}`;
 
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
+    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6">
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="text-xl font-semibold">Analytics</h1>

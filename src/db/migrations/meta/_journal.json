@@ -141,6 +141,13 @@
       "when": 1784729020089,
       "tag": "0019_zippy_fat_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785211609085,
+      "tag": "0020_shocking_black_queen",
+      "breakpoints": true
     }
   ]
 }

@@ -14,7 +14,7 @@ closest Material equivalent).
 |---|---|---|---|---|
 | 1 | **Tracker** | `/app` | `message-square` | `q` |
 | 2 | **Transactions** | `/transactions` | `table-2` | `t` |
-| 3 | **Analytics** | `/analytics` | `chart-column` (bar chart) | `a` |
+| 3 | **Analytics** | `/analytics` | `chart-column` (bar chart) | `e` |
 | 4 | **Settings** | `/settings` | `settings` | `s` |
 
 \* Keyboard shortcuts are web-only — N/A on mobile.
