@@ -382,7 +382,9 @@ export function AiTransactionInput({
   // Compose state: the free-text note + a parse button.
   if (!rows) {
     return (
-      <div className="flex flex-col gap-2">
+      // h-full so the note box can flex-fill the card down to a little gap above
+      // the bottom (the card is sized to the taller Manual column).
+      <div className="flex h-full flex-col gap-2">
         <div className="flex items-center gap-2">
           <EntryModeToggle mode={mode} onChange={onModeChange} />
           <div className="ml-auto flex items-center gap-1">
@@ -393,7 +395,8 @@ export function AiTransactionInput({
         {/* ChatGPT-style: one rounded box with the send button pinned inside its
             bottom-right corner. The textarea reserves room (pr/pb) so the note
             never runs under the button. */}
-        <div className="relative">
+        {/* Fills the leftover card height, capped at ~6 lines then it scrolls. */}
+        <div className="relative flex max-h-52 min-h-0 flex-1 flex-col">
           {tagMenu}
           <Textarea
             ref={taRef}
@@ -413,7 +416,7 @@ export function AiTransactionInput({
             maxLength={MAX_INPUT_CHARS}
             placeholder="Describe your spending — e.g. 200 fruits, 1000 electricity (June bill) #Bills, got 5000 salary"
             aria-label="Describe your transactions"
-            className="min-h-24 resize-none pr-14 pb-12"
+            className="field-sizing-fixed min-h-0 flex-1 resize-none pr-14 pb-12 md:text-base"
             disabled={parsing}
           />
           <Button
@@ -431,7 +434,7 @@ export function AiTransactionInput({
             )}
           </Button>
         </div>
-        <p className="px-0.5 text-xs text-muted-foreground">
+        <p className="px-0.5 text-sm text-muted-foreground">
           Type naturally — use <span className="font-mono text-foreground">#</span> for a
           category and <span className="font-mono text-foreground">( )</span> for a note.
         </p>
