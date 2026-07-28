@@ -168,7 +168,13 @@ export function WorkspaceSwitchDialog({
                   id={`workspace-pick-${i}`}
                   role="option"
                   aria-selected={active}
-                  onMouseEnter={() => setIndex(i)}
+                  // `mousemove`, not `mouseenter`: the dialog opens under
+                  // wherever the pointer already is, and mouseenter fires on a
+                  // completely stationary cursor — so `g` then Enter would land
+                  // on whatever row happened to be beneath the mouse instead of
+                  // the current workspace. Only real pointer movement should
+                  // take the highlight away from the keyboard.
+                  onMouseMove={() => setIndex(i)}
                   onClick={() => commit(i)}
                   className={cn(
                     "flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm",
@@ -177,17 +183,43 @@ export function WorkspaceSwitchDialog({
                     // order in the generated CSS rather than the order here.
                     // The highlight outranks the you-are-here tint when both
                     // apply (which is the case the moment the dialog opens).
+                    //
+                    // `primary`, not `accent`, for the highlight: --accent and
+                    // --muted are the same value in this theme, so an accent
+                    // highlight was indistinguishable from the current-workspace
+                    // tint. Primary is still neutral here (near-black / near-
+                    // white), so this stays within the no-colour palette.
+                    // `bg-foreground/10` rather than a token: --muted, --accent
+                    // and --secondary are all the same near-white/near-black in
+                    // this theme, only ~3% off the popover surface, which read
+                    // as no tint at all. An alpha of the foreground gives a
+                    // visible step in both light and dark without adding colour.
                     active
-                      ? "bg-accent text-accent-foreground"
-                      : isCurrent && "bg-muted",
+                      ? "bg-primary text-primary-foreground"
+                      : isCurrent && "bg-foreground/10",
                   )}
                 >
+                  {/* On the highlighted row the palette inverts, so the digit
+                      chip, the icon well and the role label all need explicit
+                      on-primary colours — the defaults are tuned for a light
+                      surface and would drop to near-invisible. */}
                   {digit ? (
-                    <Kbd combo={digit} className="shrink-0" />
+                    <Kbd
+                      combo={digit}
+                      className={cn(
+                        "shrink-0",
+                        active && "border-primary-foreground/40 bg-primary-foreground/15 text-primary-foreground",
+                      )}
+                    />
                   ) : (
                     <span aria-hidden className="size-[22px] shrink-0" />
                   )}
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-accent">
+                  <span
+                    className={cn(
+                      "flex size-6 shrink-0 items-center justify-center rounded-md",
+                      active ? "bg-primary-foreground/15" : "bg-accent",
+                    )}
+                  >
                     {w.icon ? (
                       <span className="text-sm leading-none">{w.icon}</span>
                     ) : (
@@ -197,7 +229,8 @@ export function WorkspaceSwitchDialog({
                   <span className="min-w-0 flex-1 truncate">{w.name}</span>
                   <span
                     className={cn(
-                      "shrink-0 text-sm text-muted-foreground",
+                      "shrink-0 text-sm",
+                      active ? "text-primary-foreground/70" : "text-muted-foreground",
                       !isCurrent && "capitalize",
                     )}
                   >
