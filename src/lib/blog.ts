@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import * as categorising from "@/content/blog/how-to-categorize-expenses.mdx";
 import * as spreadsheet from "@/content/blog/spreadsheet-vs-expense-tracker-app.mdx";
 import * as noBankConnection from "@/content/blog/expense-tracker-without-bank-connection.mdx";
 import * as voiceLanguages from "@/content/blog/voice-expense-tracking-in-any-language.mdx";
@@ -71,6 +72,7 @@ type MdxModule = { default: ComponentType; meta: BlogMeta };
  * `src/content/blog` and adding one line here.
  */
 const registry: { slug: string; mod: MdxModule }[] = [
+  { slug: "how-to-categorize-expenses", mod: categorising },
   { slug: "spreadsheet-vs-expense-tracker-app", mod: spreadsheet },
   { slug: "expense-tracker-without-bank-connection", mod: noBankConnection },
   { slug: "voice-expense-tracking-in-any-language", mod: voiceLanguages },
