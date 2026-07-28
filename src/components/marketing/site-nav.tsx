@@ -15,6 +15,7 @@ import {
 import { GithubIcon } from "@/components/icons/github";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { trackEvent } from "@/lib/analytics";
 import { marketingNav, siteConfig } from "@/lib/site";
 
 /**
@@ -47,6 +48,9 @@ export function SiteNav() {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() =>
+                  trackEvent("nav_link_click", { label: item.label, location: "desktop" })
+                }
                 className="rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
               >
                 {item.label}
@@ -65,7 +69,14 @@ export function SiteNav() {
             aria-label={`View ${siteConfig.name} on GitHub`}
             className="hidden rounded-full lg:inline-flex"
           >
-            <a href={siteConfig.links.github} target="_blank" rel="noreferrer">
+            <a
+              href={siteConfig.links.github}
+              target="_blank"
+              rel="noreferrer"
+              onClick={() =>
+                trackEvent("outbound_click", { destination: "github", location: "nav_desktop" })
+              }
+            >
               <GithubIcon className="size-[18px]" />
             </a>
           </Button>
@@ -77,10 +88,22 @@ export function SiteNav() {
             variant="ghost"
             className="hidden h-10 rounded-full lg:inline-flex"
           >
-            <Link href="/sign-in">Sign in</Link>
+            <Link
+              href="/sign-in"
+              onClick={() => trackEvent("nav_signin_click", { location: "desktop" })}
+            >
+              Sign in
+            </Link>
           </Button>
           <Button asChild className="h-10 rounded-full px-4 sm:px-5">
-            <Link href="/sign-up">Get started</Link>
+            <Link
+              href="/sign-up"
+              onClick={() =>
+                trackEvent("cta_click", { location: "nav_desktop", label: "get_started" })
+              }
+            >
+              Get started
+            </Link>
           </Button>
 
           {/* Mobile / tablet menu */}
@@ -113,6 +136,9 @@ export function SiteNav() {
                   <SheetClose asChild key={item.href}>
                     <Link
                       href={item.href}
+                      onClick={() =>
+                        trackEvent("nav_link_click", { label: item.label, location: "mobile" })
+                      }
                       className="rounded-lg px-3 py-2.5 text-base font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                     >
                       {item.label}
@@ -124,6 +150,9 @@ export function SiteNav() {
                     href={siteConfig.links.github}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={() =>
+                      trackEvent("outbound_click", { destination: "github", location: "nav_mobile" })
+                    }
                     className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-base font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
                   >
                     <GithubIcon className="size-[18px] shrink-0" />
@@ -144,12 +173,24 @@ export function SiteNav() {
                 </div>
                 <SheetClose asChild>
                   <Button asChild variant="outline" className="h-10 w-full rounded-full">
-                    <Link href="/sign-in">Sign in</Link>
+                    <Link
+                      href="/sign-in"
+                      onClick={() => trackEvent("nav_signin_click", { location: "mobile" })}
+                    >
+                      Sign in
+                    </Link>
                   </Button>
                 </SheetClose>
                 <SheetClose asChild>
                   <Button asChild className="h-11 rounded-full">
-                    <Link href="/sign-up">Get started free</Link>
+                    <Link
+                      href="/sign-up"
+                      onClick={() =>
+                        trackEvent("cta_click", { location: "nav_mobile", label: "get_started" })
+                      }
+                    >
+                      Get started free
+                    </Link>
                   </Button>
                 </SheetClose>
               </div>

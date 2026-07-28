@@ -14,6 +14,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "/faq", priority: 0.7, freq: "monthly" },
     { path: "/privacy", priority: 0.3, freq: "monthly" },
     { path: "/terms", priority: 0.3, freq: "monthly" },
+    { path: "/cookie-policy", priority: 0.3, freq: "monthly" },
   ];
 
   const staticEntries: MetadataRoute.Sitemap = routes.map((r) => ({

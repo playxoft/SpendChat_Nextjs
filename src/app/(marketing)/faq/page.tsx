@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
 import { faqs } from "@/lib/faq";
 import { marketingCta } from "@/lib/marketing";
+import { siteConfig } from "@/lib/site";
 
 export const metadata = createMetadata({
   title: "FAQ",
@@ -52,7 +53,16 @@ export default function FaqPage() {
       </div>
 
       <div className="mt-12 text-center">
-        <p className="text-muted-foreground">Still have questions?</p>
+        <p className="text-muted-foreground">
+          Still have questions? Email us at{" "}
+          <a
+            href={`mailto:${siteConfig.supportEmail}`}
+            className="font-medium text-foreground underline-offset-4 hover:underline"
+          >
+            {siteConfig.supportEmail}
+          </a>
+          .
+        </p>
         <Button asChild variant="outline" className={`mt-4 ${marketingCta}`}>
           <Link href="/sign-up">Just try it — it&apos;s free</Link>
         </Button>
