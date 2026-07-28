@@ -17,12 +17,27 @@ describe("registry", () => {
       expect(s.scope).toBeTruthy();
     }
   });
+
+  // Two entries on the same combo means one of them silently never fires, or
+  // both fire at once. Remapping keys is exactly when that slips in, so guard
+  // the invariant rather than the specific bindings.
+  it("binds each combo to at most one shortcut", () => {
+    const combos = SHORTCUTS.map((s) => s.combo);
+    const duplicated = combos.filter((c, i) => combos.indexOf(c) !== i);
+    expect(duplicated).toEqual([]);
+  });
 });
 
 describe("getShortcut / comboFor", () => {
   it("resolves a known id", () => {
-    expect(getShortcut("action.add")?.combo).toBe("e");
-    expect(comboFor("action.add")).toBe("e");
+    expect(getShortcut("action.add")?.combo).toBe("r");
+    expect(comboFor("action.add")).toBe("r");
+    // The remapped bindings: analytics moved to `e`, the Manual/AI toggle took
+    // `a`, and category tagging moved from `/` to `#`.
+    expect(comboFor("nav.analytics")).toBe("e");
+    expect(comboFor("tracker.toggle-mode")).toBe("a");
+    expect(comboFor("tracker.category")).toBe("#");
+    expect(comboFor("workspace.switch")).toBe("g");
   });
   it("handles an unknown id", () => {
     expect(getShortcut("nope")).toBeUndefined();
@@ -47,6 +62,13 @@ describe("formatShortcutKeys", () => {
       "Alt",
       "Ctrl",
     ]);
+  });
+
+  it("renders the workspace picker key the same on every platform", () => {
+    // A plain key, deliberately: a held modifier chord can be swallowed by the
+    // OS (⌘⇧3, Alt+Shift) before the page ever sees it.
+    expect(formatShortcutKeys("g", true)).toEqual(["G"]);
+    expect(formatShortcutKeys("g", false)).toEqual(["G"]);
   });
 
   it("renders named keys", () => {

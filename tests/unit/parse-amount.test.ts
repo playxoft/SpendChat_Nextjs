@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  amountPlaceholder,
   formatAmountInput,
   localeSeparators,
   parseAmountInput,
@@ -106,5 +107,24 @@ describe("formatAmountInput", () => {
   it("formats without grouping", () => {
     expect(formatAmountInput(1234.5, "en-US")).toBe("1234.5");
     expect(formatAmountInput(1234.5, "de-DE")).toBe("1234,5");
+  });
+
+  // These locales default to their own numeral system (١٢٣٤ / ১২৩৪ / ۱۲۳۴), which
+  // the parser rejects — so an amount we *formatted* would come back null and
+  // every programmatically-filled field (bulk preview, AI review grid) would sit
+  // there permanently invalid. They're reachable: locale tags come from
+  // Accept-Language, not from a curated list.
+  it("uses Latin digits so non-Latin locales still round-trip", () => {
+    for (const locale of ["ar-EG", "bn-IN", "fa-IR", "my-MM", "hi-IN"]) {
+      const text = formatAmountInput(1234.5, locale);
+      expect(text).toMatch(/^[\d.,\s  ]+$/);
+      expect(parseAmountInput(text, locale)).toBe(1234.5);
+    }
+  });
+
+  it("keeps the placeholder readable in those locales too", () => {
+    for (const locale of ["ar-EG", "bn-IN", "fa-IR"]) {
+      expect(amountPlaceholder(locale)).toMatch(/^0[.,]00$/);
+    }
   });
 });

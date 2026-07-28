@@ -159,12 +159,12 @@ The order/shape of the amount+title inputs is driven by the user's
 keyboard (`decimal`), placeholder `"0.00"`, tabular. Sanitize input to digits +
 `.`/`,` only.
 
-**Title field:** placeholder `"Add a title — type / to tag a category"`, max
-**100** chars. Typing **`/query`** at the end opens an **inline category picker**
+**Title field:** placeholder `"Add a title — type # to tag a category"`, max
+**100** chars. Typing **`#query`** at the end opens an **inline category picker**
 (see §4.6).
 
 **Combined field:** placeholder `"e.g. 100 fruits"`, max ~112 chars. Parse it
-(see §4.7) into `{ amount, title }`. The `/` category picker still works on the
+(see §4.7) into `{ amount, title }`. The `#` category picker still works on the
 parsed title portion.
 
 **Enter/submit affordances (wide layouts, informational):** in `title_amount`,
@@ -172,11 +172,11 @@ Enter on the amount (last field) submits; otherwise Enter advances to the next
 field; Shift+Enter reveals/focuses the description. On mobile, rely on the Send
 button + keyboard "done"/"next" actions.
 
-### 4.6 The `/` inline category picker
-When the title (or combined) field ends with `/query`:
+### 4.6 The `#` inline category picker
+When the title (or combined) field ends with `#query`:
 - Show a small anchored popover of matching categories (name contains `query`,
   max 8). Highlight one; up/down to move, enter/tab to select, escape to dismiss.
-- Selecting sets the category **and strips the `/query` token** from the field.
+- Selecting sets the category **and strips the `#query` token** from the field.
 - Empty: `No category matches "{query}"`.
 - On mobile this is a nice-to-have; at minimum keep the "More" grid popover.
 

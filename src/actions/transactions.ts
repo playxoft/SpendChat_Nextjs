@@ -3,13 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
-import { notFound } from "@/lib/errors";
+import { canWriteInWorkspace } from "@/lib/workspaces";
+import { badRequest, forbidden, notFound } from "@/lib/errors";
 import { parseOrThrow } from "@/lib/api-response";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import { recordSpan, time } from "@/lib/timing";
 import * as txns from "@/services/transactions";
 import {
   FEED_PAGE_SIZE,
+  getCategories,
   listFeedPage,
   listTransactions,
   TRANSACTIONS_PAGE_SIZE,
@@ -17,6 +19,10 @@ import {
 } from "@/lib/queries";
 import { updateTransactionSchema, type TransactionInput } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
+import { MAX_INPUT_CHARS, parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
+import { assertAiRequestAllowed } from "@/lib/ai-quota";
+import { getTimeZone } from "@/lib/timezone.server";
+import { todayISO } from "@/lib/dates";
 
 /** Filters + offset for a load-more request. Access is still enforced server
  * side by `listTransactions` (scoped to the caller's accessible profiles), so a
@@ -181,6 +187,56 @@ export async function addBulkTransactions(drafts: BulkDraft[]): Promise<ActionRe
       const { count } = await txns.createBulkFromDrafts(user.id, workspace.id, drafts);
       revalidateApp();
       return { count };
+    },
+    { userId: user.id, workspaceId: workspace.id },
+  );
+}
+
+/**
+ * Parse a free-text note into transaction drafts with AI, for the composer's
+ * "AI" mode. Nothing is written to the transaction tables here; the user reviews
+ * the returned drafts and commits them via `addBulkTransactions`. `today` is
+ * resolved server-side (from the request timezone) so drafts default to the
+ * right date, and categories come from the workspace so the model can only pick
+ * names that actually exist.
+ *
+ * Unlike a plain read, this one *costs money* on every call, so it's gated twice
+ * before anything reaches a provider: the caller needs the editor role (the UI
+ * hides AI mode from viewers, but a server action is callable by any signed-in
+ * user regardless of what rendered), and then a per-user hourly quota.
+ */
+export async function parseTransactionsWithAI(
+  text: string,
+): Promise<ActionResult<{ drafts: AiParsedDraft[] }>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "parseTransactionsWithAI",
+    async () => {
+      const note = typeof text === "string" ? text.trim() : "";
+      if (!note) throw badRequest("Type a note for the AI to turn into transactions");
+      // Cheap local checks first, then permission, then quota — a denied caller
+      // must never burn another caller's budget.
+      if (note.length > MAX_INPUT_CHARS) {
+        throw badRequest(`That's a lot of text — keep it under ${MAX_INPUT_CHARS} characters`);
+      }
+      if (!(await canWriteInWorkspace(user.id, workspace.id))) {
+        throw forbidden("You don't have permission to add transactions in this workspace");
+      }
+      await assertAiRequestAllowed(user.id, workspace.id, "transaction_parse");
+
+      const [categories, today] = await Promise.all([
+        getCategories(workspace.id),
+        getTimeZone().then(todayISO),
+      ]);
+      const drafts = await parseTransactionsText({
+        text: note,
+        categories: categories.map((c) => ({ name: c.name, kind: c.kind })),
+        currency: workspace.currency,
+        locale: workspace.locale,
+        today,
+      });
+      return { drafts };
     },
     { userId: user.id, workspaceId: workspace.id },
   );

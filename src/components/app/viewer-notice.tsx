@@ -34,7 +34,7 @@ export function ViewerNotice({
           className,
         )}
       >
-        <div className="mx-auto max-w-2xl">{message}</div>
+        <div className="mx-auto max-w-3xl">{message}</div>
       </div>
     );
   }

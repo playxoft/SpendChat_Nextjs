@@ -7,6 +7,8 @@ import { Building2, Check, ChevronsUpDown, Plus, Settings2 } from "lucide-react"
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
+import { comboFor } from "@/lib/shortcuts";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,10 +45,13 @@ export function WorkspaceSwitcher({
   workspaces,
   currentId,
   onNavigate,
+  showShortcut = false,
 }: {
   workspaces: WorkspaceOption[];
   currentId: string;
   onNavigate?: () => void;
+  /** Show the `g` hint on the trigger — the sidebar does, the mobile sheet doesn't. */
+  showShortcut?: boolean;
 }) {
   const router = useRouter();
   const { run, pending } = useLoadingOverlay();
@@ -102,6 +107,13 @@ export function WorkspaceSwitcher({
                 </span>
               )}
             </span>
+            {/* Teaches the `g` picker (WorkspaceSwitchDialog) from the place
+                people already go to switch. Desktop only — no keyboard on
+                mobile — and only when there's more than one workspace, which is
+                the same condition that binds the key. */}
+            {showShortcut && workspaces.length > 1 && (
+              <Kbd combo={comboFor("workspace.switch")} className="hidden shrink-0 sm:inline-flex" />
+            )}
             <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
@@ -119,7 +131,7 @@ export function WorkspaceSwitcher({
                 {w.icon ?? ""}
               </span>
               <span className="min-w-0 flex-1 truncate">{w.name}</span>
-              <span className="text-[10px] text-muted-foreground capitalize">
+              <span className="shrink-0 text-sm text-muted-foreground capitalize">
                 {roleLabel(w.role)}
               </span>
               <Check className={cn("size-4", w.id === currentId ? "opacity-100" : "opacity-0")} />
