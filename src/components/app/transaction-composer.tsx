@@ -130,12 +130,15 @@ export function TransactionComposer({
   // mobile (name appears on desktop).
   const currentProfile = profiles.find((p) => p.id === profileId) ?? profiles[0] ?? null;
 
-  // "#" in the title opens an inline category picker.
+  // "#" in the title opens an inline category picker. Every category of the
+  // current type is offered — a bare "#" is "show me the list", so truncating it
+  // hid categories the user had no other way to reach from the keyboard. The
+  // popover scrolls instead of capping.
   const tagMatch = titleSource.match(TAG_RE);
   const tagQuery = tagMatch?.[1] ?? "";
   const tagActive = !!tagMatch && !tagDismissed;
   const tagResults = tagActive
-    ? cats.filter((c) => c.name.toLowerCase().includes(tagQuery.toLowerCase())).slice(0, 8)
+    ? cats.filter((c) => c.name.toLowerCase().includes(tagQuery.toLowerCase()))
     : [];
   const tagIdx = tagResults.length ? Math.min(tagIndex, tagResults.length - 1) : 0;
 
@@ -353,8 +356,23 @@ export function TransactionComposer({
     </div>
   );
 
+  // The paperclip rides *inside* the title field, as a leading affordance —
+  // attaching a receipt belongs to what you're describing, not to the
+  // date/profile/category cluster it used to sit in. The input reserves `pl-9`
+  // so text never runs under it.
+  const attachButton = (
+    <AttachmentDropzone
+      variant="inline"
+      onFiles={staged.add}
+      remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
+      disabled={switching}
+      className="absolute top-1/2 left-0.5 size-7 -translate-y-1/2"
+    />
+  );
+
   const titleField = (
-    <div className="min-w-32 flex-1">
+    <div className="relative min-w-32 flex-1">
+      {attachButton}
       <Input
         ref={titleRef}
         placeholder="Add a title — type # to tag a category"
@@ -367,7 +385,7 @@ export function TransactionComposer({
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Title"
-        className="h-8 w-full"
+        className="h-8 w-full pl-9"
       />
     </div>
   );
@@ -376,7 +394,8 @@ export function TransactionComposer({
   // so shortcuts that focus the title still land here, and onTitleKeyDown so the
   // "/" category picker keeps working on the parsed title.
   const combinedField = (
-    <div className="min-w-32 flex-1">
+    <div className="relative min-w-32 flex-1">
+      {attachButton}
       <Input
         ref={titleRef}
         placeholder="e.g. 100 fruits"
@@ -392,7 +411,7 @@ export function TransactionComposer({
         aria-label="Amount and title"
         // Red bar when the amount is over the 9-digit cap (submit is blocked too).
         aria-invalid={combinedAmountOverLimit || undefined}
-        className="h-8 w-full"
+        className="h-8 w-full pl-9"
       />
     </div>
   );
@@ -505,14 +524,8 @@ export function TransactionComposer({
                       </div>
 
                       <div className="ml-auto flex min-w-0 items-center gap-2">
-                        {/* Attach receipts/bills/invoices — sits to the left of the date. */}
-                        <AttachmentDropzone
-                          variant="inline"
-                          onFiles={staged.add}
-                          remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
-                          disabled={switching}
-                          className="size-8 border"
-                        />
+                        {/* The paperclip used to live here; it's now a prefix
+                            inside the title field (see `attachButton`). */}
                         <DatePicker
                           value={occurredOn}
                           max={today}
@@ -657,6 +670,12 @@ export function TransactionComposer({
                               <li key={c.id}>
                                 <button
                                   type="button"
+                                  // The list is no longer capped, so arrowing
+                                  // down can walk past the scroll window.
+                                  // "nearest" is a no-op when already visible.
+                                  ref={(el) => {
+                                    if (i === tagIdx) el?.scrollIntoView({ block: "nearest" });
+                                  }}
                                   onMouseDown={(e) => {
                                     e.preventDefault();
                                     selectTagCategory(c);
