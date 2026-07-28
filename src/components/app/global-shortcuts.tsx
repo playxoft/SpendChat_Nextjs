@@ -34,7 +34,7 @@ export function GlobalShortcuts({
   currency: string;
   locale: string;
   today: string;
-  /** Viewers (no editor access anywhere) can't add — the e/b shortcuts no-op. */
+  /** Viewers (no editor access anywhere) can't add — the r/b shortcuts no-op. */
   canWrite: boolean;
 }) {
   const router = useRouter();

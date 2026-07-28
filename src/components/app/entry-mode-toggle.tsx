@@ -29,8 +29,11 @@ export function EntryModeToggle({
 }) {
   const combo = comboFor("tracker.toggle-mode");
   return (
+    // `radiogroup`, not `tablist`: there are no tab panels here — picking a side
+    // swaps which composer is live. A tablist would have a screen reader
+    // announce panels that don't exist and hunt for `aria-controls`.
     <div
-      role="tablist"
+      role="radiogroup"
       aria-label="Entry mode"
       title="Toggle Manual / AI"
       className={cn(
@@ -45,8 +48,9 @@ export function EntryModeToggle({
           <button
             key={m}
             type="button"
-            role="tab"
-            aria-selected={active}
+            role="radio"
+            aria-checked={active}
+            aria-label={isAi ? "AI entry" : "Manual entry"}
             onClick={() => onChange(m)}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-medium capitalize transition-colors sm:px-3",

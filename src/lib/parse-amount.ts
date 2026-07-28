@@ -21,6 +21,18 @@ const SPACE_ALL = new RegExp(SPACE_CLASS, "g");
 const G = "\u0001";
 const D = "\u0002";
 
+/**
+ * Every `Intl.NumberFormat` here pins the Latin digits. Locales like `ar-EG`,
+ * `bn-IN` and `fa-IR` default to their own numeral system, and the parser below
+ * only accepts ASCII 0-9 — so without this, a formatted amount ("١٢٣٤") could
+ * not be re-read by `parseAmountInput`, and every programmatically-filled amount
+ * field (bulk preview, AI review grid) would render permanently invalid. Locale
+ * tags come from `Accept-Language` via `resolveSettingsDefaults`, so these are
+ * reachable, not hypothetical. Grouping/decimal separators still follow the
+ * locale (de-DE stays "1.234,56").
+ */
+const NUMBERING = "latn";
+
 export type Separators = { group: string; decimal: string };
 
 /** True for the (narrow/non-breaking) spaces some locales group with. */
@@ -37,7 +49,9 @@ export function localeSeparators(locale: string = DEFAULT_LOCALE): Separators {
 
   let separators: Separators = { group: ",", decimal: "." };
   try {
-    const parts = new Intl.NumberFormat(locale).formatToParts(12345.6);
+    const parts = new Intl.NumberFormat(locale, {
+      numberingSystem: NUMBERING,
+    }).formatToParts(12345.6);
     const group = parts.find((p) => p.type === "group")?.value;
     const decimal = parts.find((p) => p.type === "decimal")?.value;
     if (group && decimal && group !== decimal) separators = { group, decimal };
@@ -152,6 +166,7 @@ export function formatAmountInput(
 ): string {
   try {
     return new Intl.NumberFormat(locale, {
+      numberingSystem: NUMBERING,
       useGrouping: false,
       minimumFractionDigits: 0,
       maximumFractionDigits: decimals,
@@ -168,6 +183,7 @@ export function amountPlaceholder(
 ): string {
   try {
     return new Intl.NumberFormat(locale, {
+      numberingSystem: NUMBERING,
       useGrouping: false,
       minimumFractionDigits: decimals,
       maximumFractionDigits: decimals,

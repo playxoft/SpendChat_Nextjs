@@ -29,10 +29,18 @@ import type { WorkspaceOption } from "./workspace-switcher";
 
 /**
  * Delay before the HUD appears. Chorded shortcuts that momentarily hold the same
- * modifiers (⌘⇧3 to screenshot, ⌘⇧T to reopen a tab, …) fire their final key
- * well within this window, so we cancel the peek instead of flashing it.
+ * modifiers (⌘⇧T to reopen a tab, …) fire their final key well within this
+ * window, so we cancel the peek instead of flashing it.
+ *
+ * Deliberately generous, because that cancellation only works for chords the
+ * page actually *sees*. macOS consumes ⌘⇧3/4/5 (screenshots) and ⌘⇧Q itself, and
+ * Windows consumes Alt+Shift (the input-language switcher) — the browser is
+ * never told which key completed the chord, so the only defence there is not
+ * having shown anything yet. Releasing without navigating commits to the
+ * already-current workspace, which `commit` treats as a no-op, so the worst case
+ * stays a flash rather than a surprise switch.
  */
-const SHOW_DELAY_MS = 200;
+const SHOW_DELAY_MS = 400;
 
 /** Grant-only access (no workspace-wide role) reads as "shared". */
 function roleLabel(role: WorkspaceOption["role"]): string {
@@ -78,6 +86,9 @@ export function WorkspaceSwitchHud({
   const router = useRouter();
   const { run } = useLoadingOverlay();
 
+  // Falls back to 0 only if the current workspace somehow isn't in the list —
+  // `commit` still compares ids before switching, so a stale list can't quietly
+  // move the user to whatever happens to be first.
   const currentIndex = Math.max(
     0,
     workspaces.findIndex((w) => w.id === currentWorkspaceId),
@@ -101,29 +112,29 @@ export function WorkspaceSwitchHud({
     currentIdRef.current = currentWorkspaceId;
   });
 
-  React.useEffect(() => {
-    // Nothing to switch between.
-    if (workspaces.length < 2) return;
+  const clearTimer = React.useCallback(() => {
+    if (timerRef.current !== null) {
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }, []);
 
-    const clearTimer = () => {
-      if (timerRef.current !== null) {
-        window.clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
-    };
+  const setHighlight = React.useCallback((i: number) => {
+    indexRef.current = i;
+    setIndex(i);
+  }, []);
 
-    const setHighlight = (i: number) => {
-      indexRef.current = i;
-      setIndex(i);
-    };
+  const hide = React.useCallback(() => {
+    clearTimer();
+    openRef.current = false;
+    setOpen(false);
+  }, [clearTimer]);
 
-    const hide = () => {
-      clearTimer();
-      openRef.current = false;
-      setOpen(false);
-    };
-
-    const commit = (i: number) => {
+  // Hoisted out of the key handler so the list items can call it too — a HUD
+  // that appeared by accident (or on a machine whose modifiers the OS ate) would
+  // otherwise be a dead end for the mouse.
+  const commit = React.useCallback(
+    (i: number) => {
       const target = workspacesRef.current[i];
       hide();
       if (!target || target.id === currentIdRef.current) return;
@@ -142,7 +153,13 @@ export function WorkspaceSwitchHud({
         "Switching workspace…",
         { variant: "spinner" },
       );
-    };
+    },
+    [hide, router, run],
+  );
+
+  React.useEffect(() => {
+    // Nothing to switch between.
+    if (workspaces.length < 2) return;
 
     // True while the trigger modifiers are both held.
     const held = (e: KeyboardEvent) =>
@@ -239,7 +256,7 @@ export function WorkspaceSwitchHud({
       window.removeEventListener("blur", onBlur);
       clearTimer();
     };
-  }, [isMac, run, router, workspaces.length]);
+  }, [isMac, workspaces.length, clearTimer, commit, hide, setHighlight]);
 
   if (!open) return null;
 
@@ -257,10 +274,19 @@ export function WorkspaceSwitchHud({
         <div className="border-b px-4 py-2.5">
           <p className="text-sm font-medium">Switch workspace</p>
           <p className="text-xs text-muted-foreground">
-            Hold {modifierHint} · ↑↓ or 1–{highestDigit} · release to switch
+            Hold {modifierHint} · ↑↓ or 1–{highestDigit} · release to switch ·
+            Esc to cancel
           </p>
         </div>
-        <ul className="max-h-[60vh] space-y-0.5 overflow-y-auto p-1.5">
+        {/* A real listbox: `aria-selected` only means anything on an `option`
+            inside one, and `aria-activedescendant` is what tells a screen reader
+            the highlight moved while focus stays on the window. */}
+        <ul
+          role="listbox"
+          aria-label="Workspaces"
+          aria-activedescendant={`workspace-peek-${index}`}
+          className="max-h-[60vh] space-y-0.5 overflow-y-auto p-1.5"
+        >
           {workspaces.map((w, i) => {
             const active = i === index;
             const isCurrent = w.id === currentWorkspaceId;
@@ -268,9 +294,14 @@ export function WorkspaceSwitchHud({
             return (
               <li key={w.id}>
                 <div
+                  id={`workspace-peek-${i}`}
+                  role="option"
                   aria-selected={active}
+                  // Clickable as well as holdable — see `commit`.
+                  onMouseEnter={() => setHighlight(i)}
+                  onClick={() => commit(i)}
                   className={cn(
-                    "flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm",
+                    "flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm",
                     active && "bg-accent text-accent-foreground",
                   )}
                 >

@@ -67,6 +67,10 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
   `--caching-disabled`) so a just-written balance is never served stale. `[placement] mode = "smart"`
   co-locates the Worker with Neon's region to cut round-trip latency.
 - Keep the design minimal and neutral (no gradients); income uses a single emerald accent.
+  **One exception:** AI affordances (the composer's Manual/AI toggle and AI mode's
+  primary actions) use a blue→violet gradient, so "this calls a model" is visually
+  distinct from ordinary entry. Don't extend it to anything else, and don't add a
+  second gradient — if a new surface needs one, it reuses this one.
 
 ## Logging — the message is prose, the slug goes in `event`
 Logs ship to BetterStack (`src/lib/logger.ts`), whose list view shows **only the

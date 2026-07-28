@@ -74,6 +74,8 @@ export function TransactionComposer({
 }) {
   // Manual (fields) vs AI (free-text note → reviewed drafts) entry.
   const [mode, setMode] = useState<EntryMode>("manual");
+  // Whether the AI pane is showing its (tall) review list — see the grid below.
+  const [aiReviewing, setAiReviewing] = useState(false);
   const [type, setType] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
@@ -86,8 +88,8 @@ export function TransactionComposer({
   const [editorOpen, setEditorOpen] = useState(false);
   // Description is off by default; a toggle on the amount/title row reveals it.
   const [showDescription, setShowDescription] = useState(false);
-  const [slashDismissed, setSlashDismissed] = useState(false);
-  const [slashIndex, setSlashIndex] = useState(0);
+  const [tagDismissed, setTagDismissed] = useState(false);
+  const [tagIndex, setTagIndex] = useState(0);
   const { send } = usePendingMessages();
   // Files staged for the next send; uploaded to the row once it's created.
   const staged = useStagedAttachments();
@@ -129,13 +131,13 @@ export function TransactionComposer({
   const currentProfile = profiles.find((p) => p.id === profileId) ?? profiles[0] ?? null;
 
   // "#" in the title opens an inline category picker.
-  const slashMatch = titleSource.match(TAG_RE);
-  const slashQuery = slashMatch?.[1] ?? "";
-  const slashActive = !!slashMatch && !slashDismissed;
-  const slashResults = slashActive
-    ? cats.filter((c) => c.name.toLowerCase().includes(slashQuery.toLowerCase())).slice(0, 8)
+  const tagMatch = titleSource.match(TAG_RE);
+  const tagQuery = tagMatch?.[1] ?? "";
+  const tagActive = !!tagMatch && !tagDismissed;
+  const tagResults = tagActive
+    ? cats.filter((c) => c.name.toLowerCase().includes(tagQuery.toLowerCase())).slice(0, 8)
     : [];
-  const slashIdx = slashResults.length ? Math.min(slashIndex, slashResults.length - 1) : 0;
+  const tagIdx = tagResults.length ? Math.min(tagIndex, tagResults.length - 1) : 0;
 
   function switchType(t?: "expense" | "income") {
     setType((prev) => t ?? (prev === "expense" ? "income" : "expense"));
@@ -143,8 +145,11 @@ export function TransactionComposer({
   }
 
   // ⌘/Ctrl+E toggles expense/income even while typing — but not while a dialog
-  // is open (e.g. bulk add), where ⌘E belongs to the focused row there.
+  // is open (e.g. bulk add), where ⌘E belongs to the focused row there, and not
+  // in AI mode, where the manual fields are hidden: it would silently flip a
+  // type the user can't see.
   useShortcut(toggleCombo, () => switchType(), {
+    enabled: mode === "manual",
     allowInInput: true,
     requireNoOverlay: true,
   });
@@ -157,11 +162,11 @@ export function TransactionComposer({
     { requireNoOverlay: true },
   );
 
-  function selectSlashCategory(cat: Pick<Category, "id">) {
+  function selectTagCategory(cat: Pick<Category, "id">) {
     setCategoryId(cat.id);
     setTitleSource((t) => t.replace(TAG_RE, "").replace(/\s+$/, ""));
-    setSlashDismissed(true);
-    setSlashIndex(0);
+    setTagDismissed(true);
+    setTagIndex(0);
   }
 
   function submit() {
@@ -245,7 +250,7 @@ export function TransactionComposer({
     setShowDescription(false);
     setCategoryId(null);
     setOccurredOn(today);
-    setSlashDismissed(false);
+    setTagDismissed(false);
     (isCombined || inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
   }
 
@@ -269,25 +274,25 @@ export function TransactionComposer({
   }
 
   function onTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (slashActive && slashResults.length > 0) {
+    if (tagActive && tagResults.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSlashIndex((i) => (i + 1) % slashResults.length);
+        setTagIndex((i) => (i + 1) % tagResults.length);
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSlashIndex((i) => (i - 1 + slashResults.length) % slashResults.length);
+        setTagIndex((i) => (i - 1 + tagResults.length) % tagResults.length);
         return;
       }
       if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
-        selectSlashCategory(slashResults[slashIdx]);
+        selectTagCategory(tagResults[tagIdx]);
         return;
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        setSlashDismissed(true);
+        setTagDismissed(true);
         return;
       }
     }
@@ -357,8 +362,8 @@ export function TransactionComposer({
         maxLength={TITLE_MAX}
         onChange={(e) => {
           setTitle(e.target.value);
-          setSlashDismissed(false);
-          setSlashIndex(0);
+          setTagDismissed(false);
+          setTagIndex(0);
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Title"
@@ -380,8 +385,8 @@ export function TransactionComposer({
         maxLength={TITLE_MAX + 18}
         onChange={(e) => {
           setCombined(e.target.value);
-          setSlashDismissed(false);
-          setSlashIndex(0);
+          setTagDismissed(false);
+          setTagIndex(0);
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Amount and title"
@@ -397,21 +402,33 @@ export function TransactionComposer({
       {/* Every widget lives inside one rounded, floating card — the tracker list
           scrolls behind it, not under a full-width divider. */}
       <div className="mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background p-3 shadow-lg md:bg-background/95 md:backdrop-blur-sm">
-        {/* Both modes share a single grid cell, so the card is always sized to the
-            taller mode and never resizes when you switch — which is what keeps the
+        {/* Both modes share a single grid cell, so the card is sized to the taller
+            one and doesn't resize when you switch — which is what keeps the
             Manual/AI toggle (top-left of each mode's first row) from shifting
-            between modes. The inactive mode stays mounted (made invisible, not
-            unmounted) so a typed draft or in-flight parse is never discarded. */}
+            between modes. The inactive mode stays mounted so a typed draft or an
+            in-flight parse is never discarded.
+
+            Two ways to hide it, and the difference matters: `invisible` keeps the
+            box (equal heights, no shift), while `hidden` removes it from layout.
+            React preserves state either way. The AI review list is several times
+            taller than the manual row, so reserving *its* height would leave
+            Manual staring at ~400px of empty card — for that one state we drop to
+            `hidden` and accept the small toggle shift. */}
         <div className="grid">
           <div
             className={cn(
               "col-start-1 row-start-1 min-w-0",
-              mode === "ai" ? undefined : "invisible pointer-events-none",
+              mode === "ai"
+                ? undefined
+                : aiReviewing
+                  ? "hidden"
+                  : "invisible pointer-events-none",
             )}
           >
             <AiTransactionInput
               mode={mode}
               onModeChange={setMode}
+              onReviewingChange={setAiReviewing}
               categories={categories}
               currency={currency}
               locale={locale}
@@ -428,265 +445,265 @@ export function TransactionComposer({
               mode === "manual" ? undefined : "invisible pointer-events-none",
             )}
           >
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            submit();
-          }}
-        >
-      {/* Drop files anywhere on the tracker to stage them for the next send. */}
-      <PageAttachmentDrop
-        onFiles={stageDropped}
-        disabled={switching || mode !== "manual"}
-        label="Drop files to attach to your transaction"
-      />
-      {/* Disable every field/button while a profile switch is in flight — the
-          native `disabled` on a fieldset cascades to all controls inside. */}
-      <fieldset
-        disabled={switching}
-        className="m-0 min-w-0 border-0 p-0 transition-opacity disabled:opacity-60"
-      >
-      <div className="flex flex-col gap-2">
-        {/* Controls: type on the left; date / profile / category pushed to the
-            right. On mobile the full category list drops to its own row (in
-            all-profiles it collapses to a tag icon inside the right cluster). */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-2">
-            <EntryModeToggle mode={mode} onChange={setMode} />
-            <div className="inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
-              {(["expense", "income"] as const).map((t) => {
-                const active = type === t;
-                // "+" reads as money in, "−" as money out (clearer than arrows).
-                const Icon = t === "income" ? Plus : Minus;
-                const color =
-                  t === "income"
-                    ? "text-emerald-600 dark:text-emerald-400"
-                    : "text-rose-600 dark:text-rose-400";
-                return (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => switchType(t)}
-                    aria-pressed={active}
-                    aria-label={t}
-                    className={cn(
-                      "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 capitalize transition-colors sm:px-3",
-                      active
-                        ? "bg-background font-medium shadow-sm"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    <Icon className={cn("size-4", color)} />
-                    <span className="hidden sm:inline">{t}</span>
-                    {/* The ⌘E hint rides inside the active capsule (desktop only). */}
-                    {active && (
-                      <Kbd combo={toggleCombo} className="hidden opacity-70 sm:inline-flex" />
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="ml-auto flex min-w-0 items-center gap-2">
-              {/* Attach receipts/bills/invoices — sits to the left of the date. */}
-              <AttachmentDropzone
-                variant="inline"
-                onFiles={staged.add}
-                remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                submit();
+              }}
+            >
+              {/* Drop files anywhere on the tracker to stage them for the next send. */}
+              <PageAttachmentDrop
+                onFiles={stageDropped}
+                disabled={switching || mode !== "manual"}
+                label="Drop files to attach to your transaction"
+              />
+              {/* Disable every field/button while a profile switch is in flight — the
+                  native `disabled` on a fieldset cascades to all controls inside. */}
+              <fieldset
                 disabled={switching}
-                className="size-8 border"
-              />
-              <DatePicker
-                value={occurredOn}
-                max={today}
-                onChange={setOccurredOn}
-                compact
-                className="h-8 w-auto"
-              />
-              {allProfiles && profiles.length > 0 && (
-                <Select value={profileId} onValueChange={setProfileId}>
-                  <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile for new transaction">
-                    <span aria-hidden className="text-base leading-none">
-                      {currentProfile?.icon ?? "👤"}
-                    </span>
-                    <span className="hidden max-w-24 truncate md:inline">
-                      {currentProfile?.name}
-                    </span>
-                  </SelectTrigger>
-                  {/* popper positioning is reliable for a small trigger pinned at
-                      the bottom of the screen; item-aligned mispositions there. */}
-                  <SelectContent align="end" position="popper">
-                    {profiles.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.icon ? `${p.icon} ` : ""}
-                        {p.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {/* Mobile: categories always collapse to a tag icon in the right
-                  cluster (every profile view — the slider is desktop-only). */}
-              <div className="shrink-0 md:hidden">
-                <CategoryRow
-                  compact
-                  categories={cats}
-                  value={categoryId}
-                  onChange={setCategoryId}
-                  onEdit={() => setEditorOpen(true)}
-                />
-              </div>
-            </div>
-          </div>
+                className="m-0 min-w-0 border-0 p-0 transition-opacity disabled:opacity-60"
+              >
+                <div className="flex flex-col gap-2">
+                  {/* Controls: type on the left; date / profile / category pushed to the
+                      right. On mobile the full category list drops to its own row (in
+                      all-profiles it collapses to a tag icon inside the right cluster). */}
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center gap-2">
+                      <EntryModeToggle mode={mode} onChange={setMode} />
+                      <div className="inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
+                        {(["expense", "income"] as const).map((t) => {
+                          const active = type === t;
+                          // "+" reads as money in, "−" as money out (clearer than arrows).
+                          const Icon = t === "income" ? Plus : Minus;
+                          const color =
+                            t === "income"
+                              ? "text-emerald-600 dark:text-emerald-400"
+                              : "text-rose-600 dark:text-rose-400";
+                          return (
+                            <button
+                              key={t}
+                              type="button"
+                              onClick={() => switchType(t)}
+                              aria-pressed={active}
+                              aria-label={t}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 capitalize transition-colors sm:px-3",
+                                active
+                                  ? "bg-background font-medium shadow-sm"
+                                  : "text-muted-foreground hover:text-foreground",
+                              )}
+                            >
+                              <Icon className={cn("size-4", color)} />
+                              <span className="hidden sm:inline">{t}</span>
+                              {/* The ⌘E hint rides inside the active capsule (desktop only). */}
+                              {active && (
+                                <Kbd combo={toggleCombo} className="hidden opacity-70 sm:inline-flex" />
+                              )}
+                            </button>
+                          );
+                        })}
+                      </div>
 
-          {/* Desktop: the full inline category slider. On mobile it's the tag
-              icon in the cluster above instead. */}
-          <div className="hidden min-w-0 md:block">
-            <CategoryRow
-              categories={cats}
-              value={categoryId}
-              onChange={setCategoryId}
-              onEdit={() => setEditorOpen(true)}
-            />
-          </div>
-        </div>
-
-        {/* Live parse feedback for the single-field mode, shown above the input. */}
-        {isCombined && combined.trim() && combinedAmountOverLimit && (
-          <p className="px-0.5 text-xs text-destructive">Amount is too large (max 9 digits)</p>
-        )}
-        {isCombined && combined.trim() && !combinedAmountOverLimit && (
-          <p className="px-0.5 text-xs text-muted-foreground">
-            {quick!.amount != null && quick!.title ? (
-              <>
-                Adds{" "}
-                <span className="font-medium text-foreground tabular-nums">
-                  {symbol}
-                  {quick!.amount}
-                </span>{" "}
-                · {quick!.title}
-              </>
-            ) : quick!.amount != null ? (
-              <>
-                Amount{" "}
-                <span className="font-medium text-foreground tabular-nums">
-                  {symbol}
-                  {quick!.amount}
-                </span>{" "}
-                — now add a title
-              </>
-            ) : (
-              <>
-                Start with a number, e.g.{" "}
-                <span className="font-medium text-foreground">100 fruits</span>
-              </>
-            )}
-          </p>
-        )}
-
-        {/* Staged files sit just above the input row, like drafted photos in a
-            chat composer. Scrolls if several are queued. */}
-        {staged.items.length > 0 ? (
-          <div className="max-h-40 space-y-2 overflow-y-auto">
-            <StagedAttachmentList
-              items={staged.items}
-              onRemove={staged.remove}
-              onUpdate={staged.update}
-              disabled={switching}
-            />
-          </div>
-        ) : null}
-
-        <div className="relative flex flex-wrap items-end gap-2">
-          {/* Field order follows the user's chosen input mode. */}
-          {isCombined ? (
-            combinedField
-          ) : inputMode === "title_amount" ? (
-            <>
-              {titleField}
-              {amountField}
-            </>
-          ) : (
-            <>
-              {amountField}
-              {titleField}
-            </>
-          )}
-
-          {/* Mobile only: toggle the description field. Desktop always shows it. */}
-          <Button
-            type="button"
-            variant={showDescription ? "secondary" : "outline"}
-            size="icon"
-            aria-label={showDescription ? "Hide description" : "Add a description"}
-            aria-pressed={showDescription}
-            onClick={() => setShowDescription((v) => !v)}
-            className="h-8 shrink-0 md:hidden"
-          >
-            <AlignLeft className="size-4" />
-          </Button>
-
-          {/* Send sits inline on desktop; on mobile it moves to a full-width
-              button at the bottom (see below) for an easier thumb reach. */}
-          <div className="hidden md:block">{sendButton}</div>
-
-          {/* Anchored to the input row (not the narrow title) and clamped to the
-              viewport, so it never runs off-screen on a phone. */}
-          {slashActive && (
-            <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
-              {slashResults.length > 0 ? (
-                <ul className="max-h-56 overflow-y-auto">
-                  {slashResults.map((c, i) => (
-                    <li key={c.id}>
-                      <button
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          selectSlashCategory(c);
-                        }}
-                        className={cn(
-                          "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                          i === slashIdx ? "bg-accent" : "hover:bg-muted",
+                      <div className="ml-auto flex min-w-0 items-center gap-2">
+                        {/* Attach receipts/bills/invoices — sits to the left of the date. */}
+                        <AttachmentDropzone
+                          variant="inline"
+                          onFiles={staged.add}
+                          remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
+                          disabled={switching}
+                          className="size-8 border"
+                        />
+                        <DatePicker
+                          value={occurredOn}
+                          max={today}
+                          onChange={setOccurredOn}
+                          compact
+                          className="h-8 w-auto"
+                        />
+                        {allProfiles && profiles.length > 0 && (
+                          <Select value={profileId} onValueChange={setProfileId}>
+                            <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile for new transaction">
+                              <span aria-hidden className="text-base leading-none">
+                                {currentProfile?.icon ?? "👤"}
+                              </span>
+                              <span className="hidden max-w-24 truncate md:inline">
+                                {currentProfile?.name}
+                              </span>
+                            </SelectTrigger>
+                            {/* popper positioning is reliable for a small trigger pinned at
+                                the bottom of the screen; item-aligned mispositions there. */}
+                            <SelectContent align="end" position="popper">
+                              {profiles.map((p) => (
+                                <SelectItem key={p.id} value={p.id}>
+                                  {p.icon ? `${p.icon} ` : ""}
+                                  {p.name}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         )}
-                      >
-                        <span aria-hidden>{c.icon ?? "🏷️"}</span>
-                        <span className="truncate">{c.name}</span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                  No category matches “{slashQuery}”
-                </p>
-              )}
-            </div>
-          )}
-        </div>
+                        {/* Mobile: categories always collapse to a tag icon in the right
+                            cluster (every profile view — the slider is desktop-only). */}
+                        <div className="shrink-0 md:hidden">
+                          <CategoryRow
+                            compact
+                            categories={cats}
+                            value={categoryId}
+                            onChange={setCategoryId}
+                            onEdit={() => setEditorOpen(true)}
+                          />
+                        </div>
+                      </div>
+                    </div>
 
-        {/* Desktop: always visible. Mobile: only when the toggle is on. */}
-        <Input
-          ref={descRef}
-          placeholder="Add a description (optional)"
-          value={description}
-          maxLength={DESCRIPTION_MAX}
-          onChange={(e) => setDescription(e.target.value)}
-          onKeyDown={onDescriptionKeyDown}
-          aria-label="Description"
-          className={cn("h-8", !showDescription && "hidden md:block")}
-        />
+                    {/* Desktop: the full inline category slider. On mobile it's the tag
+                        icon in the cluster above instead. */}
+                    <div className="hidden min-w-0 md:block">
+                      <CategoryRow
+                        categories={cats}
+                        value={categoryId}
+                        onChange={setCategoryId}
+                        onEdit={() => setEditorOpen(true)}
+                      />
+                    </div>
+                  </div>
 
-        {/* Full-width send on mobile — easy thumb reach at the bottom. */}
-        <Button
-          type="submit"
-          aria-label={`Send transaction (${submitLabel})`}
-          className="h-9 w-full gap-1.5 text-sm md:hidden"
-        >
-          <ArrowUp className="size-4" /> Send
-        </Button>
-      </div>
-      </fieldset>
-        </form>
+                  {/* Live parse feedback for the single-field mode, shown above the input. */}
+                  {isCombined && combined.trim() && combinedAmountOverLimit && (
+                    <p className="px-0.5 text-xs text-destructive">Amount is too large (max 9 digits)</p>
+                  )}
+                  {isCombined && combined.trim() && !combinedAmountOverLimit && (
+                    <p className="px-0.5 text-xs text-muted-foreground">
+                      {quick!.amount != null && quick!.title ? (
+                        <>
+                          Adds{" "}
+                          <span className="font-medium text-foreground tabular-nums">
+                            {symbol}
+                            {quick!.amount}
+                          </span>{" "}
+                          · {quick!.title}
+                        </>
+                      ) : quick!.amount != null ? (
+                        <>
+                          Amount{" "}
+                          <span className="font-medium text-foreground tabular-nums">
+                            {symbol}
+                            {quick!.amount}
+                          </span>{" "}
+                          — now add a title
+                        </>
+                      ) : (
+                        <>
+                          Start with a number, e.g.{" "}
+                          <span className="font-medium text-foreground">100 fruits</span>
+                        </>
+                      )}
+                    </p>
+                  )}
+
+                  {/* Staged files sit just above the input row, like drafted photos in a
+                      chat composer. Scrolls if several are queued. */}
+                  {staged.items.length > 0 ? (
+                    <div className="max-h-40 space-y-2 overflow-y-auto">
+                      <StagedAttachmentList
+                        items={staged.items}
+                        onRemove={staged.remove}
+                        onUpdate={staged.update}
+                        disabled={switching}
+                      />
+                    </div>
+                  ) : null}
+
+                  <div className="relative flex flex-wrap items-end gap-2">
+                    {/* Field order follows the user's chosen input mode. */}
+                    {isCombined ? (
+                      combinedField
+                    ) : inputMode === "title_amount" ? (
+                      <>
+                        {titleField}
+                        {amountField}
+                      </>
+                    ) : (
+                      <>
+                        {amountField}
+                        {titleField}
+                      </>
+                    )}
+
+                    {/* Mobile only: toggle the description field. Desktop always shows it. */}
+                    <Button
+                      type="button"
+                      variant={showDescription ? "secondary" : "outline"}
+                      size="icon"
+                      aria-label={showDescription ? "Hide description" : "Add a description"}
+                      aria-pressed={showDescription}
+                      onClick={() => setShowDescription((v) => !v)}
+                      className="h-8 shrink-0 md:hidden"
+                    >
+                      <AlignLeft className="size-4" />
+                    </Button>
+
+                    {/* Send sits inline on desktop; on mobile it moves to a full-width
+                        button at the bottom (see below) for an easier thumb reach. */}
+                    <div className="hidden md:block">{sendButton}</div>
+
+                    {/* Anchored to the input row (not the narrow title) and clamped to the
+                        viewport, so it never runs off-screen on a phone. */}
+                    {tagActive && (
+                      <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
+                        {tagResults.length > 0 ? (
+                          <ul className="max-h-56 overflow-y-auto">
+                            {tagResults.map((c, i) => (
+                              <li key={c.id}>
+                                <button
+                                  type="button"
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    selectTagCategory(c);
+                                  }}
+                                  className={cn(
+                                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                                    i === tagIdx ? "bg-accent" : "hover:bg-muted",
+                                  )}
+                                >
+                                  <span aria-hidden>{c.icon ?? "🏷️"}</span>
+                                  <span className="truncate">{c.name}</span>
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="px-2 py-1.5 text-sm text-muted-foreground">
+                            No category matches “{tagQuery}”
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Desktop: always visible. Mobile: only when the toggle is on. */}
+                  <Input
+                    ref={descRef}
+                    placeholder="Add a description (optional)"
+                    value={description}
+                    maxLength={DESCRIPTION_MAX}
+                    onChange={(e) => setDescription(e.target.value)}
+                    onKeyDown={onDescriptionKeyDown}
+                    aria-label="Description"
+                    className={cn("h-8", !showDescription && "hidden md:block")}
+                  />
+
+                  {/* Full-width send on mobile — easy thumb reach at the bottom. */}
+                  <Button
+                    type="submit"
+                    aria-label={`Send transaction (${submitLabel})`}
+                    className="h-9 w-full gap-1.5 text-sm md:hidden"
+                  >
+                    <ArrowUp className="size-4" /> Send
+                  </Button>
+                </div>
+              </fieldset>
+            </form>
           </div>
         </div>
       </div>

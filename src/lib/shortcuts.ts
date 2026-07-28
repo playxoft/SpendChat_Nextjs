@@ -26,6 +26,10 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "tracker.submit", combo: "mod+enter", label: "Send the transaction", scope: "Tracker" },
   { id: "tracker.description", combo: "shift+enter", label: "Jump to the description field", scope: "Tracker" },
   { id: "tracker.toggle-mode", combo: "a", label: "Switch between Manual and AI entry", scope: "Tracker" },
+  // Display-only: "#" is a character you type into the field, not a bound key.
+  // (`matches()` couldn't fire it anyway — it normalizes "#" to its physical
+  // code "3" and the combo declares no shift.) The composer drives the picker
+  // off the field's text; this entry exists so the cheat sheet documents it.
   { id: "tracker.category", combo: "#", label: "Tag a category from the title field", scope: "Tracker" },
   { id: "tracker.toggle-type", combo: "mod+e", label: "Switch between expense and income", scope: "Tracker" },
   { id: "profiles.all", combo: "shift+`", label: "Show all profiles", scope: "Profiles" },

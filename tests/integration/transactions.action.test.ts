@@ -1,12 +1,22 @@
-import { describe, it, expect } from "vitest";
-import { and, eq } from "drizzle-orm";
-import { profiles, transactions, workspaces } from "@/db/schema";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { and, count, eq } from "drizzle-orm";
+import {
+  aiUsageLog,
+  profiles,
+  transactions,
+  userSettings,
+  workspaceMembers,
+  workspaces,
+} from "@/db/schema";
 import {
   addTransaction,
   updateTransaction,
   deleteTransaction,
   addBulkTransactions,
+  parseTransactionsWithAI,
 } from "@/actions/transactions";
+import { AI_REQUESTS_PER_HOUR } from "@/lib/ai-quota";
+import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { setSession, signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
@@ -16,10 +26,19 @@ import {
   categoryId,
   insertTxn,
   countTxns,
+  workspaceIdOf,
 } from "./helpers/seed";
 
 const rows = (userId: string) =>
   getTestDb().select().from(transactions).where(eq(transactions.userId, uid(userId)));
+
+/** Rows in the AI quota/audit log for a user — the counter the cap reads. */
+const aiUsageCount = (userId: string) =>
+  getTestDb()
+    .select({ n: count() })
+    .from(aiUsageLog)
+    .where(eq(aiUsageLog.userId, uid(userId)))
+    .then((r) => r[0]!.n);
 
 describe("addTransaction", () => {
   it("inserts a transaction, converting the amount via the user's currency", async () => {
@@ -362,5 +381,111 @@ describe("tenant isolation (bulk)", () => {
       .from(transactions)
       .where(and(eq(transactions.userId, uid("a")), eq(transactions.profileId, aProfile)));
     expect(row.userId).toBe(uid("a"));
+  });
+});
+
+describe("parseTransactionsWithAI — gates before the model is ever called", () => {
+  // The provider is never reached in any of these: each case must be rejected
+  // by a gate first. A stubbed fetch that throws proves it — if a gate leaks,
+  // the test fails loudly instead of silently passing on a 502.
+  function forbidNetwork() {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        throw new Error("the AI provider must not be reached");
+      }),
+    );
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("rejects an empty note", async () => {
+    forbidNetwork();
+    signInAs("a");
+    await bootstrapUser("a");
+    const res = await parseTransactionsWithAI("   ");
+    expect(res).toMatchObject({ ok: false });
+  });
+
+  it("rejects a note past the input cap", async () => {
+    forbidNetwork();
+    signInAs("a");
+    await bootstrapUser("a");
+    const res = await parseTransactionsWithAI("x".repeat(MAX_INPUT_CHARS + 1));
+    expect(res).toMatchObject({ ok: false });
+    // Refused locally, so it must not have cost the caller a quota slot.
+    expect(await aiUsageCount("a")).toBe(0);
+  });
+
+  it("forbids a viewer — the UI hides AI mode, the action must too", async () => {
+    forbidNetwork();
+    await bootstrapUser("a");
+    await bootstrapUser("b");
+    const ws = await workspaceIdOf("a");
+    const db = getTestDb();
+    await db
+      .insert(workspaceMembers)
+      .values({ workspaceId: ws, userId: uid("b"), role: "viewer" })
+      .onConflictDoNothing();
+    // Make a's workspace b's *current* one, which is what the action reads.
+    await db
+      .update(userSettings)
+      .set({ lastWorkspaceId: ws })
+      .where(eq(userSettings.userId, uid("b")));
+
+    signInAs("b");
+    const res = await parseTransactionsWithAI("200 fruits");
+    expect(res).toEqual({
+      ok: false,
+      error: "You don't have permission to add transactions in this workspace",
+    });
+    // A denied caller must not burn quota either.
+    expect(await aiUsageCount("b")).toBe(0);
+  });
+
+  it("stops at the hourly quota, and only counts requests inside the window", async () => {
+    forbidNetwork();
+    signInAs("a");
+    await bootstrapUser("a");
+    const ws = await workspaceIdOf("a");
+    const db = getTestDb();
+
+    // One request older than the window — it must not count against the cap.
+    await db.insert(aiUsageLog).values({
+      userId: uid("a"),
+      workspaceId: ws,
+      kind: "transaction_parse",
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+    });
+    // Fill the window exactly to the cap.
+    await db.insert(aiUsageLog).values(
+      Array.from({ length: AI_REQUESTS_PER_HOUR }, () => ({
+        userId: uid("a"),
+        workspaceId: ws,
+        kind: "transaction_parse",
+      })),
+    );
+
+    const res = await parseTransactionsWithAI("200 fruits");
+    expect(res).toMatchObject({ ok: false });
+    if (!res.ok) expect(res.error).toMatch(/try again later/i);
+  });
+
+  it("passes the gates and fails at the unconfigured model, not before", async () => {
+    // With no AI_PARSE_MODEL the call gets all the way to `resolveModel` and
+    // reports "not available" — proof the gates above aren't over-blocking.
+    vi.stubEnv("AI_PARSE_MODEL", "");
+    vi.stubEnv("AI_PARSE_MODEL_CURRENT", "");
+    forbidNetwork();
+    signInAs("a");
+    await bootstrapUser("a");
+
+    const res = await parseTransactionsWithAI("200 fruits");
+    expect(res).toEqual({ ok: false, error: "AI-assisted input isn't available right now." });
+    // It got past the quota gate, so the attempt was recorded.
+    expect(await aiUsageCount("a")).toBe(1);
   });
 });
