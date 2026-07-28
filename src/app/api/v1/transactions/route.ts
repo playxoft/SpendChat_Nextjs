@@ -38,7 +38,11 @@ export async function POST(request: NextRequest) {
   return handle(async () => {
     const { user, workspace } = await getApiContext(request);
     const body = await readJson(request);
-    const created = await createTransaction(user.id, workspace.id, body);
+    // Currency/locale come from the workspace we already resolved — no re-select.
+    const created = await createTransaction(user.id, workspace.id, body, {
+      currency: workspace.currency,
+      locale: workspace.locale,
+    });
     return apiOk(serializeTransaction(created, workspace.currency), 201);
   });
 }

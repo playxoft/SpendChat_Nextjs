@@ -29,17 +29,21 @@ import { getLogContext } from "@/lib/log-context";
  *
  * ## Every log carries the request identity
  *
- * `requestId`, `platform`, `userId`, `workspaceId`, and `profileId` are attached
- * to every event automatically from the per-request `AsyncLocalStorage` context
- * (`src/lib/log-context.ts`), so you never pass them by hand — they're always
- * present (null when outside a request or not yet resolved). Explicit `meta`
- * wins over the context for the same key.
+ * `requestId`, `platform`, `host`, `userId`, `workspaceId`, and `profileId` are
+ * attached to every event automatically from the per-request `AsyncLocalStorage`
+ * context (`src/lib/log-context.ts`), so you never pass them by hand — they're
+ * always present (null when outside a request or not yet resolved). Explicit
+ * `meta` wins over the context for the same key. The static deploy `environment`
+ * (see APP_ENV below) is attached to shipped events separately.
  *
- * Configuration (managed in Doppler — all optional; shipping is simply skipped
- * when the token/host are absent, so local dev needs nothing):
+ * Configuration (managed in Doppler / wrangler — all optional; shipping is
+ * simply skipped when the token/host are absent, so local dev needs nothing):
  *   BETTERSTACK_SOURCE_TOKEN   – the source's ingest token (sent as Bearer)
  *   BETTERSTACK_INGESTING_HOST – e.g. s1234567.eu-nbg-2.betterstackdata.com
  *   LOG_LEVEL                  – debug | info | warn | error | silent (default: info)
+ *   APP_ENV                    – deploy env shipped as `environment`: "production"
+ *                                / "beta" (set per env in wrangler.toml
+ *                                [env.*.vars]); absent locally → "development".
  *
  * Shipping is deferred with next/server `after()` so it never adds latency to a
  * response (on Cloudflare Workers this maps to `waitUntil`), and every failure
@@ -137,7 +141,10 @@ function ship(level: LogLevel, message: string, meta?: LogMeta): void {
     level,
     message,
     service: SERVICE,
-    environment: process.env.NODE_ENV ?? "development",
+    // Deploy env (production/beta), not NODE_ENV — which is "production" on both
+    // deployed workers. Sourced from the APP_ENV var set per env in wrangler.toml;
+    // absent locally, so dev/tests report "development".
+    environment: process.env.APP_ENV ?? "development",
   };
   const send = () =>
     fetch(`https://${INGEST_HOST}`, {
@@ -169,6 +176,7 @@ function withRequestFields(meta?: LogMeta): LogMeta {
   return {
     requestId: ctx.requestId,
     platform: ctx.platform,
+    host: ctx.host,
     userId: ctx.userId,
     workspaceId: ctx.workspaceId,
     profileId: ctx.profileId,

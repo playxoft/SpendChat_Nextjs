@@ -93,7 +93,19 @@ export function PendingMessagesProvider({ children }: { children: ReactNode }) {
   const run = useCallback(
     (tempId: string, input: TransactionInput, attachments?: StagedInput[]) => {
       startTransition(async () => {
+        // Perceived server round-trip as the user feels it: network + the
+        // `addTransaction` server action + the revalidated RSC payload for the
+        // tracker feed (Next streams all of it in this one response). Logged to
+        // the browser console so it shows in local dev and in the deployed app's
+        // devtools; the server-side breakdown ships to BetterStack separately.
+        const startedAt = performance.now();
         const res = await addTransaction(input);
+        const roundTripMs = Math.round(performance.now() - startedAt);
+        console.info(`[timing] send round-trip ${roundTripMs}ms (${res.ok ? "ok" : "failed"})`, {
+          event: "client.send.timing",
+          roundTripMs,
+          ok: res.ok,
+        });
         setPending((prev) =>
           prev.map((m) => {
             if (m.tempId !== tempId) return m;

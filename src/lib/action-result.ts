@@ -2,6 +2,7 @@ import { ApiError } from "@/lib/errors";
 import { describeError, logger, type LogMeta } from "@/lib/logger";
 import { setLogContext } from "@/lib/log-context";
 import { withRequestContext } from "@/lib/request-context";
+import { getTimingScope, summarizeTimingScope, withTiming } from "@/lib/timing";
 
 /**
  * Bridges the shared service layer to the web server actions. Services throw
@@ -27,14 +28,18 @@ export async function runAction<T extends object = Record<never, never>>(
   // seed the identity from the caller-provided meta, so the action's own log
   // lines *and* the DB queries it triggers all carry it. The service layer may
   // refine `profileId` to the actually-resolved profile.
-  return withRequestContext("web", () => {
-    setLogContext({
-      userId: typeof meta.userId === "string" ? meta.userId : null,
-      workspaceId: typeof meta.workspaceId === "string" ? meta.workspaceId : null,
-      profileId: typeof meta.profileId === "string" ? meta.profileId : null,
-    });
-    return runActionInner(action, fn, meta, Date.now());
-  });
+  return withRequestContext("web", () =>
+    // A timing scope so every `time()` step and DB round-trip inside the action
+    // rolls up into the one `action.ok` breakdown line below.
+    withTiming(() => {
+      setLogContext({
+        userId: typeof meta.userId === "string" ? meta.userId : null,
+        workspaceId: typeof meta.workspaceId === "string" ? meta.workspaceId : null,
+        profileId: typeof meta.profileId === "string" ? meta.profileId : null,
+      });
+      return runActionInner(action, fn, meta, Date.now());
+    }),
+  );
 }
 
 async function runActionInner<T extends object>(
@@ -46,11 +51,16 @@ async function runActionInner<T extends object>(
   try {
     const extra = await fn();
     const durationMs = Date.now() - startedAt;
-    logger.info(`Action ${action} succeeded in ${durationMs}ms`, {
+    // Append the DB + per-step breakdown so one row shows where the time went:
+    // `Action addTransaction succeeded in 1180ms — db 9 queries 760ms; ensureBootstrap 210ms, insert 90ms, …`.
+    const scope = getTimingScope();
+    const breakdown = scope ? ` — ${summarizeTimingScope(scope)}` : "";
+    logger.info(`Action ${action} succeeded in ${durationMs}ms${breakdown}`, {
       event: "action.ok",
       action,
       ...meta,
       durationMs,
+      ...(scope ? { dbQueries: scope.db.count, dbMs: scope.db.totalMs, steps: scope.spans } : {}),
     });
     return { ok: true, ...extra };
   } catch (err) {

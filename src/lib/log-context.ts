@@ -4,7 +4,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 /**
  * Per-request logging context.
  *
- * These five fields are attached to *every* log line automatically (see
+ * These six fields are attached to *every* log line automatically (see
  * `src/lib/logger.ts`), so BetterStack can filter and group by them without each
  * call site having to remember to pass them. Outside a request (scripts, tests,
  * module init) they're all null.
@@ -20,6 +20,13 @@ export type LogContext = {
   requestId: string | null;
   /** Client platform: "web" (Next.js app), "android" / "ios" (Flutter), or "api". */
   platform: string | null;
+  /**
+   * Request `Host` header — which deployment served it: `spendchat.app`,
+   * `beta.spendchat.app`, or `localhost:3010` in dev. Complements `environment`
+   * (the static deploy env, shipped separately) so you can filter BetterStack by
+   * the exact hostname a request hit.
+   */
+  host: string | null;
   userId: string | null;
   workspaceId: string | null;
   /** The single profile a request targets, when it has one (else null). */
@@ -29,6 +36,7 @@ export type LogContext = {
 const EMPTY: LogContext = {
   requestId: null,
   platform: null,
+  host: null,
   userId: null,
   workspaceId: null,
   profileId: null,
@@ -71,18 +79,21 @@ export function normalizePlatform(raw: string | null | undefined): string | null
 }
 
 /**
- * Derive the request-identity seed (requestId + platform) from a header getter.
+ * Derive the request seed (requestId + platform + host) from a header getter.
  * Pure so it needs no `next/headers`: callers pass `(name) => headers.get(name)`.
  * `cf-ray` is Cloudflare's per-request id in production; without it (local dev,
  * tests) we mint a uuid. `fallbackPlatform` applies when the client sends no
  * `X-Client-Platform` — "web" for server actions, "api" for the mobile REST API.
+ * `host` is the request's `Host` header (the deployment's hostname), or null
+ * when absent.
  */
 export function seedFromHeaders(
   get: (name: string) => string | null,
   fallbackPlatform: string,
-): Pick<LogContext, "requestId" | "platform"> {
+): Pick<LogContext, "requestId" | "platform" | "host"> {
   return {
     requestId: get("cf-ray") ?? crypto.randomUUID(),
     platform: normalizePlatform(get("x-client-platform")) ?? fallbackPlatform,
+    host: get("host"),
   };
 }
