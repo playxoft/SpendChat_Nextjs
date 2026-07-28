@@ -16,7 +16,8 @@ import {
 import { CategoryRow } from "./category-row";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { AiTransactionInput } from "./ai-transaction-input";
-import { EntryModeToggle, type EntryMode } from "./entry-mode-toggle";
+import { EntryModeToggle } from "./entry-mode-toggle";
+import { useEntryMode } from "./entry-mode-store";
 import { cn } from "@/lib/utils";
 import { usePendingMessages } from "./pending-messages";
 import { useLoadingOverlay } from "./loading-overlay";
@@ -72,8 +73,9 @@ export function TransactionComposer({
   /** How to lay out the amount/title inputs (from user settings). */
   inputMode?: InputMode;
 }) {
-  // Manual (fields) vs AI (free-text note → reviewed drafts) entry.
-  const [mode, setMode] = useState<EntryMode>("manual");
+  // Manual (fields) vs AI (free-text note → reviewed drafts) entry. Persisted in
+  // localStorage so a refresh / re-login reopens the same mode (see the store).
+  const [mode, changeMode] = useEntryMode();
   // Whether the AI pane is showing its (tall) review list — see the grid below.
   const [aiReviewing, setAiReviewing] = useState(false);
   const [type, setType] = useState<"expense" | "income">("expense");
@@ -116,6 +118,10 @@ export function TransactionComposer({
   // the title too. Instead flag the field red when the parsed amount is over the
   // 9-digit cap; submit is blocked by the same check below.
   const combinedAmountOverLimit = quick?.amount != null && quick.amount > AMOUNT_MAX;
+
+  // Always-on preview for the two-field modes: the parsed amount (0 when the
+  // field is blank or unparseable) drives an ever-present "add a title" nudge.
+  const previewAmount = parseAmountInput(amount, locale) ?? 0;
 
   const toggleCombo = comboFor("tracker.toggle-type");
   const submitCombo = comboFor("tracker.submit");
@@ -161,7 +167,7 @@ export function TransactionComposer({
   // owns `mode`; single-key, so it stays quiet while a field is focused.
   useShortcut(
     comboFor("tracker.toggle-mode"),
-    () => setMode((m) => (m === "manual" ? "ai" : "manual")),
+    () => changeMode(mode === "manual" ? "ai" : "manual"),
     { requireNoOverlay: true },
   );
 
@@ -351,7 +357,7 @@ export function TransactionComposer({
         }}
         onKeyDown={onAmountKeyDown}
         aria-label="Amount"
-        className="h-8 w-28 pl-7 tabular-nums"
+        className="h-8 w-28 pl-7 tabular-nums md:text-base"
       />
     </div>
   );
@@ -370,9 +376,25 @@ export function TransactionComposer({
     />
   );
 
+  // Amount-first mode instead puts the paperclip as a standalone leading button
+  // at the very left of the row (left of the amount box), not inside a field.
+  const standaloneAttach = (
+    <AttachmentDropzone
+      variant="inline"
+      onFiles={staged.add}
+      remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
+      disabled={switching}
+      className="size-8 shrink-0 border"
+    />
+  );
+
+  // The clip leads the title only when the title is the row's first field
+  // (title-first). In amount-first mode it moves to `standaloneAttach` above, so
+  // the title drops its leading clip and gets normal padding.
+  const titleLeadsRow = inputMode === "title_amount";
   const titleField = (
     <div className="relative min-w-32 flex-1">
-      {attachButton}
+      {titleLeadsRow && attachButton}
       <Input
         ref={titleRef}
         placeholder="Add a title — type # to tag a category"
@@ -385,7 +407,7 @@ export function TransactionComposer({
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Title"
-        className="h-8 w-full pl-9"
+        className={cn("h-8 w-full md:text-base", titleLeadsRow && "pl-9")}
       />
     </div>
   );
@@ -411,7 +433,7 @@ export function TransactionComposer({
         aria-label="Amount and title"
         // Red bar when the amount is over the 9-digit cap (submit is blocked too).
         aria-invalid={combinedAmountOverLimit || undefined}
-        className="h-8 w-full pl-9"
+        className="h-8 w-full pl-9 md:text-base"
       />
     </div>
   );
@@ -446,7 +468,7 @@ export function TransactionComposer({
           >
             <AiTransactionInput
               mode={mode}
-              onModeChange={setMode}
+              onModeChange={changeMode}
               onReviewingChange={setAiReviewing}
               categories={categories}
               currency={currency}
@@ -488,7 +510,7 @@ export function TransactionComposer({
                       all-profiles it collapses to a tag icon inside the right cluster). */}
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center gap-2">
-                      <EntryModeToggle mode={mode} onChange={setMode} />
+                      <EntryModeToggle mode={mode} onChange={changeMode} />
                       <div className="inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
                         {(["expense", "income"] as const).map((t) => {
                           const active = type === t;
@@ -581,35 +603,66 @@ export function TransactionComposer({
                     </div>
                   </div>
 
-                  {/* Live parse feedback for the single-field mode, shown above the input. */}
-                  {isCombined && combined.trim() && combinedAmountOverLimit && (
-                    <p className="px-0.5 text-xs text-destructive">Amount is too large (max 9 digits)</p>
-                  )}
-                  {isCombined && combined.trim() && !combinedAmountOverLimit && (
+                  {/* Live parse feedback for the single-field mode — always on, so
+                      the "Amount ₹0 — add a title" nudge shows before you type too. */}
+                  {isCombined &&
+                    (combinedAmountOverLimit ? (
+                      <p className="px-0.5 text-xs text-destructive">Amount is too large (max 9 digits)</p>
+                    ) : (
+                      <p className="px-0.5 text-xs text-muted-foreground">
+                        {quick!.amount != null && quick!.title ? (
+                          <>
+                            Adds{" "}
+                            <span className="font-medium text-foreground tabular-nums">
+                              {symbol}
+                              {quick!.amount}
+                            </span>{" "}
+                            · <span className="font-medium text-foreground">{quick!.title}</span>
+                          </>
+                        ) : quick!.amount != null ? (
+                          <>
+                            Amount{" "}
+                            <span className="font-medium text-foreground tabular-nums">
+                              {symbol}
+                              {quick!.amount}
+                            </span>{" "}
+                            — now add a title
+                          </>
+                        ) : combined.trim() ? (
+                          <>
+                            Start with a number, e.g.{" "}
+                            <span className="font-medium text-foreground">100 fruits</span>
+                          </>
+                        ) : (
+                          <>
+                            Amount{" "}
+                            <span className="font-medium text-foreground tabular-nums">
+                              {symbol}0
+                            </span>{" "}
+                            — add a title
+                          </>
+                        )}
+                      </p>
+                    ))}
+
+                  {/* Two-field modes: an always-on preview so the amount and the
+                      "add a title" nudge are there even before you type a thing. */}
+                  {!isCombined && (
                     <p className="px-0.5 text-xs text-muted-foreground">
-                      {quick!.amount != null && quick!.title ? (
+                      Amount{" "}
+                      <span className="font-medium text-foreground tabular-nums">
+                        {symbol}
+                        {previewAmount}
+                      </span>
+                      {title.trim() ? (
                         <>
-                          Adds{" "}
-                          <span className="font-medium text-foreground tabular-nums">
-                            {symbol}
-                            {quick!.amount}
-                          </span>{" "}
-                          · {quick!.title}
+                          {" · "}
+                          <span className="font-medium text-foreground">{title.trim()}</span>
                         </>
-                      ) : quick!.amount != null ? (
-                        <>
-                          Amount{" "}
-                          <span className="font-medium text-foreground tabular-nums">
-                            {symbol}
-                            {quick!.amount}
-                          </span>{" "}
-                          — now add a title
-                        </>
+                      ) : previewAmount > 0 ? (
+                        " — now add a title"
                       ) : (
-                        <>
-                          Start with a number, e.g.{" "}
-                          <span className="font-medium text-foreground">100 fruits</span>
-                        </>
+                        " — add a title"
                       )}
                     </p>
                   )}
@@ -638,6 +691,7 @@ export function TransactionComposer({
                       </>
                     ) : (
                       <>
+                        {standaloneAttach}
                         {amountField}
                         {titleField}
                       </>
@@ -709,7 +763,7 @@ export function TransactionComposer({
                     onChange={(e) => setDescription(e.target.value)}
                     onKeyDown={onDescriptionKeyDown}
                     aria-label="Description"
-                    className={cn("h-8", !showDescription && "hidden md:block")}
+                    className={cn("h-8 md:text-base", !showDescription && "hidden md:block")}
                   />
 
                   {/* Full-width send on mobile — easy thumb reach at the bottom. */}
