@@ -15,6 +15,8 @@ import {
 } from "@/components/ui/select";
 import { CategoryRow } from "./category-row";
 import { CategoryEditorDialog } from "./category-editor-dialog";
+import { AiTransactionInput } from "./ai-transaction-input";
+import { EntryModeToggle, type EntryMode } from "./entry-mode-toggle";
 import { cn } from "@/lib/utils";
 import { usePendingMessages } from "./pending-messages";
 import { useLoadingOverlay } from "./loading-overlay";
@@ -43,8 +45,9 @@ import {
 import type { InputMode, TransactionInput } from "@/lib/validation";
 import type { Category, Profile } from "@/db/schema";
 
-// Matches a trailing "/query" token typed into the title field.
-const SLASH_RE = /(?:^|\s)\/([^\s/]*)$/;
+// Matches a trailing "#query" token typed into the title field — "#" is the
+// app-wide category trigger (in the AI note too).
+const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
 
 export function TransactionComposer({
   categories,
@@ -69,6 +72,8 @@ export function TransactionComposer({
   /** How to lay out the amount/title inputs (from user settings). */
   inputMode?: InputMode;
 }) {
+  // Manual (fields) vs AI (free-text note → reviewed drafts) entry.
+  const [mode, setMode] = useState<EntryMode>("manual");
   const [type, setType] = useState<"expense" | "income">("expense");
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
@@ -123,8 +128,8 @@ export function TransactionComposer({
   // mobile (name appears on desktop).
   const currentProfile = profiles.find((p) => p.id === profileId) ?? profiles[0] ?? null;
 
-  // "/" in the title opens an inline category picker.
-  const slashMatch = titleSource.match(SLASH_RE);
+  // "#" in the title opens an inline category picker.
+  const slashMatch = titleSource.match(TAG_RE);
   const slashQuery = slashMatch?.[1] ?? "";
   const slashActive = !!slashMatch && !slashDismissed;
   const slashResults = slashActive
@@ -144,9 +149,17 @@ export function TransactionComposer({
     requireNoOverlay: true,
   });
 
+  // "a" flips Manual ⇄ AI entry. Lives here (not global-shortcuts) because it
+  // owns `mode`; single-key, so it stays quiet while a field is focused.
+  useShortcut(
+    comboFor("tracker.toggle-mode"),
+    () => setMode((m) => (m === "manual" ? "ai" : "manual")),
+    { requireNoOverlay: true },
+  );
+
   function selectSlashCategory(cat: Pick<Category, "id">) {
     setCategoryId(cat.id);
-    setTitleSource((t) => t.replace(SLASH_RE, "").replace(/\s+$/, ""));
+    setTitleSource((t) => t.replace(TAG_RE, "").replace(/\s+$/, ""));
     setSlashDismissed(true);
     setSlashIndex(0);
   }
@@ -339,7 +352,7 @@ export function TransactionComposer({
     <div className="min-w-32 flex-1">
       <Input
         ref={titleRef}
-        placeholder="Add a title — type / to tag a category"
+        placeholder="Add a title — type # to tag a category"
         value={title}
         maxLength={TITLE_MAX}
         onChange={(e) => {
@@ -380,17 +393,51 @@ export function TransactionComposer({
   );
 
   return (
-    <form
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
-      className="sticky bottom-16 z-20 border-t bg-background px-3 py-2 md:bottom-0 md:bg-background/95 md:backdrop-blur-sm"
-    >
+    <div className="sticky bottom-16 z-20 px-3 pt-2 pb-2 md:bottom-0">
+      {/* Every widget lives inside one rounded, floating card — the tracker list
+          scrolls behind it, not under a full-width divider. */}
+      <div className="mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background p-3 shadow-lg md:bg-background/95 md:backdrop-blur-sm">
+        {/* Both modes share a single grid cell, so the card is always sized to the
+            taller mode and never resizes when you switch — which is what keeps the
+            Manual/AI toggle (top-left of each mode's first row) from shifting
+            between modes. The inactive mode stays mounted (made invisible, not
+            unmounted) so a typed draft or in-flight parse is never discarded. */}
+        <div className="grid">
+          <div
+            className={cn(
+              "col-start-1 row-start-1 min-w-0",
+              mode === "ai" ? undefined : "invisible pointer-events-none",
+            )}
+          >
+            <AiTransactionInput
+              mode={mode}
+              onModeChange={setMode}
+              categories={categories}
+              currency={currency}
+              locale={locale}
+              today={today}
+              profiles={profiles}
+              activeProfileId={activeProfileId}
+              allProfiles={allProfiles}
+            />
+          </div>
+
+          <div
+            className={cn(
+              "col-start-1 row-start-1 min-w-0",
+              mode === "manual" ? undefined : "invisible pointer-events-none",
+            )}
+          >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            submit();
+          }}
+        >
       {/* Drop files anywhere on the tracker to stage them for the next send. */}
       <PageAttachmentDrop
         onFiles={stageDropped}
-        disabled={switching}
+        disabled={switching || mode !== "manual"}
         label="Drop files to attach to your transaction"
       />
       {/* Disable every field/button while a profile switch is in flight — the
@@ -399,12 +446,13 @@ export function TransactionComposer({
         disabled={switching}
         className="m-0 min-w-0 border-0 p-0 transition-opacity disabled:opacity-60"
       >
-      <div className="mx-auto flex max-w-2xl flex-col gap-2">
+      <div className="flex flex-col gap-2">
         {/* Controls: type on the left; date / profile / category pushed to the
             right. On mobile the full category list drops to its own row (in
             all-profiles it collapses to a tag icon inside the right cluster). */}
         <div className="flex flex-col gap-2">
           <div className="flex items-center gap-2">
+            <EntryModeToggle mode={mode} onChange={setMode} />
             <div className="inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
               {(["expense", "income"] as const).map((t) => {
                 const active = type === t;
@@ -638,6 +686,10 @@ export function TransactionComposer({
         </Button>
       </div>
       </fieldset>
+        </form>
+          </div>
+        </div>
+      </div>
 
       <CategoryEditorDialog
         open={editorOpen}
@@ -645,6 +697,6 @@ export function TransactionComposer({
         categories={categories}
         defaultKind={type}
       />
-    </form>
+    </div>
   );
 }

@@ -66,6 +66,10 @@ export default defineConfig({
         "src/lib/logger.ts",
         // Email I/O wiring (ZeptoMail HTTP API), same rationale.
         "src/lib/email.ts",
+        // AI provider HTTP wiring (Gemini / OpenAI). The pure parsing/validation
+        // (`draftsFromRawJson`, `resolveModel`) is unit-tested; the `fetch` calls
+        // are excluded like the other I/O modules.
+        "src/lib/ai-parse.ts",
         // MDX-backed; covered behaviourally, not held to the branch gate
         // (the `isProd` draft filter short-circuits and can't both-branch).
         "src/lib/blog.ts",

@@ -3,7 +3,9 @@
  *   "mod+e"        → Cmd on macOS, Ctrl elsewhere
  *   "shift+enter"  → Shift + Enter
  *   "/"            → a single key
- * `mod` renders as ⌘ on macOS and "Ctrl" on Windows/Linux.
+ * `mod` renders as ⌘ on macOS and "Ctrl" on Windows/Linux. `switchmod` renders
+ * as ⌘ on macOS and "Alt" elsewhere (the workspace peek avoids Ctrl off-Mac,
+ * where Ctrl+Shift is word-wise selection).
  */
 export type ShortcutDef = {
   id: string;
@@ -17,16 +19,19 @@ export const SHORTCUTS: ShortcutDef[] = [
   // no dialog/menu is open (see `requireNoOverlay` in use-shortcut).
   { id: "nav.tracker", combo: "q", label: "Go to the tracker", scope: "Navigation" },
   { id: "nav.transactions", combo: "t", label: "Go to transactions", scope: "Navigation" },
-  { id: "nav.analytics", combo: "a", label: "Go to analytics", scope: "Navigation" },
+  { id: "nav.analytics", combo: "e", label: "Go to analytics", scope: "Navigation" },
   { id: "nav.settings", combo: "s", label: "Go to settings", scope: "Navigation" },
-  { id: "action.add", combo: "e", label: "Add a transaction", scope: "Actions" },
+  { id: "action.add", combo: "r", label: "Add a transaction", scope: "Actions" },
   { id: "action.bulk", combo: "b", label: "Bulk add transactions", scope: "Actions" },
   { id: "tracker.submit", combo: "mod+enter", label: "Send the transaction", scope: "Tracker" },
   { id: "tracker.description", combo: "shift+enter", label: "Jump to the description field", scope: "Tracker" },
-  { id: "tracker.category", combo: "/", label: "Tag a category from the title field", scope: "Tracker" },
+  { id: "tracker.toggle-mode", combo: "a", label: "Switch between Manual and AI entry", scope: "Tracker" },
+  { id: "tracker.category", combo: "#", label: "Tag a category from the title field", scope: "Tracker" },
   { id: "tracker.toggle-type", combo: "mod+e", label: "Switch between expense and income", scope: "Tracker" },
   { id: "profiles.all", combo: "shift+`", label: "Show all profiles", scope: "Profiles" },
   { id: "profiles.switch", combo: "shift+1", label: "Switch to a profile (Shift + 1…9, 0 for the 10th)", scope: "Profiles" },
+  // Display-only: the hold gesture is handled by WorkspaceSwitchHud, not `useShortcut`.
+  { id: "workspace.switch", combo: "switchmod+shift", label: "Hold to switch workspace", scope: "Workspaces" },
   { id: "global.shortcuts", combo: "/", label: "Show keyboard shortcuts", scope: "Global" },
   { id: "global.print", combo: "mod+p", label: "Print the current page", scope: "Global" },
 ];
@@ -47,6 +52,8 @@ export function formatShortcutKeys(combo: string, isMac: boolean): string[] {
     switch (part) {
       case "mod":
         return isMac ? "⌘" : "Ctrl";
+      case "switchmod":
+        return isMac ? "⌘" : "Alt";
       case "shift":
         return isMac ? "⇧" : "Shift";
       case "alt":

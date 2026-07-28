@@ -95,7 +95,7 @@ export default async function ChatPage({
           data-tracker-header
           className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0"
         >
-          <div className="mx-auto max-w-2xl px-4 pt-3 pb-2">
+          <div className="mx-auto max-w-3xl px-4 pt-3 pb-2">
             {/* Profile + balance share the first row on mobile (WhatsApp-style);
                 on desktop the balance drops to its own line below. */}
             <div className="flex items-center gap-3 md:block">
@@ -136,7 +136,7 @@ export default async function ChatPage({
           </div>
         </header>
 
-        <div className="mx-auto w-full max-w-2xl flex-1 px-4 py-4">
+        <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-4">
           <Suspense key={streamKey} fallback={<ChatFeedSkeleton />}>
             <FeedStream
               userId={user.id}

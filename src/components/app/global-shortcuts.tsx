@@ -13,8 +13,10 @@ import type { Category, Profile } from "@/db/schema";
 
 /**
  * App-wide keyboard shortcuts that work from any page: jump between sections
- * (q/t/a/s), add a transaction (e) or bulk add (b), and show the shortcuts
+ * (q/t/e/s), add a transaction (r) or bulk add (b), and show the shortcuts
  * cheat sheet (/). The dialogs are mounted here so the keys open them anywhere.
+ * (The tracker's Manual/AI toggle, `a`, lives in the composer since it needs its
+ * state — see `transaction-composer.tsx`.)
  *
  * Single-key shortcuts are suppressed while typing or while another dialog/menu
  * is open (see `requireNoOverlay`), so they never hijack normal input.
