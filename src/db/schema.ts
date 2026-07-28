@@ -184,6 +184,30 @@ export const emailSendLog = pgTable(
 );
 
 /**
+ * AI-request audit log: one row per call that reaches a paid model provider
+ * (today only the composer's AI transaction parse). Same rationale as
+ * `email_send_log` — an authenticated user can otherwise loop a server action
+ * that spends the operator's API budget — and it doubles as the usage record.
+ * Stores no note text: the input is the user's own financial data and none of it
+ * is needed to count requests.
+ */
+export const aiUsageLog = pgTable(
+  "ai_usage_log",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    userId: uuid("user_id").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    /** Labels the call site ("transaction_parse"); the budget is one pool per user. */
+    kind: text("kind").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The rate-limit query: requests by this user in the last hour.
+    index("ai_usage_log_user_created_idx").on(t.userId, t.createdAt),
+  ],
+);
+
+/**
  * Per-user preferences that follow the user across every workspace: theme and
  * the transaction-composer input mode. Currency and number format are NOT here —
  * they belong to the workspace (see `workspaces.currency` / `.locale`).

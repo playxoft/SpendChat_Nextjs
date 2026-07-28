@@ -66,10 +66,13 @@ export default defineConfig({
         "src/lib/logger.ts",
         // Email I/O wiring (ZeptoMail HTTP API), same rationale.
         "src/lib/email.ts",
-        // AI provider HTTP wiring (Gemini / OpenAI). The pure parsing/validation
-        // (`draftsFromRawJson`, `resolveModel`) is unit-tested; the `fetch` calls
-        // are excluded like the other I/O modules.
-        "src/lib/ai-parse.ts",
+        // AI provider HTTP wiring (Gemini / OpenAI / Anthropic), same rationale.
+        // Only the transport lives here — the parsing/validation it feeds
+        // (`ai-parse.ts`) is pure and stays under the gate.
+        "src/lib/ai-provider.ts",
+        // Per-user AI request quota — a DB round-trip and a counter, exercised
+        // by the integration suite rather than unit tests (like `email-quota.ts`).
+        "src/lib/ai-quota.ts",
         // MDX-backed; covered behaviourally, not held to the branch gate
         // (the `isProd` draft filter short-circuits and can't both-branch).
         "src/lib/blog.ts",

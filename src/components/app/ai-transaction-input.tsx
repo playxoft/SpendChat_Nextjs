@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
-import { ArrowUp, Loader2, Minus, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { ArrowUp, Loader2, Minus, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,10 +18,15 @@ import { getCurrency } from "@/lib/currencies";
 import {
   amountPlaceholder,
   formatAmountInput,
+  integerDigitCount,
   parseAmountInput,
 } from "@/lib/parse-amount";
 import { addBulkTransactions, parseTransactionsWithAI } from "@/actions/transactions";
-import { TRANSACTION_TITLE_MAX as TITLE_MAX } from "@/lib/validation";
+import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
+import {
+  AMOUNT_INTEGER_DIGITS_MAX,
+  TRANSACTION_TITLE_MAX as TITLE_MAX,
+} from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { cn } from "@/lib/utils";
 import { EntryModeToggle, type EntryMode } from "./entry-mode-toggle";
@@ -104,6 +109,7 @@ function RowTypeToggle({
 export function AiTransactionInput({
   mode,
   onModeChange,
+  onReviewingChange,
   categories,
   currency,
   locale = "en-US",
@@ -114,6 +120,9 @@ export function AiTransactionInput({
 }: {
   mode: EntryMode;
   onModeChange: (m: EntryMode) => void;
+  /** Tells the composer when the review list is up, so it can stop reserving
+   * this pane's (much taller) height while Manual is the visible mode. */
+  onReviewingChange?: (reviewing: boolean) => void;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   currency: string;
   locale?: string;
@@ -131,6 +140,11 @@ export function AiTransactionInput({
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
   const idRef = useRef(0);
   const nextKey = () => ++idRef.current;
+
+  const reviewing = rows !== null;
+  useEffect(() => {
+    onReviewingChange?.(reviewing);
+  }, [reviewing, onReviewingChange]);
 
   // "#" category autocomplete over the note textarea.
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -203,8 +217,20 @@ export function AiTransactionInput({
     });
   }
 
-  // The ↺ reset is the sole way to clear the note/preview — shown only when
-  // there's something to clear so it never nags an empty composer.
+  // Drop the drafts but keep the note, so a bad split can be corrected by
+  // editing what you typed instead of retyping it from scratch.
+  function backToNote() {
+    setRows(null);
+    requestAnimationFrame(() => {
+      const node = taRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(node.value.length, node.value.length);
+    });
+  }
+
+  // The ↺ reset clears everything — the deliberate "start over". Editing the
+  // note again goes through `backToNote`, which keeps the text.
   const canReset = text.trim().length > 0 || rows !== null;
   const resetButton = (
     <Button
@@ -382,6 +408,9 @@ export function AiTransactionInput({
             onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             rows={2}
+            // The server rejects anything longer; stop it here so a big paste
+            // doesn't cost a round-trip (and a quota slot) just to be refused.
+            maxLength={MAX_INPUT_CHARS}
             placeholder="Describe your spending — e.g. 200 fruits, 1000 electricity (June bill) #Bills, got 5000 salary"
             aria-label="Describe your transactions"
             className="min-h-24 resize-none pr-14 pb-12"
@@ -442,18 +471,36 @@ export function AiTransactionInput({
               </SelectContent>
             </Select>
           )}
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-sm"
+            aria-label="Edit the note and parse again"
+            title="Edit the note and parse again"
+            onClick={backToNote}
+            disabled={saving}
+          >
+            <Pencil className="size-4" />
+          </Button>
           <AiHelpDialog symbol={symbol} />
           {resetButton}
         </div>
       </div>
 
-      {/* The note that produced these drafts, read-only, so the user can check
-          the parse against what they typed. Caps at ~4 lines, then scrolls. It
-          sits outside the row scroller below, so it stays put as rows scroll. */}
+      {/* The note that produced these drafts, so the user can check the parse
+          against what they typed — and click it to go back and fix a bad split
+          without retyping. Caps at ~4 lines, then scrolls. It sits outside the
+          row scroller below, so it stays put as rows scroll. */}
       {text.trim() && (
-        <div className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+        <button
+          type="button"
+          onClick={backToNote}
+          disabled={saving}
+          title="Edit the note and parse again"
+          className="max-h-24 overflow-y-auto whitespace-pre-wrap break-words rounded-lg border bg-muted/40 px-3 py-2 text-left text-sm text-muted-foreground transition-colors hover:bg-muted/70"
+        >
           {text.trim()}
-        </div>
+        </button>
       )}
 
       {/* Fixed, uniform columns across every row (a shared grid template). If the
@@ -480,9 +527,15 @@ export function AiTransactionInput({
                   <Input
                     inputMode="decimal"
                     value={r.amount}
-                    onChange={(e) =>
-                      patch(r.key, { amount: e.target.value.replace(/[^\d.,\s]/g, "") })
-                    }
+                    // Same 9-digit guard the manual composer applies per
+                    // keystroke. Without it an over-cap row looks valid here and
+                    // is then silently dropped by `createBulkFromDrafts`, so the
+                    // user is told "Added 4" after confirming 5.
+                    onChange={(e) => {
+                      const next = e.target.value.replace(/[^\d.,\s]/g, "");
+                      if (integerDigitCount(next, locale) > AMOUNT_INTEGER_DIGITS_MAX) return;
+                      patch(r.key, { amount: next });
+                    }}
                     placeholder={placeholder}
                     aria-label="Amount"
                     aria-invalid={!isPositive(r.amount) || undefined}

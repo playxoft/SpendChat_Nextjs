@@ -224,6 +224,17 @@ describe("draftsFromRawJson — the untrusted-output validator", () => {
       502,
     );
   });
+
+  // What a too-small output budget looks like from here: the reply stops
+  // mid-object, so even the widest {...} span is unbalanced. It must surface as
+  // an upstream failure (502) and never as a partial, silently-shortened list.
+  it("throws 502 on a reply truncated mid-object rather than saving a partial list", () => {
+    const truncated =
+      '{"transactions":[{"type":"expense","amount":200,"title":"Fruits","occurredOn":"' +
+      TODAY +
+      '"},{"type":"expense","amount":100,"title":"Veg';
+    expect(caught(() => draftsFromRawJson(truncated, { categories: CATEGORIES, today: TODAY })).status).toBe(502);
+  });
 });
 
 describe("resolveModel — env registry + current selector, no models in code", () => {

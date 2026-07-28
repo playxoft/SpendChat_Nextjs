@@ -17,6 +17,15 @@ describe("registry", () => {
       expect(s.scope).toBeTruthy();
     }
   });
+
+  // Two entries on the same combo means one of them silently never fires, or
+  // both fire at once. Remapping keys is exactly when that slips in, so guard
+  // the invariant rather than the specific bindings.
+  it("binds each combo to at most one shortcut", () => {
+    const combos = SHORTCUTS.map((s) => s.combo);
+    const duplicated = combos.filter((c, i) => combos.indexOf(c) !== i);
+    expect(duplicated).toEqual([]);
+  });
 });
 
 describe("getShortcut / comboFor", () => {
