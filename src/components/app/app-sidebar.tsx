@@ -36,7 +36,11 @@ export function AppSidebar({
       </div>
 
       <div className="shrink-0 px-3 pb-1">
-        <WorkspaceSwitcher workspaces={workspaces} currentId={currentWorkspaceId} />
+        <WorkspaceSwitcher
+          workspaces={workspaces}
+          currentId={currentWorkspaceId}
+          showShortcut
+        />
       </div>
 
       {/* Profiles are the primary content — they fill the sidebar. */}

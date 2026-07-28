@@ -175,6 +175,7 @@ The behaviours that matter on mobile map to gestures/buttons:
 | `Shift+Enter` description | description toggle |
 | `#` tag category | inline `#` picker in the title field |
 | `a` Manual/AI entry | web-only (AI entry is not on mobile) |
+| `g` workspace picker, then `1…9` | workspace dropdown in the nav drawer |
 | `⌘/Ctrl+E` toggle type | composer type toggle |
 | `Shift+1…0` / `Shift+`` ` profile switch | profile dropdown + swipe gesture |
 | `⌘/Ctrl+P` print | N/A |
