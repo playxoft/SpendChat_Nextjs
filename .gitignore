@@ -55,3 +55,6 @@ Thumbs.db
 
 # ---- misc ----
 .vercel
+
+# ---- local-only, never committed (review reports, scratch notes, etc.) ----
+_developer/local-only/
