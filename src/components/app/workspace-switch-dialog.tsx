@@ -141,7 +141,9 @@ export function WorkspaceSwitchDialog({
         showCloseButton={false}
         closeOnOutsideClick
         onKeyDown={onKeyDown}
-        className="gap-0 p-0 sm:max-w-xs"
+        // Sits a touch above dead centre: optical centring reads as "centred",
+        // where true centring reads as slightly low.
+        className="top-[calc(50%-2.5rem)] gap-0 p-0 sm:max-w-xs"
       >
         <DialogHeader className="border-b px-4 py-2.5 text-left">
           <DialogTitle className="text-sm font-medium">Switch workspace</DialogTitle>
@@ -170,7 +172,14 @@ export function WorkspaceSwitchDialog({
                   onClick={() => commit(i)}
                   className={cn(
                     "flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-sm",
-                    active && "bg-accent text-accent-foreground",
+                    // Exclusive, not layered: two `bg-*` utilities have equal
+                    // specificity, so which one won would come down to their
+                    // order in the generated CSS rather than the order here.
+                    // The highlight outranks the you-are-here tint when both
+                    // apply (which is the case the moment the dialog opens).
+                    active
+                      ? "bg-accent text-accent-foreground"
+                      : isCurrent && "bg-muted",
                   )}
                 >
                   {digit ? (
@@ -188,7 +197,7 @@ export function WorkspaceSwitchDialog({
                   <span className="min-w-0 flex-1 truncate">{w.name}</span>
                   <span
                     className={cn(
-                      "shrink-0 text-[10px] text-muted-foreground",
+                      "shrink-0 text-sm text-muted-foreground",
                       !isCurrent && "capitalize",
                     )}
                   >

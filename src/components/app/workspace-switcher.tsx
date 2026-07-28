@@ -131,7 +131,7 @@ export function WorkspaceSwitcher({
                 {w.icon ?? ""}
               </span>
               <span className="min-w-0 flex-1 truncate">{w.name}</span>
-              <span className="text-[10px] text-muted-foreground capitalize">
+              <span className="shrink-0 text-sm text-muted-foreground capitalize">
                 {roleLabel(w.role)}
               </span>
               <Check className={cn("size-4", w.id === currentId ? "opacity-100" : "opacity-0")} />
