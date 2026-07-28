@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { AttachmentList, type ListAttachment } from "./attachments/attachment-list";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +42,8 @@ export function TransactionBubble({
   categoryName,
   categoryIcon,
   timeLabel,
+  attachments,
+  onOpenAttachment,
   authorName,
   authorColorClass,
   onActivate,
@@ -54,6 +57,10 @@ export function TransactionBubble({
   categoryName?: string | null;
   categoryIcon?: string | null;
   timeLabel?: string;
+  /** Files attached to this transaction; rendered as a vertical list of rows. */
+  attachments?: ListAttachment[];
+  /** Opens a file in the in-page preview (omit for staged/pending). */
+  onOpenAttachment?: (a: ListAttachment) => void;
   /** WhatsApp-group-style author label; when set, shown atop the bubble. Only
    * passed in shared workspaces — a solo workspace leaves it undefined. */
   authorName?: string | null;
@@ -125,6 +132,14 @@ export function TransactionBubble({
           </p>
         ) : null}
 
+        {attachments && attachments.length > 0 ? (
+          <AttachmentList
+            attachments={attachments}
+            onOpen={onOpenAttachment}
+            className="mt-1.5"
+          />
+        ) : null}
+
         <div className="mt-1.5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
           <span className="inline-flex min-w-0 items-center gap-1">
             <span aria-hidden className="shrink-0">
@@ -132,7 +147,7 @@ export function TransactionBubble({
             </span>
             <span className="truncate">{categoryName ?? "Uncategorized"}</span>
           </span>
-          <span className="inline-flex shrink-0 items-center gap-1">
+          <span className="inline-flex shrink-0 items-center gap-1.5">
             {timeLabel ? <span>{timeLabel}</span> : null}
             {actions}
           </span>

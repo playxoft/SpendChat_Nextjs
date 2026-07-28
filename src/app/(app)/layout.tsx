@@ -10,6 +10,7 @@ import { BottomNav } from "@/components/app/bottom-nav";
 import { GlobalShortcuts } from "@/components/app/global-shortcuts";
 import { LoadingOverlayProvider } from "@/components/app/loading-overlay";
 import { PermissionsProvider } from "@/components/app/permissions";
+import { AttachmentViewerProvider } from "@/components/app/attachments/attachment-viewer";
 import { TimezoneSync } from "@/components/app/timezone-sync";
 
 // Auth + DB access — always rendered dynamically per request.
@@ -33,6 +34,7 @@ export default async function AppLayout({
   return (
     <LoadingOverlayProvider>
     <PermissionsProvider canWrite={canWrite} canManage={canManage}>
+    <AttachmentViewerProvider>
     <div className="flex min-h-svh">
       <AppSidebar
         email={email}
@@ -69,6 +71,7 @@ export default async function AppLayout({
         />
       </Suspense>
     </div>
+    </AttachmentViewerProvider>
     </PermissionsProvider>
     </LoadingOverlayProvider>
   );

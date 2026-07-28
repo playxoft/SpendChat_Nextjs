@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, ChevronsUpDown, GripVertical } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, GripVertical, Paperclip } from "lucide-react";
 import {
   DndContext,
   KeyboardSensor,
@@ -28,6 +28,8 @@ import {
 } from "@/components/ui/table";
 import { TransactionDialog } from "./transaction-dialog";
 import { amountToneClass } from "./transaction-bubble";
+import { AttachmentSquares } from "./attachments/attachment-squares";
+import { useAttachmentViewer } from "./attachments/attachment-viewer";
 import {
   COLUMN_LABELS,
   DEFAULT_WIDTHS,
@@ -85,7 +87,25 @@ const COLUMNS: Record<ColumnId, ColumnDef> = {
   },
   title: {
     cellClassName: "truncate",
-    render: (row) => row.title ?? "",
+    render: (row) =>
+      row.attachments.length > 0 ? (
+        <span className="flex min-w-0 items-center gap-1.5">
+          <span className="truncate">{row.title ?? ""}</span>
+          <span
+            className="inline-flex shrink-0 items-center gap-0.5 text-xs text-muted-foreground"
+            aria-label={`${row.attachments.length} ${row.attachments.length === 1 ? "file" : "files"} attached`}
+          >
+            <Paperclip className="size-3" aria-hidden />
+            {row.attachments.length}
+          </span>
+        </span>
+      ) : (
+        (row.title ?? "")
+      ),
+  },
+  attachments: {
+    sortable: false,
+    render: (row) => <AttachmentsCell attachments={row.attachments} />,
   },
   description: {
     cellClassName: "truncate text-muted-foreground",
@@ -110,6 +130,29 @@ const COLUMNS: Record<ColumnId, ColumnDef> = {
     ),
   },
 };
+
+/** The attachments column cell: square file icons + a "+N" dropdown that opens a
+ * popover list. A dedicated component so it can call the viewer hook (the
+ * `COLUMNS` render map is a plain object). */
+function AttachmentsCell({ attachments }: { attachments: TransactionRow["attachments"] }) {
+  const openViewer = useAttachmentViewer();
+  return (
+    <AttachmentSquares
+      attachments={attachments.map((a) => ({
+        id: a.id,
+        fileName: a.fileName,
+        contentType: a.contentType,
+        label: a.label,
+        kind: a.kind,
+        sizeBytes: a.sizeBytes,
+        hasThumbnail: a.hasThumbnail,
+      }))}
+      onOpen={(a) =>
+        a.id && openViewer({ id: a.id, fileName: a.fileName, contentType: a.contentType, label: a.label })
+      }
+    />
+  );
+}
 
 export function TransactionsTable({
   rows,
@@ -150,15 +193,16 @@ export function TransactionsTable({
   function handleResizeStart(id: ColumnId, startX: number, startWidth: number) {
     const col = colRefs.current[id];
     const table = tableRef.current;
-    const baseTableWidth = table?.getBoundingClientRect().width ?? totalWidth;
     const widthAt = (clientX: number) =>
       Math.max(MIN_COLUMN_WIDTH, Math.round(startWidth + (clientX - startX)));
     const onMove = (ev: PointerEvent) => {
       const w = widthAt(ev.clientX);
-      // Grow the column and the table by the same amount so the column tracks
-      // the cursor exactly and the table scrolls once it outgrows the container.
+      // Grow the column and the table's min-width by the same amount so the
+      // column tracks the cursor and the table scrolls once it outgrows the
+      // container. `min-width` (not `width`) keeps the `w-full` stretch behavior
+      // when the columns are narrower than the container.
       if (col) col.style.width = `${w}px`;
-      if (table) table.style.width = `${baseTableWidth + (w - startWidth)}px`;
+      if (table) table.style.minWidth = `${totalWidth + (w - startWidth)}px`;
     };
     const onUp = (ev: PointerEvent) => {
       window.removeEventListener("pointermove", onMove);
@@ -180,18 +224,20 @@ export function TransactionsTable({
   }
 
   return (
-    // `w-fit max-w-full` shrink-wraps the border to the table when it's narrower
-    // than the page, and caps it at full width (inner scroll) when it's wider.
-    <div className="w-fit max-w-full overflow-hidden rounded-xl border print-area">
+    // Full-width bordered box: the table always fills it (constant width), so
+    // hiding a column widens the rest rather than shrinking the table; when the
+    // columns outgrow the box, the inner `overflow-x-auto` (from <Table>) scrolls.
+    <div className="w-full overflow-hidden rounded-xl border print-area">
       <DndContext
         id="transactions-columns"
         sensors={sensors}
         collisionDetection={closestCenter}
         onDragEnd={handleDragEnd}
       >
-        {/* Fixed layout + a colgroup makes column widths authoritative; the
-            explicit total width lets the table scroll once columns are widened. */}
-        <Table ref={tableRef} className="table-fixed w-auto" style={{ width: totalWidth }}>
+        {/* Fixed layout + a colgroup makes column widths authoritative. `w-full`
+            stretches the columns to fill the box when they're narrower than it;
+            `min-width: totalWidth` forces a scroll once they're wider. */}
+        <Table ref={tableRef} className="table-fixed w-full" style={{ minWidth: totalWidth }}>
           <colgroup>
             {visible.map((id) => (
               <col
@@ -386,6 +432,7 @@ function Row({
         currency={currency}
         locale={locale}
         today={today}
+        attachments={row.attachments}
         defaultValues={{
           id: row.id,
           type: row.type,
