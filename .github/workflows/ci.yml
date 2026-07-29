@@ -19,10 +19,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Version comes from package.json's `packageManager` field (pnpm@9.15.0) —
+      # the single source of truth. Passing `version:` here too makes
+      # action-setup@v4 error on the mismatch ("Multiple versions of pnpm").
       - name: Install pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Setup Node
         uses: actions/setup-node@v4
