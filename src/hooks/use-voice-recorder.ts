@@ -86,6 +86,16 @@ function toBase64(blob: Blob): Promise<string> {
 const MIN_RECORDING_MS = 400;
 
 /**
+ * Pin the recording bitrate. Speech is perfectly intelligible at 32 kbps, and
+ * capping it keeps a full-minute clip small and predictable (~240 KB → ~320 KB
+ * base64) — well within the server-action body limit, rather than letting the
+ * browser default to a rate that could push a long recording over it. A hint
+ * only: Safari's AAC path may ignore it, which is why the server still enforces
+ * `MAX_AUDIO_BYTES` and the config raises the action body limit to match.
+ */
+const AUDIO_BITS_PER_SECOND = 32_000;
+
+/**
  * Turn a `getUserMedia` rejection into something the user can act on.
  *
  * Worth the detail: these failures look identical from the UI but have entirely
@@ -247,7 +257,10 @@ export function useVoiceRecorder({
     const mimeType = pickMimeType();
     let recorder: MediaRecorder;
     try {
-      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
+      recorder = new MediaRecorder(stream, {
+        audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
+        ...(mimeType ? { mimeType } : {}),
+      });
     } catch {
       // A browser that reported the type as supported but won't construct with
       // it. Nothing is recoverable from here — release the mic and say so.
@@ -310,6 +323,12 @@ export function useVoiceRecorder({
       if (Ctor) {
         const ctx = new Ctor();
         audioCtxRef.current = ctx;
+        // Created after `await getUserMedia`, i.e. no longer inside the original
+        // press gesture, so autoplay policy can hand it back `suspended` — and a
+        // suspended context feeds the analyser silence, freezing the meter at
+        // zero on exactly the browsers (no Web Speech) where it's the only cue.
+        // Resuming is best-effort; the recording doesn't depend on it.
+        void ctx.resume?.().catch(() => {});
         const analyser = ctx.createAnalyser();
         analyser.fftSize = 512;
         ctx.createMediaStreamSource(stream).connect(analyser);
