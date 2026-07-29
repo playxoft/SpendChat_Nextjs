@@ -15,6 +15,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Kbd } from "@/components/ui/kbd";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select,
@@ -30,8 +31,17 @@ import {
   integerDigitCount,
   parseAmountInput,
 } from "@/lib/parse-amount";
-import { addBulkTransactions, parseTransactionsWithAI } from "@/actions/transactions";
+import {
+  addBulkTransactions,
+  parseTransactionsWithAI,
+  transcribeVoiceNoteAction,
+} from "@/actions/transactions";
 import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
+import { primaryBcp47 } from "@/lib/voice-languages";
+import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+import { useHoldShortcut, useIsMac } from "@/hooks/use-shortcut";
+import { comboFor, formatShortcut } from "@/lib/shortcuts";
+import { VoiceListeningStrip, VoiceMicButton } from "./voice-mic";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
@@ -209,6 +219,7 @@ export function AiTransactionInput({
   profiles,
   activeProfileId,
   allProfiles = false,
+  voiceLanguages,
 }: {
   mode: EntryMode;
   onModeChange: (m: EntryMode) => void;
@@ -223,6 +234,8 @@ export function AiTransactionInput({
   activeProfileId?: string;
   /** In "All profiles" the user picks a single target for the batch. */
   allProfiles?: boolean;
+  /** Languages voice entry expects, from user settings (see settings/voice). */
+  voiceLanguages: string[];
 }) {
   const [text, setText] = useState("");
   // null = compose (textarea); an array = review the parsed drafts.
@@ -245,6 +258,7 @@ export function AiTransactionInput({
   const [tagIndex, setTagIndex] = useState(0);
 
   const symbol = getCurrency(currency).symbol;
+  const isMac = useIsMac();
   const placeholder = useMemo(() => amountPlaceholder(locale), [locale]);
   const targetProfileId = allProfiles
     ? profileId
@@ -385,6 +399,51 @@ export function AiTransactionInput({
     });
   }
 
+  // ── Voice entry ───────────────────────────────────────────────────────────
+  // Hold the mic (or M) to record; on release the audio goes to the server and
+  // the transcript is *appended to the note* rather than parsed. That's the
+  // deliberate stopping point: you read what it heard, fix a misheard merchant,
+  // and press send yourself. Appending (not replacing) also lets a note be
+  // dictated in pieces, or typed and then added to by voice.
+  const voice = useVoiceRecorder({
+    lang: primaryBcp47(voiceLanguages),
+    onError: (message) => toast.error(message),
+    onTranscribe: async (audio) => {
+      const res = await transcribeVoiceNoteAction({
+        audio: audio.data,
+        mimeType: audio.mimeType,
+      });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      setText((prev) => {
+        const joined = prev.trim() ? `${prev.trim()} ${res.text}` : res.text;
+        return joined.slice(0, MAX_INPUT_CHARS);
+      });
+      setTagDismissed(true);
+      requestAnimationFrame(() => {
+        const node = taRef.current;
+        if (!node) return;
+        node.focus();
+        node.setSelectionRange(node.value.length, node.value.length);
+        setCaret(node.value.length);
+      });
+    },
+  });
+
+  const voiceCombo = comboFor("tracker.voice");
+  const voiceHint = formatShortcut(voiceCombo, isMac);
+  // Only while AI mode is the visible pane and the note is being composed —
+  // the review list has no textarea to dictate into. `allowInInput` stays false
+  // so typing "m" in the note types an m, exactly like the other bare-key
+  // shortcuts.
+  const voiceEnabled = mode === "ai" && !rows && !parsing;
+  useHoldShortcut(voiceCombo, voice.start, voice.stop, {
+    enabled: voiceEnabled,
+    requireNoOverlay: true,
+  });
+
   function handleConfirm() {
     if (!rows) return;
     if (validRows.length === 0) {
@@ -508,6 +567,15 @@ export function AiTransactionInput({
         {/* ChatGPT-style: one rounded box with the send button pinned inside its
             bottom-right corner. The textarea reserves room (pr/pb) so the note
             never runs under the button. */}
+        {/* While the mic is held: interim words (or the level meter where the
+            browser has no Web Speech API). Sits above the note so it never
+            covers what's already typed. */}
+        <VoiceListeningStrip
+          state={voice.state}
+          interim={voice.interim}
+          level={voice.level}
+          liveSupported={voice.liveSupported}
+        />
         {/* Fills the leftover card height, capped at ~6 lines then it scrolls. */}
         <div className="relative flex max-h-52 min-h-0 flex-1 flex-col">
           {tagMenu}
@@ -529,27 +597,41 @@ export function AiTransactionInput({
             maxLength={MAX_INPUT_CHARS}
             placeholder="Describe your spending — e.g. 200 fruits, 1000 electricity (June bill) #Bills, got 5000 salary"
             aria-label="Describe your transactions"
-            className="field-sizing-fixed min-h-0 flex-1 resize-none pr-14 pb-12 md:text-base"
+            // pr-24 (not pr-14) reserves the corner for both buttons — mic and
+            // send — so a long note never runs underneath them.
+            className="field-sizing-fixed min-h-0 flex-1 resize-none pr-24 pb-12 md:text-base"
             disabled={parsing}
           />
-          <Button
-            type="button"
-            onClick={handleParse}
-            disabled={parsing || !text.trim()}
-            aria-label="Turn your note into transactions"
-            title="Turn your note into transactions"
-            className={cn("absolute right-2 bottom-2 size-10 rounded-full p-0", AI_BTN)}
-          >
-            {parsing ? (
-              <Loader2 className="size-5 animate-spin" />
-            ) : (
-              <ArrowUp className="size-5" />
-            )}
-          </Button>
+          {/* Mic left of send: dictate, then send — left to right, in order. */}
+          <div className="absolute right-2 bottom-2 flex items-center gap-1">
+            <VoiceMicButton
+              state={voice.state}
+              level={voice.level}
+              disabled={parsing}
+              onStart={voice.start}
+              onStop={voice.stop}
+              hint={voiceHint ? `hold ${voiceHint}` : undefined}
+            />
+            <Button
+              type="button"
+              onClick={handleParse}
+              disabled={parsing || !text.trim()}
+              aria-label="Turn your note into transactions"
+              title="Turn your note into transactions"
+              className={cn("size-10 shrink-0 rounded-full p-0", AI_BTN)}
+            >
+              {parsing ? (
+                <Loader2 className="size-5 animate-spin" />
+              ) : (
+                <ArrowUp className="size-5" />
+              )}
+            </Button>
+          </div>
         </div>
         <p className="px-0.5 text-sm text-muted-foreground">
-          Type naturally — use <span className="font-mono text-foreground">#</span> for a
-          category and <span className="font-mono text-foreground">( )</span> for a note.
+          Type or hold <Kbd combo={voiceCombo} className="align-middle" /> to speak — use{" "}
+          <span className="font-mono text-foreground">#</span> for a category and{" "}
+          <span className="font-mono text-foreground">( )</span> for a note.
         </p>
       </div>
     );

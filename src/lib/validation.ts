@@ -187,6 +187,16 @@ export const inputModeSchema = z.enum(INPUT_MODES);
 export type InputMode = (typeof INPUT_MODES)[number];
 
 /**
+ * Languages voice entry should expect, as ISO 639-1 codes. Shape only — which
+ * codes are real is decided by `normalizeVoiceLanguages` against the catalogue
+ * in `voice-languages.ts` (kept there so the picker, the browser recognizer and
+ * the server prompt all read one list). An empty array is allowed and means
+ * "back to the default".
+ */
+export const voiceLanguagesSchema = z.array(z.string().trim().min(2).max(8)).max(20);
+export type VoiceLanguagesInput = z.infer<typeof voiceLanguagesSchema>;
+
+/**
  * Partial user-settings update for the REST API's `PATCH /settings`. These
  * settings follow the user across workspaces (theme, input mode). Currency and
  * number format are per-workspace and live on a separate endpoint. Any subset

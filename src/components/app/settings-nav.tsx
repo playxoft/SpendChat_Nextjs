@@ -5,6 +5,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import {
   Building2,
   Keyboard,
+  Mic,
   Palette,
   Tags,
   TextCursorInput,
@@ -18,6 +19,7 @@ export const SETTINGS_SECTIONS = [
   { href: "/settings/workspace", label: "Workspace", icon: Building2 },
   { href: "/settings/theme", label: "Theme", icon: Palette },
   { href: "/settings/input", label: "Input", icon: TextCursorInput },
+  { href: "/settings/voice", label: "Voice", icon: Mic },
   { href: "/settings/categories", label: "Categories", icon: Tags },
   { href: "/settings/shortcuts", label: "Shortcuts", icon: Keyboard },
 ] as const;

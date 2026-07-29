@@ -22,8 +22,16 @@ const securityHeaders = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
+    // `microphone=(self)` — voice entry in the composer records through
+    // MediaRecorder, and an empty allowlist (`microphone=()`) disables the API
+    // for *every* origin including our own. A page under that header can't get
+    // the mic no matter what the user allows in their browser: the permission
+    // reads back as "denied" and getUserMedia rejects with NotAllowedError,
+    // with no prompt shown. `(self)` grants it to this origin only — embedded
+    // third-party frames still get nothing. Camera and geolocation stay fully
+    // off; add them the same way only if a feature actually needs them.
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+    value: "camera=(), microphone=(self), geolocation=(), browsing-topics=()",
   },
   {
     key: "Strict-Transport-Security",
@@ -62,6 +70,8 @@ const attachmentHeaders = [
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
+    // Stays fully closed, unlike `securityHeaders` above: this route only
+    // streams file bytes into a preview iframe and has no use for a mic.
     key: "Permissions-Policy",
     value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
   },

@@ -66,6 +66,26 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
   `NEON_POSTGRES_DATABASE_URL`. Hyperdrive **query caching is disabled** (create the config with
   `--caching-disabled`) so a just-written balance is never served stale. `[placement] mode = "smart"`
   co-locates the Worker with Neon's region to cut round-trip latency.
+- **AI models are configured, never hard-coded.** No model id appears anywhere in
+  `src/`. Each AI feature owns a pair of env vars — a JSON registry of named
+  entries (`{model_id, api_key, provider?, base_url?}`) plus the name of the
+  active one — resolved by `resolveModelFromEnv()` in `src/lib/ai-model-registry.ts`:
+  `AI_PARSE_MODEL(_CURRENT)` for text→drafts, `AI_TRANSCRIBE_MODEL(_CURRENT)` for
+  voice→text. The pairs are **independent on purpose** and never fall back to one
+  another: parsing runs on any chat model, transcription needs one that accepts
+  audio (Anthropic has no speech model at all). Adding a feature means adding a
+  pair, an adapter in `ai-provider.ts` if the protocol is new, and the secret to
+  the `wrangler.toml` list — unset simply disables that feature.
+- **Voice entry** (`m`, held) records in the browser, transcribes server-side, and
+  drops the text into the AI note for the user to check — it never creates
+  transactions directly, so the existing parse→review→confirm path is unchanged
+  and a misheard merchant is caught by a human. Audio is transcribed and
+  discarded; nothing is stored. The languages the model is told to expect are a
+  per-user setting (`user_settings.voice_languages`, Settings → Voice) and a
+  *list*, because the transcription prompt can name several at once — that's what
+  makes code-mixed speech work. Whisper-style hosts take a single language code,
+  so the same list degrades to a vocabulary hint there; don't add a `language`
+  parameter to that adapter, since pinning one language transliterates the rest.
 - Keep the design minimal and neutral (no gradients); income uses a single emerald accent.
   **One exception:** AI affordances (the composer's Manual/AI toggle and AI mode's
   primary actions) use a blue→violet gradient, so "this calls a model" is visually
