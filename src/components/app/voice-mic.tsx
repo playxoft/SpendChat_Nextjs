@@ -67,11 +67,18 @@ export function VoiceMicButton({
         e.preventDefault();
         onStop();
       }}
+      // Only tear down once the audio is actually flowing ("recording"), not
+      // during the async "starting" gap. The first time a user holds the mic the
+      // browser shows a permission prompt while `getUserMedia` is pending, and on
+      // touch platforms that can synthesise a pointercancel — treating it as a
+      // release would silently discard their very first recording. A genuine
+      // release (pointerup) still stops from "starting", and the recorder's
+      // auto-stop timer bounds anything that slips through.
       onPointerLeave={() => {
-        if (recording) onStop();
+        if (state === "recording") onStop();
       }}
       onPointerCancel={() => {
-        if (recording) onStop();
+        if (state === "recording") onStop();
       }}
       // A held Space/Enter on a focused button repeats keydown; ignore the
       // repeats so keyboard users get one recording, not a stutter of starts.

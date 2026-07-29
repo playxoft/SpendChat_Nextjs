@@ -85,6 +85,19 @@ const attachmentHeaders = [
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  experimental: {
+    serverActions: {
+      // Voice entry uploads a recording as base64 through a server action
+      // (`transcribeVoiceNoteAction`). Next caps server-action bodies at 1MB by
+      // default, but a recording may be up to `MAX_AUDIO_BYTES` (4MB) of audio,
+      // which is ~5.4MB once base64-encoded — so the default would reject longer
+      // clips (Safari's fatter AAC especially) with an opaque framework error
+      // before the action's own friendly size check ever runs. 8mb covers the
+      // encoded max with headroom; the action still enforces the real 4MB cap on
+      // the decoded bytes, after the role + quota gates.
+      bodySizeLimit: "8mb",
+    },
+  },
   // Let `.md`/`.mdx` files be imported as React components (blog content lives in
   // `src/content/blog`). The default page extensions must stay listed too.
   pageExtensions: ["ts", "tsx", "js", "jsx", "md", "mdx"],

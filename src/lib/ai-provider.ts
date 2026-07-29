@@ -39,6 +39,11 @@ const TEMPERATURE = 0;
 
 const REQUEST_TIMEOUT_MS = 20_000;
 
+// Transcription is heavier than a text completion: it uploads the audio and the
+// model processes up to a minute of speech, so it gets a longer ceiling than the
+// 20s parse budget. Still bounded, so a stalled provider can't hang the request.
+const TRANSCRIBE_TIMEOUT_MS = 45_000;
+
 /** Config missing / misconfigured — user-facing, distinct from an upstream failure. */
 export function aiUnavailable(): ApiError {
   return new ApiError(503, "ai_unavailable", "AI-assisted input isn't available right now.");
@@ -108,9 +113,10 @@ async function post(
   body: unknown,
   provider: Provider,
   feature: Feature = "parse",
+  timeoutMs: number = REQUEST_TIMEOUT_MS,
 ): Promise<unknown> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   const multipart = body instanceof FormData;
   try {
     const res = await fetch(url, {
@@ -338,6 +344,7 @@ async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioIn
     },
     "gemini",
     "transcribe",
+    TRANSCRIBE_TIMEOUT_MS,
   )) as GeminiResponse;
 
   const candidate = json.candidates?.[0];
@@ -381,6 +388,7 @@ async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioIn
     form,
     "openai",
     "transcribe",
+    TRANSCRIBE_TIMEOUT_MS,
   )) as { text?: string };
 
   // As with Gemini: an empty transcript means "no speech", not "call failed".
