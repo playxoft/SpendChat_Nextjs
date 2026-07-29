@@ -1,9 +1,12 @@
 # 02 · Design System
 
 Match the web app exactly. It's **minimal and neutral**: a fully **achromatic**
-(grayscale) palette, no gradients, generous whitespace, rounded cards, subtle
-`ring` hairlines + soft shadows. The **only** accent is **emerald for income**.
-Font is **Geist**. The source of truth is `src/app/globals.css` (Tailwind v4
+(grayscale) palette, generous whitespace, rounded cards, subtle `ring`
+hairlines + soft shadows. The accent is **emerald for income**, plus exactly
+**one gradient exception**: AI affordances (the composer's Manual/AI toggle and
+AI mode's primary buttons) use a **blue→violet gradient** so "this calls a
+model" is visually distinct from ordinary entry — never use it anywhere else,
+and never add a second gradient. Font is **Geist**. The source of truth is `src/app/globals.css` (Tailwind v4
 OKLCH tokens); the hex equivalents below are exact for the grayscale tokens
 (chroma 0 ⇒ R=G=B) and computed approximations for the few coloured ones.
 
@@ -69,6 +72,7 @@ These are Tailwind default palette utilities, not CSS tokens.
 | Expense *toggle icon* & negative *month balance* | rose-600 | rose-400 | `#E11D48` / `#FB7185` |
 | Expense bar (monthly trend) | `foreground/60` | `foreground/60` | 60% foreground |
 | "Sending" coin | amber-400 (ring amber-600) | same | `#FBBF24` / ring `#D97706` |
+| **AI accent (gradient)** — Manual/AI toggle's AI segment, AI-mode send/save buttons, mic states | blue-600 → violet-600, white text | same | `#2563EB` → `#7C3AED` (hover deepens the violet to violet-700 `#6D28D9`) |
 
 > **Read this carefully — it's the #1 thing to get right.**
 > In the **transaction list, table, and chat bubble, the expense amount is

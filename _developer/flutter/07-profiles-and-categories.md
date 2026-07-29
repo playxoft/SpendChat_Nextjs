@@ -15,7 +15,8 @@ workspace. Every workspace always has **at least one** profile (a default
 
 API: `GET/POST /profiles`, `PATCH/DELETE /profiles/{id}`,
 `POST /profiles/reorder`, `POST /profiles/{id}/move`. RBAC:
-- create/rename/delete require **admin**; reorder/move require **editor**.
+- create/rename/delete/**reorder** require **admin**; move requires **editor**
+  (on both profiles). Hide the drag-reorder UI for non-admins — editors get 403.
 - 404 = no access; 403 = role too low. Gate the UI on the current workspace role
   (viewers see profiles read-only).
 

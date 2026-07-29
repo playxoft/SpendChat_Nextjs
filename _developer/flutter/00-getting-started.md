@@ -22,7 +22,9 @@ display formatting.
 | Emoji input | a simple grid + text field (or **emoji_picker_flutter**) | Category/profile icons are emoji strings. |
 | Secure storage | **flutter_secure_storage** *(optional)* | Not required for the token — Firebase persists the session itself. |
 | CSV share | **share_plus** + **path_provider** | Save/share the exported CSV file. |
-| Local prefs | **shared_preferences** | Remember last workspace id, theme override fallback. |
+| Local prefs | **shared_preferences** | Remember last workspace id, composer entry mode (Manual/AI), theme override fallback. |
+| Voice recording | **record** (or flutter_sound) | Hold-to-talk voice entry: record ≤ 60 s (AAC/M4A or Opus), multipart to `POST /ai/transcribe`. Optional grey live preview via **speech_to_text** (cosmetic only — the server transcript is what lands). |
+| Attachments | **image_picker** + **file_picker**; **open_filex** (or a PDF/image viewer) | Pick camera/photo/file → multipart upload; open downloaded files. Thumbnails: fetch `/attachments/{id}/url?variant=thumb`. |
 
 > **Theme override & Firebase both persist server-side.** The user's theme and
 > input-mode live in `settings` on the server, so they follow the account across
@@ -61,6 +63,8 @@ lib/
       settings_repository.dart
       analytics_repository.dart
       workspaces_repository.dart   # list + current (from /me), X-Workspace-Id
+      ai_repository.dart           # POST /ai/parse (text→drafts), POST /ai/transcribe (audio→text)
+      attachments_repository.dart  # upload (multipart), patch/delete, presigned /url
   features/
     auth/                      # sign-in / sign-up / verify-email / forgot-password
     tracker/                   # chat feed + composer (the hero screen)
@@ -172,7 +176,13 @@ context. After each phase run `flutter analyze` and a device smoke test.
    [06](./06-analytics.md)).
 7. **Profiles, Categories, Settings** — ([07](./07-profiles-and-categories.md),
    [08](./08-settings.md)).
-8. **Polish** — empty/loading/error states, pull-to-refresh, pagination,
-   optimistic add, haptics, dark-mode QA ([11](./11-additional-details.md)).
+8. **AI entry + voice** — the composer's Manual/AI toggle, parse → review →
+   save, hold-to-talk mic, Settings → Voice languages
+   ([04](./04-tracker-chat.md) §4.11, [08](./08-settings.md) §4a). Needs the
+   server to have the AI models configured — handle 503 as feature-off.
+9. **Attachments** — upload/view/delete on the transaction detail
+   ([05](./05-transactions.md) §5a). Handle 503 as feature-off.
+10. **Polish** — empty/loading/error states, pull-to-refresh, pagination,
+    optimistic add, haptics, dark-mode QA ([11](./11-additional-details.md)).
 
 Full checklist: [10-checklist.md](./10-checklist.md).

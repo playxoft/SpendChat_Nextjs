@@ -35,14 +35,23 @@ import type { UserSettings } from "@/db/schema";
  * the updated row (for the API) or throws `ApiError`; scoped to `userId`.
  */
 
-/** Partial update of user settings (REST `PATCH /settings`): theme, input mode. */
+/** Partial update of user settings (REST `PATCH /settings`): theme, input mode,
+ * voice languages. Voice codes go through the same catalogue normalization as
+ * the web picker — unknown codes are dropped, an empty list restores the
+ * default — so the stored value can never be one the prompt won't accept. */
 export async function patchSettings(userId: string, input: unknown): Promise<UserSettings> {
-  const data = parseOrThrow(patchSettingsSchema, input);
+  const { voiceLanguages, ...data } = parseOrThrow(patchSettingsSchema, input);
   await ensureBootstrap(userId);
   const db = getDb();
   await db
     .update(userSettings)
-    .set({ ...data, updatedAt: new Date() })
+    .set({
+      ...data,
+      ...(voiceLanguages !== undefined
+        ? { voiceLanguages: normalizeVoiceLanguages(voiceLanguages) }
+        : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(userSettings.userId, userId));
   return getUserSettings(userId);
 }
