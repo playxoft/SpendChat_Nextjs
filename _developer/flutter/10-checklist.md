@@ -37,11 +37,16 @@ Cross-references point at the spec docs.
 - [ ] `currencies.dart` — the 59-currency table ([08](./08-settings.md) §2).
 - [ ] `dates.dart` — day-divider labels + UTC date formatting
       ([11](./11-additional-details.md) § Dates).
-- [ ] Models: `Transaction`, `Category`, `Profile`, `Settings`, `CurrencyMeta`,
-      `Summary`, `CategoryBreakdownItem`, `MonthlyPoint`, `WorkspaceSummary`,
-      `User`, `Me`.
+- [ ] Models: `Transaction` (incl. `user` + `attachments`), `Category`,
+      `Profile`, `Settings` (incl. `voiceLanguages`), `CurrencyMeta`, `Summary`,
+      `CategoryBreakdownItem`, `MonthlyPoint`, `WorkspaceSummary`, `User`, `Me`,
+      `Attachment`, `AiDraft`.
 - [ ] Repositories: transactions, categories, profiles, settings, analytics,
-      workspaces — one method per endpoint; return unwrapped models + `meta`.
+      workspaces, **ai** (parse/transcribe), **attachments** (upload/patch/
+      delete/url) — one method per endpoint; return unwrapped models + `meta`.
+- [ ] Error mapping covers the AI/attachment codes: 429 `rate_limited`,
+      413 `payload_too_large`, 502 `ai_failed`, 503 `ai_unavailable` /
+      `storage_unavailable` (both = treat the feature as off).
 
 ## Phase 3 — Auth ([09](./09-auth.md))
 
@@ -84,9 +89,19 @@ Cross-references point at the spec docs.
 - [ ] Submit validation (amount>0, title, date, profile) + toasts.
 - [ ] **Optimistic send**: append pending bubble, clear+refocus composer, POST,
       reconcile (sending coin / sent / failed + retry), scroll to bottom.
-- [ ] **Detail dialog** (view, signed amount, Edit, Delete).
+- [ ] **Detail dialog** (view, signed amount, attachments row, Edit, Delete).
 - [ ] **Add/Edit form** (shared dialog).
 - [ ] **Bulk add** (paste parse + review; ideally the inline table).
+- [ ] **Author labels** in shared workspaces (`transaction.user`, per-user tint;
+      hidden in solo workspaces).
+- [ ] **AI entry mode** ([04](./04-tracker-chat.md) §4.11): Manual/AI toggle
+      (persisted; gradient accent; hidden for viewers), note field (≤2000) +
+      help sheet, `POST /ai/parse` with device timezone, editable **review
+      grid** (add/remove rows, start-over), save via `POST /transactions/bulk`,
+      429/502/503 handling.
+- [ ] **Voice entry**: hold-to-talk mic (permission on first hold), record
+      ≤60 s, listening strip, multipart `POST /ai/transcribe`, transcript
+      appended to the note for review; 503 hides the mic.
 - [ ] Chat skeleton; pull-to-refresh.
 
 ## Phase 6 — Transactions ([05](./05-transactions.md))
@@ -97,6 +112,10 @@ Cross-references point at the spec docs.
 - [ ] Filter bar: from/to, type, category, search (debounced), clear.
 - [ ] Pagination (page size 50; `meta.total`) — prev/next or infinite scroll.
 - [ ] CSV export → fetch + share the file.
+- [ ] **Attachments** ([05](./05-transactions.md) §5a): 📎 indicator, chips in
+      the detail dialog, open via `/attachments/{id}/url` (no auth header on the
+      presigned URL; thumb variant for images), upload (camera/photo/file,
+      ≤2 × 5 MB, allowed types), rename/tag, delete; editor-gated; 503 hides it.
 - [ ] Empty / loading / error states.
 
 ## Phase 7 — Analytics ([06](./06-analytics.md))
@@ -125,12 +144,17 @@ Cross-references point at the spec docs.
 
 ## Phase 9 — Settings ([08](./08-settings.md))
 
-- [ ] Settings nav (Account, Workspace, Theme, Input, Categories, Shortcuts);
-      lands on Account.
-- [ ] Account: currency combobox (59) + locale select; dirty-state save/cancel.
+- [ ] Settings nav (Account, Workspace, Theme, Input, Voice, Categories,
+      Shortcuts); lands on Account.
+- [ ] Workspace: currency combobox (59) + locale select; admin-only dirty-state
+      save/cancel (`PATCH /workspaces/{id}`); read-only for non-admins.
 - [ ] Theme: Light/Dark/System, applies instantly + PATCH.
 - [ ] Input: 3-option layout picker; dirty-state save.
-- [ ] Danger zone: delete-all-transactions (type DELETE). Account delete: defer or
+- [ ] **Voice**: 27-language multi-select (native names; max 5) →
+      `PATCH /settings { voiceLanguages }`; read normalized list back
+      ([08](./08-settings.md) §4a).
+- [ ] Danger zone: delete-all-transactions (type DELETE; **admin-only**,
+      optional profile picker → `profileIds`). Account delete: defer or
       implement per availability.
 - [ ] Workspace: read/switch-only picker + role display (defer admin flows).
 - [ ] Shortcuts: omit or read-only "web" note.

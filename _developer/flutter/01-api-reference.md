@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 5.1.0.** Every API change bumps this version and is logged
+**API spec version: 5.2.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -17,7 +17,8 @@ needs to update.
 - **Platform:** `X-Client-Platform: android | ios` (optional telemetry; send it on
   every request so server logs attribute the platform. It never changes a
   response — omitting it just logs the platform as `api`.)
-- **Content type:** `application/json` (CSV export is `text/csv`)
+- **Content type:** `application/json` (CSV export is `text/csv`; attachment
+  upload and voice transcription send `multipart/form-data`)
 - Every JSON response sets `Cache-Control: no-store`.
 
 ---
@@ -51,6 +52,11 @@ Every JSON response uses one of two shapes:
 | `not_found` | 404 | Resource / workspace / profile not accessible to the caller |
 | `conflict` | 409 | Duplicate name; last profile; non-empty profile delete; email already registered with a different sign-in method (unverified email only — see § Authentication) |
 | `validation_error` | 422 | Zod validation failed (`details` = field→message) |
+| `rate_limited` | 429 | Shared per-user AI quota spent (30 calls/hour across `/ai/*`) |
+| `payload_too_large` | 413 | An uploaded attachment file exceeds 5 MB |
+| `ai_failed` | 502 | The upstream AI model provider errored — retry is reasonable |
+| `ai_unavailable` | 503 | That AI feature's model isn't configured on the server (feature off) |
+| `storage_unavailable` | 503 | File storage (R2) isn't configured on the server (attachments off) |
 | `internal_error` | 500 | Unhandled server error (generic message; no internals leaked) |
 
 > **`forbidden` (403)** and the `workspace` object on `/me` are **not** in the
@@ -203,10 +209,31 @@ accept these query params:
   "occurredOn": "2026-06-01",   // YYYY-MM-DD
   "createdAt": "2026-06-01T12:34:56.000Z",  // ISO 8601
   "category": { "id": "uuid", "name": "Food" | null, "icon": "🍽️" | null } | null,
-  "profile":  { "id": "uuid", "name": "Personal" | null, "icon": "👤" | null }  // never null
+  "profile":  { "id": "uuid", "name": "Personal" | null, "icon": "👤" | null },  // never null
+  "user":     { "id": "uuid", "name": "Ada" | null, "email": "a@b.com" | null }, // author; never null
+  "attachments": [ …Attachment ]   // oldest first; [] when none
 }
 ```
 No `color` on the category/profile sub-objects; no `sortOrder` on the sub-object.
+`user` is author attribution — show it in shared workspaces (more than one user),
+hide it in solo ones. `attachments.length` drives the 📎 indicator.
+
+### Attachment
+Metadata only — the bytes live in object storage; fetch them via
+`GET /attachments/{id}/url` (§7 Attachments).
+```jsonc
+{
+  "id": "uuid",
+  "transactionId": "uuid",
+  "fileName": "receipt.jpg",          // sanitized original name, ≤ 200 chars
+  "contentType": "image/jpeg",        // one of the upload allowlist types
+  "sizeBytes": 83211,                 // ≤ 5 MB
+  "kind": "receipt" | "bill" | "invoice" | "other" | null,
+  "label": "June groceries" | null,   // display name; fall back to fileName
+  "hasThumbnail": true,               // a small webp preview exists (?variant=thumb)
+  "createdAt": "2026-06-01T12:34:56.000Z"
+}
+```
 
 ### Category
 ```jsonc
@@ -238,9 +265,14 @@ number format are NOT here — they're per-workspace** (see the `workspace` obje
 ```jsonc
 {
   "theme": "light" | "dark" | "system",
-  "inputMode": "amount_title" | "title_amount" | "combined"
+  "inputMode": "amount_title" | "title_amount" | "combined",
+  "voiceLanguages": ["en", "ta"]   // ISO 639-1; what voice entry expects. 1–5 codes, never empty
 }
 ```
+`voiceLanguages` supported codes (the settings picker's catalogue): `en, bn, gu,
+hi, kn, ml, mr, or, pa, ta, te, ur, ar, de, es, fr, id, it, ja, ko, nl, pt, ru,
+th, tr, vi, zh`. It's a *list* because the transcription model accepts several at
+once — that's what makes code-mixed speech ("groceries-க்கு 500 rupees") work.
 
 ### Workspace
 ```jsonc
@@ -274,6 +306,22 @@ number format are NOT here — they're per-workspace** (see the `workspace` obje
 { "month": "2026-06", "income": 250000, "expense": 84000 }
 ```
 All analytics responses add `meta.currency = { code, symbol, decimals }`.
+
+### AiDraft (from `POST /ai/parse`)
+One reviewable transaction the AI extracted from the note. Maps 1:1 onto a
+`TransactionInput` for `POST /transactions/bulk` — drop `categoryName`, add
+`profileId` if the user picked a profile.
+```jsonc
+{
+  "type": "income" | "expense",
+  "amount": 250,                        // major units, > 0, within input limits
+  "title": "Fruits",                    // ≤ 40 chars, never empty
+  "description": "June bill" | null,    // ≤ 150 chars
+  "categoryId": "uuid" | null,          // an existing workspace category of this type, or null
+  "categoryName": "Food" | null,        // its exact stored name (same match as categoryId)
+  "occurredOn": "2026-07-29"            // defaults to "today" in your timezone; never future
+}
+```
 
 ### `meta`
 - Currency block (analytics + lists): `{ "currency": { "code", "symbol", "decimals" } }`.
@@ -311,6 +359,30 @@ codes are listed per row.
 | `GET /transactions/export` | — | 200 `text/csv` | **Not the JSON envelope.** Filters only (no paging; max 5000 rows). Text cells that look like formulas are apostrophe-prefixed. See § CSV. |
 | `POST /transactions/delete-all` | `{ confirm: "DELETE", profileIds?: string[] }` | 200 `data: { deleted }` | **Workspace admins only** (403 otherwise). 400 "Type DELETE to confirm" if `confirm !== "DELETE"`. Deletes **every** transaction (any author) in the selected profiles of the current workspace; `profileIds` omitted/empty clears **all** profiles in the workspace (ids outside it are ignored). |
 
+### Attachments (receipts / bills / invoices on a transaction)
+Access is inherited from the transaction's profile: **viewer** to see/fetch,
+**editor** to upload/edit/delete. Metadata is embedded on every `Transaction`
+(`attachments`); these endpoints manage it and mint download URLs. Limits: **2
+files per transaction**, **5 MB per file**, types JPEG/PNG/WebP/GIF/PDF/Word/
+Excel/CSV/plain text. `503 storage_unavailable` on all of them when the server
+has no file storage configured.
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `POST /transactions/{id}/attachments` | **multipart** — files under `files` (repeatable; `file` works too); optional `thumb_<index>` webp preview per image file | 201 `data: Attachment[]` | Editor. 400 no files / too many (counting already-attached: "This transaction already has the maximum of 2 files"); **413** file > 5 MB; 422 unsupported type; 404 transaction not in this workspace |
+| `PATCH /attachments/{id}` | `{ label?, kind? }` (≥1; `null` clears) | 200 `data: Attachment` | Editor. `label` ≤ 80; `kind` ∈ receipt\|bill\|invoice\|other\|null. 400 "Nothing to update"; 422; 404 |
+| `DELETE /attachments/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Removes the stored object too. 422 non-UUID; 404 |
+| `GET /attachments/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Mints a **presigned URL** (~5 min) — GET it **without** the Authorization header. `?variant=thumb` → the small webp preview (falls back to the original if none); `?download=1` → attachment disposition. Mint per view; don't cache past expiry. 404 |
+
+### AI (assisted entry — both endpoints cost money server-side, so they're extra-gated)
+Both require the **editor** role (403 for viewers — hide the UI) and share a
+per-user quota of **30 calls/hour** (429 `rate_limited`). `503 ai_unavailable` =
+that feature's model isn't configured (treat as feature-off, like the web);
+`502 ai_failed` = provider hiccup, offer retry. Neither writes anything.
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `POST /ai/parse` | `{ text, timezone? }` — text ≤ 2000 chars; timezone = IANA device zone (omitted → UTC) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `#Category` tags a category, `(parens)` → description, relative dates resolve against `timezone`. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…") |
+| `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) | 200 `data: { text }` | Voice note → transcript (≤ 1200 chars) for the composer; user fixes it, then it goes through `/ai/parse` like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB (~1 min — cap recording at 60 s). Languages guided by `settings.voiceLanguages`; amounts come back as digits. 400 bad/empty/oversized audio or no speech |
+
 ### Categories (scoped to the current workspace via `X-Workspace-Id`)
 Shared by every member of the workspace. Reads need workspace access; writes
 require the **editor** role (viewer → 403). Switching `X-Workspace-Id` changes
@@ -335,8 +407,8 @@ the list.
 ### Settings
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /settings` | — | 200 `data: Settings` | User-level (theme, input mode). |
-| `PATCH /settings` | `SettingsPatch` (any subset of `theme, inputMode`; ≥1 required) | 200 `data: Settings` | 422 "Provide at least one setting to update". **Currency/number format moved to `PATCH /workspaces/{id}`.** |
+| `GET /settings` | — | 200 `data: Settings` | User-level (theme, input mode, voice languages). |
+| `PATCH /settings` | `SettingsPatch` (any subset of `theme, inputMode, voiceLanguages`; ≥1 required) | 200 `data: Settings` | 422 "Provide at least one setting to update". `voiceLanguages` is **normalized, not rejected**: unknown codes dropped, deduped, capped at 5, empty → default `["en"]` — read the normalized list back from the response. **Currency/number format moved to `PATCH /workspaces/{id}`.** |
 
 ### Analytics (all add `meta: { currency }`)
 | Method & path | Required | Success | Notes / errors |
@@ -368,9 +440,20 @@ the list.
 `ProfileInput` — `name` (1–20), `icon?` (≤16), `color?` (≤32).
 `ProfileUpdate` — `name?` (1–20), `icon?` (≤16, nullable), `color?` (≤32, nullable).
 `SettingsPatch` — subset of `{ theme (light|dark|system),
-inputMode (amount_title|title_amount|combined) }`; at least one key.
+inputMode (amount_title|title_amount|combined), voiceLanguages (string[], each
+2–8 chars, ≤ 20 entries; normalized server-side — see § Settings) }`; at least
+one key.
 `WorkspaceCurrencyPatch` — `{ currency (one of 59 codes), locale (2–20 chars) }`;
 both required. Admin only (`PATCH /workspaces/{id}`).
+`AiParseInput` — `{ text (1–2000 chars after trim, required),
+timezone? (IANA name, e.g. "Asia/Kolkata") }`.
+`AttachmentMetaPatch` — `{ label? (≤ 80, nullable), kind?
+(receipt|bill|invoice|other, nullable) }`; at least one key.
+Attachment upload (multipart) — ≤ 2 files/transaction total, ≤ 5 MB each; types
+JPEG, PNG, WebP, GIF, PDF, doc/docx, xls/xlsx, CSV, plain text. A generic
+`application/octet-stream` part is resolved by filename extension.
+Voice upload (multipart) — one `audio` part, ≤ 4 MB, container webm/ogg/mp4/
+mpeg/wav; keep recordings ≤ 60 s.
 
 ---
 
@@ -424,8 +507,32 @@ Response:
   "title": "Lunch", "description": null, "occurredOn": "2026-06-01",
   "createdAt": "2026-06-01T…Z",
   "category": null,
-  "profile": { "id": "…", "name": "Personal", "icon": "👤" }
+  "profile": { "id": "…", "name": "Personal", "icon": "👤" },
+  "user": { "id": "…", "name": "Ada", "email": "a@b.com" },
+  "attachments": []
 } }
+```
+
+AI entry end-to-end:
+```bash
+# 1. (optional) voice → text
+curl -X POST "$BASE/api/v1/ai/transcribe" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Workspace-Id: $WS" \
+  -F "audio=@note.m4a;type=audio/mp4"
+# → { "data": { "text": "200 fruits, 100 veg, 1000 electricity" } }
+
+# 2. text → drafts (review in the UI)
+curl -X POST "$BASE/api/v1/ai/parse" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Workspace-Id: $WS" \
+  -H "content-type: application/json" \
+  -d '{"text":"200 fruits, 100 veg, 1000 electricity","timezone":"Asia/Kolkata"}'
+# → { "data": { "drafts": [ {…AiDraft} ], "today": "2026-07-29" } }
+
+# 3. commit the drafts the user kept
+curl -X POST "$BASE/api/v1/transactions/bulk" \
+  -H "Authorization: Bearer $TOKEN" -H "X-Workspace-Id: $WS" \
+  -H "content-type: application/json" \
+  -d '{"items":[{"type":"expense","amount":200,"title":"Fruits","categoryId":null,"occurredOn":"2026-07-29"}]}'
 ```
 
 ---

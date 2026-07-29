@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.1.0"
+  version: "5.2.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 5.1.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 5.2.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
@@ -60,6 +60,30 @@ info:
     - **Dates:** `occurredOn` is a calendar date `YYYY-MM-DD`; timestamps are
       RFC 3339 date-times. All JSON responses set `Cache-Control: no-store`.
 
+    ## AI endpoints
+    `POST /ai/parse` (free text → reviewable transaction drafts) and
+    `POST /ai/transcribe` (voice recording → note text) call a paid model
+    provider, so they carry extra gates the CRUD endpoints don't:
+    the **editor** role in the current workspace (403 otherwise), a shared
+    per-user quota of **30 AI calls per hour** across both endpoints
+    (`429 rate_limited`), `503 ai_unavailable` when the operator hasn't
+    configured that feature's model, and `502 ai_failed` when the provider
+    errors. Neither endpoint writes anything: parse output is reviewed by the
+    user and committed via `POST /transactions/bulk`; transcribe output is
+    reviewed and then sent to `/ai/parse`. Audio is transcribed and discarded —
+    never stored.
+
+    ## Attachments
+    Transactions can carry up to **2 attached files** (receipt/bill/invoice —
+    images, PDF, Word, Excel, CSV or plain text, ≤ 5 MB each). Attachment
+    metadata is embedded on every Transaction (`attachments`); bytes are
+    uploaded multipart to `POST /transactions/{id}/attachments` and fetched via
+    `GET /attachments/{id}/url`, which mints a short-lived presigned URL the
+    client GETs **without** the Authorization header. Uploading/editing/deleting
+    needs editor; viewing needs viewer. `503 storage_unavailable` when the
+    server has no file storage configured; `413 payload_too_large` for an
+    oversized file.
+
 servers:
   - url: http://localhost:3010
     description: Local development (`pnpm dev`, port 3010)
@@ -73,10 +97,12 @@ tags:
   - name: Account
   - name: Workspaces
   - name: Transactions
+  - name: Attachments
   - name: Categories
   - name: Profiles
   - name: Settings
   - name: Analytics
+  - name: AI
 
 paths:
   /api/v1/me:
@@ -435,6 +461,147 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/transactions/{id}/attachments:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    post:
+      tags: [Attachments]
+      summary: Attach files to a transaction (multipart, editor only)
+      description: |
+        Uploads one or more files (receipt / bill / invoice) to a transaction.
+        Requires the **editor** role on the transaction's profile; the
+        transaction must live in the current workspace (else 404).
+
+        Multipart form data: files under `files` (repeatable; `file` also
+        accepted). For an image file, a client-generated preview may ride along
+        under `thumb_<index>` (webp recommended) — it becomes the tile
+        thumbnail (`hasThumbnail`), so lists never pull full-size originals.
+
+        Limits: at most **2 files per transaction** (total, including already
+        attached ones — 400 when exceeded), **5 MB per file** (413), and only
+        these types: JPEG, PNG, WebP, GIF, PDF, Word (doc/docx), Excel
+        (xls/xlsx), CSV, plain text (422 otherwise). The created attachments
+        are also embedded on the transaction (`Transaction.attachments`) from
+        then on.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                files:
+                  type: array
+                  items: { type: string, format: binary }
+              required: [files]
+      responses:
+        "201":
+          description: The created attachments.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Attachment" }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "503": { $ref: "#/components/responses/StorageUnavailable" }
+
+  /api/v1/attachments/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    patch:
+      tags: [Attachments]
+      summary: Update an attachment's label/kind (editor only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AttachmentMetaPatch" }
+      responses:
+        "200":
+          description: The updated attachment.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Attachment" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Attachments]
+      summary: Delete an attachment (editor only)
+      description: Removes the metadata row and the stored object.
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/attachments/{id}/url:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    get:
+      tags: [Attachments]
+      summary: Mint a short-lived download URL for an attachment's bytes
+      description: |
+        Authorizes the caller (viewer-or-better on the attachment's profile in
+        the current workspace), then returns a **presigned URL** valid for
+        ~5 minutes. GET that URL directly **without** the Authorization header —
+        the signature in the URL is the credential. Mint per view; don't cache
+        the URL beyond `expiresInSeconds`.
+
+        `?variant=thumb` returns the small preview object when one exists
+        (`hasThumbnail: true`; falls back to the original otherwise, and the
+        returned `contentType` is then `image/webp`). `?download=1` sets an
+        attachment disposition so a browser/share-sheet saves instead of
+        displaying.
+      parameters:
+        - name: variant
+          in: query
+          required: false
+          schema: { type: string, enum: [thumb] }
+        - name: download
+          in: query
+          required: false
+          schema: { type: string, enum: ["1"] }
+      responses:
+        "200":
+          description: The presigned URL and what it serves.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AttachmentUrl" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/StorageUnavailable" }
 
   /api/v1/categories:
     get:
@@ -841,6 +1008,126 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
+  /api/v1/ai/parse:
+    post:
+      tags: [AI]
+      summary: Parse a free-text note into transaction drafts (editor only)
+      description: |
+        Turns a note like "200 fruits, 100 veg, 1000 electricity, got 5000
+        salary" into structured drafts. **Nothing is written** — show the
+        drafts for the user to review/edit, then commit the kept ones via
+        `POST /transactions/bulk` (map each draft to a `TransactionInput`:
+        `type`, `amount`, `title`, `description`, `categoryId`, `occurredOn`).
+
+        Hints the model honours (worth surfacing in the app's UI help):
+        `#CategoryName` tags a category, `(parentheses)` become the
+        description, relative dates ("yesterday", "last Friday") resolve
+        against `timezone`.
+
+        `timezone` (IANA, e.g. `Asia/Kolkata`) anchors "today" for those
+        relative dates; omitted → UTC. Send the device zone. Drafts never get
+        a future date; `categoryId`/`categoryName` are guaranteed to be an
+        existing workspace category of the draft's type, or null.
+
+        Gates, in order: 400 (empty or > 2000-char note, bad timezone),
+        403 (viewer in this workspace), 429 (shared 30/hour AI quota),
+        503 (parse model not configured), 502 (provider failed). At most 50
+        drafts per call; a note that yields nothing usable is a 400.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AiParseInput" }
+      responses:
+        "200":
+          description: The parsed drafts, for user review.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      drafts:
+                        type: array
+                        maxItems: 50
+                        items: { $ref: "#/components/schemas/AiDraft" }
+                      today:
+                        type: string
+                        format: date
+                        description: The date the server treated as "today" (in the supplied timezone).
+                    required: [drafts, today]
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/AiFailed" }
+        "503": { $ref: "#/components/responses/AiUnavailable" }
+
+  /api/v1/ai/transcribe:
+    post:
+      tags: [AI]
+      summary: Transcribe a voice note to text (multipart, editor only)
+      description: |
+        Turns a short voice recording into the text of a note. Returns **only a
+        transcript** — put it in the composer for the user to read and fix,
+        then send it through `POST /ai/parse` like a typed note. The audio is
+        transcribed and discarded; nothing is stored.
+
+        Multipart form data: the recording under `audio`. The part should carry
+        its content type; if your HTTP client drops it, send a `mimeType` text
+        field as fallback. Accepted containers: `audio/webm`, `audio/ogg`,
+        `audio/mp4` (AAC/M4A), `audio/mpeg`, `audio/wav`, `audio/x-wav`,
+        `audio/x-m4a`. Max 4 MB (≈ 1 minute — cap recordings at 60 s
+        client-side). Amounts come back as digits ("two fifty" → 250, "2 lakh"
+        → 200000); spoken languages are transcribed as spoken (never
+        translated), guided by the user's `voiceLanguages` setting.
+
+        Gates, in order: 400 (missing/empty/oversized/unsupported audio, or no
+        speech heard), 403 (viewer in this workspace), 429 (shared 30/hour AI
+        quota), 503 (transcribe model not configured), 502 (provider failed).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                audio: { type: string, format: binary }
+                mimeType:
+                  type: string
+                  description: Fallback content type when the audio part has none.
+              required: [audio]
+      responses:
+        "200":
+          description: The transcript (≤ 1200 chars), ready for the composer.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      text: { type: string, maxLength: 1200 }
+                    required: [text]
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+        "502": { $ref: "#/components/responses/AiFailed" }
+        "503": { $ref: "#/components/responses/AiUnavailable" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -961,6 +1248,36 @@ components:
               code: validation_error
               message: "Amount must be greater than 0"
               details: { amount: "Amount must be greater than 0" }
+    RateLimited:
+      description: The caller spent the shared per-user AI quota (30 calls/hour).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: rate_limited, message: "That's a lot of AI requests in the last hour — try again later" } }
+    AiUnavailable:
+      description: This AI feature's model isn't configured on the server (feature is off).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: ai_unavailable, message: "AI-assisted input isn't available right now." } }
+    AiFailed:
+      description: The upstream model provider failed; retrying may succeed.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: ai_failed, message: "Couldn't reach the AI just now — please try again." } }
+    StorageUnavailable:
+      description: File storage (R2) isn't configured on the server.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: storage_unavailable, message: "File storage isn't configured on this server." } }
+    PayloadTooLarge:
+      description: An uploaded file exceeds the per-file size cap (5 MB).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example: { error: { code: payload_too_large, message: "Each file must be 5 MB or smaller." } }
 
   schemas:
     Error:
@@ -971,7 +1288,9 @@ components:
           properties:
             code:
               type: string
-              enum: [unauthorized, forbidden, bad_request, not_found, conflict, validation_error, internal_error]
+              enum: [unauthorized, forbidden, bad_request, not_found, conflict,
+                     validation_error, rate_limited, payload_too_large,
+                     ai_unavailable, ai_failed, storage_unavailable, internal_error]
             message: { type: string }
             details:
               description: Optional per-field messages for validation errors.
@@ -1040,7 +1359,16 @@ components:
       properties:
         theme: { type: string, enum: [light, dark, system] }
         inputMode: { type: string, enum: [amount_title, title_amount, combined] }
-      required: [theme, inputMode]
+        voiceLanguages:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items: { $ref: "#/components/schemas/VoiceLanguageCode" }
+          description: >
+            Languages voice entry tells the transcription model to expect (a
+            list, so code-mixed speech works). Normalized server-side; never
+            empty (default ["en"]).
+      required: [theme, inputMode, voiceLanguages]
 
     SettingsPatch:
       type: object
@@ -1049,6 +1377,16 @@ components:
       properties:
         theme: { type: string, enum: [light, dark, system] }
         inputMode: { type: string, enum: [amount_title, title_amount, combined] }
+        voiceLanguages:
+          type: array
+          maxItems: 20
+          items: { type: string, minLength: 2, maxLength: 8 }
+          description: >
+            ISO 639-1 codes from the supported catalogue (see
+            VoiceLanguageCode). Normalized server-side rather than rejected:
+            unknown codes are dropped, duplicates removed, the list capped at
+            5, and an empty/all-unknown list falls back to the default ["en"].
+            The response carries the normalized result.
 
     WorkspaceCurrencyPatch:
       type: object
@@ -1100,7 +1438,26 @@ components:
             name: { type: [string, "null"] }
             icon: { type: [string, "null"] }
           required: [id, name, icon]
-      required: [id, type, amountMinor, amount, title, description, occurredOn, createdAt, category, profile]
+        user:
+          type: object
+          description: >
+            Author attribution — who entered the row. Matters in shared
+            workspaces (show it WhatsApp-group style when the workspace has
+            more than one user; hide it in a solo workspace).
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: [string, "null"] }
+            email: { type: [string, "null"] }
+          required: [id, name, email]
+        attachments:
+          type: array
+          description: >
+            Files attached to the transaction, oldest first. Empty array when
+            none; `attachments.length` drives the 📎 indicator. Fetch bytes via
+            GET /attachments/{id}/url.
+          items: { $ref: "#/components/schemas/Attachment" }
+      required: [id, type, amountMinor, amount, title, description, occurredOn,
+                 createdAt, category, profile, user, attachments]
 
     TransactionInput:
       type: object
@@ -1215,3 +1572,115 @@ components:
         id: { type: string, format: uuid }
         deleted: { type: boolean, enum: [true] }
       required: [id, deleted]
+
+    Attachment:
+      type: object
+      description: Attachment metadata. The bytes live in object storage — fetch via GET /attachments/{id}/url.
+      properties:
+        id: { type: string, format: uuid }
+        transactionId: { type: string, format: uuid }
+        fileName: { type: string, maxLength: 200, description: Sanitized original filename. }
+        contentType:
+          type: string
+          description: Canonical MIME type (from the upload allowlist).
+          enum: [image/jpeg, image/png, image/webp, image/gif, application/pdf,
+                 application/msword,
+                 application/vnd.openxmlformats-officedocument.wordprocessingml.document,
+                 application/vnd.ms-excel,
+                 application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,
+                 text/csv, text/plain]
+        sizeBytes: { type: integer, maximum: 5242880 }
+        kind:
+          description: Optional preset tag.
+          oneOf:
+            - type: "null"
+            - type: string
+              enum: [receipt, bill, invoice, other]
+        label:
+          type: [string, "null"]
+          maxLength: 80
+          description: Optional custom display name; fall back to fileName when null.
+        hasThumbnail:
+          type: boolean
+          description: True when a small preview object exists (image uploads that sent one) — fetch it with ?variant=thumb.
+        createdAt: { type: string, format: date-time }
+      required: [id, transactionId, fileName, contentType, sizeBytes, kind, label, hasThumbnail, createdAt]
+
+    AttachmentMetaPatch:
+      type: object
+      minProperties: 1
+      description: Any subset; `null` clears a field.
+      properties:
+        label: { type: [string, "null"], maxLength: 80 }
+        kind:
+          oneOf:
+            - type: "null"
+            - type: string
+              enum: [receipt, bill, invoice, other]
+
+    AttachmentUrl:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          description: Presigned URL — GET it without the Authorization header.
+        expiresInSeconds: { type: integer, example: 300 }
+        fileName: { type: string }
+        contentType: { type: string, description: image/webp when serving the thumb variant. }
+      required: [url, expiresInSeconds, fileName, contentType]
+
+    AiParseInput:
+      type: object
+      properties:
+        text:
+          type: string
+          minLength: 1
+          maxLength: 2000
+          description: The free-text note to parse (trimmed server-side).
+        timezone:
+          type: string
+          description: IANA zone (e.g. Asia/Kolkata) anchoring "today" for relative dates. Send the device zone; omitted → UTC.
+          example: Asia/Kolkata
+      required: [text]
+
+    AiDraft:
+      type: object
+      description: >
+        One parsed transaction, for user review. Maps 1:1 onto a
+        TransactionInput for POST /transactions/bulk (drop categoryName; add
+        profileId if the user picked a profile).
+      properties:
+        type: { type: string, enum: [income, expense] }
+        amount:
+          type: number
+          description: Positive major-unit amount, within TransactionInput's limits.
+          exclusiveMinimum: 0
+          maximum: 999999999.99
+        title: { type: string, maxLength: 40 }
+        description: { type: [string, "null"], maxLength: 150 }
+        categoryId:
+          type: [string, "null"]
+          format: uuid
+          description: Resolved id of the matched workspace category (of the draft's type), or null when nothing fits.
+        categoryName:
+          type: [string, "null"]
+          description: The matched category's exact stored name (display convenience; same match as categoryId).
+        occurredOn:
+          type: string
+          format: date
+          description: Defaults to "today" in the supplied timezone; never a future date.
+      required: [type, amount, title, description, categoryId, categoryName, occurredOn]
+
+    VoiceLanguageCode:
+      type: string
+      description: >
+        ISO 639-1 codes voice entry supports (the settings picker's catalogue,
+        ordered English first, then Indian languages, then the rest). en
+        English, bn Bengali, gu Gujarati, hi Hindi, kn Kannada, ml Malayalam,
+        mr Marathi, or Odia, pa Punjabi, ta Tamil, te Telugu, ur Urdu,
+        ar Arabic, de German, es Spanish, fr French, id Indonesian, it Italian,
+        ja Japanese, ko Korean, nl Dutch, pt Portuguese, ru Russian, th Thai,
+        tr Turkish, vi Vietnamese, zh Chinese.
+      enum: [en, bn, gu, hi, kn, ml, mr, or, pa, ta, te, ur, ar, de, es, fr,
+             id, it, ja, ko, nl, pt, ru, th, tr, vi, zh]

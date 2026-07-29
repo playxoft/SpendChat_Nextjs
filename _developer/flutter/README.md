@@ -34,11 +34,11 @@ is a **faithful replica**. Where the older `_developer/app-dev/*` and
 | [openapi.yaml](./openapi.yaml) | Machine-readable OpenAPI 3.1 spec (corrected) — generate Dart models from this |
 | [02-design-system.md](./02-design-system.md) | Colours (light/dark tokens), typography, radius, spacing, motion, component styling, income/expense accents |
 | [03-navigation-shell.md](./03-navigation-shell.md) | Bottom nav, app bar, profile switcher, workspace switcher, routing, auth redirects, user menu |
-| [04-tracker-chat.md](./04-tracker-chat.md) | The hero screen: chat feed, bubbles, day dividers, composer, 3 input modes, optimistic send, bulk add, detail dialog |
-| [05-transactions.md](./05-transactions.md) | Transactions list/table, filters, pagination, CSV export, edit/detail dialog |
+| [04-tracker-chat.md](./04-tracker-chat.md) | The hero screen: chat feed, bubbles, day dividers, composer, 3 input modes, **AI entry (parse → review → save) + hold-to-talk voice**, optimistic send, bulk add, detail dialog |
+| [05-transactions.md](./05-transactions.md) | Transactions list/table, filters, pagination, CSV export, edit/detail dialog, **attachments (receipts/bills)** |
 | [06-analytics.md](./06-analytics.md) | Summary cards, category pie, monthly trend, filters + range presets |
 | [07-profiles-and-categories.md](./07-profiles-and-categories.md) | Profiles (switch/create/reorder/move/delete) and the categories manager |
-| [08-settings.md](./08-settings.md) | Settings sections (currency, locale, theme, input mode), danger zone, workspaces/RBAC scope |
+| [08-settings.md](./08-settings.md) | Settings sections (workspace currency/locale, theme, input mode, **voice languages**), danger zone, workspaces/RBAC scope |
 | [09-auth.md](./09-auth.md) | Firebase native auth flow, sign-in/up/verify/reset screens, error messages, session |
 | [10-checklist.md](./10-checklist.md) | Phased, page-by-page development checklist |
 | [11-additional-details.md](./11-additional-details.md) | Money/dates/timezone, loading/empty/error states, offline, accessibility, testing, gotchas |
@@ -47,11 +47,14 @@ is a **faithful replica**. Where the older `_developer/app-dev/*` and
 
 A minimal, fast, private money tracker where you add income/expenses like
 sending chat messages. Feature parity with the web app: a **Tracker** (chat feed
-+ composer), a **Transactions** list, **Analytics** (summary + pie + trend),
-**Profiles** (WhatsApp-style threads that scope the data), **Categories**,
-**Settings**, and Firebase **Auth**. Single currency per user; money is integer
-**minor units** end to end. Minimal, neutral, grayscale UI — the only accent is
-**emerald for income**.
++ composer with **AI entry** — type or **speak** a note, review the parsed
+drafts, save), a **Transactions** list with **attachments**
+(receipts/bills/invoices), **Analytics** (summary + pie + trend), **Profiles**
+(WhatsApp-style threads that scope the data), **Categories**, **Settings**, and
+Firebase **Auth**. Single currency per **workspace**; money is integer **minor
+units** end to end. Minimal, neutral, grayscale UI — the accents are **emerald
+for income** and one deliberate exception: a **blue→violet gradient** on AI
+affordances only (see [02](./02-design-system.md)).
 
 ## Corrections to older docs
 

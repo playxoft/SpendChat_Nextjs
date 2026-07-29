@@ -1,17 +1,18 @@
 # 08 · Settings
 
 Route: `/settings`, which lands on **Account**. Sections (in nav order): Account,
-Workspace, Theme, Input, Categories, Shortcuts.
+Workspace, Theme, Input, Voice, Categories, Shortcuts.
 
-**User** settings (`theme`, `inputMode`) persist via `PATCH /settings` (partial)
-and follow the account across devices and workspaces. **Currency + number format
-(locale) are per-workspace** — edited under Workspace settings via
-`PATCH /workspaces/{id}` (admin only), and read from the `workspace` object
-(`/me`, `/workspaces`).
+**User** settings (`theme`, `inputMode`, `voiceLanguages`) persist via
+`PATCH /settings` (partial) and follow the account across devices and
+workspaces. **Currency + number format (locale) are per-workspace** — edited
+under Workspace settings via `PATCH /workspaces/{id}` (admin only), and read
+from the `workspace` object (`/me`, `/workspaces`).
 
-Persisted user `settings` fields: `theme`, `inputMode` (plus `lastWorkspaceId`,
-managed by workspace switching). **There is no timezone setting** — timezone is
-device-derived (see [11](./11-additional-details.md)).
+Persisted user `settings` fields: `theme`, `inputMode`, `voiceLanguages` (plus
+`lastWorkspaceId`, managed by workspace switching). **There is no timezone
+setting** — timezone is device-derived (see
+[11](./11-additional-details.md)).
 
 ---
 
@@ -131,6 +132,29 @@ lays out its fields when you add a transaction."). A 3-option radio group:
 
 ---
 
+## 4a. Voice (languages the mic expects)
+
+Card **"Voice languages"** ("Which languages the mic should expect. Pick every
+language you speak while adding transactions — including mixing two in one
+sentence."). Backs the tracker's hold-to-talk voice entry
+([04](./04-tracker-chat.md) §4.11).
+
+- A **multi-select** over the 27-language catalogue (codes + native names in
+  [01](./01-api-reference.md) § Settings): English first, then Indian languages
+  alphabetically, then the rest. Render each option as its **native name**
+  (`हिन्दी`, `தமிழ்`, …) with the English name as secondary text.
+- **1 to 5 selections** — disable further selection at 5. Deselecting the last
+  one resets to English (the server would anyway).
+- Save → `PATCH /settings { voiceLanguages: ["en","ta",…] }`, then read the
+  **normalized** list back from the response (the server drops unknown codes,
+  dedupes, caps at 5, and falls back to `["en"]`). Dirty-state Save/Cancel like
+  the Input card.
+- **Why a list:** the transcription model takes a free-text hint that can name
+  several languages, which is what makes code-mixed speech ("groceries-க்கு 500
+  rupees") transcribe correctly. Don't reduce it to one code.
+
+---
+
 ## 5. Categories
 
 Settings › Categories embeds the **category manager** — see
@@ -145,10 +169,12 @@ whose description ends "Type **DELETE** to confirm.", with a text field
 (placeholder "DELETE") and a confirm button **disabled until the text is exactly
 `DELETE`**.
 
-1. **Delete all transactions** — "Permanently remove every transaction. Your
-   categories and settings are kept. This cannot be undone." Confirm →
-   `POST /transactions/delete-all { confirm: "DELETE" }`, toast "All transactions
-   deleted".
+1. **Delete all transactions** — **workspace admins only** (hide/disable for
+   everyone else; the server 403s non-admins). Clears **every** transaction
+   (regardless of author) in the selected profiles of the current workspace;
+   categories and settings are kept. Optionally offer a profile picker →
+   `POST /transactions/delete-all { confirm: "DELETE", profileIds?: [...] }`
+   (omitted/empty = all profiles). Toast with the returned `deleted` count.
 2. **Delete account** — "Erase everything: your transactions, workspaces
    (including shared ones you own), categories, and settings." Confirm → the
    account-delete flow, then Firebase `deleteUser()` (if it needs a recent login,
@@ -174,7 +200,8 @@ The behaviours that matter on mobile map to gestures/buttons:
 | `⌘/Ctrl+Enter` send | Send button |
 | `Shift+Enter` description | description toggle |
 | `#` tag category | inline `#` picker in the title field |
-| `a` Manual/AI entry | web-only (AI entry is not on mobile) |
+| `a` Manual/AI entry | the composer's Manual/AI toggle ([04](./04-tracker-chat.md) §4.11) |
+| `m` (held) voice note | hold-to-talk mic button in AI mode |
 | `g` workspace picker, then `1…9` | workspace dropdown in the nav drawer |
 | `⌘/Ctrl+E` toggle type | composer type toggle |
 | `Shift+1…0` / `Shift+`` ` profile switch | profile dropdown + swipe gesture |
@@ -189,8 +216,10 @@ grant, with roles **viewer < editor < admin** (effective role on a profile =
 max of the two).
 
 - **viewer** — read profiles/transactions.
-- **editor** — + create/edit/delete transactions, reorder/move profiles.
-- **admin** — + manage profiles, members, and workspace settings.
+- **editor** — + create/edit/delete transactions, move a profile's transactions,
+  manage categories, use AI/voice entry, manage attachments.
+- **admin** — + manage/reorder profiles, members, workspace settings
+  (currency), and clear transactions (delete-all).
 
 **What the mobile app needs (v1, in scope):**
 - Send `X-Workspace-Id` on every call (see [01](./01-api-reference.md) §3).
@@ -201,9 +230,9 @@ max of the two).
   a viewer at the workspace level.
 
 **In scope since spec 1.3.0:** **creating workspaces** — Settings has a "New
-workspace" dialog backed by `POST /api/v1/workspaces` (name ≤60; the caller
-becomes admin, gets a default "Personal" profile, and the app switches to the
-new workspace).
+workspace" dialog backed by `POST /api/v1/workspaces` (name ≤30, optional emoji
+icon; the caller becomes admin, gets a default "Personal" profile, and the app
+switches to the new workspace).
 
 **Likely out of scope for v1 (admin web flows):** renaming workspaces, inviting/
 removing members, changing roles, cancelling invites, per-profile sharing
@@ -212,8 +241,8 @@ later, they're server actions today — they'd need `/api/v1` endpoints first.
 
 **Workspace copy (for reference if you build the admin UI):**
 - Create dialog: "New workspace" / "A workspace has its own profiles and members
-  — handy for a company, a family, or a side project." Single Name field
-  (≤60 chars). A new workspace bootstraps admin membership + a default "Personal"
-  profile.
+  — handy for a company, a family, or a side project." Name field (≤30 chars) +
+  optional emoji icon picker (default 🏢). A new workspace bootstraps admin
+  membership + a default "Personal" profile.
 - Roles select: Viewer "can view", Editor "can add & edit transactions", Admin
   "can manage everything".

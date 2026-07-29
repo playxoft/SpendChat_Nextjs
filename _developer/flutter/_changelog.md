@@ -19,6 +19,60 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.2.0 — 2026-07-29
+
+Feature-parity release: the web app's newest features — **AI transaction entry**,
+**voice entry**, and **transaction attachments** — are now on the mobile API,
+plus the `voiceLanguages` user setting. All additive; nothing was removed,
+renamed, or retyped.
+
+### Added
+- **`POST /api/v1/ai/parse`** — free text → reviewable transaction drafts
+  (`data: { drafts: AiDraft[], today }`). Body `{ text (≤ 2000 chars),
+  timezone? (IANA) }`. Nothing is written; the client shows the drafts for
+  review and commits kept ones via `POST /transactions/bulk` (each `AiDraft`
+  maps 1:1 onto a `TransactionInput`, with `categoryId` already resolved).
+  Editor-only (403 for viewers), shared per-user quota of 30 AI calls/hour
+  (**429 `rate_limited`**), **503 `ai_unavailable`** when the model isn't
+  configured, **502 `ai_failed`** on provider failure.
+- **`POST /api/v1/ai/transcribe`** — voice note (multipart, `audio` field,
+  ≤ 4 MB, webm/ogg/mp4/mpeg/wav) → transcript text (`data: { text }`, ≤ 1200
+  chars). The transcript goes in the composer for the user to fix, then through
+  `/ai/parse` like a typed note. Audio is discarded, never stored. Same gates
+  and error codes as `/ai/parse`.
+- **Attachments** (receipts/bills/invoices; ≤ 2 per transaction, ≤ 5 MB each;
+  images/PDF/Word/Excel/CSV/text):
+  - **`Transaction.attachments: Attachment[]`** — metadata embedded on every
+    transaction response (oldest first; `[]` when none).
+  - **`POST /transactions/{id}/attachments`** (multipart `files`, optional
+    `thumb_<i>` webp preview per image) → `201 data: Attachment[]`. Editor-only.
+    **413 `payload_too_large`** for a file > 5 MB; **503 `storage_unavailable`**
+    when the server has no file storage.
+  - **`PATCH /attachments/{id}`** `{ label?, kind? }` and
+    **`DELETE /attachments/{id}`**. Editor-only.
+  - **`GET /attachments/{id}/url`** (`?variant=thumb`, `?download=1`) →
+    `data: { url, expiresInSeconds, fileName, contentType }` — a ~5-minute
+    presigned URL fetched **without** the Authorization header. Viewer-only.
+- **`Transaction.user`** — author attribution `{ id, name, email }` (always
+  present). Show it in shared workspaces (WhatsApp-group style), hide it solo.
+- **`Settings.voiceLanguages: string[]`** on `GET /me`, `GET /settings`, and
+  in `PATCH /settings` — ISO 639-1 codes voice entry expects (catalogue of 27;
+  1–5 codes, never empty, default `["en"]`). PATCH input is normalized, not
+  rejected: unknown codes dropped, deduped, capped at 5, empty → default.
+- **New `error.code` values:** `rate_limited` (429), `payload_too_large` (413),
+  `ai_failed` (502), `ai_unavailable` (503), `storage_unavailable` (503).
+
+**Flutter impact:** additive — regenerate/extend models. Required model changes:
+`Transaction` gains `user` and `attachments` (both always present), `Settings`
+gains `voiceLanguages`. New features to build against: AI mode in the composer
+(parse → review → bulk commit), hold-to-talk voice entry (record ≤ 60 s →
+transcribe → editable text), attachments on the transaction detail (upload,
+thumbnail via `/url?variant=thumb`, open/share via `/url`), and a Settings →
+Voice languages picker. Gate the AI UI on `workspace.role` ≥ editor and handle
+429/502/503 distinctly (quota / retry / feature-off).
+
+---
+
 ## 5.1.0 — 2026-07-21
 
 Workspaces now carry an optional emoji `icon` (like profiles), returned on every

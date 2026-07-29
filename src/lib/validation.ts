@@ -198,14 +198,15 @@ export type VoiceLanguagesInput = z.infer<typeof voiceLanguagesSchema>;
 
 /**
  * Partial user-settings update for the REST API's `PATCH /settings`. These
- * settings follow the user across workspaces (theme, input mode). Currency and
- * number format are per-workspace and live on a separate endpoint. Any subset
- * may be supplied; at least one is required.
+ * settings follow the user across workspaces (theme, input mode, voice
+ * languages). Currency and number format are per-workspace and live on a
+ * separate endpoint. Any subset may be supplied; at least one is required.
  */
 export const patchSettingsSchema = z
   .object({
     theme: themeSchema,
     inputMode: inputModeSchema,
+    voiceLanguages: voiceLanguagesSchema,
   })
   .partial()
   .refine((o) => Object.keys(o).length > 0, {
