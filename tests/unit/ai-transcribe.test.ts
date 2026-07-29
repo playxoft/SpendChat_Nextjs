@@ -9,11 +9,13 @@ import {
 } from "@/lib/ai-transcribe";
 import { ApiError } from "@/lib/errors";
 
-/** A tiny but non-empty base64 payload — content is irrelevant, size isn't. */
-const AUDIO = btoa("fake-opus-bytes-long-enough-to-pass-the-empty-check");
+/** Tiny but non-empty audio bytes — content is irrelevant, size isn't. */
+const AUDIO = new TextEncoder().encode("fake-opus-bytes-long-enough-to-pass-the-empty-check");
+/** What those bytes look like once Gemini's inlineData encoding is applied. */
+const AUDIO_B64 = Buffer.from(AUDIO).toString("base64");
 
 const OPTS = {
-  audio: { data: AUDIO, mimeType: "audio/webm;codecs=opus" },
+  audio: { bytes: AUDIO, mimeType: "audio/webm;codecs=opus" },
   languages: ["ta", "en"],
   currency: "INR",
   categoryNames: ["Groceries", "Electricity"],
@@ -196,7 +198,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     await expect(
-      transcribeVoiceNote({ ...OPTS, audio: { data: AUDIO, mimeType: "video/mp4" } }),
+      transcribeVoiceNote({ ...OPTS, audio: { bytes: AUDIO, mimeType: "video/mp4" } }),
     ).rejects.toMatchObject({ status: 400 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -205,7 +207,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     await expect(
-      transcribeVoiceNote({ ...OPTS, audio: { data: "", mimeType: "audio/webm" } }),
+      transcribeVoiceNote({ ...OPTS, audio: { bytes: new Uint8Array(0), mimeType: "audio/webm" } }),
     ).rejects.toMatchObject({ status: 400 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -213,9 +215,9 @@ describe("transcribeVoiceNote — provider wiring", () => {
   it("rejects an oversized recording before any request", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    const huge = "A".repeat(Math.ceil((MAX_AUDIO_BYTES * 4) / 3) + 8);
+    const huge = new Uint8Array(MAX_AUDIO_BYTES + 1);
     await expect(
-      transcribeVoiceNote({ ...OPTS, audio: { data: huge, mimeType: "audio/webm" } }),
+      transcribeVoiceNote({ ...OPTS, audio: { bytes: huge, mimeType: "audio/webm" } }),
     ).rejects.toMatchObject({ status: 400 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -240,7 +242,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
     expect(url).toContain("gemini-3.5-flash-lite:generateContent");
     const body = JSON.parse((init as { body: string }).body);
     const parts = body.contents[0].parts;
-    expect(parts[1].inlineData).toMatchObject({ mimeType: "audio/webm", data: AUDIO });
+    expect(parts[1].inlineData).toMatchObject({ mimeType: "audio/webm", data: AUDIO_B64 });
     // The language list has to reach the model, or the setting does nothing.
     expect(parts[0].text).toContain("Tamil and English");
     // 3.x rejects the old thinking field outright — it must not be sent.
@@ -284,7 +286,7 @@ describe("transcribeVoiceNote — provider wiring", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await transcribeVoiceNote({ ...OPTS, audio: { data: AUDIO, mimeType: "audio/mp4" } });
+    await transcribeVoiceNote({ ...OPTS, audio: { bytes: AUDIO, mimeType: "audio/mp4" } });
     const form = (fetchMock.mock.calls[0]![1] as { body: FormData }).body;
     expect((form.get("file") as File).name).toBe("voice-note.m4a");
   });

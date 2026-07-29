@@ -139,8 +139,7 @@ export async function transcribeVoiceNote(opts: {
   if (!ALLOWED_MIME.has(mimeType)) {
     throw badRequest("That audio format isn't supported — try recording again.");
   }
-  // base64 inflates by 4/3; compare decoded size so the cap means what it says.
-  const bytes = Math.floor((opts.audio.data.length * 3) / 4);
+  const bytes = opts.audio.bytes.byteLength;
   if (bytes === 0) throw badRequest("That recording was empty — hold the mic a little longer.");
   if (bytes > MAX_AUDIO_BYTES) throw badRequest("That recording is too long — try a shorter one.");
 
@@ -151,7 +150,7 @@ export async function transcribeVoiceNote(opts: {
     categoryNames: opts.categoryNames,
   });
 
-  const raw = await transcribeProvider(cfg, prompt, { data: opts.audio.data, mimeType });
+  const raw = await transcribeProvider(cfg, prompt, { bytes: opts.audio.bytes, mimeType });
   const text = cleanTranscript(raw);
   if (!text) {
     // Not an upstream failure — the mic worked, there was just nothing in it.

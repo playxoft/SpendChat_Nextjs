@@ -255,24 +255,40 @@ export async function parseTransactionsWithAI(
  * what the UI rendered. Cheap local checks first (format, size), then the editor
  * role, then the shared hourly quota — a denied caller must never burn another
  * caller's budget.
+ *
+ * **The recording arrives as `FormData`, not as a base64 argument.** Three
+ * reasons, and the first is the one that bites:
+ *   1. Next logs every server action's arguments in development
+ *      (`ƒ action({…}) in 8114ms`) by stringifying them with no cap on string
+ *      length — a base64 argument dumps the entire recording into the terminal
+ *      on every use. A `FormData` has no enumerable own properties, so it
+ *      stringifies to `{}` and the audio never reaches a log.
+ *   2. base64 inflates the payload by a third for no benefit; multipart carries
+ *      the bytes as-is.
+ *   3. The size check below is then exact, rather than inferred from an encoded
+ *      length.
  */
-export async function transcribeVoiceNoteAction(input: {
-  audio: string;
-  mimeType: string;
-}): Promise<ActionResult<{ text: string }>> {
+export async function transcribeVoiceNoteAction(
+  formData: FormData,
+): Promise<ActionResult<{ text: string }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "transcribeVoiceNote",
     async () => {
-      const audio = typeof input?.audio === "string" ? input.audio : "";
-      const mimeType = typeof input?.mimeType === "string" ? input.mimeType : "";
-      if (!audio || !mimeType) throw badRequest("No recording was captured — try again.");
-      // Reject an oversized upload before it's decoded or costed. base64 is 4/3
-      // of the bytes it encodes, so compare against the encoded length.
-      if (audio.length > Math.ceil(MAX_AUDIO_BYTES * 1.34)) {
+      const audio = formData?.get("audio");
+      if (!(audio instanceof Blob) || audio.size === 0) {
+        throw badRequest("No recording was captured — try again.");
+      }
+      // Reject an oversized upload before it's read into memory or costed.
+      if (audio.size > MAX_AUDIO_BYTES) {
         throw badRequest("That recording is too long — try a shorter one.");
       }
+      // The Blob's own type is what MediaRecorder produced; the form field is a
+      // fallback for browsers that drop it when constructing the multipart part.
+      const mimeType = audio.type || String(formData.get("mimeType") ?? "");
+      if (!mimeType) throw badRequest("No recording was captured — try again.");
+
       if (!(await canWriteInWorkspace(user.id, workspace.id))) {
         throw forbidden("You don't have permission to add transactions in this workspace");
       }
@@ -283,7 +299,7 @@ export async function transcribeVoiceNoteAction(input: {
         getUserSettings(user.id),
       ]);
       const text = await transcribeVoiceNote({
-        audio: { data: audio, mimeType },
+        audio: { bytes: new Uint8Array(await audio.arrayBuffer()), mimeType },
         languages: settings.voiceLanguages,
         currency: workspace.currency,
         categoryNames: categories.map((c) => c.name),
