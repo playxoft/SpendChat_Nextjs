@@ -38,5 +38,13 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # `cloudflare-env.d.ts` is gitignored and generated from wrangler.toml, so
+      # it isn't in the checkout. Without it `CloudflareEnv` resolves to an empty
+      # interface and typecheck fails on env.HYPERDRIVE / NEON_POSTGRES_DATABASE_URL
+      # in src/db/index.ts. `wrangler types` is offline (config → types), so it
+      # needs no Cloudflare auth or Doppler secrets.
+      - name: Generate Cloudflare env types
+        run: pnpm cf-typegen
+
       - name: Typecheck
         run: pnpm typecheck
