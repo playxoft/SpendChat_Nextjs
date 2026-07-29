@@ -19,7 +19,13 @@ import { siteConfig } from "@/lib/site";
 import { badRequest, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
-import { patchSettingsSchema, inputModeSchema, updateAccountNameSchema } from "@/lib/validation";
+import {
+  patchSettingsSchema,
+  inputModeSchema,
+  updateAccountNameSchema,
+  voiceLanguagesSchema,
+} from "@/lib/validation";
+import { normalizeVoiceLanguages } from "@/lib/voice-languages";
 import type { UserSettings } from "@/db/schema";
 
 /**
@@ -50,6 +56,33 @@ export async function updateInputMode(userId: string, mode: string): Promise<Use
     .update(userSettings)
     .set({ inputMode: parsed.data, updatedAt: new Date() })
     .where(eq(userSettings.userId, userId));
+  return getUserSettings(userId);
+}
+
+/**
+ * Set the languages voice entry expects. Zod checks the shape; the catalogue
+ * decides which codes are real, dedupes them and caps the count — so an unknown
+ * or repeated code is dropped rather than rejected, and clearing the list falls
+ * back to the default instead of storing an empty one.
+ */
+export async function updateVoiceLanguages(
+  userId: string,
+  languages: unknown,
+): Promise<UserSettings> {
+  const parsed = voiceLanguagesSchema.safeParse(languages);
+  if (!parsed.success) throw validationError("Invalid language selection");
+  const codes = normalizeVoiceLanguages(parsed.data);
+  await ensureBootstrap(userId);
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({ voiceLanguages: codes, updatedAt: new Date() })
+    .where(eq(userSettings.userId, userId));
+  logger.info(`Voice languages set to ${codes.length} language(s)`, {
+    event: "settings.voice_languages_updated",
+    userId,
+    count: codes.length,
+  });
   return getUserSettings(userId);
 }
 

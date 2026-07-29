@@ -59,6 +59,7 @@ export function TransactionComposer({
   activeProfileId,
   allProfiles = false,
   inputMode = "amount_title",
+  voiceLanguages,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   currency: string;
@@ -72,6 +73,8 @@ export function TransactionComposer({
   allProfiles?: boolean;
   /** How to lay out the amount/title inputs (from user settings). */
   inputMode?: InputMode;
+  /** Languages AI mode's mic expects (from user settings). */
+  voiceLanguages: string[];
 }) {
   // Manual (fields) vs AI (free-text note → reviewed drafts) entry. Persisted in
   // localStorage so a refresh / re-login reopens the same mode (see the store).
@@ -481,6 +484,7 @@ export function TransactionComposer({
               profiles={profiles}
               activeProfileId={activeProfileId}
               allProfiles={allProfiles}
+              voiceLanguages={voiceLanguages}
             />
           </div>
 

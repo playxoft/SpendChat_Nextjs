@@ -4,9 +4,10 @@ import { describeError, logger } from "@/lib/logger";
 
 /**
  * The AI transport layer: the shared config/error vocabulary plus one generic
- * adapter per API protocol. **No model ids and no curated model list live here** —
- * only the request/response shape of each protocol. Which model runs is resolved
- * from the environment by `resolveModel()` in `ai-parse.ts`.
+ * adapter per API protocol, for both text completion (`callProvider`) and
+ * speech-to-text (`transcribeProvider`). **No model ids and no curated model
+ * list live here** — only the request/response shape of each protocol. Which
+ * model runs is resolved from the environment by `ai-model-registry.ts`.
  *
  * Split out from `ai-parse.ts` so the pure parsing/validation there stays under
  * the coverage gate while this `fetch` wiring is excluded like the other I/O
@@ -89,30 +90,40 @@ type AnthropicResponse = {
   stop_reason?: string;
 };
 
+/** Which caller a request belongs to — names the log event, nothing more. */
+type Feature = "parse" | "transcribe";
+
 /**
- * POST JSON and read the body, with one timeout covering **both**. Aborting only
+ * POST and read the body, with one timeout covering **both**. Aborting only
  * around `fetch` would leave the body read unbounded — `fetch` resolves as soon
  * as the headers land, so a provider that stalls mid-body would hang the request
  * until the platform killed it.
+ *
+ * `body` is either a JSON-serializable value (sent as `application/json`) or a
+ * `FormData` (sent as multipart, letting `fetch` set the boundary itself).
  */
-async function postJson(
+async function post(
   url: string,
   headers: Record<string, string>,
   body: unknown,
   provider: Provider,
+  feature: Feature = "parse",
 ): Promise<unknown> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  const multipart = body instanceof FormData;
   try {
     const res = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...headers },
-      body: JSON.stringify(body),
+      // Never set Content-Type for FormData — `fetch` appends the multipart
+      // boundary, and an explicit header would clobber it and break the parse.
+      headers: multipart ? headers : { "Content-Type": "application/json", ...headers },
+      body: multipart ? body : JSON.stringify(body),
       signal: controller.signal,
     });
     if (!res.ok) {
-      logger.error(`AI parse request failed with status ${res.status}`, {
-        event: "ai.parse.http_error",
+      logger.error(`AI ${feature} request failed with status ${res.status}`, {
+        event: `ai.${feature}.http_error`,
         provider,
         status: res.status,
         // Only the provider's machine-readable error code. Their free-text
@@ -150,9 +161,13 @@ async function errorCode(res: Response): Promise<Record<string, unknown>> {
   return { bodyChars: raw.length };
 }
 
-function noContent(provider: Provider, meta: Record<string, unknown> = {}): never {
-  logger.error("AI parse returned no content", {
-    event: "ai.parse.empty_response",
+function noContent(
+  provider: Provider,
+  feature: Feature,
+  meta: Record<string, unknown> = {},
+): never {
+  logger.error(`AI ${feature} returned no content`, {
+    event: `ai.${feature}.empty_response`,
     provider,
     ...meta,
   });
@@ -161,7 +176,7 @@ function noContent(provider: Provider, meta: Record<string, unknown> = {}): neve
 
 async function callGemini(cfg: ModelConfig, system: string, userText: string): Promise<string> {
   const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
-  const json = (await postJson(
+  const json = (await post(
     `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`,
     { "x-goog-api-key": cfg.apiKey },
     {
@@ -187,7 +202,7 @@ async function callGemini(cfg: ModelConfig, system: string, userText: string): P
   if (typeof text !== "string" || !text.trim()) {
     // `finishReason` separates "hit the token ceiling" from "was blocked" — the
     // two need different fixes and both otherwise look like a generic failure.
-    noContent("gemini", {
+    noContent("gemini", "parse", {
       finishReason: candidate?.finishReason ?? null,
       blockReason: json.promptFeedback?.blockReason ?? null,
     });
@@ -201,7 +216,7 @@ async function callOpenAI(cfg: ModelConfig, system: string, userText: string): P
   // portable structured output across those providers; the exact shape is
   // pinned by the system prompt and re-validated in `draftsFromRawJson`.
   const base = cfg.baseUrl || "https://api.openai.com/v1";
-  const json = (await postJson(
+  const json = (await post(
     `${base.replace(/\/$/, "")}/chat/completions`,
     { Authorization: `Bearer ${cfg.apiKey}` },
     {
@@ -225,7 +240,7 @@ async function callOpenAI(cfg: ModelConfig, system: string, userText: string): P
   const choice = json.choices?.[0];
   const message = choice?.message;
   if (message?.refusal || typeof message?.content !== "string" || !message.content.trim()) {
-    noContent("openai", {
+    noContent("openai", "parse", {
       refused: Boolean(message?.refusal),
       finishReason: choice?.finish_reason ?? null,
     });
@@ -235,7 +250,7 @@ async function callOpenAI(cfg: ModelConfig, system: string, userText: string): P
 
 async function callAnthropic(cfg: ModelConfig, system: string, userText: string): Promise<string> {
   const base = cfg.baseUrl || "https://api.anthropic.com/v1";
-  const json = (await postJson(
+  const json = (await post(
     `${base.replace(/\/$/, "")}/messages`,
     { "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" },
     {
@@ -252,7 +267,7 @@ async function callAnthropic(cfg: ModelConfig, system: string, userText: string)
     .filter((b) => b.type === "text" && typeof b.text === "string")
     .map((b) => b.text)
     .join("");
-  if (!text.trim()) noContent("anthropic", { stopReason: json.stop_reason ?? null });
+  if (!text.trim()) noContent("anthropic", "parse", { stopReason: json.stop_reason ?? null });
   return text;
 }
 
@@ -275,6 +290,150 @@ export async function callProvider(
     if (err instanceof ApiError) throw err;
     logger.error(`AI parse request errored: ${describeError(err)}`, {
       event: "ai.parse.error",
+      provider: cfg.provider,
+      error: err,
+    });
+    throw aiFailed();
+  }
+}
+
+// ── Speech to text ──────────────────────────────────────────────────────────
+// A voice note recorded in the browser, uploaded for transcription. `data` is
+// base64 (the wire format for a server action) and `mimeType` is whatever
+// MediaRecorder produced — usually audio/webm, audio/mp4 on Safari.
+
+export type AudioInput = { data: string; mimeType: string };
+
+/**
+ * Gemini transcribes through the same `generateContent` endpoint as text, with
+ * the audio as an `inlineData` part beside the instruction. That's what makes
+ * the language list from settings useful: unlike Whisper's single `language`
+ * code, the instruction can name several languages at once and describe the
+ * domain, and the model honours both.
+ *
+ * No `thinkingConfig` here (unlike `callGemini`): the 3.x models replaced
+ * `thinkingBudget` with `thinkingLevel` and reject the old field outright, and
+ * transcription has no reasoning worth suppressing anyway.
+ */
+async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<string> {
+  const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
+  const json = (await post(
+    `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`,
+    { "x-goog-api-key": cfg.apiKey },
+    {
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: prompt },
+            { inlineData: { mimeType: audio.mimeType, data: audio.data } },
+          ],
+        },
+      ],
+      generationConfig: {
+        responseMimeType: "text/plain",
+        temperature: TEMPERATURE,
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
+      },
+    },
+    "gemini",
+    "transcribe",
+  )) as GeminiResponse;
+
+  const candidate = json.candidates?.[0];
+  const parts = candidate?.content?.parts;
+  // An *empty* reply is a valid answer here — the prompt asks for one when the
+  // audio holds no speech — so only a structurally absent reply is a failure.
+  // Blocked or truncated responses land here too (candidate, no parts), which
+  // is what `finishReason`/`blockReason` are for.
+  if (!Array.isArray(parts)) {
+    noContent("gemini", "transcribe", {
+      finishReason: candidate?.finishReason ?? null,
+      blockReason: json.promptFeedback?.blockReason ?? null,
+    });
+  }
+  return parts.map((p) => p.text ?? "").join("");
+}
+
+/**
+ * The OpenAI `/audio/transcriptions` shape — multipart, and the de-facto
+ * standard for Whisper wherever it's hosted (OpenAI, Groq, and OpenAI-compatible
+ * gateways), so one adapter covers all of them via `base_url`.
+ *
+ * `prompt` here is only a *vocabulary* hint, not an instruction: Whisper uses it
+ * to bias decoding, and it takes a single `language` code (which we deliberately
+ * don't send — forcing one language on code-mixed speech transliterates the rest
+ * into that script, so auto-detect wins). See `ai-transcribe.ts`.
+ */
+async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<string> {
+  const base = cfg.baseUrl || "https://api.openai.com/v1";
+  const bytes = Uint8Array.from(atob(audio.data), (c) => c.charCodeAt(0));
+  const form = new FormData();
+  form.append("model", cfg.model);
+  form.append("file", new Blob([bytes as unknown as BlobPart], { type: audio.mimeType }), fileNameFor(audio.mimeType));
+  form.append("response_format", "json");
+  form.append("temperature", String(TEMPERATURE));
+  if (prompt) form.append("prompt", prompt);
+
+  const json = (await post(
+    `${base.replace(/\/$/, "")}/audio/transcriptions`,
+    { Authorization: `Bearer ${cfg.apiKey}` },
+    form,
+    "openai",
+    "transcribe",
+  )) as { text?: string };
+
+  // As with Gemini: an empty transcript means "no speech", not "call failed".
+  if (typeof json.text !== "string") noContent("openai", "transcribe");
+  return json.text;
+}
+
+/**
+ * A filename for the multipart part. The Whisper endpoints sniff the container
+ * from this extension, so an unrecognized one is rejected before decoding —
+ * the blob's own MIME type isn't enough.
+ */
+function fileNameFor(mimeType: string): string {
+  const base = mimeType.split(";")[0]!.trim().toLowerCase();
+  const ext =
+    base === "audio/mp4" || base === "audio/x-m4a"
+      ? "m4a"
+      : base === "audio/mpeg"
+        ? "mp3"
+        : base === "audio/ogg"
+          ? "ogg"
+          : base === "audio/wav" || base === "audio/x-wav"
+            ? "wav"
+            : "webm";
+  return `voice-note.${ext}`;
+}
+
+/**
+ * Transcribe a voice note, normalizing failures like `callProvider`. Anthropic
+ * is absent on purpose — Claude has no speech-to-text model, so an entry
+ * pointing there is a misconfiguration, not an upstream failure.
+ */
+export async function transcribeProvider(
+  cfg: ModelConfig,
+  prompt: string,
+  audio: AudioInput,
+): Promise<string> {
+  if (cfg.provider === "anthropic") {
+    logger.error("AI transcribe misconfigured — Anthropic has no speech-to-text model", {
+      event: "ai.transcribe.bad_config",
+      reason: "anthropic does not support audio input",
+      provider: cfg.provider,
+    });
+    throw aiUnavailable();
+  }
+  try {
+    return cfg.provider === "gemini"
+      ? await transcribeGemini(cfg, prompt, audio)
+      : await transcribeOpenAI(cfg, prompt, audio);
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    logger.error(`AI transcribe request errored: ${describeError(err)}`, {
+      event: "ai.transcribe.error",
       provider: cfg.provider,
       error: err,
     });

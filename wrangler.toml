@@ -122,11 +122,12 @@ id = "07826a33089d4b4db1650922ac12da22"
 # and `spendchat-beta` each need their own copies. Set the runtime secrets once
 # per environment (repeat for every runtime secret — NEON_POSTGRES_DATABASE_URL,
 # R2_*, ZEPTOMAIL_*, MAIL_FROM_*, BETTERSTACK_*, LOG_LEVEL, AI_PARSE_MODEL,
-# AI_PARSE_MODEL_CURRENT):
+# AI_PARSE_MODEL_CURRENT, AI_TRANSCRIBE_MODEL, AI_TRANSCRIBE_MODEL_CURRENT):
 #
 # Anything missing from that list fails *quietly* in the worker — the AI ones in
-# particular just make the composer's AI mode answer "not available" — so add a
-# new runtime secret here in the same change that reads it.
+# particular just make the composer's AI mode answer "not available" (and the
+# AI_TRANSCRIBE_* pair its mic) — so add a new runtime secret here in the same
+# change that reads it.
 #
 #   # prod worker (spendchat-production), from the `prd` Doppler config
 #   doppler secrets get NEON_POSTGRES_DATABASE_URL --config prd --plain \
