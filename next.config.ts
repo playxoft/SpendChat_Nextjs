@@ -87,15 +87,15 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   experimental: {
     serverActions: {
-      // Voice entry uploads a recording as base64 through a server action
-      // (`transcribeVoiceNoteAction`). Next caps server-action bodies at 1MB by
-      // default, but a recording may be up to `MAX_AUDIO_BYTES` (4MB) of audio,
-      // which is ~5.4MB once base64-encoded — so the default would reject longer
-      // clips (Safari's fatter AAC especially) with an opaque framework error
-      // before the action's own friendly size check ever runs. 8mb covers the
-      // encoded max with headroom; the action still enforces the real 4MB cap on
-      // the decoded bytes, after the role + quota gates.
-      bodySizeLimit: "8mb",
+      // Voice entry posts a recording through a server action
+      // (`transcribeVoiceNoteAction`) as multipart. Next caps server-action
+      // bodies at 1MB by default, but a recording may be up to
+      // `MAX_AUDIO_BYTES` (4MB) — so the default would reject longer clips
+      // (Safari's fatter AAC especially) with an opaque framework error before
+      // the action's own friendly size check ever runs. 5mb covers the cap plus
+      // multipart overhead; the action still enforces the real 4MB limit itself,
+      // after the role + quota gates.
+      bodySizeLimit: "5mb",
     },
   },
   // Let `.md`/`.mdx` files be imported as React components (blog content lives in

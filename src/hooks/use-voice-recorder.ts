@@ -66,19 +66,6 @@ function pickMimeType(): string {
   return candidates.find((t) => MediaRecorder.isTypeSupported(t)) ?? "";
 }
 
-/** Blob → bare base64 (no data: prefix), the wire format for the server action. */
-function toBase64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(new Error("Could not read the recording"));
-    reader.onload = () => {
-      const result = typeof reader.result === "string" ? reader.result : "";
-      resolve(result.slice(result.indexOf(",") + 1));
-    };
-    reader.readAsDataURL(blob);
-  });
-}
-
 /**
  * Below this, a press was a mis-tap rather than speech. Uploading it would spend
  * a quota slot and a provider call to be told there's nothing there.
@@ -140,8 +127,12 @@ export function useVoiceRecorder({
 }: {
   /** BCP-47 tag for the live preview only (see `primaryBcp47`). */
   lang: string;
-  /** Upload the finished recording and resolve with the transcript. */
-  onTranscribe: (audio: { data: string; mimeType: string }) => Promise<void>;
+  /**
+   * Upload the finished recording and resolve with the transcript. Handed the
+   * `Blob` itself — the caller posts it as multipart, so the audio is never
+   * base64-encoded on this side (see `transcribeVoiceNoteAction`).
+   */
+  onTranscribe: (audio: { blob: Blob; mimeType: string }) => Promise<void>;
   onError: (message: string) => void;
 }) {
   const [state, setState] = useState<VoiceState>("idle");
@@ -293,7 +284,7 @@ export function useVoiceRecorder({
 
       setState("transcribing");
       try {
-        await onTranscribeRef.current({ data: await toBase64(blob), mimeType: type });
+        await onTranscribeRef.current({ blob, mimeType: type });
       } finally {
         setState("idle");
       }

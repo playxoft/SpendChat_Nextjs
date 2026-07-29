@@ -308,7 +308,13 @@ export async function callProvider(
 // base64 (the wire format for a server action) and `mimeType` is whatever
 // MediaRecorder produced — usually audio/webm, audio/mp4 on Safari.
 
-export type AudioInput = { data: string; mimeType: string };
+/**
+ * Raw recording bytes, not base64. Each adapter encodes only if its protocol
+ * demands it (Gemini inlines base64; the Whisper shape posts the bytes as a
+ * multipart file), so nothing carries an encoded copy further than it must —
+ * and no caller can accidentally log one. See `transcribeVoiceNoteAction`.
+ */
+export type AudioInput = { bytes: Uint8Array; mimeType: string };
 
 /**
  * Gemini transcribes through the same `generateContent` endpoint as text, with
@@ -332,7 +338,10 @@ async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioIn
           role: "user",
           parts: [
             { text: prompt },
-            { inlineData: { mimeType: audio.mimeType, data: audio.data } },
+            // `inlineData` is base64-only, so this is the one place the audio is
+            // encoded — inside the request body, never in a variable a log or an
+            // error report could pick up.
+            { inlineData: { mimeType: audio.mimeType, data: toBase64(audio.bytes) } },
           ],
         },
       ],
@@ -374,10 +383,13 @@ async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioIn
  */
 async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<string> {
   const base = cfg.baseUrl || "https://api.openai.com/v1";
-  const bytes = Uint8Array.from(atob(audio.data), (c) => c.charCodeAt(0));
   const form = new FormData();
   form.append("model", cfg.model);
-  form.append("file", new Blob([bytes as unknown as BlobPart], { type: audio.mimeType }), fileNameFor(audio.mimeType));
+  form.append(
+    "file",
+    new Blob([audio.bytes as unknown as BlobPart], { type: audio.mimeType }),
+    fileNameFor(audio.mimeType),
+  );
   form.append("response_format", "json");
   form.append("temperature", String(TEMPERATURE));
   if (prompt) form.append("prompt", prompt);
@@ -394,6 +406,20 @@ async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioIn
   // As with Gemini: an empty transcript means "no speech", not "call failed".
   if (typeof json.text !== "string") noContent("openai", "transcribe");
   return json.text;
+}
+
+/**
+ * Bytes → base64, chunked. `String.fromCharCode(...bytes)` in one call blows the
+ * argument limit and throws `RangeError: Maximum call stack size exceeded` on a
+ * recording of any real length, so walk it in slices.
+ */
+function toBase64(bytes: Uint8Array): string {
+  const CHUNK = 0x8000;
+  let binary = "";
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(binary);
 }
 
 /**

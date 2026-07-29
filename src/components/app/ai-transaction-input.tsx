@@ -409,10 +409,13 @@ export function AiTransactionInput({
     lang: primaryBcp47(voiceLanguages),
     onError: (message) => toast.error(message),
     onTranscribe: async (audio) => {
-      const res = await transcribeVoiceNoteAction({
-        audio: audio.data,
-        mimeType: audio.mimeType,
-      });
+      // Multipart, not a base64 argument: Next dumps server-action arguments
+      // into the dev terminal verbatim, so an encoded recording would be logged
+      // in full on every use. A FormData logs as `{}`.
+      const body = new FormData();
+      body.append("audio", audio.blob, "voice-note");
+      body.append("mimeType", audio.mimeType);
+      const res = await transcribeVoiceNoteAction(body);
       if (!res.ok) {
         toast.error(res.error);
         return;
