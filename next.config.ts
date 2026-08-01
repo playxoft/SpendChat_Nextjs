@@ -17,21 +17,26 @@ import createMDX from "@next/mdx";
  */
 const isDev = process.env.NODE_ENV === "development";
 
+/**
+ * One `Permissions-Policy` string, built in one place so the three variants
+ * below can't drift. Everything stays fully closed except the microphone, which
+ * only the tracker opens (see `appHeaders`).
+ */
+function permissionsPolicy(microphone: "()" | "(self)"): string {
+  return `camera=(), microphone=${microphone}, geolocation=(), browsing-topics=()`;
+}
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
-    // `microphone=(self)` — voice entry in the composer records through
-    // MediaRecorder, and an empty allowlist (`microphone=()`) disables the API
-    // for *every* origin including our own. A page under that header can't get
-    // the mic no matter what the user allows in their browser: the permission
-    // reads back as "denied" and getUserMedia rejects with NotAllowedError,
-    // with no prompt shown. `(self)` grants it to this origin only — embedded
-    // third-party frames still get nothing. Camera and geolocation stay fully
-    // off; add them the same way only if a feature actually needs them.
+    // Fully closed by default. Voice entry needs `microphone=(self)`, but only
+    // on `/app` — see `appHeaders`, which is this list with that one value
+    // swapped. Marketing pages, the blog and auth never record, so they keep
+    // advertising no mic access at all.
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(self), geolocation=(), browsing-topics=()",
+    value: permissionsPolicy("()"),
   },
   {
     key: "Strict-Transport-Security",
@@ -59,6 +64,24 @@ const securityHeaders = [
 ];
 
 /**
+ * The tracker, and only the tracker. `/app` is the one page that renders the
+ * composer, so it's the one page that records through MediaRecorder.
+ *
+ * The distinction matters because `microphone=()` doesn't merely fail to grant
+ * the mic — it *disables* the API for every origin including our own. A page
+ * under that header can't get the mic no matter what the user allows in their
+ * browser: the permission reads back as "denied" and getUserMedia rejects with
+ * `NotAllowedError`, no prompt shown. `(self)` grants it to this origin only,
+ * so embedded third-party frames still get nothing.
+ *
+ * Derived from `securityHeaders` rather than copied, so the CSP (the long,
+ * easily-desynced one) has exactly one definition.
+ */
+const appHeaders = securityHeaders.map((h) =>
+  h.key === "Permissions-Policy" ? { ...h, value: permissionsPolicy("(self)") } : h,
+);
+
+/**
  * The attachments API streams file bytes that the in-app preview embeds in a
  * same-origin `<iframe>` (PDFs). The app-wide `X-Frame-Options: DENY` +
  * `frame-ancestors 'none'` would block even that same-origin frame, so this route
@@ -70,10 +93,10 @@ const attachmentHeaders = [
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
-    // Stays fully closed, unlike `securityHeaders` above: this route only
-    // streams file bytes into a preview iframe and has no use for a mic.
+    // Fully closed like `securityHeaders`, and unlike `appHeaders`: this route
+    // only streams file bytes into a preview iframe and has no use for a mic.
     key: "Permissions-Policy",
-    value: "camera=(), microphone=(), geolocation=(), browsing-topics=()",
+    value: permissionsPolicy("()"),
   },
   {
     key: "Strict-Transport-Security",
@@ -95,6 +118,12 @@ const nextConfig: NextConfig = {
       // the action's own friendly size check ever runs. 5mb covers the cap plus
       // multipart overhead; the action still enforces the real 4MB limit itself,
       // after the role + quota gates.
+      //
+      // **This is global — Next has no per-action override.** Every server
+      // action in the app now accepts up to 5MB, not just the voice one, so
+      // each is responsible for its own size check (as attachments, also
+      // capped at 5MB, already are). Raise it only for a body that genuinely
+      // needs it, and keep the per-action check next to the action.
       bodySizeLimit: "5mb",
     },
   },
@@ -115,12 +144,16 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
-      // The attachments API allows same-origin framing (for the in-app preview);
-      // every other route keeps the strict DENY / frame-ancestors 'none'. Only
-      // one source matches a given path (the negative lookahead excludes the
-      // attachments route from the general rule) so headers never conflict.
+      // Three header sets, and **exactly one source matches any given path** —
+      // the negative lookahead in the catch-all excludes both special cases, so
+      // no path is ever handed two conflicting values for the same key:
+      //   /api/attachments/*  same-origin framing, for the in-app PDF preview
+      //   /app                the composer's mic (`microphone=(self)`)
+      //   everything else     strict DENY / frame-ancestors 'none', mic closed
       { source: "/api/attachments/:path*", headers: attachmentHeaders },
-      { source: "/((?!api/attachments).*)", headers: securityHeaders },
+      { source: "/app", headers: appHeaders },
+      { source: "/app/:path*", headers: appHeaders },
+      { source: "/((?!api/attachments|app$|app/).*)", headers: securityHeaders },
     ];
   },
 };

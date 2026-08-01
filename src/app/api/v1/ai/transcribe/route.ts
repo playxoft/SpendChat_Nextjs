@@ -5,7 +5,7 @@ import { badRequest, forbidden } from "@/lib/errors";
 import { canWriteInWorkspace } from "@/lib/workspaces";
 import { assertAiRequestAllowed } from "@/lib/ai-quota";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
-import { transcribeVoiceNote } from "@/lib/ai-transcribe";
+import { isSupportedAudioType, transcribeVoiceNote } from "@/lib/ai-transcribe";
 import { getCategories } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -39,12 +39,20 @@ export async function POST(request: NextRequest) {
     if (!(audio instanceof Blob) || audio.size === 0) {
       throw badRequest("No recording was captured — try again.");
     }
-    // Reject an oversized upload before it's read into memory or costed.
+    // `formData()` above has already buffered the body, so this doesn't spare
+    // the read — it spares the `arrayBuffer()` copy, the quota slot and the
+    // provider call, which are the expensive parts.
     if (audio.size > MAX_AUDIO_BYTES) {
       throw badRequest("That recording is too long — try a shorter one.");
     }
     const mimeType = audio.type || String(form.get("mimeType") ?? "");
     if (!mimeType) throw badRequest("No recording was captured — try again.");
+    // Container check belongs here, with the other cheap checks — not deeper in
+    // `transcribeVoiceNote`, which runs past the quota gate and would let an
+    // unsupported file burn a slot on its way to a guaranteed 400.
+    if (!isSupportedAudioType(mimeType)) {
+      throw badRequest("That audio format isn't supported — try recording again.");
+    }
 
     if (!(await canWriteInWorkspace(user.id, workspace.id))) {
       throw forbidden("You don't have permission to add transactions in this workspace");
