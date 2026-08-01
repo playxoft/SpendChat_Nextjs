@@ -26,7 +26,7 @@ export default function FilesLoading() {
         </div>
       </div>
       <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5">
-        {Array.from({ length: 12 }, (_, i) => (
+        {Array.from({ length: 10 }, (_, i) => (
           <div key={i} className="space-y-1.5 rounded-lg border p-2">
             <Skeleton className="aspect-square w-full rounded-md" />
             <Skeleton className="h-4 w-3/4" />
