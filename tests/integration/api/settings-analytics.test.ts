@@ -24,6 +24,45 @@ describe("/api/v1/settings", () => {
     expect(data.theme).toBe("dark");
   });
 
+  // The mobile contract documents voiceLanguages as *normalized, not rejected*
+  // (see _developer/flutter/11-additional-details.md §21) — the Flutter client
+  // reads the cleaned list back off the response instead of validating codes
+  // itself, so this behaviour is load-bearing rather than incidental.
+  it("normalizes voiceLanguages rather than rejecting them", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+
+    const got = await getSettings(apiReq("/api/v1/settings"));
+    expect((await got.json()).data.voiceLanguages).toEqual(["en"]);
+
+    // Unknown codes dropped, case-folded, deduped, original order kept.
+    const patched = await patchSettings(
+      apiReq("/api/v1/settings", {
+        method: "PATCH",
+        body: jsonBody({ voiceLanguages: ["TA", " ta ", "klingon", "en"] }),
+      }),
+    );
+    expect(patched.status).toBe(200);
+    expect((await patched.json()).data.voiceLanguages).toEqual(["ta", "en"]);
+
+    // Clearing the list restores the default instead of storing an empty one —
+    // an empty list would leave the transcription prompt with no language to name.
+    const cleared = await patchSettings(
+      apiReq("/api/v1/settings", { method: "PATCH", body: jsonBody({ voiceLanguages: [] }) }),
+    );
+    expect(cleared.status).toBe(200);
+    expect((await cleared.json()).data.voiceLanguages).toEqual(["en"]);
+
+    // Capped at 5, so a hand-rolled request can't bloat the prompt.
+    const many = await patchSettings(
+      apiReq("/api/v1/settings", {
+        method: "PATCH",
+        body: jsonBody({ voiceLanguages: ["en", "ta", "te", "hi", "kn", "ml", "bn"] }),
+      }),
+    );
+    expect((await many.json()).data.voiceLanguages).toEqual(["en", "ta", "te", "hi", "kn"]);
+  });
+
   it("422s an empty patch or a bad theme (currency is no longer a settings field)", async () => {
     signInAs("a");
     await bootstrapUser("a");
