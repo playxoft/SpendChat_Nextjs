@@ -38,7 +38,7 @@ export function TagChip({
   return (
     <span
       className={cn(
-        "inline-flex max-w-28 items-center gap-1 truncate rounded-full border px-1.5 py-px text-[10px] font-medium",
+        "inline-flex max-w-28 items-center gap-1 truncate rounded-full border px-1.5 py-px text-sm font-medium",
         className,
       )}
       style={{
@@ -184,7 +184,7 @@ export function TagFormDialog({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label htmlFor="tag-name">Name</Label>
-              <span className="text-[10px] text-muted-foreground tabular-nums">
+              <span className="text-sm text-muted-foreground tabular-nums">
                 {name.length}/{FILE_TAG_MAX}
               </span>
             </div>

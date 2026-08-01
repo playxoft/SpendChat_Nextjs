@@ -156,7 +156,7 @@ function ProfileChip({ profileId, handlers }: { profileId: string; handlers: Vau
   const label = handlers.profileLabel(profileId);
   if (!label) return null;
   return (
-    <Badge variant="outline" className="max-w-28 truncate px-1.5 py-0 text-[10px] font-normal">
+    <Badge variant="outline" className="max-w-28 truncate px-1.5 py-0 text-sm font-normal">
       {label}
     </Badge>
   );
@@ -542,7 +542,7 @@ function FolderCard({ folder, handlers }: { folder: FolderDTO; handlers: VaultHa
                 ) : null}
                 <div className="mt-1 flex items-center gap-1 overflow-hidden">
                   {folder.system ? (
-                    <span className="shrink-0 text-[10px] text-muted-foreground">Predefined</span>
+                    <span className="shrink-0 text-sm text-muted-foreground">Predefined</span>
                   ) : null}
                   <TagChips tagIds={folder.tagIds} handlers={handlers} oneLine />
                   <ProfileChip profileId={folder.profileId} handlers={handlers} />
@@ -616,7 +616,7 @@ function FileCard({ file, handlers }: { file: FileDTO; handlers: VaultHandlers }
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1">
                   {file.category ? (
-                    <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-normal">
+                    <Badge variant="outline" className="px-1.5 py-0 text-sm font-normal">
                       {FILE_CATEGORY_LABELS[file.category]}
                     </Badge>
                   ) : null}
