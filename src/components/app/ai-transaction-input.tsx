@@ -420,10 +420,20 @@ export function AiTransactionInput({
         toast.error(res.error);
         return;
       }
-      setText((prev) => {
-        const joined = prev.trim() ? `${prev.trim()} ${res.text}` : res.text;
-        return joined.slice(0, MAX_INPUT_CHARS);
-      });
+      // Read the note off the textarea rather than through a `setText` updater:
+      // the toast below is a side effect, and StrictMode invokes updaters twice
+      // (which would double it). The textarea is controlled, so its DOM value is
+      // the committed state, and it's mounted for the whole of this callback —
+      // voice is only enabled while the compose view is showing.
+      const prev = (taRef.current?.value ?? "").trim();
+      const joined = prev ? `${prev} ${res.text}` : res.text;
+      // Dictating onto an already-long note can overflow the cap. Say so —
+      // silently dropping the tail means the user watches the mic finish and
+      // never learns that part of what they just said didn't make it.
+      if (joined.length > MAX_INPUT_CHARS) {
+        toast.warning("Your note is full — the end of that recording was cut off.");
+      }
+      setText(joined.slice(0, MAX_INPUT_CHARS));
       setTagDismissed(true);
       requestAnimationFrame(() => {
         const node = taRef.current;

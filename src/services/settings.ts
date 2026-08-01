@@ -87,9 +87,10 @@ export async function updateVoiceLanguages(
     .update(userSettings)
     .set({ voiceLanguages: codes, updatedAt: new Date() })
     .where(eq(userSettings.userId, userId));
+  // No `userId` in the meta — the request context stamps identity onto every
+  // log automatically (see `log-context.ts`).
   logger.info(`Voice languages set to ${codes.length} language(s)`, {
     event: "settings.voice_languages_updated",
-    userId,
     count: codes.length,
   });
   return getUserSettings(userId);
