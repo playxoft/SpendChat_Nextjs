@@ -20,9 +20,24 @@ const BAR_COUNT = 9;
  * matching the `M` shortcut rather than offering a second, different gesture.
  *
  * Pointer events (not mouse/touch) so one set of handlers covers mouse, touch
- * and pen. `onPointerLeave` and `onPointerCancel` both stop, because a finger
- * that slides off the button — or a browser that steals the gesture to scroll —
- * never delivers `pointerup` here, and the mic would stay open.
+ * and pen. The press **captures the pointer**, which is what guarantees the
+ * hold always ends: with capture, `pointerup` is delivered to this button no
+ * matter where the pointer travelled, so sliding a finger off mid-recording and
+ * releasing elsewhere still stops the mic. Without it, that release goes to
+ * whatever element is under the pointer and nothing here ever fires — the mic
+ * would run to the recorder's 60s auto-stop and upload a minute of audio.
+ *
+ * `onLostPointerCapture` is the backstop: it fires exactly once per captured
+ * gesture, however it ended (up, cancel, or the button unmounting). Every
+ * handler funnels into `onStop`, which is idempotent, so the overlap is free.
+ *
+ * A browser that steals the gesture (scroll, permission prompt on some touch
+ * platforms) fires `pointercancel`, which also stops. That can cost the very
+ * first recording — the one where the permission prompt appears — but "your
+ * first hold didn't record, press again" is a one-time, self-correcting
+ * annoyance, where a mic left open is repeatable, costs a quota slot and a
+ * provider call, and leaves the recording indicator on. The recorder reports
+ * that case as "Hold the mic while you speak" rather than failing silently.
  */
 export function VoiceMicButton({
   state,
@@ -57,29 +72,26 @@ export function VoiceMicButton({
       aria-label={label}
       title={label}
       aria-pressed={recording}
-      // Keep the browser from turning a press-and-hold into text selection,
-      // a scroll gesture, or the touch callout menu mid-recording.
+      // preventDefault keeps the browser from turning a press-and-hold into text
+      // selection, a scroll gesture, or the touch callout menu mid-recording.
       onPointerDown={(e) => {
         e.preventDefault();
+        try {
+          // Route the rest of this gesture here regardless of where the pointer
+          // goes. Throws NotFoundError if the pointer is already gone, in which
+          // case the plain up/cancel handlers still cover the common path.
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch {
+          /* no capture on this browser/pointer — handlers below still fire */
+        }
         onStart();
       }}
       onPointerUp={(e) => {
         e.preventDefault();
         onStop();
       }}
-      // Only tear down once the audio is actually flowing ("recording"), not
-      // during the async "starting" gap. The first time a user holds the mic the
-      // browser shows a permission prompt while `getUserMedia` is pending, and on
-      // touch platforms that can synthesise a pointercancel — treating it as a
-      // release would silently discard their very first recording. A genuine
-      // release (pointerup) still stops from "starting", and the recorder's
-      // auto-stop timer bounds anything that slips through.
-      onPointerLeave={() => {
-        if (state === "recording") onStop();
-      }}
-      onPointerCancel={() => {
-        if (state === "recording") onStop();
-      }}
+      onPointerCancel={onStop}
+      onLostPointerCapture={onStop}
       // A held Space/Enter on a focused button repeats keydown; ignore the
       // repeats so keyboard users get one recording, not a stutter of starts.
       onKeyDown={(e) => {

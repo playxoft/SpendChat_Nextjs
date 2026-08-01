@@ -235,9 +235,14 @@ export function useVoiceRecorder({
     }
 
     // Let go during the permission prompt — honour that, don't start recording.
+    // Say so rather than going quietly idle: this is also where a `pointercancel`
+    // lands when a touch browser steals the gesture to show that prompt, and a
+    // press that produces neither a recording nor a word reads as a broken mic.
+    // Same wording as a too-short hold, because it's the same instruction.
     if (!wantRecordingRef.current) {
       stream.getTracks().forEach((t) => t.stop());
       setState("idle");
+      onErrorRef.current("Hold the mic while you speak.");
       return;
     }
 

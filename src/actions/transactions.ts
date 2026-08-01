@@ -21,7 +21,7 @@ import { updateTransactionSchema, type TransactionInput } from "@/lib/validation
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { MAX_INPUT_CHARS, parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
-import { transcribeVoiceNote } from "@/lib/ai-transcribe";
+import { isSupportedAudioType, transcribeVoiceNote } from "@/lib/ai-transcribe";
 import { assertAiRequestAllowed } from "@/lib/ai-quota";
 import { getTimeZone } from "@/lib/timezone.server";
 import { todayISO } from "@/lib/dates";
@@ -280,7 +280,11 @@ export async function transcribeVoiceNoteAction(
       if (!(audio instanceof Blob) || audio.size === 0) {
         throw badRequest("No recording was captured — try again.");
       }
-      // Reject an oversized upload before it's read into memory or costed.
+      // Next has already buffered the body to hand us this FormData, so this
+      // doesn't spare the read — it spares the `arrayBuffer()` copy, the quota
+      // slot and the provider call, which are the expensive parts. The framework
+      // ceiling (`serverActions.bodySizeLimit`, 5mb) is the one that bounds the
+      // read, and it's deliberately above this so the friendly error wins.
       if (audio.size > MAX_AUDIO_BYTES) {
         throw badRequest("That recording is too long — try a shorter one.");
       }
@@ -288,6 +292,12 @@ export async function transcribeVoiceNoteAction(
       // fallback for browsers that drop it when constructing the multipart part.
       const mimeType = audio.type || String(formData.get("mimeType") ?? "");
       if (!mimeType) throw badRequest("No recording was captured — try again.");
+      // Container check belongs here, with the other cheap checks — not deeper
+      // in `transcribeVoiceNote`, which runs past the quota gate and would let
+      // an unsupported file burn a slot on its way to a guaranteed 400.
+      if (!isSupportedAudioType(mimeType)) {
+        throw badRequest("That audio format isn't supported — try recording again.");
+      }
 
       if (!(await canWriteInWorkspace(user.id, workspace.id))) {
         throw forbidden("You don't have permission to add transactions in this workspace");
