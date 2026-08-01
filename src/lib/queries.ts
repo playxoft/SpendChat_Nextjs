@@ -1,9 +1,27 @@
 import "server-only";
 import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, profiles, transactionAttachments, transactions, users } from "@/db/schema";
+import {
+  categories,
+  files,
+  fileTags,
+  folders,
+  profiles,
+  transactionAttachments,
+  transactions,
+  users,
+} from "@/db/schema";
 import { accessibleProfileIds } from "@/lib/workspaces";
 import type { AttachmentDTO } from "@/lib/attachments";
+import {
+  serializeFile,
+  serializeFolder,
+  serializeTag,
+  type FileDTO,
+  type FolderDTO,
+  type TagDTO,
+  type TxnFileDTO,
+} from "@/lib/files";
 
 /** The page size shared by the transactions list, its infinite-scroll loader,
  * and the load-more server action. */
@@ -487,4 +505,205 @@ export async function getAttachmentById(
     )
     .limit(1);
   return row ?? null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Files vault                                                                 */
+/* -------------------------------------------------------------------------- */
+
+/** Full vault rows (carry `r2Key`) — service/route-side only, never a client. */
+export type VaultFileRow = typeof files.$inferSelect;
+export type VaultFolderRow = typeof folders.$inferSelect;
+
+/** The vault page loads at most this many files per request. Folder trees are
+ * tiny; a document vault under this many files browses entirely client-side.
+ * The page shows a notice when the cap is hit. */
+export const VAULT_FILES_LIMIT = 500;
+
+/**
+ * Every folder the user can view in the current workspace (optionally one
+ * profile). The whole tree ships to the client — folders are lightweight rows
+ * and the breadcrumbs/tree view need ancestry, so there's no point paging.
+ */
+export async function listVaultFolders(
+  userId: string,
+  workspaceId: string,
+  profileId?: string,
+): Promise<FolderDTO[]> {
+  const db = getDb();
+  const conds = [inArray(folders.profileId, accessibleProfileIds(userId, workspaceId))];
+  if (profileId) conds.push(eq(folders.profileId, profileId));
+  const rows = await db
+    .select({
+      id: folders.id,
+      profileId: folders.profileId,
+      parentId: folders.parentId,
+      name: folders.name,
+      color: folders.color,
+      systemKey: folders.systemKey,
+      tagIds: folders.tagIds,
+      createdAt: folders.createdAt,
+      updatedAt: folders.updatedAt,
+      createdByName: users.name,
+    })
+    .from(folders)
+    .leftJoin(users, eq(folders.userId, users.id))
+    .where(and(...conds))
+    .orderBy(asc(folders.name), asc(folders.createdAt));
+  return rows.map(serializeFolder);
+}
+
+/**
+ * Vault files the user can view in the current workspace (optionally one
+ * profile), newest first, joined with uploader + profile display fields.
+ * Capped at `VAULT_FILES_LIMIT`; search/folder filtering happens client-side
+ * on this working set.
+ */
+export async function listVaultFiles(
+  userId: string,
+  workspaceId: string,
+  profileId?: string,
+): Promise<FileDTO[]> {
+  const db = getDb();
+  const conds = [inArray(files.profileId, accessibleProfileIds(userId, workspaceId))];
+  if (profileId) conds.push(eq(files.profileId, profileId));
+  const rows = await db
+    .select({
+      id: files.id,
+      profileId: files.profileId,
+      folderId: files.folderId,
+      name: files.name,
+      contentType: files.contentType,
+      sizeBytes: files.sizeBytes,
+      category: files.category,
+      tagIds: files.tagIds,
+      thumbnailKey: files.thumbnailKey,
+      createdAt: files.createdAt,
+      uploaderName: users.name,
+      profileName: profiles.name,
+      profileIcon: profiles.icon,
+    })
+    .from(files)
+    .leftJoin(users, eq(files.userId, users.id))
+    .leftJoin(profiles, eq(files.profileId, profiles.id))
+    .where(and(...conds))
+    .orderBy(desc(files.createdAt), desc(files.id))
+    .limit(VAULT_FILES_LIMIT);
+  return rows.map(serializeFile);
+}
+
+/** Vault tags of the accessible profiles (optionally one), for the pickers
+ * and for resolving items' `tagIds` into names + colors client-side. */
+export async function listVaultTags(
+  userId: string,
+  workspaceId: string,
+  profileId?: string,
+): Promise<TagDTO[]> {
+  const db = getDb();
+  const conds = [inArray(fileTags.profileId, accessibleProfileIds(userId, workspaceId))];
+  if (profileId) conds.push(eq(fileTags.profileId, profileId));
+  const rows = await db
+    .select()
+    .from(fileTags)
+    .where(and(...conds))
+    .orderBy(asc(fileTags.name));
+  return rows.map(serializeTag);
+}
+
+/** A single vault file the user can view, or null. Carries `r2Key` (download route). */
+export async function getVaultFile(
+  userId: string,
+  workspaceId: string,
+  fileId: string,
+): Promise<VaultFileRow | null> {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(files)
+    .where(
+      and(
+        eq(files.id, fileId),
+        inArray(files.profileId, accessibleProfileIds(userId, workspaceId)),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** A single vault folder the user can view, or null. */
+export async function getVaultFolder(
+  userId: string,
+  workspaceId: string,
+  folderId: string,
+): Promise<VaultFolderRow | null> {
+  const db = getDb();
+  const [row] = await db
+    .select()
+    .from(folders)
+    .where(
+      and(
+        eq(folders.id, folderId),
+        inArray(folders.profileId, accessibleProfileIds(userId, workspaceId)),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/**
+ * Transaction attachments surfaced in the files page, flattened with the
+ * parent transaction's info (title/amount/date) so a receipt is recognizable
+ * outside its chat thread. Same access scoping as everything else; newest
+ * first, capped like the vault list.
+ */
+export async function listTransactionFilesForVault(
+  userId: string,
+  workspaceId: string,
+  profileId?: string,
+): Promise<TxnFileDTO[]> {
+  const db = getDb();
+  const conds = [
+    inArray(transactionAttachments.profileId, accessibleProfileIds(userId, workspaceId)),
+  ];
+  if (profileId) conds.push(eq(transactionAttachments.profileId, profileId));
+  const rows = await db
+    .select({
+      id: transactionAttachments.id,
+      transactionId: transactionAttachments.transactionId,
+      fileName: transactionAttachments.fileName,
+      label: transactionAttachments.label,
+      contentType: transactionAttachments.contentType,
+      sizeBytes: transactionAttachments.sizeBytes,
+      thumbnailKey: transactionAttachments.thumbnailKey,
+      createdAt: transactionAttachments.createdAt,
+      txnTitle: transactions.title,
+      txnType: transactions.type,
+      txnAmountMinor: transactions.amountMinor,
+      txnOccurredOn: transactions.occurredOn,
+      profileId: transactionAttachments.profileId,
+      profileName: profiles.name,
+      profileIcon: profiles.icon,
+    })
+    .from(transactionAttachments)
+    .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
+    .leftJoin(profiles, eq(transactionAttachments.profileId, profiles.id))
+    .where(and(...conds))
+    .orderBy(desc(transactionAttachments.createdAt), desc(transactionAttachments.id))
+    .limit(VAULT_FILES_LIMIT);
+  return rows.map((r) => ({
+    id: r.id,
+    transactionId: r.transactionId,
+    name: r.label && r.label.trim() ? r.label : r.fileName,
+    contentType: r.contentType,
+    sizeBytes: r.sizeBytes,
+    hasThumbnail: r.thumbnailKey != null,
+    createdAt: r.createdAt.toISOString(),
+    txnTitle: r.txnTitle,
+    txnType: r.txnType,
+    txnAmountMinor: r.txnAmountMinor,
+    txnOccurredOn: r.txnOccurredOn,
+    profileId: r.profileId,
+    profileName: r.profileName,
+    profileIcon: r.profileIcon,
+  }));
 }

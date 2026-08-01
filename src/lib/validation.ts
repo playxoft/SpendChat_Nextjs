@@ -172,6 +172,210 @@ export const attachmentMetaSchema = z.object({
 });
 export type AttachmentMetaInput = z.infer<typeof attachmentMetaSchema>;
 
+/* -------------------------------------------------------------------------- */
+/* Files (the document vault: board resolutions, land/house papers, certificates) */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The app-wide upload cap. Deliberately the same constant as transaction
+ * attachments (`ATTACHMENT_MAX_BYTES`): "5 MB per file" is one product rule,
+ * not two — raise it in one place and both features follow.
+ */
+export const FILE_MAX_BYTES = ATTACHMENT_MAX_BYTES;
+/** Display/file name we persist (used in `Content-Disposition` on download). */
+export const FILE_NAME_MAX = 200;
+/** Folder + tag names are deliberately short — they're labels, not documents. */
+export const FOLDER_NAME_MAX = 40;
+/** DB cap for the free-text category column (presets are far shorter). */
+export const FILE_CATEGORY_MAX = 40;
+export const FILE_TAG_MAX = 20;
+/** Per-file and per-folder tag count cap. */
+export const FILE_TAGS_MAX = 10;
+/** Files accepted in a single upload request. */
+export const FILE_MAX_PER_UPLOAD = 10;
+
+/**
+ * Preset document categories (stored as text, so adding one later is a code
+ * change, not a migration). These mirror what the vault is for: company
+ * paperwork, personal/land/house documents, certificates.
+ */
+export const FILE_CATEGORIES = [
+  "board-resolution",
+  "company",
+  "personal",
+  "land",
+  "house",
+  "certificate",
+  "other",
+] as const;
+export type FileCategory = (typeof FILE_CATEGORIES)[number];
+export const fileCategorySchema = z.enum(FILE_CATEGORIES);
+
+/**
+ * A vault accent color (tags, folders): a hex `#rrggbb`. Stored as text so a
+ * future custom-color picker needs no schema change — any hex the UI mints is
+ * already valid here. Today's UI offers a fixed 20-swatch palette
+ * (`VAULT_COLORS` in `lib/files.ts`).
+ */
+export const vaultColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-f]{6}$/i, "Pick a color");
+
+/**
+ * Tags are entities (per-profile, named + colored), and items reference them
+ * by id — free-text tags no longer exist. Only tags that were created can be
+ * applied.
+ */
+export const tagIdsSchema = z
+  .array(z.string().uuid())
+  .max(FILE_TAGS_MAX, `Too many tags (max ${FILE_TAGS_MAX})`)
+  .transform((ids) => [...new Set(ids)]);
+
+const tagNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Tag name is required")
+  .max(FILE_TAG_MAX, `Tag name is too long (max ${FILE_TAG_MAX} characters)`);
+
+export const createTagSchema = z.object({
+  profileId: z.string().uuid(),
+  name: tagNameSchema,
+  color: vaultColorSchema,
+});
+export type CreateTagInput = z.input<typeof createTagSchema>;
+
+export const updateTagSchema = z.object({
+  id: z.string().uuid(),
+  name: tagNameSchema.optional(),
+  color: vaultColorSchema.optional(),
+});
+export type UpdateTagInput = z.input<typeof updateTagSchema>;
+
+const folderNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Folder name is required")
+  .max(FOLDER_NAME_MAX, `Folder name is too long (max ${FOLDER_NAME_MAX} characters)`);
+
+const fileNameSchema = z
+  .string()
+  .trim()
+  .min(1, "File name is required")
+  .max(FILE_NAME_MAX, `File name is too long (max ${FILE_NAME_MAX} characters)`);
+
+export const createFolderSchema = z.object({
+  profileId: z.string().uuid(),
+  parentId: z.string().uuid().nullish(),
+  name: folderNameSchema,
+  color: vaultColorSchema.nullish(),
+  tagIds: tagIdsSchema.optional().default([]),
+});
+export type CreateFolderInput = z.input<typeof createFolderSchema>;
+
+/** PATCH semantics: `undefined` leaves a field untouched; `parentId: null`
+ * moves the folder to the root; `color: null` clears the accent. */
+export const updateFolderSchema = z.object({
+  id: z.string().uuid(),
+  name: folderNameSchema.optional(),
+  color: vaultColorSchema.nullish(),
+  tagIds: tagIdsSchema.optional(),
+  parentId: z.string().uuid().nullish(),
+});
+export type UpdateFolderInput = z.input<typeof updateFolderSchema>;
+
+/** PATCH semantics: `folderId: null` moves the file to the root, `category:
+ * null` clears the category. */
+export const updateFileSchema = z.object({
+  id: z.string().uuid(),
+  name: fileNameSchema.optional(),
+  category: fileCategorySchema.nullish(),
+  tagIds: tagIdsSchema.optional(),
+  folderId: z.string().uuid().nullish(),
+});
+export type UpdateFileInput = z.input<typeof updateFileSchema>;
+
+/** How long a share link may live. `expiresInDays: null` = never expires. */
+export const FILE_SHARE_MAX_DAYS = 365;
+
+export const createFileShareSchema = z
+  .object({
+    fileId: z.string().uuid().optional(),
+    folderId: z.string().uuid().optional(),
+    /** false = view-only link: recipients can preview but get no download UI. */
+    allowDownload: z.boolean().optional().default(true),
+    expiresInDays: z.number().int().min(1).max(FILE_SHARE_MAX_DAYS).nullish(),
+  })
+  .refine((o) => (o.fileId != null) !== (o.folderId != null), {
+    message: "Share exactly one file or folder",
+  });
+export type CreateFileShareInput = z.input<typeof createFileShareSchema>;
+
+/**
+ * Types the files API serves inline (previews). Everything else is stored fine
+ * but served download-only with `Content-Disposition: attachment` — which is
+ * what makes the permissive upload policy below safe: an uploaded HTML/SVG can
+ * never execute in our origin because it is never rendered inline.
+ */
+export const FILE_INLINE_TYPES = new Set<string>([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+  "text/plain",
+  "text/csv",
+  "text/markdown",
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/mp4",
+  "audio/ogg",
+]);
+
+/** Fallback mime → extension map for uploads whose filename has no extension. */
+const FILE_TYPE_EXTENSIONS: Record<string, string> = {
+  ...ATTACHMENT_CONTENT_TYPES,
+  "text/markdown": "md",
+  "application/json": "json",
+  "application/zip": "zip",
+  "video/mp4": "mp4",
+  "video/webm": "webm",
+  "video/quicktime": "mov",
+  "audio/mpeg": "mp3",
+  "audio/wav": "wav",
+  "audio/mp4": "m4a",
+  "audio/ogg": "ogg",
+  "application/vnd.ms-powerpoint": "ppt",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
+};
+
+const MIME_RE = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/;
+
+/**
+ * Resolve a vault upload's `{ contentType, ext }`. Unlike transaction
+ * attachments (strict allowlist), the vault accepts almost anything — videos,
+ * archives, unknown binaries — because nothing outside `FILE_INLINE_TYPES` is
+ * ever served inline (see above). An unrecognizable declared type falls back to
+ * the extension's canonical type, then to `application/octet-stream`.
+ */
+export function resolveFileType(
+  fileName: string,
+  declaredType: string | null | undefined,
+): { contentType: string; ext: string } {
+  const declared = (declaredType ?? "").split(";")[0]!.trim().toLowerCase();
+  const dot = fileName.lastIndexOf(".");
+  const nameExt = dot >= 0 ? fileName.slice(dot + 1).toLowerCase() : "";
+  const ext = /^[a-z0-9]{1,10}$/.test(nameExt) ? nameExt : "";
+  if (MIME_RE.test(declared) && declared !== "application/octet-stream") {
+    return { contentType: declared, ext: ext || FILE_TYPE_EXTENSIONS[declared] || "bin" };
+  }
+  const byExt = ext ? ATTACHMENT_EXTENSIONS[ext] : undefined;
+  return { contentType: byExt ?? "application/octet-stream", ext: ext || "bin" };
+}
+
 export const themeSchema = z.enum(["light", "dark", "system"]);
 
 /** Currency + number format (locale) — a per-workspace setting, admin-gated. */

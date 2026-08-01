@@ -115,12 +115,15 @@ const nextConfig: NextConfig = {
   },
   async headers() {
     return [
-      // The attachments API allows same-origin framing (for the in-app preview);
+      // The file-serving APIs (attachments, vault files, public share content)
+      // allow same-origin framing (for the in-app/share-page PDF previews);
       // every other route keeps the strict DENY / frame-ancestors 'none'. Only
       // one source matches a given path (the negative lookahead excludes the
-      // attachments route from the general rule) so headers never conflict.
+      // file routes from the general rule) so headers never conflict.
       { source: "/api/attachments/:path*", headers: attachmentHeaders },
-      { source: "/((?!api/attachments).*)", headers: securityHeaders },
+      { source: "/api/files/:path*", headers: attachmentHeaders },
+      { source: "/api/share/:path*", headers: attachmentHeaders },
+      { source: "/((?!api/attachments|api/files|api/share).*)", headers: securityHeaders },
     ];
   },
 };
