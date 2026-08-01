@@ -7,10 +7,16 @@ import { attachmentGlyph } from "./attachment-icon";
 import {
   attachmentDisplayName,
   attachmentDownloadUrl,
-  attachmentTypeLabel,
   attachmentViewUrl,
   isImageContentType,
 } from "@/lib/attachments";
+import {
+  fileDownloadUrl,
+  fileTypeLabel,
+  fileViewUrl,
+  isAudioContentType,
+  isVideoContentType,
+} from "@/lib/files";
 import { ATTACHMENT_SPREADSHEET_TYPES } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +26,16 @@ export type ViewerAttachment = {
   fileName: string;
   contentType: string;
   label?: string | null;
+  /** Where the bytes live: a transaction attachment (default) or a vault file.
+   * Picks which authenticated API route the preview fetches from. */
+  source?: "attachment" | "file";
 };
+
+/** The authenticated view/download URLs for either source. */
+const viewUrlFor = (a: ViewerAttachment): string =>
+  a.source === "file" ? fileViewUrl(a.id) : attachmentViewUrl(a.id);
+const downloadUrlFor = (a: ViewerAttachment): string =>
+  a.source === "file" ? fileDownloadUrl(a.id) : attachmentDownloadUrl(a.id);
 
 const ViewerContext = createContext<((a: ViewerAttachment) => void) | null>(null);
 
@@ -67,6 +82,8 @@ function AttachmentPreview({
     : "";
   const isImage = item ? isImageContentType(item.contentType) : false;
   const isPdf = item?.contentType === "application/pdf";
+  const isVideo = item ? isVideoContentType(item.contentType) : false;
+  const isAudio = item ? isAudioContentType(item.contentType) : false;
   const embeds = isImage || isPdf;
 
   // Spinner for the embedded <img>/<iframe> until it loads; reset per file
@@ -96,12 +113,12 @@ function AttachmentPreview({
                 <div className="min-w-0 flex-1 text-white">
                   <div className="truncate text-sm font-medium">{name}</div>
                   <div className="truncate text-xs text-white/60">
-                    {attachmentTypeLabel(item.contentType)}
+                    {fileTypeLabel(item.contentType)}
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5">
                   <a
-                    href={attachmentViewUrl(item.id)}
+                    href={viewUrlFor(item)}
                     target="_blank"
                     rel="noopener noreferrer"
                     aria-label="Open in new tab"
@@ -111,7 +128,7 @@ function AttachmentPreview({
                     <ExternalLink className="size-5" aria-hidden />
                   </a>
                   <a
-                    href={attachmentDownloadUrl(item.id)}
+                    href={downloadUrlFor(item)}
                     aria-label="Download"
                     title="Download"
                     className={ICON_BTN}
@@ -135,7 +152,7 @@ function AttachmentPreview({
                   <div className="flex size-full items-center justify-center p-4">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={attachmentViewUrl(item.id)}
+                      src={viewUrlFor(item)}
                       alt={name}
                       onLoad={() => setLoading(false)}
                       onError={() => setLoading(false)}
@@ -144,11 +161,27 @@ function AttachmentPreview({
                   </div>
                 ) : isPdf ? (
                   <iframe
-                    src={attachmentViewUrl(item.id)}
+                    src={viewUrlFor(item)}
                     title={name}
                     onLoad={() => setLoading(false)}
                     className="size-full border-0"
                   />
+                ) : isVideo ? (
+                  <div className="flex size-full items-center justify-center p-4">
+                    {/* The route 302s to a presigned URL; <video> follows it and
+                        gets native Range support for seeking. */}
+                    <video
+                      key={item.id}
+                      src={viewUrlFor(item)}
+                      controls
+                      autoPlay
+                      className="max-h-full max-w-full"
+                    />
+                  </div>
+                ) : isAudio ? (
+                  <div className="flex size-full items-center justify-center p-6">
+                    <audio key={item.id} src={viewUrlFor(item)} controls className="w-full max-w-xl" />
+                  </div>
                 ) : (
                   <DataFilePreview key={item.id} item={item} />
                 )}
@@ -168,8 +201,8 @@ function DataFilePreview({ item }: { item: ViewerAttachment }) {
   const isCsv = item.contentType === "text/csv";
   const isText = item.contentType === "text/plain";
 
-  if (isCsv || isText) {
-    return <TextTablePreview id={item.id} asTable={isCsv} />;
+  if (isCsv || isText || item.contentType === "text/markdown") {
+    return <TextTablePreview src={viewUrlFor(item)} asTable={isCsv} />;
   }
   if (ATTACHMENT_SPREADSHEET_TYPES.has(item.contentType)) {
     return <ExcelPreview item={item} />;
@@ -186,11 +219,11 @@ function DownloadCard({ item }: { item: ViewerAttachment }) {
           {attachmentGlyph(item.contentType, "size-7")}
         </div>
         <p className="text-sm text-muted-foreground">
-          Previews aren’t available for {attachmentTypeLabel(item.contentType)} files yet.
+          Previews aren’t available for {fileTypeLabel(item.contentType)} files yet.
           Download it to view.
         </p>
         <a
-          href={attachmentDownloadUrl(item.id)}
+          href={downloadUrlFor(item)}
           className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/80"
         >
           <Download className="size-4" aria-hidden /> Download
@@ -239,14 +272,14 @@ function parseCsv(text: string, maxRows: number): string[][] {
   return rows;
 }
 
-function TextTablePreview({ id, asTable }: { id: string; asTable: boolean }) {
+function TextTablePreview({ src, asTable }: { src: string; asTable: boolean }) {
   const [state, setState] = useState<
     { status: "loading" } | { status: "error" } | { status: "ready"; text: string }
   >({ status: "loading" });
 
   useEffect(() => {
     let cancelled = false;
-    fetch(attachmentViewUrl(id))
+    fetch(src)
       .then((r) => (r.ok ? r.text() : Promise.reject(new Error(String(r.status)))))
       .then((text) => {
         if (!cancelled) setState({ status: "ready", text });
@@ -257,7 +290,7 @@ function TextTablePreview({ id, asTable }: { id: string; asTable: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [id]);
+  }, [src]);
 
   if (state.status === "loading") {
     return (
@@ -364,7 +397,7 @@ function ExcelPreview({ item }: { item: ViewerAttachment }) {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch(attachmentViewUrl(item.id));
+        const res = await fetch(viewUrlFor(item));
         if (!res.ok) throw new Error(String(res.status));
         const blob = await res.blob();
         const { default: readXlsxFile } = await import("read-excel-file/browser");
@@ -385,7 +418,7 @@ function ExcelPreview({ item }: { item: ViewerAttachment }) {
     return () => {
       cancelled = true;
     };
-  }, [item.id]);
+  }, [item]);
 
   if (state.status === "loading") {
     return (
