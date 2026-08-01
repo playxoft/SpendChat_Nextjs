@@ -145,7 +145,7 @@ export function TagChips({
         <TagChip key={t.id} tag={t} />
       ))}
       {tags.length > max ? (
-        <span className="shrink-0 text-[10px] text-muted-foreground">+{tags.length - max}</span>
+        <span className="shrink-0 text-sm text-muted-foreground">+{tags.length - max}</span>
       ) : null}
     </span>
   );
@@ -491,7 +491,7 @@ function FolderMetaTooltip({ folder, handlers }: { folder: FolderDTO; handlers: 
           ))}
         </span>
       ) : null}
-      <div className="space-y-0.5 text-[11px] opacity-80">
+      <div className="space-y-0.5 text-sm opacity-80">
         {folder.createdByName ? <p>Created by {folder.createdByName}</p> : null}
         <p>Created {formatVaultDate(folder.createdAt, handlers.locale)}</p>
         <p>Updated {formatVaultDate(folder.updatedAt, handlers.locale)}</p>
@@ -558,47 +558,79 @@ function FolderCard({ folder, handlers }: { folder: FolderDTO; handlers: VaultHa
   );
 }
 
+/** Full file metadata, shown instantly when a grid tile is hovered. */
+function FileMetaTooltip({ file, handlers }: { file: FileDTO; handlers: VaultHandlers }) {
+  const tags = file.tagIds
+    .map((id) => handlers.tagById(id))
+    .filter((t): t is TagDTO => t != null);
+  return (
+    <TooltipContent side="bottom" align="start" sideOffset={6} className="flex-col items-start gap-1.5">
+      <p className="text-xs font-medium">{file.name}</p>
+      {tags.length > 0 ? (
+        <span className="flex max-w-56 flex-wrap gap-1">
+          {tags.map((t) => (
+            <TagChip key={t.id} tag={t} />
+          ))}
+        </span>
+      ) : null}
+      <div className="space-y-0.5 text-[11px] opacity-80">
+        <p>
+          {fileTypeLabel(file.contentType)} · {formatFileSize(file.sizeBytes)}
+        </p>
+        {file.category ? <p>{FILE_CATEGORY_LABELS[file.category]}</p> : null}
+        {file.uploaderName ? <p>Uploaded by {file.uploaderName}</p> : null}
+        <p>Added {formatVaultDate(file.createdAt, handlers.locale)}</p>
+      </div>
+    </TooltipContent>
+  );
+}
+
 function FileCard({ file, handlers }: { file: FileDTO; handlers: VaultHandlers }) {
   return (
-    <VaultContextMenu target={{ kind: "file", file }} handlers={handlers}>
-      <div
-        role="button"
-        tabIndex={0}
-        className={CARD}
-        onClick={() => handlers.previewFile(file)}
-        onKeyDown={(e) => e.key === "Enter" && handlers.previewFile(file)}
-        {...dragSourceProps({ kind: "file", id: file.id }, handlers.canWrite)}
-      >
-        <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-md border bg-muted/40">
-          <FileThumb
-            id={file.id}
-            contentType={file.contentType}
-            hasThumbnail={file.hasThumbnail}
-            source="file"
-            glyphClass="size-8"
-          />
-        </div>
-        <div className="flex items-start justify-between gap-1">
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{file.name}</div>
-            <div className="truncate text-xs text-muted-foreground">
-              {fileTypeLabel(file.contentType)} · {formatFileSize(file.sizeBytes)}
-              {file.uploaderName ? <> · {file.uploaderName}</> : null}
+    <Tooltip delayDuration={0}>
+      <VaultContextMenu target={{ kind: "file", file }} handlers={handlers}>
+        <TooltipTrigger asChild>
+          <div
+            role="button"
+            tabIndex={0}
+            className={CARD}
+            onClick={() => handlers.previewFile(file)}
+            onKeyDown={(e) => e.key === "Enter" && handlers.previewFile(file)}
+            {...dragSourceProps({ kind: "file", id: file.id }, handlers.canWrite)}
+          >
+            <div className="flex aspect-square w-full items-center justify-center overflow-hidden rounded-md border bg-muted/40">
+              <FileThumb
+                id={file.id}
+                contentType={file.contentType}
+                hasThumbnail={file.hasThumbnail}
+                source="file"
+                glyphClass="size-8"
+              />
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-1">
-              {file.category ? (
-                <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-normal">
-                  {FILE_CATEGORY_LABELS[file.category]}
-                </Badge>
-              ) : null}
-              <TagChips tagIds={file.tagIds} handlers={handlers} />
-              <ProfileChip profileId={file.profileId} handlers={handlers} />
+            <div className="flex items-start justify-between gap-1">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{file.name}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {fileTypeLabel(file.contentType)} · {formatFileSize(file.sizeBytes)}
+                  {file.uploaderName ? <> · {file.uploaderName}</> : null}
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {file.category ? (
+                    <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-normal">
+                      {FILE_CATEGORY_LABELS[file.category]}
+                    </Badge>
+                  ) : null}
+                  <TagChips tagIds={file.tagIds} handlers={handlers} />
+                  <ProfileChip profileId={file.profileId} handlers={handlers} />
+                </div>
+              </div>
+              <VaultItemMenu target={{ kind: "file", file }} handlers={handlers} />
             </div>
           </div>
-          <VaultItemMenu target={{ kind: "file", file }} handlers={handlers} />
-        </div>
-      </div>
-    </VaultContextMenu>
+        </TooltipTrigger>
+      </VaultContextMenu>
+      <FileMetaTooltip file={file} handlers={handlers} />
+    </Tooltip>
   );
 }
 
@@ -656,7 +688,7 @@ export function FileGrid({
     return <VaultEmptyState searching={searching} canWrite={handlers.canWrite} />;
   }
   return (
-    <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+    <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5">
       {folders.map((folder) => (
         <FolderCard key={folder.id} folder={folder} handlers={handlers} />
       ))}
