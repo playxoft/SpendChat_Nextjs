@@ -4,7 +4,16 @@ import { getDb } from "@/db";
 import { aiUsageLog } from "@/db/schema";
 import { tooManyRequests } from "@/lib/errors";
 
-/** Max AI model requests one user may trigger per hour. */
+/**
+ * Max AI model requests one user may trigger per hour.
+ *
+ * This counts *provider calls*, not user actions, and the two aren't 1:1. A
+ * typed note costs one (parse). A dictated one costs **two** — transcribe, then
+ * parse the transcript — so voice-driven entry tops out around 15/hour rather
+ * than 30. That's deliberate: transcription is the more expensive call, and the
+ * budget is a spend ceiling, not a feature quota. Raise this only alongside a
+ * look at the provider bill.
+ */
 export const AI_REQUESTS_PER_HOUR = 30;
 
 /**

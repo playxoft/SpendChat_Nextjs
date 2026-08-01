@@ -39,7 +39,9 @@ renamed, or retyped.
   ≤ 4 MB, webm/ogg/mp4/mpeg/wav) → transcript text (`data: { text }`, ≤ 1200
   chars). The transcript goes in the composer for the user to fix, then through
   `/ai/parse` like a typed note. Audio is discarded, never stored. Same gates
-  and error codes as `/ai/parse`.
+  and error codes as `/ai/parse`. A recording rejected on format, size or
+  emptiness **does not consume a quota slot** — those checks run before the
+  role and quota gates, so a client retrying after a 400 hasn't lost budget.
 - **Attachments** (receipts/bills/invoices; ≤ 2 per transaction, ≤ 5 MB each;
   images/PDF/Word/Excel/CSV/text):
   - **`Transaction.attachments: Attachment[]`** — metadata embedded on every
