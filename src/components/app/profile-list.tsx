@@ -102,11 +102,14 @@ export function ProfileList({
     const dataPage =
       pathname.startsWith("/app") ||
       pathname.startsWith("/transactions") ||
-      pathname.startsWith("/analytics");
+      pathname.startsWith("/analytics") ||
+      pathname.startsWith("/files");
     const targetPath = dataPage ? pathname : "/app";
     const params = new URLSearchParams(sp.toString());
     params.set("profile", target);
     params.delete("page");
+    // Folders are per-profile: switching profiles reopens the vault at its root.
+    params.delete("folder");
     const qs = params.toString();
     // Route through the shared (quiet) transition so `pending` gates the
     // composer until the new profile loads — no full-screen overlay, since the
