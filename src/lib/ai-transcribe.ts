@@ -50,6 +50,19 @@ export function baseMimeType(mimeType: string): string {
 }
 
 /**
+ * Is this a container we can send to a provider?
+ *
+ * Exported so the *entry points* (the server action and the REST route) can
+ * reject a bad container among their cheap local checks — i.e. **before** the
+ * role and quota gates. `transcribeVoiceNote` checks it again on the way in;
+ * that duplication is deliberate, since it's the function holding the provider
+ * call and it shouldn't trust its caller to have looked.
+ */
+export function isSupportedAudioType(mimeType: string): boolean {
+  return ALLOWED_MIME.has(baseMimeType(mimeType));
+}
+
+/**
  * The instruction sent with the audio. It asks for a bare transcript rather than
  * an interpretation: the note still goes through the same parser a typed note
  * does, so anything "helpful" the model adds here (a guessed category, a
@@ -92,6 +105,38 @@ export function buildTranscribePrompt(opts: {
 }
 
 /**
+ * Opening/closing quote pairs a model might wrap a transcript in — straight and
+ * curly, double and single. Curly pairs are asymmetric, which is why this is a
+ * list of pairs rather than one character class.
+ */
+const QUOTE_PAIRS: ReadonlyArray<readonly [string, string]> = [
+  ['"', '"'],
+  ["'", "'"],
+  ["“", "”"],
+  ["‘", "’"],
+];
+
+/**
+ * Drop wrapper quotes, but only when they're unambiguously a wrapper: the ends
+ * match as a pair *and* the same quote never appears inside.
+ *
+ * That second condition is the whole point. `"a", she said "b"` both starts and
+ * ends with a double quote without being wrapped in one, so a naive
+ * strip-first-and-last (or even a backreference) would eat two real characters
+ * out of the middle of someone's speech.
+ */
+function unwrapQuotes(text: string): string {
+  if (text.length < 2) return text;
+  for (const [open, close] of QUOTE_PAIRS) {
+    if (!text.startsWith(open) || !text.endsWith(close)) continue;
+    const inner = text.slice(open.length, -close.length);
+    if (inner.includes(open) || inner.includes(close)) return text;
+    return inner.trim();
+  }
+  return text;
+}
+
+/**
  * Tidy a raw model reply into the text that lands in the composer.
  *
  * The model is asked for a bare transcript, but every provider occasionally
@@ -109,9 +154,8 @@ export function cleanTranscript(raw: string): string {
   // A leading label the model added ("Transcript:", "Transcription -").
   text = text.replace(/^(?:transcript|transcription|text|output)\s*[:\-–]\s*/i, "");
 
-  // Matching wrapper quotes around the whole thing (straight or curly).
-  const quoted = text.match(/^["'“”'']([\s\S]*)["'“”'']$/);
-  if (quoted) text = quoted[1]!.trim();
+  // Quotes wrapped around the whole reply (straight or curly).
+  text = unwrapQuotes(text);
 
   // Collapse the newlines/runs a spoken note never needs — the composer shows
   // this in a 2-row textarea, and the parser splits on commas, not lines.
@@ -136,7 +180,9 @@ export async function transcribeVoiceNote(opts: {
   categoryNames: string[];
 }): Promise<string> {
   const mimeType = baseMimeType(opts.audio.mimeType);
-  if (!ALLOWED_MIME.has(mimeType)) {
+  // Re-checked here even though both callers already did: this is the function
+  // that reaches a paid provider, so it validates its own input.
+  if (!isSupportedAudioType(mimeType)) {
     throw badRequest("That audio format isn't supported — try recording again.");
   }
   const bytes = opts.audio.bytes.byteLength;

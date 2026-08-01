@@ -108,13 +108,26 @@ describe("cleanTranscript — models wrap a transcript even when told not to", (
     expect(cleanTranscript("Output: 200 fruits")).toBe("200 fruits");
   });
 
-  it("removes matching wrapper quotes", () => {
+  it("removes matching wrapper quotes, straight or curly", () => {
     expect(cleanTranscript('"200 fruits"')).toBe("200 fruits");
+    expect(cleanTranscript("'200 fruits'")).toBe("200 fruits");
     expect(cleanTranscript("“200 fruits”")).toBe("200 fruits");
+    expect(cleanTranscript("‘200 fruits’")).toBe("200 fruits");
   });
 
   it("keeps quotes that are part of the speech", () => {
     expect(cleanTranscript('paid the "guy" 200')).toBe('paid the "guy" 200');
+  });
+
+  // Starting and ending with a quote isn't the same as being wrapped in one.
+  it("leaves quoted speech alone when the outer quotes aren't a wrapper", () => {
+    expect(cleanTranscript('"fruits" 200, "veg" 100')).toBe('"fruits" 200, "veg" 100');
+    expect(cleanTranscript("“fruits” 200, “veg” 100")).toBe("“fruits” 200, “veg” 100");
+  });
+
+  it("ignores a mismatched pair", () => {
+    expect(cleanTranscript("\"200 fruits'")).toBe("\"200 fruits'");
+    expect(cleanTranscript("“200 fruits'")).toBe("“200 fruits'");
   });
 
   it("collapses newlines and runs of spaces into single spaces", () => {
