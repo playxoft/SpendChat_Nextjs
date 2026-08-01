@@ -548,7 +548,7 @@ export function AiTransactionInput({
                 </span>
                 <span
                   aria-hidden
-                  className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground"
+                  className="ml-auto text-sm uppercase tracking-wide text-muted-foreground"
                 >
                   {c.kind === "income" ? "in" : "out"}
                 </span>

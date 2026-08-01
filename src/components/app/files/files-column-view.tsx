@@ -134,7 +134,7 @@ export function FilesColumnView({
         {selectedTxn ? <TxnDetail txn={selectedTxn} handlers={handlers} /> : null}
       </div>
       {systemOpen ? (
-        <p className="flex shrink-0 items-start gap-2 border-t bg-muted/40 px-3 py-2 text-[11px] leading-snug text-muted-foreground">
+        <p className="flex shrink-0 items-start gap-2 border-t bg-muted/40 px-3 py-2 text-sm leading-snug text-muted-foreground">
           <Info className="mt-0.5 size-3 shrink-0" aria-hidden />
           {SYSTEM_FOLDER_NOTICE}
         </p>
@@ -144,7 +144,7 @@ export function FilesColumnView({
 }
 
 const ROW =
-  "group/row flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] leading-6 transition-colors hover:bg-accent/50";
+  "group/row flex w-full items-center gap-2 rounded-md px-2 py-1 text-left text-sm leading-6 transition-colors hover:bg-accent/50";
 
 /** The ⋮ button on a column row — appears on hover (and on the active row). */
 function RowMenu({
@@ -313,7 +313,7 @@ function FolderColumnRow({
         <FolderGlyph folder={folder} className="size-4" />
         <span className="min-w-0 flex-1 truncate font-medium">{folder.name}</span>
         {handlers.allProfiles && handlers.profileLabel(folder.profileId) ? (
-          <Badge variant="outline" className="max-w-20 truncate px-1 py-0 text-[10px] font-normal">
+          <Badge variant="outline" className="max-w-20 truncate px-1 py-0 text-sm font-normal">
             {handlers.profileLabel(folder.profileId)}
           </Badge>
         ) : null}

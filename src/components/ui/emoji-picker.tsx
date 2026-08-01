@@ -39,7 +39,7 @@ export function EmojiPickerPanel({
             components={{
               CategoryHeader: ({ category, ...props }) => (
                 <div
-                  className="bg-popover px-2 pt-2 pb-1 text-[11px] font-medium text-muted-foreground"
+                  className="bg-popover px-2 pt-2 pb-1 text-sm font-medium text-muted-foreground"
                   {...props}
                 >
                   {category.label}

@@ -79,7 +79,7 @@ export function SharedFolderBrowser({
         {resolved.map((t) => (
           <span
             key={t.id}
-            className="inline-flex max-w-28 items-center gap-1 truncate rounded-full border px-1.5 py-px text-[10px] font-medium"
+            className="inline-flex max-w-28 items-center gap-1 truncate rounded-full border px-1.5 py-px text-sm font-medium"
             style={{
               color: t.color,
               borderColor: `${t.color}55`,

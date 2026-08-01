@@ -121,7 +121,7 @@ export function NewFolderDialog({
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
               <Label htmlFor="new-folder-name">Name</Label>
-              <span className="text-[10px] text-muted-foreground tabular-nums">
+              <span className="text-sm text-muted-foreground tabular-nums">
                 {name.length}/{FOLDER_NAME_MAX}
               </span>
             </div>
@@ -260,7 +260,7 @@ function EditForm({
             <div className="flex items-center justify-between">
               <Label htmlFor="edit-item-name">Name</Label>
               {!isFile ? (
-                <span className="text-[10px] text-muted-foreground tabular-nums">
+                <span className="text-sm text-muted-foreground tabular-nums">
                   {name.length}/{FOLDER_NAME_MAX}
                 </span>
               ) : null}

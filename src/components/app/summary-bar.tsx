@@ -79,11 +79,11 @@ export function SummaryBar({
     <div className="shrink-0 md:mt-3">
       {/* Mobile: compact month + balance + in/out sit on the profile row itself. */}
       <div className="flex flex-col items-end leading-tight md:hidden">
-        <p className="text-[11px] font-medium text-muted-foreground">{label}</p>
+        <p className="text-sm font-medium text-muted-foreground">{label}</p>
         <p className={cn("text-base font-semibold tabular-nums", negative)}>
           {formatMoney(balance, currency, locale)}
         </p>
-        <p className="flex gap-2 text-[11px]">
+        <p className="flex gap-2 text-sm">
           <span className="text-emerald-600 dark:text-emerald-400">
             +{formatMoney(income, currency, locale)}
           </span>
