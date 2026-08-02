@@ -112,6 +112,10 @@ API-driven text on the right:
 | Add/remove category | "Category added" / "Category removed" |
 | Add/update/delete profile | "Profile added" / "Profile updated" / "Profile deleted" |
 | Verify email | "Email verified" / "Verification link sent — check your inbox." |
+| AI review save | "Added N transaction(s)" |
+| Save voice languages | "Voice languages saved" |
+| Workspace currency | "Workspace currency saved" |
+| Delete attachment | "File removed" |
 
 Errors: show `error.message` verbatim when the API provides one; otherwise a
 generic per-action fallback. Composer validation toasts are listed in
@@ -192,3 +196,24 @@ generic per-action fallback. Composer validation toasts are listed in
 15. **U+2212 minus**, everywhere a negative sign appears.
 16. **Bulk limit is 500 items** per request; transactions export caps at 5000
     rows.
+17. **AI endpoints are extra-gated.** Editor role + a shared **30 calls/hour**
+    per-user quota across `/ai/parse` and `/ai/transcribe`. Handle 429 (quota),
+    502 (retry), and 503 (feature not configured — hide/disable the AI UI, like
+    the web) as *distinct* cases; a bare error toast for all three feels broken.
+18. **Presigned attachment URLs must be fetched WITHOUT the Authorization
+    header.** Your global auth interceptor will happily attach the bearer to the
+    R2 URL — some S3-compatible hosts then reject the request (two credentials).
+    Fetch `/attachments/{id}/url` with auth, then GET the returned `url` with a
+    clean client. The URL expires in ~5 min — mint per view, never cache it.
+19. **AI drafts are suggestions, not writes.** `/ai/parse` (and voice
+    transcription) never create rows. The review step is the product: always
+    show the drafts for edit before `POST /transactions/bulk`.
+20. **Voice recordings: ≤ 60 s / ≤ 4 MB, and set the part's content type**
+    (e.g. `audio/mp4` for m4a). A part without a content type falls back to the
+    `mimeType` form field — send it too if your client strips types.
+21. **`voiceLanguages` is normalized, not validated.** Unknown codes are
+    silently dropped (empty → `["en"]`), so update local state from the PATCH
+    *response*, not from what you sent.
+22. **`Transaction.user` is attribution, not access.** Never filter by it
+    client-side to decide what's editable — the server's 403/404 is the truth.
+    Use it only for the author labels in shared workspaces.

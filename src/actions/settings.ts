@@ -73,6 +73,21 @@ export async function updateInputMode(mode: string): Promise<ActionResult> {
   );
 }
 
+/** Choose which languages voice entry should expect (ISO 639-1 codes). */
+export async function updateVoiceLanguages(languages: string[]): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "updateVoiceLanguages",
+    async () => {
+      await settingsService.updateVoiceLanguages(user.id, languages);
+      revalidatePath("/app");
+      revalidatePath("/settings");
+      return {};
+    },
+    { userId: user.id },
+  );
+}
+
 /** Erase all of the user's data (danger zone). The client signs out afterwards. */
 export async function deleteAccount(confirm: string): Promise<ActionResult> {
   const user = await requireUser();

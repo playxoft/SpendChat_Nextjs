@@ -36,9 +36,13 @@ Each transaction row shows, in order:
 |---|---|---|
 | **Date** | `occurredOn` → "Jul 6, 2026" | UTC-formatted date label, `muted-foreground` |
 | **Category** | `{icon ?? 💸} {name ?? "Uncategorized"}` | inline emoji + name |
-| **Title** | `title` | truncate |
+| **Title** | `title` (+ a 📎 when `attachments` is non-empty) | truncate |
 | **Description** | `description` | `muted-foreground`, truncate; hide on narrow |
 | **Amount** | signed money, tabular, right-aligned | tone per rule below |
+
+In a **shared workspace** (more than one user), also surface the author
+(`transaction.user.name ?? email`) — the web shows it as a column/tooltip; on
+mobile a secondary line or the detail dialog is fine.
 
 **Amount tone & sign** (this screen shows a **signed** amount):
 - **Income:** emerald, leading **`+`** (e.g. `+$100.00`).
@@ -99,6 +103,37 @@ controls, plus a visible chip summary of active filters.
 - On mobile: fetch the bytes with the bearer + `X-Workspace-Id` headers, write to
   a temp file (`path_provider`), then present the OS share sheet (`share_plus`).
 - **Print** (web) is N/A on mobile — omit.
+
+---
+
+## 5a. Attachments (receipts / bills / invoices)
+
+Transactions can carry up to **2 files** (≤ 5 MB each; images, PDF, Word,
+Excel, CSV, plain text). Metadata comes embedded on every transaction
+(`transaction.attachments: Attachment[]` — see [01](./01-api-reference.md) §6);
+the bytes live behind short-lived presigned URLs.
+
+**Where it lives in the UI:** the detail dialog (open a row/bubble). Show a row
+of file chips — type icon + display name (`label ?? fileName`) + size
+(`sizeBytes` → "820 KB"). A 📎 + count marks rows that have files.
+
+- **View/open:** `GET /attachments/{id}/url` → `{ url, expiresInSeconds,
+  fileName, contentType }`; fetch/open that `url` **without** the auth header
+  (it's presigned). Images/PDF → in-app viewer; other types → OS open/share.
+  For image tiles use `?variant=thumb` when `hasThumbnail` (small webp). Mint
+  per view — don't cache the URL past ~5 min.
+- **Upload (editor only):** camera / photo library / file picker → multipart
+  `POST /transactions/{id}/attachments` (`files` field, repeatable). For images
+  you may attach a small webp preview as `thumb_<index>` so lists get
+  thumbnails. Enforce client-side: ≤ 2 total per transaction, ≤ 5 MB each,
+  allowed types only. Errors: 400 too many, 413 too big, 422 bad type,
+  503 storage not configured (hide the feature).
+- **Rename/tag (editor):** `PATCH /attachments/{id} { label?, kind? }` — kind ∈
+  `receipt | bill | invoice | other` (an optional preset tag; show as a chip).
+- **Delete (editor):** `DELETE /attachments/{id}` (also removes the stored
+  object). Confirm first — there's no undo.
+
+Viewers can see and open files but get no upload/edit/delete affordances.
 
 ---
 

@@ -1,5 +1,7 @@
 import { fromMinorUnits } from "@/lib/money";
 import { getCurrency } from "@/lib/currencies";
+import { normalizeVoiceLanguages } from "@/lib/voice-languages";
+import type { AttachmentDTO } from "@/lib/attachments";
 import type { TransactionRow } from "@/lib/queries";
 import type { WorkspaceSummary } from "@/lib/workspaces";
 import type { Category, Profile, UserSettings } from "@/db/schema";
@@ -32,6 +34,11 @@ export type ApiTransaction = {
   createdAt: string;
   category: { id: string; name: string | null; icon: string | null } | null;
   profile: { id: string; name: string | null; icon: string | null };
+  /** Author attribution (who entered the row) — matters in shared workspaces. */
+  user: { id: string; name: string | null; email: string | null };
+  /** Files attached to the transaction (receipts/bills/invoices), oldest-first.
+   * Fetch bytes via `GET /attachments/{id}/url`. Empty array when none. */
+  attachments: AttachmentDTO[];
 };
 
 export function serializeTransaction(row: TransactionRow, currency: string): ApiTransaction {
@@ -49,6 +56,8 @@ export function serializeTransaction(row: TransactionRow, currency: string): Api
       ? { id: row.categoryId, name: row.categoryName, icon: row.categoryIcon }
       : null,
     profile: { id: row.profileId, name: row.profileName, icon: row.profileIcon },
+    user: { id: row.userId, name: row.userName, email: row.userEmail },
+    attachments: row.attachments,
   };
 }
 
@@ -101,12 +110,15 @@ export function serializeProfile(p: Profile): ApiProfile {
 export type ApiSettings = {
   theme: string;
   inputMode: string;
+  /** ISO 639-1 codes voice entry is told to expect (normalized; never empty). */
+  voiceLanguages: string[];
 };
 
 export function serializeSettings(s: UserSettings): ApiSettings {
   return {
     theme: s.theme,
     inputMode: s.inputMode,
+    voiceLanguages: normalizeVoiceLanguages(s.voiceLanguages),
   };
 }
 

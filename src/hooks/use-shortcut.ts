@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 function detectMac(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -93,6 +93,85 @@ type Options = {
   /** Target element to listen on (defaults to window). */
   target?: HTMLElement | null;
 };
+
+/**
+ * Bind a combo as *push-to-talk*: `onDown` when it's pressed, `onUp` when it's
+ * released. For a hold gesture rather than a trigger — see `useShortcut` for the
+ * ordinary press-once case.
+ *
+ * Three things separate this from a plain keydown/keyup pair:
+ *   - auto-repeat is ignored, so holding fires `onDown` exactly once;
+ *   - `onUp` also fires on window blur, because a key released while the window
+ *     is in the background never delivers `keyup` and the hold would never end;
+ *   - `onUp` only fires if `onDown` did, so a release that arrives after the
+ *     shortcut was disabled can't fire on its own.
+ */
+export function useHoldShortcut(
+  combo: string,
+  onDown: () => void,
+  onUp: () => void,
+  options: Omit<Options, "target"> = {},
+) {
+  const isMac = useIsMac();
+  const { enabled = true, allowInInput = false, requireNoOverlay = false } = options;
+
+  // Refs so re-created handler props don't tear down a hold in progress. Synced
+  // in an effect rather than during render — the listeners below only read them
+  // from event callbacks, so being one commit behind is impossible in practice.
+  const downRef = useRef(onDown);
+  const upRef = useRef(onUp);
+  const heldRef = useRef(false);
+  useEffect(() => {
+    downRef.current = onDown;
+    upRef.current = onUp;
+  });
+
+  useEffect(() => {
+    if (!enabled || !combo) {
+      // Disabled mid-hold (mode switch, dialog opened) — end it rather than
+      // stranding the caller in its "held" state forever.
+      if (heldRef.current) {
+        heldRef.current = false;
+        upRef.current();
+      }
+      return;
+    }
+
+    function release() {
+      if (!heldRef.current) return;
+      heldRef.current = false;
+      upRef.current();
+    }
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.repeat || heldRef.current) return;
+      if (!allowInInput && isTypingTarget(e.target)) return;
+      if (requireNoOverlay && hasOpenOverlay()) return;
+      if (!matches(e, combo, isMac)) return;
+      e.preventDefault();
+      heldRef.current = true;
+      downRef.current();
+    }
+    function onKeyUp(e: KeyboardEvent) {
+      // Match on the key alone: modifiers are often let go first, and a combo
+      // check here would miss the release and leave the hold stuck on.
+      if (!heldRef.current) return;
+      const key = combo.toLowerCase().split("+").pop()!;
+      if (normalizeKey(e) !== key) return;
+      e.preventDefault();
+      release();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", release);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", release);
+      release();
+    };
+  }, [combo, isMac, enabled, allowInInput, requireNoOverlay]);
+}
 
 /** Bind a keyboard combo (see `lib/shortcuts.ts` for the DSL) to a handler. */
 export function useShortcut(

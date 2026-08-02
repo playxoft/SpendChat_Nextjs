@@ -4,14 +4,8 @@ import { logger } from "@/lib/logger";
 // Shared with the client (the composer caps the textarea at the same length) —
 // see `ai-limits.ts` for why these don't live in this `server-only` module.
 import { MAX_DRAFTS, MAX_INPUT_CHARS } from "@/lib/ai-limits";
-import {
-  aiUnavailable,
-  aiFailed,
-  callProvider,
-  PROVIDERS,
-  type ModelConfig,
-  type Provider,
-} from "@/lib/ai-provider";
+import { aiFailed, callProvider, type ModelConfig } from "@/lib/ai-provider";
+import { resolveModelFromEnv } from "@/lib/ai-model-registry";
 import {
   TRANSACTION_AMOUNT_MAX,
   TRANSACTION_DESCRIPTION_MAX,
@@ -24,38 +18,12 @@ import {
  * structured drafts the user reviews before saving.
  *
  * ── Model choice lives entirely in the environment, never in this repo ──
- * This file contains NO model IDs and NO curated list of models. The generic
- * provider *adapters* (the request/response shape of each API protocol) live in
- * `ai-provider.ts`. Which models exist and which one runs are both defined by
- * two env vars:
- *
- *   AI_PARSE_MODEL          A JSON registry of models you define, keyed by any
- *                           name you choose, each value an entry:
- *                             { "model_id": "...", "api_key": "...",
- *                               "provider"?: "...", "base_url"?: "..." }
- *                           The API key lives inside the entry — there are no
- *                           separate per-provider key vars.
- *
- *   AI_PARSE_MODEL_CURRENT  The name of the entry to use right now.
- *
- * Entry fields:
- *   model_id   (required) the provider's model id — the only place a model name
- *              exists. `model` is accepted as an alias.
- *   api_key    (required) the key to call it with. `apiKey` alias accepted.
- *   provider   (optional) "gemini" | "openai" | "anthropic". Omit it and the
- *              provider is inferred from model_id (gemini* / claude* / gpt*|o*).
- *              Set it for anything the inference can't place (e.g. DeepSeek,
- *              Llama, Qwen — all use the "openai" shape).
- *   base_url   (optional) override the API base — how you point "openai" at an
- *              OpenAI-compatible host. `baseUrl` alias accepted.
- *
- * Example (set in Doppler, never committed):
- *   AI_PARSE_MODEL='{"primary":{"model_id":"...","api_key":"..."},
- *                    "alt":{"model_id":"...","api_key":"...","provider":"openai","base_url":"https://<openai-compatible-host>"}}'
- *   AI_PARSE_MODEL_CURRENT='primary'
- *
- * Unset (or misconfigured) → AI mode stays visible but returns a friendly
- * "not available" error; nothing else breaks.
+ * This file contains NO model IDs and NO curated list of models. Which model
+ * runs comes from the `AI_PARSE_MODEL` / `AI_PARSE_MODEL_CURRENT` registry pair
+ * — see `ai-model-registry.ts` for the entry format. The generic provider
+ * *adapters* (the request/response shape of each API protocol) live in
+ * `ai-provider.ts`. Unset (or misconfigured) → AI mode stays visible but
+ * returns a friendly "not available" error; nothing else breaks.
  *
  * The model output is treated as untrusted: `draftsFromRawJson` re-validates
  * every field and resolves category names against the workspace's own list
@@ -84,82 +52,9 @@ export type AiParsedDraft = {
 // Re-exported so server callers have one import for the whole AI vocabulary.
 export { MAX_DRAFTS, MAX_INPUT_CHARS };
 
-/** Trimmed string or undefined — used to read optional entry fields loosely. */
-function str(v: unknown): string | undefined {
-  return typeof v === "string" && v.trim() ? v.trim() : undefined;
-}
-
-/**
- * Guess the API protocol from a model id when the entry doesn't name one.
- * Covers the three first-party families; anything else must set `provider`.
- */
-function inferProvider(modelId: string): Provider | null {
-  const m = modelId.toLowerCase();
-  if (m.includes("gemini")) return "gemini";
-  if (m.includes("claude")) return "anthropic";
-  if (m.includes("gpt") || m.includes("chatgpt") || /^o[0-9]/.test(m)) return "openai";
-  return null;
-}
-
-/** Log a misconfiguration (never the registry or key) and fail as unavailable. */
-function misconfigured(reason: string, extra: Record<string, unknown> = {}): never {
-  logger.error(`AI parse misconfigured — ${reason}`, {
-    event: "ai.parse.bad_config",
-    reason,
-    ...extra,
-  });
-  throw aiUnavailable();
-}
-
-/**
- * The active model: look up `AI_PARSE_MODEL_CURRENT` in the `AI_PARSE_MODEL`
- * registry and normalize its entry. Throws `aiUnavailable` when either var is
- * unset, the JSON is bad, the entry is missing, or it lacks model_id/api_key —
- * the feature is simply off until an operator configures it. No model or key
- * default lives in code by design.
- */
+/** The model behind text→drafts parsing (`AI_PARSE_MODEL` registry pair). */
 export function resolveModel(): ModelConfig {
-  const current = (process.env.AI_PARSE_MODEL_CURRENT || "").trim();
-  const rawRegistry = (process.env.AI_PARSE_MODEL || "").trim();
-  if (!current || !rawRegistry) {
-    // `debug`, not `warn`: "the operator hasn't turned this on" is a steady
-    // state, not an incident, and it would otherwise emit a line per click.
-    logger.debug("AI parse skipped — AI_PARSE_MODEL / AI_PARSE_MODEL_CURRENT not configured", {
-      event: "ai.parse.unconfigured",
-      reason: !current ? "AI_PARSE_MODEL_CURRENT not set" : "AI_PARSE_MODEL not set",
-    });
-    throw aiUnavailable();
-  }
-
-  let registry: unknown;
-  try {
-    registry = JSON.parse(rawRegistry);
-  } catch {
-    misconfigured("AI_PARSE_MODEL is not valid JSON");
-  }
-  if (!registry || typeof registry !== "object" || Array.isArray(registry)) {
-    misconfigured("AI_PARSE_MODEL must be a JSON object of named entries");
-  }
-
-  const entry = (registry as Record<string, unknown>)[current];
-  if (!entry || typeof entry !== "object") {
-    misconfigured("AI_PARSE_MODEL_CURRENT names no entry in AI_PARSE_MODEL", { current });
-  }
-  const e = entry as Record<string, unknown>;
-
-  const model = str(e.model_id) ?? str(e.model);
-  const apiKey = str(e.api_key) ?? str(e.apiKey);
-  if (!model || !apiKey) {
-    misconfigured(`entry "${current}" needs both model_id and api_key`, { current });
-  }
-
-  const explicit = str(e.provider)?.toLowerCase() as Provider | undefined;
-  const provider = explicit && PROVIDERS.has(explicit) ? explicit : inferProvider(model);
-  if (!provider) {
-    misconfigured(`could not infer a provider for "${model}" — add "provider" to the entry`, { current });
-  }
-
-  return { provider, model, apiKey, baseUrl: str(e.base_url) ?? str(e.baseUrl) };
+  return resolveModelFromEnv("parse");
 }
 
 function buildSystemPrompt(

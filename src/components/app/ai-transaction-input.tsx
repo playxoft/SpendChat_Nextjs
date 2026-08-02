@@ -1,11 +1,21 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { ArrowUp, Loader2, Minus, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import {
+  ArrowUp,
+  CornerDownRight,
+  Loader2,
+  Minus,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Kbd } from "@/components/ui/kbd";
 import { DatePicker } from "@/components/ui/date-picker";
 import {
   Select,
@@ -21,10 +31,20 @@ import {
   integerDigitCount,
   parseAmountInput,
 } from "@/lib/parse-amount";
-import { addBulkTransactions, parseTransactionsWithAI } from "@/actions/transactions";
+import {
+  addBulkTransactions,
+  parseTransactionsWithAI,
+  transcribeVoiceNoteAction,
+} from "@/actions/transactions";
 import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
+import { primaryBcp47 } from "@/lib/voice-languages";
+import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+import { useHoldShortcut, useIsMac } from "@/hooks/use-shortcut";
+import { comboFor, formatShortcut } from "@/lib/shortcuts";
+import { VoiceListeningStrip, VoiceMicButton } from "./voice-mic";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
+  TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX as TITLE_MAX,
 } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
@@ -93,6 +113,88 @@ function RowTypeToggle({
 }
 
 /**
+ * The review row's description, on its own 2nd line under the title column. Reads
+ * as plain muted text (or a faint prompt when empty) and turns into an input on
+ * click — so a description is editable without adding a permanent field that
+ * would crowd the fixed columns. Enter/Escape or blur commits.
+ */
+function DescriptionCell({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (editing) ref.current?.focus();
+  }, [editing]);
+
+  // The ↵-style corner arrow marks this line as the title's description (it
+  // points down-and-into the text on its right).
+  const marker = (
+    <CornerDownRight
+      className="size-3.5 shrink-0 text-muted-foreground"
+      aria-hidden
+    />
+  );
+
+  if (editing) {
+    return (
+      <div className="col-span-3 col-start-3 flex min-w-0 items-center gap-1.5">
+        {marker}
+        <Input
+          ref={ref}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onBlur={() => setEditing(false)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === "Escape") {
+              e.preventDefault();
+              setEditing(false);
+            }
+          }}
+          placeholder="Add a description"
+          aria-label="Description"
+          maxLength={DESCRIPTION_MAX}
+          className="h-7 flex-1 text-sm"
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="col-span-3 col-start-3 flex min-w-0 items-center gap-1.5">
+      {marker}
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        title="Click to edit the description"
+        // No flex-1: the text sizes to its content (truncating only when it runs
+        // out of room), so the pencil sits right after the last letter rather
+        // than pinned to the cell's far edge.
+        className="min-w-0 truncate text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+      >
+        {value.trim() || (
+          <span className="italic opacity-70">Add a description</span>
+        )}
+      </button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Edit description"
+        title="Edit description"
+        onClick={() => setEditing(true)}
+        className="size-6 shrink-0"
+      >
+        <Pencil className="size-3.5" />
+      </Button>
+    </div>
+  );
+}
+
+/**
  * The composer's "AI" mode: the user types a free-text note, the model turns it
  * into one or more transaction drafts, and those are shown as an editable
  * preview to review before saving. Confirming reuses the existing bulk-save path
@@ -117,6 +219,7 @@ export function AiTransactionInput({
   profiles,
   activeProfileId,
   allProfiles = false,
+  voiceLanguages,
 }: {
   mode: EntryMode;
   onModeChange: (m: EntryMode) => void;
@@ -131,6 +234,8 @@ export function AiTransactionInput({
   activeProfileId?: string;
   /** In "All profiles" the user picks a single target for the batch. */
   allProfiles?: boolean;
+  /** Languages voice entry expects, from user settings (see settings/voice). */
+  voiceLanguages: string[];
 }) {
   const [text, setText] = useState("");
   // null = compose (textarea); an array = review the parsed drafts.
@@ -153,6 +258,7 @@ export function AiTransactionInput({
   const [tagIndex, setTagIndex] = useState(0);
 
   const symbol = getCurrency(currency).symbol;
+  const isMac = useIsMac();
   const placeholder = useMemo(() => amountPlaceholder(locale), [locale]);
   const targetProfileId = allProfiles
     ? profileId
@@ -185,6 +291,27 @@ export function AiTransactionInput({
   }
   function removeRow(key: number) {
     setRows((rs) => (rs ? rs.filter((r) => r.key !== key) : rs));
+  }
+  // Add a blank draft to the review list — for a transaction the note missed.
+  // It starts invalid (no amount/title), so it isn't counted or saved until
+  // filled in.
+  function addRow() {
+    setRows((rs) =>
+      rs
+        ? [
+            ...rs,
+            {
+              key: nextKey(),
+              type: "expense",
+              amount: "",
+              title: "",
+              description: "",
+              categoryName: "",
+              occurredOn: today,
+            },
+          ]
+        : rs,
+    );
   }
   function reset() {
     setText("");
@@ -271,6 +398,64 @@ export function AiTransactionInput({
       );
     });
   }
+
+  // ── Voice entry ───────────────────────────────────────────────────────────
+  // Hold the mic (or M) to record; on release the audio goes to the server and
+  // the transcript is *appended to the note* rather than parsed. That's the
+  // deliberate stopping point: you read what it heard, fix a misheard merchant,
+  // and press send yourself. Appending (not replacing) also lets a note be
+  // dictated in pieces, or typed and then added to by voice.
+  const voice = useVoiceRecorder({
+    lang: primaryBcp47(voiceLanguages),
+    onError: (message) => toast.error(message),
+    onTranscribe: async (audio) => {
+      // Multipart, not a base64 argument: Next dumps server-action arguments
+      // into the dev terminal verbatim, so an encoded recording would be logged
+      // in full on every use. A FormData logs as `{}`.
+      const body = new FormData();
+      body.append("audio", audio.blob, "voice-note");
+      body.append("mimeType", audio.mimeType);
+      const res = await transcribeVoiceNoteAction(body);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      // Read the note off the textarea rather than through a `setText` updater:
+      // the toast below is a side effect, and StrictMode invokes updaters twice
+      // (which would double it). The textarea is controlled, so its DOM value is
+      // the committed state, and it's mounted for the whole of this callback —
+      // voice is only enabled while the compose view is showing.
+      const prev = (taRef.current?.value ?? "").trim();
+      const joined = prev ? `${prev} ${res.text}` : res.text;
+      // Dictating onto an already-long note can overflow the cap. Say so —
+      // silently dropping the tail means the user watches the mic finish and
+      // never learns that part of what they just said didn't make it.
+      if (joined.length > MAX_INPUT_CHARS) {
+        toast.warning("Your note is full — the end of that recording was cut off.");
+      }
+      setText(joined.slice(0, MAX_INPUT_CHARS));
+      setTagDismissed(true);
+      requestAnimationFrame(() => {
+        const node = taRef.current;
+        if (!node) return;
+        node.focus();
+        node.setSelectionRange(node.value.length, node.value.length);
+        setCaret(node.value.length);
+      });
+    },
+  });
+
+  const voiceCombo = comboFor("tracker.voice");
+  const voiceHint = formatShortcut(voiceCombo, isMac);
+  // Only while AI mode is the visible pane and the note is being composed —
+  // the review list has no textarea to dictate into. `allowInInput` stays false
+  // so typing "m" in the note types an m, exactly like the other bare-key
+  // shortcuts.
+  const voiceEnabled = mode === "ai" && !rows && !parsing;
+  useHoldShortcut(voiceCombo, voice.start, voice.stop, {
+    enabled: voiceEnabled,
+    requireNoOverlay: true,
+  });
 
   function handleConfirm() {
     if (!rows) return;
@@ -395,6 +580,15 @@ export function AiTransactionInput({
         {/* ChatGPT-style: one rounded box with the send button pinned inside its
             bottom-right corner. The textarea reserves room (pr/pb) so the note
             never runs under the button. */}
+        {/* While the mic is held: interim words (or the level meter where the
+            browser has no Web Speech API). Sits above the note so it never
+            covers what's already typed. */}
+        <VoiceListeningStrip
+          state={voice.state}
+          interim={voice.interim}
+          level={voice.level}
+          liveSupported={voice.liveSupported}
+        />
         {/* Fills the leftover card height, capped at ~6 lines then it scrolls. */}
         <div className="relative flex max-h-52 min-h-0 flex-1 flex-col">
           {tagMenu}
@@ -416,27 +610,41 @@ export function AiTransactionInput({
             maxLength={MAX_INPUT_CHARS}
             placeholder="Describe your spending — e.g. 200 fruits, 1000 electricity (June bill) #Bills, got 5000 salary"
             aria-label="Describe your transactions"
-            className="field-sizing-fixed min-h-0 flex-1 resize-none pr-14 pb-12 md:text-base"
+            // pr-24 (not pr-14) reserves the corner for both buttons — mic and
+            // send — so a long note never runs underneath them.
+            className="field-sizing-fixed min-h-0 flex-1 resize-none pr-24 pb-12 md:text-base"
             disabled={parsing}
           />
-          <Button
-            type="button"
-            onClick={handleParse}
-            disabled={parsing || !text.trim()}
-            aria-label="Turn your note into transactions"
-            title="Turn your note into transactions"
-            className={cn("absolute right-2 bottom-2 size-10 rounded-full p-0", AI_BTN)}
-          >
-            {parsing ? (
-              <Loader2 className="size-5 animate-spin" />
-            ) : (
-              <ArrowUp className="size-5" />
-            )}
-          </Button>
+          {/* Mic left of send: dictate, then send — left to right, in order. */}
+          <div className="absolute right-2 bottom-2 flex items-center gap-1">
+            <VoiceMicButton
+              state={voice.state}
+              level={voice.level}
+              disabled={parsing}
+              onStart={voice.start}
+              onStop={voice.stop}
+              hint={voiceHint ? `hold ${voiceHint}` : undefined}
+            />
+            <Button
+              type="button"
+              onClick={handleParse}
+              disabled={parsing || !text.trim()}
+              aria-label="Turn your note into transactions"
+              title="Turn your note into transactions"
+              className={cn("size-10 shrink-0 rounded-full p-0", AI_BTN)}
+            >
+              {parsing ? (
+                <Loader2 className="size-5 animate-spin" />
+              ) : (
+                <ArrowUp className="size-5" />
+              )}
+            </Button>
+          </div>
         </div>
         <p className="px-0.5 text-sm text-muted-foreground">
-          Type naturally — use <span className="font-mono text-foreground">#</span> for a
-          category and <span className="font-mono text-foreground">( )</span> for a note.
+          Type or hold <Kbd combo={voiceCombo} className="align-middle" /> to speak — use{" "}
+          <span className="font-mono text-foreground">#</span> for a category and{" "}
+          <span className="font-mono text-foreground">( )</span> for a note.
         </p>
       </div>
     );
@@ -588,15 +796,25 @@ export function AiTransactionInput({
                 >
                   <Trash2 className="size-3.5" />
                 </Button>
-                {/* Description on its own line, aligned under the title column. */}
-                {r.description.trim() && (
-                  <p className="col-span-3 col-start-3 truncate text-xs text-muted-foreground">
-                    {r.description.trim()}
-                  </p>
-                )}
+                {/* Description on its own line, aligned under the title column —
+                    click-to-edit so it can be added or fixed after the parse. */}
+                <DescriptionCell
+                  value={r.description}
+                  onChange={(v) => patch(r.key, { description: v })}
+                />
               </div>
             );
           })}
+          {/* Add a row the note missed — a blank draft to fill in by hand. */}
+          <button
+            type="button"
+            onClick={addRow}
+            disabled={saving}
+            className="flex w-full items-center justify-center gap-1.5 rounded-lg border border-dashed py-2 text-sm text-muted-foreground transition-colors hover:border-solid hover:bg-muted/50 hover:text-foreground"
+          >
+            <Plus className="size-4" />
+            Add transaction
+          </button>
         </div>
       </div>
 

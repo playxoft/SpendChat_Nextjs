@@ -59,6 +59,7 @@ export function TransactionComposer({
   activeProfileId,
   allProfiles = false,
   inputMode = "amount_title",
+  voiceLanguages,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   currency: string;
@@ -72,6 +73,8 @@ export function TransactionComposer({
   allProfiles?: boolean;
   /** How to lay out the amount/title inputs (from user settings). */
   inputMode?: InputMode;
+  /** Languages AI mode's mic expects (from user settings). */
+  voiceLanguages: string[];
 }) {
   // Manual (fields) vs AI (free-text note → reviewed drafts) entry. Persisted in
   // localStorage so a refresh / re-login reopens the same mode (see the store).
@@ -439,9 +442,13 @@ export function TransactionComposer({
   );
 
   return (
-    <div className="sticky bottom-16 z-20 px-3 pt-2 pb-2 md:bottom-0">
-      {/* Every widget lives inside one rounded, floating card — the tracker list
-          scrolls behind it, not under a full-width divider. */}
+    // The strip carries the page background (not a tinted bar) so chat rows can't
+    // show through the padding around/below the card as they scroll past — same
+    // colour as the page, so it reads as the page, not a separate widget.
+    <div className="sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0">
+      {/* Every widget lives inside one rounded, floating card, sitting on the
+          page background — the tracker list scrolls up behind the strip's top
+          edge, never peeking out beneath the card. */}
       <div className="mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background p-3 shadow-lg md:bg-background/95 md:backdrop-blur-sm">
         {/* Both modes share a single grid cell, so the card is sized to the taller
             one and doesn't resize when you switch — which is what keeps the
@@ -477,6 +484,7 @@ export function TransactionComposer({
               profiles={profiles}
               activeProfileId={activeProfileId}
               allProfiles={allProfiles}
+              voiceLanguages={voiceLanguages}
             />
           </div>
 

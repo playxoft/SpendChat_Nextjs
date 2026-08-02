@@ -12,6 +12,7 @@ import {
 import { resolveWebProfile } from "@/lib/filters";
 import { canWriteInWorkspace, workspaceHasMultipleUsers } from "@/lib/workspaces";
 import type { InputMode } from "@/lib/validation";
+import { normalizeVoiceLanguages } from "@/lib/voice-languages";
 import { monthKey, monthRange, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { time, timedScope } from "@/lib/timing";
@@ -164,6 +165,7 @@ export default async function ChatPage({
             activeProfileId={composerProfileId}
             allProfiles={allProfiles}
             inputMode={settings.inputMode as InputMode}
+            voiceLanguages={normalizeVoiceLanguages(settings.voiceLanguages)}
           />
         ) : (
           <ViewerNotice variant="bar" />
