@@ -190,7 +190,7 @@ export function Calendar({
           {WEEKDAYS.map((w) => (
             <div
               key={w}
-              className="py-1 text-center text-[11px] font-medium text-muted-foreground"
+              className="py-1 text-center text-sm font-medium text-muted-foreground"
             >
               {w}
             </div>
