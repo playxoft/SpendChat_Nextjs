@@ -14,6 +14,13 @@ import { useActiveMonth } from "./active-month";
  * whose top has passed above the header's bottom edge (sections are laid out
  * oldest → newest, top → bottom). `signature` changes when the feed's rows do,
  * so the mapping is recomputed after a revalidation adds or removes rows.
+ *
+ * Resting at the bottom is the one case that rule gets wrong: the newest month's
+ * section is usually shorter than the viewport, so its top never reaches the
+ * header line and it could never become active — the tracker opens pinned to the
+ * newest message and would title itself with the *previous* month. So when the
+ * page is scrolled to the end (or too short to scroll at all), the newest section
+ * wins outright, which is also what "you're looking at now" means in a chat.
  */
 export function MonthScrollSpy({ signature }: { signature: string }) {
   const { setActiveMonth } = useActiveMonth();
@@ -26,6 +33,17 @@ export function MonthScrollSpy({ signature }: { signature: string }) {
       frame = 0;
       const sections = document.querySelectorAll<HTMLElement>("[data-month]");
       if (sections.length === 0) return;
+
+      const doc = document.documentElement;
+      // 2px of slack absorbs fractional zoom / rounding, where a page resting at
+      // the bottom reports a scrollY a hair under the true maximum.
+      const atBottom = window.scrollY + window.innerHeight >= doc.scrollHeight - 2;
+      if (atBottom) {
+        const newest = sections[sections.length - 1].dataset.month;
+        if (newest) setActiveMonth(newest);
+        return;
+      }
+
       const line = header ? header.getBoundingClientRect().bottom : 0;
       let active = sections[0].dataset.month;
       for (const el of sections) {
