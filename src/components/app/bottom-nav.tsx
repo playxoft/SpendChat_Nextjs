@@ -20,7 +20,7 @@ export function BottomNav() {
               href={hrefWithProfile(item.href, profile)}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex flex-1 flex-col items-center justify-center gap-1 text-[11px] transition-colors",
+                "flex flex-1 flex-col items-center justify-center gap-1 text-sm transition-colors",
                 active ? "text-foreground" : "text-muted-foreground",
               )}
             >

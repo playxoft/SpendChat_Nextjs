@@ -18,6 +18,7 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "nav.tracker", combo: "q", label: "Go to the tracker", scope: "Navigation" },
   { id: "nav.transactions", combo: "t", label: "Go to transactions", scope: "Navigation" },
   { id: "nav.analytics", combo: "e", label: "Go to analytics", scope: "Navigation" },
+  { id: "nav.files", combo: "f", label: "Go to files", scope: "Navigation" },
   { id: "nav.settings", combo: "s", label: "Go to settings", scope: "Navigation" },
   { id: "action.add", combo: "r", label: "Add a transaction", scope: "Actions" },
   { id: "action.bulk", combo: "b", label: "Bulk add transactions", scope: "Actions" },

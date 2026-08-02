@@ -215,7 +215,7 @@ const RECEIPT_ZIGZAG = Array.from({ length: RECEIPT_TEETH }, (_, i) => {
 
 function Receipt({ path }: { path: string }) {
   return (
-    <div className="relative w-full max-w-[13rem] bg-muted font-mono text-[10px] leading-relaxed text-foreground shadow-sm">
+    <div className="relative w-full max-w-[13rem] bg-muted font-mono text-sm leading-relaxed text-foreground shadow-sm">
       {/* torn top edge (background-colored teeth notch into the card) */}
       <svg
         aria-hidden
