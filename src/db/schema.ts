@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import {
   bigint,
+  boolean,
   date,
   index,
   integer,
@@ -12,6 +13,7 @@ import {
   uniqueIndex,
   uuid,
   varchar,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 // Relative (not "@/…") so drizzle-kit's schema loader resolves it without the
 // tsconfig path alias. Keeps the DB column length in lockstep with the Zod cap.
@@ -19,6 +21,10 @@ import {
   ATTACHMENT_FILENAME_MAX,
   ATTACHMENT_KINDS,
   ATTACHMENT_LABEL_MAX,
+  FILE_CATEGORY_MAX,
+  FILE_NAME_MAX,
+  FILE_TAG_MAX,
+  FOLDER_NAME_MAX,
   TRANSACTION_DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX,
 } from "../lib/validation";
@@ -391,6 +397,175 @@ export const transactionAttachments = pgTable(
   ],
 );
 
+/**
+ * A vault tag: a per-profile named + colored label. Files and folders
+ * reference tags by id (`tag_ids` uuid[]) — free-text tags don't exist, so a
+ * tag rename/recolor updates every tagged item at once. `color` is hex text
+ * (`#rrggbb`); today's UI picks from a fixed palette but the column accepts
+ * any hex so custom colors need no migration.
+ */
+export const fileTags = pgTable(
+  "file_tags",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    // Creator attribution — access is the profile role, never this column.
+    userId: uuid("user_id").notNull(),
+    name: varchar("name", { length: FILE_TAG_MAX }).notNull(),
+    color: varchar("color", { length: 16 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One name per profile, case-insensitive ("Legal" == "legal").
+    uniqueIndex("file_tags_profile_name_uq").on(t.profileId, sql`lower(${t.name})`),
+    // FK maintenance for the workspace cascade.
+    index("file_tags_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/**
+ * A folder in the files vault (board resolutions, land/house papers,
+ * certificates…). Folders nest via `parentId` (null = root) and belong to a
+ * profile, so the vault scopes exactly like transactions: access = the
+ * caller's effective role on the profile in the current workspace.
+ * `workspaceId` is denormalized for the same reason as on
+ * `transaction_attachments`. Deleting a folder cascades its subtree (the
+ * service also deletes the R2 objects of every descendant file first).
+ */
+export const folders = pgTable(
+  "folders",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    // Self-reference: null = a root folder. Cascade removes the whole subtree.
+    parentId: uuid("parent_id").references((): AnyPgColumn => folders.id, {
+      onDelete: "cascade",
+    }),
+    // Creator attribution — access is the profile role, never this column.
+    userId: uuid("user_id").notNull(),
+    name: varchar("name", { length: FOLDER_NAME_MAX }).notNull(),
+    // Optional accent (hex, like `file_tags.color`); null = the neutral default.
+    color: varchar("color", { length: 16 }),
+    /**
+     * Marks a predefined folder the service manages: `"transactions"` is the
+     * per-profile "Transaction attachments" folder that mirrors the profile's
+     * transaction files. System folders can be recolored/tagged but never
+     * renamed, moved, deleted, shared, or given children. Null = a normal
+     * user folder.
+     */
+    systemKey: text("system_key"),
+    tagIds: uuid("tag_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // Browsing: the children of one folder (or the roots) within a profile.
+    index("folders_profile_parent_idx").on(t.profileId, t.parentId),
+    // At most one system folder of each kind per profile (the lazy-create races).
+    uniqueIndex("folders_profile_system_uq")
+      .on(t.profileId, t.systemKey)
+      .where(sql`${t.systemKey} is not null`),
+    // FK maintenance for the workspace/parent cascade deletes.
+    index("folders_workspace_idx").on(t.workspaceId),
+    index("folders_parent_idx").on(t.parentId),
+  ],
+);
+
+/**
+ * A stored file in the vault. Bytes live in R2 under `r2Key`; the row is
+ * metadata. `folderId` null = the profile's root. `category` is a free-text
+ * column constrained to the preset list at the write boundary (adding a preset
+ * is a code change, not a migration). Access scopes by `profileId` exactly like
+ * transactions; `userId` is uploader attribution.
+ */
+export const files = pgTable(
+  "files",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    folderId: uuid("folder_id").references(() => folders.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull(),
+    r2Key: text("r2_key").notNull(),
+    // A small preview object (like `transaction_attachments.thumbnail_key`),
+    // generated client-side at upload; null for types without one / older rows.
+    thumbnailKey: text("thumbnail_key"),
+    name: varchar("name", { length: FILE_NAME_MAX }).notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    category: varchar("category", { length: FILE_CATEGORY_MAX }),
+    tagIds: uuid("tag_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The vault's default listing: a workspace's files, newest first.
+    index("files_workspace_created_idx").on(t.workspaceId, t.createdAt.desc()),
+    // Browsing a folder + FK maintenance for the cascades.
+    index("files_profile_idx").on(t.profileId),
+    index("files_folder_idx").on(t.folderId),
+  ],
+);
+
+/**
+ * A public share link for one file or one folder (exactly one is set). The
+ * token IS the capability — anyone holding the URL can view, and download when
+ * `allowDownload`. Revoking = deleting the row; `expiresAt` null = no expiry.
+ * `profileId`/`workspaceId` are denormalized so a profile/workspace delete
+ * sweeps its links, and creating a link requires editor on the profile.
+ */
+export const fileShares = pgTable(
+  "file_shares",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    fileId: uuid("file_id").references(() => files.id, { onDelete: "cascade" }),
+    folderId: uuid("folder_id").references(() => folders.id, { onDelete: "cascade" }),
+    // Who created the link (attribution).
+    userId: uuid("user_id").notNull(),
+    // URL-safe random secret (256 bits, base64url) — never an id we mint elsewhere.
+    token: varchar("token", { length: 64 }).notNull(),
+    allowDownload: boolean("allow_download").notNull().default(true),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The public resolution path: token → share.
+    uniqueIndex("file_shares_token_uq").on(t.token),
+    // "Links for this file/folder" in the share dialog + FK maintenance.
+    index("file_shares_file_idx").on(t.fileId),
+    index("file_shares_folder_idx").on(t.folderId),
+    index("file_shares_profile_idx").on(t.profileId),
+    index("file_shares_workspace_idx").on(t.workspaceId),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserSettings = typeof userSettings.$inferSelect;
@@ -402,6 +577,16 @@ export type Transaction = typeof transactions.$inferSelect;
 export type NewTransaction = typeof transactions.$inferInsert;
 export type TransactionAttachment = typeof transactionAttachments.$inferSelect;
 export type NewTransactionAttachment = typeof transactionAttachments.$inferInsert;
+export type Folder = typeof folders.$inferSelect;
+export type NewFolder = typeof folders.$inferInsert;
+export type FileTag = typeof fileTags.$inferSelect;
+export type NewFileTag = typeof fileTags.$inferInsert;
+// "StoredFile", not "File" — the DOM's global `File` type is live in this app
+// (uploads), and shadowing it invites silent type confusion.
+export type StoredFile = typeof files.$inferSelect;
+export type NewStoredFile = typeof files.$inferInsert;
+export type FileShare = typeof fileShares.$inferSelect;
+export type NewFileShare = typeof fileShares.$inferInsert;
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type ProfileAccess = typeof profileAccess.$inferSelect;

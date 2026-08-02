@@ -145,15 +145,21 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       // Three header sets, and **exactly one source matches any given path** —
-      // the negative lookahead in the catch-all excludes both special cases, so
+      // the negative lookahead in the catch-all excludes every special case, so
       // no path is ever handed two conflicting values for the same key:
-      //   /api/attachments/*  same-origin framing, for the in-app PDF preview
-      //   /app                the composer's mic (`microphone=(self)`)
-      //   everything else     strict DENY / frame-ancestors 'none', mic closed
+      //   the file-serving APIs  same-origin framing, for the in-app and
+      //                          share-page PDF previews
+      //   /app                   the composer's mic (`microphone=(self)`)
+      //   everything else        strict DENY / frame-ancestors 'none', mic closed
       { source: "/api/attachments/:path*", headers: attachmentHeaders },
+      { source: "/api/files/:path*", headers: attachmentHeaders },
+      { source: "/api/share/:path*", headers: attachmentHeaders },
       { source: "/app", headers: appHeaders },
       { source: "/app/:path*", headers: appHeaders },
-      { source: "/((?!api/attachments|app$|app/).*)", headers: securityHeaders },
+      {
+        source: "/((?!api/attachments|api/files|api/share|app$|app/).*)",
+        headers: securityHeaders,
+      },
     ];
   },
 };
