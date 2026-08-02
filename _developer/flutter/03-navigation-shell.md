@@ -80,11 +80,14 @@ tracker/transactions/analytics data. A profile has: `name`, `icon` (emoji),
 ## 4. Workspace switcher
 
 Profiles live inside a **workspace**. The current workspace comes from
-`GET /me` → `data.workspace` (`{ id, name, role }`).
+`GET /me` → `data.workspace` (`{ id, name, icon, role, currency, locale,
+currencyDetail }`).
 
-- Put a **workspace switcher** at the top of the profiles drawer (icon + current
-  name + chevron). It lists the workspaces the user can reach; switching changes
-  which profiles/data you see.
+- Put a **workspace switcher** at the top of the profiles drawer (emoji `icon`
+  — fall back to a neutral glyph when null — + current name + chevron). It
+  lists the workspaces the user can reach (`GET /workspaces`); switching
+  changes which profiles/data you see. Tint/mark the current workspace in the
+  list and show each row's role label.
 - Send the chosen workspace as **`X-Workspace-Id`** on every API call, and
   persist the id locally (`shared_preferences`) so it survives restarts. The
   server also remembers it (`lastWorkspaceId`) when you switch.

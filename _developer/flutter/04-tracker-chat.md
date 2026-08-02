@@ -65,6 +65,14 @@ Rendered for each transaction. **WhatsApp-style alignment:**
       neutral colour + outgoing position already read as "money out".
 - **Description** (if present): 14px, `muted-foreground`, wraps, preserves line
   breaks. No expand/collapse.
+- **Author label (shared workspaces only):** when the workspace has **more than
+  one user**, show who entered the row (WhatsApp-group style) — a small label
+  above/inside the bubble using `transaction.user.name ?? email`, tinted with a
+  stable per-user color derived from `user.id`. In a solo workspace show no
+  author labels at all. (The API always returns `transaction.user`.)
+- **Attachment indicator:** when `transaction.attachments` is non-empty, show a
+  small 📎 (paperclip) + count in the meta row. Tapping through to the detail
+  dialog lists the files (see [05](./05-transactions.md) § Attachments).
 - **Bottom meta row** (12px, `muted-foreground`, `space-between`):
   - **Left:** category emoji (`🏷️` if none) + name (`"Uncategorized"` if none),
     truncated.
@@ -95,7 +103,20 @@ amount, pick a category, and send."**
 ## 4. The composer (core entry surface)
 
 Pinned to the bottom (above the bottom nav), `background`, top border. Inner
-content centered at `max-w-2xl`. Element order:
+content centered at `max-w-2xl`.
+
+**The composer has two personalities, switched by a Manual / AI toggle** (a
+small segmented pill above/inside the composer). *Manual* is the structured
+entry described in this section; *AI* is a free-text note parsed by a model
+(§4.11). The choice is a **device-local preference** — persist it (shared
+preferences) and reopen the composer in the same mode; default **manual**. The
+AI segment and AI mode's primary buttons use the app's **one gradient
+exception**: blue→violet (see [02](./02-design-system.md)) — that's the visual
+marker for "this calls a model". **Hide the AI mode entirely for viewers**
+(`workspace.role` viewer / a grant-only viewer): the server rejects them with
+403 anyway.
+
+Manual-mode element order:
 
 1. **Controls row:** the **type toggle** (left) + a right cluster with the
    **date picker**, and — only when "All profiles" is active — a **profile
@@ -160,12 +181,12 @@ keyboard (`decimal`), placeholder `"0.00"`, tabular. Sanitize input to digits +
 `.`/`,` only.
 
 **Title field:** placeholder `"Add a title — type # to tag a category"`, max
-**100** chars. Typing **`#query`** at the end opens an **inline category picker**
-(see §4.6).
+**40** chars (the server cap). Typing **`#query`** at the end opens an **inline
+category picker** (see §4.6).
 
-**Combined field:** placeholder `"e.g. 100 fruits"`, max ~112 chars. Parse it
-(see §4.7) into `{ amount, title }`. The `#` category picker still works on the
-parsed title portion.
+**Combined field:** placeholder `"e.g. 100 fruits"`, max **58** chars (title cap
++ 18 for the amount part). Parse it (see §4.7) into `{ amount, title }`. The `#`
+category picker still works on the parsed title portion.
 
 **Enter/submit affordances (wide layouts, informational):** in `title_amount`,
 Enter on the amount (last field) submits; otherwise Enter advances to the next
@@ -203,9 +224,9 @@ is non-empty):
 - neither → `Start with a number, e.g. 100 fruits`.
 
 ### 4.8 Description field
-A single-line input (placeholder `"Add a description (optional)"`, max **250**).
-On wide layouts always visible; on mobile hidden behind a toggle button
-(`align-left` icon; pressed state reflects visibility).
+A single-line input (placeholder `"Add a description (optional)"`, max **150**,
+the server cap). On wide layouts always visible; on mobile hidden behind a
+toggle button (`align-left` icon; pressed state reflects visibility).
 
 ### 4.9 Send button
 - **Mobile:** a **full-width** primary button `h-9` with an up-arrow + **"Send"**.
@@ -225,6 +246,68 @@ Check in this order; on failure show a **toast** and stop:
 Then build `TransactionInput`:
 `{ type, amount, categoryId, profileId, title, description?, occurredOn }` and
 `POST /transactions`.
+
+### 4.11 AI mode — free-text (and voice) entry
+
+The composer's second personality. One rounded box (ChatGPT-style) with a
+multi-line note field and, pinned in its corner, a **mic button** and a
+**gradient send button** (blue→violet, the AI accent). A small help affordance
+explains the note syntax.
+
+**Compose → parse → review → save.** Nothing is written until the final step:
+
+1. **Note field.** Placeholder: `"Describe your spending — e.g. 200 fruits,
+   1000 electricity (June bill) #Bills, got 5000 salary"`. Max **2000** chars
+   (cap the field client-side; the server 400s past it). Syntax the parser
+   honours — surface these in a help sheet:
+   - one transaction per item/amount ("200 fruits, 100 veg" = two rows);
+   - `#CategoryName` tags a category;
+   - `(parentheses)` become the description;
+   - income words ("got 5000 salary", "refund") flip the type;
+   - relative dates ("yesterday", "last Friday") resolve against the device
+     timezone.
+2. **Send** → `POST /ai/parse { text, timezone: <device IANA zone> }` with a
+   loading state on the gradient button. Errors, mapped for the user:
+   400 nothing-parseable (show the server message — it's written for users),
+   429 quota ("try again later"), 503 feature-off (hide/disable AI mode with a
+   notice), 502 retry.
+3. **Review grid** (replaces the note in the composer): one editable row per
+   draft — compact type toggle, amount, title, **description** (pencil toggles
+   an edit field), category select (options of the row's type; "" = none), date
+   picker (max today). Row actions: **remove**; a trailing **"add row"** (+)
+   for anything the AI missed; **"Start over"** (↺) drops the drafts but keeps
+   the note text so the user can fix the wording and re-parse.
+4. **Save** (gradient primary, e.g. "Add N transactions") → validate rows like
+   manual entry (amount > 0, title non-empty), then commit via
+   `POST /transactions/bulk` with the kept rows mapped to `TransactionInput`
+   (`categoryId` comes straight off the draft). Toast the count, clear back to
+   the empty note, refresh the feed.
+
+**Voice entry (hold-to-talk).** The mic is **held, not tapped** (walkie-talkie
+style — on web it's hold the button or hold `M`):
+
+- While held: record (`MediaRecorder` equivalent — on Flutter, e.g. the
+  `record` package, AAC/M4A or Opus), show a **listening strip** with an
+  elapsed/level indicator. Optionally show live interim text from the
+  platform's on-device speech recognizer (`speech_to_text`) as a grey preview —
+  it's cosmetic only; the real transcript comes from the server.
+- **Auto-stop at 60 s** (the server rejects > 4 MB).
+- On release: upload as **multipart** to `POST /ai/transcribe` (`audio` field;
+  set the part's content type, e.g. `audio/mp4` for m4a). Show a transcribing
+  spinner on the mic.
+- The returned `text` is **inserted into the note field** (append to whatever's
+  typed) — the user reads it, fixes a misheard merchant, and presses send.
+  Voice never creates transactions directly; it feeds the same parse→review
+  path.
+- Errors: 400 "couldn't hear anything" → toast + let them retry; 503 → hide the
+  mic (transcription not configured); 429/502 as above. Ask for the microphone
+  permission on first hold, not at app start.
+- The languages the model expects come from `settings.voiceLanguages`
+  (Settings → Voice, see [08](./08-settings.md)) — code-mixed speech works
+  because the list can name several.
+
+**Gating recap:** AI mode (toggle + mic) is hidden for viewers; both endpoints
+also enforce editor + a shared 30-requests/hour per-user quota server-side.
 
 ---
 
@@ -271,8 +354,13 @@ Tapping a (real) bubble opens a dialog (`sm` width; outside-click closes).
   Here the amount **is signed**: income `+$…` (emerald), expense `−$…` (U+2212,
   neutral).
 - **Description** (if present): in a `muted/50` rounded block, scrollable.
+- **Attachments** (if any): a row of file chips (icon + display name — `label ??
+  fileName`); tapping one opens/downloads it via `GET /attachments/{id}/url`.
+  Editors can add files (photo/camera/file picker → multipart upload) and delete
+  them here. See [05](./05-transactions.md) § Attachments.
 - **Fields** (label/value rows): **Category** (`{icon} {name ?? "Uncategorized"}`),
-  **Profile** (`{icon} {name ?? "—"}`), **Date** (`Jul 6, 2026`).
+  **Profile** (`{icon} {name ?? "—"}`), **Date** (`Jul 6, 2026`), and — in a
+  shared workspace — **Added by** (`user.name ?? email`).
 - **Footer:** **Edit** (ghost, pencil) → opens the edit form (§7); **Delete**
   (destructive, trash) → `DELETE /transactions/{id}`, toast "Transaction
   deleted", close. **No extra confirm step** — a single tap deletes. (Consider a
@@ -293,8 +381,8 @@ recorded in {CODE}." Fields:
 - **Category** (select; default "No category" → null; options filtered to the
   type).
 - **Profile** (select; default the active/first profile).
-- **Title** (max 100, "Add title").
-- **Description** (textarea, 2 rows, max 250, "Optional description").
+- **Title** (max 40, "Add title").
+- **Description** (textarea, 2 rows, max 150, "Optional description").
 - Submit "Add transaction" / "Save changes" → `POST` / `PATCH`. Toasts
   "Transaction added" / "Transaction updated". On add, reset the form.
 
@@ -314,7 +402,7 @@ top bar (`list-plus` icon).
   remove button. Opens with **3 blank rows** (default type expense, date today).
   A header "New rows:" date picker sets the default date for new/blank rows.
   Per-row: a type toggle (icon-only, tinted ring when active — emerald/rose), an
-  amount field with the currency prefix, title (max 100), description (max 250),
+  amount field with the currency prefix, title (max 40), description (max 150),
   a category select (per the row's type), a per-row date (max today), optional
   profile, and remove (can't remove the last row).
 - **Paste box** (secondary): a collapsible multi-line textarea that parses
@@ -325,7 +413,7 @@ top bar (`list-plus` icon).
 - Comma-separated columns: **`amount, note, category, type, date`** — only
   `amount` is required.
 - **Amount:** optional leading `+`/`-` sets the type sign; value must be finite,
-  `> 0`, `≤ 1,000,000,000`.
+  `> 0`, `≤ 999,999,999.99`.
 - **Type:** explicit `type` column wins, else the sign (`+` → income, default
   expense). Aliases: income = `income|in|inc|+`; expense = `expense|exp|out|-`.
 - **Date:** defaults to today; if present must be a valid `YYYY-MM-DD`.

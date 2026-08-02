@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "voice_languages" text[] DEFAULT '{en}'::text[] NOT NULL;

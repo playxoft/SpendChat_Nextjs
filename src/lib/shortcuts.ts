@@ -24,6 +24,8 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "tracker.submit", combo: "mod+enter", label: "Send the transaction", scope: "Tracker" },
   { id: "tracker.description", combo: "shift+enter", label: "Jump to the description field", scope: "Tracker" },
   { id: "tracker.toggle-mode", combo: "a", label: "Switch between Manual and AI entry", scope: "Tracker" },
+  // Push-to-talk, bound via `useHoldShortcut` — held, not tapped.
+  { id: "tracker.voice", combo: "m", label: "Hold to record a voice note (AI entry)", scope: "Tracker" },
   // Display-only: "#" is a character you type into the field, not a bound key.
   // (`matches()` couldn't fire it anyway — it normalizes "#" to its physical
   // code "3" and the combo declares no shift.) The composer drives the picker

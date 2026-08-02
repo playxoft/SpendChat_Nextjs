@@ -208,11 +208,12 @@ export const aiUsageLog = pgTable(
 );
 
 /**
- * Per-user preferences that follow the user across every workspace: theme and
- * the transaction-composer input mode. Currency and number format are NOT here —
- * they belong to the workspace (see `workspaces.currency` / `.locale`).
- * `user_id` is our internal uuidv7 (resolved from Firebase at the auth boundary).
- * One row per user; created on first sign-in (bootstrap).
+ * Per-user preferences that follow the user across every workspace: theme, the
+ * transaction-composer input mode, and the languages voice entry expects.
+ * Currency and number format are NOT here — they belong to the workspace (see
+ * `workspaces.currency` / `.locale`). `user_id` is our internal uuidv7 (resolved
+ * from Firebase at the auth boundary). One row per user; created on first
+ * sign-in (bootstrap).
  */
 export const userSettings = pgTable("user_settings", {
   userId: uuid("user_id").primaryKey(),
@@ -222,6 +223,15 @@ export const userSettings = pgTable("user_settings", {
   //   title_amount — title field, then amount
   //   combined     — one field parsed as "<amount> <title>" (e.g. "100 fruits")
   inputMode: text("input_mode").notNull().default("amount_title"),
+  // ISO 639-1 codes the speech-to-text model is told to expect, e.g.
+  // {en,ta,te} for someone who mixes Tamil and Telugu with English. A list (not
+  // one code) because the transcription model takes a free-text language hint —
+  // see `lib/voice-languages.ts`. Validated against the known set on both read
+  // and write, so a hand-edited row can't reach the prompt.
+  voiceLanguages: text("voice_languages")
+    .array()
+    .notNull()
+    .default(sql`'{en}'::text[]`),
   // The workspace the user last had open; the switcher persists it here.
   lastWorkspaceId: uuid("last_workspace_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

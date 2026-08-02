@@ -19,15 +19,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Version comes from package.json's `packageManager` field (pnpm@9.15.0) —
+      # the single source of truth. Passing `version:` here too makes
+      # action-setup@v4 error on the mismatch ("Multiple versions of pnpm").
       - name: Install pnpm
         uses: pnpm/action-setup@v4
-        with:
-          version: 9
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # Wrangler (used by cf-typegen below) requires Node >= 22; 20 fails the
+          # typegen step. 22 is current LTS and satisfies Next 16 too.
+          node-version: 22
           cache: pnpm
 
       - name: Install dependencies
@@ -36,6 +39,14 @@ jobs:
       # lint and typecheck need no secrets — they do not run through Doppler.
       - name: Lint
         run: pnpm lint
+
+      # `cloudflare-env.d.ts` is gitignored and generated from wrangler.toml, so
+      # it isn't in the checkout. Without it `CloudflareEnv` resolves to an empty
+      # interface and typecheck fails on env.HYPERDRIVE / NEON_POSTGRES_DATABASE_URL
+      # in src/db/index.ts. `wrangler types` is offline (config → types), so it
+      # needs no Cloudflare auth or Doppler secrets.
+      - name: Generate Cloudflare env types
+        run: pnpm cf-typegen
 
       - name: Typecheck
         run: pnpm typecheck

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { getCurrentWorkspace, requireUser } from "@/lib/auth";
+import { getCurrentWorkspace, getUserSettings, requireUser } from "@/lib/auth";
 import { canWriteInWorkspace } from "@/lib/workspaces";
 import { badRequest, forbidden, notFound } from "@/lib/errors";
 import { parseOrThrow } from "@/lib/api-response";
@@ -20,6 +20,8 @@ import {
 import { updateTransactionSchema, type TransactionInput } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { MAX_INPUT_CHARS, parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
+import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
+import { isSupportedAudioType, transcribeVoiceNote } from "@/lib/ai-transcribe";
 import { assertAiRequestAllowed } from "@/lib/ai-quota";
 import { getTimeZone } from "@/lib/timezone.server";
 import { todayISO } from "@/lib/dates";
@@ -237,6 +239,82 @@ export async function parseTransactionsWithAI(
         today,
       });
       return { drafts };
+    },
+    { userId: user.id, workspaceId: workspace.id },
+  );
+}
+
+/**
+ * Turn a recorded voice note into the text of a note, for the composer's mic.
+ * Returns only a transcript — the user reads it, fixes anything misheard, and
+ * presses send, which runs the same `parseTransactionsWithAI` path a typed note
+ * does. Nothing here writes to the transaction tables.
+ *
+ * Gated exactly like the parse action, and for the same reason: it costs money
+ * per call and a server action is invocable by any signed-in user regardless of
+ * what the UI rendered. Cheap local checks first (format, size), then the editor
+ * role, then the shared hourly quota — a denied caller must never burn another
+ * caller's budget.
+ *
+ * **The recording arrives as `FormData`, not as a base64 argument.** Three
+ * reasons, and the first is the one that bites:
+ *   1. Next logs every server action's arguments in development
+ *      (`ƒ action({…}) in 8114ms`) by stringifying them with no cap on string
+ *      length — a base64 argument dumps the entire recording into the terminal
+ *      on every use. A `FormData` has no enumerable own properties, so it
+ *      stringifies to `{}` and the audio never reaches a log.
+ *   2. base64 inflates the payload by a third for no benefit; multipart carries
+ *      the bytes as-is.
+ *   3. The size check below is then exact, rather than inferred from an encoded
+ *      length.
+ */
+export async function transcribeVoiceNoteAction(
+  formData: FormData,
+): Promise<ActionResult<{ text: string }>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "transcribeVoiceNote",
+    async () => {
+      const audio = formData?.get("audio");
+      if (!(audio instanceof Blob) || audio.size === 0) {
+        throw badRequest("No recording was captured — try again.");
+      }
+      // Next has already buffered the body to hand us this FormData, so this
+      // doesn't spare the read — it spares the `arrayBuffer()` copy, the quota
+      // slot and the provider call, which are the expensive parts. The framework
+      // ceiling (`serverActions.bodySizeLimit`, 5mb) is the one that bounds the
+      // read, and it's deliberately above this so the friendly error wins.
+      if (audio.size > MAX_AUDIO_BYTES) {
+        throw badRequest("That recording is too long — try a shorter one.");
+      }
+      // The Blob's own type is what MediaRecorder produced; the form field is a
+      // fallback for browsers that drop it when constructing the multipart part.
+      const mimeType = audio.type || String(formData.get("mimeType") ?? "");
+      if (!mimeType) throw badRequest("No recording was captured — try again.");
+      // Container check belongs here, with the other cheap checks — not deeper
+      // in `transcribeVoiceNote`, which runs past the quota gate and would let
+      // an unsupported file burn a slot on its way to a guaranteed 400.
+      if (!isSupportedAudioType(mimeType)) {
+        throw badRequest("That audio format isn't supported — try recording again.");
+      }
+
+      if (!(await canWriteInWorkspace(user.id, workspace.id))) {
+        throw forbidden("You don't have permission to add transactions in this workspace");
+      }
+      await assertAiRequestAllowed(user.id, workspace.id, "voice_transcribe");
+
+      const [categories, settings] = await Promise.all([
+        getCategories(workspace.id),
+        getUserSettings(user.id),
+      ]);
+      const text = await transcribeVoiceNote({
+        audio: { bytes: new Uint8Array(await audio.arrayBuffer()), mimeType },
+        languages: settings.voiceLanguages,
+        currency: workspace.currency,
+        categoryNames: categories.map((c) => c.name),
+      });
+      return { text };
     },
     { userId: user.id, workspaceId: workspace.id },
   );
