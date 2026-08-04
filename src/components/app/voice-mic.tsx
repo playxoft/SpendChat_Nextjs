@@ -3,6 +3,8 @@
 import { Loader2, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { comboFor } from "@/lib/shortcuts";
+import { ControlHint } from "./control-hint";
 import type { VoiceState } from "@/hooks/use-voice-recorder";
 
 /**
@@ -46,6 +48,7 @@ export function VoiceMicButton({
   onStart,
   onStop,
   hint,
+  dense = false,
 }: {
   state: VoiceState;
   /** 0–1 microphone level, used for the halo while recording. */
@@ -55,6 +58,10 @@ export function VoiceMicButton({
   onStop: () => void;
   /** Appended to the tooltip/label, e.g. "hold M". */
   hint?: string;
+  /** Compact composer: a smaller button, so the note box needs less bottom
+   * padding to clear it. Still 32px — comfortably past the 24px touch floor,
+   * and this is a press-and-hold target, so it can't shrink much further. */
+  dense?: boolean;
 }) {
   const recording = state === "recording" || state === "starting";
   const busy = state === "transcribing";
@@ -64,13 +71,15 @@ export function VoiceMicButton({
       ? "Transcribing your recording"
       : `Hold to record a voice note${hint ? ` (${hint})` : ""}`;
 
-  return (
+  const button = (
     <Button
       type="button"
       variant="ghost"
       disabled={disabled || busy}
       aria-label={label}
-      title={label}
+      // Dense swaps the native title for a real tooltip below — two hints on one
+      // hover would stack.
+      title={dense ? undefined : label}
       aria-pressed={recording}
       // preventDefault keeps the browser from turning a press-and-hold into text
       // selection, a scroll gesture, or the touch callout menu mid-recording.
@@ -107,7 +116,8 @@ export function VoiceMicButton({
         }
       }}
       className={cn(
-        "relative size-10 shrink-0 touch-none rounded-full p-0 select-none",
+        "relative shrink-0 touch-none rounded-full p-0 select-none",
+        dense ? "size-8" : "size-10",
         recording && "bg-red-500/10 text-red-600 hover:bg-red-500/15 dark:text-red-400",
       )}
     >
@@ -121,11 +131,28 @@ export function VoiceMicButton({
         />
       )}
       {busy ? (
-        <Loader2 className="size-5 animate-spin" />
+        <Loader2 className={cn("animate-spin", dense ? "size-4" : "size-5")} />
       ) : (
-        <Mic className={cn("relative size-5", recording && "animate-pulse")} />
+        <Mic
+          className={cn("relative", dense ? "size-4" : "size-5", recording && "animate-pulse")}
+        />
       )}
     </Button>
+  );
+
+  if (!dense) return button;
+
+  // Compact drops the AI pane's hint line, so "hold M to talk" has to live here
+  // — the mic is the only thing left that says voice entry exists. The combo is
+  // omitted mid-gesture: "release to transcribe" is about the key you're already
+  // holding, and showing it again reads as a second thing to press.
+  return (
+    <ControlHint
+      label={recording ? "Release to transcribe" : busy ? "Transcribing…" : "Hold to talk"}
+      combo={recording || busy ? undefined : comboFor("tracker.voice")}
+    >
+      {button}
+    </ControlHint>
   );
 }
 

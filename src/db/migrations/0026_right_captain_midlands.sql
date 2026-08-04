@@ -1,0 +1,1 @@
+ALTER TABLE "user_settings" ADD COLUMN "ui_prefs" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -391,6 +391,63 @@ export const inputModeSchema = z.enum(INPUT_MODES);
 export type InputMode = (typeof INPUT_MODES)[number];
 
 /**
+ * How much room the tracker's composer takes. `normal` is the full layout (the
+ * control strip on one line, the category slider on its own). `compact` folds
+ * everything onto a single line and drops the controls to icons — the labels and
+ * the inline shortcut chips become hover tooltips carrying the same hints.
+ *
+ * Orthogonal to `inputMode`: that decides the *order* of the amount/title
+ * fields, this decides how much chrome surrounds them.
+ */
+export const COMPOSER_DENSITIES = ["normal", "compact"] as const;
+export const composerDensitySchema = z.enum(COMPOSER_DENSITIES);
+export type ComposerDensity = (typeof COMPOSER_DENSITIES)[number];
+
+/**
+ * Composer display preferences. Every key `.catch()`es its own default, so a row
+ * written before the key existed (or hand-edited to nonsense) yields the default
+ * for *that* key rather than failing the whole object — which is what lets a new
+ * preference ship without a migration or a backfill.
+ */
+export const composerPrefsSchema = z.object({
+  density: composerDensitySchema.catch("normal"),
+});
+export type ComposerPrefs = z.infer<typeof composerPrefsSchema>;
+
+/**
+ * Per-user UI preferences that follow the user across devices, workspaces and
+ * profiles — the `user_settings.ui_prefs` jsonb column.
+ *
+ * Deliberately one namespaced bag instead of a column per toggle: the composer
+ * is expected to grow more display options (hiding the description, showing only
+ * a subset of fields…) and other surfaces will want their own namespace beside
+ * `composer`. Adding either is then a key with a default here — no migration.
+ *
+ * Two rules keep that safe, and both matter:
+ * - **Read** through `normalizeUiPrefs`, never straight off the row, so a value
+ *   from an older build or a hand-edited row degrades to the default instead of
+ *   reaching the UI (same discipline as `voiceLanguages`).
+ * - **Write** by merging in SQL (`services/settings.ts`), never by storing a
+ *   parsed object. Zod strips keys it doesn't know, so a whole-object write from
+ *   a build that predates a preference would silently erase it.
+ *
+ * Device-local view state (the transactions column layout) stays in
+ * localStorage on purpose — this column is only for preferences that should
+ * follow the user to another browser.
+ */
+export const uiPrefsSchema = z
+  .object({
+    composer: composerPrefsSchema.catch({ density: "normal" }),
+  })
+  .catch({ composer: { density: "normal" } });
+export type UiPrefs = z.infer<typeof uiPrefsSchema>;
+
+/** Read-side guard for `user_settings.ui_prefs` — see `uiPrefsSchema`. */
+export function normalizeUiPrefs(value: unknown): UiPrefs {
+  return uiPrefsSchema.parse(value);
+}
+
+/**
  * Languages voice entry should expect, as ISO 639-1 codes. Shape only — which
  * codes are real is decided by `normalizeVoiceLanguages` against the catalogue
  * in `voice-languages.ts` (kept there so the picker, the browser recognizer and

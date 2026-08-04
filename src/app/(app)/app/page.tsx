@@ -11,6 +11,7 @@ import {
 } from "@/lib/queries";
 import { resolveWebProfile } from "@/lib/filters";
 import { canWriteInWorkspace, workspaceHasMultipleUsers } from "@/lib/workspaces";
+import { normalizeUiPrefs } from "@/lib/validation";
 import type { InputMode } from "@/lib/validation";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
 import { monthKey, monthRange, todayISO } from "@/lib/dates";
@@ -165,6 +166,7 @@ export default async function ChatPage({
             activeProfileId={composerProfileId}
             allProfiles={allProfiles}
             inputMode={settings.inputMode as InputMode}
+            density={normalizeUiPrefs(settings.uiPrefs).composer.density}
             voiceLanguages={normalizeVoiceLanguages(settings.voiceLanguages)}
           />
         ) : (

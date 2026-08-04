@@ -47,9 +47,10 @@ import {
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX as TITLE_MAX,
 } from "@/lib/validation";
+import type { ComposerDensity } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { cn } from "@/lib/utils";
-import { EntryModeToggle, type EntryMode } from "./entry-mode-toggle";
+import { EntryModeToggle, MODE_ROW_DENSE, type EntryMode } from "./entry-mode-toggle";
 import { AiHelpDialog } from "./ai-help-dialog";
 import type { Category, Profile } from "@/db/schema";
 
@@ -219,6 +220,7 @@ export function AiTransactionInput({
   profiles,
   activeProfileId,
   allProfiles = false,
+  density = "normal",
   voiceLanguages,
 }: {
   mode: EntryMode;
@@ -234,9 +236,13 @@ export function AiTransactionInput({
   activeProfileId?: string;
   /** In "All profiles" the user picks a single target for the batch. */
   allProfiles?: boolean;
+  /** Composer density (user settings). Only the shared Manual/AI toggle honours
+   * it here — this pane is a textarea, so there's no control strip to fold. */
+  density?: ComposerDensity;
   /** Languages voice entry expects, from user settings (see settings/voice). */
   voiceLanguages: string[];
 }) {
+  const dense = density === "compact";
   const [text, setText] = useState("");
   // null = compose (textarea); an array = review the parsed drafts.
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -569,9 +575,16 @@ export function AiTransactionInput({
     return (
       // h-full so the note box can flex-fill the card down to a little gap above
       // the bottom (the card is sized to the taller Manual column).
-      <div className="flex h-full flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <EntryModeToggle mode={mode} onChange={onModeChange} />
+      //
+      // This column is what actually sets the card's height — it's intrinsically
+      // taller than Manual, and both panes share one grid cell — so every dense
+      // trim here (one-row note, smaller buttons, less bottom padding) shows up
+      // as dead space removed from *Manual* too.
+      <div className={cn("flex h-full flex-col", dense ? "gap-1.5" : "gap-2")}>
+        {/* `MODE_ROW_DENSE` verbatim — Manual's control strip uses the same
+            class so the toggle lands on the exact same pixel in both panes. */}
+        <div className={dense ? MODE_ROW_DENSE : "flex items-center gap-2"}>
+          <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} />
           <div className="ml-auto flex items-center gap-1">
             <AiHelpDialog symbol={symbol} />
             {canReset && resetButton}
@@ -590,7 +603,12 @@ export function AiTransactionInput({
           liveSupported={voice.liveSupported}
         />
         {/* Fills the leftover card height, capped at ~6 lines then it scrolls. */}
-        <div className="relative flex max-h-52 min-h-0 flex-1 flex-col">
+        <div
+          className={cn(
+            "relative flex min-h-0 flex-1 flex-col",
+            dense ? "max-h-40" : "max-h-52",
+          )}
+        >
           {tagMenu}
           <Textarea
             ref={taRef}
@@ -604,19 +622,30 @@ export function AiTransactionInput({
             onKeyDown={onTextareaKeyDown}
             onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-            rows={2}
+            // Dense starts at one row — it still grows as you type (up to the
+            // max-h above), so this only trims the empty state.
+            rows={dense ? 1 : 2}
             // The server rejects anything longer; stop it here so a big paste
             // doesn't cost a round-trip (and a quota slot) just to be refused.
             maxLength={MAX_INPUT_CHARS}
             placeholder="Describe your spending — e.g. 200 fruits, 1000 electricity (June bill) #Bills, got 5000 salary"
             aria-label="Describe your transactions"
-            // pr-24 (not pr-14) reserves the corner for both buttons — mic and
-            // send — so a long note never runs underneath them.
-            className="field-sizing-fixed min-h-0 flex-1 resize-none pr-24 pb-12 md:text-base"
+            // pr reserves the corner for both buttons — mic and send — so a long
+            // note never runs underneath them; pb clears them vertically. Both
+            // shrink with the buttons at dense (size-8 rather than size-10).
+            className={cn(
+              "field-sizing-fixed min-h-0 flex-1 resize-none md:text-base",
+              dense ? "pr-20 pb-10" : "pr-24 pb-12",
+            )}
             disabled={parsing}
           />
           {/* Mic left of send: dictate, then send — left to right, in order. */}
-          <div className="absolute right-2 bottom-2 flex items-center gap-1">
+          <div
+            className={cn(
+              "absolute flex items-center gap-1",
+              dense ? "right-1.5 bottom-1.5" : "right-2 bottom-2",
+            )}
+          >
             <VoiceMicButton
               state={voice.state}
               level={voice.level}
@@ -624,6 +653,7 @@ export function AiTransactionInput({
               onStart={voice.start}
               onStop={voice.stop}
               hint={voiceHint ? `hold ${voiceHint}` : undefined}
+              dense={dense}
             />
             <Button
               type="button"
@@ -631,21 +661,27 @@ export function AiTransactionInput({
               disabled={parsing || !text.trim()}
               aria-label="Turn your note into transactions"
               title="Turn your note into transactions"
-              className={cn("size-10 shrink-0 rounded-full p-0", AI_BTN)}
+              className={cn("shrink-0 rounded-full p-0", dense ? "size-8" : "size-10", AI_BTN)}
             >
               {parsing ? (
-                <Loader2 className="size-5 animate-spin" />
+                <Loader2 className={cn("animate-spin", dense ? "size-4" : "size-5")} />
               ) : (
-                <ArrowUp className="size-5" />
+                <ArrowUp className={dense ? "size-4" : "size-5"} />
               )}
             </Button>
           </div>
         </div>
-        <p className="px-0.5 text-sm text-muted-foreground">
-          Type or hold <Kbd combo={voiceCombo} className="align-middle" /> to speak — use{" "}
-          <span className="font-mono text-foreground">#</span> for a category and{" "}
-          <span className="font-mono text-foreground">( )</span> for a note.
-        </p>
+        {/* Compact drops this line entirely — it's the tallest thing here that
+            isn't the note box. What it taught doesn't vanish: the mic carries
+            "Hold to talk" on hover, and the ⓘ dialog above still documents the
+            `#` and `( )` markers in full. */}
+        {!dense && (
+          <p className="px-0.5 text-sm text-muted-foreground">
+            Type or hold <Kbd combo={voiceCombo} className="align-middle" /> to speak — use{" "}
+            <span className="font-mono text-foreground">#</span> for a category and{" "}
+            <span className="font-mono text-foreground">( )</span> for a note.
+          </p>
+        )}
       </div>
     );
   }
@@ -654,7 +690,7 @@ export function AiTransactionInput({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <EntryModeToggle mode={mode} onChange={onModeChange} />
+        <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} />
         <p className="min-w-0 flex-1 truncate text-sm font-medium">
           Review {rows.length} transaction{rows.length === 1 ? "" : "s"}
         </p>
