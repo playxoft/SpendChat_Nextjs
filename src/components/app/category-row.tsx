@@ -15,6 +15,10 @@ type Cat = Pick<Category, "id" | "name" | "kind" | "icon">;
  * - `compact`: a single tag-icon button (showing the picked category as a chip)
  *   that opens the same picker — for tight mobile rows where the inline list
  *   won't fit alongside the profile control.
+ *
+ * `dense` is a modifier on the default shape, not a third shape: the chip row is
+ * unchanged, but the trailing "More" trigger drops its label at every width so
+ * the row can share a line with the rest of the compact composer.
  */
 export function CategoryRow({
   categories,
@@ -22,12 +26,14 @@ export function CategoryRow({
   onChange,
   onEdit,
   compact = false,
+  dense = false,
 }: {
   categories: Cat[];
   value: string | null;
   onChange: (id: string | null) => void;
   onEdit?: () => void;
   compact?: boolean;
+  dense?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const scrollRef = React.useRef<HTMLDivElement>(null);
@@ -156,11 +162,16 @@ export function CategoryRow({
             <button
               type="button"
               aria-label="More categories"
-              className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-1 text-sm text-muted-foreground hover:bg-muted sm:px-2.5"
+              title={dense ? "More categories" : undefined}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-1 rounded-full border py-1 text-sm text-muted-foreground hover:bg-muted",
+                dense ? "px-2" : "px-2 sm:px-2.5",
+              )}
             >
-              {/* Mobile: just an expand icon; desktop keeps the "More" label. */}
-              <span className="hidden sm:inline">More</span>
-              <ChevronDown className="size-3.5" />
+              {/* Mobile: just an expand icon; desktop keeps the "More" label —
+                  unless dense, where the label never earns its width. */}
+              {!dense && <span className="hidden sm:inline">More</span>}
+              {dense ? <Tags className="size-4" /> : <ChevronDown className="size-3.5" />}
             </button>
           </PopoverTrigger>
           {pickerContent}

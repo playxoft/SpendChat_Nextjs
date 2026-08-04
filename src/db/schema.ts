@@ -5,6 +5,7 @@ import {
   date,
   index,
   integer,
+  jsonb,
   pgEnum,
   pgTable,
   primaryKey,
@@ -28,6 +29,7 @@ import {
   TRANSACTION_DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX,
 } from "../lib/validation";
+import type { UiPrefs } from "../lib/validation";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -215,7 +217,8 @@ export const aiUsageLog = pgTable(
 
 /**
  * Per-user preferences that follow the user across every workspace: theme, the
- * transaction-composer input mode, and the languages voice entry expects.
+ * transaction-composer input mode, the languages voice entry expects, and the
+ * `ui_prefs` display bag.
  * Currency and number format are NOT here — they belong to the workspace (see
  * `workspaces.currency` / `.locale`). `user_id` is our internal uuidv7 (resolved
  * from Firebase at the auth boundary). One row per user; created on first
@@ -238,6 +241,14 @@ export const userSettings = pgTable("user_settings", {
     .array()
     .notNull()
     .default(sql`'{en}'::text[]`),
+  // Display preferences for the app's own surfaces, namespaced by surface
+  // (`{ composer: { density } }` today). A jsonb bag rather than a column per
+  // toggle because these are expected to multiply — the composer alone has more
+  // display options coming — and each new key ships as a Zod default instead of
+  // a migration. Shape and defaults live in `uiPrefsSchema`; read it through
+  // `normalizeUiPrefs` and write it by merging in SQL, never by storing a parsed
+  // object (see the schema's doc comment for why both matter).
+  uiPrefs: jsonb("ui_prefs").$type<UiPrefs>().notNull().default(sql`'{}'::jsonb`),
   // The workspace the user last had open; the switcher persists it here.
   lastWorkspaceId: uuid("last_workspace_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

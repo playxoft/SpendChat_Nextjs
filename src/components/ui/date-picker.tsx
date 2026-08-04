@@ -22,6 +22,7 @@ export function DatePicker({
   className,
   placeholder = "Pick a date",
   compact = false,
+  dense = false,
 }: {
   value: string;
   onChange: (iso: string) => void;
@@ -33,6 +34,8 @@ export function DatePicker({
   placeholder?: string;
   /** On mobile show a year-less label (e.g. "6 Jul"); full date on desktop. */
   compact?: boolean;
+  /** Year-less label at every width — for rows too tight to spend on the year. */
+  dense?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   return (
@@ -51,6 +54,8 @@ export function DatePicker({
           <CalendarIcon className="size-4 opacity-60" />
           {!value ? (
             placeholder
+          ) : dense ? (
+            formatDateShort(value, locale)
           ) : compact ? (
             <>
               <span className="sm:hidden">{formatDateShort(value, locale)}</span>
