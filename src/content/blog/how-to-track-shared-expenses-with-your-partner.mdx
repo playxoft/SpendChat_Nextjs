@@ -1,0 +1,157 @@
+import { Figure } from "@/components/blog/figure";
+
+export const meta = {
+  title: "Shared Expense Tracking: Three Setups for Couples",
+  date: "2026-08-05",
+  readingMinutes: 8,
+  tag: "Workspaces",
+  excerpt:
+    "Couples usually end up sharing one login, with no record of who entered what. Three shared expense tracking setups that work, and the roles behind each.",
+  image: "/blog/how-to-track-shared-expenses-with-your-partner.png",
+  imageAlt: "Cover card for a SpendChat post about shared expense tracking for couples.",
+  faqs: [
+    {
+      q: "Should we use a bill-splitting app or a shared expense tracker?",
+      a: "A splitting app if you're settling up with each other — a trip, a flat share, a group of friends — because the question it answers is who owes whom. A shared tracker if your money is merged and the question is what the household spent. If you've merged, splitting generates reconciliation work that doesn't exist. Plenty of couples run both, for different pots.",
+    },
+    {
+      q: "Which role should I give my partner?",
+      a: "Editor, unless you both actively administer the workspace. Editor covers everything either of you does day to day — adding, editing and deleting transactions, attaching receipts, and adding or renaming categories. Admin additionally covers deleting profiles, changing the workspace currency and managing who has access, which are the actions neither of you wants to take by accident on a Sunday morning.",
+    },
+    {
+      q: "How do we keep personal spending private while sharing the household books?",
+      a: "Put the shared costs in a profile inside a workspace you're both members of, and keep your personal profile in your own workspace, which the other person simply isn't a member of. Nothing has to be hidden, because it was never shared — which is a much easier arrangement to live with than a privacy rule you both had to agree to.",
+    },
+    {
+      q: "Can I give my accountant access to only my business expenses?",
+      a: "Yes, and this is the case per-profile grants exist for. Rather than adding them to the workspace, grant access to the Business profile alone — they see that one set of books and nothing else, and you revoke it the moment the filing is done.",
+    },
+    {
+      q: "What if I invite someone who doesn't have an account yet?",
+      a: "The invite waits for them as a pending row carrying the access you chose, and applies itself the first time they sign up with that address. There's no second invite and no code to paste. You can change the role or cancel it while it's pending.",
+    },
+    {
+      q: "What happens if we break up, or someone leaves?",
+      a: "Remove them from the workspace and their access ends immediately — no password to change, and nothing of theirs to untangle, because the books belong to the workspace rather than to a login. What they already entered stays, still attributed to them. If they need a copy of anything, export it as CSV before you remove them.",
+    },
+  ],
+};
+
+Every household that tracks money together lands on one of three arrangements, and most of them get there by accident.
+
+**Everything joint.** One pot, one set of books, both incomes in. Common for long-established couples.
+
+**Everything separate.** Two sets of books, plus an informal understanding about who pays for what. Common early on, and for people who arrived with different financial histories.
+
+**The hybrid.** Shared costs from a joint arrangement, personal spending kept private. This is what most couples actually do, and it's the one that tooling handles worst.
+
+The arrangement is a relationship decision and not our business. What *is* our business is that the software usually forces you into the wrong one — and that the most common workaround, sharing a login, causes problems that show up months later.
+
+## Splitting apps versus a shared ledger
+
+First, a distinction that saves a lot of wasted effort, because these are different products solving different problems.
+
+A **bill-splitting app** answers *who owes whom*. You log that you paid 84 for dinner, it divides by four, and it tracks running balances between people until someone settles up. Excellent for a holiday, a flat share, a group of friends.
+
+A **shared expense tracker** answers *what did this household spend*. There's one set of books, several people writing to it, and the output is a category breakdown rather than a debt graph.
+
+If you've merged your finances, splitting is the wrong model — you don't owe each other anything, and a tool insisting on reconciling two ledgers is generating work that doesn't exist. If you haven't merged, splitting may be exactly right, and a shared ledger will feel like it's flattening a distinction that matters to you.
+
+Plenty of households want both: a splitting app for the trip, a shared tracker for the flat. They aren't competitors.
+
+| | Bill-splitting app | Shared login | Shared workspace |
+| --- | --- | --- | --- |
+| Question it answers | Who owes whom | Whatever one account holds | What did we spend |
+| Who entered it | Tracked | Unknowable | On every transaction |
+| Read-only access | Not a concept | Impossible | The viewer role |
+| Share one profile only | No | No | Per-profile grant |
+| Removing someone | Leave the group | Change the password | One click |
+| Category report for the household | Rarely | Yes | Yes |
+
+## The password problem
+
+Here's what usually happens instead. One person sets up a tracker, the other needs to see it, and the password gets shared. It works, and it costs four things.
+
+<Figure
+  src="/blog/how-to-track-shared-expenses-with-your-partner--password-vs-roles.png"
+  alt="Two-column comparison. Left: one shared login, with no record of who entered what, total access with no read-only option, and removal requiring a password change. Right: an invite with a role, where every transaction shows who added it, access is viewer, editor or admin per person, and it can be revoked in one click."
+  caption="The shared login is not a small shortcut. It removes attribution, granularity and revocation all at once."
+/>
+
+**No attribution.** Two months later there's a 180 entry called "deposit" and neither of you remembers writing it. In a shared workspace, every transaction carries who added it, and it's a column you can turn on in the [transactions table](/features/transactions).
+
+**No granularity.** A shared password is total access. There's no version of it that lets your accountant see the business books but not the groceries, or lets a teenager see the household budget without being able to edit it.
+
+**No revocation.** Removing access means changing the password and telling everyone else the new one. So it doesn't happen, and the contractor you gave access to in March still has it in November.
+
+**No safety rail.** Anyone with the password can delete a profile or rename every category. Not out of malice — out of a mis-click in an interface they use twice a year.
+
+## Profiles and workspaces: the mental model
+
+Two concepts, and once they click the rest is obvious.
+
+A **[profile](/features/multiple-profiles)** is a set of books. Personal, Home, Business, the renovation. Each has its own feed, its own balance and its own reports, and there's an *All profiles* view when you want the combined number.
+
+A **workspace** is who can see them. It holds the profiles, the [categories](/features/categories) and the currency, and it holds the list of people with access.
+
+Profiles divide your money. [Workspaces](/features/workspaces) divide your people. A solo user needs only profiles; a household needs both.
+
+Access comes from either of two places, and the more permissive wins: membership of the workspace, or a grant on one specific profile. That second one is the quiet hero of this whole article.
+
+## Three shared expense tracking setups that work
+
+**Fully joint.** One workspace. Profiles for Home and maybe Car or Renovation. Both partners are admins. Everything is visible to both, and the *All profiles* view is your household total. Simplest, and correct if there's genuinely one pot.
+
+**Hybrid — the common one.** One shared workspace containing the Home profile, where both of you are editors. Each partner keeps a personal profile in their *own* workspace, which the other simply isn't a member of. Shared costs are jointly visible and jointly editable; personal spending stays personal, without either of you having to agree to a privacy rule that would feel like a negotiation.
+
+**Separate with visibility.** Two workspaces. Each of you invites the other as a **viewer**. You can both see everything and neither can edit the other's records. Sounds cold written down; in practice it's the arrangement that ends the "what did you spend that on" conversation permanently, because the answer is always just there.
+
+Pick the one that matches how you actually handle money, not the one that sounds most committed.
+
+## Roles, precisely
+
+<Figure
+  src="/blog/how-to-track-shared-expenses-with-your-partner--roles.png"
+  alt="Table of the three workspace roles. Viewers read the feed and reports. Editors also add and edit transactions, attach receipts, and add and rename categories. Admins additionally create and delete profiles, invite and remove people, and set the workspace currency."
+  caption="Three roles is enough for a household and for a small business. A viewer sees a read-only notice where the composer would be, rather than a button that fails."
+/>
+
+A practical note: give the second person in a household **editor**, not admin, unless you both actively administer. Not out of distrust. Editor already covers everything either of you does daily, including adding and renaming categories; what admin adds is deleting profiles, changing the workspace currency and managing who has access — three actions neither of you wants to take by accident on a Sunday morning.
+
+## The accountant case
+
+This is where per-profile grants earn their keep.
+
+Your accountant needs the business books. They do not need your groceries, your rent, or the money you spent on your partner's birthday. Adding them to the workspace would give them all of it — including [every receipt in the vault](/blog/how-to-organize-receipts-digitally).
+
+Instead, grant access to the **Business profile alone**. They sign in, see one set of books, and can [export it as CSV or print a PDF](/blog/export-expenses-to-csv-for-taxes) themselves. When the filing is done, revoke it. No password changed, nothing else exposed, and no window where they could see anything they shouldn't have.
+
+The same pattern works for a bookkeeper, a landlord who needs one profile's records, or a family member helping with a parent's finances.
+
+## The first week
+
+Setting this up takes about five minutes, and the order matters slightly.
+
+**Decide the shape first** — joint, hybrid or separate-with-visibility — because it determines how many workspaces you need. If you're unsure, start with the hybrid. It's the easiest to loosen later, and merging two sets of books is far less awkward than trying to un-share personal spending you've already exposed.
+
+**Sort the [categories](/features/categories) before inviting anyone.** They belong to the workspace, so whatever you've got is what your partner will be filing into. Ten minutes renaming defaults to the words you both actually use — "the flat" rather than Housing, "big shop" rather than Groceries — removes a surprising amount of low-grade friction later.
+
+**Then invite.** By email, with a role. If they don't have an account yet, that's fine: the invite waits as a pending row with the access you chose, they get an email, and the access applies automatically the first time they sign up with that address. No second invite, no code to paste. While it's pending you can change the role or cancel it entirely.
+
+**Set the currency once.** It's a workspace-level setting, and every member sees amounts in it. Households that span two currencies should pick the one the shared costs are actually paid in, and keep the other in a separate workspace rather than trying to make one set of books do both.
+
+**Log for a week before drawing conclusions.** The first week is always unrepresentative — you'll catch a big annual bill or miss three small things — and reading a report off it leads to an argument about a number neither of you should trust yet.
+
+## Rules that keep it working
+
+**Agree what goes in the shared profile before you start.** Groceries, obviously. Does a takeaway for two? Does one person's commute? Ten minutes of agreement now saves a hundred small hesitations later.
+
+**Log your own entries.** The attribution is only useful if it's true, and "I'll tell you and you enter it" collapses within a fortnight. Whichever of you finds [typing, speaking or pasting](/blog/how-to-track-expenses-with-ai) fastest, use that.
+
+**Do a two-minute review together, weekly.** Not a budget meeting. Open the feed, skim the week, fix anything odd. It's short because it's frequent.
+
+**Invite by role, not by password.** Even for the person you're married to. Attribution and revocation are worth having for reasons that have nothing to do with trust.
+
+**Keep one shared category list.** It's what makes the report add up — two vocabularies produce two sets of numbers that can never be combined. Agreeing what belongs in each one is worth ten minutes; [there's a whole post on picking them](/blog/how-to-categorize-expenses).
+
+[Set up a shared workspace](/features/workspaces) — invite by email, pick a role per person, and change or revoke it whenever you like.
