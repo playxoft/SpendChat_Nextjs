@@ -14,7 +14,13 @@ export function Kbd({ combo, className }: { combo: string; className?: string })
   if (keys.length === 0) return null;
 
   return (
-    <span className={cn("inline-flex items-center gap-0.5", className)} aria-hidden="true">
+    // `data-slot="kbd"` is what `TooltipContent` styles against when a hint
+    // carries a shortcut chip (it tightens its right padding to suit).
+    <span
+      data-slot="kbd"
+      className={cn("inline-flex items-center gap-0.5", className)}
+      aria-hidden="true"
+    >
       {keys.map((k, i) => {
         // Symbol glyphs (⇧ ⌘ ⌥ ⌃ ↵ `) render visually tiny next to letters, so
         // give them a noticeably larger font than alphanumeric keys.

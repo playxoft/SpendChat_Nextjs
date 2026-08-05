@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, inArray } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   profileAccess,
@@ -20,6 +20,7 @@ import { badRequest, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
 import {
+  composerDensitySchema,
   patchSettingsSchema,
   inputModeSchema,
   updateAccountNameSchema,
@@ -64,6 +65,39 @@ export async function updateInputMode(userId: string, mode: string): Promise<Use
   await db
     .update(userSettings)
     .set({ inputMode: parsed.data, updatedAt: new Date() })
+    .where(eq(userSettings.userId, userId));
+  return getUserSettings(userId);
+}
+
+/**
+ * Set how dense the tracker composer is (`ui_prefs.composer.density`).
+ *
+ * Written as a merge rather than a whole-object write, and that's the point of
+ * the column: `||` is a *shallow* jsonb merge, so nesting it once per level sets
+ * this one key while leaving every sibling intact — other namespaces beside
+ * `composer`, and any composer preference this build doesn't know about (a
+ * newer deploy's, or one rolled back). Storing a Zod-parsed object here would
+ * quietly erase both, since `z.object` strips unknown keys.
+ */
+export async function updateComposerDensity(
+  userId: string,
+  density: string,
+): Promise<UserSettings> {
+  const parsed = composerDensitySchema.safeParse(density);
+  if (!parsed.success) throw validationError("Invalid composer density");
+  await ensureBootstrap(userId);
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({
+      uiPrefs: sql`
+        ${userSettings.uiPrefs} || jsonb_build_object(
+          'composer',
+          coalesce(${userSettings.uiPrefs} -> 'composer', '{}'::jsonb)
+            || jsonb_build_object('density', ${parsed.data}::text)
+        )`,
+      updatedAt: new Date(),
+    })
     .where(eq(userSettings.userId, userId));
   return getUserSettings(userId);
 }

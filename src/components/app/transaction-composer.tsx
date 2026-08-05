@@ -15,8 +15,9 @@ import {
 } from "@/components/ui/select";
 import { CategoryRow } from "./category-row";
 import { CategoryEditorDialog } from "./category-editor-dialog";
+import { ControlHint } from "./control-hint";
 import { AiTransactionInput } from "./ai-transaction-input";
-import { EntryModeToggle } from "./entry-mode-toggle";
+import { EntryModeToggle, MODE_ROW_DENSE } from "./entry-mode-toggle";
 import { useEntryMode } from "./entry-mode-store";
 import { cn } from "@/lib/utils";
 import { usePendingMessages } from "./pending-messages";
@@ -43,7 +44,7 @@ import {
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX as TITLE_MAX,
 } from "@/lib/validation";
-import type { InputMode, TransactionInput } from "@/lib/validation";
+import type { ComposerDensity, InputMode, TransactionInput } from "@/lib/validation";
 import type { Category, Profile } from "@/db/schema";
 
 // Matches a trailing "#query" token typed into the title field — "#" is the
@@ -59,6 +60,7 @@ export function TransactionComposer({
   activeProfileId,
   allProfiles = false,
   inputMode = "amount_title",
+  density = "normal",
   voiceLanguages,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
@@ -73,6 +75,8 @@ export function TransactionComposer({
   allProfiles?: boolean;
   /** How to lay out the amount/title inputs (from user settings). */
   inputMode?: InputMode;
+  /** How much chrome surrounds those inputs (from user settings). */
+  density?: ComposerDensity;
   /** Languages AI mode's mic expects (from user settings). */
   voiceLanguages: string[];
 }) {
@@ -111,6 +115,15 @@ export function TransactionComposer({
   // "0.00" / "0,00" — the placeholder has to show the separator this user types.
   const placeholder = useMemo(() => amountPlaceholder(locale), [locale]);
 
+  // Compact folds the whole control strip onto one line: every control drops to
+  // its icon, the date loses the year, and the category slider moves up beside
+  // them instead of claiming a row. What the labels and the inline ⌘ chips used
+  // to say moves into hover tooltips (`ControlHint`), so nothing is lost — it
+  // just costs a hover. Only bites from `md` up; below that the strip is already
+  // icon-only and the slider is already a tag button, so the two densities
+  // converge and there's nothing left to compact.
+  const dense = density === "compact";
+
   const isCombined = inputMode === "combined";
   // The "/" category picker reads/writes whichever field holds the title text.
   const titleSource = isCombined ? combined : title;
@@ -121,10 +134,6 @@ export function TransactionComposer({
   // the title too. Instead flag the field red when the parsed amount is over the
   // 9-digit cap; submit is blocked by the same check below.
   const combinedAmountOverLimit = quick?.amount != null && quick.amount > AMOUNT_MAX;
-
-  // Always-on preview for the two-field modes: the parsed amount (0 when the
-  // field is blank or unparseable) drives an ever-present "add a title" nudge.
-  const previewAmount = parseAmountInput(amount, locale) ?? 0;
 
   const toggleCombo = comboFor("tracker.toggle-type");
   const submitCombo = comboFor("tracker.submit");
@@ -441,6 +450,143 @@ export function TransactionComposer({
     </div>
   );
 
+  // ---- Control-strip pieces -------------------------------------------------
+  // Built as fragments because the two densities arrange them differently
+  // enough that sharing one conditional tree stopped being readable: normal
+  // spreads them over two rows, compact gathers them into a single grouped
+  // widget (see the strip below).
+
+  const typeToggle = (
+    <div
+      className={cn(
+        // Keeps its own outline inside the compact group: the group says "these
+        // belong together", each outline says "this one is a control". Dropping
+        // them made the row read as undifferentiated chips.
+        "inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm",
+      )}
+    >
+      {(["expense", "income"] as const).map((t) => {
+        const active = type === t;
+        // "+" reads as money in, "−" as money out (clearer than arrows).
+        const Icon = t === "income" ? Plus : Minus;
+        const color =
+          t === "income"
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-rose-600 dark:text-rose-400";
+        return (
+          <ControlHint
+            key={t}
+            label={t === "income" ? "Income · money in" : "Expense · money out"}
+            combo={toggleCombo}
+            enabled={dense}
+          >
+            <button
+              type="button"
+              onClick={() => switchType(t)}
+              aria-pressed={active}
+              aria-label={t}
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full py-1 capitalize transition-colors",
+                dense ? "px-2" : "px-2.5 sm:px-3",
+                active
+                  ? "bg-background font-medium shadow-sm"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Icon className={cn("size-4", color)} />
+              {!dense && <span className="hidden sm:inline">{t}</span>}
+              {/* The ⌘E hint rides inside the active capsule (desktop only) —
+                  dense moves it into the tooltip. */}
+              {active && !dense && (
+                <Kbd combo={toggleCombo} className="hidden opacity-70 sm:inline-flex" />
+              )}
+            </button>
+          </ControlHint>
+        );
+      })}
+    </div>
+  );
+
+  const datePicker = (
+    // No `ControlHint`: the button already reads "Aug 3", and it has no shortcut
+    // to surface.
+    <DatePicker
+      value={occurredOn}
+      max={today}
+      onChange={setOccurredOn}
+      compact
+      dense={dense}
+      // Outlined at both densities, so it reads as its own control inside the
+      // compact group. Shorter there only so the group clears `MODE_ROW_DENSE`.
+      className={cn("w-auto", dense ? "h-7" : "h-8")}
+    />
+  );
+
+  const profileSelect =
+    allProfiles && profiles.length > 0 ? (
+      <Select value={profileId} onValueChange={setProfileId}>
+        <SelectTrigger
+          // Keeps its outline inside the group too — same reasoning as the
+          // type toggle and the date button.
+          className={cn("w-auto gap-1", dense ? "h-7" : "h-8")}
+          aria-label="Profile for new transaction"
+        >
+          <span aria-hidden className="text-base leading-none">
+            {currentProfile?.icon ?? "👤"}
+          </span>
+          <span
+            className={cn(
+              "max-w-24 truncate",
+              // Dense never spends the width on the name — the emoji is the
+              // profile's identity in the switcher too.
+              dense ? "hidden" : "hidden md:inline",
+            )}
+          >
+            {currentProfile?.name}
+          </span>
+        </SelectTrigger>
+        {/* popper positioning is reliable for a small trigger pinned at the
+            bottom of the screen; item-aligned mispositions there. */}
+        <SelectContent align="end" position="popper">
+          {profiles.map((p) => (
+            <SelectItem key={p.id} value={p.id}>
+              {p.icon ? `${p.icon} ` : ""}
+              {p.name}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    ) : null;
+
+  /* Mobile: categories always collapse to a tag icon (every profile view — the
+     slider is desktop-only). */
+  const categoryTagButton = (
+    <div className="shrink-0 md:hidden">
+      <CategoryRow
+        compact
+        categories={cats}
+        value={categoryId}
+        onChange={setCategoryId}
+        onEdit={() => setEditorOpen(true)}
+      />
+    </div>
+  );
+
+  const categorySlider = (
+    // `flex-1` only in compact, where this shares a *row* and should absorb the
+    // slack. Normal stacks it in a column, where flex-1 would size it against
+    // the column's height instead of the line's width.
+    <div className={cn("hidden min-w-0 md:block", dense && "flex-1")}>
+      <CategoryRow
+        dense={dense}
+        categories={cats}
+        value={categoryId}
+        onChange={setCategoryId}
+        onEdit={() => setEditorOpen(true)}
+      />
+    </div>
+  );
+
   return (
     // The strip carries the page background (not a tinted bar) so chat rows can't
     // show through the padding around/below the card as they scroll past — same
@@ -449,7 +595,12 @@ export function TransactionComposer({
       {/* Every widget lives inside one rounded, floating card, sitting on the
           page background — the tracker list scrolls up behind the strip's top
           edge, never peeking out beneath the card. */}
-      <div className="mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background p-3 shadow-lg md:bg-background/95 md:backdrop-blur-sm">
+      <div
+        className={cn(
+          "mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background shadow-lg md:bg-background/95 md:backdrop-blur-sm",
+          dense ? "p-2.5" : "p-3",
+        )}
+      >
         {/* Both modes share a single grid cell, so the card is sized to the taller
             one and doesn't resize when you switch — which is what keeps the
             Manual/AI toggle (top-left of each mode's first row) from shifting
@@ -484,6 +635,7 @@ export function TransactionComposer({
               profiles={profiles}
               activeProfileId={activeProfileId}
               allProfiles={allProfiles}
+              density={density}
               voiceLanguages={voiceLanguages}
             />
           </div>
@@ -491,10 +643,17 @@ export function TransactionComposer({
           <div
             className={cn(
               "col-start-1 row-start-1 min-w-0",
+              // Compact stretches this pane to the shared cell so the strip can
+              // be pinned to the top (matching AI's, which `h-full` already
+              // pins) while the fields hang from the bottom — see `mt-auto`
+              // below. Slack, if the two panes ever differ, lands in the middle
+              // where nothing moves.
+              dense && "flex flex-col",
               mode === "manual" ? undefined : "invisible pointer-events-none",
             )}
           >
             <form
+              className={cn(dense && "flex flex-1 flex-col")}
               onSubmit={(e) => {
                 e.preventDefault();
                 submit();
@@ -510,113 +669,72 @@ export function TransactionComposer({
                   native `disabled` on a fieldset cascades to all controls inside. */}
               <fieldset
                 disabled={switching}
-                className="m-0 min-w-0 border-0 p-0 transition-opacity disabled:opacity-60"
+                className={cn(
+                  "m-0 min-w-0 border-0 p-0 transition-opacity disabled:opacity-60",
+                  dense && "flex flex-1 flex-col",
+                )}
               >
-                <div className="flex flex-col gap-2">
-                  {/* Controls: type on the left; date / profile / category pushed to the
-                      right. On mobile the full category list drops to its own row (in
-                      all-profiles it collapses to a tag icon inside the right cluster). */}
-                  <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2">
-                      <EntryModeToggle mode={mode} onChange={changeMode} />
-                      <div className="inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
-                        {(["expense", "income"] as const).map((t) => {
-                          const active = type === t;
-                          // "+" reads as money in, "−" as money out (clearer than arrows).
-                          const Icon = t === "income" ? Plus : Minus;
-                          const color =
-                            t === "income"
-                              ? "text-emerald-600 dark:text-emerald-400"
-                              : "text-rose-600 dark:text-rose-400";
-                          return (
-                            <button
-                              key={t}
-                              type="button"
-                              onClick={() => switchType(t)}
-                              aria-pressed={active}
-                              aria-label={t}
-                              className={cn(
-                                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 capitalize transition-colors sm:px-3",
-                                active
-                                  ? "bg-background font-medium shadow-sm"
-                                  : "text-muted-foreground hover:text-foreground",
-                              )}
-                            >
-                              <Icon className={cn("size-4", color)} />
-                              <span className="hidden sm:inline">{t}</span>
-                              {/* The ⌘E hint rides inside the active capsule (desktop only). */}
-                              {active && (
-                                <Kbd combo={toggleCombo} className="hidden opacity-70 sm:inline-flex" />
-                              )}
-                            </button>
-                          );
-                        })}
+                <div className={cn("flex flex-col", dense ? "flex-1 gap-1.5" : "gap-2")}>
+                  {/* Compact gathers the whole strip into one grouped widget so the
+                      controls read as a set, with the Manual/AI switch left outside
+                      it as its own raised button — it changes what the composer *is*,
+                      the rest only fill in a field. Normal keeps the original two
+                      rows: controls, then the category slider under them. */}
+                  {dense ? (
+                    // `MODE_ROW_DENSE` — the AI pane's header uses the identical
+                    // class, which is what keeps the toggle from moving between
+                    // the two panes.
+                    <div className={MODE_ROW_DENSE}>
+                      <EntryModeToggle mode={mode} onChange={changeMode} dense />
+                      {/* Recessed (muted fill) against the toggle's raised
+                          background fill — that contrast is what separates "a set
+                          of fields" from "the mode button". Each control inside
+                          keeps its own outline. */}
+                      <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full border bg-muted/40 py-0.5 pr-1.5 pl-0.5">
+                        {typeToggle}
+                        {datePicker}
+                        {profileSelect}
+                        {categoryTagButton}
+                        {categorySlider}
                       </div>
-
-                      <div className="ml-auto flex min-w-0 items-center gap-2">
-                        {/* The paperclip used to live here; it's now a prefix
-                            inside the title field (see `attachButton`). */}
-                        <DatePicker
-                          value={occurredOn}
-                          max={today}
-                          onChange={setOccurredOn}
-                          compact
-                          className="h-8 w-auto"
-                        />
-                        {allProfiles && profiles.length > 0 && (
-                          <Select value={profileId} onValueChange={setProfileId}>
-                            <SelectTrigger className="h-8 w-auto gap-1" aria-label="Profile for new transaction">
-                              <span aria-hidden className="text-base leading-none">
-                                {currentProfile?.icon ?? "👤"}
-                              </span>
-                              <span className="hidden max-w-24 truncate md:inline">
-                                {currentProfile?.name}
-                              </span>
-                            </SelectTrigger>
-                            {/* popper positioning is reliable for a small trigger pinned at
-                                the bottom of the screen; item-aligned mispositions there. */}
-                            <SelectContent align="end" position="popper">
-                              {profiles.map((p) => (
-                                <SelectItem key={p.id} value={p.id}>
-                                  {p.icon ? `${p.icon} ` : ""}
-                                  {p.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        )}
-                        {/* Mobile: categories always collapse to a tag icon in the right
-                            cluster (every profile view — the slider is desktop-only). */}
-                        <div className="shrink-0 md:hidden">
-                          <CategoryRow
-                            compact
-                            categories={cats}
-                            value={categoryId}
-                            onChange={setCategoryId}
-                            onEdit={() => setEditorOpen(true)}
-                          />
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex items-center gap-2">
+                        <EntryModeToggle mode={mode} onChange={changeMode} />
+                        {typeToggle}
+                        {/* The paperclip used to live here; it's now a prefix inside
+                            the title field (see `attachButton`). */}
+                        <div className="ml-auto flex min-w-0 items-center gap-2">
+                          {datePicker}
+                          {profileSelect}
+                          {categoryTagButton}
                         </div>
                       </div>
+                      {/* Desktop: the full inline category slider on its own row. On
+                          mobile it's the tag icon in the cluster above instead. */}
+                      {categorySlider}
                     </div>
+                  )}
 
-                    {/* Desktop: the full inline category slider. On mobile it's the tag
-                        icon in the cluster above instead. */}
-                    <div className="hidden min-w-0 md:block">
-                      <CategoryRow
-                        categories={cats}
-                        value={categoryId}
-                        onChange={setCategoryId}
-                        onEdit={() => setEditorOpen(true)}
-                      />
-                    </div>
-                  </div>
+                  {/* Everything below the strip hangs from the card's bottom edge
+                      (`mt-auto`), leaving the strip pinned to the top. That split
+                      is what lets the fields sit a few pixels off the bottom
+                      without the Manual/AI toggle ever moving. */}
+                  <div className={cn("flex flex-col", dense ? "mt-auto gap-1.5" : "gap-2")}>
+                  {/* Live parse feedback — single-field mode only. There the amount
+                      and title are guesses pulled out of one string, so the user needs
+                      to see what was parsed; the two-field modes have labelled inputs
+                      that already say it, and the nudge just repeated them.
 
-                  {/* Live parse feedback for the single-field mode — always on, so
-                      the "Amount ₹0 — add a title" nudge shows before you type too. */}
+                      Compact drops the nudge — a whole line spent on "Amount ₹0 — add
+                      a title" is the opposite of compact, and the field it describes
+                      is right below it. The over-limit warning stays at every density:
+                      it's the only signal that submit is blocked. */}
                   {isCombined &&
                     (combinedAmountOverLimit ? (
                       <p className="px-0.5 text-xs text-destructive">Amount is too large (max 9 digits)</p>
-                    ) : (
+                    ) : dense ? null : (
                       <p className="px-0.5 text-xs text-muted-foreground">
                         {quick!.amount != null && quick!.title ? (
                           <>
@@ -652,28 +770,6 @@ export function TransactionComposer({
                         )}
                       </p>
                     ))}
-
-                  {/* Two-field modes: an always-on preview so the amount and the
-                      "add a title" nudge are there even before you type a thing. */}
-                  {!isCombined && (
-                    <p className="px-0.5 text-xs text-muted-foreground">
-                      Amount{" "}
-                      <span className="font-medium text-foreground tabular-nums">
-                        {symbol}
-                        {previewAmount}
-                      </span>
-                      {title.trim() ? (
-                        <>
-                          {" · "}
-                          <span className="font-medium text-foreground">{title.trim()}</span>
-                        </>
-                      ) : previewAmount > 0 ? (
-                        " — now add a title"
-                      ) : (
-                        " — add a title"
-                      )}
-                    </p>
-                  )}
 
                   {/* Staged files sit just above the input row, like drafted photos in a
                       chat composer. Scrolls if several are queued. */}
@@ -782,6 +878,7 @@ export function TransactionComposer({
                   >
                     <ArrowUp className="size-4" /> Send
                   </Button>
+                  </div>
                 </div>
               </fieldset>
             </form>
