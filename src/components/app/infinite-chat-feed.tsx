@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Loader2 } from "lucide-react";
 import { loadOlderFeed } from "@/actions/transactions";
 import { ChatFeed } from "./chat-feed";
+import { MonthScrollSpy } from "./month-scroll-spy";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 
@@ -148,8 +149,14 @@ export function InfiniteChatFeed({
     return () => io.disconnect();
   }, [loadOlder, done, loading, error]);
 
+  // Changes whenever the rendered rows do (a prepended older page, a revalidated
+  // latest page), which is exactly when the set of month sections can change and
+  // the spy has to re-read them.
+  const feedSignature = `${rows.length}:${rows[0]?.id ?? ""}:${rows[rows.length - 1]?.id ?? ""}`;
+
   return (
     <>
+      <MonthScrollSpy signature={feedSignature} />
       {!done && (
         <div
           ref={topSentinelRef}
