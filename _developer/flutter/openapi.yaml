@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.2.0"
+  version: "5.3.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 5.2.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 5.3.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
@@ -84,6 +84,23 @@ info:
     server has no file storage configured; `413 payload_too_large` for an
     oversized file.
 
+    ## Files vault
+    A Drive-like document store (board resolutions, land papers, certificates …)
+    scoped per profile: nested **folders** (with a hex color accent), **files**
+    (≤ 5 MB each, permissive types, optional preset category + thumbnail),
+    per-profile **tags** (created entities referenced by id), and public
+    **share links**. `GET /files` returns the whole working set in one call —
+    folders, files, the transaction attachments surfaced in the vault, and
+    tags; CRUD is per-resource under `/folders`, `/files`, `/file-tags`, and
+    `/file-shares`. File bytes are fetched like attachments: mint a presigned
+    URL with `GET /files/{id}/url` and GET it without the Authorization header.
+    Every profile has a predefined **"Transaction attachments"** folder
+    (`system: true`) mirroring that profile's transaction files — it can be
+    recolored/tagged but never renamed, moved, deleted, shared, or uploaded
+    into. Viewing needs viewer; every write needs editor. Same
+    `503 storage_unavailable` / `413 payload_too_large` semantics as
+    attachments.
+
 servers:
   - url: http://localhost:3010
     description: Local development (`pnpm dev`, port 3010)
@@ -98,6 +115,7 @@ tags:
   - name: Workspaces
   - name: Transactions
   - name: Attachments
+  - name: Files
   - name: Categories
   - name: Profiles
   - name: Settings
@@ -602,6 +620,465 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "503": { $ref: "#/components/responses/StorageUnavailable" }
+
+  /api/v1/files:
+    get:
+      tags: [Files]
+      summary: The vault working set (folders + files + transaction files + tags)
+      description: |
+        Everything the caller can view in the current workspace, in one call —
+        mirrors the web vault's page load. `?profile=<uuid>` scopes to one
+        profile; anything else (incl. `all` or omitted) means every accessible
+        profile. Files come newest first, capped at `meta.filesLimit`
+        (`meta.filesCapped: true` when the cap was hit — narrow by profile).
+        Transaction files are the same attachments as
+        `Transaction.attachments`, flattened with the transaction info needed
+        to recognize them; fetch their bytes via `GET /attachments/{id}/url`.
+        Also lazily creates each profile's predefined "Transaction attachments"
+        folder, so it is always present in `folders`.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - $ref: "#/components/parameters/profile"
+      responses:
+        "200":
+          description: The vault working set.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      folders:
+                        type: array
+                        items: { $ref: "#/components/schemas/Folder" }
+                      files:
+                        type: array
+                        items: { $ref: "#/components/schemas/VaultFile" }
+                      transactionFiles:
+                        type: array
+                        items: { $ref: "#/components/schemas/TransactionFile" }
+                      tags:
+                        type: array
+                        items: { $ref: "#/components/schemas/FileTag" }
+                    required: [folders, files, transactionFiles, tags]
+                  meta:
+                    type: object
+                    properties:
+                      filesCapped: { type: boolean }
+                      filesLimit: { type: integer, example: 500 }
+                    required: [filesCapped, filesLimit]
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Files]
+      summary: Upload files into the vault (multipart, editor only)
+      description: |
+        Multipart form data: `profileId` (required — the profile to upload
+        into), `folderId` (optional; omit for the profile's root — the
+        predefined folder is never a valid destination, 400), files under
+        `files` (repeatable; `file` also accepted), and an optional
+        client-generated preview per file under `thumb_<index>` (webp
+        recommended) — it becomes the tile thumbnail (`hasThumbnail`).
+
+        Unlike transaction attachments there is **no type allowlist** — videos,
+        archives, anything goes; an unknown type is stored as
+        `application/octet-stream`. Limits: **10 files per request** (400) and
+        **5 MB per file** (413).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                profileId: { type: string, format: uuid }
+                folderId: { type: string, format: uuid }
+                files:
+                  type: array
+                  items: { type: string, format: binary }
+              required: [profileId, files]
+      responses:
+        "201":
+          description: The created files.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/VaultFile" }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "503": { $ref: "#/components/responses/StorageUnavailable" }
+
+  /api/v1/files/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    patch:
+      tags: [Files]
+      summary: Rename / re-categorize / re-tag / move a vault file (editor only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/VaultFilePatch" }
+      responses:
+        "200":
+          description: The updated file.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/VaultFile" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Files]
+      summary: Delete a vault file (editor only)
+      description: Removes the metadata row, the stored object, and any share links to the file.
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/files/{id}/url:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    get:
+      tags: [Files]
+      summary: Mint a short-lived download URL for a vault file's bytes
+      description: |
+        Same contract as `GET /attachments/{id}/url`: authorizes the caller
+        (viewer-or-better on the file's profile in the current workspace), then
+        returns a **presigned URL** valid for ~5 minutes — GET it directly
+        **without** the Authorization header. `?variant=thumb` returns the
+        small preview when one exists (`hasThumbnail: true`; falls back to the
+        original, `contentType` then `image/webp`); `?download=1` sets an
+        attachment disposition.
+      parameters:
+        - name: variant
+          in: query
+          required: false
+          schema: { type: string, enum: [thumb] }
+        - name: download
+          in: query
+          required: false
+          schema: { type: string, enum: ["1"] }
+      responses:
+        "200":
+          description: The presigned URL and what it serves.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/AttachmentUrl" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/StorageUnavailable" }
+
+  /api/v1/folders:
+    post:
+      tags: [Files]
+      summary: Create a vault folder (editor only)
+      description: |
+        Folders nest (`parentId`) but never span profiles. Sibling names are
+        unique case-insensitively (409). The predefined "Transaction
+        attachments" folder can't be a parent (400). The folder list itself
+        ships with `GET /files`.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FolderInput" }
+      responses:
+        "201":
+          description: The created folder.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Folder" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/folders/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    patch:
+      tags: [Files]
+      summary: Rename / recolor / re-tag / move a folder (editor only)
+      description: |
+        Any subset of `{ name, color, tagIds, parentId }`; `parentId: null`
+        moves the folder to the root, `color: null` clears the accent. Moving
+        a folder into its own subtree is rejected (400), as is renaming/moving
+        the predefined folder (which accepts only color + tags).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FolderPatch" }
+      responses:
+        "200":
+          description: The updated folder.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Folder" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Files]
+      summary: Delete a folder and everything inside it (editor only)
+      description: |
+        Removes the folder, every nested folder and file (including their
+        stored objects), and any share links into the subtree. The predefined
+        folder can't be deleted (400).
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/file-tags:
+    get:
+      tags: [Files]
+      summary: List the vault tags of the accessible profiles
+      description: |
+        Name-ascending. `?profile=<uuid>` scopes to one profile. Tags are
+        per-profile entities — files and folders reference them by id
+        (`tagIds`), so only a created tag can be applied. Also included in
+        `GET /files`; this standalone list is for tag pickers.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - $ref: "#/components/parameters/profile"
+      responses:
+        "200":
+          description: The tags.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/FileTag" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Files]
+      summary: Create a vault tag (editor only)
+      description: Names are unique per profile, case-insensitively (409).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FileTagInput" }
+      responses:
+        "201":
+          description: The created tag.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/FileTag" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/file-tags/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    patch:
+      tags: [Files]
+      summary: Rename / recolor a tag (editor only)
+      description: Every file and folder referencing the tag reflects the change at once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FileTagPatch" }
+      responses:
+        "200":
+          description: The updated tag.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/FileTag" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Files]
+      summary: Delete a tag (editor only)
+      description: Detaches the tag from every file and folder of its profile, then removes it.
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/file-shares:
+    get:
+      tags: [Files]
+      summary: List active share links for one file or folder (editor only)
+      description: |
+        Exactly one of `?fileId=` / `?folderId=`, newest first. Editor only —
+        tokens grant public access, so viewers can't read them.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - name: fileId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+        - name: folderId
+          in: query
+          required: false
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: The links.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/FileShare" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    post:
+      tags: [Files]
+      summary: Create a public share link for one file or folder (editor only)
+      description: |
+        Exactly one of `fileId` / `folderId`. The returned `token` IS the
+        capability — anyone with the link sees the content, so treat it like a
+        secret. Build the shareable web link as `<web-origin><sharePath>`
+        (e.g. `https://spendchat.example.com/share/aBc…`). A folder link shares
+        the folder's whole subtree. `allowDownload: false` makes a view-only
+        link; `expiresInDays` omitted/null = never expires. The predefined
+        folder can't be shared (400).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/FileShareInput" }
+      responses:
+        "201":
+          description: The created link.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/FileShare" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/file-shares/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    delete:
+      tags: [Files]
+      summary: Revoke a share link (editor only)
+      description: The token stops working immediately.
+      responses:
+        "200":
+          description: Revocation acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
 
   /api/v1/categories:
     get:
@@ -1629,6 +2106,220 @@ components:
         fileName: { type: string }
         contentType: { type: string, description: image/webp when serving the thumb variant. }
       required: [url, expiresInSeconds, fileName, contentType]
+
+    FileCategory:
+      type: string
+      description: Preset document categories for vault files.
+      enum: [board-resolution, company, personal, land, house, certificate, other]
+
+    VaultColor:
+      type: string
+      description: A hex accent color, `#rrggbb`. The web UI offers a fixed 20-swatch palette, but any hex is valid.
+      pattern: "^#[0-9a-fA-F]{6}$"
+      example: "#3b82f6"
+
+    Folder:
+      type: object
+      description: >
+        A vault folder. `system: true` marks the predefined per-profile
+        "Transaction attachments" folder — recolor/tag only; never rename,
+        move, delete, share, upload into, or nest under it.
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        parentId:
+          type: [string, "null"]
+          format: uuid
+          description: null = a root folder.
+        name: { type: string, maxLength: 40 }
+        color:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/VaultColor"
+          description: Accent hex, or null for the neutral default.
+        tagIds:
+          type: array
+          items: { type: string, format: uuid }
+          description: Applied tags (resolve against the tags list).
+        system: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        createdByName:
+          type: [string, "null"]
+          description: Creator attribution (display only).
+      required: [id, profileId, parentId, name, color, tagIds, system,
+                 createdAt, updatedAt, createdByName]
+
+    VaultFile:
+      type: object
+      description: >
+        A vault file's metadata. The bytes live in object storage — fetch via
+        GET /files/{id}/url. Unlike attachments there is no contentType
+        allowlist; an unknown type is application/octet-stream.
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        folderId:
+          type: [string, "null"]
+          format: uuid
+          description: null = the profile's root.
+        name: { type: string, maxLength: 200, description: Sanitized display/file name. }
+        contentType: { type: string }
+        sizeBytes: { type: integer, maximum: 5242880 }
+        category:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/FileCategory"
+        tagIds:
+          type: array
+          items: { type: string, format: uuid }
+        hasThumbnail:
+          type: boolean
+          description: True when a small preview object exists — fetch it with ?variant=thumb.
+        createdAt: { type: string, format: date-time }
+        uploaderName: { type: [string, "null"], description: Uploader attribution (display only). }
+        profileName: { type: [string, "null"] }
+        profileIcon: { type: [string, "null"] }
+      required: [id, profileId, folderId, name, contentType, sizeBytes,
+                 category, tagIds, hasThumbnail, createdAt, uploaderName,
+                 profileName, profileIcon]
+
+    TransactionFile:
+      type: object
+      description: >
+        A transaction attachment as the vault surfaces it — the same attachment
+        as Transaction.attachments, flattened with the transaction info needed
+        to recognize it. `id` is the ATTACHMENT id: fetch bytes via
+        GET /attachments/{id}/url. These render "inside" the predefined
+        "Transaction attachments" folder and carry no tags.
+      properties:
+        id: { type: string, format: uuid }
+        transactionId: { type: string, format: uuid }
+        name: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer }
+        hasThumbnail: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        txnTitle: { type: [string, "null"] }
+        txnType: { type: string, enum: [income, expense] }
+        txnAmountMinor: { type: integer, description: Positive minor units; sign from txnType. }
+        txnOccurredOn: { type: string, format: date }
+        profileId: { type: string, format: uuid }
+        profileName: { type: [string, "null"] }
+        profileIcon: { type: [string, "null"] }
+      required: [id, transactionId, name, contentType, sizeBytes, hasThumbnail,
+                 createdAt, txnTitle, txnType, txnAmountMinor, txnOccurredOn,
+                 profileId, profileName, profileIcon]
+
+    FileTag:
+      type: object
+      description: A per-profile tag entity. Files/folders reference it via tagIds.
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        name: { type: string, maxLength: 20 }
+        color: { $ref: "#/components/schemas/VaultColor" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, profileId, name, color, createdAt, updatedAt]
+
+    FileShare:
+      type: object
+      description: >
+        A public share link. The token IS the capability — treat it like a
+        secret. The shareable web page is `<web-origin><sharePath>`.
+      properties:
+        id: { type: string, format: uuid }
+        fileId: { type: [string, "null"], format: uuid }
+        folderId: { type: [string, "null"], format: uuid }
+        token: { type: string, maxLength: 64 }
+        sharePath: { type: string, example: "/share/aBcD…" }
+        allowDownload:
+          type: boolean
+          description: false = view-only link (recipients preview but can't download).
+        expiresAt:
+          type: [string, "null"]
+          format: date-time
+          description: null = the link never expires.
+        createdAt: { type: string, format: date-time }
+      required: [id, fileId, folderId, token, sharePath, allowDownload,
+                 expiresAt, createdAt]
+
+    FolderInput:
+      type: object
+      properties:
+        profileId: { type: string, format: uuid }
+        parentId: { type: [string, "null"], format: uuid }
+        name: { type: string, minLength: 1, maxLength: 40 }
+        color:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/VaultColor"
+        tagIds:
+          type: array
+          maxItems: 10
+          items: { type: string, format: uuid }
+      required: [profileId, name]
+
+    FolderPatch:
+      type: object
+      minProperties: 1
+      description: "Any subset. `parentId: null` moves to the root; `color: null` clears the accent."
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        color:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/VaultColor"
+        tagIds:
+          type: array
+          maxItems: 10
+          items: { type: string, format: uuid }
+        parentId: { type: [string, "null"], format: uuid }
+
+    VaultFilePatch:
+      type: object
+      minProperties: 1
+      description: "Any subset. `folderId: null` moves the file to the root; `category: null` clears it."
+      properties:
+        name: { type: string, minLength: 1, maxLength: 200 }
+        category:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/FileCategory"
+        tagIds:
+          type: array
+          maxItems: 10
+          items: { type: string, format: uuid }
+        folderId: { type: [string, "null"], format: uuid }
+
+    FileTagInput:
+      type: object
+      properties:
+        profileId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 20 }
+        color: { $ref: "#/components/schemas/VaultColor" }
+      required: [profileId, name, color]
+
+    FileTagPatch:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 20 }
+        color: { $ref: "#/components/schemas/VaultColor" }
+
+    FileShareInput:
+      type: object
+      description: Exactly one of fileId / folderId.
+      properties:
+        fileId: { type: string, format: uuid }
+        folderId: { type: string, format: uuid }
+        allowDownload: { type: boolean, default: true }
+        expiresInDays:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 365
+          description: Omitted/null = the link never expires.
 
     AiParseInput:
       type: object
