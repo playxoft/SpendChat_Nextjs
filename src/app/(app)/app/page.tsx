@@ -80,7 +80,7 @@ export default async function ChatPage({
   const timeZone = await getTimeZone();
   const today = todayISO(timeZone);
   // The feed pages through all history (infinite scroll); the summary bar shows
-  // the current month's balance.
+  // the balance of whichever month is currently under the header.
   const { start: currentStart, end } = monthRange(today);
   const currentMonthKey = monthKey(today);
   const { currency, locale } = workspace;
@@ -199,14 +199,19 @@ async function SummaryStream({
   currency: string;
   locale: string;
 }) {
-  // The summary shows the current month. Its totals and the ids they cover come
-  // from one server render, so the client summary reconciles optimistic amounts
-  // without a flicker (a pending amount is dropped once its saved id lands here).
+  // Totals for *every* month, not just the current one: the feed scrolls through
+  // all history, and the summary bar retitles itself to whichever month is under
+  // the header. Unbounded is the right window because the client keeps paging
+  // older rows in — a fixed range would leave those months reading zero. It's one
+  // grouped aggregate returning a row per month, so the payload stays tiny.
+  //
+  // The ids are only needed for the current month, whose pending sends the client
+  // reconciles against (a pending amount is dropped once its saved id lands here).
   const [monthTotals, txnIds] = await time(
     "tracker.summary",
     () =>
       Promise.all([
-        getMonthlyTotals(userId, workspaceId, { from: currentStart, to: currentEnd, profileId }),
+        getMonthlyTotals(userId, workspaceId, { profileId }),
         listTransactionIds(userId, workspaceId, { from: currentStart, to: currentEnd, profileId }),
       ]),
     { event: "tracker.summary.timing" },
