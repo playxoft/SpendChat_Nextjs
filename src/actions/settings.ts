@@ -73,6 +73,21 @@ export async function updateInputMode(mode: string): Promise<ActionResult> {
   );
 }
 
+/** Change how dense the tracker composer is (normal / compact). */
+export async function updateComposerDensity(density: string): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "updateComposerDensity",
+    async () => {
+      await settingsService.updateComposerDensity(user.id, density);
+      revalidatePath("/app");
+      revalidatePath("/settings");
+      return {};
+    },
+    { userId: user.id },
+  );
+}
+
 /** Choose which languages voice entry should expect (ISO 639-1 codes). */
 export async function updateVoiceLanguages(languages: string[]): Promise<ActionResult> {
   const user = await requireUser();
