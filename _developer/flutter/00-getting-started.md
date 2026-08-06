@@ -97,8 +97,11 @@ flutter run --dart-define=API_BASE_URL=http://localhost:3010
 # Physical device on the same LAN
 flutter run --dart-define=API_BASE_URL=http://192.168.x.x:3010
 
+# Beta
+flutter run --dart-define=API_BASE_URL=https://beta.spendchat.app
+
 # Production
-flutter run --dart-define=API_BASE_URL=https://<your-worker-domain>
+flutter run --dart-define=API_BASE_URL=https://spendchat.app
 ```
 
 - The Next.js **dev server runs on port `3010`** (`doppler run -- pnpm dev`).

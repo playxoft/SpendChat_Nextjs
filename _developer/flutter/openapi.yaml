@@ -104,8 +104,10 @@ info:
 servers:
   - url: http://localhost:3010
     description: Local development (`pnpm dev`, port 3010)
-  - url: https://spendchat.example.com
-    description: Production (replace with your Worker/route domain)
+  - url: https://beta.spendchat.app
+    description: Beta (`pnpm deploy:dev`, --env beta)
+  - url: https://spendchat.app
+    description: Production (`pnpm deploy:prod`, --env production)
 
 security:
   - bearerAuth: []
