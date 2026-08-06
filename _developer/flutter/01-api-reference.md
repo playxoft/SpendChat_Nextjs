@@ -11,7 +11,8 @@ in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
 - **Base URL (dev):** `http://localhost:3010` (Android emulator: `http://10.0.2.2:3010`)
-- **Base URL (prod):** your Worker/route domain (HTTPS)
+- **Base URL (beta):** `https://beta.spendchat.app`
+- **Base URL (prod):** `https://spendchat.app`
 - **Auth:** `Authorization: Bearer <firebase-id-token>`
 - **Workspace:** `X-Workspace-Id: <uuid>` (optional; see § Workspaces)
 - **Platform:** `X-Client-Platform: android | ios` (optional telemetry; send it on
