@@ -23,7 +23,7 @@ export const faqs: Faq[] = [
   },
   {
     q: "Is my financial data private and secure?",
-    a: "Your data is tied to your account and only ever shown to you. Sign-in is handled by Neon Auth with email and password, all input is validated, and the app ships with strict security headers.",
+    a: "Your data is tied to your account and only ever shown to you. Sign-in is handled by Firebase Authentication (Google, or email and password), all input is validated, and the app ships with strict security headers.",
   },
   {
     q: "Do I need to install an app?",

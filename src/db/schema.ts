@@ -85,7 +85,7 @@ export const workspaces = pgTable(
     // Optional emoji shown beside the workspace name (like `profiles.icon`).
     // Nullable; the app seeds a default at creation and the UI falls back.
     icon: text("icon"),
-    // Neon Auth user id of the creator. Owners always have the admin role.
+    // Internal (`users.id`) id of the creator. Owners always have the admin role.
     ownerId: uuid("owner_id").notNull(),
     // Currency + number format (locale) are per-workspace: every member of a
     // workspace sees amounts in this currency, formatted with this locale.
@@ -139,7 +139,7 @@ export const profileAccess = pgTable(
 );
 
 /**
- * Pending invite for an email that has no Neon Auth account yet. Accepted
+ * Pending invite for an email that has no account yet. Accepted
  * (converted to a membership / profile grant) automatically at the invitee's
  * first bootstrap. `profileId` null means a workspace-wide invite.
  */

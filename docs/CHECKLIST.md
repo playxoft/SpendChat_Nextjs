@@ -20,9 +20,9 @@ Status: **implementation complete** — pending live Neon/Doppler credentials an
 | App UX | **Chat-application style** — transaction bubbles + chat composer |
 | Rendering | Full SSR via `@opennextjs/cloudflare` |
 | Worker config | `wrangler.toml` |
-| Database | Neon Postgres via Neon HTTP driver |
+| Database | Neon Postgres via node-postgres (Cloudflare Hyperdrive in the Worker) |
 | ORM / migrations | Drizzle ORM + Drizzle Kit |
-| Auth | Neon Auth (`@neondatabase/auth`) — email + password |
+| Auth | Firebase Authentication — Google + email/password |
 | Currency | Single currency per user, app-wide, integer minor units |
 | Secrets | Doppler |
 
@@ -59,14 +59,16 @@ Status: **implementation complete** — pending live Neon/Doppler credentials an
 - [ ] Run migration against a live Neon database
 - [ ] (Optional) Postgres RLS
 
-## 5. Authentication — Neon Auth (`@neondatabase/auth`)
-- [x] `auth` server instance + `authClient` browser client
-- [x] Handler at `app/api/auth/[...path]`
-- [x] Email + password sign-up / sign-in via custom branded forms + server actions
-- [x] Email verification via `/verify-email` code-entry page (OTP) + resend; sign-up/sign-in route unverified users to it
+## 5. Authentication — Firebase Authentication
+- [x] Browser Firebase app + auth (`src/lib/firebase.ts`), config from `NEXT_PUBLIC_FIREBASE_CONFIG`
+- [x] Session bridge at `app/api/auth/session` — ID token → httpOnly `__session` / `__refresh` cookies
+- [x] Stateless ID-token verification with `jose` against Google's JWKS (`firebase-verify.ts`) — no `firebase-admin` (Node-only, unfit for Workers)
+- [x] Firebase UID → internal `uuidv7` user id in `identity.ts` (`resolveUser`); nothing downstream sees a provider id
+- [x] Google + email/password sign-up / sign-in via custom branded forms
+- [x] Email verification enforced fail-closed (`hasVerifiedEmail`) at every trust boundary
 - [x] Route protection via app layout (`requireUser` redirect) + `getAppContext` — no Node middleware (unsupported by OpenNext on Workers)
-- [x] Sign-out (user menu) via `authClient.signOut()`
-- [ ] Password reset UI (backend supported; add later)
+- [x] Mobile API accepts the same ID token as `Authorization: Bearer` (`requireApiUser`)
+- [ ] "Sign out everywhere" — needs admin credentials to revoke refresh tokens; not supported on Workers
 
 ## 6. Marketing site (SEO-first) — 6 pages
 - [x] `/` landing (hero, features, steps, FAQ teaser, CTAs)

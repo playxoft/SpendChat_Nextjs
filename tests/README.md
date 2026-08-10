@@ -31,10 +31,12 @@ What is real vs. mocked (`tests/integration/setup.ts`):
 - **`@/db`** → an in-process **PGlite** (Postgres 16) with the real migrations
   applied. PGlite predates Postgres 18's `uuidv7()`, so `helpers/test-db.ts`
   shims it onto `gen_random_uuid()` (a valid, unique UUID — all the tests need).
-- **`@/lib/neon-auth`** → a session we control via `helpers/session.ts`
-  (`signInAs(id)` / `setSession(null)`). Switching users is how the
-  **tenant-isolation** tests prove one user can never read or mutate another's
-  rows.
+- **`@/lib/firebase-verify`** + **`@/lib/identity`** → a session we control via
+  `helpers/session.ts` (`signInAs(id)` / `setSession(null)`). Only the two auth
+  *edges* are faked — token verification and Firebase-UID → internal-id mapping —
+  so the real `getCurrentUser` / `requireApiUser` run end-to-end. Switching users
+  is how the **tenant-isolation** tests prove one user can never read or mutate
+  another's rows.
 - **`next/cache`** → no-op `revalidatePath`.
 - **`next/navigation`** → a throwing `redirect` (mirrors Next's control flow);
   tests assert `rejects.toMatchObject({ url: "/sign-in" })`.
@@ -49,8 +51,9 @@ Enforced on the core (`src/lib/**`, `src/actions/**`, the export route):
 The handful of uncovered branches are unreachable defensive fallbacks
 (`zodError.issues[0]?.message ?? "…"`, `row?.count ?? 0`, `coalesce(...) ?? 0`,
 `formatToParts(...) ?? ""`) — covering them would mean faking library internals,
-not testing behaviour. `blog.ts` (MDX imports) and the thin `neon-auth*`
-wrappers are excluded from the gate.
+not testing behaviour. `blog.ts` (MDX imports) and the thin Firebase/logging/email
+I/O wrappers (`firebase.ts`, `firebase-config.ts`, `identity.ts`, `logger.ts`,
+`email.ts`) are excluded from the gate.
 
 ## Not covered here (deliberately)
 
