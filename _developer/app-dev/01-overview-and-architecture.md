@@ -44,7 +44,7 @@ Single currency per user. Money is integer **minor units** end-to-end.
 | Icons | **lucide_icons** (or Material Icons) | Web app uses Lucide; match icon choices. |
 | Emoji | system font | Categories/profiles use emoji strings from the API — render as text. |
 
-> Generating models from OpenAPI: `openapi-generator-cli generate -i _developer/api/openapi.yaml -g dart-dio -o lib/api_gen`. Because responses are wrapped in `{ "data": ... }`, either unwrap in a dio interceptor or generate the inner schemas and decode `body["data"]` yourself. Hand-writing `freezed` models for ~8 types is also very reasonable and gives more control.
+> Generating models from OpenAPI: `openapi-generator-cli generate -i _developer/flutter/openapi.yaml -g dart-dio -o lib/api_gen`. Because responses are wrapped in `{ "data": ... }`, either unwrap in a dio interceptor or generate the inner schemas and decode `body["data"]` yourself. Hand-writing `freezed` models for ~8 types is also very reasonable and gives more control.
 
 ---
 

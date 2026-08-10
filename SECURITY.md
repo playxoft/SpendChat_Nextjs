@@ -30,9 +30,12 @@ disclosure.
 This project handles personal financial data, so we take the following
 especially seriously:
 
-- Authentication and session handling (Neon Auth)
-- Cross-account data access (every query must be scoped to the authenticated user)
+- Authentication and session handling (Firebase Authentication — ID tokens are
+  verified statelessly against Google's JWKS and bridged to an httpOnly
+  `__session` cookie; the mobile API accepts the same token as a bearer)
+- Cross-account data access (every query must be scoped to the authenticated
+  user's workspace/profile access)
 - Injection (queries are parameterized via Drizzle; input is validated with Zod)
-- Secret exposure (secrets are managed by Doppler and never committed)
+- Secret exposure (secrets are injected from the environment and never committed)
 
 Thank you for helping keep SpendChat and its users safe.

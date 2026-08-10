@@ -7,8 +7,8 @@ This version has breaking changes — APIs, conventions, and file structure may 
 # SpendChat — project notes
 
 A minimal, chat-style money tracker. Next.js 16 (App Router) + TS + Tailwind v4 + shadcn/ui,
-deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
-(`@neondatabase/auth`), secrets via Doppler.
+deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Firebase
+Authentication, secrets via Doppler.
 
 ## Commands (secrets come from Doppler)
 - `doppler run -- pnpm dev` — local dev
@@ -37,8 +37,8 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
   `user_settings` holds only per-user prefs that follow the user across workspaces: `theme`
   and `input_mode`.
 - **Ids are UUIDv7** (`uuid` columns, Postgres 18's `uuidv7()` as the DB default). No text
-  or v4 ids for anything we mint. Exception: `user_id` values come from Neon Auth (v4,
-  outside our control) — the columns are typed `uuid`, but the version isn't ours to choose.
+  or v4 ids for anything we mint — including `user_id`: `users.id` is our own uuidv7, and
+  the provider's identifier is confined to `users.firebase_uid` (see the auth bullet).
 - **Workspaces + RBAC.** Profiles live in workspaces; every user owns a default
   workspace ("<name>'s Workspace", created at bootstrap). Access = workspace membership
   (`workspace_members`) or per-profile grant (`profile_access`); roles viewer < editor < admin,
@@ -52,10 +52,18 @@ deployed to Cloudflare Workers via OpenNext. Neon Postgres (Drizzle), Neon Auth
   `workspace_invites` rows accepted at the invitee's first bootstrap.
 - **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,
   mutations in `src/actions/*` (server actions), both validated with Zod (`src/lib/validation.ts`).
-- Auth: Neon Auth (`@neondatabase/auth`). Server instance in `src/lib/neon-auth.ts` (`auth`),
-  browser client in `src/lib/neon-auth-client.ts`. Helpers `getCurrentUser()` / `requireUser()` /
-  `getAppContext()` in `src/lib/auth.ts` wrap `auth.getSession()`. The API handler lives at
-  `app/api/auth/[...path]`. Route protection is enforced in the `(app)` layout via `requireUser()`
+- **Auth: Firebase Authentication** (Google + email/password). Sign-in happens in the browser
+  via the Firebase Web SDK (`src/lib/firebase.ts`; config parsed from the single
+  `NEXT_PUBLIC_FIREBASE_CONFIG` JSON env var in `firebase-config.ts`). The resulting **ID token**
+  is bridged to an httpOnly `__session` cookie (plus `__refresh`) by `POST /api/auth/session`
+  (`src/app/api/auth/session/route.ts`) so server components can read it. Tokens are verified
+  **statelessly with `jose`** against Google's JWKS in `src/lib/firebase-verify.ts` — no
+  `firebase-admin`, which is Node-only and unfit for Workers — pinning `alg=RS256`, issuer, and
+  audience to the project. `src/lib/identity.ts` (`resolveUser`) is the **only** place a Firebase
+  UID becomes an internal id: `users.firebase_uid` → our own `uuidv7` `users.id`, which is what
+  every table stores. Helpers `getCurrentUser()` / `requireUser()` / `getAppContext()` live in
+  `src/lib/auth.ts`; the mobile API takes the same ID token as `Authorization: Bearer` via
+  `requireApiUser`. Route protection is enforced in the `(app)` layout via `requireUser()`
   (no `proxy.ts`/middleware — OpenNext on Workers can't run Next 16's Node-only middleware).
 - DB client is lazy via `getDb()` so env is read inside the request context (Workers-safe).
   Driver is **node-postgres** (`drizzle-orm/node-postgres`). In the deployed Worker it connects
@@ -192,8 +200,8 @@ Regenerate from `scripts/og-image.html` (the command is in its header comment).
 The Flutter app consumes the versioned REST API under `src/app/api/v1/*`. Its
 contract is documented in three files that MUST stay in sync with the code:
 - **`_developer/flutter/openapi.yaml`** — the **canonical** machine-readable spec
-  (OpenAPI 3.1). `info.version` is the API version. (`_developer/api/openapi.yaml`
-  is **deprecated** — never update it.)
+  (OpenAPI 3.1). `info.version` is the API version. (An older `_developer/api/`
+  spec used to sit alongside it; it was deleted — this is now the only spec.)
 - **`_developer/flutter/01-api-reference.md`** — the human-readable contract
   (endpoint tables, models); its "API spec version" line mirrors the spec version.
 - **`_developer/flutter/_changelog.md`** — per-version history of API changes.
