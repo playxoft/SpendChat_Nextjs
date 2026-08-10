@@ -6,35 +6,116 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+No tagged release has been cut yet, so everything below is unreleased. Entries
+are grouped by theme rather than strictly chronologically; the work spans
+2026-06-17 to 2026-08-10.
+
+The mobile REST API under `/api/v1` carries **its own** version, tracked
+separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
+(currently spec **5.3.0**).
+
 ### Added
+
+**Foundation**
 - **Project setup**: Next.js 16 (App Router) + TypeScript + Tailwind CSS v4 + shadcn/ui (neutral, minimal theme).
-- **Cloudflare Workers** deployment via `@opennextjs/cloudflare` with `wrangler.toml`; verified the Worker bundle (~1.97 MB gzip) fits the free-tier 3 MB limit.
-- **Light / dark / system** theme toggle (`next-themes`) on both the marketing site and the app.
-- **Neon Postgres + Drizzle ORM**: indexed schema for `user_settings`, `categories`, and `transactions` (user-scoped composite indexes); initial migration generated.
-- **Neon Auth (`@neondatabase/auth`)**: email + password sign-up and sign-in via custom branded forms + server actions; same-origin `/api/auth` handler; route protection enforced in the app layout via `requireUser()`.
-- **Chat-style tracker** (`/app`): transactions as message bubbles with day dividers, a running monthly balance, and a chat composer for instant entry.
-- **Bulk add**: paste many transactions (`amount, note, category, type, date`) with a live parsed preview before importing.
-- **Transactions** (`/transactions`): filter by date range, type, category, and note search; pagination; CSV download; print-friendly layout.
-- **Analytics** (`/analytics`): monthly income/expense/net summary, spending-by-category bars, and a 6-month trend.
-- **Settings** (`/settings`): single app-wide currency, number format, theme, category management, and a danger zone to clear all transactions.
-- **Marketing site** (6 pages): landing, features, about, FAQ, privacy, and terms — all with written copy.
-- **SEO**: per-page metadata, canonical URLs, Open Graph/Twitter tags, `sitemap.xml`, `robots.txt`, web manifest, and JSON-LD (WebApplication + FAQPage).
-- **Security**: strict headers (CSP, HSTS, X-Frame-Options, etc.), per-user query scoping, Zod-validated input, and Doppler-managed secrets.
-- Money stored as integer minor units to avoid floating-point drift.
+- **Cloudflare Workers** deployment via `@opennextjs/cloudflare` with `wrangler.toml`; the Worker bundle fits the free-tier 3 MB limit.
+- **Neon Postgres + Drizzle ORM** with indexed, access-scoped schema and a migration history.
+- **Light / dark / system** theme toggle (`next-themes`) across marketing and app.
+- Money stored as **integer minor units** to avoid floating-point drift.
+- Primary keys generated as **UUIDv7** (Postgres 18 `uuidv7()`).
+
+**Tracker**
+- **Chat-style tracker** (`/app`): transactions as message bubbles with day/month dividers, running balance, and a chat composer.
+- **Optimistic entry** — pending-message composer, optimistic month balance, and optimistic rows on the feed.
+- **Bulk add**: paste many transactions with a live parsed preview, per-row default date, type toggle, and `⌘E` flip.
+- Slash-command category tagging from the title field; emoji category picker; inline category rename.
+- Configurable transaction input layout, compact composer density, and compact mobile controls.
+- Timezone-aware dates and a month picker.
+
+**Workspaces, profiles & access control**
+- **Shared workspaces with RBAC** — membership plus per-profile grants, viewer/editor/admin roles, effective role = max of the two.
+- Member invites by email (ZeptoMail), converted at the invitee's first bootstrap.
+- Per-workspace currency, number format, and shared categories; workspace emoji icons and longer names.
+- Member and per-profile access management UI; permissions centralized in a `Permissions` context.
+- Profile sidebar, switch shortcuts, per-section profile persistence, and composer locking during a switch.
+- Row-level authorship display in shared workspaces.
+
+**Transactions & reporting**
+- **Transactions table**: resizable, sortable, drag-to-reorder columns with infinite scroll.
+- Date-range filter with calendar range mode; income/expense type filter on transactions and analytics.
+- **Analytics**: monthly income/expense/net summary, category pie/bars, 6-month trend, and an all-time range.
+- **Branded CSV export** and printable report headers.
+
+**Files vault**
+- `/files` Drive-like vault with grid, list, and **column** views.
+- Tag entities with colors, folder color tints, drag-and-drop move, OS drop-to-folder with progress, context menus, thumbnails.
+- A system "Transaction attachments" folder, plus share links and share pages.
+
+**Attachments**
+- `transaction_attachments` schema and validation; upload/download service backed by **R2** with presigned access.
+- Attachment UI integrated into the transaction view, with thumbnails.
+
+**AI & voice**
+- **AI transaction entry** — natural-language text parsed into reviewable drafts, never written directly.
+- **Hold-to-talk voice entry** (`m`): recorded in the browser, transcribed server-side, dropped into the AI note for human review. Audio is discarded, never stored.
+- Editable descriptions and add-row on the AI review grid; persisted entry mode; always-on amount preview.
+- Models are **configured, never hard-coded** — each feature owns an env-var registry pair.
+
+**Mobile REST API**
+- Versioned **`/api/v1`** REST API for the Flutter client, with Firebase bearer auth and a shared `src/services/*` layer.
+- Covers transactions, workspaces, currency/categories, AI entry, voice, attachments, and the files vault.
+
+**Auth & account**
+- Google sign-in, email/password, email verification, and password reset by email code.
+- Sessions kept alive for a month via refresh token; show/hide password toggles.
+- Editable account profile, avatar uploads, and a security card.
+
+**Marketing, SEO & content**
+- Marketing site (landing, features, about, FAQ, pricing, privacy, terms), custom 404, and app icon.
+- **MDX-powered blog and docs** with SEO.
+- `createMetadata` helper enforcing canonical URLs, a static OG image, `sitemap.xml`, `robots.txt`, web manifest, and JSON-LD.
+- Consent-gated GA4 + Clarity analytics.
+
+**Platform & observability**
+- **Structured logging** to BetterStack, with every line stamped by per-request identity (requestId, platform, user, workspace, profile) via `AsyncLocalStorage`.
+- Request context carried through the session and export routes; logs tagged with host and deploy environment.
+- Per-request auth caching; geo-detected currency/locale defaults at bootstrap.
+- App-wide keyboard shortcuts with a cheat sheet on `/`.
 
 ### Changed
-- **License**: switched to **AGPL-3.0** (network copyleft) to keep the open core open; the project briefly carried Apache-2.0 during setup.
-- Removed the initial IntelliJ Java stub (`src/Main.java`, `.iml`, `.idea/`) in favor of the Next.js app.
-- Removed leftover Next.js starter assets (`public/*.svg`).
+
+- **Auth migrated from Neon Auth (`@neondatabase/auth`) to Firebase Authentication.** ID tokens are verified statelessly against Google's JWKS with `jose` (no `firebase-admin`, which is Node-only and unfit for Workers) and bridged to an httpOnly `__session` cookie. `users.firebase_uid` maps the provider id to our own UUIDv7 `users.id`, so nothing downstream sees a provider id.
+- **Database driver moved to node-postgres, routed through Cloudflare Hyperdrive** in the deployed Worker, with query caching disabled so a just-written balance is never stale.
+- Currency, number format, and categories **moved from the user to the workspace**, so every member sees the same amounts.
+- **License** switched to **AGPL-3.0** (network copyleft); the project briefly carried Apache-2.0 during setup.
+- Schema maintenance: dropped category color, unique-lowercase emails, added FK-supporting indexes.
+- Removed the initial IntelliJ Java stub and leftover Next.js starter assets.
+
+### Fixed
+
+- **Comma-decimal amounts silently mis-scaled** (`1,50` stored as `150.00` — a 100× error) for every EU/IN-format user, across the money converter, quick entry, and bulk paste. Now share `src/lib/parse-amount.ts`.
+- **Two providers, one email** caused permanent lockout: a Google sign-in after an email/password sign-up on the same address threw a unique-violation 500 on every request. Now links the account, or returns a clear `409` for unverified emails.
+- `GET`/`PATCH /transactions/{id}` ignored `X-Workspace-Id`, so a user in two workspaces could read or edit across them.
+
+### Security
+
+- **CSV formula injection** — titles and categories beginning `=`, `+`, `-`, or `@` executed when an export was opened in Excel/Sheets, reachable cross-user in shared workspaces. Now escaped, with numeric cells exempt so `-40.00` survives.
+- **`deleteAllTransactions` scoped only by `user_id`** — a demoted or removed collaborator could still wipe every transaction they had authored inside someone else's workspace. Now role- and workspace-checked.
+- **Login CSRF / session fixation** — `POST /api/auth/session` set the session cookie from a request-body token with no origin check, so a cross-site `text/plain` POST could skip preflight. Now gated on `Sec-Fetch-Site`/`Origin`.
+- Invite and notification emails **escaped** (workspace and profile names were interpolated into HTML raw) and **rate-limited**, closing a phishing/spam vector from a verified domain.
+- Input length and amount limits tightened; shared title/description/amount caps enforced.
+- Strict security headers (CSP, HSTS, X-Frame-Options), Zod-validated input, and parameterized queries throughout.
+
+### Known limitations
+
+- **Sign-out does not revoke Firebase refresh tokens.** Revocation needs admin credentials this Workers deployment doesn't hold, so a stolen `__refresh` cookie stays valid until Firebase expires it. "Sign out everywhere" is not supported. Accepted and documented in-code.
 
 ### Open source readiness
-- Added `SECURITY.md` with a private vulnerability-reporting process.
-- Added GitHub issue templates (bug / feature), a pull-request template, and an issue-template config.
-- Added a CI workflow (`.github/workflows/ci.yml`) running `pnpm lint` and `pnpm typecheck` on pushes and PRs.
-- Pinned the toolchain via `packageManager` (pnpm) and `engines.node` (>=20) in `package.json`.
 
-### Notes
-- Requires a Neon project (Postgres + Neon Auth) and Doppler-provided secrets to run. See `README.md`.
-- Not yet done: connect a live Neon database + Doppler config, first deploy to `spendchat.app`, optional Postgres RLS, and unit tests.
+- `SECURITY.md` with a private vulnerability-reporting process; GitHub issue templates, PR template, and issue-template config.
+- CI workflow running `pnpm lint` and `pnpm typecheck` on pushes and PRs.
+- Toolchain pinned via `packageManager` (pnpm) and `engines.node` (>=20).
+- Documentation corrected to the Firebase stack, and a **Doppler-free setup path** added (`dev:local`, `build:local`, `db:migrate:local`, `db:studio:local`) so the app runs from a plain `.env.local`.
+- Repository metadata, `NOTICE`, and all repo links pointed at `playxoft/SpendChat_Nextjs`.
 
-[Unreleased]: https://spendchat.app
+[Unreleased]: https://github.com/playxoft/SpendChat_Nextjs
