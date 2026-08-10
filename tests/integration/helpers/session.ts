@@ -1,8 +1,9 @@
 /**
  * Controllable "current session" for integration tests. The mocked
- * `@/lib/neon-auth` (see setup.ts) reads from here, so the *real* `requireUser`
- * / `getCurrentUser` in `@/lib/auth` run end-to-end against whatever user a test
- * signs in as. Switching users is how we prove per-user data isolation.
+ * `@/lib/firebase-verify` and `@/lib/identity` (see setup.ts) read from here, so
+ * the *real* `requireUser` / `getCurrentUser` in `@/lib/auth` run end-to-end
+ * against whatever user a test signs in as. Switching users is how we prove
+ * per-user data isolation.
  */
 export type TestSessionUser = {
   id: string;

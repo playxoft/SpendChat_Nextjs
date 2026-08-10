@@ -8,9 +8,8 @@ business rules live on the server; the app renders, captures input, and calls
 `/api/v1`.
 
 Everything here was extracted from the live web app's source so the mobile app
-is a **faithful replica**. Where the older `_developer/app-dev/*` and
-`_developer/api/openapi.yaml` docs disagree with these, **these win** (see
-[§ Corrections](#corrections-to-older-docs) below).
+is a **faithful replica**. Where the older `_developer/app-dev/*` docs disagree
+with these, **these win** (see [§ Corrections](#corrections-to-older-docs) below).
 
 ---
 
@@ -58,8 +57,9 @@ affordances only (see [02](./02-design-system.md)).
 
 ## Corrections to older docs
 
-The `_developer/app-dev/*` docs and `_developer/api/openapi.yaml` predate these
-and contain a few inaccuracies. The findings here are taken directly from source:
+The `_developer/app-dev/*` docs predate these and contain a few inaccuracies
+(as did the now-deleted `_developer/api/` spec). The findings here are taken
+directly from source:
 
 - **Numbers use Geist Sans with `tabular-nums`, not Geist Mono.** Mono is used
   only for a couple of raw/technical hints.

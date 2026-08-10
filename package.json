@@ -2,14 +2,26 @@
   "name": "spendchat",
   "version": "0.1.0",
   "private": true,
+  "description": "A minimal, chat-style money tracker — add, view, filter, download, and print your income and expenses.",
   "license": "AGPL-3.0-only",
+  "author": "Playxoft",
+  "homepage": "https://spendchat.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/playxoft/SpendChat_Nextjs.git"
+  },
+  "bugs": {
+    "url": "https://github.com/playxoft/SpendChat_Nextjs/issues"
+  },
   "packageManager": "pnpm@9.15.0",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "doppler run -- sh -c 'CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=$NEON_POSTGRES_DATABASE_URL WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=$NEON_POSTGRES_DATABASE_URL next dev -p 3010'",
+    "dev:local": "sh -c 'set -a; . ./.env.local; set +a; CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=$NEON_POSTGRES_DATABASE_URL WRANGLER_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE=$NEON_POSTGRES_DATABASE_URL next dev -p 3010'",
     "build": "doppler run -- next build",
+    "build:local": "sh -c 'set -a; . ./.env.local; set +a; next build'",
     "start": "doppler run -- next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
@@ -26,6 +38,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:dev": "doppler run --config dev -- drizzle-kit migrate",
     "db:migrate:prod": "doppler run --config prd -- drizzle-kit migrate",
+    "db:migrate:local": "sh -c 'set -a; . ./.env.local; set +a; drizzle-kit migrate'",
+    "db:studio:local": "sh -c 'set -a; . ./.env.local; set +a; drizzle-kit studio'",
     "db:push:dev": "doppler run --config dev -- drizzle-kit push",
     "db:push:prod": "doppler run --config prd -- drizzle-kit push",
     "db:studio:dev": "doppler run --config dev -- drizzle-kit studio",

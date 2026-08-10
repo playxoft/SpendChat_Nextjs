@@ -6,7 +6,7 @@ FK-supporting, search), and reconcile with the stated rules:
 - `users`: no duplicate **email**, **user id**, or **firebase uid**.
 - `workspaces` / `profiles`: **names may duplicate**, but **ids must not**.
 
-**DB:** `neondb` @ endpoint `ep-proud-surf-ahdj72wn` (via `NEON_POSTGRES_DATABASE_URL`).
+**DB:** `neondb` on the project's Neon branch (via `NEON_POSTGRES_DATABASE_URL`).
 **Status:** _proposal — nothing here is applied yet. Apply after approval (see §6)._
 
 ---
