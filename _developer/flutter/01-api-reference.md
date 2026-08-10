@@ -6,19 +6,20 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 5.2.0.** Every API change bumps this version and is logged
+**API spec version: 5.3.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
 - **Base URL (dev):** `http://localhost:3010` (Android emulator: `http://10.0.2.2:3010`)
-- **Base URL (prod):** your Worker/route domain (HTTPS)
+- **Base URL (beta):** `https://beta.spendchat.app`
+- **Base URL (prod):** `https://spendchat.app`
 - **Auth:** `Authorization: Bearer <firebase-id-token>`
 - **Workspace:** `X-Workspace-Id: <uuid>` (optional; see § Workspaces)
 - **Platform:** `X-Client-Platform: android | ios` (optional telemetry; send it on
   every request so server logs attribute the platform. It never changes a
   response — omitting it just logs the platform as `api`.)
 - **Content type:** `application/json` (CSV export is `text/csv`; attachment
-  upload and voice transcription send `multipart/form-data`)
+  upload, vault file upload, and voice transcription send `multipart/form-data`)
 - Every JSON response sets `Cache-Control: no-store`.
 
 ---
@@ -235,6 +236,70 @@ Metadata only — the bytes live in object storage; fetch them via
 }
 ```
 
+### Files vault models
+The vault (a Drive-like document store, per profile) has five shapes —
+`GET /files` returns the first four in one call; share links are managed
+separately. Resolve `tagIds` against the `tags` list client-side.
+
+```jsonc
+// Folder — system: true = the predefined "Transaction attachments" folder
+// (recolor/tag only; never rename/move/delete/share/upload-into/nest-under)
+{
+  "id": "uuid", "profileId": "uuid",
+  "parentId": "uuid" | null,          // null = a root folder
+  "name": "Land documents",           // ≤ 40 chars
+  "color": "#3b82f6" | null,          // accent hex; null = neutral default
+  "tagIds": ["uuid"],
+  "system": false,
+  "createdAt": "…", "updatedAt": "…",
+  "createdByName": "Ada" | null       // display attribution
+}
+
+// VaultFile — bytes via GET /files/{id}/url (presigned, like attachments)
+{
+  "id": "uuid", "profileId": "uuid",
+  "folderId": "uuid" | null,          // null = the profile's root
+  "name": "deed.pdf",                 // ≤ 200 chars
+  "contentType": "application/pdf",   // NO allowlist; unknown → application/octet-stream
+  "sizeBytes": 83211,                 // ≤ 5 MB
+  "category": "land" | null,          // board-resolution|company|personal|land|house|certificate|other
+  "tagIds": ["uuid"],
+  "hasThumbnail": true,               // small webp preview exists (?variant=thumb)
+  "createdAt": "…",
+  "uploaderName": "Ada" | null,
+  "profileName": "Personal" | null, "profileIcon": "👤" | null
+}
+
+// TransactionFile — a transaction attachment as the vault surfaces it.
+// `id` is the ATTACHMENT id → bytes via GET /attachments/{id}/url.
+{
+  "id": "uuid", "transactionId": "uuid",
+  "name": "receipt.jpg", "contentType": "image/jpeg", "sizeBytes": 83211,
+  "hasThumbnail": true, "createdAt": "…",
+  "txnTitle": "Groceries" | null, "txnType": "expense",
+  "txnAmountMinor": 45000, "txnOccurredOn": "2026-07-12",
+  "profileId": "uuid", "profileName": "…" | null, "profileIcon": "…" | null
+}
+
+// FileTag — per-profile entity; only a created tag can be applied
+{
+  "id": "uuid", "profileId": "uuid",
+  "name": "legal",                    // ≤ 20 chars, unique per profile (case-insensitive)
+  "color": "#ef4444",                 // #rrggbb
+  "createdAt": "…", "updatedAt": "…"
+}
+
+// FileShare — the token IS the capability; web page = <web-origin> + sharePath
+{
+  "id": "uuid",
+  "fileId": "uuid" | null, "folderId": "uuid" | null,   // exactly one set
+  "token": "aBcD…", "sharePath": "/share/aBcD…",
+  "allowDownload": true,              // false = view-only link
+  "expiresAt": "…" | null,            // null = never expires
+  "createdAt": "…"
+}
+```
+
 ### Category
 ```jsonc
 {
@@ -373,6 +438,33 @@ has no file storage configured.
 | `DELETE /attachments/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Removes the stored object too. 422 non-UUID; 404 |
 | `GET /attachments/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Mints a **presigned URL** (~5 min) — GET it **without** the Authorization header. `?variant=thumb` → the small webp preview (falls back to the original if none); `?download=1` → attachment disposition. Mint per view; don't cache past expiry. 404 |
 
+### Files vault (Drive-like document store, per profile)
+Viewing needs **viewer** on the item's profile; every write needs **editor**.
+`?profile=<uuid>` scopes the list endpoints to one profile (anything else, incl.
+`all` or omitted → all accessible profiles — same rule as §5). Unlike
+attachments there's **no upload type allowlist** (videos, archives, anything);
+size is capped at **5 MB per file**, **10 files per upload**. The predefined
+**"Transaction attachments"** folder (`system: true`, one per profile) accepts
+only color + tags — rename/move/delete/share/upload-into are 400s.
+`503 storage_unavailable` on upload/url when file storage isn't configured.
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit }` | The whole working set in one call (mirrors the web page load). Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. Also lazily creates each profile's predefined folder. |
+| `POST /files` | **multipart** — `profileId` (required), `folderId?`, files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. 400 no files / > 10 / predefined-folder destination; **413** file > 5 MB; 404 profile/folder not reachable |
+| `PATCH /files/{id}` | `{ name?, category?, tagIds?, folderId? }` (≥1; `category: null` clears, `folderId: null` → root) | 200 `data: VaultFile` | Editor. 400 "Nothing to update"; 422; 404 |
+| `DELETE /files/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Removes the stored object + share links to it. 422 non-UUID; 404 |
+| `GET /files/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Same contract as `GET /attachments/{id}/url` (`?variant=thumb`, `?download=1`; ~5 min TTL; GET without the Authorization header). 404 |
+| `POST /folders` | `{ profileId, name, parentId?, color?, tagIds? }` | 201 `data: Folder` | Editor. 409 duplicate sibling name (case-insensitive); 400 predefined-folder parent; 422; 404 |
+| `PATCH /folders/{id}` | `{ name?, color?, tagIds?, parentId? }` (≥1; `parentId: null` → root, `color: null` clears) | 200 `data: Folder` | Editor. Predefined folder: color+tags only (400 otherwise). 400 move-into-own-subtree / "Nothing to update"; 409 duplicate name; 422; 404 |
+| `DELETE /folders/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Deletes the whole subtree (nested folders, files, stored objects, share links). 400 predefined folder; 422; 404 |
+| `GET /file-tags` | — | 200 `data: FileTag[]` | Viewer. Name-ascending; `?profile=` scopes. (Also included in `GET /files` — this is for pickers.) |
+| `POST /file-tags` | `{ profileId, name, color }` | 201 `data: FileTag` | Editor. 409 duplicate name per profile (case-insensitive); 422 |
+| `PATCH /file-tags/{id}` | `{ name?, color? }` (≥1) | 200 `data: FileTag` | Editor. Every referencing item updates at once. 409; 422; 404 |
+| `DELETE /file-tags/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Detaches from every file/folder first. 422; 404 |
+| `GET /file-shares` | — (query `fileId` **or** `folderId`, exactly one) | 200 `data: FileShare[]` | **Editor** (tokens grant public access). Newest first. 422 neither/both; 404 |
+| `POST /file-shares` | `{ fileId? \| folderId?, allowDownload?, expiresInDays? }` | 201 `data: FileShare` | Editor. Exactly one target (422). Folder link shares the whole subtree; 400 predefined folder. Build the link as `<web-origin>` + `sharePath`. |
+| `DELETE /file-shares/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Token stops working immediately. 422; 404 |
+
 ### AI (assisted entry — both endpoints cost money server-side, so they're extra-gated)
 Both require the **editor** role (403 for viewers — hide the UI) and share a
 per-user quota of **30 calls/hour** (429 `rate_limited`). `503 ai_unavailable` =
@@ -454,6 +546,23 @@ JPEG, PNG, WebP, GIF, PDF, doc/docx, xls/xlsx, CSV, plain text. A generic
 `application/octet-stream` part is resolved by filename extension.
 Voice upload (multipart) — one `audio` part, ≤ 4 MB, container webm/ogg/mp4/
 mpeg/wav; keep recordings ≤ 60 s.
+
+Files vault:
+`FolderInput` — `{ profileId (uuid, required), name (1–40, trimmed, required),
+parentId? (uuid, nullable), color? (`#rrggbb` hex, nullable), tagIds? (uuid[],
+≤ 10, deduped) }`.
+`FolderPatch` — any subset of `{ name, color, tagIds, parentId }` (≥1 change;
+`parentId: null` → root, `color: null` clears).
+`VaultFilePatch` — any subset of `{ name (1–200), category
+(board-resolution|company|personal|land|house|certificate|other, nullable),
+tagIds (≤ 10), folderId (nullable) }` (≥1 change).
+`FileTagInput` — `{ profileId, name (1–20), color (`#rrggbb`, required) }`.
+`FileTagPatch` — `{ name?, color? }` (≥1 change).
+`FileShareInput` — `{ fileId? | folderId? (exactly one), allowDownload?
+(default true), expiresInDays? (1–365, nullable; omitted/null = never) }`.
+Vault upload (multipart) — `profileId` required, `folderId?`; ≤ 10 files,
+≤ 5 MB each, **no type allowlist** (unknown → `application/octet-stream` by
+filename extension).
 
 ---
 

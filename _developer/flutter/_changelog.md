@@ -19,6 +19,52 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.3.0 — 2026-08-05
+
+The web app's **Files vault** (the `/files` Drive-like document store: nested
+folders, tags, share links, transaction files surfaced alongside) is now on the
+mobile API. All additive; nothing was removed, renamed, or retyped.
+
+### Added
+- **`GET /api/v1/files`** — the vault working set in one call:
+  `data: { folders, files, transactionFiles, tags }` +
+  `meta: { filesCapped, filesLimit }`. `?profile=<uuid>` scopes to one profile
+  (default: all accessible). Files newest first, capped at 500. Lazily creates
+  each profile's predefined **"Transaction attachments"** folder
+  (`system: true` — recolor/tag only; every structural change is a 400).
+- **`POST /api/v1/files`** — multipart vault upload (`profileId` required,
+  `folderId?`, files under `files`, optional `thumb_<index>` webp previews).
+  **No type allowlist** (unlike attachments); ≤ 10 files/request, ≤ 5 MB each
+  (413). **`PATCH /files/{id}`** (rename / category / tags / move),
+  **`DELETE /files/{id}`**, and **`GET /files/{id}/url`** — presigned bytes
+  URL with the same contract as `GET /attachments/{id}/url`
+  (`?variant=thumb`, `?download=1`, ~5 min TTL).
+- **`POST /api/v1/folders`**, **`PATCH /folders/{id}`**,
+  **`DELETE /folders/{id}`** — nested per-profile folders with a hex `color`
+  accent and `tagIds`; sibling names unique case-insensitively (409); delete
+  removes the whole subtree; moves into a folder's own subtree are 400s.
+- **`GET`/`POST /api/v1/file-tags`**, **`PATCH`/`DELETE /file-tags/{id}`** —
+  per-profile tag entities (`name` ≤ 20 + `#rrggbb` color). Files/folders
+  reference tags by id (`tagIds`); only a created tag can be applied; delete
+  detaches everywhere.
+- **`GET`/`POST /api/v1/file-shares`**, **`DELETE /file-shares/{id}`** —
+  public share links for a file or a folder subtree (`allowDownload`,
+  `expiresInDays` ≤ 365 or never). Editor-only, including reads (tokens grant
+  public access). Response includes `sharePath` — the public web page is
+  `<web-origin><sharePath>`.
+- New schemas: `Folder`, `VaultFile`, `TransactionFile`, `FileTag`,
+  `FileShare`, `FolderInput`, `FolderPatch`, `VaultFilePatch`, `FileTagInput`,
+  `FileTagPatch`, `FileShareInput`, `FileCategory`, `VaultColor`.
+
+**Flutter impact:** none required — purely additive. To build the Files
+screen: load `GET /files` per profile switch (resolve `tagIds` against the
+returned `tags`), render `transactionFiles` inside the `system: true` folder
+(their bytes come from the existing `GET /attachments/{id}/url`), upload with
+the same multipart + `thumb_<index>` pattern as attachments, and treat
+`system: true` folders as read-only except color/tags.
+
+---
+
 ## 5.2.0 — 2026-07-29
 
 Feature-parity release: the web app's newest features — **AI transaction entry**,
