@@ -4,11 +4,13 @@ import { resolveWebProfile } from "@/lib/filters";
 import {
   VAULT_FILES_LIMIT,
   getProfiles,
+  getWorkspaceStorageUsage,
   listTransactionFilesForVault,
   listVaultFiles,
   listVaultFolders,
   listVaultTags,
 } from "@/lib/queries";
+import { STORAGE_QUOTA_BYTES } from "@/lib/validation";
 import { ensureSystemFolders } from "@/services/files";
 import { FilesPageClient } from "@/components/app/files/files-page";
 
@@ -44,11 +46,12 @@ export default async function FilesPage({
     ),
   );
 
-  const [folders, files, txnFiles, tags] = await Promise.all([
+  const [folders, files, txnFiles, tags, storageUsedBytes] = await Promise.all([
     listVaultFolders(user.id, workspace.id, activeProfileId),
     listVaultFiles(user.id, workspace.id, activeProfileId),
     listTransactionFilesForVault(user.id, workspace.id, activeProfileId),
     listVaultTags(user.id, workspace.id, activeProfileId),
+    getWorkspaceStorageUsage(workspace.id),
   ]);
 
   return (
@@ -63,6 +66,8 @@ export default async function FilesPage({
         currency={workspace.currency}
         locale={workspace.locale}
         filesCapped={files.length >= VAULT_FILES_LIMIT}
+        storageUsedBytes={storageUsedBytes}
+        storageLimitBytes={STORAGE_QUOTA_BYTES}
       />
     </div>
   );

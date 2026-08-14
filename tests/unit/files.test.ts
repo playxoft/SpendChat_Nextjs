@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   FILE_INLINE_TYPES,
+  STORAGE_QUOTA_BYTES,
   createFileShareSchema,
   createFolderSchema,
   createTagSchema,
@@ -12,11 +13,14 @@ import {
 import {
   FILE_CATEGORY_LABELS,
   VAULT_COLORS,
+  computeFolderSizes,
   fileTypeLabel,
+  formatStorageCompact,
   serializeFile,
   serializeFileShare,
   serializeFolder,
   serializeTag,
+  storageUsageTone,
 } from "@/lib/files";
 import { FILE_CATEGORIES } from "@/lib/validation";
 
@@ -190,5 +194,94 @@ describe("lib/files display helpers", () => {
     });
     expect(share.expiresAt).toBeNull();
     expect(share.allowDownload).toBe(false);
+  });
+});
+
+describe("storageUsageTone — thresholds for the storage ring", () => {
+  const LIMIT = STORAGE_QUOTA_BYTES;
+
+  it("is a flat 1 GB", () => {
+    expect(STORAGE_QUOTA_BYTES).toBe(1_073_741_824);
+  });
+
+  it("stays ok below 85% of the quota", () => {
+    expect(storageUsageTone(0, LIMIT)).toBe("ok");
+    expect(storageUsageTone(LIMIT * 0.5, LIMIT)).toBe("ok");
+    expect(storageUsageTone(LIMIT * 0.85 - 1, LIMIT)).toBe("ok");
+  });
+
+  it("warns from exactly 85%", () => {
+    expect(storageUsageTone(LIMIT * 0.85, LIMIT)).toBe("warn");
+    expect(storageUsageTone(LIMIT * 0.99, LIMIT)).toBe("warn");
+  });
+
+  it("is full at and past the quota", () => {
+    expect(storageUsageTone(LIMIT, LIMIT)).toBe("full");
+    expect(storageUsageTone(LIMIT + 1, LIMIT)).toBe("full");
+  });
+});
+
+describe("formatStorageCompact — the at-a-glance '0.1/1 GB' label", () => {
+  const GIB = 1024 ** 3;
+
+  it("rounds used space to one decimal of a GB", () => {
+    expect(formatStorageCompact(0, GIB)).toBe("0.0/1 GB");
+    expect(formatStorageCompact(0.1 * GIB, GIB)).toBe("0.1/1 GB");
+    expect(formatStorageCompact(0.55 * GIB, GIB)).toBe("0.6/1 GB");
+    expect(formatStorageCompact(GIB, GIB)).toBe("1.0/1 GB");
+  });
+
+  it("trims the limit of trailing zeros", () => {
+    expect(formatStorageCompact(0, 2 * GIB)).toBe("0.0/2 GB");
+    expect(formatStorageCompact(0, 1.5 * GIB)).toBe("0.0/1.5 GB");
+  });
+});
+
+describe("computeFolderSizes — descendant totals from the working set", () => {
+  const folder = (id: string, parentId: string | null = null, system = false) => ({
+    id,
+    parentId,
+    profileId: "p1",
+    system,
+  });
+  const file = (folderId: string | null, sizeBytes: number) => ({ folderId, sizeBytes });
+
+  it("credits files to their folder and every ancestor", () => {
+    const sizes = computeFolderSizes(
+      [folder("root"), folder("child", "root"), folder("grand", "child")],
+      [file("grand", 100), file("child", 10), file("root", 1)],
+      [],
+    );
+    expect(sizes.get("grand")).toBe(100);
+    expect(sizes.get("child")).toBe(110);
+    expect(sizes.get("root")).toBe(111);
+  });
+
+  it("ignores root-level files and leaves empty folders unset", () => {
+    const sizes = computeFolderSizes([folder("a")], [file(null, 500)], []);
+    expect(sizes.get("a")).toBeUndefined();
+  });
+
+  it("credits transaction files to their profile's system folder", () => {
+    const sizes = computeFolderSizes(
+      [folder("sys", null, true), { id: "sys2", parentId: null, profileId: "p2", system: true }],
+      [],
+      [
+        { profileId: "p1", sizeBytes: 40 },
+        { profileId: "p2", sizeBytes: 7 },
+      ],
+    );
+    expect(sizes.get("sys")).toBe(40);
+    expect(sizes.get("sys2")).toBe(7);
+  });
+
+  it("survives a parent cycle without hanging", () => {
+    const sizes = computeFolderSizes(
+      [folder("a", "b"), folder("b", "a")],
+      [file("a", 5)],
+      [],
+    );
+    expect(sizes.get("a")).toBe(5);
+    expect(sizes.get("b")).toBe(5);
   });
 });

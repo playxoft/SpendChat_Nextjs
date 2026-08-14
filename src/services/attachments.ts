@@ -9,6 +9,7 @@ import { setLogContext } from "@/lib/log-context";
 import { rolesAtLeast } from "@/lib/rbac";
 import { getEffectiveProfileRole } from "@/lib/workspaces";
 import { deleteObject, uploadObject } from "@/lib/r2";
+import { assertStorageQuota } from "@/lib/storage-quota";
 import {
   getAttachmentById,
   listTransactionAttachments,
@@ -141,6 +142,13 @@ export async function createAttachments(
       thumbnail: f.thumbnail,
     };
   });
+
+  // Attachments count toward the same workspace storage quota as vault files;
+  // the batch is checked as a whole, after per-file validation.
+  await assertStorageQuota(
+    workspaceId,
+    prepared.reduce((sum, f) => sum + f.size, 0),
+  );
 
   // Upload the bytes to R2 up front; track keys so we can roll them back. The
   // optional thumbnail shares the original's uuid with a `_thumb` suffix.

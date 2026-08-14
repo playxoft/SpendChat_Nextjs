@@ -1,7 +1,8 @@
 import { Suspense } from "react";
 import { getAppContext, getUserWorkspaces } from "@/lib/auth";
 import { canWriteInWorkspace } from "@/lib/workspaces";
-import { getCategories, getProfiles } from "@/lib/queries";
+import { getCategories, getProfiles, getWorkspaceStorageUsage } from "@/lib/queries";
+import { STORAGE_QUOTA_BYTES } from "@/lib/validation";
 import { todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { AppSidebar } from "@/components/app/app-sidebar";
@@ -23,11 +24,12 @@ export default async function AppLayout({
   const { user, workspace } = await getAppContext();
   const email = user.email;
   const timeZone = await getTimeZone();
-  const [profiles, categories, workspaces, canWrite] = await Promise.all([
+  const [profiles, categories, workspaces, canWrite, storageUsedBytes] = await Promise.all([
     getProfiles(user.id, workspace.id),
     getCategories(workspace.id),
     getUserWorkspaces(user.id),
     canWriteInWorkspace(user.id, workspace.id),
+    getWorkspaceStorageUsage(workspace.id),
   ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
   const canManage = workspace.role === "admin";
@@ -42,6 +44,7 @@ export default async function AppLayout({
         profiles={profiles}
         workspaces={workspaces}
         currentWorkspaceId={workspace.id}
+        storage={{ usedBytes: storageUsedBytes, limitBytes: STORAGE_QUOTA_BYTES }}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <AppTopbar

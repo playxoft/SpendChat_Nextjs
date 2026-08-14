@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.4.0"
+  version: "5.5.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 5.4.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 5.5.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
@@ -84,7 +84,9 @@ info:
     client GETs **without** the Authorization header. Uploading/editing/deleting
     needs editor; viewing needs viewer. `503 storage_unavailable` when the
     server has no file storage configured; `413 payload_too_large` for an
-    oversized file.
+    oversized file. Attachments count toward the workspace's **1 GB storage
+    quota** (shared with the files vault) — an upload that would exceed it gets
+    `413 storage_quota_exceeded`.
 
     ## Files vault
     A Drive-like document store (board resolutions, land papers, certificates …)
@@ -102,6 +104,13 @@ info:
     into. Viewing needs viewer; every write needs editor. Same
     `503 storage_unavailable` / `413 payload_too_large` semantics as
     attachments.
+
+    Each workspace has a flat **1 GB storage quota** covering vault files and
+    transaction attachments together. `GET /files` reports it in
+    `meta.storage` (`usedBytes` / `limitBytes`, workspace-wide); an upload
+    that would exceed it — on either upload endpoint — is rejected with
+    `413 storage_quota_exceeded` (the message says how much space remains and
+    is safe to display as-is).
 
 servers:
   - url: http://localhost:3010
@@ -538,7 +547,9 @@ paths:
         thumbnail (`hasThumbnail`), so lists never pull full-size originals.
 
         Limits: at most **2 files per transaction** (total, including already
-        attached ones — 400 when exceeded), **5 MB per file** (413), and only
+        attached ones — 400 when exceeded), **5 MB per file** (413
+        `payload_too_large`), the workspace's **1 GB storage quota** (413
+        `storage_quota_exceeded` when the batch doesn't fit), and only
         these types: JPEG, PNG, WebP, GIF, PDF, Word (doc/docx), Excel
         (xls/xlsx), CSV, plain text (422 otherwise). The created attachments
         are also embedded on the transaction (`Transaction.attachments`) from
@@ -676,6 +687,11 @@ paths:
         to recognize them; fetch their bytes via `GET /attachments/{id}/url`.
         Also lazily creates each profile's predefined "Transaction attachments"
         folder, so it is always present in `folders`.
+
+        `meta.storage` reports the workspace's storage usage against its 1 GB
+        quota (vault files + transaction attachments). It is **workspace-wide
+        even when `?profile=` scopes the list**, so it can back a storage
+        indicator directly.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/profile"
@@ -708,7 +724,16 @@ paths:
                     properties:
                       filesCapped: { type: boolean }
                       filesLimit: { type: integer, example: 500 }
-                    required: [filesCapped, filesLimit]
+                      storage:
+                        type: object
+                        description: >
+                          Workspace-wide stored bytes (vault files +
+                          transaction attachments) against the flat quota.
+                        properties:
+                          usedBytes: { type: integer, format: int64, example: 52428800 }
+                          limitBytes: { type: integer, format: int64, example: 1073741824 }
+                        required: [usedBytes, limitBytes]
+                    required: [filesCapped, filesLimit, storage]
                 required: [data, meta]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -726,8 +751,10 @@ paths:
 
         Unlike transaction attachments there is **no type allowlist** — videos,
         archives, anything goes; an unknown type is stored as
-        `application/octet-stream`. Limits: **10 files per request** (400) and
-        **5 MB per file** (413).
+        `application/octet-stream`. Limits: **10 files per request** (400),
+        **5 MB per file** (413 `payload_too_large`), and the workspace's
+        **1 GB storage quota** — a batch whose combined size doesn't fit gets
+        413 `storage_quota_exceeded`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1790,11 +1817,19 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: { code: storage_unavailable, message: "File storage isn't configured on this server." } }
     PayloadTooLarge:
-      description: An uploaded file exceeds the per-file size cap (5 MB).
+      description: >
+        The upload doesn't fit: either a single file exceeds the per-file cap
+        (5 MB — `payload_too_large`), or the batch would push the workspace
+        past its 1 GB storage quota (`storage_quota_exceeded`, message says
+        how much space remains and is safe to display as-is).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
-          example: { error: { code: payload_too_large, message: "Each file must be 5 MB or smaller." } }
+          examples:
+            payload_too_large:
+              value: { error: { code: payload_too_large, message: "Each file must be 5 MB or smaller." } }
+            storage_quota_exceeded:
+              value: { error: { code: storage_quota_exceeded, message: "Not enough storage left — this upload needs 3.2 MB but only 1.1 MB of the 1.0 GB quota remains" } }
 
   schemas:
     Error:
@@ -1807,7 +1842,8 @@ components:
               type: string
               enum: [unauthorized, forbidden, bad_request, not_found, conflict,
                      validation_error, rate_limited, payload_too_large,
-                     ai_unavailable, ai_failed, storage_unavailable, internal_error]
+                     storage_quota_exceeded, ai_unavailable, ai_failed,
+                     storage_unavailable, internal_error]
             message: { type: string }
             details:
               description: Optional per-field messages for validation errors.

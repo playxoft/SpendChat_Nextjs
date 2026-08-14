@@ -19,8 +19,9 @@ import { GET as listTags, POST as createTag } from "@/app/api/v1/file-tags/route
 import { PATCH as patchTag, DELETE as deleteTag } from "@/app/api/v1/file-tags/[id]/route";
 import { GET as listShares, POST as createShare } from "@/app/api/v1/file-shares/route";
 import { DELETE as deleteShare } from "@/app/api/v1/file-shares/[id]/route";
-import { profileAccess } from "@/db/schema";
-import { bootstrapUser, firstProfileId, workspaceIdOf } from "../helpers/seed";
+import { files, profileAccess, transactionAttachments } from "@/db/schema";
+import { STORAGE_QUOTA_BYTES } from "@/lib/validation";
+import { bootstrapUser, firstProfileId, insertTxn, workspaceIdOf } from "../helpers/seed";
 import { signInAs, uid } from "../helpers/session";
 import { getTestDb } from "../helpers/test-db";
 import { apiReq, jsonBody, ctx } from "./helpers";
@@ -77,7 +78,11 @@ describe("GET /api/v1/files", () => {
     const system = data.folders.filter((f: { system: boolean }) => f.system);
     expect(system).toHaveLength(1);
     expect(system[0].name).toBe("Transaction attachments");
-    expect(meta).toEqual({ filesCapped: false, filesLimit: 500 });
+    expect(meta).toEqual({
+      filesCapped: false,
+      filesLimit: 500,
+      storage: { usedBytes: 0, limitBytes: STORAGE_QUOTA_BYTES },
+    });
   });
 
   it("keeps users' vaults isolated", async () => {
@@ -324,6 +329,80 @@ describe("file upload + lifecycle", () => {
     const system = data.folders.find((f: { system: boolean }) => f.system);
     const intoSystem = await uploadFiles(uploadReq({ profileId: pid, folderId: system.id }));
     expect(intoSystem.status).toBe(400);
+  });
+});
+
+describe("storage quota", () => {
+  /** Seed a vault-file row of `sizeBytes` directly — the quota reads the DB,
+   * so no actual bytes are involved. */
+  async function seedVaultFile(pid: string, sizeBytes: number): Promise<void> {
+    await getTestDb()
+      .insert(files)
+      .values({
+        workspaceId: await workspaceIdOf("a"),
+        profileId: pid,
+        userId: uid("a"),
+        r2Key: `vault/test/${crypto.randomUUID()}`,
+        name: "big.bin",
+        contentType: "application/octet-stream",
+        sizeBytes,
+      });
+  }
+
+  it("reports vault files + transaction attachments in meta.storage", async () => {
+    const pid = await setup();
+    await uploadFiles(uploadReq({ profileId: pid }, ["deed.pdf", "survey.pdf"]));
+
+    // An attachment draws from the same workspace pool as vault files.
+    const txnId = await insertTxn("a", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-08-01",
+    });
+    await getTestDb()
+      .insert(transactionAttachments)
+      .values({
+        transactionId: txnId,
+        profileId: pid,
+        workspaceId: await workspaceIdOf("a"),
+        userId: uid("a"),
+        r2Key: `attachments/test/${crypto.randomUUID()}`,
+        fileName: "receipt.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 1000,
+      });
+
+    const { meta } = await vault();
+    // Two 24-byte uploads + the 1000-byte attachment.
+    expect(meta.storage).toEqual({ usedBytes: 1048, limitBytes: STORAGE_QUOTA_BYTES });
+  });
+
+  it("413s an upload that would exceed the quota, before touching storage", async () => {
+    const pid = await setup();
+    await seedVaultFile(pid, STORAGE_QUOTA_BYTES - 10);
+
+    const res = await uploadFiles(uploadReq({ profileId: pid }));
+    expect(res.status).toBe(413);
+    expect((await res.json()).error.code).toBe("storage_quota_exceeded");
+    expect(vi.mocked(uploadObject)).not.toHaveBeenCalled();
+  });
+
+  it("checks the batch as a whole, not each file alone", async () => {
+    const pid = await setup();
+    // 30 bytes left: either 24-byte file fits alone, the pair doesn't.
+    await seedVaultFile(pid, STORAGE_QUOTA_BYTES - 30);
+
+    const res = await uploadFiles(uploadReq({ profileId: pid }, ["a.pdf", "b.pdf"]));
+    expect(res.status).toBe(413);
+    expect((await res.json()).error.code).toBe("storage_quota_exceeded");
+  });
+
+  it("accepts an upload that exactly fills the quota", async () => {
+    const pid = await setup();
+    await seedVaultFile(pid, STORAGE_QUOTA_BYTES - 24);
+
+    const res = await uploadFiles(uploadReq({ profileId: pid }));
+    expect(res.status).toBe(201);
   });
 });
 

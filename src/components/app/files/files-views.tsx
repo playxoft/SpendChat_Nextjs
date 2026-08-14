@@ -83,6 +83,8 @@ export type VaultHandlers = {
   locale: string;
   profileLabel: (profileId: string) => string | null;
   tagById: (id: string) => TagDTO | undefined;
+  /** Total bytes in a folder incl. descendants (0 = empty), from the working set. */
+  folderSize: (folderId: string) => number;
   openFolder: (folderId: string) => void;
   previewFile: (file: FileDTO) => void;
   previewTxn: (txn: TxnFileDTO) => void;
@@ -476,13 +478,24 @@ export function VaultEmptyState({ searching, canWrite }: { searching: boolean; c
 const CARD =
   "group flex w-full flex-col gap-1.5 rounded-lg border bg-card p-2 text-left transition-all hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
-/** Full folder metadata, shown instantly when a grid tile is hovered. */
-function FolderMetaTooltip({ folder, handlers }: { folder: FolderDTO; handlers: VaultHandlers }) {
+/** Full folder metadata, shown instantly when a grid tile or column row is
+ * hovered. Column rows pass `side="right"` so the tooltip doesn't cover the
+ * rows above/below. */
+export function FolderMetaTooltip({
+  folder,
+  handlers,
+  side = "bottom",
+}: {
+  folder: FolderDTO;
+  handlers: VaultHandlers;
+  side?: "top" | "right" | "bottom" | "left";
+}) {
   const tags = folder.tagIds
     .map((id) => handlers.tagById(id))
     .filter((t): t is TagDTO => t != null);
+  const size = handlers.folderSize(folder.id);
   return (
-    <TooltipContent side="bottom" align="start" sideOffset={6} className="flex-col items-start gap-1.5">
+    <TooltipContent side={side} align="start" sideOffset={6} className="flex-col items-start gap-1.5">
       <p className="text-xs font-medium">{folder.name}</p>
       {tags.length > 0 ? (
         <span className="flex max-w-56 flex-wrap gap-1">
@@ -492,6 +505,7 @@ function FolderMetaTooltip({ folder, handlers }: { folder: FolderDTO; handlers: 
         </span>
       ) : null}
       <div className="space-y-0.5 text-sm opacity-80">
+        <p>{size > 0 ? formatFileSize(size) : "Empty"}</p>
         {folder.createdByName ? <p>Created by {folder.createdByName}</p> : null}
         <p>Created {formatVaultDate(folder.createdAt, handlers.locale)}</p>
         <p>Updated {formatVaultDate(folder.updatedAt, handlers.locale)}</p>
@@ -558,13 +572,21 @@ function FolderCard({ folder, handlers }: { folder: FolderDTO; handlers: VaultHa
   );
 }
 
-/** Full file metadata, shown instantly when a grid tile is hovered. */
-function FileMetaTooltip({ file, handlers }: { file: FileDTO; handlers: VaultHandlers }) {
+/** Full file metadata, shown instantly when a grid tile or column row is hovered. */
+export function FileMetaTooltip({
+  file,
+  handlers,
+  side = "bottom",
+}: {
+  file: FileDTO;
+  handlers: VaultHandlers;
+  side?: "top" | "right" | "bottom" | "left";
+}) {
   const tags = file.tagIds
     .map((id) => handlers.tagById(id))
     .filter((t): t is TagDTO => t != null);
   return (
-    <TooltipContent side="bottom" align="start" sideOffset={6} className="flex-col items-start gap-1.5">
+    <TooltipContent side={side} align="start" sideOffset={6} className="flex-col items-start gap-1.5">
       <p className="text-xs font-medium">{file.name}</p>
       {tags.length > 0 ? (
         <span className="flex max-w-56 flex-wrap gap-1">
@@ -733,7 +755,11 @@ function FolderRow({ folder, handlers }: { folder: FolderDTO; handlers: VaultHan
         <TableCell>
           <TagChips tagIds={folder.tagIds} handlers={handlers} max={3} />
         </TableCell>
-        <TableCell className="text-right text-muted-foreground">—</TableCell>
+        <TableCell className="text-right text-muted-foreground tabular-nums">
+          {handlers.folderSize(folder.id) > 0
+            ? formatFileSize(handlers.folderSize(folder.id))
+            : "—"}
+        </TableCell>
         <TableCell className="text-muted-foreground">
           {formatVaultDate(folder.createdAt, handlers.locale)}
         </TableCell>

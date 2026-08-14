@@ -18,6 +18,8 @@ export default function FilesLoading() {
       <div className="flex flex-wrap items-center gap-2">
         <Skeleton className="h-7 w-16" />
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {/* Storage ring. */}
+          <Skeleton className="size-8 rounded-full" />
           {/* Search: matches `w-44 sm:w-56` on the real input. */}
           <Skeleton className="h-8 w-44 sm:w-56" />
           {/* View toggle: three `size-8` buttons in one bordered group. */}

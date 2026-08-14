@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 5.4.0.** Every API change bumps this version and is logged
+**API spec version: 5.5.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -56,6 +56,7 @@ Every JSON response uses one of two shapes:
 | `validation_error` | 422 | Zod validation failed (`details` = field→message) |
 | `rate_limited` | 429 | Shared per-user AI quota spent (30 calls/hour across `/ai/*`) |
 | `payload_too_large` | 413 | An uploaded attachment file exceeds 5 MB |
+| `storage_quota_exceeded` | 413 | The upload would push the workspace past its 1 GB storage quota (message says how much space remains — displayable as-is) |
 | `ai_failed` | 502 | The upstream AI model provider errored — retry is reasonable |
 | `ai_unavailable` | 503 | That AI feature's model isn't configured on the server (feature off) |
 | `storage_unavailable` | 503 | File storage (R2) isn't configured on the server (attachments off) |
@@ -394,13 +395,16 @@ One reviewable transaction the AI extracted from the note. Maps 1:1 onto a
 ### `meta`
 - Currency block (analytics + lists): `{ "currency": { "code", "symbol", "decimals" } }`.
 - List pagination adds `{ "total", "limit", "offset", "currency" }`.
+- `GET /files` adds `{ "storage": { "usedBytes", "limitBytes" } }` — the
+  workspace's stored bytes (vault files + transaction attachments) against its
+  1 GB quota. Workspace-wide even when `?profile=` scopes the list.
 
 ### VersionInfo (from `GET /version`)
 ```jsonc
 {
   "name": "SpendChat",
-  "version": "0.1.0",          // the deployed SERVER release — not the Flutter app's version
-  "apiVersion": "5.4.0",       // the contract this doc describes
+  "version": "0.2.0",          // the deployed SERVER release — not the Flutter app's version
+  "apiVersion": "5.5.0",       // the contract this doc describes
   "environment": "production" | "beta" | "development",
   "build": {                   // nullable — null locally and on pre-binding deploys
     "id": "c9a1f0d2-…",        // Cloudflare Worker version id; quote it in bug reports
@@ -463,11 +467,13 @@ Access is inherited from the transaction's profile: **viewer** to see/fetch,
 **editor** to upload/edit/delete. Metadata is embedded on every `Transaction`
 (`attachments`); these endpoints manage it and mint download URLs. Limits: **2
 files per transaction**, **5 MB per file**, types JPEG/PNG/WebP/GIF/PDF/Word/
-Excel/CSV/plain text. `503 storage_unavailable` on all of them when the server
+Excel/CSV/plain text — and uploads count toward the workspace's **1 GB storage
+quota** (shared with the files vault; 413 `storage_quota_exceeded` when the
+batch doesn't fit). `503 storage_unavailable` on all of them when the server
 has no file storage configured.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `POST /transactions/{id}/attachments` | **multipart** — files under `files` (repeatable; `file` works too); optional `thumb_<index>` webp preview per image file | 201 `data: Attachment[]` | Editor. 400 no files / too many (counting already-attached: "This transaction already has the maximum of 2 files"); **413** file > 5 MB; 422 unsupported type; 404 transaction not in this workspace |
+| `POST /transactions/{id}/attachments` | **multipart** — files under `files` (repeatable; `file` works too); optional `thumb_<index>` webp preview per image file | 201 `data: Attachment[]` | Editor. 400 no files / too many (counting already-attached: "This transaction already has the maximum of 2 files"); **413** file > 5 MB (`payload_too_large`) or workspace quota exceeded (`storage_quota_exceeded`); 422 unsupported type; 404 transaction not in this workspace |
 | `PATCH /attachments/{id}` | `{ label?, kind? }` (≥1; `null` clears) | 200 `data: Attachment` | Editor. `label` ≤ 80; `kind` ∈ receipt\|bill\|invoice\|other\|null. 400 "Nothing to update"; 422; 404 |
 | `DELETE /attachments/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Removes the stored object too. 422 non-UUID; 404 |
 | `GET /attachments/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Mints a **presigned URL** (~5 min) — GET it **without** the Authorization header. `?variant=thumb` → the small webp preview (falls back to the original if none); `?download=1` → attachment disposition. Mint per view; don't cache past expiry. 404 |
@@ -477,14 +483,17 @@ Viewing needs **viewer** on the item's profile; every write needs **editor**.
 `?profile=<uuid>` scopes the list endpoints to one profile (anything else, incl.
 `all` or omitted → all accessible profiles — same rule as §5). Unlike
 attachments there's **no upload type allowlist** (videos, archives, anything);
-size is capped at **5 MB per file**, **10 files per upload**. The predefined
+size is capped at **5 MB per file**, **10 files per upload**, and the
+workspace's **1 GB storage quota** (vault files + transaction attachments
+together; 413 `storage_quota_exceeded` when the batch doesn't fit —
+`GET /files` reports usage in `meta.storage`). The predefined
 **"Transaction attachments"** folder (`system: true`, one per profile) accepts
 only color + tags — rename/move/delete/share/upload-into are 400s.
 `503 storage_unavailable` on upload/url when file storage isn't configured.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit }` | The whole working set in one call (mirrors the web page load). Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. Also lazily creates each profile's predefined folder. |
-| `POST /files` | **multipart** — `profileId` (required), `folderId?`, files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. 400 no files / > 10 / predefined-folder destination; **413** file > 5 MB; 404 profile/folder not reachable |
+| `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit, storage }` | The whole working set in one call (mirrors the web page load). Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. `storage` = workspace usage vs the 1 GB quota (see § meta). Also lazily creates each profile's predefined folder. |
+| `POST /files` | **multipart** — `profileId` (required), `folderId?`, files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. 400 no files / > 10 / predefined-folder destination; **413** file > 5 MB (`payload_too_large`) or workspace quota exceeded (`storage_quota_exceeded`); 404 profile/folder not reachable |
 | `PATCH /files/{id}` | `{ name?, category?, tagIds?, folderId? }` (≥1; `category: null` clears, `folderId: null` → root) | 200 `data: VaultFile` | Editor. 400 "Nothing to update"; 422; 404 |
 | `DELETE /files/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Removes the stored object + share links to it. 422 non-UUID; 404 |
 | `GET /files/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Same contract as `GET /attachments/{id}/url` (`?variant=thumb`, `?download=1`; ~5 min TTL; GET without the Authorization header). 404 |

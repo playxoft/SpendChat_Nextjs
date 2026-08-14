@@ -15,9 +15,12 @@ import {
   type TxnFileDTO,
 } from "@/lib/files";
 import { cn } from "@/lib/utils";
+import { Tooltip, TooltipTrigger } from "@/components/ui/tooltip";
 import {
+  FileMetaTooltip,
   FileThumb,
   FolderGlyph,
+  FolderMetaTooltip,
   TagChips,
   TxnAmount,
   VaultContextMenu,
@@ -217,33 +220,42 @@ function Column({
         />
       ))}
       {files.map((file) => (
-        <VaultContextMenu key={file.id} target={{ kind: "file", file }} handlers={handlers}>
-          <div
-            role="button"
-            tabIndex={0}
-            onClick={() => onSelectFile(file)}
-            onDoubleClick={() => handlers.previewFile(file)}
-            onKeyDown={(e) => e.key === "Enter" && onSelectFile(file)}
-            className={cn(ROW, file.id === selectedItemId && "bg-accent text-accent-foreground")}
-            {...dragSourceProps({ kind: "file", id: file.id }, handlers.canWrite)}
-          >
-            <span className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40">
-              <FileThumb
-                id={file.id}
-                contentType={file.contentType}
-                hasThumbnail={file.hasThumbnail}
-                source="file"
-                glyphClass="size-3"
-              />
-            </span>
-            <span className="min-w-0 flex-1 truncate">{file.name}</span>
-            <RowMenu
-              target={{ kind: "file", file }}
-              handlers={handlers}
-              visible={file.id === selectedItemId}
-            />
-          </div>
-        </VaultContextMenu>
+        // Same composition as the grid tiles: Tooltip root outside, trigger
+        // innermost, so the context menu and the tooltip share the row div.
+        // Sideways (right, flipping left at the viewport edge) so the tooltip
+        // never covers the neighboring rows.
+        <Tooltip key={file.id} delayDuration={0}>
+          <VaultContextMenu target={{ kind: "file", file }} handlers={handlers}>
+            <TooltipTrigger asChild>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => onSelectFile(file)}
+                onDoubleClick={() => handlers.previewFile(file)}
+                onKeyDown={(e) => e.key === "Enter" && onSelectFile(file)}
+                className={cn(ROW, file.id === selectedItemId && "bg-accent text-accent-foreground")}
+                {...dragSourceProps({ kind: "file", id: file.id }, handlers.canWrite)}
+              >
+                <span className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40">
+                  <FileThumb
+                    id={file.id}
+                    contentType={file.contentType}
+                    hasThumbnail={file.hasThumbnail}
+                    source="file"
+                    glyphClass="size-3"
+                  />
+                </span>
+                <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                <RowMenu
+                  target={{ kind: "file", file }}
+                  handlers={handlers}
+                  visible={file.id === selectedItemId}
+                />
+              </div>
+            </TooltipTrigger>
+          </VaultContextMenu>
+          <FileMetaTooltip file={file} handlers={handlers} side="right" />
+        </Tooltip>
       ))}
       {txns.map((txn) => (
         <VaultContextMenu key={txn.id} target={{ kind: "txn", txn }} handlers={handlers}>
@@ -293,33 +305,40 @@ function FolderColumnRow({
 }) {
   const { over, dropProps } = useFolderDrop(folder.id, handlers, folder.system);
   return (
-    <VaultContextMenu target={{ kind: "folder", folder }} handlers={handlers}>
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={onOpen}
-        onKeyDown={(e) => e.key === "Enter" && onOpen()}
-        className={cn(
-          ROW,
-          active && "bg-accent text-accent-foreground",
-          over && "ring-2 ring-ring",
-        )}
-        {...dragSourceProps(
-          { kind: "folder", id: folder.id },
-          handlers.canWrite && !folder.system,
-        )}
-        {...dropProps}
-      >
-        <FolderGlyph folder={folder} className="size-4" />
-        <span className="min-w-0 flex-1 truncate font-medium">{folder.name}</span>
-        {handlers.allProfiles && handlers.profileLabel(folder.profileId) ? (
-          <Badge variant="outline" className="max-w-20 truncate px-1 py-0 text-sm font-normal">
-            {handlers.profileLabel(folder.profileId)}
-          </Badge>
-        ) : null}
-        <RowMenu target={{ kind: "folder", folder }} handlers={handlers} visible={active} />
-      </div>
-    </VaultContextMenu>
+    // Tooltip root outside, trigger innermost (same pattern as the grid tiles);
+    // sideways so it never covers the rows above/below.
+    <Tooltip delayDuration={0}>
+      <VaultContextMenu target={{ kind: "folder", folder }} handlers={handlers}>
+        <TooltipTrigger asChild>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={onOpen}
+            onKeyDown={(e) => e.key === "Enter" && onOpen()}
+            className={cn(
+              ROW,
+              active && "bg-accent text-accent-foreground",
+              over && "ring-2 ring-ring",
+            )}
+            {...dragSourceProps(
+              { kind: "folder", id: folder.id },
+              handlers.canWrite && !folder.system,
+            )}
+            {...dropProps}
+          >
+            <FolderGlyph folder={folder} className="size-4" />
+            <span className="min-w-0 flex-1 truncate font-medium">{folder.name}</span>
+            {handlers.allProfiles && handlers.profileLabel(folder.profileId) ? (
+              <Badge variant="outline" className="max-w-20 truncate px-1 py-0 text-sm font-normal">
+                {handlers.profileLabel(folder.profileId)}
+              </Badge>
+            ) : null}
+            <RowMenu target={{ kind: "folder", folder }} handlers={handlers} visible={active} />
+          </div>
+        </TooltipTrigger>
+      </VaultContextMenu>
+      <FolderMetaTooltip folder={folder} handlers={handlers} side="right" />
+    </Tooltip>
   );
 }
 

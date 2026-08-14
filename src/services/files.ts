@@ -9,6 +9,7 @@ import { setLogContext } from "@/lib/log-context";
 import { rolesAtLeast } from "@/lib/rbac";
 import { accessibleProfileIds, getEffectiveProfileRole } from "@/lib/workspaces";
 import { deleteObject, uploadObject } from "@/lib/r2";
+import { assertStorageQuota } from "@/lib/storage-quota";
 import {
   getVaultFile,
   getVaultFolder,
@@ -373,6 +374,13 @@ export async function uploadVaultFiles(
       thumbnail: f.thumbnail,
     };
   });
+
+  // The batch is checked as a whole against the workspace storage quota, after
+  // per-file validation so an oversized file keeps its specific 5 MB message.
+  await assertStorageQuota(
+    workspaceId,
+    prepared.reduce((sum, f) => sum + f.size, 0),
+  );
 
   const db = getDb();
   const uploaded: {

@@ -32,7 +32,7 @@ export const APP_VERSION: string = packageJson.version;
  * spec, the "API spec version" line in `01-api-reference.md`, and adds a
  * `_developer/flutter/_changelog.md` entry.
  */
-export const API_VERSION = "5.4.0";
+export const API_VERSION = "5.5.0";
 
 /** Which deployment answered: prod, beta, or a local/dev run. */
 export type DeployEnvironment = "production" | "beta" | "development";

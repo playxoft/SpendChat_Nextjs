@@ -7,13 +7,14 @@ import { isR2Configured } from "@/lib/r2";
 import {
   VAULT_FILES_LIMIT,
   getProfiles,
+  getWorkspaceStorageUsage,
   listTransactionFilesForVault,
   listVaultFiles,
   listVaultFolders,
   listVaultTags,
 } from "@/lib/queries";
 import { ensureSystemFolders, uploadVaultFiles, type VaultUpload } from "@/services/files";
-import { FILE_MAX_BYTES, FILE_MAX_PER_UPLOAD } from "@/lib/validation";
+import { FILE_MAX_BYTES, FILE_MAX_PER_UPLOAD, STORAGE_QUOTA_BYTES } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,9 @@ export const dynamic = "force-dynamic";
  * else (incl. `all` or omitted) means every accessible profile. Files are
  * capped at `VAULT_FILES_LIMIT` (newest first) — `meta.filesCapped` says when
  * the cap was hit. Also lazily materializes each profile's "Transaction
- * attachments" system folder, exactly like the web page.
+ * attachments" system folder, exactly like the web page. `meta.storage` is the
+ * workspace-wide usage (vault files + transaction attachments) against the
+ * flat quota — workspace-wide even when `?profile=` scopes the list.
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
@@ -38,17 +41,22 @@ export async function GET(request: NextRequest) {
       (profileId ? profiles.filter((p) => p.id === profileId) : profiles).map((p) => p.id),
     );
 
-    const [folders, files, transactionFiles, tags] = await Promise.all([
+    const [folders, files, transactionFiles, tags, storageUsedBytes] = await Promise.all([
       listVaultFolders(user.id, workspace.id, profileId),
       listVaultFiles(user.id, workspace.id, profileId),
       listTransactionFilesForVault(user.id, workspace.id, profileId),
       listVaultTags(user.id, workspace.id, profileId),
+      getWorkspaceStorageUsage(workspace.id),
     ]);
 
     return apiOk(
       { folders, files, transactionFiles, tags },
       200,
-      { filesCapped: files.length >= VAULT_FILES_LIMIT, filesLimit: VAULT_FILES_LIMIT },
+      {
+        filesCapped: files.length >= VAULT_FILES_LIMIT,
+        filesLimit: VAULT_FILES_LIMIT,
+        storage: { usedBytes: storageUsedBytes, limitBytes: STORAGE_QUOTA_BYTES },
+      },
     );
   });
 }

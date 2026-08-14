@@ -14,9 +14,28 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.4.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.5.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.2.0] — 2026-08-14
+
+### Added
+
+- **Storage indicator on the Files page**: a ring plus an at-a-glance
+  "0.1/1 GB" label in the toolbar shows how much of the workspace's storage is
+  used; hover (or tap on a phone) for the exact numbers and a progress bar. It
+  counts vault files and transaction attachments together and updates as soon
+  as an upload or delete completes. The same mini gauge sits next to **Files**
+  in the sidebar on every app page.
+- **Folder sizes in the vault**: the list view's Size column now totals each
+  folder (subfolders included), and the hover card on grid tiles shows it too.
+  The column view gained the same hover card, opening to the side so it never
+  covers neighboring rows.
+- **1 GB storage quota per workspace**, now enforced: an upload that doesn't
+  fit — on the web or the mobile API — is rejected with a clear message saying
+  how much space is left. The mobile API reports usage in `GET /files`
+  `meta.storage` (API spec 5.5.0).
 
 ### Changed
 

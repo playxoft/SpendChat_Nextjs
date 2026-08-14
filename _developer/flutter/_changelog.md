@@ -19,6 +19,29 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.5.0 — 2026-08-14
+
+A **workspace storage quota**: 1 GB per workspace, covering vault files and
+transaction attachments together. Additive; nothing was removed, renamed, or
+retyped.
+
+### Added
+- **`GET /files` meta gains `storage`** — `{ usedBytes, limitBytes }`, the
+  workspace's total stored bytes (vault files + transaction attachments)
+  against the flat 1 GB quota. **Workspace-wide even when `?profile=` scopes
+  the list**, so it can back a storage indicator directly.
+- **New 413 code `storage_quota_exceeded`** on both upload endpoints
+  (`POST /files`, `POST /transactions/{id}/attachments`): the batch's combined
+  size would push the workspace past the quota. Distinct from
+  `payload_too_large` (a single file over 5 MB). The message says how much
+  space remains and is safe to display as-is.
+
+**Flutter impact:** optional — read `meta.storage` to render a storage
+usage indicator (the web app shows a ring on the files page). Uploads should
+handle 413 by branching on `error.code`: `payload_too_large` (file too big)
+vs `storage_quota_exceeded` (workspace full — showing `error.message` as-is
+is enough). Existing flows keep working unchanged.
+
 ## 5.4.0 — 2026-08-14
 
 A **version endpoint**, so a client can find out what it's talking to. Additive;

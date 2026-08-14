@@ -3,10 +3,13 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { formatStorageCompact } from "@/lib/files";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
 import { Kbd } from "@/components/ui/kbd";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { StorageRingSvg, storageExactLabel } from "./files/storage-ring";
 import { ProfileList } from "./profile-list";
 import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
@@ -18,11 +21,14 @@ export function AppSidebar({
   profiles,
   workspaces,
   currentWorkspaceId,
+  storage,
 }: {
   email: string | null;
   profiles: Pick<Profile, "id" | "name" | "icon">[];
   workspaces: WorkspaceOption[];
   currentWorkspaceId: string;
+  /** Workspace storage usage, shown as a mini gauge on the Files item. */
+  storage: { usedBytes: number; limitBytes: number };
 }) {
   const pathname = usePathname();
   const profile = useSearchParams().get("profile");
@@ -64,7 +70,28 @@ export function AppSidebar({
             >
               <item.icon className="size-4" />
               {item.label}
-              <Kbd combo={item.shortcut} className="ml-auto opacity-70" />
+              <span className="ml-auto flex items-center gap-1.5">
+                {item.href === "/app/files" ? (
+                  // Mini storage gauge; the exact numbers live in the tooltip
+                  // (sidebar is md+ only, so hover is always available).
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="flex items-center gap-1 text-xs text-muted-foreground tabular-nums">
+                        <StorageRingSvg
+                          usedBytes={storage.usedBytes}
+                          limitBytes={storage.limitBytes}
+                          className="size-3.5"
+                        />
+                        {formatStorageCompact(storage.usedBytes, storage.limitBytes)}
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="right">
+                      {storageExactLabel(storage.usedBytes, storage.limitBytes)}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+                <Kbd combo={item.shortcut} className="opacity-70" />
+              </span>
             </Link>
           );
         })}
