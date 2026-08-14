@@ -104,7 +104,12 @@ export function CategoryRow({
             type="button"
             aria-label={selected ? `Category: ${selected.name}` : "Choose a category"}
             className={cn(
-              "inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-2.5 text-sm transition-colors",
+              // `h-8` at every density — the single control height shared with
+              // the type, date and profile controls beside it in the composer.
+              // `min-w-0` so the name below can actually truncate: without it
+              // the flex item refuses to shrink past its content and a long
+              // category name overflows the composer on a phone.
+              "inline-flex h-8 min-w-0 items-center gap-1 rounded-full border px-2.5 text-sm transition-colors",
               selected
                 ? "border-foreground bg-foreground text-background"
                 : "text-muted-foreground hover:bg-muted",
@@ -112,13 +117,29 @@ export function CategoryRow({
           >
             {selected ? (
               <>
-                <span aria-hidden>{selected.icon ?? "🏷️"}</span>
-                <span className="max-w-24 truncate">{selected.name}</span>
+                <span aria-hidden className="shrink-0">
+                  {selected.icon ?? "🏷️"}
+                </span>
+                {/* Fluid rather than a fixed cap: the name takes whatever the
+                    row has left after the type and date controls (both
+                    `shrink-0`) and truncates into it, so it fits a 320px phone
+                    as readily as a 430px one instead of overflowing below
+                    whatever width the cap was tuned for. `basis-0 grow` makes
+                    the leftover space the *starting* size, so it shrinks
+                    without the row having to overflow first. From `md` up the
+                    desktop slider takes over and a plain cap is enough. */}
+                {/* `min-w-0` + `truncate` is what actually prevents the
+                    overflow — it lets the row's shrink pressure reach the text
+                    instead of the button pushing past the card. `max-w-24` is
+                    only a starting cap so a long name doesn't claim half the
+                    strip on a roomy screen; the name still shrinks below it
+                    when the row is tight, which is how a 393px phone fits. */}
+                <span className="min-w-0 max-w-24 truncate">{selected.name}</span>
               </>
             ) : (
-              <Tags className="size-4" />
+              <Tags className="size-4 shrink-0" />
             )}
-            <ChevronDown className="size-3.5 opacity-70" />
+            <ChevronDown className="size-3.5 shrink-0 opacity-70" />
           </button>
         </PopoverTrigger>
         {pickerContent}
@@ -143,7 +164,7 @@ export function CategoryRow({
               onClick={() => onChange(value === c.id ? null : c.id)}
               aria-pressed={value === c.id}
               className={cn(
-                "inline-flex shrink-0 items-center gap-1 rounded-full border px-2.5 py-1 text-sm transition-colors",
+                "inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-2.5 text-sm transition-colors",
                 value === c.id
                   ? "border-foreground bg-foreground text-background"
                   : "hover:bg-muted",
@@ -164,7 +185,7 @@ export function CategoryRow({
               aria-label="More categories"
               title={dense ? "More categories" : undefined}
               className={cn(
-                "inline-flex shrink-0 items-center gap-1 rounded-full border py-1 text-sm text-muted-foreground hover:bg-muted",
+                "inline-flex h-8 shrink-0 items-center gap-1 rounded-full border text-sm text-muted-foreground hover:bg-muted",
                 dense ? "px-2" : "px-2 sm:px-2.5",
               )}
             >

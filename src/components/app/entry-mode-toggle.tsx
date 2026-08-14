@@ -60,7 +60,11 @@ export function EntryModeToggle({
       // fight with it (two hints for one hover).
       title={dense ? undefined : "Toggle Manual / AI"}
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full border p-0.5 text-sm",
+        // `h-9` at every density. This and the control group beside it are the
+        // two *containers* on the strip, so they share a height; the controls
+        // they wrap are all `h-8`. Left intrinsic the two containers differ by
+        // ~6px, which reads as a mistake rather than a hierarchy.
+        "inline-flex h-9 shrink-0 items-center rounded-full border p-0.5 text-sm",
         // Dense sits this beside the recessed control group, so it takes the
         // opposite fill — raised on the card's own background — to read as a
         // standalone button rather than another field in the set.
@@ -81,8 +85,10 @@ export function EntryModeToggle({
               aria-label={label}
               onClick={() => onChange(m)}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full font-medium capitalize transition-colors",
-                dense ? "px-2 py-1" : "px-2.5 py-1 sm:px-3",
+                // `h-8` — the strip's one control height, matching the type,
+                // date and category controls in the group beside this.
+                "inline-flex h-8 items-center gap-1.5 rounded-full font-medium capitalize transition-colors",
+                dense ? "px-2" : "px-2.5 sm:px-3",
                 isAi
                   ? active
                     ? cn(AI_GRADIENT, "text-white shadow-sm")

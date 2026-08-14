@@ -540,28 +540,42 @@ export function FilesPageClient({
           </div>
           {canWrite ? (
             <>
+              {/* Icon-only, sitting beside the view toggle at the same `size-8`,
+                  so the toolbar fits a phone without wrapping. The name lives in
+                  `aria-label`/`title` — `title` is overridden below whenever the
+                  button is disabled, which is the case worth explaining. */}
               <Button
                 variant="outline"
+                size="icon"
+                className="size-8"
                 onClick={() => setNewFolderOpen(true)}
                 disabled={!canUploadHere}
+                aria-label="New folder"
                 title={
                   inSystemFolder
                     ? "Folders can't be created in this predefined folder"
                     : canUploadHere
-                      ? undefined
+                      ? "New folder"
                       : "Switch to a profile to create folders"
                 }
               >
-                <FolderPlus className="size-4" /> New folder
+                <FolderPlus className="size-4" />
               </Button>
+              {/* Icon-only and `size-8`, matching New folder beside it, so the
+                  whole toolbar stays on one line on a phone. Keeps the default
+                  (solid) variant — it's the primary action here, and the filled
+                  button is what marks it as such next to the outlined ones. */}
               <Button
+                size="icon"
+                className="size-8"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={!canUploadHere || progress !== null}
+                aria-label="Upload"
                 title={
                   inSystemFolder
                     ? "Files here come from transactions"
                     : canUploadHere
-                      ? undefined
+                      ? "Upload"
                       : "Switch to a profile to upload"
                 }
               >
@@ -570,7 +584,6 @@ export function FilesPageClient({
                 ) : (
                   <Upload className="size-4" />
                 )}
-                Upload
               </Button>
             </>
           ) : null}

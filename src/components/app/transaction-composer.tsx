@@ -36,6 +36,7 @@ import {
 } from "@/lib/parse-amount";
 import { parseQuickEntry } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
@@ -119,10 +120,17 @@ export function TransactionComposer({
   // its icon, the date loses the year, and the category slider moves up beside
   // them instead of claiming a row. What the labels and the inline ⌘ chips used
   // to say moves into hover tooltips (`ControlHint`), so nothing is lost — it
-  // just costs a hover. Only bites from `md` up; below that the strip is already
-  // icon-only and the slider is already a tag button, so the two densities
-  // converge and there's nothing left to compact.
-  const dense = density === "compact";
+  // just costs a hover.
+  //
+  // **Mobile is compact-only.** Normal density spends a second row on the
+  // category slider, which is desktop-only anyway (`categorySlider` is
+  // `hidden md:block`), so on a phone that row renders empty — normal density
+  // buys nothing there and costs vertical space the keyboard already wants.
+  // The stored preference is overridden rather than offered; Settings says so
+  // instead of silently disagreeing with what the user sees.
+  const isMobile = useIsMobile();
+  const effectiveDensity: ComposerDensity = isMobile ? "compact" : density;
+  const dense = effectiveDensity === "compact";
 
   const isCombined = inputMode === "combined";
   // The "/" category picker reads/writes whichever field holds the title text.
@@ -369,7 +377,7 @@ export function TransactionComposer({
         }}
         onKeyDown={onAmountKeyDown}
         aria-label="Amount"
-        className="h-8 w-28 pl-7 tabular-nums md:text-base"
+        className="h-9 w-28 pl-7 tabular-nums md:text-base"
       />
     </div>
   );
@@ -419,7 +427,7 @@ export function TransactionComposer({
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Title"
-        className={cn("h-8 w-full md:text-base", titleLeadsRow && "pl-9")}
+        className={cn("h-9 w-full md:text-base", titleLeadsRow && "pl-9")}
       />
     </div>
   );
@@ -445,7 +453,7 @@ export function TransactionComposer({
         aria-label="Amount and title"
         // Red bar when the amount is over the 9-digit cap (submit is blocked too).
         aria-invalid={combinedAmountOverLimit || undefined}
-        className="h-8 w-full pl-9 md:text-base"
+        className="h-9 w-full pl-9 md:text-base"
       />
     </div>
   );
@@ -462,7 +470,11 @@ export function TransactionComposer({
         // Keeps its own outline inside the compact group: the group says "these
         // belong together", each outline says "this one is a control". Dropping
         // them made the row read as undifferentiated chips.
-        "inline-flex shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm",
+        // `h-8` at every density: one control height across the whole strip, so
+        // this measures exactly the same as the date, profile and category
+        // controls it sits beside. Left intrinsic these drift a few pixels
+        // apart, which reads as a mistake rather than a hierarchy.
+        "inline-flex h-8 shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm",
       )}
     >
       {(["expense", "income"] as const).map((t) => {
@@ -518,7 +530,7 @@ export function TransactionComposer({
       dense={dense}
       // Outlined at both densities, so it reads as its own control inside the
       // compact group. Shorter there only so the group clears `MODE_ROW_DENSE`.
-      className={cn("w-auto", dense ? "h-7" : "h-8")}
+      className={cn("h-8 w-auto")}
     />
   );
 
@@ -528,7 +540,7 @@ export function TransactionComposer({
         <SelectTrigger
           // Keeps its outline inside the group too — same reasoning as the
           // type toggle and the date button.
-          className={cn("w-auto gap-1", dense ? "h-7" : "h-8")}
+          className={cn("h-8 w-auto gap-1")}
           aria-label="Profile for new transaction"
         >
           <span aria-hidden className="text-base leading-none">
@@ -561,7 +573,14 @@ export function TransactionComposer({
   /* Mobile: categories always collapse to a tag icon (every profile view — the
      slider is desktop-only). */
   const categoryTagButton = (
-    <div className="shrink-0 md:hidden">
+    // `flex`, not the default `block`: the button inside is `inline-flex`, which
+    // shrink-to-fits its own content and overflows a narrower *block* parent
+    // rather than shrinking with it. Making this a flex container turns the
+    // button into a flex item, so the row's shrink pressure actually reaches it
+    // and the name truncates. `min-w-0` + shrinkable (not `shrink-0`) because
+    // the type and date controls beside it are fixed — this is the only one
+    // that can give.
+    <div className="flex min-w-0 shrink md:hidden">
       <CategoryRow
         compact
         categories={cats}
@@ -635,7 +654,9 @@ export function TransactionComposer({
               profiles={profiles}
               activeProfileId={activeProfileId}
               allProfiles={allProfiles}
-              density={density}
+              // Effective, not stored: both panes must agree on density or the
+              // Manual/AI toggle jumps between them on switch (see the grid note).
+              density={effectiveDensity}
               voiceLanguages={voiceLanguages}
             />
           </div>
@@ -689,8 +710,24 @@ export function TransactionComposer({
                       {/* Recessed (muted fill) against the toggle's raised
                           background fill — that contrast is what separates "a set
                           of fields" from "the mode button". Each control inside
-                          keeps its own outline. */}
-                      <div className="flex min-w-0 flex-1 items-center gap-1.5 rounded-full border bg-muted/40 py-0.5 pr-1.5 pl-0.5">
+                          keeps its own outline.
+
+                          Width differs by breakpoint because the contents do.
+                          From `md` up the category slider lives in here and wants
+                          every spare pixel, so the group takes `flex-1`. Below
+                          `md` the slider is a single tag button, so `flex-1`
+                          would stretch the outline across a half-empty row —
+                          instead it shrinks to its controls and `ml-auto` parks
+                          the set on the right, under the user's thumb.
+
+                          `h-9` is shared with the Manual/AI toggle so the two
+                          containers read as one row; every control inside is
+                          `h-8`, which clears this group's border + `py-0.5`. */}
+                      {/* Padding is symmetric (`px-0.5`): the old `pr-1.5` left
+                          a visible gap between the last control and the group's
+                          right edge, which read as the group being wider than
+                          its contents. */}
+                      <div className="ml-auto flex h-9 min-w-0 items-center gap-1.5 rounded-full border bg-muted/40 px-0.5 py-0.5 md:ml-0 md:flex-1">
                         {typeToggle}
                         {datePicker}
                         {profileSelect}
@@ -809,7 +846,7 @@ export function TransactionComposer({
                       aria-label={showDescription ? "Hide description" : "Add a description"}
                       aria-pressed={showDescription}
                       onClick={() => setShowDescription((v) => !v)}
-                      className="h-8 shrink-0 md:hidden"
+                      className="h-9 shrink-0 md:hidden"
                     >
                       <AlignLeft className="size-4" />
                     </Button>
@@ -867,7 +904,7 @@ export function TransactionComposer({
                     onChange={(e) => setDescription(e.target.value)}
                     onKeyDown={onDescriptionKeyDown}
                     aria-label="Description"
-                    className={cn("h-8 md:text-base", !showDescription && "hidden md:block")}
+                    className={cn("h-9 md:text-base", !showDescription && "hidden md:block")}
                   />
 
                   {/* Full-width send on mobile — easy thumb reach at the bottom. */}

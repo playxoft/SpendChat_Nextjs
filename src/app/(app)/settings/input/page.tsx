@@ -41,10 +41,23 @@ export default async function InputSettingsPage() {
 
       <Card>
         <CardHeader>
+          {/* The "Unavailable on mobile" badge lives on the Normal option
+              itself (see `ComposerDensityForm`) — that's the thing that's
+              actually unavailable, and putting it there means the user reads it
+              exactly where they'd otherwise tap. */}
           <CardTitle>Composer density</CardTitle>
           <CardDescription>
             Choose how much room the composer’s controls take. Applies to every
-            profile and workspace, on any device you sign in from.
+            profile and workspace, on any device you sign in from.{" "}
+            <span className="md:hidden">
+              Phones always use <strong className="font-medium">Compact</strong> —
+              Normal spends a second row on the category slider, which is
+              desktop-only — so this setting changes what you see on a larger
+              screen, not here.
+            </span>
+            <span className="hidden md:inline">
+              Phones always use Compact regardless of what you pick here.
+            </span>
           </CardDescription>
         </CardHeader>
         <CardContent>
