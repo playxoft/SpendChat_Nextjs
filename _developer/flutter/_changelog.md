@@ -19,6 +19,37 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.4.0 — 2026-08-14
+
+A **version endpoint**, so a client can find out what it's talking to. Additive;
+nothing was removed, renamed, or retyped.
+
+### Added
+- **`GET /api/v1/version`** — `data: VersionInfo`
+  `{ name, version, apiVersion, environment, build, changelog }`. `version` is
+  the deployed **server** release (`package.json` + `CHANGELOG.md`);
+  `apiVersion` is the version of this spec; `environment` is
+  `production | beta | development`; `build` is the deployed Cloudflare Worker
+  version `{ id, deployedAt }` (**nullable** — null on a local run and on any
+  deploy older than the version-metadata binding); `changelog` links the app and
+  API changelogs. `Cache-Control: no-store`, like every other JSON response.
+- **This is the first and only `/api/v1` endpoint that takes no bearer token.**
+  It never returns 401/403/404, ignores `X-Workspace-Id`, reads nothing
+  per-user, and touches no database — a client has to be able to read the
+  contract version before it has a token, and while an "update required" screen
+  is up. The payload is limited to public facts (no dependency versions,
+  hostnames, regions, env var names, or storage/database state).
+- The same body is also served at **`/version`** (outside `/api/v1`) for `curl`
+  and uptime checks. Mobile clients should use the `/api/v1` path.
+
+**Flutter impact:** none required — purely additive. Recommended: call
+`GET /version` once at startup (before auth), compare `apiVersion`'s **major**
+with the version the app was built against and prompt an update when the server
+is ahead (a higher **minor** is additive — ignore it). Show `version` and
+`build.id` on the debug/about screen so bug reports name the exact deploy, and
+link `changelog.app` for "what's new". Model `build` and `build.deployedAt` as
+nullable.
+
 ## 5.3.0 — 2026-08-05
 
 The web app's **Files vault** (the `/files` Drive-like document store: nested

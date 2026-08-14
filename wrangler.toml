@@ -24,7 +24,8 @@ keep_vars = true
 # `compatibility_*`, `keep_vars`). `routes`, `assets`, `observability`,
 # `placement` and bindings are non-inheritable in Wrangler, so each env repeats
 # them below. `cf-typegen` reads `--env production`, so keep the binding shape
-# (HYPERDRIVE, ASSETS) identical across envs or the generated types drift.
+# (HYPERDRIVE, ASSETS, CF_VERSION_METADATA) identical across envs or the
+# generated types drift.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -80,6 +81,13 @@ mode = "smart"
 binding = "HYPERDRIVE"
 id = "4858a2aa60374cd28c60539f0c0b85e6"
 
+# Deploy identity (worker version id + upload timestamp), reported by
+# `GET /api/v1/version` so a bug report can name the exact build. Metadata only —
+# it grants no access and costs nothing. Absent until the next deploy, which the
+# endpoint reports as `build: null` rather than failing.
+[env.production.version_metadata]
+binding = "CF_VERSION_METADATA"
+
 # ---------------------------------------------------------------------------
 # Beta (dev) → `pnpm deploy:dev` (--env beta).
 # Worker `spendchat-beta` (wrangler suffixes the env name), served at
@@ -113,6 +121,11 @@ mode = "smart"
 [[env.beta.hyperdrive]]
 binding = "HYPERDRIVE"
 id = "07826a33089d4b4db1650922ac12da22"
+
+# Same deploy-identity binding as production (see the note there); bindings are
+# non-inheritable, so beta repeats it.
+[env.beta.version_metadata]
+binding = "CF_VERSION_METADATA"
 
 # ---------------------------------------------------------------------------
 # Secrets/vars are NOT stored here — manage them PER WORKER on Cloudflare

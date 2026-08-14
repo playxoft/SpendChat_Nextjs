@@ -4,15 +4,26 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-No tagged release has been cut yet, so everything below is unreleased. Entries
-are grouped by theme rather than strictly chronologically; the work spans
-2026-06-17 to 2026-08-10.
+**Every user-visible change bumps `package.json` and lands under a version
+heading here** — patch for a fix, minor for a feature, major for a break. The
+deployment reports that same number at **`GET /version`** (alias of
+`GET /api/v1/version`), read straight from `package.json`, so the endpoint can
+only ever report a version this file describes — `tests/unit/version.test.ts`
+fails the build if the newest heading below and `package.json` disagree. The
+full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.3.0**).
+(currently spec **5.4.0**) and reported as `apiVersion` by the same endpoint.
+
+## [Unreleased]
+
+Nothing yet.
+
+## [0.1.0] — 2026-08-14
+
+First cut version. Entries are grouped by theme rather than strictly
+chronologically; the work spans 2026-06-17 to 2026-08-14.
 
 ### Added
 
@@ -79,6 +90,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 **Platform & observability**
 - **Structured logging** to BetterStack, with every line stamped by per-request identity (requestId, platform, user, workspace, profile) via `AsyncLocalStorage`.
 - Request context carried through the session and export routes; logs tagged with host and deploy environment.
+- **Version endpoint** — `GET /version` (and `GET /api/v1/version`, the one endpoint needing no bearer token) reports the deployed app release, the `/api/v1` contract version, the environment, the Cloudflare Worker build, and links to both changelogs. Values come from `package.json` and the OpenAPI spec, held in sync by a unit test.
 - Per-request auth caching; geo-detected currency/locale defaults at bootstrap.
 - App-wide keyboard shortcuts with a cheat sheet on `/`.
 
@@ -119,3 +131,4 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - Repository metadata, `NOTICE`, and all repo links pointed at `playxoft/SpendChat_Nextjs`.
 
 [Unreleased]: https://github.com/playxoft/SpendChat_Nextjs
+[0.1.0]: https://github.com/playxoft/SpendChat_Nextjs

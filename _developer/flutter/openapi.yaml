@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.3.0"
+  version: "5.4.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 5.3.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 5.4.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
@@ -24,7 +24,9 @@ info:
       - documents 403 on mutating endpoints.
 
     ## Authentication
-    All `/api/v1/*` endpoints require a **Firebase ID token** as a bearer token:
+    All `/api/v1/*` endpoints **except `GET /api/v1/version`** (public, so a
+    client can check the contract version before it has a token) require a
+    **Firebase ID token** as a bearer token:
     `Authorization: Bearer <idToken>`. The server verifies it (RS256) against
     Google's JWKS, pinning issuer + audience to the Firebase project. Tokens are
     short-lived (~1h); the Firebase SDK auto-refreshes. Email/password accounts
@@ -113,6 +115,7 @@ security:
   - bearerAuth: []
 
 tags:
+  - name: Meta
   - name: Account
   - name: Workspaces
   - name: Transactions
@@ -125,6 +128,41 @@ tags:
   - name: AI
 
 paths:
+  /api/v1/version:
+    get:
+      tags: [Meta]
+      summary: Deployed app + API version (no auth)
+      description: |
+        What is running: the app release, the version of **this** `/api/v1`
+        contract, which deployment answered, and the deployed Worker build.
+
+        **The one endpoint that needs no bearer token** — a client has to be
+        able to read the contract version before it has one (and while showing
+        an "update required" screen). It reads nothing per-user and touches no
+        database.
+
+        Also served at **`/version`** (outside `/api/v1`, byte-for-byte the same
+        body) for `curl` and uptime checks.
+
+        Suggested client use: compare `apiVersion`'s **major** with the version
+        this app was built against — a higher major means the server contract
+        moved on and the app should prompt an update. Show `version` + `build.id`
+        on a debug/about screen so a bug report can name the exact deploy.
+
+        Never cached (`Cache-Control: no-store`), so a poll always sees the
+        current deploy.
+      security: []
+      responses:
+        "200":
+          description: The deployed version.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/VersionInfo" }
+                required: [data]
+
   /api/v1/me:
     get:
       tags: [Account]
@@ -1777,6 +1815,64 @@ components:
               additionalProperties: { type: string }
           required: [code, message]
       required: [error]
+
+    VersionInfo:
+      type: object
+      description: >
+        Deliberately limited to public, non-sensitive facts (the source is AGPL
+        and on GitHub): no dependency versions, hostnames, regions, env var
+        names, or database/storage state.
+      properties:
+        name:
+          type: string
+          description: Product name.
+          example: SpendChat
+        version:
+          type: string
+          description: >
+            The deployed **server/web** release (package.json + CHANGELOG.md) —
+            not the mobile app's own version.
+          example: "0.1.0"
+        apiVersion:
+          type: string
+          description: Version of this `/api/v1` contract (= `info.version`).
+          example: "5.4.0"
+        environment:
+          type: string
+          enum: [production, beta, development]
+          description: Which deployment answered. Anything unrecognized reads as "development".
+        build:
+          description: >
+            Identity of the deployed Cloudflare Worker version. **Nullable** —
+            null on a local run and on any deploy that predates the
+            version-metadata binding, so treat it as optional.
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                id:
+                  type: string
+                  description: Worker version id — quote it in a bug report.
+                  example: c9a1f0d2-1b4e-4a77-9d2e-0c3b6f5a8e11
+                deployedAt:
+                  type: [string, "null"]
+                  format: date-time
+                  description: When that version was uploaded; null if the runtime gave no parseable timestamp.
+              required: [id, deployedAt]
+        changelog:
+          type: object
+          description: Where to read what changed (deep-link these from an about screen).
+          properties:
+            app:
+              type: string
+              format: uri
+              description: CHANGELOG.md for the `version` field.
+            api:
+              type: string
+              format: uri
+              description: The `/api/v1` changelog for the `apiVersion` field.
+          required: [app, api]
+      required: [name, version, apiVersion, environment, build, changelog]
 
     User:
       type: object

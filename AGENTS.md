@@ -208,11 +208,12 @@ contract is documented in three files that MUST stay in sync with the code:
 
 **Whenever you change anything under `src/app/api/v1/**` (or the request/response
 shape it serializes) — even a one-line tweak — you MUST, in the same change:**
-1. **bump the version** in `openapi.yaml` (`info.version`) *and* the "API spec
-   version" line in `01-api-reference.md`. Semver-ish: **major** = breaking
-   (removed/renamed/retyped field, changed status) → Flutter must change;
-   **minor** = backward-compatible addition (new endpoint/optional field);
-   **patch** = docs/clarification only.
+1. **bump the version** in `openapi.yaml` (`info.version`), the "API spec
+   version" line in `01-api-reference.md`, *and* `API_VERSION` in
+   `src/lib/version.ts` (what `GET /version` reports). Semver-ish: **major** =
+   breaking (removed/renamed/retyped field, changed status) → Flutter must
+   change; **minor** = backward-compatible addition (new endpoint/optional
+   field); **patch** = docs/clarification only.
 2. **add a `_changelog.md` entry** (newest first) with the version, date, what
    changed, and a **Flutter impact** line.
 3. **update `openapi.yaml` + `01-api-reference.md`** to match the new behaviour.
@@ -220,6 +221,37 @@ shape it serializes) — even a one-line tweak — you MUST, in the same change:
 No API change ships without these three docs updated. If you're unsure whether a
 change is "API-visible", it is if a mobile client could observe it (path, method,
 status, headers, or JSON shape).
+
+## Versioning — every user-visible change ships a version
+The deployment answers **`GET /version`** (alias of `GET /api/v1/version`) with
+what it is: app release, API contract version, environment, Worker build, and
+links to both changelogs. For that answer to be worth anything, the version has
+to move when the app moves.
+
+**So every user-visible change MUST, in the same change:**
+1. **bump `version` in `package.json`** — **patch** for a fix or an internal
+   tweak someone could notice, **minor** for a new capability, **major** for a
+   break. (Pure refactors, comments, and test-only edits don't count.)
+2. **add that version's section to `CHANGELOG.md`** — a `## [x.y.z] — YYYY-MM-DD`
+   heading directly under `## [Unreleased]`, with Keep-a-Changelog subsections
+   (`Added` / `Changed` / `Fixed` / `Security`). Write for someone deciding
+   whether to care, not a commit log.
+3. **leave `/version` alone** — it reads `package.json`, so it updates itself.
+   Only touch `src/lib/version.ts` to change the *shape* of the payload, which
+   is an API change (see the mobile-API rule above) and bumps `API_VERSION` too.
+
+`package.json` and `CHANGELOG.md` are the app release; `API_VERSION` /
+`openapi.yaml` are the REST contract — **two independent versions**, bumped on
+their own rules. A change can move one, the other, or both.
+
+`tests/unit/version.test.ts` is the enforcement: it fails if `APP_VERSION`
+disagrees with the newest `CHANGELOG.md` heading, or if `API_VERSION`, the spec,
+the API reference, and `_changelog.md` drift apart. When it fails, it's telling
+you which file you forgot — don't relax the test.
+
+Keep `GET /version` itself as it is: the **only** endpoint with no bearer token
+(a client must be able to read the contract version before it has one), no
+per-user data, no DB, and nothing in the payload that isn't already public.
 
 ## Git
 - Write commit messages and PR bodies as a normal engineering project. Do **not** add AI

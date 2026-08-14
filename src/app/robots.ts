@@ -14,6 +14,8 @@ export default function robots(): MetadataRoute.Robots {
           "/files",
           "/settings",
           "/api/",
+          // JSON build/version info, not a page — nothing for an index.
+          "/version",
           "/sign-in",
           "/sign-up",
           "/verify-email",

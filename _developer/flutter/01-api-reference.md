@@ -6,14 +6,15 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 5.3.0.** Every API change bumps this version and is logged
+**API spec version: 5.4.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
 - **Base URL (dev):** `http://localhost:3010` (Android emulator: `http://10.0.2.2:3010`)
 - **Base URL (beta):** `https://beta.spendchat.app`
 - **Base URL (prod):** `https://spendchat.app`
-- **Auth:** `Authorization: Bearer <firebase-id-token>`
+- **Auth:** `Authorization: Bearer <firebase-id-token>` (every endpoint except
+  `GET /version` — see § 7 · Meta)
 - **Workspace:** `X-Workspace-Id: <uuid>` (optional; see § Workspaces)
 - **Platform:** `X-Client-Platform: android | ios` (optional telemetry; send it on
   every request so server logs attribute the platform. It never changes a
@@ -80,8 +81,10 @@ Auth is **Firebase Authentication**. The API verifies the **Firebase ID token**
 (RS256) statelessly with `jose` against Google's public JWKS — it does not mint
 tokens.
 
-- Header: `Authorization: Bearer <idToken>` on **every** `/api/v1` request.
-  Matched case-insensitively as `Bearer <token>`.
+- Header: `Authorization: Bearer <idToken>` on **every** `/api/v1` request
+  except `GET /api/v1/version` (public — the version has to be readable before
+  sign-in and while an "update required" screen is up). Matched
+  case-insensitively as `Bearer <token>`.
 - Verification pins: `issuer = https://securetoken.google.com/<projectId>`,
   `audience = <projectId>`, algorithm `RS256`, and requires a `sub` (Firebase
   UID) claim. JWKS:
@@ -392,13 +395,44 @@ One reviewable transaction the AI extracted from the note. Maps 1:1 onto a
 - Currency block (analytics + lists): `{ "currency": { "code", "symbol", "decimals" } }`.
 - List pagination adds `{ "total", "limit", "offset", "currency" }`.
 
+### VersionInfo (from `GET /version`)
+```jsonc
+{
+  "name": "SpendChat",
+  "version": "0.1.0",          // the deployed SERVER release — not the Flutter app's version
+  "apiVersion": "5.4.0",       // the contract this doc describes
+  "environment": "production" | "beta" | "development",
+  "build": {                   // nullable — null locally and on pre-binding deploys
+    "id": "c9a1f0d2-…",        // Cloudflare Worker version id; quote it in bug reports
+    "deployedAt": "2026-08-14T09:30:00.000Z" | null
+  } | null,
+  "changelog": { "app": "https://github.com/…/CHANGELOG.md", "api": "https://github.com/…/_changelog.md" }
+}
+```
+Everything here is public, non-sensitive information — no dependency versions,
+hostnames, regions, env var names, or database/storage state. Model `build` as
+nullable, and both `build` and `deployedAt` as optional-ish, so an older deploy
+doesn't crash the parser.
+
 ---
 
 ## 7. Endpoint reference
 
-All endpoints require the bearer token → **401** on missing/bad token, **403**
-if email unverified, **404** on a bad `X-Workspace-Id`. Only additional/notable
-codes are listed per row.
+All endpoints **except `GET /version`** require the bearer token → **401** on
+missing/bad token, **403** if email unverified, **404** on a bad
+`X-Workspace-Id`. Only additional/notable codes are listed per row.
+
+### Meta (no auth)
+| Method & path | Body | Success | Notes |
+|---|---|---|---|
+| `GET /version` | — | 200 `data: VersionInfo` | **No bearer token, no workspace header, never 401/403/404.** What's deployed: server release, this contract's `apiVersion`, environment, and build. Also served at `/version` (outside `/api/v1`, identical body) for `curl`/uptime checks. `Cache-Control: no-store` — poll it to notice a new deploy. |
+
+**Using it in Flutter:** call it once at startup (before auth). Compare
+`apiVersion`'s **major** with the version this app was built against — a higher
+major means the server contract moved on and the app should prompt an update; a
+higher minor is additive and safe to ignore. Show `version` and `build.id` on
+the debug/about screen so a bug report names the exact deploy, and link
+`changelog.app`.
 
 ### Account
 | Method & path | Body | Success | Notes |

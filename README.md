@@ -162,6 +162,7 @@ src/
     api/auth/session/   # Firebase ID token → httpOnly session cookie bridge
     api/v1/             # versioned REST API for the Flutter client
     api/transactions/export/  # CSV export route
+    version/            # GET /version — deployed app + API version (public JSON)
     sitemap.ts · robots.ts · manifest.ts · layout.tsx
   actions/              # server actions (thin wrappers over src/services/*)
   services/             # shared business logic, used by both server actions and /api/v1
