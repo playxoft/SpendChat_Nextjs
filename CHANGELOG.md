@@ -18,7 +18,14 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
-Nothing yet.
+### Changed
+
+- **App pages moved under `/app`**: `/transactions`, `/analytics`, `/files` and
+  `/settings/*` now live at `/app/transactions`, `/app/analytics`, `/app/files`
+  and `/app/settings/*`, cleanly separating the authenticated app from the
+  marketing site's URL space (the tracker was already `/app`). Old URLs
+  permanently redirect (308), so existing bookmarks keep working. The mobile
+  REST API (`/api/v1`) is unaffected.
 
 ## [0.1.0] — 2026-08-14
 

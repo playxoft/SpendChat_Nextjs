@@ -51,10 +51,10 @@ export function GlobalShortcuts({
 
   // Section jumps carry the active profile so switching pages never resets it.
   useShortcut(comboFor("nav.tracker"), () => router.push(hrefWithProfile("/app", profileParam)), nav);
-  useShortcut(comboFor("nav.transactions"), () => router.push(hrefWithProfile("/transactions", profileParam)), nav);
-  useShortcut(comboFor("nav.analytics"), () => router.push(hrefWithProfile("/analytics", profileParam)), nav);
-  useShortcut(comboFor("nav.files"), () => router.push(hrefWithProfile("/files", profileParam)), nav);
-  useShortcut(comboFor("nav.settings"), () => router.push(hrefWithProfile("/settings", profileParam)), nav);
+  useShortcut(comboFor("nav.transactions"), () => router.push(hrefWithProfile("/app/transactions", profileParam)), nav);
+  useShortcut(comboFor("nav.analytics"), () => router.push(hrefWithProfile("/app/analytics", profileParam)), nav);
+  useShortcut(comboFor("nav.files"), () => router.push(hrefWithProfile("/app/files", profileParam)), nav);
+  useShortcut(comboFor("nav.settings"), () => router.push(hrefWithProfile("/app/settings", profileParam)), nav);
   useShortcut(comboFor("action.add"), () => canWrite && setAddOpen(true), nav);
   useShortcut(comboFor("action.bulk"), () => canWrite && setBulkOpen(true), nav);
   useShortcut(comboFor("global.shortcuts"), () => setShortcutsOpen(true), nav);

@@ -18,7 +18,7 @@ import type { AttachmentMetaInput } from "@/lib/validation";
 function revalidateApp() {
   // Attachment counts (the 📎 badge) are server-rendered in the feed + table.
   revalidatePath("/app");
-  revalidatePath("/transactions");
+  revalidatePath("/app/transactions");
 }
 
 /** Attachments for a transaction (viewer-or-better). Loaded when a detail/edit

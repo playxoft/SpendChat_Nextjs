@@ -23,7 +23,7 @@ import type {
  */
 
 function revalidateFiles() {
-  revalidatePath("/files");
+  revalidatePath("/app/files");
 }
 
 export async function createFolder(

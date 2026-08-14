@@ -13,9 +13,9 @@ import type {
 
 function revalidateApp() {
   revalidatePath("/app");
-  revalidatePath("/transactions");
-  revalidatePath("/analytics");
-  revalidatePath("/settings");
+  revalidatePath("/app/transactions");
+  revalidatePath("/app/analytics");
+  revalidatePath("/app/settings");
 }
 
 export async function createWorkspace(
@@ -126,7 +126,7 @@ export async function setInviteAccess(
     "setInviteAccess",
     async () => {
       await ws.setInviteAccess(user.id, workspaceId, { email, access });
-      revalidatePath("/settings");
+      revalidatePath("/app/settings");
       return {};
     },
     { userId: user.id, workspaceId },
@@ -158,7 +158,7 @@ export async function cancelWorkspaceInvite(
     "cancelWorkspaceInvite",
     async () => {
       await ws.cancelInviteByEmail(user.id, workspaceId, email);
-      revalidatePath("/settings");
+      revalidatePath("/app/settings");
       return {};
     },
     { userId: user.id, workspaceId },

@@ -11,7 +11,7 @@ import { hrefWithProfile, isActive, navItems } from "./nav-items";
  * destinations a wider tap target each. The desktop sidebar still renders the
  * full `navItems` — this trims the bar, not the app's navigation.
  */
-const BOTTOM_NAV_ITEMS = navItems.filter((item) => item.href !== "/settings");
+const BOTTOM_NAV_ITEMS = navItems.filter((item) => item.href !== "/app/settings");
 
 export function BottomNav() {
   const pathname = usePathname();

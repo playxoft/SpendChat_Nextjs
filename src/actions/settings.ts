@@ -6,10 +6,10 @@ import { runAction, type ActionResult } from "@/lib/action-result";
 import * as settingsService from "@/services/settings";
 
 function revalidateAll() {
-  revalidatePath("/settings");
+  revalidatePath("/app/settings");
   revalidatePath("/app");
-  revalidatePath("/transactions");
-  revalidatePath("/analytics");
+  revalidatePath("/app/transactions");
+  revalidatePath("/app/analytics");
 }
 
 /** Partial user-settings update (theme, input mode — these follow the user). */
@@ -33,7 +33,7 @@ export async function updateAccountName(name: string): Promise<ActionResult<{ na
     "updateAccountName",
     async () => {
       const res = await settingsService.updateAccountName(user.id, { name });
-      revalidatePath("/settings");
+      revalidatePath("/app/settings");
       revalidatePath("/app");
       return { name: res.name };
     },
@@ -66,7 +66,7 @@ export async function updateInputMode(mode: string): Promise<ActionResult> {
     async () => {
       await settingsService.updateInputMode(user.id, mode);
       revalidatePath("/app");
-      revalidatePath("/settings");
+      revalidatePath("/app/settings");
       return {};
     },
     { userId: user.id },
@@ -81,7 +81,7 @@ export async function updateComposerDensity(density: string): Promise<ActionResu
     async () => {
       await settingsService.updateComposerDensity(user.id, density);
       revalidatePath("/app");
-      revalidatePath("/settings");
+      revalidatePath("/app/settings");
       return {};
     },
     { userId: user.id },
@@ -96,7 +96,7 @@ export async function updateVoiceLanguages(languages: string[]): Promise<ActionR
     async () => {
       await settingsService.updateVoiceLanguages(user.id, languages);
       revalidatePath("/app");
-      revalidatePath("/settings");
+      revalidatePath("/app/settings");
       return {};
     },
     { userId: user.id },
@@ -133,8 +133,8 @@ export async function deleteAllTransactions(
         profileIds,
       );
       revalidatePath("/app");
-      revalidatePath("/transactions");
-      revalidatePath("/analytics");
+      revalidatePath("/app/transactions");
+      revalidatePath("/app/analytics");
       return { deleted: res.deleted };
     },
     { userId: user.id, workspaceId: workspace.id },

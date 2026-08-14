@@ -158,7 +158,7 @@ src/
   app/
     (marketing)/        # static, SEO-first: landing, features, about, faq, privacy, terms
     (auth)/             # branded sign-in / sign-up (custom forms + Firebase Web SDK)
-    (app)/              # authenticated shell: app (chat), transactions, analytics, files, settings
+    app/                # authenticated shell under /app: tracker (chat), transactions, analytics, files, settings
     api/auth/session/   # Firebase ID token → httpOnly session cookie bridge
     api/v1/             # versioned REST API for the Flutter client
     api/transactions/export/  # CSV export route

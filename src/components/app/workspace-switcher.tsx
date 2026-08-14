@@ -139,7 +139,7 @@ export function WorkspaceSwitcher({
           ))}
           <DropdownMenuSeparator />
           <DropdownMenuItem asChild>
-            <Link href="/settings/workspace" onClick={() => onNavigate?.()}>
+            <Link href="/app/settings/workspace" onClick={() => onNavigate?.()}>
               <Settings2 className="size-4" />
               Workspace settings
             </Link>

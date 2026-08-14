@@ -99,11 +99,13 @@ export function ProfileList({
   // the default (no param) can mean "first profile" without ambiguity.
   function go(target: string) {
     setOptimistic(target);
+    // Settings is deliberately excluded: it has no profile-scoped data, so
+    // switching profiles there jumps back to the tracker.
     const dataPage =
-      pathname.startsWith("/app") ||
-      pathname.startsWith("/transactions") ||
-      pathname.startsWith("/analytics") ||
-      pathname.startsWith("/files");
+      pathname === "/app" ||
+      pathname.startsWith("/app/transactions") ||
+      pathname.startsWith("/app/analytics") ||
+      pathname.startsWith("/app/files");
     const targetPath = dataPage ? pathname : "/app";
     const params = new URLSearchParams(sp.toString());
     params.set("profile", target);

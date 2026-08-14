@@ -8,9 +8,9 @@ import { type ProfileInput, type UpdateProfileInput } from "@/lib/validation";
 
 function revalidateApp() {
   revalidatePath("/app");
-  revalidatePath("/transactions");
-  revalidatePath("/analytics");
-  revalidatePath("/settings");
+  revalidatePath("/app/transactions");
+  revalidatePath("/app/analytics");
+  revalidatePath("/app/settings");
 }
 
 export async function addProfile(input: ProfileInput): Promise<ActionResult<{ id?: string }>> {
