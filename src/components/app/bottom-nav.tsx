@@ -5,6 +5,14 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { hrefWithProfile, isActive, navItems } from "./nav-items";
 
+/**
+ * Settings is deliberately absent here: on mobile it's already one tap away in
+ * the profile/user menu in the topbar, and dropping it gives the four remaining
+ * destinations a wider tap target each. The desktop sidebar still renders the
+ * full `navItems` — this trims the bar, not the app's navigation.
+ */
+const BOTTOM_NAV_ITEMS = navItems.filter((item) => item.href !== "/app/settings");
+
 export function BottomNav() {
   const pathname = usePathname();
   const profile = useSearchParams().get("profile");
@@ -12,7 +20,7 @@ export function BottomNav() {
   return (
     <nav className="fixed inset-x-0 bottom-0 z-30 h-16 border-t bg-background md:hidden print:hidden">
       <div className="mx-auto flex h-full max-w-md items-stretch justify-around">
-        {navItems.map((item) => {
+        {BOTTOM_NAV_ITEMS.map((item) => {
           const active = isActive(pathname, item.href, item.exact);
           return (
             <Link

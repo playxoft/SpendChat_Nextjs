@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { updateComposerDensity } from "@/actions/settings";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 import type { ComposerDensity } from "@/lib/validation";
 
 type Option = {
@@ -101,6 +102,12 @@ export function ComposerDensityForm({ density }: { density: string }) {
   const [selected, setSelected] = useState<ComposerDensity>(initial);
   const [baseline, setBaseline] = useState<ComposerDensity>(initial);
   const [pending, startTransition] = useTransition();
+  // Phones render the composer at Compact whatever is stored, so Normal isn't a
+  // real choice here — it's disabled rather than silently ignored. Width-based,
+  // so a landscape phone (>= 768px, where the full layout does fit) keeps both
+  // options. Saving is blocked too: submitting a value the device can't show is
+  // the confusing part, more than the radio itself.
+  const isMobile = useIsMobile();
 
   // Re-baseline (and drop unsaved edits) whenever the saved value changes.
   if (baseline !== initial) {
@@ -124,26 +131,47 @@ export function ComposerDensityForm({ density }: { density: string }) {
       <div
         role="radiogroup"
         aria-label="Transaction composer density"
-        className="grid gap-3 sm:grid-cols-2"
+        className="grid gap-3 lg:grid-cols-2"
       >
         {OPTIONS.map((opt) => {
           const active = selected === opt.value;
+          // Only Normal is unavailable — Compact is what a phone already shows.
+          const blocked = isMobile && opt.value === "normal";
           return (
             <button
               key={opt.value}
               type="button"
               role="radio"
               aria-checked={active}
+              disabled={blocked}
+              // Spells out *why* it's disabled — a bare `disabled` radio reads
+              // as a bug to a screen reader user, who can't see the badge.
+              aria-describedby={blocked ? "density-normal-unavailable" : undefined}
               onClick={() => setSelected(opt.value)}
               className={cn(
                 "flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors",
-                active
-                  ? "border-primary ring-1 ring-primary"
-                  : "hover:border-foreground/30 hover:bg-muted/40",
+                blocked
+                  ? "cursor-not-allowed border-dashed opacity-60"
+                  : active
+                    ? "border-primary ring-1 ring-primary"
+                    : "hover:border-foreground/30 hover:bg-muted/40",
               )}
             >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-medium">{opt.label}</span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                  {opt.label}
+                  {blocked && (
+                    <span
+                      id="density-normal-unavailable"
+                      // Amber, not muted grey: this is the one thing on the card
+                      // the user needs to read, and grey-on-grey inside an
+                      // already-dimmed card is exactly what gets missed.
+                      className="rounded-full border border-amber-500/40 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400"
+                    >
+                      Unavailable on mobile
+                    </span>
+                  )}
+                </span>
                 <span
                   className={cn(
                     "flex size-4 shrink-0 items-center justify-center rounded-full border",
@@ -166,7 +194,12 @@ export function ComposerDensityForm({ density }: { density: string }) {
         })}
       </div>
 
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        {isMobile && (
+          <p className="mr-auto text-xs text-amber-700 dark:text-amber-400">
+            Change this on a tablet or desktop.
+          </p>
+        )}
         <Button
           type="button"
           variant="ghost"
@@ -175,7 +208,7 @@ export function ComposerDensityForm({ density }: { density: string }) {
         >
           Cancel
         </Button>
-        <Button type="submit" disabled={!dirty || pending}>
+        <Button type="submit" disabled={!dirty || pending || isMobile}>
           Save changes
         </Button>
       </div>

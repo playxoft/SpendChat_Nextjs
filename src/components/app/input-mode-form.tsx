@@ -103,7 +103,7 @@ export function InputModeForm({ inputMode }: { inputMode: string }) {
       <div
         role="radiogroup"
         aria-label="Transaction input layout"
-        className="grid gap-3 sm:grid-cols-3"
+        className="grid gap-3 lg:grid-cols-3"
       >
         {OPTIONS.map((opt) => {
           const active = selected === opt.value;

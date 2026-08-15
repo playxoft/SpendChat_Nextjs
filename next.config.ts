@@ -142,6 +142,19 @@ const nextConfig: NextConfig = {
       "./node_modules/.pnpm/pg-cloudflare@*/node_modules/pg-cloudflare/dist/**/*",
     ],
   },
+  // The authenticated app used to sit at the root (`/transactions`,
+  // `/analytics`, `/files`, `/settings`) before moving under `/app`. Permanent
+  // redirects keep old bookmarks working; `:path*` matches zero segments, so
+  // each entry covers the bare path and any nested one. The tracker itself was
+  // always `/app`, so it needs no entry.
+  async redirects() {
+    return [
+      { source: "/transactions/:path*", destination: "/app/transactions/:path*", permanent: true },
+      { source: "/analytics/:path*", destination: "/app/analytics/:path*", permanent: true },
+      { source: "/files/:path*", destination: "/app/files/:path*", permanent: true },
+      { source: "/settings/:path*", destination: "/app/settings/:path*", permanent: true },
+    ];
+  },
   async headers() {
     return [
       // Three header sets, and **exactly one source matches any given path** —
@@ -149,13 +162,16 @@ const nextConfig: NextConfig = {
       // no path is ever handed two conflicting values for the same key:
       //   the file-serving APIs  same-origin framing, for the in-app and
       //                          share-page PDF previews
-      //   /app                   the composer's mic (`microphone=(self)`)
+      //   /app (tracker only)    the composer's mic (`microphone=(self)`)
       //   everything else        strict DENY / frame-ancestors 'none', mic closed
+      //     — including `/app/:path+` (transactions/analytics/files/settings),
+      //     which never renders the composer. `:path+` needs ≥1 segment, so it
+      //     can't also match the bare `/app` and hand it a second value.
       { source: "/api/attachments/:path*", headers: attachmentHeaders },
       { source: "/api/files/:path*", headers: attachmentHeaders },
       { source: "/api/share/:path*", headers: attachmentHeaders },
       { source: "/app", headers: appHeaders },
-      { source: "/app/:path*", headers: appHeaders },
+      { source: "/app/:path+", headers: securityHeaders },
       {
         source: "/((?!api/attachments|api/files|api/share|app$|app/).*)",
         headers: securityHeaders,

@@ -1,15 +1,9 @@
 import type { Metadata } from "next";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { resolveWebProfile } from "@/lib/filters";
-import {
-  VAULT_FILES_LIMIT,
-  getProfiles,
-  listTransactionFilesForVault,
-  listVaultFiles,
-  listVaultFolders,
-  listVaultTags,
-} from "@/lib/queries";
-import { ensureSystemFolders } from "@/services/files";
+import { getProfiles } from "@/lib/queries";
+import { STORAGE_QUOTA_BYTES } from "@/lib/validation";
+import { getVaultWorkingSet } from "@/services/files";
 import { FilesPageClient } from "@/components/app/files/files-page";
 
 export const dynamic = "force-dynamic";
@@ -34,35 +28,27 @@ export default async function FilesPage({
   const profiles = await getProfiles(user.id, workspace.id);
   const activeProfileId = resolveWebProfile(sp.profile ?? null, profiles[0]?.id);
 
-  // Lazily materialize each profile's "Transaction attachments" system folder
-  // (idempotent; the ids here already passed access scoping via getProfiles).
-  await ensureSystemFolders(
-    user.id,
-    workspace.id,
-    (activeProfileId ? profiles.filter((p) => p.id === activeProfileId) : profiles).map(
-      (p) => p.id,
-    ),
-  );
-
-  const [folders, files, txnFiles, tags] = await Promise.all([
-    listVaultFolders(user.id, workspace.id, activeProfileId),
-    listVaultFiles(user.id, workspace.id, activeProfileId),
-    listTransactionFilesForVault(user.id, workspace.id, activeProfileId),
-    listVaultTags(user.id, workspace.id, activeProfileId),
-  ]);
+  // Exactly what `GET /api/v1/files` serves the Flutter app — one function, so
+  // the two working sets can't drift.
+  const { folders, files, transactionFiles, tags, storageUsedBytes, filesCapped } =
+    await getVaultWorkingSet(user.id, workspace.id, activeProfileId, {
+      dedupeStorageRead: true,
+    });
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
       <FilesPageClient
         folders={folders}
         files={files}
-        txnFiles={txnFiles}
+        txnFiles={transactionFiles}
         tags={tags}
         profiles={profiles.map((p) => ({ id: p.id, name: p.name, icon: p.icon }))}
         activeProfileId={activeProfileId ?? null}
         currency={workspace.currency}
         locale={workspace.locale}
-        filesCapped={files.length >= VAULT_FILES_LIMIT}
+        filesCapped={filesCapped}
+        storageUsedBytes={storageUsedBytes}
+        storageLimitBytes={STORAGE_QUOTA_BYTES}
       />
     </div>
   );

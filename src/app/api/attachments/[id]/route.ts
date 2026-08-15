@@ -6,23 +6,13 @@ import { describeError, logger } from "@/lib/logger";
 import { isR2Configured, signedGetUrl } from "@/lib/r2";
 import { getAttachmentForDownload } from "@/services/attachments";
 import { ATTACHMENT_INLINE_TYPES, ATTACHMENT_SPREADSHEET_TYPES } from "@/lib/validation";
+import { contentDisposition } from "@/lib/files";
 
 export const dynamic = "force-dynamic";
 
 /** How long a minted download URL stays valid. Short — it's issued per view,
  * only after the caller has been authorized. */
 const URL_TTL_SECONDS = 300;
-
-/**
- * Build a `Content-Disposition` value with both an ASCII-safe filename and an
- * RFC 5987 UTF-8 filename, so non-ASCII names survive without letting a hostile
- * name break out of the header.
- */
-function contentDisposition(fileName: string, inline: boolean): string {
-  const type = inline ? "inline" : "attachment";
-  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
-  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
-}
 
 type Ctx = { params: Promise<{ id: string }> };
 

@@ -5,7 +5,8 @@ import { withRequestContext } from "@/lib/request-context";
 import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import { isR2Configured } from "@/lib/r2";
-import { createAttachments, type AttachmentUpload } from "@/services/attachments";
+import { createAttachments } from "@/services/attachments";
+import { parseUploadForm } from "@/lib/upload-form";
 import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_PER_TRANSACTION } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -77,45 +78,15 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return Response.json({ error: "Invalid upload." }, { status: 400 });
     }
 
-    const files = [...form.getAll("files"), ...form.getAll("file")].filter(
-      (v): v is File => v instanceof File,
-    );
-    if (files.length === 0) {
-      return Response.json({ error: "No files were provided." }, { status: 400 });
-    }
-    if (files.length > ATTACHMENT_MAX_PER_TRANSACTION) {
-      return Response.json(
-        { error: `You can attach at most ${ATTACHMENT_MAX_PER_TRANSACTION} files at once.` },
-        { status: 400 },
-      );
-    }
-    // Reject oversized files by their known size before reading them into memory.
-    for (const f of files) {
-      if (f.size > ATTACHMENT_MAX_BYTES) {
-        return Response.json({ error: "Each file must be 5 MB or smaller." }, { status: 413 });
-      }
-    }
-
     try {
+      // Shape/size rejections throw; `fail()` preserves their status (400/413).
+      const uploads = await parseUploadForm(form, {
+        maxFiles: ATTACHMENT_MAX_PER_TRANSACTION,
+        maxBytes: ATTACHMENT_MAX_BYTES,
+        tooManyMessage: `You can attach at most ${ATTACHMENT_MAX_PER_TRANSACTION} files at once`,
+      });
       const workspace = await getCurrentWorkspace(user.id);
       setLogContext({ workspaceId: workspace.id });
-      const uploads: AttachmentUpload[] = await Promise.all(
-        files.map(async (f, i) => {
-          // A client-generated preview rides along under `thumb_<index>`.
-          const thumb = form.get(`thumb_${i}`);
-          const thumbnail =
-            thumb instanceof File && thumb.size > 0
-              ? { bytes: await thumb.arrayBuffer(), contentType: thumb.type || "image/webp" }
-              : undefined;
-          return {
-            fileName: f.name,
-            contentType: f.type || null,
-            bytes: await f.arrayBuffer(),
-            size: f.size,
-            thumbnail,
-          };
-        }),
-      );
       const attachments = await createAttachments(user.id, workspace.id, id, uploads);
       return Response.json({ attachments });
     } catch (err) {

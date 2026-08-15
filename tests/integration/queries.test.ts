@@ -8,8 +8,10 @@ import {
   getMonthlyTrend,
   getCategories,
   getProfiles,
+  getWorkspaceStorageUsage,
 } from "@/lib/queries";
 import { addProfile } from "@/actions/profiles";
+import { files, transactionAttachments } from "@/db/schema";
 import { signInAs, uid } from "./helpers/session";
 import {
   bootstrapUser,
@@ -18,6 +20,7 @@ import {
   insertTxn,
   workspaceIdOf,
 } from "./helpers/seed";
+import { getTestDb } from "./helpers/test-db";
 
 const U = uid("q");
 let W: string;
@@ -220,5 +223,66 @@ describe("getCategories / getProfiles", () => {
   it("returns profiles in sidebar order", async () => {
     const profs = await getProfiles(U, W);
     expect(profs.map((p) => p.name)).toEqual(["Personal", "Work"]);
+  });
+});
+
+describe("getWorkspaceStorageUsage", () => {
+  it("is 0 for a workspace with nothing stored", async () => {
+    expect(await getWorkspaceStorageUsage(W)).toBe(0);
+  });
+
+  it("sums vault files + attachments, scoped to the workspace only", async () => {
+    const db = getTestDb();
+    await db.insert(files).values([
+      {
+        workspaceId: W,
+        profileId: personal,
+        userId: U,
+        r2Key: "vault/seed-a",
+        name: "a.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 1_000,
+      },
+      {
+        workspaceId: W,
+        profileId: work,
+        userId: U,
+        r2Key: "vault/seed-b",
+        name: "b.pdf",
+        contentType: "application/pdf",
+        sizeBytes: 2_000,
+      },
+    ]);
+    const txnId = await insertTxn(U, {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-20",
+    });
+    await db.insert(transactionAttachments).values({
+      transactionId: txnId,
+      profileId: personal,
+      workspaceId: W,
+      userId: U,
+      r2Key: "attachments/seed",
+      fileName: "receipt.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 4_000,
+    });
+
+    // Another user's workspace must not leak into the sum, in either direction.
+    await bootstrapUser("z");
+    const otherWs = await workspaceIdOf("z");
+    await db.insert(files).values({
+      workspaceId: otherWs,
+      profileId: await firstProfileId("z"),
+      userId: uid("z"),
+      r2Key: "vault/seed-z",
+      name: "z.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 999,
+    });
+
+    expect(await getWorkspaceStorageUsage(W)).toBe(7_000);
+    expect(await getWorkspaceStorageUsage(otherWs)).toBe(999);
   });
 });

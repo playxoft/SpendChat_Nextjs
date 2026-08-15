@@ -19,6 +19,111 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.6.0 — 2026-08-15
+
+Correctness and hardening pass over the files vault from a review of the 5.3.0
+endpoints. No field was removed, renamed, or retyped, and a client that follows
+the documented contract needs no change — but several endpoints now *behave* the
+way the docs already described, so the differences are listed in full.
+
+### Fixed
+- **`GET /files/{id}/url` no longer serves arbitrary types inline.** The minted
+  URL previously carried `Content-Disposition: inline` for **any** stored
+  content type unless `?download=1`. The vault has no upload type allowlist, so
+  an uploaded `text/html` (or SVG) would render — and run its script — off the
+  storage origin when opened in a WebView. Inline is now limited to previewable
+  types (images, PDF, plain text/CSV/Markdown, audio/video); everything else
+  gets `attachment`. `?variant=thumb` stays inline. This matches what the web
+  app has always done.
+- **The 5 MB per-file cap now covers `thumb_<index>` previews.** They were
+  accepted and stored at any size, so a 1-byte file plus a 90 MB "preview"
+  bypassed the documented cap entirely. An oversized preview is now 413
+  `payload_too_large`, like an oversized file.
+- **`thumb_<index>` can no longer bind to the wrong file.** The index counts
+  file parts in send order (`files` entries before `file` entries) and is no
+  longer renumbered when a part isn't a file — previously a mixed or malformed
+  request silently attached a preview to a different file.
+- **`DELETE /files/{id}` and `DELETE /folders/{id}` delete the preview object
+  too.** Only the original was removed, so every thumbnailed file leaked its
+  `_thumb` object into storage permanently. No API shape change; the stored
+  bytes now actually go away, as the endpoint's description claimed.
+- **`GET /file-shares` returns only active links.** Expired rows were listed
+  indistinguishably from live ones, so a share sheet could offer a link that
+  404s on the share page.
+- **`GET /file-shares` with both `fileId` and `folderId` is now 422**, as
+  documented. It previously answered 200 with the *file's* links, so a client
+  querying a folder could render the wrong list.
+- **`GET /files` no longer creates rows on a viewer's read.** The predefined
+  "Transaction attachments" folder is materialized only for profiles the caller
+  can write to — a read-only grant was creating folders inside another member's
+  profile and being recorded as their author.
+
+**Flutter impact:** mostly none — all of the above move the API toward the
+documented contract. Two worth checking: (1) if the app *navigates* a WebView to
+the `/files/{id}/url` result expecting a document to display, non-previewable
+types will now download instead — fetch the bytes rather than navigating if you
+need them in-app; (2) a view-only user may not see the "Transaction attachments"
+folder until an editor opens that profile's vault — their transaction files are
+still returned in `transactionFiles`, so surface those directly if the folder is
+absent. Upload error messages lost their trailing full stops (still safe to
+display as-is).
+
+---
+
+## 5.5.0 — 2026-08-14
+
+A **workspace storage quota**: 1 GB per workspace, covering vault files and
+transaction attachments together. Additive; nothing was removed, renamed, or
+retyped.
+
+### Added
+- **`GET /files` meta gains `storage`** — `{ usedBytes, limitBytes }`, the
+  workspace's total stored bytes (vault files + transaction attachments)
+  against the flat 1 GB quota. **Workspace-wide even when `?profile=` scopes
+  the list**, so it can back a storage indicator directly.
+- **New 413 code `storage_quota_exceeded`** on both upload endpoints
+  (`POST /files`, `POST /transactions/{id}/attachments`): the batch's combined
+  size would push the workspace past the quota. Distinct from
+  `payload_too_large` (a single file over 5 MB). The message says how much
+  space remains and is safe to display as-is.
+
+**Flutter impact:** optional — read `meta.storage` to render a storage
+usage indicator (the web app shows a ring on the files page). Uploads should
+handle 413 by branching on `error.code`: `payload_too_large` (file too big)
+vs `storage_quota_exceeded` (workspace full — showing `error.message` as-is
+is enough). Existing flows keep working unchanged.
+
+## 5.4.0 — 2026-08-14
+
+A **version endpoint**, so a client can find out what it's talking to. Additive;
+nothing was removed, renamed, or retyped.
+
+### Added
+- **`GET /api/v1/version`** — `data: VersionInfo`
+  `{ name, version, apiVersion, environment, build, changelog }`. `version` is
+  the deployed **server** release (`package.json` + `CHANGELOG.md`);
+  `apiVersion` is the version of this spec; `environment` is
+  `production | beta | development`; `build` is the deployed Cloudflare Worker
+  version `{ id, deployedAt }` (**nullable** — null on a local run and on any
+  deploy older than the version-metadata binding); `changelog` links the app and
+  API changelogs. `Cache-Control: no-store`, like every other JSON response.
+- **This is the first and only `/api/v1` endpoint that takes no bearer token.**
+  It never returns 401/403/404, ignores `X-Workspace-Id`, reads nothing
+  per-user, and touches no database — a client has to be able to read the
+  contract version before it has a token, and while an "update required" screen
+  is up. The payload is limited to public facts (no dependency versions,
+  hostnames, regions, env var names, or storage/database state).
+- The same body is also served at **`/version`** (outside `/api/v1`) for `curl`
+  and uptime checks. Mobile clients should use the `/api/v1` path.
+
+**Flutter impact:** none required — purely additive. Recommended: call
+`GET /version` once at startup (before auth), compare `apiVersion`'s **major**
+with the version the app was built against and prompt an update when the server
+is ahead (a higher **minor** is additive — ignore it). Show `version` and
+`build.id` on the debug/about screen so bug reports name the exact deploy, and
+link `changelog.app` for "what's new". Model `build` and `build.deployedAt` as
+nullable.
+
 ## 5.3.0 — 2026-08-05
 
 The web app's **Files vault** (the `/files` Drive-like document store: nested

@@ -16,6 +16,7 @@ import type { InputMode } from "@/lib/validation";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
 import { monthKey, monthRange, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
+import { isMobileUA } from "@/lib/device.server";
 import { time, timedScope } from "@/lib/timing";
 import { InfiniteChatFeed } from "@/components/app/infinite-chat-feed";
 import { ChatFeedSkeleton } from "@/components/app/chat-skeleton";
@@ -167,6 +168,7 @@ export default async function ChatPage({
             allProfiles={allProfiles}
             inputMode={settings.inputMode as InputMode}
             density={normalizeUiPrefs(settings.uiPrefs).composer.density}
+            isMobileHint={await isMobileUA()}
             voiceLanguages={normalizeVoiceLanguages(settings.voiceLanguages)}
           />
         ) : (

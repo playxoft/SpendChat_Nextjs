@@ -65,7 +65,7 @@ export function UserMenu({
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href={hrefWithProfile("/settings", profile)} className="cursor-pointer">
+          <Link href={hrefWithProfile("/app/settings", profile)} className="cursor-pointer">
             <SettingsIcon className="size-4" /> Settings
           </Link>
         </DropdownMenuItem>

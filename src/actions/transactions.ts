@@ -58,8 +58,8 @@ const loadOlderFeedSchema = z.object({
 
 function revalidateApp() {
   revalidatePath("/app");
-  revalidatePath("/transactions");
-  revalidatePath("/analytics");
+  revalidatePath("/app/transactions");
+  revalidatePath("/app/analytics");
 }
 
 export async function addTransaction(input: TransactionInput): Promise<ActionResult<{ id: string }>> {

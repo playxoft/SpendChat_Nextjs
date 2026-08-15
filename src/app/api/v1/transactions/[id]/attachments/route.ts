@@ -3,7 +3,8 @@ import { getApiContext } from "@/lib/api-auth";
 import { apiOk, handle } from "@/lib/api-response";
 import { ApiError, badRequest } from "@/lib/errors";
 import { isR2Configured } from "@/lib/r2";
-import { createAttachments, type AttachmentUpload } from "@/services/attachments";
+import { createAttachments } from "@/services/attachments";
+import { parseUploadForm } from "@/lib/upload-form";
 import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_PER_TRANSACTION } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -37,36 +38,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       throw badRequest("Send the files as multipart form data");
     }
 
-    const files = [...form.getAll("files"), ...form.getAll("file")].filter(
-      (v): v is File => v instanceof File,
-    );
-    if (files.length === 0) throw badRequest("No files were provided.");
-    if (files.length > ATTACHMENT_MAX_PER_TRANSACTION) {
-      throw badRequest(`You can attach at most ${ATTACHMENT_MAX_PER_TRANSACTION} files at once.`);
-    }
-    // Reject oversized files by their known size before reading them into memory.
-    for (const f of files) {
-      if (f.size > ATTACHMENT_MAX_BYTES) {
-        throw new ApiError(413, "payload_too_large", "Each file must be 5 MB or smaller.");
-      }
-    }
-
-    const uploads: AttachmentUpload[] = await Promise.all(
-      files.map(async (f, i) => {
-        const thumb = form.get(`thumb_${i}`);
-        const thumbnail =
-          thumb instanceof File && thumb.size > 0
-            ? { bytes: await thumb.arrayBuffer(), contentType: thumb.type || "image/webp" }
-            : undefined;
-        return {
-          fileName: f.name,
-          contentType: f.type || null,
-          bytes: await f.arrayBuffer(),
-          size: f.size,
-          thumbnail,
-        };
-      }),
-    );
+    const uploads = await parseUploadForm(form, {
+      maxFiles: ATTACHMENT_MAX_PER_TRANSACTION,
+      maxBytes: ATTACHMENT_MAX_BYTES,
+      tooManyMessage: `You can attach at most ${ATTACHMENT_MAX_PER_TRANSACTION} files at once`,
+    });
     const attachments = await createAttachments(user.id, workspace.id, id, uploads);
     return apiOk(attachments, 201);
   });

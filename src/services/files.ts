@@ -1,17 +1,25 @@
 import "server-only";
-import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, notExists, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { fileShares, fileTags, files, folders } from "@/db/schema";
+import { fileShares, fileTags, files, folders, profiles } from "@/db/schema";
 import { badRequest, conflict, forbidden, notFound, validationError } from "@/lib/errors";
 import { parseOrThrow } from "@/lib/api-response";
 import { setLogContext } from "@/lib/log-context";
 import { rolesAtLeast } from "@/lib/rbac";
 import { accessibleProfileIds, getEffectiveProfileRole } from "@/lib/workspaces";
 import { deleteObject, uploadObject } from "@/lib/r2";
+import { assertStorageQuota } from "@/lib/storage-quota";
 import {
+  VAULT_FILES_LIMIT,
   getVaultFile,
   getVaultFolder,
+  getWorkspaceStorageUsage,
+  getWorkspaceStorageUsageCached,
+  listTransactionFilesForVault,
+  listVaultFiles,
+  listVaultFolders,
+  listVaultTags,
   type VaultFileRow,
 } from "@/lib/queries";
 import {
@@ -23,6 +31,7 @@ import {
   type FileShareDTO,
   type FolderDTO,
   type TagDTO,
+  type TxnFileDTO,
 } from "@/lib/files";
 import {
   FILE_MAX_BYTES,
@@ -61,33 +70,53 @@ const SYSTEM_FOLDER_KEY = "transactions";
 const SYSTEM_FOLDER_NAME = "Transaction attachments";
 
 /**
- * Make sure each given profile has its "Transaction attachments" system
- * folder. Called from the files page load with ids that already passed access
- * scoping (`getProfiles`). Idempotent and race-safe: the partial unique index
- * on (profile_id, system_key) absorbs concurrent creates.
+ * Make sure the caller's **writable** profiles have their "Transaction
+ * attachments" system folder, optionally narrowed to one profile.
+ *
+ * Scoped to editor-or-better on purpose. Materializing the folder is an INSERT
+ * that stamps `folders.user_id` with its creator, and this runs from a read
+ * (the vault working set) — so scoping it to viewers too would let someone with
+ * a read-only grant create rows in another member's profile and be recorded as
+ * their author. A viewer whose profiles have no folder yet simply doesn't see
+ * it until an editor opens the vault; their transaction files are still
+ * reachable through search.
+ *
+ * Idempotent and race-safe: the partial unique index on
+ * (profile_id, system_key) absorbs concurrent creates.
  */
 export async function ensureSystemFolders(
   userId: string,
   workspaceId: string,
-  profileIds: string[],
+  profileId?: string | null,
 ): Promise<void> {
-  if (profileIds.length === 0) return;
   const db = getDb();
-  const existing = await db
-    .select({ profileId: folders.profileId })
-    .from(folders)
+  const missing = await db
+    .select({ id: profiles.id })
+    .from(profiles)
     .where(
-      and(eq(folders.systemKey, SYSTEM_FOLDER_KEY), inArray(folders.profileId, profileIds)),
+      and(
+        inArray(profiles.id, accessibleProfileIds(userId, workspaceId, "editor")),
+        profileId ? eq(profiles.id, profileId) : undefined,
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(folders)
+            .where(
+              and(
+                eq(folders.profileId, profiles.id),
+                eq(folders.systemKey, SYSTEM_FOLDER_KEY),
+              ),
+            ),
+        ),
+      ),
     );
-  const have = new Set(existing.map((r) => r.profileId));
-  const missing = profileIds.filter((id) => !have.has(id));
   if (missing.length === 0) return;
   await db
     .insert(folders)
     .values(
-      missing.map((profileId) => ({
+      missing.map((p) => ({
         workspaceId,
-        profileId,
+        profileId: p.id,
         parentId: null,
         userId,
         name: SYSTEM_FOLDER_NAME,
@@ -95,6 +124,58 @@ export async function ensureSystemFolders(
       })),
     )
     .onConflictDoNothing();
+}
+
+/**
+ * Everything the vault shows in one load: every folder, file, transaction file
+ * and tag the caller can view in the workspace (optionally scoped to one
+ * profile), plus the workspace's storage usage. The system folders are
+ * materialized first so a freshly-created profile's predefined folder is in the
+ * same response.
+ *
+ * The web page and `GET /api/v1/files` both render exactly this — keeping it in
+ * one place is what stops the mobile working set from drifting from the web's.
+ * `dedupeStorageRead` picks the React-`cache()`d storage reader: the page wants
+ * it (the app layout reads the same sum in the same render), an API request
+ * must not (a just-uploaded file would be missing from the sum).
+ */
+export type VaultWorkingSet = {
+  folders: FolderDTO[];
+  files: FileDTO[];
+  transactionFiles: TxnFileDTO[];
+  tags: TagDTO[];
+  storageUsedBytes: number;
+  /** True when the file list hit `VAULT_FILES_LIMIT` and is truncated. */
+  filesCapped: boolean;
+};
+
+export async function getVaultWorkingSet(
+  userId: string,
+  workspaceId: string,
+  profileId?: string | null,
+  { dedupeStorageRead = false }: { dedupeStorageRead?: boolean } = {},
+): Promise<VaultWorkingSet> {
+  await ensureSystemFolders(userId, workspaceId, profileId);
+
+  const readStorage = dedupeStorageRead
+    ? getWorkspaceStorageUsageCached
+    : getWorkspaceStorageUsage;
+  const [folderList, fileList, transactionFiles, tags, storageUsedBytes] = await Promise.all([
+    listVaultFolders(userId, workspaceId, profileId ?? undefined),
+    listVaultFiles(userId, workspaceId, profileId ?? undefined),
+    listTransactionFilesForVault(userId, workspaceId, profileId ?? undefined),
+    listVaultTags(userId, workspaceId, profileId ?? undefined),
+    readStorage(workspaceId),
+  ]);
+
+  return {
+    folders: folderList,
+    files: fileList,
+    transactionFiles,
+    tags,
+    storageUsedBytes,
+    filesCapped: fileList.length >= VAULT_FILES_LIMIT,
+  };
 }
 
 /** Every tag id must name a tag of the same profile — no cross-profile tags. */
@@ -300,8 +381,9 @@ export async function updateFolder(
 
 /**
  * Delete a folder and its whole subtree. The DB cascade removes the rows; this
- * first collects every descendant file's R2 key and deletes those objects so
- * no bytes are orphaned. Returns false when the folder isn't reachable.
+ * first collects every descendant file's R2 keys — the original **and** its
+ * preview — and deletes those objects so no bytes are orphaned. Returns false
+ * when the folder isn't reachable.
  */
 export async function deleteFolder(
   userId: string,
@@ -320,7 +402,7 @@ export async function deleteFolder(
   const rows = await profileFolders(existing.profileId);
   const subtree = subtreeFolderIds(rows, existing.id);
   const contained = await db
-    .select({ r2Key: files.r2Key })
+    .select({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey })
     .from(files)
     .where(inArray(files.folderId, subtree));
 
@@ -329,7 +411,10 @@ export async function deleteFolder(
     .where(eq(folders.id, existing.id))
     .returning({ id: folders.id });
   if (deleted.length === 0) return false;
-  for (const f of contained) await deleteObject(f.r2Key);
+  for (const f of contained) {
+    await deleteObject(f.r2Key);
+    if (f.thumbnailKey) await deleteObject(f.thumbnailKey);
+  }
   return true;
 }
 
@@ -373,6 +458,13 @@ export async function uploadVaultFiles(
       thumbnail: f.thumbnail,
     };
   });
+
+  // The batch is checked as a whole against the workspace storage quota, after
+  // per-file validation so an oversized file keeps its specific 5 MB message.
+  await assertStorageQuota(
+    workspaceId,
+    prepared.reduce((sum, f) => sum + f.size, 0),
+  );
 
   const db = getDb();
   const uploaded: {
@@ -448,7 +540,8 @@ export async function updateFile(
   return serializeFile(updated!);
 }
 
-/** Delete a file's row and its R2 object (editor). False when unreachable. */
+/** Delete a file's row and its R2 objects — the original and, when one was
+ * stored, its `_thumb` preview (editor). False when unreachable. */
 export async function deleteFile(
   userId: string,
   workspaceId: string,
@@ -466,6 +559,7 @@ export async function deleteFile(
     .returning({ id: files.id });
   if (deleted.length === 0) return false;
   await deleteObject(existing.r2Key);
+  if (existing.thumbnailKey) await deleteObject(existing.thumbnailKey);
   return true;
 }
 
@@ -661,27 +755,41 @@ export async function createFileShare(
   return serializeFileShare(row!);
 }
 
-/** Active links for one file or folder, newest first (editor — tokens grant
- * public access, so viewers don't get to read them). */
+/**
+ * Active links for one file or folder, newest first (editor — tokens grant
+ * public access, so viewers don't get to read them). Exactly one of
+ * `fileId`/`folderId`, mirroring `createFileShare`: answering a two-target
+ * query for whichever one we happened to check first would hand the caller a
+ * link list for something they didn't ask about.
+ *
+ * "Active" is enforced here, not just implied: an expired row still exists (the
+ * link is revoked by deleting it, and expiry is a timestamp) but its token no
+ * longer resolves — `activeShareByToken` rejects it — so listing it would offer
+ * a link that 404s on the share page.
+ */
 export async function listFileShares(
   userId: string,
   workspaceId: string,
   target: { fileId?: string; folderId?: string },
 ): Promise<FileShareDTO[]> {
+  const wantsFile = target.fileId != null && target.fileId !== "";
+  const wantsFolder = target.folderId != null && target.folderId !== "";
+  if (wantsFile === wantsFolder) throw validationError("Pick a file or folder");
+
   let profileId: string;
   let cond;
-  if (target.fileId && isUuid(target.fileId)) {
-    const file = await getVaultFile(userId, workspaceId, target.fileId);
+  if (wantsFile) {
+    if (!isUuid(target.fileId!)) throw validationError("Invalid file");
+    const file = await getVaultFile(userId, workspaceId, target.fileId!);
     if (!file) throw notFound("File not found");
     profileId = file.profileId;
-    cond = eq(fileShares.fileId, target.fileId);
-  } else if (target.folderId && isUuid(target.folderId)) {
-    const folder = await getVaultFolder(userId, workspaceId, target.folderId);
+    cond = eq(fileShares.fileId, target.fileId!);
+  } else {
+    if (!isUuid(target.folderId!)) throw validationError("Invalid folder");
+    const folder = await getVaultFolder(userId, workspaceId, target.folderId!);
     if (!folder) throw notFound("Folder not found");
     profileId = folder.profileId;
-    cond = eq(fileShares.folderId, target.folderId);
-  } else {
-    throw validationError("Pick a file or folder");
+    cond = eq(fileShares.folderId, target.folderId!);
   }
   await assertEditorOnProfile(userId, workspaceId, profileId);
 
@@ -689,7 +797,7 @@ export async function listFileShares(
   const rows = await db
     .select()
     .from(fileShares)
-    .where(cond)
+    .where(and(cond, or(isNull(fileShares.expiresAt), gt(fileShares.expiresAt, new Date()))))
     .orderBy(desc(fileShares.createdAt));
   return rows.map(serializeFileShare);
 }

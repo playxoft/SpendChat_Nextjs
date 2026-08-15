@@ -182,6 +182,13 @@ export type AttachmentMetaInput = z.infer<typeof attachmentMetaSchema>;
  * not two — raise it in one place and both features follow.
  */
 export const FILE_MAX_BYTES = ATTACHMENT_MAX_BYTES;
+/**
+ * Total stored bytes allowed per workspace — vault files *and* transaction
+ * attachments together, since both live in R2 under the workspace. One flat
+ * quota (no plan tiers today); usage is computed on read from the size columns,
+ * never kept as a counter, so it can't drift.
+ */
+export const STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024; // 1 GB
 /** Display/file name we persist (used in `Content-Disposition` on download). */
 export const FILE_NAME_MAX = 200;
 /** Folder + tag names are deliberately short — they're labels, not documents. */

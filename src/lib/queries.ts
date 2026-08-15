@@ -1,5 +1,7 @@
 import "server-only";
+import { cache } from "react";
 import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql } from "drizzle-orm";
+import { unionAll } from "drizzle-orm/pg-core";
 import { getDb } from "@/db";
 import {
   categories,
@@ -591,6 +593,39 @@ export async function listVaultFiles(
     .limit(VAULT_FILES_LIMIT);
   return rows.map(serializeFile);
 }
+
+/**
+ * Total stored bytes for a workspace: vault files + transaction attachments,
+ * the two tables whose rows own R2 objects. Deliberately scoped by
+ * `workspace_id` — this is the quota/billing scope, not the caller's
+ * visibility scope, so members with partial profile access still count (and
+ * see) the whole pool. Thumbnails aren't in `size_bytes` (accepted
+ * undercount). One round trip; both sums lead on the workspace indexes.
+ */
+export async function getWorkspaceStorageUsage(workspaceId: string): Promise<number> {
+  const db = getDb();
+  const rows = await unionAll(
+    db
+      .select({ bytes: sql<string>`coalesce(sum(${files.sizeBytes}), 0)` })
+      .from(files)
+      .where(eq(files.workspaceId, workspaceId)),
+    db
+      .select({ bytes: sql<string>`coalesce(sum(${transactionAttachments.sizeBytes}), 0)` })
+      .from(transactionAttachments)
+      .where(eq(transactionAttachments.workspaceId, workspaceId)),
+  );
+  // pg returns bigint sums as strings; 1 GB scale is far below 2^53.
+  return rows.reduce((total, r) => total + Number(r.bytes), 0);
+}
+
+/**
+ * Per-request deduped variant for RSC renders: on /app/files the app layout
+ * (sidebar mini gauge) and the page (toolbar ring) both need the total in the
+ * same render pass, and `cache()` collapses them into one query. Quota checks
+ * (`assertStorageQuota`) and API routes stay on the uncached read above so an
+ * action that uploads and re-renders in one request never serves a stale sum.
+ */
+export const getWorkspaceStorageUsageCached = cache(getWorkspaceStorageUsage);
 
 /** Vault tags of the accessible profiles (optionally one), for the pickers
  * and for resolving items' `tagIds` into names + colors client-side. */

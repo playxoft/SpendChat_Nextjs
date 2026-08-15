@@ -1,12 +1,12 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.3.0"
+  version: "5.6.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 5.3.0 — see `_changelog.md` (this folder) for the
+    **Spec version:** 5.5.0 — see `_changelog.md` (this folder) for the
     per-version history of API changes (what the Flutter app needs to update).
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
@@ -24,7 +24,9 @@ info:
       - documents 403 on mutating endpoints.
 
     ## Authentication
-    All `/api/v1/*` endpoints require a **Firebase ID token** as a bearer token:
+    All `/api/v1/*` endpoints **except `GET /api/v1/version`** (public, so a
+    client can check the contract version before it has a token) require a
+    **Firebase ID token** as a bearer token:
     `Authorization: Bearer <idToken>`. The server verifies it (RS256) against
     Google's JWKS, pinning issuer + audience to the Firebase project. Tokens are
     short-lived (~1h); the Firebase SDK auto-refreshes. Email/password accounts
@@ -82,7 +84,9 @@ info:
     client GETs **without** the Authorization header. Uploading/editing/deleting
     needs editor; viewing needs viewer. `503 storage_unavailable` when the
     server has no file storage configured; `413 payload_too_large` for an
-    oversized file.
+    oversized file. Attachments count toward the workspace's **1 GB storage
+    quota** (shared with the files vault) — an upload that would exceed it gets
+    `413 storage_quota_exceeded`.
 
     ## Files vault
     A Drive-like document store (board resolutions, land papers, certificates …)
@@ -101,6 +105,13 @@ info:
     `503 storage_unavailable` / `413 payload_too_large` semantics as
     attachments.
 
+    Each workspace has a flat **1 GB storage quota** covering vault files and
+    transaction attachments together. `GET /files` reports it in
+    `meta.storage` (`usedBytes` / `limitBytes`, workspace-wide); an upload
+    that would exceed it — on either upload endpoint — is rejected with
+    `413 storage_quota_exceeded` (the message says how much space remains and
+    is safe to display as-is).
+
 servers:
   - url: http://localhost:3010
     description: Local development (`pnpm dev`, port 3010)
@@ -113,6 +124,7 @@ security:
   - bearerAuth: []
 
 tags:
+  - name: Meta
   - name: Account
   - name: Workspaces
   - name: Transactions
@@ -125,6 +137,41 @@ tags:
   - name: AI
 
 paths:
+  /api/v1/version:
+    get:
+      tags: [Meta]
+      summary: Deployed app + API version (no auth)
+      description: |
+        What is running: the app release, the version of **this** `/api/v1`
+        contract, which deployment answered, and the deployed Worker build.
+
+        **The one endpoint that needs no bearer token** — a client has to be
+        able to read the contract version before it has one (and while showing
+        an "update required" screen). It reads nothing per-user and touches no
+        database.
+
+        Also served at **`/version`** (outside `/api/v1`, byte-for-byte the same
+        body) for `curl` and uptime checks.
+
+        Suggested client use: compare `apiVersion`'s **major** with the version
+        this app was built against — a higher major means the server contract
+        moved on and the app should prompt an update. Show `version` + `build.id`
+        on a debug/about screen so a bug report can name the exact deploy.
+
+        Never cached (`Cache-Control: no-store`), so a poll always sees the
+        current deploy.
+      security: []
+      responses:
+        "200":
+          description: The deployed version.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/VersionInfo" }
+                required: [data]
+
   /api/v1/me:
     get:
       tags: [Account]
@@ -500,7 +547,9 @@ paths:
         thumbnail (`hasThumbnail`), so lists never pull full-size originals.
 
         Limits: at most **2 files per transaction** (total, including already
-        attached ones — 400 when exceeded), **5 MB per file** (413), and only
+        attached ones — 400 when exceeded), **5 MB per file** (413
+        `payload_too_large`), the workspace's **1 GB storage quota** (413
+        `storage_quota_exceeded` when the batch doesn't fit), and only
         these types: JPEG, PNG, WebP, GIF, PDF, Word (doc/docx), Excel
         (xls/xlsx), CSV, plain text (422 otherwise). The created attachments
         are also embedded on the transaction (`Transaction.attachments`) from
@@ -638,6 +687,11 @@ paths:
         to recognize them; fetch their bytes via `GET /attachments/{id}/url`.
         Also lazily creates each profile's predefined "Transaction attachments"
         folder, so it is always present in `folders`.
+
+        `meta.storage` reports the workspace's storage usage against its 1 GB
+        quota (vault files + transaction attachments). It is **workspace-wide
+        even when `?profile=` scopes the list**, so it can back a storage
+        indicator directly.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/profile"
@@ -670,7 +724,16 @@ paths:
                     properties:
                       filesCapped: { type: boolean }
                       filesLimit: { type: integer, example: 500 }
-                    required: [filesCapped, filesLimit]
+                      storage:
+                        type: object
+                        description: >
+                          Workspace-wide stored bytes (vault files +
+                          transaction attachments) against the flat quota.
+                        properties:
+                          usedBytes: { type: integer, format: int64, example: 52428800 }
+                          limitBytes: { type: integer, format: int64, example: 1073741824 }
+                        required: [usedBytes, limitBytes]
+                    required: [filesCapped, filesLimit, storage]
                 required: [data, meta]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -686,10 +749,16 @@ paths:
         client-generated preview per file under `thumb_<index>` (webp
         recommended) — it becomes the tile thumbnail (`hasThumbnail`).
 
+        `<index>` counts the file parts in the order they were sent, `files`
+        entries before any `file` entries, and **is not renumbered when a part
+        is not a file** — so a preview can never attach to the wrong file.
+
         Unlike transaction attachments there is **no type allowlist** — videos,
         archives, anything goes; an unknown type is stored as
-        `application/octet-stream`. Limits: **10 files per request** (400) and
-        **5 MB per file** (413).
+        `application/octet-stream`. Limits: **10 files per request** (400),
+        **5 MB per file — previews included** (413 `payload_too_large`), and
+        the workspace's **1 GB storage quota** — a batch whose combined size
+        doesn't fit gets 413 `storage_quota_exceeded`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -782,8 +851,18 @@ paths:
         returns a **presigned URL** valid for ~5 minutes — GET it directly
         **without** the Authorization header. `?variant=thumb` returns the
         small preview when one exists (`hasThumbnail: true`; falls back to the
-        original, `contentType` then `image/webp`); `?download=1` sets an
+        original, `contentType` then `image/webp`); `?download=1` forces an
         attachment disposition.
+
+        **Only previewable types are served inline.** The URL carries
+        `Content-Disposition: inline` for images, PDF, plain text/CSV/Markdown
+        and audio/video; **every other type gets `attachment` even without
+        `?download=1`**. The vault accepts any well-formed MIME type, so an
+        uploaded HTML/SVG must never be rendered by the platform WebView off
+        the storage origin. `?variant=thumb` is always inline (the preview is
+        webp the client generated). Open the URL in a browser/WebView and the
+        platform will save rather than display anything non-previewable — if
+        the app needs the bytes, fetch them instead of navigating to them.
       parameters:
         - name: variant
           in: query
@@ -1001,6 +1080,12 @@ paths:
       description: |
         Exactly one of `?fileId=` / `?folderId=`, newest first. Editor only —
         tokens grant public access, so viewers can't read them.
+
+        Passing neither or **both** is a 422 — a two-target query is answered
+        for neither, never silently for one of them.
+
+        Only **active** links are returned: a link whose `expiresAt` has passed
+        is omitted, because its token no longer resolves on the share page.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - name: fileId
@@ -1752,11 +1837,19 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: { code: storage_unavailable, message: "File storage isn't configured on this server." } }
     PayloadTooLarge:
-      description: An uploaded file exceeds the per-file size cap (5 MB).
+      description: >
+        The upload doesn't fit: either a single file exceeds the per-file cap
+        (5 MB — `payload_too_large`), or the batch would push the workspace
+        past its 1 GB storage quota (`storage_quota_exceeded`, message says
+        how much space remains and is safe to display as-is).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
-          example: { error: { code: payload_too_large, message: "Each file must be 5 MB or smaller." } }
+          examples:
+            payload_too_large:
+              value: { error: { code: payload_too_large, message: "Each file must be 5 MB or smaller." } }
+            storage_quota_exceeded:
+              value: { error: { code: storage_quota_exceeded, message: "Not enough storage left — this upload needs 3.2 MB but only 1.1 MB of the 1.0 GB quota remains" } }
 
   schemas:
     Error:
@@ -1769,7 +1862,8 @@ components:
               type: string
               enum: [unauthorized, forbidden, bad_request, not_found, conflict,
                      validation_error, rate_limited, payload_too_large,
-                     ai_unavailable, ai_failed, storage_unavailable, internal_error]
+                     storage_quota_exceeded, ai_unavailable, ai_failed,
+                     storage_unavailable, internal_error]
             message: { type: string }
             details:
               description: Optional per-field messages for validation errors.
@@ -1777,6 +1871,64 @@ components:
               additionalProperties: { type: string }
           required: [code, message]
       required: [error]
+
+    VersionInfo:
+      type: object
+      description: >
+        Deliberately limited to public, non-sensitive facts (the source is AGPL
+        and on GitHub): no dependency versions, hostnames, regions, env var
+        names, or database/storage state.
+      properties:
+        name:
+          type: string
+          description: Product name.
+          example: SpendChat
+        version:
+          type: string
+          description: >
+            The deployed **server/web** release (package.json + CHANGELOG.md) —
+            not the mobile app's own version.
+          example: "0.1.0"
+        apiVersion:
+          type: string
+          description: Version of this `/api/v1` contract (= `info.version`).
+          example: "5.6.0"
+        environment:
+          type: string
+          enum: [production, beta, development]
+          description: Which deployment answered. Anything unrecognized reads as "development".
+        build:
+          description: >
+            Identity of the deployed Cloudflare Worker version. **Nullable** —
+            null on a local run and on any deploy that predates the
+            version-metadata binding, so treat it as optional.
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                id:
+                  type: string
+                  description: Worker version id — quote it in a bug report.
+                  example: c9a1f0d2-1b4e-4a77-9d2e-0c3b6f5a8e11
+                deployedAt:
+                  type: [string, "null"]
+                  format: date-time
+                  description: When that version was uploaded; null if the runtime gave no parseable timestamp.
+              required: [id, deployedAt]
+        changelog:
+          type: object
+          description: Where to read what changed (deep-link these from an about screen).
+          properties:
+            app:
+              type: string
+              format: uri
+              description: CHANGELOG.md for the `version` field.
+            api:
+              type: string
+              format: uri
+              description: The `/api/v1` changelog for the `apiVersion` field.
+          required: [app, api]
+      required: [name, version, apiVersion, environment, build, changelog]
 
     User:
       type: object

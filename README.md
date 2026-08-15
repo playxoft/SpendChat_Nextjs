@@ -158,10 +158,11 @@ src/
   app/
     (marketing)/        # static, SEO-first: landing, features, about, faq, privacy, terms
     (auth)/             # branded sign-in / sign-up (custom forms + Firebase Web SDK)
-    (app)/              # authenticated shell: app (chat), transactions, analytics, files, settings
+    app/                # authenticated shell under /app: tracker (chat), transactions, analytics, files, settings
     api/auth/session/   # Firebase ID token → httpOnly session cookie bridge
     api/v1/             # versioned REST API for the Flutter client
     api/transactions/export/  # CSV export route
+    version/            # GET /version — deployed app + API version (public JSON)
     sitemap.ts · robots.ts · manifest.ts · layout.tsx
   actions/              # server actions (thin wrappers over src/services/*)
   services/             # shared business logic, used by both server actions and /api/v1

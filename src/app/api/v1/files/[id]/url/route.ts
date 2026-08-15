@@ -4,23 +4,14 @@ import { apiOk, handle } from "@/lib/api-response";
 import { ApiError, notFound } from "@/lib/errors";
 import { isR2Configured, signedGetUrl } from "@/lib/r2";
 import { getFileForDownload } from "@/services/files";
+import { contentDisposition } from "@/lib/files";
+import { FILE_INLINE_TYPES } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
 /** How long a minted URL stays valid. Short — it's issued per view, only after
  * the caller has been authorized. */
 const URL_TTL_SECONDS = 300;
-
-/**
- * `Content-Disposition` with both an ASCII-safe filename and an RFC 5987 UTF-8
- * filename, so non-ASCII names survive without a hostile name breaking the
- * header. Same construction as the attachments URL route.
- */
-function contentDisposition(fileName: string, inline: boolean): string {
-  const type = inline ? "inline" : "attachment";
-  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
-  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
-}
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -30,8 +21,15 @@ type Ctx = { params: Promise<{ id: string }> };
  * in the current workspace) and returns a URL the client fetches directly —
  * **without** the Authorization header; the signature in the URL is the
  * credential. `?variant=thumb` returns the small preview object when one
- * exists (falling back to the original); `?download=1` sets an attachment
+ * exists (falling back to the original); `?download=1` forces an attachment
  * disposition so a browser/share-sheet saves rather than displays.
+ *
+ * Only types on `FILE_INLINE_TYPES` are served inline; everything else gets an
+ * `attachment` disposition even without `?download=1`. That is the same rule
+ * the web route applies, and it is what keeps the vault's permissive upload
+ * policy safe — the vault accepts any well-formed MIME type, so a stored
+ * HTML/SVG must never render (and run its script) off the R2 origin in the
+ * app's WebView. Previews are always inline: they're webp we generated.
  */
 export async function GET(request: NextRequest, ctx: Ctx) {
   return handle(async () => {
@@ -47,9 +45,10 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     const wantThumb = params.get("variant") === "thumb" && row.thumbnailKey != null;
     const forceDownload = params.get("download") === "1";
     const key = wantThumb ? row.thumbnailKey! : row.r2Key;
+    const inline = wantThumb || (!forceDownload && FILE_INLINE_TYPES.has(row.contentType));
     const url = await signedGetUrl(key, {
       expiresSeconds: URL_TTL_SECONDS,
-      disposition: contentDisposition(row.name, !forceDownload),
+      disposition: contentDisposition(row.name, inline),
     });
     return apiOk({
       url,

@@ -48,6 +48,63 @@ export const VAULT_DEFAULT_FOLDER_COLOR = "#64748b";
 export const folderColor = (folder: { color: string | null }): string =>
   folder.color ?? VAULT_DEFAULT_FOLDER_COLOR;
 
+/** Traffic-light tone for the storage indicator. */
+export type StorageTone = "ok" | "warn" | "full";
+
+/** `warn` from 85% of the quota, `full` at 100% — shared by ring and bar. */
+export function storageUsageTone(usedBytes: number, limitBytes: number): StorageTone {
+  if (usedBytes >= limitBytes) return "full";
+  if (usedBytes >= limitBytes * 0.85) return "warn";
+  return "ok";
+}
+
+const GIB = 1024 ** 3;
+
+/**
+ * The at-a-glance storage label ("0.1/1 GB"): used space to one decimal in GB,
+ * the quota trimmed of trailing zeros. Deliberately coarse — the popover and
+ * tooltips carry the exact `formatFileSize` numbers.
+ */
+export function formatStorageCompact(usedBytes: number, limitBytes: number): string {
+  const limit = limitBytes / GIB;
+  const limitStr = Number.isInteger(limit) ? String(limit) : limit.toFixed(1);
+  return `${(usedBytes / GIB).toFixed(1)}/${limitStr} GB`;
+}
+
+/**
+ * Total bytes per folder, descendants included, from the vault working set the
+ * page already holds: files count toward their folder, transaction files
+ * toward their profile's predefined system folder, and every folder's total
+ * rolls up into its ancestors. Exact for what the views show (the working set
+ * is capped at `VAULT_FILES_LIMIT`, so a capped vault undercounts the same way
+ * the file list does).
+ */
+export function computeFolderSizes(
+  folders: Pick<FolderDTO, "id" | "parentId" | "profileId" | "system">[],
+  files: Pick<FileDTO, "folderId" | "sizeBytes">[],
+  txnFiles: Pick<TxnFileDTO, "profileId" | "sizeBytes">[],
+): Map<string, number> {
+  const totals = new Map<string, number>();
+  const parentOf = new Map(folders.map((f) => [f.id, f.parentId]));
+  const systemByProfile = new Map(
+    folders.filter((f) => f.system).map((f) => [f.profileId, f.id]),
+  );
+
+  const addToChain = (folderId: string | null, bytes: number) => {
+    // Walk up the ancestor chain; a `seen` guard keeps a (never expected)
+    // parent cycle from hanging the page.
+    const seen = new Set<string>();
+    for (let id = folderId; id != null && !seen.has(id); id = parentOf.get(id) ?? null) {
+      seen.add(id);
+      totals.set(id, (totals.get(id) ?? 0) + bytes);
+    }
+  };
+
+  for (const f of files) addToChain(f.folderId, f.sizeBytes);
+  for (const t of txnFiles) addToChain(systemByProfile.get(t.profileId) ?? null, t.sizeBytes);
+  return totals;
+}
+
 /** A vault tag (per-profile entity; items reference it by id). */
 export type TagDTO = {
   id: string;
@@ -232,6 +289,23 @@ export function serializeFileShare(row: {
     expiresAt: row.expiresAt == null ? null : toISO(row.expiresAt),
     createdAt: toISO(row.createdAt),
   };
+}
+
+/**
+ * Build a `Content-Disposition` value with both an ASCII-safe filename and an
+ * RFC 5987 UTF-8 filename, so non-ASCII names survive without letting a hostile
+ * name break out of the header. Shared by every route that serves stored bytes
+ * — vault files and transaction attachments, authenticated or tokenized — so
+ * the header is hardened in exactly one place.
+ *
+ * `inline` is a decision the caller makes from an allowlist
+ * (`FILE_INLINE_TYPES` / `ATTACHMENT_INLINE_TYPES`), never from the stored
+ * content type directly: an uploaded HTML/SVG served inline would execute.
+ */
+export function contentDisposition(fileName: string, inline: boolean): string {
+  const type = inline ? "inline" : "attachment";
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }
 
 /** The authenticated view URL (inline preview when the type supports it). */

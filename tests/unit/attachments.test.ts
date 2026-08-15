@@ -93,6 +93,11 @@ describe("attachment display helpers", () => {
     expect(formatFileSize(2048)).toBe("2.0 KB");
     expect(formatFileSize(1_500_000)).toBe("1.4 MB");
     expect(formatFileSize(5 * 1024 * 1024)).toBe("5.0 MB");
+    // MB holds right up to the GB boundary (rounding, not toFixed, ≥ 10 MB).
+    expect(formatFileSize(1023 * 1024 * 1024)).toBe("1023 MB");
+    expect(formatFileSize(1024 ** 3)).toBe("1.0 GB");
+    expect(formatFileSize(1.5 * 1024 ** 3)).toBe("1.5 GB");
+    expect(formatFileSize(12.4 * 1024 ** 3)).toBe("12 GB");
   });
 
   it("prefers a custom label over the filename", () => {

@@ -10,5 +10,5 @@ export default async function SettingsPage({
 }) {
   const sp = await searchParams;
   const profile = Array.isArray(sp.profile) ? sp.profile[0] : sp.profile;
-  redirect(profile ? `/settings/account?profile=${encodeURIComponent(profile)}` : "/settings/account");
+  redirect(profile ? `/app/settings/account?profile=${encodeURIComponent(profile)}` : "/app/settings/account");
 }

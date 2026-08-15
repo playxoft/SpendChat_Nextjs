@@ -36,6 +36,7 @@ import { updateFile, updateFolder } from "@/actions/files";
 import {
   FILE_CATEGORY_LABELS,
   SYSTEM_FOLDER_NOTICE,
+  computeFolderSizes,
   type FileDTO,
   type FolderDTO,
   type TagDTO,
@@ -55,6 +56,7 @@ import {
   type VaultTarget,
 } from "./files-views";
 import { FilesColumnView } from "./files-column-view";
+import { StorageRing } from "./storage-ring";
 import { TagChip } from "./vault-tags";
 import {
   DeleteVaultItemDialog,
@@ -90,6 +92,8 @@ export function FilesPageClient({
   currency,
   locale,
   filesCapped,
+  storageUsedBytes,
+  storageLimitBytes,
 }: {
   folders: FolderDTO[];
   files: FileDTO[];
@@ -101,6 +105,10 @@ export function FilesPageClient({
   currency: string;
   locale: string;
   filesCapped: boolean;
+  /** Workspace-wide (files + attachments), server-computed; refreshed by the
+   * `router.refresh()` that already follows every upload/delete. */
+  storageUsedBytes: number;
+  storageLimitBytes: number;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -179,16 +187,25 @@ export function FilesPageClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, sortKey, dir, tagMap]);
 
+  // Folder totals (descendants included) from the full working set — never the
+  // filtered arrays, so a search or tag filter doesn't shrink a folder's size.
+  const folderSizes = useMemo(
+    () => computeFolderSizes(folders, files, txnFiles),
+    [folders, files, txnFiles],
+  );
+
   const sortedFolders = useMemo(() => {
     const base: (a: FolderDTO, b: FolderDTO) => number =
       sortKey === "time"
         ? (a, b) => a.createdAt.localeCompare(b.createdAt)
-        : sortKey === "tags"
-          ? (a, b) => tagSortKey(a.tagIds).localeCompare(tagSortKey(b.tagIds))
-          : (a, b) => a.name.localeCompare(b.name);
+        : sortKey === "size"
+          ? (a, b) => (folderSizes.get(a.id) ?? 0) - (folderSizes.get(b.id) ?? 0)
+          : sortKey === "tags"
+            ? (a, b) => tagSortKey(a.tagIds).localeCompare(tagSortKey(b.tagIds))
+            : (a, b) => a.name.localeCompare(b.name);
     return [...folders].sort((a, b) => dir * base(a, b));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folders, sortKey, dir, tagMap]);
+  }, [folders, sortKey, dir, tagMap, folderSizes]);
 
   const sortedTxnFiles = useMemo(() => {
     const base: (a: TxnFileDTO, b: TxnFileDTO) => number =
@@ -428,6 +445,7 @@ export function FilesPageClient({
     locale,
     profileLabel: (id) => profileNameById.get(id) ?? null,
     tagById: (id) => tagMap.get(id),
+    folderSize: (id) => folderSizes.get(id) ?? 0,
     openFolder: (id) => navigateToFolder(id),
     previewFile: (file) =>
       openViewer({ id: file.id, fileName: file.name, contentType: file.contentType, source: "file" }),
@@ -506,6 +524,7 @@ export function FilesPageClient({
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-xl font-semibold">Files</h1>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          <StorageRing usedBytes={storageUsedBytes} limitBytes={storageLimitBytes} />
           <div className="relative">
             <Search
               className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
@@ -540,28 +559,42 @@ export function FilesPageClient({
           </div>
           {canWrite ? (
             <>
+              {/* Icon-only, sitting beside the view toggle at the same `size-8`,
+                  so the toolbar fits a phone without wrapping. The name lives in
+                  `aria-label`/`title` — `title` is overridden below whenever the
+                  button is disabled, which is the case worth explaining. */}
               <Button
                 variant="outline"
+                size="icon"
+                className="size-8"
                 onClick={() => setNewFolderOpen(true)}
                 disabled={!canUploadHere}
+                aria-label="New folder"
                 title={
                   inSystemFolder
                     ? "Folders can't be created in this predefined folder"
                     : canUploadHere
-                      ? undefined
+                      ? "New folder"
                       : "Switch to a profile to create folders"
                 }
               >
-                <FolderPlus className="size-4" /> New folder
+                <FolderPlus className="size-4" />
               </Button>
+              {/* Icon-only and `size-8`, matching New folder beside it, so the
+                  whole toolbar stays on one line on a phone. Keeps the default
+                  (solid) variant — it's the primary action here, and the filled
+                  button is what marks it as such next to the outlined ones. */}
               <Button
+                size="icon"
+                className="size-8"
                 onClick={() => fileInputRef.current?.click()}
                 disabled={!canUploadHere || progress !== null}
+                aria-label="Upload"
                 title={
                   inSystemFolder
                     ? "Files here come from transactions"
                     : canUploadHere
-                      ? undefined
+                      ? "Upload"
                       : "Switch to a profile to upload"
                 }
               >
@@ -570,7 +603,6 @@ export function FilesPageClient({
                 ) : (
                   <Upload className="size-4" />
                 )}
-                Upload
               </Button>
             </>
           ) : null}

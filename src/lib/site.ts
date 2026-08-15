@@ -43,7 +43,7 @@ export const marketingNav = [
 /** Authenticated app navigation. */
 export const appNav = [
   { href: "/app", label: "Tracker", icon: "MessageSquare" },
-  { href: "/transactions", label: "Transactions", icon: "Table2" },
-  { href: "/analytics", label: "Analytics", icon: "ChartColumn" },
-  { href: "/settings", label: "Settings", icon: "Settings" },
+  { href: "/app/transactions", label: "Transactions", icon: "Table2" },
+  { href: "/app/analytics", label: "Analytics", icon: "ChartColumn" },
+  { href: "/app/settings", label: "Settings", icon: "Settings" },
 ] as const;

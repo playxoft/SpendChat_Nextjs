@@ -10,7 +10,7 @@ vi.mock("@/lib/r2", () => ({
 }));
 
 import { uploadObject, deleteObject } from "@/lib/r2";
-import { profileAccess, transactionAttachments, transactions } from "@/db/schema";
+import { files, profileAccess, transactionAttachments, transactions } from "@/db/schema";
 import {
   createAttachments,
   deleteAttachment,
@@ -19,7 +19,11 @@ import {
   updateAttachment,
   type AttachmentUpload,
 } from "@/services/attachments";
-import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_PER_TRANSACTION } from "@/lib/validation";
+import {
+  ATTACHMENT_MAX_BYTES,
+  ATTACHMENT_MAX_PER_TRANSACTION,
+  STORAGE_QUOTA_BYTES,
+} from "@/lib/validation";
 import { bootstrapUser, firstProfileId, insertTxn, workspaceIdOf } from "./helpers/seed";
 import { uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
@@ -102,6 +106,47 @@ describe("createAttachments", () => {
     await deleteAttachment(uid("a"), ws, dto!.id);
     expect(deleteObject).toHaveBeenCalledWith(row!.r2Key);
     expect(deleteObject).toHaveBeenCalledWith(row!.thumbnailKey);
+  });
+
+  it("rejects a batch that would exceed the workspace storage quota, before R2", async () => {
+    const { ws, pid, txn } = await setup();
+    // Vault files and attachments share the pool — seed it nearly full.
+    await getTestDb()
+      .insert(files)
+      .values({
+        workspaceId: ws,
+        profileId: pid,
+        userId: uid("a"),
+        r2Key: "vault/quota-seed",
+        name: "big.bin",
+        contentType: "application/octet-stream",
+        sizeBytes: STORAGE_QUOTA_BYTES - 4,
+      });
+
+    await expect(
+      createAttachments(uid("a"), ws, txn, [mkFile("receipt.pdf", "application/pdf", 8)]),
+    ).rejects.toMatchObject({ status: 413, code: "storage_quota_exceeded" });
+    expect(uploadObject).not.toHaveBeenCalled();
+  });
+
+  it("accepts an upload that exactly fills the quota", async () => {
+    const { ws, pid, txn } = await setup();
+    await getTestDb()
+      .insert(files)
+      .values({
+        workspaceId: ws,
+        profileId: pid,
+        userId: uid("a"),
+        r2Key: "vault/quota-seed",
+        name: "big.bin",
+        contentType: "application/octet-stream",
+        sizeBytes: STORAGE_QUOTA_BYTES - 8,
+      });
+
+    const created = await createAttachments(uid("a"), ws, txn, [
+      mkFile("receipt.pdf", "application/pdf", 8),
+    ]);
+    expect(created).toHaveLength(1);
   });
 
   it("resolves an office doc sent as octet-stream via its extension", async () => {

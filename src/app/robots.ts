@@ -8,12 +8,12 @@ export default function robots(): MetadataRoute.Robots {
         userAgent: "*",
         allow: "/",
         disallow: [
+          // Every authenticated app page lives under /app — one prefix covers
+          // them all, so new app routes need no entry here.
           "/app",
-          "/transactions",
-          "/analytics",
-          "/files",
-          "/settings",
           "/api/",
+          // JSON build/version info, not a page — nothing for an index.
+          "/version",
           "/sign-in",
           "/sign-up",
           "/verify-email",
