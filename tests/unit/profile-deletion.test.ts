@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { profileDisposalRequest } from "@/lib/profile-deletion";
+import { hasDisposableContents, profileDisposalRequest } from "@/lib/profile-deletion";
 
-const counts = (transactions: number) => ({ transactions, files: 0, attachments: 0 });
+const counts = (transactions: number, files = 0) => ({ transactions, files, attachments: 0 });
 
 /**
  * The rule that decides whether a confirm click may destroy rows. The dialog
@@ -40,9 +40,33 @@ describe("profileDisposalRequest", () => {
     });
   });
 
+  /**
+   * A profile can hold documents and no transactions. Gating the choice on the
+   * transaction count alone meant that profile was never offered one, so its
+   * vault was deleted without anyone being asked — even though `move` carries
+   * the vault and there was somewhere to put it.
+   */
+  it("disposes of a profile that holds only vault files", () => {
+    expect(profileDisposalRequest(counts(0, 5), "move", "p1")).toEqual({
+      transactions: "move",
+      toProfileId: "p1",
+    });
+    expect(profileDisposalRequest(counts(0, 5), "delete", "")).toEqual({
+      transactions: "delete",
+    });
+  });
+
   it("falls back to reject for a move with no destination", () => {
     expect(profileDisposalRequest(counts(3), "move", "")).toEqual({
       transactions: "reject",
     });
+  });
+});
+
+describe("hasDisposableContents — when the dialog offers a choice", () => {
+  it("counts vault files, not just transactions", () => {
+    expect(hasDisposableContents(counts(0, 0))).toBe(false);
+    expect(hasDisposableContents(counts(2, 0))).toBe(true);
+    expect(hasDisposableContents(counts(0, 2))).toBe(true);
   });
 });

@@ -33,7 +33,7 @@ export function profileDisposalRequest(
   disposal: ProfileDisposalChoice,
   toProfileId: string,
 ): DeleteProfileInput {
-  if (!counts || counts.transactions <= 0) return { transactions: "reject" };
+  if (!counts || !hasDisposableContents(counts)) return { transactions: "reject" };
   if (disposal === "move") {
     // No destination is a 422 rather than a delete; the button guards this too.
     return toProfileId
@@ -41,4 +41,16 @@ export function profileDisposalRequest(
       : { transactions: "reject" };
   }
   return { transactions: "delete" };
+}
+
+/**
+ * Is there anything in the profile whose fate the user should get to choose?
+ *
+ * Vault files count, not just transactions. `move` carries the vault too, so a
+ * profile holding twenty documents and no transactions is just as movable — and
+ * gating the choice on transactions alone meant that profile never got offered
+ * one and had its documents deleted without being asked.
+ */
+export function hasDisposableContents(counts: ProfileDeletionCounts): boolean {
+  return counts.transactions > 0 || counts.files > 0;
 }

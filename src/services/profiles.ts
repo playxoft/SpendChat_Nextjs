@@ -1,8 +1,17 @@
 import "server-only";
-import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 import { z } from "zod";
 import { getDb, type Db } from "@/db";
-import { files, profiles, transactionAttachments, transactions } from "@/db/schema";
+import {
+  fileShares,
+  fileTags,
+  files,
+  folders,
+  profiles,
+  transactionAttachments,
+  transactions,
+} from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { conflict, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
@@ -130,7 +139,7 @@ export async function updateProfile(
 export type ProfileDeletionImpact = {
   /** Transactions filed under the profile — deletable or movable. */
   transactions: number;
-  /** Vault files stored under it. These always go with the profile. */
+  /** Vault files stored under it. Deleted with the profile, or moved with it. */
   files: number;
   /** Receipts on those transactions. They follow the transactions' fate. */
   attachments: number;
@@ -139,18 +148,18 @@ export type ProfileDeletionImpact = {
 /**
  * Counts for the delete confirmation (requires admin, like the delete itself).
  *
- * `files` is here because a profile delete cascades its vault away whichever
- * option the user picks — the dialog has to say so rather than let a folder of
- * documents disappear behind a sentence about transactions.
+ * All three follow the caller's disposal: `delete` destroys them, `move`
+ * re-files every one under the destination profile. They stay separate numbers
+ * because they're separate things to the user — transactions in the tracker,
+ * receipts hanging off those transactions, documents in the vault — and a
+ * dialog that says "12 transactions" while quietly taking forty receipts and a
+ * folder of documents with them is not describing what it is about to do.
  *
- * `attachments` is separate from `files` rather than folded into it because the
- * two behave differently: the vault always goes, while receipts follow their
- * transactions (destroyed on `delete`, re-filed on `move`). Counting them at
- * all matters — a profile can hold no vault rows and forty receipts, and those
- * forty are visible to the user in the vault's "Transaction attachments"
- * folder, so a dialog that reports `files: 0` is under-reporting what it is
- * about to destroy. Counted through the parent transaction, exactly like the
- * sweep in `deleteProfile`, so both agree on what belongs to this profile.
+ * Counting `files` at all matters for the same reason `attachments` does: a
+ * profile can hold no vault rows and forty receipts, or no transactions and a
+ * full vault, and either way the number the user is shown has to be the number
+ * that moves. `attachments` is counted through the parent transaction, exactly
+ * like the sweep in `deleteProfile`, so the two agree on what belongs here.
  */
 export async function getProfileDeletionImpact(
   userId: string,
@@ -211,6 +220,91 @@ async function reprofileTransactions(tx: Tx, fromId: string, toId: string): Prom
 }
 
 /**
+ * Move a profile's whole vault — tags, folders, files and share links — to
+ * another profile.
+ *
+ * Only `deleteProfile`'s `move` disposal calls this, because only there is the
+ * source profile going away: leaving its documents behind would cascade them
+ * into nothing. `POST /profiles/{id}/move` deliberately does *not*, since that
+ * re-files transactions between two profiles that both keep existing, and a
+ * vault belongs to the profile it was filed under.
+ *
+ * Two unique indexes make this more than four UPDATEs — see each step.
+ */
+async function reprofileVault(tx: Tx, fromId: string, toId: string): Promise<void> {
+  // Tags first, because files and folders reference them by id and would
+  // otherwise be left pointing at rows that move out from under them.
+  //
+  // `file_tags` is unique on (profile_id, lower(name)), so a source tag whose
+  // name already exists in the destination can't simply be re-pointed. Those
+  // merge: every reference is rewritten to the destination's tag and the source
+  // row dropped, so a file tagged "Receipts" stays tagged "Receipts" instead of
+  // gaining a second tag of the same name.
+  const destTags = alias(fileTags, "dest_tags");
+  const twins = await tx
+    .select({ src: fileTags.id, dst: destTags.id })
+    .from(fileTags)
+    .innerJoin(
+      destTags,
+      and(
+        eq(destTags.profileId, toId),
+        sql`lower(${destTags.name}) = lower(${fileTags.name})`,
+      ),
+    )
+    .where(eq(fileTags.profileId, fromId));
+
+  for (const { src, dst } of twins) {
+    // `array_replace` alone would leave a duplicate on anything already
+    // carrying the destination's tag, so the result is rebuilt distinct.
+    for (const table of [files, folders]) {
+      await tx.execute(sql`
+        UPDATE ${table}
+        SET tag_ids = (
+          SELECT COALESCE(array_agg(DISTINCT t), '{}'::uuid[])
+          FROM unnest(array_replace(tag_ids, ${src}::uuid, ${dst}::uuid)) AS t
+        )
+        WHERE ${src}::uuid = ANY(tag_ids)
+      `);
+    }
+    await tx.delete(fileTags).where(eq(fileTags.id, src));
+  }
+  await tx.update(fileTags).set({ profileId: toId }).where(eq(fileTags.profileId, fromId));
+
+  // The predefined "Transaction attachments" folder is unique per profile
+  // (partial index on (profile_id, system_key)), so when the destination
+  // already has one the source's can't move — it's dropped instead. Anything
+  // under it is re-parented FIRST: `files.folder_id` and `folders.parent_id`
+  // are both ON DELETE cascade, so deleting it with children still attached
+  // would destroy exactly the documents this move exists to preserve.
+  const [srcSystem] = await tx
+    .select({ id: folders.id })
+    .from(folders)
+    .where(and(eq(folders.profileId, fromId), isNotNull(folders.systemKey)))
+    .limit(1);
+  const [dstSystem] = await tx
+    .select({ id: folders.id })
+    .from(folders)
+    .where(and(eq(folders.profileId, toId), isNotNull(folders.systemKey)))
+    .limit(1);
+  if (srcSystem && dstSystem) {
+    await tx.update(files).set({ folderId: dstSystem.id }).where(eq(files.folderId, srcSystem.id));
+    await tx
+      .update(folders)
+      .set({ parentId: dstSystem.id })
+      .where(eq(folders.parentId, srcSystem.id));
+    await tx.delete(folders).where(eq(folders.id, srcSystem.id));
+  }
+
+  // The tree moves whole, so parent links stay valid and only the profile
+  // changes. `updated_at` is deliberately left alone: re-filing hundreds of
+  // files is bookkeeping, and stamping every row would rewrite the "Added"
+  // and modified metadata the vault shows for documents nobody touched.
+  await tx.update(folders).set({ profileId: toId }).where(eq(folders.profileId, fromId));
+  await tx.update(files).set({ profileId: toId }).where(eq(files.profileId, fromId));
+  await tx.update(fileShares).set({ profileId: toId }).where(eq(fileShares.profileId, fromId));
+}
+
+/**
  * Point any attachment row still naming this profile at the profile its
  * transaction actually lives in.
  *
@@ -243,11 +337,14 @@ async function healStrandedAttachments(tx: Tx, profileId: string): Promise<void>
  * non-UUID id or the workspace's last remaining profile. Returns whether a row
  * was removed.
  *
- * Whatever the choice, the profile's **vault files** go with it (the `files` /
- * `folders` / `file_tags` / `file_shares` rows all cascade). The R2 objects
- * behind those rows don't — nothing cascades in object storage — so every key
- * is read *before* the delete and swept after: once the rows are gone the bytes
- * are unreachable and would bill forever.
+ * The profile's **vault** follows the same choice as its transactions: `move`
+ * re-files the `files` / `folders` / `file_tags` / `file_shares` rows under the
+ * destination (see `reprofileVault`), and anything left filed under the profile
+ * when it goes cascades away with it. The R2 objects behind those rows don't —
+ * nothing cascades in object storage — so every key still belonging to the
+ * profile is read *before* the delete and swept after: once the rows are gone
+ * the bytes are unreachable and would bill forever. On `move` that read finds
+ * nothing, which is exactly right — those files still have owners.
  *
  * **The whole database half runs in one transaction**, because it is several
  * statements that are only safe together. `transactions.profile_id` is ON
@@ -292,6 +389,11 @@ export async function deleteProfile(
 
       if (disposal.transactions === "move") {
         await reprofileTransactions(tx, id, disposal.toProfileId!);
+        // The vault goes with them. Deleting a profile is not a decision to
+        // discard its documents, and the sweep below reads what is still filed
+        // under the profile — so once these rows point elsewhere, nothing of
+        // theirs is collected and none of their objects are touched.
+        await reprofileVault(tx, id, disposal.toProfileId!);
       } else if (disposal.transactions === "reject") {
         const [{ used }] = await tx
           .select({ used: count() })

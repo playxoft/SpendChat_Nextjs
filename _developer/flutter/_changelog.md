@@ -19,6 +19,37 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.9.0 — 2026-08-15
+
+`transactions=move` now moves the profile's vault as well.
+
+### Changed
+- **`DELETE /profiles/{id}?transactions=move` re-files the vault** — files,
+  folders, file-tags and file-shares — under `?to=` instead of deleting it.
+  Previously only the transactions and their attachments moved and the vault
+  was destroyed with the profile. `transactions=delete` is unchanged: it still
+  deletes the vault along with everything else. Two collisions are resolved on
+  the way: a file-tag whose name already exists in the destination is **merged**
+  into it (references rewritten, the duplicate row dropped, so a tag id can
+  disappear), and the source's predefined "Transaction attachments" folder is
+  dropped once its contents are re-parented into the destination's, since a
+  profile only ever has one.
+- **`GET /profiles/{id}/deletion-impact` counts unchanged in shape, changed in
+  meaning.** `files` is no longer "deleted whichever option you pick" — like
+  `transactions` and `attachments`, it now follows the disposal: destroyed on
+  `delete`, moved on `move`.
+
+**Flutter impact:** none required — no path, status, or JSON shape changed. Two
+things to correct in the UI: a confirm dialog that says the vault is deleted
+regardless (as the 5.7.0 note told you to) is now wrong for `move`, so drop that
+sentence and say the files move; and offer the disposal choice whenever
+`transactions > 0` **or** `files > 0`, not just for transactions, or a profile
+holding only documents gets deleted without the user being asked. After a move,
+re-fetch any cached file-tag ids for the destination profile — merged tags are
+gone.
+
+---
+
 ## 5.8.0 — 2026-08-15
 
 Video and audio files stored in the vault are now actually playable.
