@@ -319,10 +319,70 @@ export const createFileShareSchema = z
 export type CreateFileShareInput = z.input<typeof createFileShareSchema>;
 
 /**
+ * Extension → canonical media type for the vault's video/audio uploads.
+ *
+ * This map is what actually makes video previews work. Browsers report `File.type`
+ * inconsistently — empty or `application/octet-stream` for `.mkv`, `.avi`, `.m4v`,
+ * `.flv` and often for files dragged in from other apps — and without a fallback
+ * those land as `application/octet-stream`, which is neither `video/*` nor inline,
+ * so the viewer only ever offered a download. Resolving by extension keeps the
+ * stored type honest.
+ *
+ * Deliberately wider than what any one browser can decode: which containers and
+ * codecs actually play is the *browser's* call, not ours, and it differs per
+ * engine (Chrome plays Matroska, Safari doesn't; Safari plays more of QuickTime).
+ * We serve every one of them inline with Range support and let `<video>` try —
+ * the viewer falls back to a download card on a decode error, so a format the
+ * engine can't handle degrades per-viewer instead of being blocked for everyone.
+ */
+const VIDEO_EXTENSIONS: Record<string, string> = {
+  mp4: "video/mp4",
+  m4v: "video/x-m4v",
+  webm: "video/webm",
+  mov: "video/quicktime",
+  qt: "video/quicktime",
+  mkv: "video/x-matroska",
+  ogv: "video/ogg",
+  avi: "video/x-msvideo",
+  wmv: "video/x-ms-wmv",
+  flv: "video/x-flv",
+  mpeg: "video/mpeg",
+  mpg: "video/mpeg",
+  "3gp": "video/3gpp",
+  "3g2": "video/3gpp2",
+  ts: "video/mp2t",
+  m2ts: "video/mp2t",
+};
+
+const AUDIO_EXTENSIONS: Record<string, string> = {
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  aac: "audio/aac",
+  ogg: "audio/ogg",
+  oga: "audio/ogg",
+  opus: "audio/opus",
+  flac: "audio/flac",
+  weba: "audio/webm",
+  amr: "audio/amr",
+  wma: "audio/x-ms-wma",
+};
+
+/** Every media type the vault recognizes, video and audio together. */
+export const MEDIA_EXTENSIONS: Record<string, string> = {
+  ...VIDEO_EXTENSIONS,
+  ...AUDIO_EXTENSIONS,
+};
+
+/**
  * Types the files API serves inline (previews). Everything else is stored fine
  * but served download-only with `Content-Disposition: attachment` — which is
  * what makes the permissive upload policy below safe: an uploaded HTML/SVG can
  * never execute in our origin because it is never rendered inline.
+ *
+ * Media is inline across the board (see `MEDIA_EXTENSIONS`): audio and video
+ * bytes are decoded by the media pipeline, never as a document, so none of them
+ * can run script the way an HTML or SVG file could.
  */
 export const FILE_INLINE_TYPES = new Set<string>([
   "image/jpeg",
@@ -333,13 +393,7 @@ export const FILE_INLINE_TYPES = new Set<string>([
   "text/plain",
   "text/csv",
   "text/markdown",
-  "video/mp4",
-  "video/webm",
-  "video/quicktime",
-  "audio/mpeg",
-  "audio/wav",
-  "audio/mp4",
-  "audio/ogg",
+  ...Object.values(MEDIA_EXTENSIONS),
 ]);
 
 /** Fallback mime → extension map for uploads whose filename has no extension. */
@@ -348,13 +402,12 @@ const FILE_TYPE_EXTENSIONS: Record<string, string> = {
   "text/markdown": "md",
   "application/json": "json",
   "application/zip": "zip",
-  "video/mp4": "mp4",
-  "video/webm": "webm",
-  "video/quicktime": "mov",
-  "audio/mpeg": "mp3",
-  "audio/wav": "wav",
-  "audio/mp4": "m4a",
-  "audio/ogg": "ogg",
+  // Reverse of the media map — first extension listed for a type wins.
+  ...Object.fromEntries(
+    Object.entries(MEDIA_EXTENSIONS)
+      .reverse()
+      .map(([ext, type]) => [type, ext]),
+  ),
   "application/vnd.ms-powerpoint": "ppt",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation": "pptx",
 };
@@ -379,7 +432,10 @@ export function resolveFileType(
   if (MIME_RE.test(declared) && declared !== "application/octet-stream") {
     return { contentType: declared, ext: ext || FILE_TYPE_EXTENSIONS[declared] || "bin" };
   }
-  const byExt = ext ? ATTACHMENT_EXTENSIONS[ext] : undefined;
+  // No usable declared type: recover it from the extension. Media is checked
+  // too, not just the attachment allowlist — browsers routinely hand us nothing
+  // for a .mkv/.avi/.m4v, and octet-stream would cost the file its preview.
+  const byExt = ext ? (ATTACHMENT_EXTENSIONS[ext] ?? MEDIA_EXTENSIONS[ext]) : undefined;
   return { contentType: byExt ?? "application/octet-stream", ext: ext || "bin" };
 }
 

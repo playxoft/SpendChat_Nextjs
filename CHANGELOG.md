@@ -14,9 +14,22 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.7.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.8.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.4.1] — 2026-08-15
+
+### Fixed
+
+- **Videos play in the file preview again.** Only `.mp4`, `.webm` and some
+  `.mov` files ever previewed; `.mkv`, `.avi`, `.m4v`, `.wmv`, `.flv` and others
+  opened a download card instead. The cause was upload-side: browsers report no
+  file type at all for those extensions, so they were stored as anonymous
+  binaries and nothing downstream knew they were video. They're now recognized
+  by extension and streamed to the player with seeking support — and if your
+  browser genuinely can't decode a format, the preview says so instead of
+  showing a dead player. The same fix covers audio (`.flac`, `.opus`, `.aac`…).
 
 ## [0.4.0] — 2026-08-15
 

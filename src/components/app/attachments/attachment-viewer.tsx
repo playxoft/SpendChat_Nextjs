@@ -166,22 +166,8 @@ function AttachmentPreview({
                     onLoad={() => setLoading(false)}
                     className="size-full border-0"
                   />
-                ) : isVideo ? (
-                  <div className="flex size-full items-center justify-center p-4">
-                    {/* The route 302s to a presigned URL; <video> follows it and
-                        gets native Range support for seeking. */}
-                    <video
-                      key={item.id}
-                      src={viewUrlFor(item)}
-                      controls
-                      autoPlay
-                      className="max-h-full max-w-full"
-                    />
-                  </div>
-                ) : isAudio ? (
-                  <div className="flex size-full items-center justify-center p-6">
-                    <audio key={item.id} src={viewUrlFor(item)} controls className="w-full max-w-xl" />
-                  </div>
+                ) : isVideo || isAudio ? (
+                  <MediaPreview key={item.id} item={item} kind={isVideo ? "video" : "audio"} />
                 ) : (
                   <DataFilePreview key={item.id} item={item} />
                 )}
@@ -191,6 +177,49 @@ function AttachmentPreview({
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  );
+}
+
+/**
+ * Video/audio playback. The route 302s to a presigned URL, so the element gets
+ * native Range support (seeking) instead of a proxied stream.
+ *
+ * Whether a given file plays is the browser's call, not ours — Chrome decodes
+ * Matroska and Safari doesn't, Safari handles more QuickTime variants, and a
+ * plain `.avi` plays almost nowhere. So every media type is offered to the
+ * element and a decode failure (`onError`, which fires when no source is
+ * usable) swaps in the download card. That way a format one engine supports
+ * isn't withheld from it just because another engine can't cope.
+ */
+function MediaPreview({ item, kind }: { item: ViewerAttachment; kind: "video" | "audio" }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <DownloadCard item={item} unplayable />;
+
+  if (kind === "audio") {
+    return (
+      <div className="flex size-full items-center justify-center p-6">
+        <audio
+          src={viewUrlFor(item)}
+          controls
+          preload="metadata"
+          onError={() => setFailed(true)}
+          className="w-full max-w-xl"
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="flex size-full items-center justify-center p-4">
+      <video
+        src={viewUrlFor(item)}
+        controls
+        autoPlay
+        playsInline
+        preload="metadata"
+        onError={() => setFailed(true)}
+        className="max-h-full max-w-full"
+      />
+    </div>
   );
 }
 
@@ -210,8 +239,10 @@ function DataFilePreview({ item }: { item: ViewerAttachment }) {
   return <DownloadCard item={item} />;
 }
 
-/** Fallback panel for a file we can't render inline. */
-function DownloadCard({ item }: { item: ViewerAttachment }) {
+/** Fallback panel for a file we can't render inline. `unplayable` means the
+ *  browser refused the media, which is a different (per-browser) reason than
+ *  the type having no preview at all. */
+function DownloadCard({ item, unplayable }: { item: ViewerAttachment; unplayable?: boolean }) {
   return (
     <div className="flex size-full items-center justify-center p-6">
       <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl border bg-background p-8 text-center">
@@ -219,8 +250,17 @@ function DownloadCard({ item }: { item: ViewerAttachment }) {
           {attachmentGlyph(item.contentType, "size-7")}
         </div>
         <p className="text-sm text-muted-foreground">
-          Previews aren’t available for {fileTypeLabel(item.contentType)} files yet.
-          Download it to view.
+          {unplayable ? (
+            <>
+              This browser can’t play this {fileTypeLabel(item.contentType).toLowerCase()}’s
+              format. Download it to watch in a media player.
+            </>
+          ) : (
+            <>
+              Previews aren’t available for {fileTypeLabel(item.contentType)} files yet.
+              Download it to view.
+            </>
+          )}
         </p>
         <a
           href={downloadUrlFor(item)}

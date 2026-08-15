@@ -71,6 +71,41 @@ describe("resolveFileType — the vault's permissive resolver", () => {
       ext: "bin",
     });
   });
+
+  // Browsers report File.type inconsistently for video: empty or
+  // octet-stream for .mkv/.avi/.m4v and often for files dragged from other
+  // apps. Without the extension fallback these stored as octet-stream and lost
+  // their preview, which is exactly what "video previews don't show" was.
+  it("recovers a media type from the extension when the browser declares none", () => {
+    expect(resolveFileType("holiday.mkv", "")).toEqual({
+      contentType: "video/x-matroska",
+      ext: "mkv",
+    });
+    expect(resolveFileType("clip.mov", "application/octet-stream")).toEqual({
+      contentType: "video/quicktime",
+      ext: "mov",
+    });
+    expect(resolveFileType("old.avi", null).contentType).toBe("video/x-msvideo");
+    expect(resolveFileType("song.flac", "").contentType).toBe("audio/flac");
+    expect(resolveFileType("voice.opus", "").contentType).toBe("audio/opus");
+  });
+
+  it("serves every recovered media type inline, so <video> can play it", () => {
+    for (const name of ["a.mp4", "a.webm", "a.mov", "a.mkv", "a.avi", "a.m4v", "a.mp3", "a.flac"]) {
+      const { contentType } = resolveFileType(name, "");
+      expect(FILE_INLINE_TYPES.has(contentType)).toBe(true);
+    }
+    // The rule that keeps permissive uploads safe still holds: only media and
+    // the known-safe document types are inline — never a stored HTML/SVG.
+    expect(FILE_INLINE_TYPES.has("image/svg+xml")).toBe(false);
+    expect(FILE_INLINE_TYPES.has("text/html")).toBe(false);
+  });
+
+  it("labels every video container as Video, whatever the container", () => {
+    for (const name of ["a.mkv", "a.avi", "a.mov", "a.wmv", "a.3gp"]) {
+      expect(fileTypeLabel(resolveFileType(name, "").contentType)).toBe("Video");
+    }
+  });
 });
 
 describe("tags — entity schemas + palette", () => {

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.7.0"
+  version: "5.8.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -754,8 +754,11 @@ paths:
         is not a file** — so a preview can never attach to the wrong file.
 
         Unlike transaction attachments there is **no type allowlist** — videos,
-        archives, anything goes; an unknown type is stored as
-        `application/octet-stream`. Limits: **10 files per request** (400),
+        archives, anything goes. A part whose `Content-Type` is missing or
+        `application/octet-stream` has its type **resolved from the filename
+        extension** (`.mkv` → `video/x-matroska`, `.flac` → `audio/flac`, …),
+        so send the filename with its extension intact; a type that stays
+        unrecognized is stored as `application/octet-stream`. Limits: **10 files per request** (400),
         **5 MB per file — previews included** (413 `payload_too_large`), and
         the workspace's **1 GB storage quota** — a batch whose combined size
         doesn't fit gets 413 `storage_quota_exceeded`.
@@ -856,8 +859,15 @@ paths:
 
         **Only previewable types are served inline.** The URL carries
         `Content-Disposition: inline` for images, PDF, plain text/CSV/Markdown
-        and audio/video; **every other type gets `attachment` even without
-        `?download=1`**. The vault accepts any well-formed MIME type, so an
+        and **every recognized audio/video container** — mp4, webm, quicktime,
+        matroska, avi, wmv, flv, mpeg, 3gpp, mp2t, ogg, and mp3/wav/m4a/aac/
+        opus/flac/amr/wma; **every other type gets `attachment` even without
+        `?download=1`**. Media is inline across the board because media bytes
+        go to a decoder, never to a document parser — the allowlist still
+        excludes HTML/SVG. Whether a given container actually plays is the
+        **player's** call and differs by platform (Android's ExoPlayer handles
+        Matroska; iOS's AVPlayer largely does not) — treat a decode error as
+        expected and fall back to a download/share action. The vault accepts any well-formed MIME type, so an
         uploaded HTML/SVG must never be rendered by the platform WebView off
         the storage origin. `?variant=thumb` is always inline (the preview is
         webp the client generated). Open the URL in a browser/WebView and the

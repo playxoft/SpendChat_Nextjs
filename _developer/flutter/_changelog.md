@@ -19,6 +19,35 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.8.0 — 2026-08-15
+
+Video and audio files stored in the vault are now actually playable.
+
+### Fixed
+- **Uploads no longer lose their media type.** A file whose part carried no
+  `Content-Type` (or `application/octet-stream` — what browsers and many HTTP
+  clients send for `.mkv`, `.avi`, `.m4v`, `.flac`) was stored as a generic
+  binary. The stored `contentType` is now resolved from the **filename
+  extension** in that case, so `GET /files` reports `video/x-matroska` rather
+  than `application/octet-stream`. Send the filename with its extension intact.
+
+### Changed
+- **`GET /files/{id}/url` serves every recognized audio/video type inline**, not
+  just mp4/webm/quicktime. Matroska, avi, wmv, flv, mpeg, 3gpp, mp2t, ogg and
+  the audio equivalents (mp3, wav, m4a, aac, opus, flac, amr, wma) now come back
+  with an `inline` disposition and Range support instead of `attachment`. Media
+  bytes go to a decoder rather than a document parser, so this doesn't reopen
+  the 5.6.0 inline-rendering issue — the allowlist still excludes HTML/SVG.
+
+**Flutter impact:** none required. Worth adopting: previously-undecodable files
+now stream to a player instead of downloading, so point your video widget at the
+URL. Whether a container plays is the **player's** call and differs by platform
+(Android's ExoPlayer handles Matroska; iOS's AVPlayer largely doesn't) — treat a
+decode error as expected and fall back to a download/share action rather than
+showing a failure.
+
+---
+
 ## 5.7.0 — 2026-08-15
 
 Deleting a profile no longer requires emptying it first — the caller says what
