@@ -41,6 +41,7 @@ import {
   type FolderDTO,
   type TagDTO,
   type TxnFileDTO,
+  type VaultProfile,
 } from "@/lib/files";
 import { cn } from "@/lib/utils";
 import { useFilesView, type FilesView } from "./files-view-store";
@@ -99,7 +100,7 @@ export function FilesPageClient({
   files: FileDTO[];
   txnFiles: TxnFileDTO[];
   tags: TagDTO[];
-  profiles: { id: string; name: string; icon: string | null }[];
+  profiles: VaultProfile[];
   /** null = "All profiles" (uploads/new folders then need a profile picked). */
   activeProfileId: string | null;
   currency: string;
@@ -125,10 +126,6 @@ export function FilesPageClient({
 
   const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
   const tagMap = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
-  const profileNameById = useMemo(
-    () => new Map(profiles.map((p) => [p.id, p.icon ? `${p.icon} ${p.name}` : p.name])),
-    [profiles],
-  );
 
   // The open folder lives in `?folder=`. Navigation uses `history.pushState`,
   // which Next syncs into useSearchParams WITHOUT a server round-trip — folder
@@ -274,15 +271,24 @@ export function FilesPageClient({
   const canUploadHere = canWrite && uploadProfileId !== null && !inSystemFolder;
   const [progress, setProgress] = useState<{ percent: number; count: number } | null>(null);
 
-  /** Upload into a specific folder (OS drop on a folder) or the current one. */
-  const uploadTo = async (folderId: string | null, picked: File[]) => {
+  /**
+   * Upload into a specific folder (OS drop on a folder) or the current one.
+   * `intoProfile` names the destination profile for a root upload that isn't in
+   * the current one — a drop on a profile divider in "All profiles"; a folder
+   * destination still wins, since a folder already belongs to a profile.
+   */
+  const uploadTo = async (
+    folderId: string | null,
+    picked: File[],
+    intoProfile?: string,
+  ) => {
     if (!canWrite || picked.length === 0) return;
     const destination = folderId ? (folderById.get(folderId) ?? null) : null;
     if (destination?.system) {
       toast.error("Files can't be added to Transaction attachments — attach them to a transaction instead");
       return;
     }
-    const profileId = destination?.profileId ?? uploadProfileId;
+    const profileId = destination?.profileId ?? intoProfile ?? uploadProfileId;
     if (!profileId) {
       toast.error("Switch to a profile to upload");
       return;
@@ -440,10 +446,8 @@ export function FilesPageClient({
 
   const handlers: VaultHandlers = {
     canWrite,
-    allProfiles: activeProfileId === null,
     currency,
     locale,
-    profileLabel: (id) => profileNameById.get(id) ?? null,
     tagById: (id) => tagMap.get(id),
     folderSize: (id) => folderSizes.get(id) ?? 0,
     openFolder: (id) => navigateToFolder(id),
@@ -454,6 +458,7 @@ export function FilesPageClient({
     onAction: (type, target) => setAction({ type, target }),
     moveItem: (payload, folderId) => void moveItem(payload, folderId),
     uploadInto: (folderId, picked) => void uploadTo(folderId, picked),
+    uploadIntoProfile: (profileId, picked) => void uploadTo(null, picked, profileId),
     folderHover: (over) => {
       folderHoverCount.current = Math.max(0, folderHoverCount.current + (over ? 1 : -1));
       setFolderHovered(folderHoverCount.current > 0);
@@ -467,6 +472,21 @@ export function FilesPageClient({
   // searching falls back to the list rendering — but a tag filter keeps the
   // columns: the tree is pruned instead (see `columnData`).
   const effectiveView: FilesView = searching && view === "column" ? "list" : view;
+
+  // "All profiles" at the vault root: grid and list group the root items under
+  // per-profile divider bars (sidebar order, empty profiles skipped). Opening a
+  // folder — or any search/tag filtering, whose results aren't root-scoped —
+  // returns to the flat rendering.
+  const profileSections = useMemo(() => {
+    if (activeProfileId !== null || filtering || currentFolderId !== null) return null;
+    return profiles
+      .map((profile) => ({
+        profile,
+        folders: matchedFolders.filter((f) => f.profileId === profile.id),
+        files: matchedFiles.filter((f) => f.profileId === profile.id),
+      }))
+      .filter((s) => s.folders.length > 0 || s.files.length > 0);
+  }, [activeProfileId, filtering, currentFolderId, profiles, matchedFolders, matchedFiles]);
 
   // What the column view browses: everything, or — under a tag filter — a
   // pruned tree of tagged folders (kept browsable with their whole subtree),
@@ -732,6 +752,7 @@ export function FilesPageClient({
           txnFiles={matchedTxnFiles}
           handlers={handlers}
           searching={filtering}
+          sections={profileSections}
         />
       ) : effectiveView === "list" ? (
         <FileListTable
@@ -740,6 +761,7 @@ export function FilesPageClient({
           txnFiles={matchedTxnFiles}
           handlers={handlers}
           searching={filtering}
+          sections={profileSections}
         />
       ) : (
         <FilesColumnView
@@ -750,6 +772,7 @@ export function FilesPageClient({
           path={breadcrumbs}
           onNavigate={navigateToFolder}
           filtering={tagFilter.length > 0}
+          rootProfiles={activeProfileId === null && tagFilter.length === 0 ? profiles : null}
         />
       )}
 
@@ -766,12 +789,23 @@ export function FilesPageClient({
         <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center border-2 border-dashed border-ring bg-background/70 md:left-60">
           <div className="flex flex-col items-center gap-2 text-center">
             <Upload className="size-8 text-muted-foreground" aria-hidden />
+            {/* With several profiles on screen there's no "here" to drop into —
+                the drop has to name a profile, so the copy points at the
+                dividers and folders that can take it. */}
             <p className="text-sm font-medium">
-              Drop anywhere to upload
-              {currentFolder && !inSystemFolder ? <> to “{currentFolder.name}”</> : null}
+              {uploadProfileId === null ? (
+                "Drop onto a profile to upload"
+              ) : (
+                <>
+                  Drop anywhere to upload
+                  {currentFolder && !inSystemFolder ? <> to “{currentFolder.name}”</> : null}
+                </>
+              )}
             </p>
             <p className="text-xs text-muted-foreground">
-              …or drop onto a folder to upload straight into it
+              {uploadProfileId === null
+                ? "Drop on a profile’s bar to upload into it, or onto a folder"
+                : "…or drop onto a folder to upload straight into it"}
             </p>
           </div>
         </div>

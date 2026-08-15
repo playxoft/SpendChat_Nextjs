@@ -58,6 +58,26 @@ export function storageUsageTone(usedBytes: number, limitBytes: number): Storage
   return "ok";
 }
 
+/** Profile display fields the vault needs (sidebar order, section dividers). */
+export type VaultProfile = {
+  id: string;
+  name: string;
+  icon: string | null;
+  color: string | null;
+};
+
+/**
+ * A profile's accent for the vault's section dividers: its own color when one
+ * is set, else a stable pick from the 20-swatch palette hashed off the id — so
+ * an uncolored profile still gets the same accent on every render and device.
+ */
+export function profileAccentColor(profile: Pick<VaultProfile, "id" | "color">): string {
+  if (profile.color) return profile.color;
+  let hash = 0;
+  for (const ch of profile.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return VAULT_COLORS[hash % VAULT_COLORS.length]!;
+}
+
 const GIB = 1024 ** 3;
 
 /**

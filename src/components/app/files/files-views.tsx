@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Fragment,
   useRef,
   useState,
   type CSSProperties,
@@ -54,10 +55,12 @@ import {
   fileThumbUrl,
   fileTypeLabel,
   folderColor,
+  profileAccentColor,
   type FileDTO,
   type FolderDTO,
   type TagDTO,
   type TxnFileDTO,
+  type VaultProfile,
 } from "@/lib/files";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -77,11 +80,8 @@ export const VAULT_DRAG_MIME = "application/x-spendchat-vault";
 /** Everything the presentational views need from the page orchestrator. */
 export type VaultHandlers = {
   canWrite: boolean;
-  /** True when "All profiles" is active — items then show their profile chip. */
-  allProfiles: boolean;
   currency: string;
   locale: string;
-  profileLabel: (profileId: string) => string | null;
   tagById: (id: string) => TagDTO | undefined;
   /** Total bytes in a folder incl. descendants (0 = empty), from the working set. */
   folderSize: (folderId: string) => number;
@@ -93,6 +93,10 @@ export type VaultHandlers = {
   moveItem: (payload: DragPayload, folderId: string | null) => void;
   /** OS files dropped onto a folder (or the root) — upload them there. */
   uploadInto: (folderId: string | null, files: File[]) => void;
+  /** OS files dropped on a profile's divider — upload into that profile's root.
+   * Separate from `uploadInto` because the profile is the target here: "All
+   * profiles" has no current profile for a root upload to infer. */
+  uploadIntoProfile: (profileId: string, files: File[]) => void;
   /** Signals "a folder tile is the hovered drop target right now", so the
    * page can swap its whole-page drop overlay for the folder's own highlight. */
   folderHover: (over: boolean) => void;
@@ -150,17 +154,6 @@ export function TagChips({
         <span className="shrink-0 text-sm text-muted-foreground">+{tags.length - max}</span>
       ) : null}
     </span>
-  );
-}
-
-function ProfileChip({ profileId, handlers }: { profileId: string; handlers: VaultHandlers }) {
-  if (!handlers.allProfiles) return null;
-  const label = handlers.profileLabel(profileId);
-  if (!label) return null;
-  return (
-    <Badge variant="outline" className="max-w-28 truncate px-1.5 py-0 text-sm font-normal">
-      {label}
-    </Badge>
   );
 }
 
@@ -291,6 +284,57 @@ export function useFolderDrop(
         e.stopPropagation();
         handlers.uploadInto(folderId, [...e.dataTransfer.files]);
       }
+    },
+  };
+  return { over, dropProps };
+}
+
+/**
+ * Drop-target state + props for a profile's divider bar in the "All profiles"
+ * root. Dropping OS files on it uploads them into that profile's **root**.
+ *
+ * This is the only upload target that view has: with several profiles on screen
+ * at once there's no single "current" profile, so the whole-page drop zone can't
+ * pick one and refuses the drop ("Switch to a profile to upload"). The divider
+ * already names the profile whose items follow, which makes it the obvious thing
+ * to aim at.
+ *
+ * Internal item drags are deliberately NOT accepted — a file's folder, tags and
+ * share links are all profile-scoped, so moving one across profiles is a real
+ * operation, not something a drop on a section heading should quietly perform.
+ */
+export function useProfileDrop(profileId: string, handlers: VaultHandlers) {
+  const [over, setOver] = useState(false);
+  const overRef = useRef(false);
+  if (!handlers.canWrite) {
+    return { over: false, dropProps: {} as HTMLAttributes<HTMLElement> };
+  }
+  const accepts = (e: DragEvent) =>
+    e.dataTransfer.types.includes("Files") && !e.dataTransfer.types.includes(VAULT_DRAG_MIME);
+  // Same hover bookkeeping as `useFolderDrop`: tell the page a specific target
+  // has the drag so it drops its own full-page overlay.
+  const setHover = (next: boolean) => {
+    if (overRef.current !== next) {
+      overRef.current = next;
+      handlers.folderHover(next);
+    }
+    setOver(next);
+  };
+  const dropProps: HTMLAttributes<HTMLElement> = {
+    onDragOver: (e: DragEvent) => {
+      if (!accepts(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      e.dataTransfer.dropEffect = "copy";
+      setHover(true);
+    },
+    onDragLeave: () => setHover(false),
+    onDrop: (e: DragEvent) => {
+      setHover(false);
+      if (!accepts(e) || e.dataTransfer.files.length === 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      handlers.uploadIntoProfile(profileId, [...e.dataTransfer.files]);
     },
   };
   return { over, dropProps };
@@ -457,6 +501,59 @@ export function VaultContextMenu({
   );
 }
 
+/** One "All profiles" root section: the profile and its root-level items. */
+export type ProfileSection = {
+  profile: VaultProfile;
+  folders: FolderDTO[];
+  files: FileDTO[];
+};
+
+/**
+ * The section bar naming the profile whose root items follow, tinted with the
+ * profile's accent — shown only at the root of the "All profiles" browse (the
+ * inside of a folder is single-profile by construction). `compact` fits the
+ * column view's 13px rows.
+ *
+ * It's also that profile's **upload drop target** (see `useProfileDrop`): drop
+ * files from the OS on it and they land in the profile's root folder.
+ */
+export function ProfileDivider({
+  profile,
+  handlers,
+  compact = false,
+}: {
+  profile: VaultProfile;
+  handlers: VaultHandlers;
+  compact?: boolean;
+}) {
+  const accent = profileAccentColor(profile);
+  const { over, dropProps } = useProfileDrop(profile.id, handlers);
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-2 rounded-md border font-medium transition-colors",
+        compact ? "px-2 py-0.5 text-[11px]" : "px-2.5 py-1 text-xs",
+        over && "ring-2 ring-ring",
+      )}
+      style={{ backgroundColor: `${accent}1a`, borderColor: `${accent}40` }}
+      {...dropProps}
+    >
+      <span
+        className="size-2 shrink-0 rounded-full"
+        style={{ backgroundColor: accent }}
+        aria-hidden
+      />
+      <span className="truncate">{profile.icon ? `${profile.icon} ${profile.name}` : profile.name}</span>
+      {/* Only while a file is actually over it — the bar is a heading first. */}
+      {over ? (
+        <span className="ml-auto shrink-0 font-normal opacity-70">
+          {compact ? "Drop here" : "Drop to upload here"}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 export function VaultEmptyState({ searching, canWrite }: { searching: boolean; canWrite: boolean }) {
   return (
     <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed py-16 text-center">
@@ -559,7 +656,6 @@ function FolderCard({ folder, handlers }: { folder: FolderDTO; handlers: VaultHa
                     <span className="shrink-0 text-sm text-muted-foreground">Predefined</span>
                   ) : null}
                   <TagChips tagIds={folder.tagIds} handlers={handlers} oneLine />
-                  <ProfileChip profileId={folder.profileId} handlers={handlers} />
                 </div>
               </div>
               <VaultItemMenu target={{ kind: "folder", folder }} handlers={handlers} />
@@ -643,7 +739,6 @@ function FileCard({ file, handlers }: { file: FileDTO; handlers: VaultHandlers }
                     </Badge>
                   ) : null}
                   <TagChips tagIds={file.tagIds} handlers={handlers} />
-                  <ProfileChip profileId={file.profileId} handlers={handlers} />
                 </div>
               </div>
               <VaultItemMenu target={{ kind: "file", file }} handlers={handlers} />
@@ -683,7 +778,6 @@ function TxnCard({ txn, handlers }: { txn: TxnFileDTO; handlers: VaultHandlers }
             </div>
             <div className="mt-0.5 flex items-center gap-1 truncate text-xs text-muted-foreground">
               {formatVaultDate(txn.txnOccurredOn, handlers.locale)}
-              <ProfileChip profileId={txn.profileId} handlers={handlers} />
             </div>
           </div>
           <VaultItemMenu target={{ kind: "txn", txn }} handlers={handlers} />
@@ -699,13 +793,38 @@ export function FileGrid({
   txnFiles,
   handlers,
   searching,
+  sections,
 }: {
   folders: FolderDTO[];
   files: FileDTO[];
   txnFiles: TxnFileDTO[];
   handlers: VaultHandlers;
   searching: boolean;
+  /** "All profiles" root grouping — when set, replaces the flat arrays. */
+  sections?: ProfileSection[] | null;
 }) {
+  if (sections) {
+    if (sections.length === 0) {
+      return <VaultEmptyState searching={searching} canWrite={handlers.canWrite} />;
+    }
+    return (
+      <div className="space-y-4">
+        {sections.map((s) => (
+          <section key={s.profile.id} className="space-y-2.5">
+            <ProfileDivider profile={s.profile} handlers={handlers} />
+            <div className="grid grid-cols-3 gap-2.5 sm:grid-cols-4 md:grid-cols-5">
+              {s.folders.map((folder) => (
+                <FolderCard key={folder.id} folder={folder} handlers={handlers} />
+              ))}
+              {s.files.map((file) => (
+                <FileCard key={file.id} file={file} handlers={handlers} />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
   if (folders.length === 0 && files.length === 0 && txnFiles.length === 0) {
     return <VaultEmptyState searching={searching} canWrite={handlers.canWrite} />;
   }
@@ -766,11 +885,6 @@ function FolderRow({ folder, handlers }: { folder: FolderDTO; handlers: VaultHan
         <TableCell className="max-w-32 truncate text-muted-foreground">
           {folder.createdByName ?? "—"}
         </TableCell>
-        {handlers.allProfiles ? (
-          <TableCell className="text-muted-foreground">
-            {handlers.profileLabel(folder.profileId)}
-          </TableCell>
-        ) : null}
         <TableCell>
           <VaultItemMenu target={{ kind: "folder", folder }} handlers={handlers} />
         </TableCell>
@@ -816,11 +930,6 @@ function FileRow({ file, handlers }: { file: FileDTO; handlers: VaultHandlers })
         <TableCell className="max-w-32 truncate text-muted-foreground">
           {file.uploaderName ?? "—"}
         </TableCell>
-        {handlers.allProfiles ? (
-          <TableCell className="text-muted-foreground">
-            {handlers.profileLabel(file.profileId)}
-          </TableCell>
-        ) : null}
         <TableCell>
           <VaultItemMenu target={{ kind: "file", file }} handlers={handlers} />
         </TableCell>
@@ -835,19 +944,26 @@ export function FileListTable({
   txnFiles,
   handlers,
   searching,
+  sections,
 }: {
   folders: FolderDTO[];
   files: FileDTO[];
   txnFiles: TxnFileDTO[];
   handlers: VaultHandlers;
   searching: boolean;
+  /** "All profiles" root grouping — when set, replaces the flat arrays. */
+  sections?: ProfileSection[] | null;
 }) {
-  if (folders.length === 0 && files.length === 0 && txnFiles.length === 0) {
+  if (
+    sections
+      ? sections.length === 0
+      : folders.length === 0 && files.length === 0 && txnFiles.length === 0
+  ) {
     return <VaultEmptyState searching={searching} canWrite={handlers.canWrite} />;
   }
   return (
     <div className="space-y-6">
-      {folders.length > 0 || files.length > 0 ? (
+      {sections || folders.length > 0 || files.length > 0 ? (
         <div className="overflow-x-auto rounded-xl border">
           <Table>
             <TableHeader>
@@ -858,17 +974,36 @@ export function FileListTable({
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead>Added</TableHead>
                 <TableHead>Added by</TableHead>
-                {handlers.allProfiles ? <TableHead>Profile</TableHead> : null}
                 <TableHead className="w-10" />
               </TableRow>
             </TableHeader>
             <TableBody>
-              {folders.map((folder) => (
-                <FolderRow key={folder.id} folder={folder} handlers={handlers} />
-              ))}
-              {files.map((file) => (
-                <FileRow key={file.id} file={file} handlers={handlers} />
-              ))}
+              {sections ? (
+                sections.map((s) => (
+                  <Fragment key={s.profile.id}>
+                    <TableRow className="hover:bg-transparent">
+                      <TableCell colSpan={7} className="p-1.5">
+                        <ProfileDivider profile={s.profile} handlers={handlers} />
+                      </TableCell>
+                    </TableRow>
+                    {s.folders.map((folder) => (
+                      <FolderRow key={folder.id} folder={folder} handlers={handlers} />
+                    ))}
+                    {s.files.map((file) => (
+                      <FileRow key={file.id} file={file} handlers={handlers} />
+                    ))}
+                  </Fragment>
+                ))
+              ) : (
+                <>
+                  {folders.map((folder) => (
+                    <FolderRow key={folder.id} folder={folder} handlers={handlers} />
+                  ))}
+                  {files.map((file) => (
+                    <FileRow key={file.id} file={file} handlers={handlers} />
+                  ))}
+                </>
+              )}
             </TableBody>
           </Table>
         </div>
@@ -889,7 +1024,6 @@ export function FileListTable({
                   <TableHead>Transaction</TableHead>
                   <TableHead className="text-right">Amount</TableHead>
                   <TableHead>Date</TableHead>
-                  {handlers.allProfiles ? <TableHead>Profile</TableHead> : null}
                   <TableHead className="w-10" />
                 </TableRow>
               </TableHeader>
@@ -920,11 +1054,6 @@ export function FileListTable({
                       <TableCell className="text-muted-foreground">
                         {formatVaultDate(txn.txnOccurredOn, handlers.locale)}
                       </TableCell>
-                      {handlers.allProfiles ? (
-                        <TableCell className="text-muted-foreground">
-                          {handlers.profileLabel(txn.profileId)}
-                        </TableCell>
-                      ) : null}
                       <TableCell>
                         <VaultItemMenu target={{ kind: "txn", txn }} handlers={handlers} />
                       </TableCell>
