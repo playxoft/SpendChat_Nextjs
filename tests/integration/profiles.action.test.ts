@@ -1,17 +1,60 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { profiles, transactions } from "@/db/schema";
+
+// Only the R2 edge is mocked — a profile delete sweeps the objects behind the
+// rows it removes, and that call is what these tests assert on.
+vi.mock("@/lib/r2", () => ({
+  isR2Configured: () => true,
+  uploadObject: vi.fn(async () => {}),
+  deleteObject: vi.fn(async () => {}),
+  signedGetUrl: vi.fn(async () => "https://signed.example/object"),
+}));
+
+import { deleteObject } from "@/lib/r2";
+import { files, profiles, transactionAttachments, transactions } from "@/db/schema";
 import {
   addProfile,
   updateProfile,
   deleteProfile,
+  getProfileDeletionImpact,
   moveProfileTransactions,
   reorderProfiles,
   listProfiles,
 } from "@/actions/profiles";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
-import { bootstrapUser, firstProfileId, insertTxn } from "./helpers/seed";
+import { bootstrapUser, firstProfileId, insertTxn, workspaceIdOf } from "./helpers/seed";
+
+/** Attach a stored file to a transaction, as `createAttachments` would. */
+async function attach(userId: string, txnId: string, profileId: string, key: string) {
+  await getTestDb()
+    .insert(transactionAttachments)
+    .values({
+      transactionId: txnId,
+      profileId,
+      workspaceId: await workspaceIdOf(userId),
+      userId: uid(userId),
+      r2Key: key,
+      fileName: "receipt.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 10,
+    });
+}
+
+/** Put a file in a profile's vault (the part a delete always takes with it). */
+async function vaultFile(userId: string, profileId: string, key: string) {
+  await getTestDb()
+    .insert(files)
+    .values({
+      workspaceId: await workspaceIdOf(userId),
+      profileId,
+      userId: uid(userId),
+      r2Key: key,
+      name: "notes.pdf",
+      contentType: "application/pdf",
+      sizeBytes: 10,
+    });
+}
 
 const profileByName = (userId: string, name: string) =>
   getTestDb()
@@ -118,6 +161,120 @@ describe("deleteProfile", () => {
     const work = await profileByName("a", "Work");
     expect((await deleteProfile(work.id)).ok).toBe(true);
     expect(await profileByName("a", "Work")).toBeUndefined();
+  });
+
+  it("deletes the transactions (and their R2 objects) when asked to", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    vi.mocked(deleteObject).mockClear();
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    const txn = await insertTxn("a", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-01",
+      profileId: work.id,
+    });
+    await attach("a", txn, work.id, "att/gone.pdf");
+
+    expect((await deleteProfile(work.id, { transactions: "delete" })).ok).toBe(true);
+    expect(await profileByName("a", "Work")).toBeUndefined();
+    expect(
+      await getTestDb().select().from(transactions).where(eq(transactions.id, txn)),
+    ).toHaveLength(0);
+    expect(vi.mocked(deleteObject).mock.calls.flat()).toContain("att/gone.pdf");
+  });
+
+  it("moves the transactions and their attachments when asked to", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    vi.mocked(deleteObject).mockClear();
+    const personal = await firstProfileId("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    const txn = await insertTxn("a", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-01",
+      profileId: work.id,
+    });
+    await attach("a", txn, work.id, "att/kept.pdf");
+
+    expect(
+      (await deleteProfile(work.id, { transactions: "move", toProfileId: personal })).ok,
+    ).toBe(true);
+    expect(await profileByName("a", "Work")).toBeUndefined();
+
+    const [moved] = await getTestDb()
+      .select()
+      .from(transactions)
+      .where(eq(transactions.id, txn));
+    expect(moved.profileId).toBe(personal);
+    // The attachment rides along: its denormalized profile_id is re-pointed, so
+    // the profile's cascade can't take it (and its object is never swept).
+    const [kept] = await getTestDb()
+      .select()
+      .from(transactionAttachments)
+      .where(eq(transactionAttachments.transactionId, txn));
+    expect(kept.profileId).toBe(personal);
+    expect(vi.mocked(deleteObject).mock.calls.flat()).not.toContain("att/kept.pdf");
+  });
+
+  it("rejects a move with no destination", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    expect((await deleteProfile(work.id, { transactions: "move" })).ok).toBe(false);
+  });
+
+  it("takes the profile's vault with it, whatever happens to the transactions", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    vi.mocked(deleteObject).mockClear();
+    const personal = await firstProfileId("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    await vaultFile("a", work.id, "vault/doc.pdf");
+
+    expect(
+      (await deleteProfile(work.id, { transactions: "move", toProfileId: personal })).ok,
+    ).toBe(true);
+    expect(
+      await getTestDb().select().from(files).where(eq(files.profileId, work.id)),
+    ).toHaveLength(0);
+    expect(vi.mocked(deleteObject).mock.calls.flat()).toContain("vault/doc.pdf");
+  });
+});
+
+describe("getProfileDeletionImpact", () => {
+  it("counts the transactions and vault files a delete would take", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    await insertTxn("a", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-01",
+      profileId: work.id,
+    });
+    await vaultFile("a", work.id, "vault/doc.pdf");
+
+    expect(await getProfileDeletionImpact(work.id)).toEqual({
+      ok: true,
+      transactions: 1,
+      files: 1,
+    });
+  });
+
+  it("rejects an invalid id", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    expect(await getProfileDeletionImpact("nope")).toEqual({
+      ok: false,
+      error: "Invalid profile",
+    });
   });
 });
 

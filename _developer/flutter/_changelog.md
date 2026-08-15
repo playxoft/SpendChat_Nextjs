@@ -19,6 +19,43 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.7.0 — 2026-08-15
+
+Deleting a profile no longer requires emptying it first — the caller says what
+happens to the transactions.
+
+### Added
+- **`DELETE /profiles/{id}` takes `?transactions=`.** `delete` removes the
+  profile's transactions (and their attachments) with it; `move` re-files them
+  under `?to=<profileId>` first — one call instead of `POST /profiles/{id}/move`
+  followed by a delete. Omitting it means `reject`, the old behaviour: **409
+  while the profile still has transactions**. `transactions=move` without `to`
+  is a **422**. `POST /profiles/{id}/move` is unchanged and still available on
+  its own.
+- **`GET /profiles/{id}/deletion-impact`** → `{ transactions, files }` (admin
+  only). The counts a confirmation dialog needs before anything is destroyed.
+
+### Fixed
+- **Moving transactions between profiles now carries their attachments.**
+  `POST /profiles/{id}/move` (and the new `transactions=move`) re-points the
+  attachment rows' denormalized profile too. Previously the receipts stayed
+  behind on the source profile, invisible against the moved transaction and
+  destroyed the moment that profile was deleted.
+- **A deleted profile's stored objects are actually removed.** Its vault files
+  and any remaining attachments cascade in the database, but the objects behind
+  them were left in storage forever — they now count against nothing and are
+  swept. Visible as freed space in the workspace storage quota.
+
+**Flutter impact:** none required — a client that sends no query param behaves
+exactly as before. To adopt: show a confirm dialog seeded by
+`GET /profiles/{id}/deletion-impact` offering "delete the transactions"
+(recommended default) or "move them to another profile", then call `DELETE`
+with the matching `?transactions=` (+ `&to=`). Note that **the profile's vault
+files are deleted either way** — say so in the dialog when `files > 0`, since
+`move` moves transactions, not the vault.
+
+---
+
 ## 5.6.0 — 2026-08-15
 
 Correctness and hardening pass over the files vault from a review of the 5.3.0

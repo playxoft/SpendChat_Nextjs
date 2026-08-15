@@ -14,9 +14,32 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.6.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.7.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.4.0] — 2026-08-15
+
+### Added
+
+- **Deleting a profile now asks what to do with its transactions.** Instead of
+  refusing until the profile was emptied by hand, the confirmation says how many
+  transactions are in it and offers two options: **delete them along with the
+  profile** (the default — a profile you're removing is usually one you're done
+  with) or **move them to another profile**, which re-files them with their
+  attachments so nothing is lost. Profiles with nothing in them delete as before.
+- **The confirmation says what else goes.** A profile's vault files have always
+  been deleted with it, whichever option you pick — now the dialog counts them
+  and says so before you commit, rather than after.
+
+### Fixed
+
+- **Moving transactions between profiles keeps their receipts.** Attachments
+  stayed behind on the old profile, hidden from the transaction they belonged
+  to and destroyed if that profile was later deleted. They now move too.
+- **Deleting a profile frees its storage.** Its vault files and attachments
+  disappeared from the app but their stored bytes stayed, so the workspace's
+  1 GB quota kept counting space nothing could reach.
 
 ## [0.3.0] — 2026-08-15
 

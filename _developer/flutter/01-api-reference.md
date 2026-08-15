@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 5.6.0.** Every API change bumps this version and is logged
+**API spec version: 5.7.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -536,7 +536,8 @@ the list.
 | `GET /profiles` | — | 200 `data: Profile[]` | Accessible profiles in workspace, `sortOrder asc, createdAt asc` |
 | `POST /profiles` | `ProfileInput` `{ name, icon?, color? }` | 201 `data: Profile` | Requires **admin**. 422; 409 duplicate name; 403/404 |
 | `PATCH /profiles/{id}` | `{ name?, icon?, color? }` | 200 `data: Profile` | Requires **admin** on the profile. 422; 404; 409; 403 |
-| `DELETE /profiles/{id}` | — | 200 `data: { id, deleted: true }` | Requires admin. 422; 404; **409 "You need at least one profile"** (last one); **409 "Move this profile's transactions to another profile first"** (non-empty); 403 |
+| `DELETE /profiles/{id}?transactions=&to=` | — | 200 `data: { id, deleted: true }` | Requires admin. `transactions` = `delete` (remove them + their attachments), `move` (re-file under `to` first), or **`reject`, the default** — 409 "Move this profile's transactions to another profile first" while any remain. 422 when `transactions=move` without `to`. Always **409 "You need at least one profile"** for the last one. **The profile's vault files are deleted either way** — `move` does not move the vault. 404; 403 |
+| `GET /profiles/{id}/deletion-impact` | — | 200 `data: { transactions, files }` | Requires admin. Counts for the confirm step: `transactions` is what `?transactions=` decides the fate of; `files` is the vault that goes with the profile regardless. 422; 404; 403 |
 | `POST /profiles/reorder` | `{ ids: uuid[] }` (1–100, full list) | 200 `data: Profile[]` | Requires **admin** (like all profile management). 422; 403/404 |
 | `POST /profiles/{id}/move` | `{ toProfileId: uuid }` | 200 `data: { moved }` | Requires **editor** on both; same workspace. 422 "Invalid profiles" (bad/equal/cross-workspace ids); 403/404 |
 

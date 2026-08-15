@@ -1,10 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { GET as listProfilesRoute, POST as createProfile } from "@/app/api/v1/profiles/route";
 import { PATCH as patchProfile, DELETE as deleteProfile } from "@/app/api/v1/profiles/[id]/route";
+import { GET as deletionImpact } from "@/app/api/v1/profiles/[id]/deletion-impact/route";
 import { POST as reorder } from "@/app/api/v1/profiles/reorder/route";
 import { POST as moveTxns } from "@/app/api/v1/profiles/[id]/move/route";
 import { signInAs } from "../helpers/session";
-import { bootstrapUser, firstProfileId, insertTxn } from "../helpers/seed";
+import { bootstrapUser, countTxns, firstProfileId, insertTxn } from "../helpers/seed";
 import { apiReq, jsonBody, ctx } from "./helpers";
 
 async function createNamed(name: string): Promise<string> {
@@ -69,5 +70,46 @@ describe("/api/v1/profiles", () => {
 
     const okNow = await deleteProfile(apiReq(`/api/v1/profiles/${workId}`, { method: "DELETE" }), ctx({ id: workId }));
     expect(okNow.status).toBe(200);
+  });
+
+  it("deletes a non-empty profile's transactions on ?transactions=delete", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const workId = await createNamed("Work");
+    await insertTxn("a", { type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: workId });
+
+    const impact = await deletionImpact(
+      apiReq(`/api/v1/profiles/${workId}/deletion-impact`),
+      ctx({ id: workId }),
+    );
+    expect((await impact.json()).data).toEqual({ transactions: 1, files: 0 });
+
+    const res = await deleteProfile(
+      apiReq(`/api/v1/profiles/${workId}?transactions=delete`, { method: "DELETE" }),
+      ctx({ id: workId }),
+    );
+    expect(res.status).toBe(200);
+    expect(await countTxns("a")).toBe(0);
+  });
+
+  it("re-files them on ?transactions=move&to=, and 422s without a destination", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const personal = await firstProfileId("a");
+    const workId = await createNamed("Work");
+    await insertTxn("a", { type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: workId });
+
+    const noTarget = await deleteProfile(
+      apiReq(`/api/v1/profiles/${workId}?transactions=move`, { method: "DELETE" }),
+      ctx({ id: workId }),
+    );
+    expect(noTarget.status).toBe(422);
+
+    const res = await deleteProfile(
+      apiReq(`/api/v1/profiles/${workId}?transactions=move&to=${personal}`, { method: "DELETE" }),
+      ctx({ id: workId }),
+    );
+    expect(res.status).toBe(200);
+    expect(await countTxns("a")).toBe(1);
   });
 });
