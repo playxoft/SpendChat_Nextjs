@@ -187,16 +187,25 @@ export function FilesPageClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [files, sortKey, dir, tagMap]);
 
+  // Folder totals (descendants included) from the full working set — never the
+  // filtered arrays, so a search or tag filter doesn't shrink a folder's size.
+  const folderSizes = useMemo(
+    () => computeFolderSizes(folders, files, txnFiles),
+    [folders, files, txnFiles],
+  );
+
   const sortedFolders = useMemo(() => {
     const base: (a: FolderDTO, b: FolderDTO) => number =
       sortKey === "time"
         ? (a, b) => a.createdAt.localeCompare(b.createdAt)
-        : sortKey === "tags"
-          ? (a, b) => tagSortKey(a.tagIds).localeCompare(tagSortKey(b.tagIds))
-          : (a, b) => a.name.localeCompare(b.name);
+        : sortKey === "size"
+          ? (a, b) => (folderSizes.get(a.id) ?? 0) - (folderSizes.get(b.id) ?? 0)
+          : sortKey === "tags"
+            ? (a, b) => tagSortKey(a.tagIds).localeCompare(tagSortKey(b.tagIds))
+            : (a, b) => a.name.localeCompare(b.name);
     return [...folders].sort((a, b) => dir * base(a, b));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folders, sortKey, dir, tagMap]);
+  }, [folders, sortKey, dir, tagMap, folderSizes]);
 
   const sortedTxnFiles = useMemo(() => {
     const base: (a: TxnFileDTO, b: TxnFileDTO) => number =
@@ -428,13 +437,6 @@ export function FilesPageClient({
     toast.success("Moved");
     router.refresh();
   };
-
-  // Folder totals (descendants included) from the full working set — never the
-  // filtered arrays, so a search or tag filter doesn't shrink a folder's size.
-  const folderSizes = useMemo(
-    () => computeFolderSizes(folders, files, txnFiles),
-    [folders, files, txnFiles],
-  );
 
   const handlers: VaultHandlers = {
     canWrite,

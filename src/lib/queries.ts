@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import { getDb } from "@/db";
@@ -616,6 +617,15 @@ export async function getWorkspaceStorageUsage(workspaceId: string): Promise<num
   // pg returns bigint sums as strings; 1 GB scale is far below 2^53.
   return rows.reduce((total, r) => total + Number(r.bytes), 0);
 }
+
+/**
+ * Per-request deduped variant for RSC renders: on /app/files the app layout
+ * (sidebar mini gauge) and the page (toolbar ring) both need the total in the
+ * same render pass, and `cache()` collapses them into one query. Quota checks
+ * (`assertStorageQuota`) and API routes stay on the uncached read above so an
+ * action that uploads and re-renders in one request never serves a stale sum.
+ */
+export const getWorkspaceStorageUsageCached = cache(getWorkspaceStorageUsage);
 
 /** Vault tags of the accessible profiles (optionally one), for the pickers
  * and for resolving items' `tagIds` into names + colors client-side. */

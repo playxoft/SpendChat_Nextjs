@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatFileSize } from "@/lib/attachments";
 import { formatStorageCompact, storageUsageTone } from "@/lib/files";
@@ -63,7 +63,9 @@ export function StorageRingSvg({
  * label, `h-8` to match the icon buttons beside it. Radix Tooltip is
  * hover-only, so the exact numbers open in one controlled Popover: hover
  * opens/closes it for a mouse, tap toggles it on touch (where the synthetic
- * pointerenter is ignored so it can't fight the click).
+ * pointerenter is ignored so it can't fight the click). Closing is deferred a
+ * beat and cancelled when the pointer reaches the content, so the mouse can
+ * cross the trigger→content gap without the popover vanishing under it.
  */
 export function StorageRing({
   usedBytes,
@@ -73,9 +75,26 @@ export function StorageRing({
   limitBytes: number;
 }) {
   const [open, setOpen] = useState(false);
+  const closeTimer = useRef<number | null>(null);
   const tone = storageUsageTone(usedBytes, limitBytes);
   const fraction = Math.min(1, usedBytes / limitBytes);
   const label = storageExactLabel(usedBytes, limitBytes);
+
+  const cancelClose = () => {
+    if (closeTimer.current !== null) {
+      window.clearTimeout(closeTimer.current);
+      closeTimer.current = null;
+    }
+  };
+  const openNow = () => {
+    cancelClose();
+    setOpen(true);
+  };
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimer.current = window.setTimeout(() => setOpen(false), 120);
+  };
+  useEffect(() => cancelClose, []);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -85,10 +104,10 @@ export function StorageRing({
           className="flex h-8 items-center gap-1.5 rounded-lg px-1.5 transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           aria-label={`Storage: ${label}`}
           onPointerEnter={(e) => {
-            if (e.pointerType === "mouse") setOpen(true);
+            if (e.pointerType === "mouse") openNow();
           }}
           onPointerLeave={(e) => {
-            if (e.pointerType === "mouse") setOpen(false);
+            if (e.pointerType === "mouse") scheduleClose();
           }}
         >
           <StorageRingSvg usedBytes={usedBytes} limitBytes={limitBytes} className="size-5" />
@@ -97,7 +116,18 @@ export function StorageRing({
           </span>
         </button>
       </PopoverTrigger>
-      <PopoverContent side="bottom" align="end" closeOnOutsideClick className="w-64 p-3">
+      <PopoverContent
+        side="bottom"
+        align="end"
+        closeOnOutsideClick
+        className="w-64 p-3"
+        onPointerEnter={(e) => {
+          if (e.pointerType === "mouse") cancelClose();
+        }}
+        onPointerLeave={(e) => {
+          if (e.pointerType === "mouse") scheduleClose();
+        }}
+      >
         <p className="text-sm font-medium">{label}</p>
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
           <div

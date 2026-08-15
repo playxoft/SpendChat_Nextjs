@@ -62,6 +62,7 @@ export function TransactionComposer({
   allProfiles = false,
   inputMode = "amount_title",
   density = "normal",
+  isMobileHint = false,
   voiceLanguages,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
@@ -78,6 +79,9 @@ export function TransactionComposer({
   inputMode?: InputMode;
   /** How much chrome surrounds those inputs (from user settings). */
   density?: ComposerDensity;
+  /** Server's UA-based phone guess (`isMobileUA()`), so a phone's SSR HTML is
+   * compact from the first paint instead of snapping after hydration. */
+  isMobileHint?: boolean;
   /** Languages AI mode's mic expects (from user settings). */
   voiceLanguages: string[];
 }) {
@@ -128,7 +132,7 @@ export function TransactionComposer({
   // buys nothing there and costs vertical space the keyboard already wants.
   // The stored preference is overridden rather than offered; Settings says so
   // instead of silently disagreeing with what the user sees.
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobile(isMobileHint);
   const effectiveDensity: ComposerDensity = isMobile ? "compact" : density;
   const dense = effectiveDensity === "compact";
 

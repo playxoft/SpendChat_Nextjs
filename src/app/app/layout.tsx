@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { getAppContext, getUserWorkspaces } from "@/lib/auth";
 import { canWriteInWorkspace } from "@/lib/workspaces";
-import { getCategories, getProfiles, getWorkspaceStorageUsage } from "@/lib/queries";
+import { getCategories, getProfiles, getWorkspaceStorageUsageCached } from "@/lib/queries";
 import { STORAGE_QUOTA_BYTES } from "@/lib/validation";
 import { todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
@@ -29,7 +29,7 @@ export default async function AppLayout({
     getCategories(workspace.id),
     getUserWorkspaces(user.id),
     canWriteInWorkspace(user.id, workspace.id),
-    getWorkspaceStorageUsage(workspace.id),
+    getWorkspaceStorageUsageCached(workspace.id),
   ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
   const canManage = workspace.role === "admin";

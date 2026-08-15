@@ -9,11 +9,15 @@ import { useSyncExternalStore } from "react";
  * value is never a render behind the viewport, matching how the transaction
  * table reads its column prefs.
  *
- * `getServerSnapshot` returns false because SSR has no viewport: the server
- * renders the desktop shape and hydration corrects it on a phone. Only use this
- * for behaviour CSS genuinely can't express (picking a different component
- * tree). For anything that is purely presentational, prefer a `md:` class —
- * those are right on the first paint, with no hydration correction at all.
+ * SSR has no viewport, so the server snapshot is a guess: `serverFallback`
+ * (default false — the desktop shape) — pass `isMobileUA()` from
+ * `@/lib/device.server` down as a prop where the hydration correction would
+ * visibly repaint (the composer's density snap). The guess only affects the
+ * server render and the hydration pass; the real viewport takes over right
+ * after. Only use this hook for behaviour CSS genuinely can't express (picking
+ * a different component tree). For anything that is purely presentational,
+ * prefer a `md:` class — those are right on the first paint, with no hydration
+ * correction at all.
  */
 const QUERY = "(max-width: 767.98px)";
 
@@ -38,10 +42,6 @@ function getSnapshot() {
   return window.matchMedia(QUERY).matches;
 }
 
-function getServerSnapshot() {
-  return false;
-}
-
-export function useIsMobile() {
-  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+export function useIsMobile(serverFallback = false) {
+  return useSyncExternalStore(subscribe, getSnapshot, () => serverFallback);
 }
