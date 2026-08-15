@@ -222,8 +222,8 @@ function Column({
       {files.map((file) => (
         // Same composition as the grid tiles: Tooltip root outside, trigger
         // innermost, so the context menu and the tooltip share the row div.
-        // Sideways (right, flipping left at the viewport edge) so the tooltip
-        // never covers the neighboring rows.
+        // Sideways (left, flipping right when the viewport edge is too close)
+        // so the tooltip never covers the neighboring rows.
         <Tooltip key={file.id} delayDuration={0}>
           <VaultContextMenu target={{ kind: "file", file }} handlers={handlers}>
             <TooltipTrigger asChild>
@@ -254,7 +254,7 @@ function Column({
               </div>
             </TooltipTrigger>
           </VaultContextMenu>
-          <FileMetaTooltip file={file} handlers={handlers} side="right" />
+          <FileMetaTooltip file={file} handlers={handlers} side="left" />
         </Tooltip>
       ))}
       {txns.map((txn) => (
@@ -337,7 +337,7 @@ function FolderColumnRow({
           </div>
         </TooltipTrigger>
       </VaultContextMenu>
-      <FolderMetaTooltip folder={folder} handlers={handlers} side="right" />
+      <FolderMetaTooltip folder={folder} handlers={handlers} side="left" />
     </Tooltip>
   );
 }
