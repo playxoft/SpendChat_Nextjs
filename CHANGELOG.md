@@ -28,18 +28,20 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   profile's folders and files beneath, so a shared workspace reads as
   "Business… Personal…" instead of one mixed pile. Opening a folder, searching,
   or filtering by tag returns to the normal flat rendering.
-- **Drop files onto a profile to upload them there.** In the "All profiles"
-  view there was nowhere to drop — with several profiles on screen the page
-  couldn't tell which one you meant, so only folders accepted files. Each
-  profile's divider bar is now a drop target of its own: drop on it and the
-  files land in that profile's root, in grid, list and column views alike.
+- **Upload into a profile from the "All profiles" view.** There was nowhere to
+  put a file there — with several profiles on screen the page couldn't tell
+  which one you meant, so only folders accepted them. Each profile's divider bar
+  now takes files itself: drop them on it, or use the upload button on the bar,
+  and they land in that profile's root, in grid, list and column views alike.
 
 ### Changed
 
-- **Files and folders no longer repeat their profile's name.** With the divider
-  bars above each group, the per-item profile badge on grid tiles and column
-  rows — and the whole "Profile" column in list view — said the same thing once
-  per row. They're gone; the divider carries it.
+- **Files and folders stop repeating their profile's name at the root.** Where
+  a divider bar already heads the group, the per-item profile badge on grid
+  tiles and column rows — and the whole "Profile" column in list view — said the
+  same thing once per row, so they're gone. Search results and tag-filtered
+  results are a flat mix of every profile with no bar above them, and there each
+  item still names its own.
 - **The storage gauge is off the sidebar.** The ring and "0.1/1 GB" next to
   **Files** followed you around every page to report something that only matters
   while you're managing files. It stays on the Files page toolbar, where it's in

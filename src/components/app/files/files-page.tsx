@@ -126,6 +126,10 @@ export function FilesPageClient({
 
   const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
   const tagMap = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
+  const profileNameById = useMemo(
+    () => new Map(profiles.map((p) => [p.id, p.icon ? `${p.icon} ${p.name}` : p.name])),
+    [profiles],
+  );
 
   // The open folder lives in `?folder=`. Navigation uses `history.pushState`,
   // which Next syncs into useSearchParams WITHOUT a server round-trip — folder
@@ -446,8 +450,10 @@ export function FilesPageClient({
 
   const handlers: VaultHandlers = {
     canWrite,
+    allProfiles: activeProfileId === null,
     currency,
     locale,
+    profileLabel: (id) => (activeProfileId === null ? (profileNameById.get(id) ?? null) : null),
     tagById: (id) => tagMap.get(id),
     folderSize: (id) => folderSizes.get(id) ?? 0,
     openFolder: (id) => navigateToFolder(id),
@@ -476,7 +482,7 @@ export function FilesPageClient({
   // "All profiles" at the vault root: grid and list group the root items under
   // per-profile divider bars (sidebar order, empty profiles skipped). Opening a
   // folder — or any search/tag filtering, whose results aren't root-scoped —
-  // returns to the flat rendering.
+  // returns to the flat rendering, where each item names its own profile again.
   const profileSections = useMemo(() => {
     if (activeProfileId !== null || filtering || currentFolderId !== null) return null;
     return profiles

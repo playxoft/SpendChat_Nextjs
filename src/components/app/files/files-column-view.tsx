@@ -21,6 +21,7 @@ import {
   FileThumb,
   FolderGlyph,
   FolderMetaTooltip,
+  ProfileChip,
   ProfileDivider,
   TagChips,
   TxnAmount,
@@ -132,6 +133,11 @@ export function FilesColumnView({
         .filter((s) => s.folders.length > 0 || s.files.length > 0)
     : null;
 
+  // Without the dividers — "All profiles" under a tag filter, which prunes the
+  // tree instead of grouping it — the root column interleaves profiles with
+  // nothing to tell two same-named items apart, so each row names its own.
+  const showProfile = rootProfiles === null && handlers.allProfiles;
+
   return (
     // Fills the viewport below the toolbar (topbar + bottom nav on mobile),
     // so the column rules run the full height of the screen.
@@ -145,6 +151,7 @@ export function FilesColumnView({
             files={childFiles(parent)}
             txns={childTxns(parent)}
             sections={parent === null ? rootSections : null}
+            showProfile={showProfile}
             activeFolderId={path[i]?.id ?? null}
             selectedItemId={selectedFile?.id ?? selectedTxn?.id ?? null}
             handlers={handlers}
@@ -198,6 +205,7 @@ function Column({
   files,
   txns,
   sections,
+  showProfile,
   activeFolderId,
   selectedItemId,
   handlers,
@@ -211,6 +219,8 @@ function Column({
   txns: TxnFileDTO[];
   /** "All profiles" root grouping — when set, replaces the flat folder/file lists. */
   sections?: ProfileSection[] | null;
+  /** True when no divider names the profile, so each row must (see `ProfileChip`). */
+  showProfile: boolean;
   /** The folder of this column the path continues into (highlighted). */
   activeFolderId: string | null;
   selectedItemId: string | null;
@@ -247,6 +257,7 @@ function Column({
                 folder={folder}
                 active={folder.id === activeFolderId}
                 handlers={handlers}
+                showProfile={showProfile}
                 onOpen={() => onOpenFolder(folder)}
               />
             ))}
@@ -256,6 +267,7 @@ function Column({
                 file={file}
                 selected={file.id === selectedItemId}
                 handlers={handlers}
+                showProfile={showProfile}
                 onSelect={() => onSelectFile(file)}
               />
             ))}
@@ -269,6 +281,7 @@ function Column({
               folder={folder}
               active={folder.id === activeFolderId}
               handlers={handlers}
+              showProfile={showProfile}
               onOpen={() => onOpenFolder(folder)}
             />
           ))}
@@ -278,6 +291,7 @@ function Column({
               file={file}
               selected={file.id === selectedItemId}
               handlers={handlers}
+              showProfile={showProfile}
               onSelect={() => onSelectFile(file)}
             />
           ))}
@@ -322,11 +336,14 @@ function FileColumnRow({
   file,
   selected,
   handlers,
+  showProfile,
   onSelect,
 }: {
   file: FileDTO;
   selected: boolean;
   handlers: VaultHandlers;
+  /** True when no divider above this row names the profile (see `ProfileChip`). */
+  showProfile: boolean;
   onSelect: () => void;
 }) {
   return (
@@ -356,6 +373,13 @@ function FileColumnRow({
               />
             </span>
             <span className="min-w-0 flex-1 truncate">{file.name}</span>
+            {showProfile ? (
+              <ProfileChip
+                profileId={file.profileId}
+                handlers={handlers}
+                className="max-w-20 px-1"
+              />
+            ) : null}
             <RowMenu target={{ kind: "file", file }} handlers={handlers} visible={selected} />
           </div>
         </TooltipTrigger>
@@ -369,11 +393,14 @@ function FolderColumnRow({
   folder,
   active,
   handlers,
+  showProfile,
   onOpen,
 }: {
   folder: FolderDTO;
   active: boolean;
   handlers: VaultHandlers;
+  /** True when no divider above this row names the profile (see `ProfileChip`). */
+  showProfile: boolean;
   onOpen: () => void;
 }) {
   const { over, dropProps } = useFolderDrop(folder.id, handlers, folder.system);
@@ -401,6 +428,13 @@ function FolderColumnRow({
           >
             <FolderGlyph folder={folder} className="size-4" />
             <span className="min-w-0 flex-1 truncate font-medium">{folder.name}</span>
+            {showProfile ? (
+              <ProfileChip
+                profileId={folder.profileId}
+                handlers={handlers}
+                className="max-w-20 px-1"
+              />
+            ) : null}
             <RowMenu target={{ kind: "folder", folder }} handlers={handlers} visible={active} />
           </div>
         </TooltipTrigger>

@@ -21,12 +21,12 @@ const BAR_CLASS = {
   full: "bg-destructive",
 } as const;
 
-/** The exact usage sentence — popover title, tooltip body, aria labels. */
-export const storageExactLabel = (usedBytes: number, limitBytes: number): string =>
+/** The exact usage sentence — popover title and aria label. */
+const storageExactLabel = (usedBytes: number, limitBytes: number): string =>
   `${formatFileSize(usedBytes)} of ${formatFileSize(limitBytes)} used`;
 
-/** The bare gauge circle, sized by the caller (`size-6` toolbar, `size-3.5` nav). */
-export function StorageRingSvg({
+/** The bare gauge circle, sized by its caller. */
+function StorageRingSvg({
   usedBytes,
   limitBytes,
   className,
