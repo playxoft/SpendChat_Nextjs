@@ -31,28 +31,51 @@ happens to the transactions.
   followed by a delete. Omitting it means `reject`, the old behaviour: **409
   while the profile still has transactions**. `transactions=move` without `to`
   is a **422**. `POST /profiles/{id}/move` is unchanged and still available on
-  its own.
-- **`GET /profiles/{id}/deletion-impact`** → `{ transactions, files }` (admin
-  only). The counts a confirmation dialog needs before anything is destroyed.
+  its own. An **empty query value counts as absent** (`?transactions=` is the
+  default, `&to=` is "not given"), so a client that builds the URL from empty
+  state doesn't get a 422 for a request this spec calls valid.
+- **`GET /profiles/{id}/deletion-impact`** → `{ transactions, files,
+  attachments }` (admin only). The counts a confirmation dialog needs before
+  anything is destroyed. `attachments` is separate from `files` because the two
+  behave differently: receipts follow their transactions (destroyed by
+  `delete`, re-filed by `move`) while the vault always goes with the profile.
+
+### Changed
+- **`DELETE /profiles/{id}` is atomic.** Emptying the profile and deleting it
+  now share one database transaction, so a write that lands mid-delete can no
+  longer leave the transactions destroyed *and* the profile standing. That race
+  answers **409 "Something was added to this profile while it was being deleted
+  — try again"** instead of a 500; nothing has changed when it does, so the
+  call can simply be repeated.
 
 ### Fixed
-- **Moving transactions between profiles now carries their attachments.**
-  `POST /profiles/{id}/move` (and the new `transactions=move`) re-points the
-  attachment rows' denormalized profile too. Previously the receipts stayed
-  behind on the source profile, invisible against the moved transaction and
-  destroyed the moment that profile was deleted.
+- **Re-filing a transaction now carries its receipts, whichever way you do it.**
+  Attachment rows keep a denormalized profile id. `POST /profiles/{id}/move`
+  (and `transactions=move`) re-point it, and so does a single-transaction
+  profile change through `PATCH /transactions/{id}` — that one was still
+  leaving receipts behind on the old profile, where they were invisible against
+  the moved transaction and destroyed, file and all, the moment that profile
+  was deleted. A profile delete also repairs any row left stale by an older
+  build instead of destroying it, so no data waits on a migration to be safe.
 - **A deleted profile's stored objects are actually removed.** Its vault files
-  and any remaining attachments cascade in the database, but the objects behind
-  them were left in storage forever — they now count against nothing and are
-  swept. Visible as freed space in the workspace storage quota.
+  and the attachments of the transactions it takes with it cascade in the
+  database, but the objects behind them were left in storage forever — they are
+  now swept, in batches rather than one request per object, so a profile with
+  hundreds of documents completes instead of timing out. The sweep matches
+  attachments through their parent transaction, so a receipt whose transaction
+  survives elsewhere is never touched. Visible as freed space in the workspace
+  storage quota.
 
 **Flutter impact:** none required — a client that sends no query param behaves
 exactly as before. To adopt: show a confirm dialog seeded by
 `GET /profiles/{id}/deletion-impact` offering "delete the transactions"
 (recommended default) or "move them to another profile", then call `DELETE`
-with the matching `?transactions=` (+ `&to=`). Note that **the profile's vault
-files are deleted either way** — say so in the dialog when `files > 0`, since
-`move` moves transactions, not the vault.
+with the matching `?transactions=` (+ `&to=`). Two things to get right in that
+dialog: only send `transactions=delete` when the impact call **succeeded** and
+reported a non-zero count — fall back to omitting the param (`reject`) whenever
+the counts are unknown, so the 409 still guards you — and say that **the
+profile's vault files are deleted either way** when `files > 0`, since `move`
+moves transactions, not the vault.
 
 ---
 

@@ -82,7 +82,11 @@ describe("/api/v1/profiles", () => {
       apiReq(`/api/v1/profiles/${workId}/deletion-impact`),
       ctx({ id: workId }),
     );
-    expect((await impact.json()).data).toEqual({ transactions: 1, files: 0 });
+    expect((await impact.json()).data).toEqual({
+      transactions: 1,
+      files: 0,
+      attachments: 0,
+    });
 
     const res = await deleteProfile(
       apiReq(`/api/v1/profiles/${workId}?transactions=delete`, { method: "DELETE" }),
@@ -111,5 +115,46 @@ describe("/api/v1/profiles", () => {
     );
     expect(res.status).toBe(200);
     expect(await countTxns("a")).toBe(1);
+  });
+
+  /**
+   * A client that builds the query string from empty form state sends
+   * `?transactions=` (and `&to=`). Both are optional in the spec, so an empty
+   * value has to mean "not given" — it used to reach the enum and the uuid
+   * check as `""` and come back 422 for a request the spec calls valid.
+   */
+  it("treats blank query params as absent, not as a 422", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const emptyId = await createNamed("Empty");
+    const fullId = await createNamed("Full");
+    await insertTxn("a", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-01",
+      profileId: fullId,
+    });
+
+    // `?transactions=` → the default `reject`: an empty profile still deletes.
+    const blank = await deleteProfile(
+      apiReq(`/api/v1/profiles/${emptyId}?transactions=`, { method: "DELETE" }),
+      ctx({ id: emptyId }),
+    );
+    expect(blank.status).toBe(200);
+
+    // …and still refuses a non-empty one, rather than 422ing on the blank.
+    const blankOnFull = await deleteProfile(
+      apiReq(`/api/v1/profiles/${fullId}?transactions=`, { method: "DELETE" }),
+      ctx({ id: fullId }),
+    );
+    expect(blankOnFull.status).toBe(409);
+
+    // A blank `to` alongside a real disposal is absent too, so `delete` runs.
+    const blankTo = await deleteProfile(
+      apiReq(`/api/v1/profiles/${fullId}?transactions=delete&to=`, { method: "DELETE" }),
+      ctx({ id: fullId }),
+    );
+    expect(blankTo.status).toBe(200);
+    expect(await countTxns("a")).toBe(0);
   });
 });

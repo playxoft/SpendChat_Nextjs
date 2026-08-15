@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 // Only the R2 edge is mocked — a profile delete sweeps the objects behind the
 // rows it removes, and that call is what these tests assert on.
@@ -7,10 +7,11 @@ vi.mock("@/lib/r2", () => ({
   isR2Configured: () => true,
   uploadObject: vi.fn(async () => {}),
   deleteObject: vi.fn(async () => {}),
+  deleteObjects: vi.fn(async () => {}),
   signedGetUrl: vi.fn(async () => "https://signed.example/object"),
 }));
 
-import { deleteObject } from "@/lib/r2";
+import { deleteObject, deleteObjects } from "@/lib/r2";
 import { files, profiles, transactionAttachments, transactions } from "@/db/schema";
 import {
   addProfile,
@@ -21,9 +22,27 @@ import {
   reorderProfiles,
   listProfiles,
 } from "@/actions/profiles";
+import { updateTransaction } from "@/actions/transactions";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import { bootstrapUser, firstProfileId, insertTxn, workspaceIdOf } from "./helpers/seed";
+
+/**
+ * Every object key the code asked R2 to delete, however it asked: the sweep
+ * batches (`deleteObjects`), single deletes go through `deleteObject`. Tests
+ * assert on what left the bucket, not on which call shape carried it.
+ */
+function sweptKeys(): (string | null | undefined)[] {
+  return [
+    ...vi.mocked(deleteObject).mock.calls.map(([key]) => key),
+    ...vi.mocked(deleteObjects).mock.calls.flatMap(([keys]) => [...(keys ?? [])]),
+  ];
+}
+
+function clearSweeps() {
+  vi.mocked(deleteObject).mockClear();
+  vi.mocked(deleteObjects).mockClear();
+}
 
 /** Attach a stored file to a transaction, as `createAttachments` would. */
 async function attach(userId: string, txnId: string, profileId: string, key: string) {
@@ -166,7 +185,7 @@ describe("deleteProfile", () => {
   it("deletes the transactions (and their R2 objects) when asked to", async () => {
     signInAs("a");
     await bootstrapUser("a");
-    vi.mocked(deleteObject).mockClear();
+    clearSweeps();
     await addProfile({ name: "Work" });
     const work = await profileByName("a", "Work");
     const txn = await insertTxn("a", {
@@ -182,13 +201,13 @@ describe("deleteProfile", () => {
     expect(
       await getTestDb().select().from(transactions).where(eq(transactions.id, txn)),
     ).toHaveLength(0);
-    expect(vi.mocked(deleteObject).mock.calls.flat()).toContain("att/gone.pdf");
+    expect(sweptKeys()).toContain("att/gone.pdf");
   });
 
   it("moves the transactions and their attachments when asked to", async () => {
     signInAs("a");
     await bootstrapUser("a");
-    vi.mocked(deleteObject).mockClear();
+    clearSweeps();
     const personal = await firstProfileId("a");
     await addProfile({ name: "Work" });
     const work = await profileByName("a", "Work");
@@ -217,7 +236,7 @@ describe("deleteProfile", () => {
       .from(transactionAttachments)
       .where(eq(transactionAttachments.transactionId, txn));
     expect(kept.profileId).toBe(personal);
-    expect(vi.mocked(deleteObject).mock.calls.flat()).not.toContain("att/kept.pdf");
+    expect(sweptKeys()).not.toContain("att/kept.pdf");
   });
 
   it("rejects a move with no destination", async () => {
@@ -231,7 +250,7 @@ describe("deleteProfile", () => {
   it("takes the profile's vault with it, whatever happens to the transactions", async () => {
     signInAs("a");
     await bootstrapUser("a");
-    vi.mocked(deleteObject).mockClear();
+    clearSweeps();
     const personal = await firstProfileId("a");
     await addProfile({ name: "Work" });
     const work = await profileByName("a", "Work");
@@ -243,28 +262,202 @@ describe("deleteProfile", () => {
     expect(
       await getTestDb().select().from(files).where(eq(files.profileId, work.id)),
     ).toHaveLength(0);
-    expect(vi.mocked(deleteObject).mock.calls.flat()).toContain("vault/doc.pdf");
+    expect(sweptKeys()).toContain("vault/doc.pdf");
+  });
+
+  /**
+   * The single-transaction profile change (the transaction dialog's profile
+   * <Select>, PATCH /transactions/{id}) used to leave the attachment row's
+   * denormalized profile_id on the old profile. Deleting that now-empty profile
+   * passed even in the default `reject` mode, cascaded the row away and swept
+   * the object — so a transaction that is alive in another profile lost its
+   * receipt from both the database and storage, unrecoverably.
+   */
+  it("keeps a re-filed transaction's receipt when its old profile is deleted", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    clearSweeps();
+    const personal = await firstProfileId("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    const txn = await insertTxn("a", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-01",
+      profileId: work.id,
+    });
+    await attach("a", txn, work.id, "att/receipt.pdf");
+
+    // Re-file just this transaction, the way the transaction dialog does.
+    expect(
+      (
+        await updateTransaction({
+          id: txn,
+          type: "expense",
+          amount: 1,
+          occurredOn: "2026-06-01",
+          profileId: personal,
+        })
+      ).ok,
+    ).toBe(true);
+
+    const [moved] = await getTestDb()
+      .select()
+      .from(transactionAttachments)
+      .where(eq(transactionAttachments.transactionId, txn));
+    expect(moved.profileId).toBe(personal);
+
+    // "Work" now holds nothing, so the default (refusing) delete goes through.
+    expect((await deleteProfile(work.id)).ok).toBe(true);
+
+    const [survivor] = await getTestDb()
+      .select()
+      .from(transactionAttachments)
+      .where(eq(transactionAttachments.transactionId, txn));
+    expect(survivor).toBeDefined();
+    expect(survivor.profileId).toBe(personal);
+    expect(sweptKeys()).not.toContain("att/receipt.pdf");
+  });
+
+  /**
+   * Same loss, reached through a row that went stale before the fix above
+   * existed. The delete heals it instead of destroying it, so no backfill is
+   * required for the data to be safe.
+   */
+  it("rescues an attachment row stranded on the profile by an older move", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    clearSweeps();
+    const personal = await firstProfileId("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    const txn = await insertTxn("a", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-01",
+      profileId: personal,
+    });
+    // The transaction lives in Personal; its attachment still claims Work.
+    await attach("a", txn, work.id, "att/stranded.pdf");
+
+    expect((await deleteProfile(work.id)).ok).toBe(true);
+
+    const [survivor] = await getTestDb()
+      .select()
+      .from(transactionAttachments)
+      .where(eq(transactionAttachments.transactionId, txn));
+    expect(survivor).toBeDefined();
+    expect(survivor.profileId).toBe(personal);
+    expect(sweptKeys()).not.toContain("att/stranded.pdf");
+  });
+
+  /**
+   * The database half is one transaction, so a failure at the last statement
+   * undoes the disposal that ran before it. Without that, the transactions were
+   * already moved (or deleted) when the profile delete failed: the user was
+   * told the delete failed while their rows had silently gone somewhere else.
+   *
+   * A real concurrent insert can't be staged against a single-connection
+   * PGlite, so the failure is injected as the error that race produces — a
+   * foreign-key violation raised as the profile row is deleted.
+   */
+  it("rolls the move back when the profile delete fails, and says to retry", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const personal = await firstProfileId("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    const txn = await insertTxn("a", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-01",
+      profileId: work.id,
+    });
+    await attach("a", txn, work.id, "att/kept.pdf");
+    clearSweeps();
+
+    await getTestDb().execute(sql`
+      CREATE OR REPLACE FUNCTION pg_temp.fk_boom() RETURNS trigger AS $$
+        BEGIN RAISE EXCEPTION 'referenced' USING ERRCODE = '23503'; END;
+      $$ LANGUAGE plpgsql`);
+    await getTestDb().execute(sql`
+      CREATE TRIGGER fk_boom BEFORE DELETE ON profiles
+        FOR EACH ROW EXECUTE FUNCTION pg_temp.fk_boom()`);
+    let result;
+    try {
+      result = await deleteProfile(work.id, { transactions: "move", toProfileId: personal });
+    } finally {
+      await getTestDb().execute(sql`DROP TRIGGER fk_boom ON profiles`);
+    }
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Something was added to this profile while it was being deleted — try again",
+    });
+    // Everything is exactly as it was: the profile, its transaction, and the
+    // receipt — and nothing was swept out of the bucket.
+    expect(await profileByName("a", "Work")).toBeDefined();
+    const [stayed] = await getTestDb()
+      .select()
+      .from(transactions)
+      .where(eq(transactions.id, txn));
+    expect(stayed.profileId).toBe(work.id);
+    const [receipt] = await getTestDb()
+      .select()
+      .from(transactionAttachments)
+      .where(eq(transactionAttachments.transactionId, txn));
+    expect(receipt.profileId).toBe(work.id);
+    expect(sweptKeys()).toHaveLength(0);
   });
 });
 
 describe("getProfileDeletionImpact", () => {
-  it("counts the transactions and vault files a delete would take", async () => {
+  it("counts the transactions, vault files and receipts a delete would take", async () => {
     signInAs("a");
     await bootstrapUser("a");
     await addProfile({ name: "Work" });
     const work = await profileByName("a", "Work");
-    await insertTxn("a", {
+    const txn = await insertTxn("a", {
       type: "expense",
       amountMinor: 100,
       occurredOn: "2026-06-01",
       profileId: work.id,
     });
     await vaultFile("a", work.id, "vault/doc.pdf");
+    await attach("a", txn, work.id, "att/receipt.pdf");
 
     expect(await getProfileDeletionImpact(work.id)).toEqual({
       ok: true,
       transactions: 1,
       files: 1,
+      attachments: 1,
+    });
+  });
+
+  /**
+   * Receipts are counted through the parent transaction, like the sweep — a
+   * profile with an empty vault and forty receipts reported `files: 0` and the
+   * dialog said nothing about the documents it was about to destroy.
+   */
+  it("counts receipts on a profile with no vault files at all", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    const txn = await insertTxn("a", {
+      type: "expense",
+      amountMinor: 100,
+      occurredOn: "2026-06-01",
+      profileId: work.id,
+    });
+    await attach("a", txn, work.id, "att/a.pdf");
+    await attach("a", txn, work.id, "att/b.pdf");
+
+    expect(await getProfileDeletionImpact(work.id)).toEqual({
+      ok: true,
+      transactions: 1,
+      files: 0,
+      attachments: 2,
     });
   });
 

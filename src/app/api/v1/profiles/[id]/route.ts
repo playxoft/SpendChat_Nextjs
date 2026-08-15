@@ -40,9 +40,13 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
     const { user } = await getApiContext(request);
     const { id } = await ctx.params;
     const params = new URL(request.url).searchParams;
+    // `|| undefined`, not `??`: a client that builds the URL from empty state
+    // sends `?transactions=` / `&to=`, and an empty string is "not given", not
+    // a value to fail the enum and the uuid check on. Both params are optional
+    // in the spec, so present-but-blank must behave exactly like absent.
     const deleted = await deleteProfile(user.id, id, {
-      transactions: params.get("transactions") ?? undefined,
-      toProfileId: params.get("to") ?? undefined,
+      transactions: params.get("transactions") || undefined,
+      toProfileId: params.get("to") || undefined,
     });
     if (!deleted) throw notFound("Profile not found");
     return apiOk({ id, deleted: true });
