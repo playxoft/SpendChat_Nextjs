@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Download, Eye, Info } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { attachmentDownloadUrl, formatFileSize } from "@/lib/attachments";
 import {
@@ -13,6 +12,7 @@ import {
   type FileDTO,
   type FolderDTO,
   type TxnFileDTO,
+  type VaultProfile,
 } from "@/lib/files";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipTrigger } from "@/components/ui/tooltip";
@@ -21,6 +21,8 @@ import {
   FileThumb,
   FolderGlyph,
   FolderMetaTooltip,
+  ProfileChip,
+  ProfileDivider,
   TagChips,
   TxnAmount,
   VaultContextMenu,
@@ -29,6 +31,7 @@ import {
   dragSourceProps,
   formatVaultDate,
   useFolderDrop,
+  type ProfileSection,
   type VaultHandlers,
   type VaultTarget,
 } from "./files-views";
@@ -53,6 +56,7 @@ export function FilesColumnView({
   path,
   onNavigate,
   filtering = false,
+  rootProfiles = null,
 }: {
   folders: FolderDTO[];
   files: FileDTO[];
@@ -63,6 +67,9 @@ export function FilesColumnView({
   onNavigate: (folderId: string | null) => void;
   /** True when a tag filter pruned the tree (affects the empty-state copy). */
   filtering?: boolean;
+  /** "All profiles": sidebar-ordered profiles to group the ROOT column by.
+   * Deeper columns are single-profile by construction and never group. */
+  rootProfiles?: VaultProfile[] | null;
 }) {
   const [selected, setSelected] = useState<Selected>(null);
 
@@ -113,6 +120,24 @@ export function FilesColumnView({
   // open in the path.
   const systemOpen = path.some((f) => f.system);
 
+  // "All profiles": the root column groups its rows under per-profile divider
+  // bars (sidebar order, empty profiles skipped). Root only — every deeper
+  // column lists one profile's folder anyway.
+  const rootSections: ProfileSection[] | null = rootProfiles
+    ? rootProfiles
+        .map((profile) => ({
+          profile,
+          folders: childFolders(null).filter((f) => f.profileId === profile.id),
+          files: childFiles(null).filter((f) => f.profileId === profile.id),
+        }))
+        .filter((s) => s.folders.length > 0 || s.files.length > 0)
+    : null;
+
+  // Without the dividers — "All profiles" under a tag filter, which prunes the
+  // tree instead of grouping it — the root column interleaves profiles with
+  // nothing to tell two same-named items apart, so each row names its own.
+  const showProfile = rootProfiles === null && handlers.allProfiles;
+
   return (
     // Fills the viewport below the toolbar (topbar + bottom nav on mobile),
     // so the column rules run the full height of the screen.
@@ -125,6 +150,8 @@ export function FilesColumnView({
             folders={childFolders(parent)}
             files={childFiles(parent)}
             txns={childTxns(parent)}
+            sections={parent === null ? rootSections : null}
+            showProfile={showProfile}
             activeFolderId={path[i]?.id ?? null}
             selectedItemId={selectedFile?.id ?? selectedTxn?.id ?? null}
             handlers={handlers}
@@ -177,6 +204,8 @@ function Column({
   folders,
   files,
   txns,
+  sections,
+  showProfile,
   activeFolderId,
   selectedItemId,
   handlers,
@@ -188,6 +217,10 @@ function Column({
   folders: FolderDTO[];
   files: FileDTO[];
   txns: TxnFileDTO[];
+  /** "All profiles" root grouping — when set, replaces the flat folder/file lists. */
+  sections?: ProfileSection[] | null;
+  /** True when no divider names the profile, so each row must (see `ProfileChip`). */
+  showProfile: boolean;
   /** The folder of this column the path continues into (highlighted). */
   activeFolderId: string | null;
   selectedItemId: string | null;
@@ -198,7 +231,9 @@ function Column({
 }) {
   // Empty space in a column drops into that column's folder (or the root).
   const { over, dropProps } = useFolderDrop(parent?.id ?? null, handlers, parent?.system ?? false);
-  const empty = folders.length === 0 && files.length === 0 && txns.length === 0;
+  const empty = sections
+    ? sections.length === 0
+    : folders.length === 0 && files.length === 0 && txns.length === 0;
 
   return (
     <div
@@ -210,53 +245,58 @@ function Column({
       )}
       {...dropProps}
     >
-      {folders.map((folder) => (
-        <FolderColumnRow
-          key={folder.id}
-          folder={folder}
-          active={folder.id === activeFolderId}
-          handlers={handlers}
-          onOpen={() => onOpenFolder(folder)}
-        />
-      ))}
-      {files.map((file) => (
-        // Same composition as the grid tiles: Tooltip root outside, trigger
-        // innermost, so the context menu and the tooltip share the row div.
-        // Sideways (left, flipping right when the viewport edge is too close)
-        // so the tooltip never covers the neighboring rows.
-        <Tooltip key={file.id} delayDuration={0}>
-          <VaultContextMenu target={{ kind: "file", file }} handlers={handlers}>
-            <TooltipTrigger asChild>
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => onSelectFile(file)}
-                onDoubleClick={() => handlers.previewFile(file)}
-                onKeyDown={(e) => e.key === "Enter" && onSelectFile(file)}
-                className={cn(ROW, file.id === selectedItemId && "bg-accent text-accent-foreground")}
-                {...dragSourceProps({ kind: "file", id: file.id }, handlers.canWrite)}
-              >
-                <span className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40">
-                  <FileThumb
-                    id={file.id}
-                    contentType={file.contentType}
-                    hasThumbnail={file.hasThumbnail}
-                    source="file"
-                    glyphClass="size-3"
-                  />
-                </span>
-                <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                <RowMenu
-                  target={{ kind: "file", file }}
-                  handlers={handlers}
-                  visible={file.id === selectedItemId}
-                />
-              </div>
-            </TooltipTrigger>
-          </VaultContextMenu>
-          <FileMetaTooltip file={file} handlers={handlers} side="left" />
-        </Tooltip>
-      ))}
+      {sections ? (
+        sections.map((s, i) => (
+          <Fragment key={s.profile.id}>
+            <div className={cn("pb-0.5", i > 0 && "pt-2")}>
+              <ProfileDivider profile={s.profile} handlers={handlers} compact />
+            </div>
+            {s.folders.map((folder) => (
+              <FolderColumnRow
+                key={folder.id}
+                folder={folder}
+                active={folder.id === activeFolderId}
+                handlers={handlers}
+                showProfile={showProfile}
+                onOpen={() => onOpenFolder(folder)}
+              />
+            ))}
+            {s.files.map((file) => (
+              <FileColumnRow
+                key={file.id}
+                file={file}
+                selected={file.id === selectedItemId}
+                handlers={handlers}
+                showProfile={showProfile}
+                onSelect={() => onSelectFile(file)}
+              />
+            ))}
+          </Fragment>
+        ))
+      ) : (
+        <>
+          {folders.map((folder) => (
+            <FolderColumnRow
+              key={folder.id}
+              folder={folder}
+              active={folder.id === activeFolderId}
+              handlers={handlers}
+              showProfile={showProfile}
+              onOpen={() => onOpenFolder(folder)}
+            />
+          ))}
+          {files.map((file) => (
+            <FileColumnRow
+              key={file.id}
+              file={file}
+              selected={file.id === selectedItemId}
+              handlers={handlers}
+              showProfile={showProfile}
+              onSelect={() => onSelectFile(file)}
+            />
+          ))}
+        </>
+      )}
       {txns.map((txn) => (
         <VaultContextMenu key={txn.id} target={{ kind: "txn", txn }} handlers={handlers}>
           <div
@@ -292,15 +332,75 @@ function Column({
   );
 }
 
+function FileColumnRow({
+  file,
+  selected,
+  handlers,
+  showProfile,
+  onSelect,
+}: {
+  file: FileDTO;
+  selected: boolean;
+  handlers: VaultHandlers;
+  /** True when no divider above this row names the profile (see `ProfileChip`). */
+  showProfile: boolean;
+  onSelect: () => void;
+}) {
+  return (
+    // Same composition as the grid tiles: Tooltip root outside, trigger
+    // innermost, so the context menu and the tooltip share the row div.
+    // Sideways (left, flipping right when the viewport edge is too close)
+    // so the tooltip never covers the neighboring rows.
+    <Tooltip delayDuration={0}>
+      <VaultContextMenu target={{ kind: "file", file }} handlers={handlers}>
+        <TooltipTrigger asChild>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={onSelect}
+            onDoubleClick={() => handlers.previewFile(file)}
+            onKeyDown={(e) => e.key === "Enter" && onSelect()}
+            className={cn(ROW, selected && "bg-accent text-accent-foreground")}
+            {...dragSourceProps({ kind: "file", id: file.id }, handlers.canWrite)}
+          >
+            <span className="flex size-5 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40">
+              <FileThumb
+                id={file.id}
+                contentType={file.contentType}
+                hasThumbnail={file.hasThumbnail}
+                source="file"
+                glyphClass="size-3"
+              />
+            </span>
+            <span className="min-w-0 flex-1 truncate">{file.name}</span>
+            {showProfile ? (
+              <ProfileChip
+                profileId={file.profileId}
+                handlers={handlers}
+                className="max-w-20 px-1"
+              />
+            ) : null}
+            <RowMenu target={{ kind: "file", file }} handlers={handlers} visible={selected} />
+          </div>
+        </TooltipTrigger>
+      </VaultContextMenu>
+      <FileMetaTooltip file={file} handlers={handlers} side="left" />
+    </Tooltip>
+  );
+}
+
 function FolderColumnRow({
   folder,
   active,
   handlers,
+  showProfile,
   onOpen,
 }: {
   folder: FolderDTO;
   active: boolean;
   handlers: VaultHandlers;
+  /** True when no divider above this row names the profile (see `ProfileChip`). */
+  showProfile: boolean;
   onOpen: () => void;
 }) {
   const { over, dropProps } = useFolderDrop(folder.id, handlers, folder.system);
@@ -328,10 +428,12 @@ function FolderColumnRow({
           >
             <FolderGlyph folder={folder} className="size-4" />
             <span className="min-w-0 flex-1 truncate font-medium">{folder.name}</span>
-            {handlers.allProfiles && handlers.profileLabel(folder.profileId) ? (
-              <Badge variant="outline" className="max-w-20 truncate px-1 py-0 text-sm font-normal">
-                {handlers.profileLabel(folder.profileId)}
-              </Badge>
+            {showProfile ? (
+              <ProfileChip
+                profileId={folder.profileId}
+                handlers={handlers}
+                className="max-w-20 px-1"
+              />
             ) : null}
             <RowMenu target={{ kind: "folder", folder }} handlers={handlers} visible={active} />
           </div>

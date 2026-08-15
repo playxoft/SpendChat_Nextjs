@@ -17,6 +17,7 @@ import {
   contentDisposition,
   fileTypeLabel,
   formatStorageCompact,
+  profileAccentColor,
   serializeFile,
   serializeFileShare,
   serializeFolder,
@@ -305,5 +306,30 @@ describe("contentDisposition — the shared download header", () => {
     const header = contentDisposition(`ev"il\\.pdf`, false);
     expect(header).toContain(`filename="ev_il_.pdf"`);
     expect(header.match(/"/g)).toHaveLength(2);
+  });
+});
+
+describe("profileAccentColor — section divider accents", () => {
+  it("uses the profile's own color when it's a 6-digit hex", () => {
+    expect(profileAccentColor({ id: UUID, color: "#123abc" })).toBe("#123abc");
+    expect(profileAccentColor({ id: UUID, color: "#12ABEF" })).toBe("#12ABEF");
+  });
+
+  it("falls back to a stable palette pick keyed off the id", () => {
+    const first = profileAccentColor({ id: UUID, color: null });
+    expect(VAULT_COLORS).toContain(first);
+    expect(profileAccentColor({ id: UUID, color: null })).toBe(first);
+    // A different id is allowed to collide, but the mapping itself is stable.
+    expect(VAULT_COLORS).toContain(profileAccentColor({ id: UUID2, color: null }));
+  });
+
+  // `profiles.color` is only length-capped (unlike folder/tag colors), so the
+  // API can store anything; the divider appends an alpha suffix to whatever we
+  // return, and a non-`#rrggbb` value would leave a half-styled bar.
+  it("falls back on any color the alpha suffix can't be appended to", () => {
+    const fallback = profileAccentColor({ id: UUID, color: null });
+    for (const color of ["rgb(59,130,246)", "#3b8", "blue", "#123abcd", "", "  "]) {
+      expect(profileAccentColor({ id: UUID, color })).toBe(fallback);
+    }
   });
 });

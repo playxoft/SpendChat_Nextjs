@@ -18,6 +18,35 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-08-15
+
+### Added
+
+- **The vault's "All profiles" view groups by profile.** At the root, every
+  view — grid, list, and the column browser — now shows a colored divider bar
+  per profile (its color, or a stable accent derived from it) with that
+  profile's folders and files beneath, so a shared workspace reads as
+  "Business… Personal…" instead of one mixed pile. Opening a folder, searching,
+  or filtering by tag returns to the normal flat rendering.
+- **Upload into a profile from the "All profiles" view.** There was nowhere to
+  put a file there — with several profiles on screen the page couldn't tell
+  which one you meant, so only folders accepted them. Each profile's divider bar
+  now takes files itself: drop them on it, or use the upload button on the bar,
+  and they land in that profile's root, in grid, list and column views alike.
+
+### Changed
+
+- **Files and folders stop repeating their profile's name at the root.** Where
+  a divider bar already heads the group, the per-item profile badge on grid
+  tiles and column rows — and the whole "Profile" column in list view — said the
+  same thing once per row, so they're gone. Search results and tag-filtered
+  results are a flat mix of every profile with no bar above them, and there each
+  item still names its own.
+- **The storage gauge is off the sidebar.** The ring and "0.1/1 GB" next to
+  **Files** followed you around every page to report something that only matters
+  while you're managing files. It stays on the Files page toolbar, where it's in
+  context — and every other page now skips the query that fed it.
+
 ## [0.2.1] — 2026-08-15
 
 ### Security

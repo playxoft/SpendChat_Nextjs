@@ -619,11 +619,11 @@ export async function getWorkspaceStorageUsage(workspaceId: string): Promise<num
 }
 
 /**
- * Per-request deduped variant for RSC renders: on /app/files the app layout
- * (sidebar mini gauge) and the page (toolbar ring) both need the total in the
- * same render pass, and `cache()` collapses them into one query. Quota checks
- * (`assertStorageQuota`) and API routes stay on the uncached read above so an
- * action that uploads and re-renders in one request never serves a stale sum.
+ * Per-request deduped variant for RSC renders: /app/files reads the total for
+ * its toolbar ring, and `cache()` collapses that with any other reader in the
+ * same render pass into one query. Quota checks (`assertStorageQuota`) and API
+ * routes stay on the uncached read above so an action that uploads and
+ * re-renders in one request never serves a stale sum.
  */
 export const getWorkspaceStorageUsageCached = cache(getWorkspaceStorageUsage);
 

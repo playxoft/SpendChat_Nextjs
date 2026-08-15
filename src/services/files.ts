@@ -135,9 +135,12 @@ export async function ensureSystemFolders(
  *
  * The web page and `GET /api/v1/files` both render exactly this — keeping it in
  * one place is what stops the mobile working set from drifting from the web's.
- * `dedupeStorageRead` picks the React-`cache()`d storage reader: the page wants
- * it (the app layout reads the same sum in the same render), an API request
- * must not (a just-uploaded file would be missing from the sum).
+ * `dedupeStorageRead` picks the React-`cache()`d storage reader. The Files page
+ * takes it — a read-only RSC render, where a per-request memoized sum is always
+ * current and any other reader in the same pass reuses the one query. Everything
+ * else (API routes, actions) stays on the uncached read, since a request that
+ * uploads and then re-reads in the same pass would otherwise serve the sum from
+ * before the upload.
  */
 export type VaultWorkingSet = {
   folders: FolderDTO[];

@@ -58,6 +58,37 @@ export function storageUsageTone(usedBytes: number, limitBytes: number): Storage
   return "ok";
 }
 
+/** Profile display fields the vault needs (sidebar order, section dividers). */
+export type VaultProfile = {
+  id: string;
+  name: string;
+  icon: string | null;
+  color: string | null;
+};
+
+/** Colors the divider can safely append an alpha suffix to (`#rrggbb` + `1a`). */
+const HEX6 = /^#[0-9a-f]{6}$/i;
+
+/**
+ * A profile's accent for the vault's section dividers: its own color when that
+ * is a 6-digit hex, else a stable pick from the 20-swatch palette hashed off
+ * the id — so an uncolored profile still gets the same accent on every render
+ * and device.
+ *
+ * Folder and tag colors are validated as 6-digit hex (`vaultColorSchema`), but
+ * `profiles.color` is only length-capped, so `PATCH /api/v1/profiles/:id` can
+ * store `rgb(59,130,246)` or a 3-digit `#3b8`. The divider builds its tint and
+ * border by appending an alpha suffix to this value; on anything but a 6-digit
+ * hex those two declarations are invalid and dropped while the dot still
+ * paints, leaving a half-styled bar. Falling back keeps the bar whole.
+ */
+export function profileAccentColor(profile: Pick<VaultProfile, "id" | "color">): string {
+  if (profile.color && HEX6.test(profile.color)) return profile.color;
+  let hash = 0;
+  for (const ch of profile.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return VAULT_COLORS[hash % VAULT_COLORS.length]!;
+}
+
 const GIB = 1024 ** 3;
 
 /**

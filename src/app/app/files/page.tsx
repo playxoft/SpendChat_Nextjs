@@ -42,7 +42,7 @@ export default async function FilesPage({
         files={files}
         txnFiles={transactionFiles}
         tags={tags}
-        profiles={profiles.map((p) => ({ id: p.id, name: p.name, icon: p.icon }))}
+        profiles={profiles.map((p) => ({ id: p.id, name: p.name, icon: p.icon, color: p.color }))}
         activeProfileId={activeProfileId ?? null}
         currency={workspace.currency}
         locale={workspace.locale}
