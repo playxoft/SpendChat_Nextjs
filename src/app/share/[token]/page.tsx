@@ -2,9 +2,14 @@ import Link from "next/link";
 import { Download, File as FileIcon } from "lucide-react";
 import { createMetadata } from "@/lib/seo";
 import { resolveShare, type SharedFilePublic } from "@/services/files";
-import { shareFileUrl } from "@/lib/files";
+import {
+  isAudioContentType,
+  isVideoContentType,
+  rendersInBrowser,
+  shareFileUrl,
+} from "@/lib/files";
 import { formatFileSize } from "@/lib/attachments";
-import { FILE_INLINE_TYPES } from "@/lib/validation";
+import { MediaPlayer } from "@/components/media-player";
 import { SharedFolderBrowser } from "./share-views";
 
 export const dynamic = "force-dynamic";
@@ -94,6 +99,29 @@ function DownloadLink({
   );
 }
 
+/** The card shown instead of a preview, with the download button when the link
+ *  allows one. Also the media player's fallback, so a container the engine
+ *  turns out not to decode lands somewhere that explains itself. */
+function NoPreview({
+  token,
+  file,
+  allowDownload,
+  message,
+}: {
+  token: string;
+  file: SharedFilePublic;
+  allowDownload: boolean;
+  message: string;
+}) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-16 text-center">
+      <FileIcon className="size-8 text-muted-foreground" aria-hidden />
+      <p className="text-sm text-muted-foreground">{message}</p>
+      <DownloadLink token={token} file={file} allowDownload={allowDownload} />
+    </div>
+  );
+}
+
 function SharedFile({
   token,
   file,
@@ -106,10 +134,26 @@ function SharedFile({
   const src = shareFileUrl(token, file.id);
   const isImage = file.contentType.startsWith("image/");
   const isPdf = file.contentType === "application/pdf";
-  const isVideo = file.contentType.startsWith("video/");
-  const isAudio = file.contentType.startsWith("audio/");
   const isText = file.contentType === "text/plain" || file.contentType === "text/markdown";
-  const previewable = FILE_INLINE_TYPES.has(file.contentType);
+  // `rendersInBrowser`, not `video/*`: a `.avi` or `.wmv` is stored as video and
+  // served inline everywhere a download is available, but here it would render
+  // a permanently broken player — and on a view-only link there'd be no
+  // download button either, so nothing would explain it.
+  const previewable = rendersInBrowser(file.contentType);
+  const isVideo = previewable && isVideoContentType(file.contentType);
+  const isAudio = previewable && isAudioContentType(file.contentType);
+  const unplayable = (
+    <NoPreview
+      token={token}
+      file={file}
+      allowDownload={allowDownload}
+      message={
+        allowDownload
+          ? "This browser can’t play this file’s format. Download it to open in a media player."
+          : "This browser can’t play this file’s format, and this link is view-only."
+      }
+    />
+  );
 
   return (
     <div className="flex flex-1 flex-col gap-4">
@@ -128,25 +172,31 @@ function SharedFile({
         ) : isPdf ? (
           <iframe src={src} title={file.name} className="h-[75svh] w-full border-0" />
         ) : isVideo ? (
-          <video src={src} controls className="mx-auto max-h-[75svh] w-full" />
+          <MediaPlayer
+            src={src}
+            kind="video"
+            className="mx-auto max-h-[75svh] w-full"
+            fallback={unplayable}
+          />
         ) : isAudio ? (
           <div className="p-6">
-            <audio src={src} controls className="w-full" />
+            <MediaPlayer src={src} kind="audio" className="w-full" fallback={unplayable} />
           </div>
         ) : isText ? (
           <iframe src={src} title={file.name} className="h-[60svh] w-full border-0 bg-background" />
         ) : (
-          <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <FileIcon className="size-8 text-muted-foreground" aria-hidden />
-            <p className="text-sm text-muted-foreground">
-              {previewable
+          <NoPreview
+            token={token}
+            file={file}
+            allowDownload={allowDownload}
+            message={
+              previewable
                 ? "Preview couldn’t be shown for this file."
                 : allowDownload
                   ? "No inline preview for this file type — download it to view."
-                  : "No inline preview for this file type, and this link is view-only."}
-            </p>
-            <DownloadLink token={token} file={file} allowDownload={allowDownload} />
-          </div>
+                  : "No inline preview for this file type, and this link is view-only."
+            }
+          />
         )}
       </div>
     </div>

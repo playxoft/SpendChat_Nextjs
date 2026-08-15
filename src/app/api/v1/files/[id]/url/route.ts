@@ -5,7 +5,7 @@ import { ApiError, notFound } from "@/lib/errors";
 import { isR2Configured, signedGetUrl } from "@/lib/r2";
 import { getFileForDownload } from "@/services/files";
 import { contentDisposition } from "@/lib/files";
-import { FILE_INLINE_TYPES } from "@/lib/validation";
+import { FILE_INLINE_TYPES, effectiveContentType } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
 
@@ -45,16 +45,25 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     const wantThumb = params.get("variant") === "thumb" && row.thumbnailKey != null;
     const forceDownload = params.get("download") === "1";
     const key = wantThumb ? row.thumbnailKey! : row.r2Key;
-    const inline = wantThumb || (!forceDownload && FILE_INLINE_TYPES.has(row.contentType));
+    // Re-derived rather than echoed, and restated on the URL itself: a file
+    // stored before we could name its container is `application/octet-stream`
+    // in the DB *and* in the bucket, and on a presigned URL the client obeys
+    // the object's own header — so without the override the app would still be
+    // handed an anonymous binary to play.
+    const contentType = effectiveContentType(row.name, row.contentType);
+    const inline = wantThumb || (!forceDownload && FILE_INLINE_TYPES.has(contentType));
     const url = await signedGetUrl(key, {
       expiresSeconds: URL_TTL_SECONDS,
       disposition: contentDisposition(row.name, inline),
+      // The preview is an image stored under its own type; only the original
+      // ever needs correcting.
+      ...(wantThumb ? {} : { contentType }),
     });
     return apiOk({
       url,
       expiresInSeconds: URL_TTL_SECONDS,
       fileName: row.name,
-      contentType: wantThumb ? "image/webp" : row.contentType,
+      contentType: wantThumb ? "image/webp" : contentType,
     });
   });
 }

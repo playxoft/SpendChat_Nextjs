@@ -14,6 +14,7 @@ import { attachmentGlyph } from "@/components/app/attachments/attachment-icon";
 import { formatFileSize } from "@/lib/attachments";
 import {
   fileTypeLabel,
+  rendersInBrowser,
   shareFileThumbUrl,
   shareFileUrl,
 } from "@/lib/files";
@@ -22,7 +23,6 @@ import type {
   SharedFolderPublic,
   SharedTagPublic,
 } from "@/services/files";
-import { FILE_INLINE_TYPES } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 
 /**
@@ -93,8 +93,13 @@ export function SharedFolderBrowser({
     );
   };
 
+  // Opening a file is a top-level navigation, so the test is "will the browser
+  // *render* this", not "is it on the inline allowlist": a `.avi` or `.wmv` no
+  // engine decodes gets saved to disk instead of shown, which a view-only link
+  // must not do. Those fall to the download link, or to nothing at all — the
+  // route enforces the same rule, so a hand-built URL doesn't get further.
   const fileHref = (file: SharedFilePublic) =>
-    FILE_INLINE_TYPES.has(file.contentType)
+    rendersInBrowser(file.contentType)
       ? shareFileUrl(token, file.id)
       : allowDownload
         ? shareFileUrl(token, file.id, true)
@@ -300,7 +305,7 @@ export function SharedFolderBrowser({
                         {thumb(file, "size-4")}
                       </span>
                       <span className="truncate font-medium">{file.name}</span>
-                      {FILE_INLINE_TYPES.has(file.contentType) ? (
+                      {rendersInBrowser(file.contentType) ? (
                         <ExternalLink className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                       ) : null}
                     </span>

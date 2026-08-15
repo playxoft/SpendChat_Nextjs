@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.7.0"
+  version: "5.8.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -754,8 +754,15 @@ paths:
         is not a file** — so a preview can never attach to the wrong file.
 
         Unlike transaction attachments there is **no type allowlist** — videos,
-        archives, anything goes; an unknown type is stored as
-        `application/octet-stream`. Limits: **10 files per request** (400),
+        archives, anything goes. A part whose `Content-Type` is missing or
+        `application/octet-stream` has its type **resolved from the filename
+        extension** (`.mkv` → `video/x-matroska`, `.flac` → `audio/flac`,
+        `.m4v` → `video/mp4`, …), so send the filename with its extension
+        intact; a type that stays unrecognized is stored as
+        `application/octet-stream`. `.ts` is deliberately not treated as video
+        (it is far more often TypeScript source). The same resolution is
+        applied when a file is read, so files uploaded before it existed report
+        their real type as well. Limits: **10 files per request** (400),
         **5 MB per file — previews included** (413 `payload_too_large`), and
         the workspace's **1 GB storage quota** — a batch whose combined size
         doesn't fit gets 413 `storage_quota_exceeded`.
@@ -856,13 +863,29 @@ paths:
 
         **Only previewable types are served inline.** The URL carries
         `Content-Disposition: inline` for images, PDF, plain text/CSV/Markdown
-        and audio/video; **every other type gets `attachment` even without
-        `?download=1`**. The vault accepts any well-formed MIME type, so an
-        uploaded HTML/SVG must never be rendered by the platform WebView off
-        the storage origin. `?variant=thumb` is always inline (the preview is
-        webp the client generated). Open the URL in a browser/WebView and the
-        platform will save rather than display anything non-previewable — if
-        the app needs the bytes, fetch them instead of navigating to them.
+        and **every `video/*` or `audio/*` type the server recognizes**;
+        **every other type gets `attachment` even without `?download=1`**.
+        Don't reimplement the media list client-side — it is exactly "the
+        `contentType` in this response starts with `video/` or `audio/`", and
+        it grows (it currently holds 23 types, including ones an older
+        enumeration missed: `video/x-m4v` is now reported as `video/mp4`, plus
+        `video/3gpp2` and `audio/webm`). Media is inline across the board
+        because media bytes go to a decoder, never to a document parser — the
+        allowlist still excludes HTML/SVG. Whether a given container actually
+        plays is the **player's** call and differs by platform (Android's
+        ExoPlayer handles Matroska; iOS's AVPlayer largely does not) — treat a
+        decode error as expected and fall back to a download/share action. The
+        vault accepts any well-formed MIME type, so an uploaded HTML/SVG must
+        never be rendered by the platform WebView off the storage origin.
+
+        The URL also overrides the object's `Content-Type` with the
+        `contentType` returned here, so a file stored before its container
+        could be named arrives correctly typed rather than as
+        `application/octet-stream`. `?variant=thumb` is always inline (the
+        preview is webp the client generated). Open the URL in a
+        browser/WebView and the platform will save rather than display
+        anything non-previewable — if the app needs the bytes, fetch them
+        instead of navigating to them.
       parameters:
         - name: variant
           in: query
@@ -1121,7 +1144,10 @@ paths:
         secret. Build the shareable web link as `<web-origin><sharePath>`
         (e.g. `https://spendchat.example.com/share/aBc…`). A folder link shares
         the folder's whole subtree. `allowDownload: false` makes a view-only
-        link; `expiresInDays` omitted/null = never expires. The predefined
+        link: the share page serves only what a browser renders in place —
+        previewable documents and playable media — and refuses everything else
+        with a 403, since "previewing" a container no engine decodes just saves
+        the file. `expiresInDays` omitted/null = never expires. The predefined
         folder can't be shared (400).
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
@@ -2390,7 +2416,12 @@ components:
           format: uuid
           description: null = the profile's root.
         name: { type: string, maxLength: 200, description: Sanitized display/file name. }
-        contentType: { type: string }
+        contentType:
+          type: string
+          description: >-
+            Resolved from the filename extension when the stored type is
+            missing or application/octet-stream, so this is the file's real
+            type even for files uploaded before that resolution existed.
         sizeBytes: { type: integer, maximum: 5242880 }
         category:
           oneOf:
@@ -2462,7 +2493,10 @@ components:
         sharePath: { type: string, example: "/share/aBcD…" }
         allowDownload:
           type: boolean
-          description: false = view-only link (recipients preview but can't download).
+          description: >-
+            false = view-only link: recipients get inline previews of what the
+            browser renders, and a 403 for anything else (no download UI, and
+            no URL that would save the file instead).
         expiresAt:
           type: [string, "null"]
           format: date-time

@@ -19,6 +19,7 @@ import { GET as listTags, POST as createTag } from "@/app/api/v1/file-tags/route
 import { PATCH as patchTag, DELETE as deleteTag } from "@/app/api/v1/file-tags/[id]/route";
 import { GET as listShares, POST as createShare } from "@/app/api/v1/file-shares/route";
 import { DELETE as deleteShare } from "@/app/api/v1/file-shares/[id]/route";
+import { GET as shareFileBytes } from "@/app/api/share/[token]/file/[fileId]/route";
 import { eq } from "drizzle-orm";
 import { fileShares, files, folders, profileAccess, transactionAttachments } from "@/db/schema";
 import { STORAGE_QUOTA_BYTES } from "@/lib/validation";
@@ -77,11 +78,45 @@ function lastDisposition(): string | undefined {
   return calls[calls.length - 1]?.[1]?.disposition;
 }
 
+/** The `Content-Type` override the route signed into the last URL — what the
+ * client actually receives, since the stored object keeps its own header. */
+function lastSignedType(): string | undefined {
+  const calls = vi.mocked(signedGetUrl).mock.calls;
+  return calls[calls.length - 1]?.[1]?.contentType;
+}
+
 /** The vault working set as user "a" currently sees it. */
 async function vault() {
   const res = await getVault(apiReq("/api/v1/files"));
   expect(res.status).toBe(200);
   return res.json();
+}
+
+/** Insert a vault-file row directly, bypassing the upload path — for a row that
+ * predates a fix (a type today's upload would resolve) or an exact size. */
+async function seedFileRow(
+  pid: string,
+  {
+    name,
+    contentType,
+    sizeBytes = 24,
+    folderId = null,
+  }: { name: string; contentType: string; sizeBytes?: number; folderId?: string | null },
+): Promise<string> {
+  const [row] = await getTestDb()
+    .insert(files)
+    .values({
+      workspaceId: await workspaceIdOf("a"),
+      profileId: pid,
+      userId: uid("a"),
+      folderId,
+      r2Key: `vault/test/${crypto.randomUUID()}`,
+      name,
+      contentType,
+      sizeBytes,
+    })
+    .returning({ id: files.id });
+  return row!.id;
 }
 
 describe("GET /api/v1/files", () => {
@@ -104,6 +139,18 @@ describe("GET /api/v1/files", () => {
       filesLimit: 500,
       storage: { usedBytes: 0, limitBytes: STORAGE_QUOTA_BYTES },
     });
+  });
+
+  // The upload-side fix only reaches new files. Every video already in a vault
+  // is application/octet-stream, so the list re-derives the type from the name
+  // — otherwise "videos play again" would be false for the whole corpus that
+  // reported the bug.
+  it("reports the real media type for a file stored before the fix", async () => {
+    const pid = await setup();
+    await seedFileRow(pid, { name: "holiday.mkv", contentType: "application/octet-stream" });
+    const { data } = await vault();
+    expect(data.files).toHaveLength(1);
+    expect(data.files[0].contentType).toBe("video/x-matroska");
   });
 
   it("keeps users' vaults isolated", async () => {
@@ -446,6 +493,22 @@ describe("GET /api/v1/files/:id/url — disposition", () => {
     expect(lastDisposition()).toMatch(/^inline; /);
   });
 
+  it("corrects a pre-fix octet-stream row and restates the type on the URL", async () => {
+    const pid = await setup();
+    const id = await seedFileRow(pid, {
+      name: "holiday.mkv",
+      contentType: "application/octet-stream",
+    });
+    const res = await fileUrl(apiReq(`/api/v1/files/${id}/url`), ctx({ id }));
+    expect(res.status).toBe(200);
+    expect((await res.json()).data.contentType).toBe("video/x-matroska");
+    expect(lastDisposition()).toMatch(/^inline; /);
+    // The object in the bucket still carries the type it was PUT with, and on a
+    // presigned URL that header is what the client obeys — without the override
+    // the app would be handed an anonymous binary to play.
+    expect(lastSignedType()).toBe("video/x-matroska");
+  });
+
   it("rejects an upload without profileId and one into the predefined folder", async () => {
     const pid = await setup();
     const noProfile = await uploadFiles(uploadReq({}));
@@ -462,17 +525,11 @@ describe("storage quota", () => {
   /** Seed a vault-file row of `sizeBytes` directly — the quota reads the DB,
    * so no actual bytes are involved. */
   async function seedVaultFile(pid: string, sizeBytes: number): Promise<void> {
-    await getTestDb()
-      .insert(files)
-      .values({
-        workspaceId: await workspaceIdOf("a"),
-        profileId: pid,
-        userId: uid("a"),
-        r2Key: `vault/test/${crypto.randomUUID()}`,
-        name: "big.bin",
-        contentType: "application/octet-stream",
-        sizeBytes,
-      });
+    await seedFileRow(pid, {
+      name: "big.bin",
+      contentType: "application/octet-stream",
+      sizeBytes,
+    });
   }
 
   it("reports vault files + transaction attachments in meta.storage", async () => {
@@ -632,6 +689,99 @@ describe("file-shares", () => {
       }),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+describe("share link content — what a view-only link will serve", () => {
+  /** A public share-content request: no session, the token is the whole auth. */
+  const shareReq = (token: string, fileId: string, query = ""): NextRequest =>
+    new Request(`http://localhost/api/share/${token}/file/${fileId}${query}`) as NextRequest;
+
+  /** Seed one file, share it (as a file link, or inside a shared folder), and
+   * return what the public route needs. */
+  async function shared({
+    name,
+    contentType = "application/octet-stream",
+    allowDownload,
+    viaFolder = false,
+  }: {
+    name: string;
+    contentType?: string;
+    allowDownload: boolean;
+    viaFolder?: boolean;
+  }): Promise<{ token: string; fileId: string }> {
+    const pid = await setup();
+    let folderId: string | null = null;
+    if (viaFolder) {
+      const created = await createFolder(
+        apiReq("/api/v1/folders", {
+          method: "POST",
+          body: jsonBody({ profileId: pid, name: "Recordings" }),
+        }),
+      );
+      folderId = (await created.json()).data.id;
+    }
+    const fileId = await seedFileRow(pid, { name, contentType, folderId });
+    const share = await createShare(
+      apiReq("/api/v1/file-shares", {
+        method: "POST",
+        body: jsonBody(viaFolder ? { folderId, allowDownload } : { fileId, allowDownload }),
+      }),
+    );
+    expect(share.status).toBe(201);
+    return { token: (await share.json()).data.token, fileId };
+  }
+
+  // The failure this guards: a folder shared view-only, containing a container
+  // no engine renders. Serving it inline doesn't show a dead player — the
+  // browser writes the file to the recipient's Downloads folder, which is the
+  // one thing `allowDownload: false` promises can't happen.
+  it("refuses the bytes of a container no browser renders", async () => {
+    const { token, fileId } = await shared({
+      name: "contract-recording.wmv",
+      allowDownload: false,
+      viaFolder: true,
+    });
+    const res = await shareFileBytes(shareReq(token, fileId), ctx({ token, fileId }));
+    expect(res.status).toBe(403);
+    expect(vi.mocked(signedGetUrl)).not.toHaveBeenCalled();
+  });
+
+  it("still previews media the browser can play, with the corrected type", async () => {
+    const { token, fileId } = await shared({ name: "clip.mp4", allowDownload: false });
+    const res = await shareFileBytes(shareReq(token, fileId), ctx({ token, fileId }));
+    expect(res.status).toBe(302);
+    expect(lastDisposition()).toMatch(/^inline; /);
+    expect(lastSignedType()).toBe("video/mp4");
+  });
+
+  it("keeps refusing ?download=1 on a view-only link", async () => {
+    const { token, fileId } = await shared({ name: "clip.mp4", allowDownload: false });
+    const res = await shareFileBytes(
+      shareReq(token, fileId, "?download=1"),
+      ctx({ token, fileId }),
+    );
+    expect(res.status).toBe(403);
+  });
+
+  // A download-allowed link may serve it, but it's labelled for what it is
+  // rather than pretending to preview.
+  it("serves an unrenderable container as an attachment when downloads are allowed", async () => {
+    const { token, fileId } = await shared({ name: "wedding.avi", allowDownload: true });
+    const res = await shareFileBytes(shareReq(token, fileId), ctx({ token, fileId }));
+    expect(res.status).toBe(302);
+    expect(lastDisposition()).toMatch(/^attachment; /);
+    expect(lastSignedType()).toBe("video/x-msvideo");
+  });
+
+  it("404s a file the token doesn't cover, whatever its type", async () => {
+    const { token } = await shared({ name: "clip.mp4", allowDownload: false });
+    const other = await seedFileRow(await firstProfileId("a"), {
+      name: "private.mp4",
+      contentType: "video/mp4",
+    });
+    const res = await shareFileBytes(shareReq(token, other), ctx({ token, fileId: other }));
+    expect(res.status).toBe(404);
   });
 });
 

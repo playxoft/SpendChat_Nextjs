@@ -40,6 +40,7 @@ import {
   createFileShareSchema,
   createFolderSchema,
   createTagSchema,
+  effectiveContentType,
   resolveFileType,
   updateFileSchema,
   updateFolderSchema,
@@ -884,7 +885,10 @@ const toPublicFile = (row: VaultFileRow): SharedFilePublic => ({
   id: row.id,
   folderId: row.folderId,
   name: row.name,
-  contentType: row.contentType,
+  // Re-derived like `serializeFile`, and for the same reason: a file stored
+  // before we could name its container is `application/octet-stream`, and the
+  // share page decides preview vs. download card off this field.
+  contentType: effectiveContentType(row.name, row.contentType),
   sizeBytes: row.sizeBytes,
   hasThumbnail: row.thumbnailKey != null,
   tagIds: row.tagIds,

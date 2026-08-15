@@ -290,16 +290,30 @@ export async function deleteObjects(keys: readonly (string | null | undefined)[]
  * request restate the header), so we can hand back the original filename and
  * choose inline preview vs. download without proxying the bytes through the
  * Worker.
+ *
+ * `contentType` overrides `response-content-type` the same way, and callers
+ * serving a stored file should always pass it: the object's own type is
+ * whatever it was PUT with, so anything uploaded before we could name its
+ * container is `application/octet-stream` in the bucket forever. On this path
+ * the browser sees the object's header, not ours — without the override a
+ * corrected type never reaches the player and the video still downloads.
+ * Both overrides are signed query parameters, so neither can be tampered with
+ * after the URL is minted.
  */
 export async function signedGetUrl(
   key: string,
-  opts: { expiresSeconds: number; disposition?: string } = { expiresSeconds: 300 },
+  opts: { expiresSeconds: number; disposition?: string; contentType?: string } = {
+    expiresSeconds: 300,
+  },
 ): Promise<string> {
   const cfg = requireConfig();
   const url = new URL(objectUrl(cfg, key));
   url.searchParams.set("X-Amz-Expires", String(opts.expiresSeconds));
   if (opts.disposition) {
     url.searchParams.set("response-content-disposition", opts.disposition);
+  }
+  if (opts.contentType) {
+    url.searchParams.set("response-content-type", opts.contentType);
   }
   const signed = await getClient(cfg).sign(url.toString(), {
     method: "GET",

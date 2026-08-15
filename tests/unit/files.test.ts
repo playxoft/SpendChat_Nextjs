@@ -1,10 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  BROWSER_PLAYABLE_MEDIA_TYPES,
   FILE_INLINE_TYPES,
   STORAGE_QUOTA_BYTES,
   createFileShareSchema,
   createFolderSchema,
   createTagSchema,
+  effectiveContentType,
   resolveFileType,
   tagIdsSchema,
   updateFileSchema,
@@ -18,6 +20,7 @@ import {
   fileTypeLabel,
   formatStorageCompact,
   profileAccentColor,
+  rendersInBrowser,
   serializeFile,
   serializeFileShare,
   serializeFolder,
@@ -70,6 +73,123 @@ describe("resolveFileType — the vault's permissive resolver", () => {
       contentType: "application/octet-stream",
       ext: "bin",
     });
+  });
+
+  // Browsers report File.type inconsistently for video: empty or
+  // octet-stream for .mkv/.avi/.m4v and often for files dragged from other
+  // apps. Without the extension fallback these stored as octet-stream and lost
+  // their preview, which is exactly what "video previews don't show" was.
+  it("recovers a media type from the extension when the browser declares none", () => {
+    expect(resolveFileType("holiday.mkv", "")).toEqual({
+      contentType: "video/x-matroska",
+      ext: "mkv",
+    });
+    expect(resolveFileType("clip.mov", "application/octet-stream")).toEqual({
+      contentType: "video/quicktime",
+      ext: "mov",
+    });
+    expect(resolveFileType("old.avi", null).contentType).toBe("video/x-msvideo");
+    expect(resolveFileType("song.flac", "").contentType).toBe("audio/flac");
+    expect(resolveFileType("voice.opus", "").contentType).toBe("audio/opus");
+  });
+
+  it("serves every recovered media type inline, so <video> can play it", () => {
+    for (const name of ["a.mp4", "a.webm", "a.mov", "a.mkv", "a.avi", "a.m4v", "a.mp3", "a.flac"]) {
+      const { contentType } = resolveFileType(name, "");
+      expect(FILE_INLINE_TYPES.has(contentType)).toBe(true);
+    }
+    // The rule that keeps permissive uploads safe still holds: only media and
+    // the known-safe document types are inline — never a stored HTML/SVG.
+    expect(FILE_INLINE_TYPES.has("image/svg+xml")).toBe(false);
+    expect(FILE_INLINE_TYPES.has("text/html")).toBe(false);
+  });
+
+  it("labels every video container as Video, whatever the container", () => {
+    for (const name of ["a.mkv", "a.avi", "a.mov", "a.wmv", "a.3gp"]) {
+      expect(fileTypeLabel(resolveFileType(name, "").contentType)).toBe("Video");
+    }
+  });
+
+  // `.ts` is far more often TypeScript source than an MPEG transport stream,
+  // and Windows Chrome reports no File.type for it. Claiming it as video filed
+  // an export as a film strip, served it inline, and opened a player that
+  // errored — an honest download card is the better answer.
+  it("leaves .ts alone and keeps the unambiguous .m2ts", () => {
+    expect(resolveFileType("budget-export.ts", "")).toEqual({
+      contentType: "application/octet-stream",
+      ext: "ts",
+    });
+    expect(fileTypeLabel(resolveFileType("budget-export.ts", "").contentType)).toBe("File");
+    expect(resolveFileType("recording.m2ts", "").contentType).toBe("video/mp2t");
+    // With `ts` gone from the map, an extensionless transport stream is stored
+    // under the extension that still means only one thing.
+    expect(resolveFileType("recording", "video/mp2t").ext).toBe("m2ts");
+  });
+
+  // `.m4v` is an MP4 container. Typed `video/x-m4v` it played in <video> but
+  // Chrome had no renderer for it, so the viewer's "Open in new tab" saved the
+  // file instead of playing it.
+  it("stores .m4v as MP4, and video/mp4 still prefers the .mp4 extension", () => {
+    expect(resolveFileType("movie.m4v", "")).toEqual({ contentType: "video/mp4", ext: "m4v" });
+    expect(resolveFileType("movie", "video/mp4").ext).toBe("mp4");
+  });
+});
+
+describe("rendersInBrowser — what a view-only share may serve", () => {
+  it("covers only types the inline allowlist already carries", () => {
+    for (const type of BROWSER_PLAYABLE_MEDIA_TYPES) {
+      expect(FILE_INLINE_TYPES.has(type)).toBe(true);
+    }
+  });
+
+  it("renders documents and media a mainstream engine decodes", () => {
+    for (const type of ["image/png", "application/pdf", "text/csv", "video/mp4", "audio/flac"]) {
+      expect(rendersInBrowser(type)).toBe(true);
+    }
+  });
+
+  // These are inline (so the app can hand them to an engine that might cope)
+  // but no engine renders them: navigating to one saves it to disk, which is
+  // exactly what a view-only link promises won't happen.
+  it("refuses containers no engine renders, even though they're inline", () => {
+    for (const name of ["a.avi", "a.wmv", "a.flv", "a.3g2", "a.m2ts", "a.amr", "a.wma"]) {
+      const { contentType } = resolveFileType(name, "");
+      expect(FILE_INLINE_TYPES.has(contentType)).toBe(true);
+      expect(rendersInBrowser(contentType)).toBe(false);
+    }
+  });
+
+  it("refuses everything off the inline allowlist", () => {
+    for (const type of ["application/zip", "image/svg+xml", "text/html"]) {
+      expect(rendersInBrowser(type)).toBe(false);
+    }
+  });
+});
+
+// The upload-side fix reaches new files only. Every .mkv/.avi/.flac already in
+// a vault is still application/octet-stream, so the type is re-derived wherever
+// a file is read — otherwise the fix would miss the corpus that reported it.
+describe("effectiveContentType — the read-time correction", () => {
+  it("recovers the container from the name of an anonymous binary", () => {
+    expect(effectiveContentType("holiday.mkv", "application/octet-stream")).toBe(
+      "video/x-matroska",
+    );
+    expect(effectiveContentType("song.flac", "application/octet-stream")).toBe("audio/flac");
+  });
+
+  it("leaves a type that was stored properly alone, and is idempotent", () => {
+    expect(effectiveContentType("scan.pdf", "application/pdf")).toBe("application/pdf");
+    const once = effectiveContentType("holiday.mkv", "application/octet-stream");
+    expect(effectiveContentType("holiday.mkv", once)).toBe(once);
+  });
+
+  it("keeps an unrecognizable name an anonymous binary", () => {
+    expect(effectiveContentType("budget-export.ts", "application/octet-stream")).toBe(
+      "application/octet-stream",
+    );
+    expect(effectiveContentType("mystery", "application/octet-stream")).toBe(
+      "application/octet-stream",
+    );
   });
 });
 
@@ -196,6 +316,30 @@ describe("lib/files display helpers", () => {
     });
     expect(share.expiresAt).toBeNull();
     expect(share.allowDownload).toBe(false);
+  });
+
+  // A row written before the media map existed — the state of every video
+  // already in a vault. The DTO is what the grid, the viewer, and GET /files
+  // read, so the correction has to happen here, not just at upload.
+  it("serializeFile re-derives a media type stored as an anonymous binary", () => {
+    const row = {
+      id: "f",
+      profileId: "p",
+      folderId: null,
+      name: "holiday.mkv",
+      contentType: "application/octet-stream",
+      sizeBytes: 10,
+      category: null,
+      tagIds: [],
+      thumbnailKey: null,
+      createdAt: new Date("2026-07-30T10:00:00Z"),
+    };
+    expect(serializeFile(row).contentType).toBe("video/x-matroska");
+    expect(FILE_INLINE_TYPES.has(serializeFile(row).contentType)).toBe(true);
+    // Nothing is invented for a name that means nothing.
+    expect(serializeFile({ ...row, name: "big.bin" }).contentType).toBe(
+      "application/octet-stream",
+    );
   });
 });
 

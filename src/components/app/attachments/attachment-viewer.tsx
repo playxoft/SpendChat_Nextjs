@@ -18,6 +18,7 @@ import {
   isVideoContentType,
 } from "@/lib/files";
 import { ATTACHMENT_SPREADSHEET_TYPES } from "@/lib/validation";
+import { MediaPlayer } from "@/components/media-player";
 import { cn } from "@/lib/utils";
 
 /** What the viewer needs to render + fetch an attachment. */
@@ -166,22 +167,8 @@ function AttachmentPreview({
                     onLoad={() => setLoading(false)}
                     className="size-full border-0"
                   />
-                ) : isVideo ? (
-                  <div className="flex size-full items-center justify-center p-4">
-                    {/* The route 302s to a presigned URL; <video> follows it and
-                        gets native Range support for seeking. */}
-                    <video
-                      key={item.id}
-                      src={viewUrlFor(item)}
-                      controls
-                      autoPlay
-                      className="max-h-full max-w-full"
-                    />
-                  </div>
-                ) : isAudio ? (
-                  <div className="flex size-full items-center justify-center p-6">
-                    <audio key={item.id} src={viewUrlFor(item)} controls className="w-full max-w-xl" />
-                  </div>
+                ) : isVideo || isAudio ? (
+                  <MediaPreview key={item.id} item={item} kind={isVideo ? "video" : "audio"} />
                 ) : (
                   <DataFilePreview key={item.id} item={item} />
                 )}
@@ -191,6 +178,38 @@ function AttachmentPreview({
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>
+  );
+}
+
+/**
+ * Video/audio playback. The route 302s to a presigned URL, so the element gets
+ * native Range support (seeking) instead of a proxied stream; `MediaPlayer`
+ * owns the "this engine can't decode it" fallback, shared with the share page.
+ */
+function MediaPreview({ item, kind }: { item: ViewerAttachment; kind: "video" | "audio" }) {
+  const fallback = <DownloadCard item={item} unplayable />;
+  if (kind === "audio") {
+    return (
+      <div className="flex size-full items-center justify-center p-6">
+        <MediaPlayer
+          src={viewUrlFor(item)}
+          kind="audio"
+          className="w-full max-w-xl"
+          fallback={fallback}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="flex size-full items-center justify-center p-4">
+      <MediaPlayer
+        src={viewUrlFor(item)}
+        kind="video"
+        autoPlay
+        className="max-h-full max-w-full"
+        fallback={fallback}
+      />
+    </div>
   );
 }
 
@@ -210,8 +229,10 @@ function DataFilePreview({ item }: { item: ViewerAttachment }) {
   return <DownloadCard item={item} />;
 }
 
-/** Fallback panel for a file we can't render inline. */
-function DownloadCard({ item }: { item: ViewerAttachment }) {
+/** Fallback panel for a file we can't render inline. `unplayable` means the
+ *  browser refused the media, which is a different (per-browser) reason than
+ *  the type having no preview at all. */
+function DownloadCard({ item, unplayable }: { item: ViewerAttachment; unplayable?: boolean }) {
   return (
     <div className="flex size-full items-center justify-center p-6">
       <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl border bg-background p-8 text-center">
@@ -219,8 +240,17 @@ function DownloadCard({ item }: { item: ViewerAttachment }) {
           {attachmentGlyph(item.contentType, "size-7")}
         </div>
         <p className="text-sm text-muted-foreground">
-          Previews aren’t available for {fileTypeLabel(item.contentType)} files yet.
-          Download it to view.
+          {unplayable ? (
+            <>
+              This browser can’t play this {fileTypeLabel(item.contentType).toLowerCase()}’s
+              format. Download it to open in a media player.
+            </>
+          ) : (
+            <>
+              Previews aren’t available for {fileTypeLabel(item.contentType)} files yet.
+              Download it to view.
+            </>
+          )}
         </p>
         <a
           href={downloadUrlFor(item)}

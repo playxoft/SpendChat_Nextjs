@@ -8,6 +8,7 @@ import { getFileForDownload } from "@/services/files";
 import {
   ATTACHMENT_SPREADSHEET_TYPES,
   FILE_INLINE_TYPES,
+  effectiveContentType,
 } from "@/lib/validation";
 import { contentDisposition, isAudioContentType, isVideoContentType } from "@/lib/files";
 
@@ -50,13 +51,19 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     const forceDownload = params.get("download") === "1";
     // The tile requests `?variant=thumb` — serve the small preview object.
     const wantThumb = params.get("variant") === "thumb" && row.thumbnailKey != null;
-    const isMedia = isVideoContentType(row.contentType) || isAudioContentType(row.contentType);
-    const isInline = FILE_INLINE_TYPES.has(row.contentType);
+    // Not `row.contentType`: a file stored before we could name its container
+    // is an anonymous binary in the DB *and* in the bucket, so the type is
+    // re-derived here and restated on every URL we sign.
+    const contentType = effectiveContentType(row.name, row.contentType);
+    const isMedia = isVideoContentType(contentType) || isAudioContentType(contentType);
+    const isInline = FILE_INLINE_TYPES.has(contentType);
     const canProxy =
-      (isInline && !isMedia) || ATTACHMENT_SPREADSHEET_TYPES.has(row.contentType);
+      (isInline && !isMedia) || ATTACHMENT_SPREADSHEET_TYPES.has(contentType);
 
     try {
       if (wantThumb) {
+        // No `contentType` override: a preview is an image we stored under its
+        // own type, never the octet-stream this fix exists for.
         const url = await signedGetUrl(row.thumbnailKey!, {
           expiresSeconds: URL_TTL_SECONDS,
           disposition: contentDisposition(row.name, true),
@@ -78,7 +85,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
           return Response.json({ error: "Couldn't open that file." }, { status: 502 });
         }
         const headers = new Headers({
-          "content-type": row.contentType,
+          "content-type": contentType,
           "content-disposition": contentDisposition(row.name, isInline),
           "cache-control": "private, no-store",
           "x-content-type-options": "nosniff",
@@ -94,6 +101,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
       const url = await signedGetUrl(row.r2Key, {
         expiresSeconds: URL_TTL_SECONDS,
         disposition: contentDisposition(row.name, inline),
+        contentType,
       });
       return new Response(null, {
         status: 302,
