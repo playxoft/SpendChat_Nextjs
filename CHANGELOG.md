@@ -14,9 +14,42 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.5.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.6.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.2.1] — 2026-08-15
+
+### Security
+
+- **Vault files are never rendered inline unless they're a previewable type.**
+  The mobile API's download-URL endpoint asked storage to serve *any* file
+  inline, so a document uploaded as HTML or SVG could execute its own script
+  when opened in the app. Previews are now limited to images, PDFs, text and
+  media — everything else downloads instead. The web app was never affected.
+
+### Fixed
+
+- **Deleting a file or folder now removes its thumbnail from storage.** Only
+  the original was deleted, so every previewed file left its thumbnail behind
+  permanently — invisible to the storage meter and impossible to clean up.
+- **The 5 MB limit now applies to the thumbnails clients send with an upload.**
+  They were accepted at any size, which made the limit bypassable on the mobile
+  API.
+- **Share-link lists no longer include expired links**, so the share sheet
+  can't offer a link that leads to a dead page.
+- **A read-only member browsing the vault no longer creates folders in someone
+  else's profile.** Opening the Files page created the predefined "Transaction
+  attachments" folder and recorded the viewer as its author; it's now created
+  only for members who can write to that profile.
+- **A thumbnail can no longer end up attached to the wrong file** in an upload
+  that mixes field names or includes a non-file part.
+
+### Changed
+
+- The mobile API spec moves to **5.6.0** — see
+  [the API changelog](./_developer/flutter/_changelog.md) for the per-endpoint
+  detail and the (minimal) Flutter impact.
 
 ## [0.2.0] — 2026-08-14
 
@@ -45,6 +78,20 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   marketing site's URL space (the tracker was already `/app`). Old URLs
   permanently redirect (308), so existing bookmarks keep working. The mobile
   REST API (`/api/v1`) is unaffected.
+
+### Fixed
+
+- **Sorting the vault by size now orders folders too.** The Size column showed
+  each folder's real total, but the sort quietly fell back to alphabetical for
+  folders; they now rank by the same totals the column displays.
+- **The storage indicator's details no longer vanish mid-hover.** Moving the
+  mouse from the ring toward its popover used to close it before the pointer
+  arrived; it now stays open while you're over either.
+- **No more layout snap for the composer on phones.** A phone whose saved
+  density is "normal" briefly rendered the desktop layout and collapsed to
+  compact once the page finished loading; the first paint is now compact.
+- The Files page computed the workspace's storage total twice per visit (once
+  for the sidebar gauge, once for the toolbar ring); it now runs one query.
 
 ## [0.1.0] — 2026-08-14
 
@@ -157,4 +204,5 @@ chronologically; the work spans 2026-06-17 to 2026-08-14.
 - Repository metadata, `NOTICE`, and all repo links pointed at `playxoft/SpendChat_Nextjs`.
 
 [Unreleased]: https://github.com/playxoft/SpendChat_Nextjs
+[0.2.0]: https://github.com/playxoft/SpendChat_Nextjs
 [0.1.0]: https://github.com/playxoft/SpendChat_Nextjs

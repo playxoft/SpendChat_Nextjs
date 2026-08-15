@@ -14,6 +14,7 @@ import {
   FILE_CATEGORY_LABELS,
   VAULT_COLORS,
   computeFolderSizes,
+  contentDisposition,
   fileTypeLabel,
   formatStorageCompact,
   serializeFile,
@@ -283,5 +284,26 @@ describe("computeFolderSizes — descendant totals from the working set", () => 
     );
     expect(sizes.get("a")).toBe(5);
     expect(sizes.get("b")).toBe(5);
+  });
+});
+
+describe("contentDisposition — the shared download header", () => {
+  it("emits both an ASCII and an RFC 5987 filename", () => {
+    expect(contentDisposition("deed.pdf", false)).toBe(
+      `attachment; filename="deed.pdf"; filename*=UTF-8''deed.pdf`,
+    );
+    expect(contentDisposition("deed.pdf", true)).toMatch(/^inline; /);
+  });
+
+  it("replaces non-ASCII characters in the plain filename but keeps them encoded", () => {
+    const header = contentDisposition("കരാർ.pdf", false);
+    expect(header).toContain(`filename="____.pdf"`);
+    expect(header).toContain(`filename*=UTF-8''${encodeURIComponent("കരാർ.pdf")}`);
+  });
+
+  it("neutralizes quotes and backslashes so a name can't break out of the header", () => {
+    const header = contentDisposition(`ev"il\\.pdf`, false);
+    expect(header).toContain(`filename="ev_il_.pdf"`);
+    expect(header.match(/"/g)).toHaveLength(2);
   });
 });

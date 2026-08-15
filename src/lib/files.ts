@@ -291,6 +291,23 @@ export function serializeFileShare(row: {
   };
 }
 
+/**
+ * Build a `Content-Disposition` value with both an ASCII-safe filename and an
+ * RFC 5987 UTF-8 filename, so non-ASCII names survive without letting a hostile
+ * name break out of the header. Shared by every route that serves stored bytes
+ * — vault files and transaction attachments, authenticated or tokenized — so
+ * the header is hardened in exactly one place.
+ *
+ * `inline` is a decision the caller makes from an allowlist
+ * (`FILE_INLINE_TYPES` / `ATTACHMENT_INLINE_TYPES`), never from the stored
+ * content type directly: an uploaded HTML/SVG served inline would execute.
+ */
+export function contentDisposition(fileName: string, inline: boolean): string {
+  const type = inline ? "inline" : "attachment";
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+}
+
 /** The authenticated view URL (inline preview when the type supports it). */
 export const fileViewUrl = (id: string): string => `/api/files/${id}`;
 /** The authenticated download URL (always `Content-Disposition: attachment`). */

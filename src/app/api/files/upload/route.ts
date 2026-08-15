@@ -5,7 +5,8 @@ import { withRequestContext } from "@/lib/request-context";
 import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import { isR2Configured } from "@/lib/r2";
-import { uploadVaultFiles, type VaultUpload } from "@/services/files";
+import { uploadVaultFiles } from "@/services/files";
+import { parseUploadForm } from "@/lib/upload-form";
 import { FILE_MAX_BYTES, FILE_MAX_PER_UPLOAD } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -75,45 +76,15 @@ export async function POST(request: NextRequest) {
     const folderRaw = form.get("folderId");
     const folderId = typeof folderRaw === "string" && folderRaw ? folderRaw : null;
 
-    const uploads = [...form.getAll("files"), ...form.getAll("file")].filter(
-      (v): v is File => v instanceof File,
-    );
-    if (uploads.length === 0) {
-      return Response.json({ error: "No files were provided." }, { status: 400 });
-    }
-    if (uploads.length > FILE_MAX_PER_UPLOAD) {
-      return Response.json(
-        { error: `You can upload at most ${FILE_MAX_PER_UPLOAD} files at once.` },
-        { status: 400 },
-      );
-    }
-    // Reject oversized files by their known size before reading them into memory.
-    for (const f of uploads) {
-      if (f.size > FILE_MAX_BYTES) {
-        return Response.json({ error: "Each file must be 5 MB or smaller." }, { status: 413 });
-      }
-    }
-
     try {
+      // Shape/size rejections throw; `fail()` preserves their status (400/413).
+      const prepared = await parseUploadForm(form, {
+        maxFiles: FILE_MAX_PER_UPLOAD,
+        maxBytes: FILE_MAX_BYTES,
+        tooManyMessage: `You can upload at most ${FILE_MAX_PER_UPLOAD} files at once`,
+      });
       const workspace = await getCurrentWorkspace(user.id);
       setLogContext({ workspaceId: workspace.id });
-      const prepared: VaultUpload[] = await Promise.all(
-        uploads.map(async (f, i) => {
-          // A client-generated preview rides along under `thumb_<index>`.
-          const thumb = form.get(`thumb_${i}`);
-          const thumbnail =
-            thumb instanceof File && thumb.size > 0
-              ? { bytes: await thumb.arrayBuffer(), contentType: thumb.type || "image/webp" }
-              : undefined;
-          return {
-            fileName: f.name,
-            contentType: f.type || null,
-            bytes: await f.arrayBuffer(),
-            size: f.size,
-            thumbnail,
-          };
-        }),
-      );
       const files = await uploadVaultFiles(
         user.id,
         workspace.id,

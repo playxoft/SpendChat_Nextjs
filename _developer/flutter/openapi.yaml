@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.5.0"
+  version: "5.6.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -749,12 +749,16 @@ paths:
         client-generated preview per file under `thumb_<index>` (webp
         recommended) — it becomes the tile thumbnail (`hasThumbnail`).
 
+        `<index>` counts the file parts in the order they were sent, `files`
+        entries before any `file` entries, and **is not renumbered when a part
+        is not a file** — so a preview can never attach to the wrong file.
+
         Unlike transaction attachments there is **no type allowlist** — videos,
         archives, anything goes; an unknown type is stored as
         `application/octet-stream`. Limits: **10 files per request** (400),
-        **5 MB per file** (413 `payload_too_large`), and the workspace's
-        **1 GB storage quota** — a batch whose combined size doesn't fit gets
-        413 `storage_quota_exceeded`.
+        **5 MB per file — previews included** (413 `payload_too_large`), and
+        the workspace's **1 GB storage quota** — a batch whose combined size
+        doesn't fit gets 413 `storage_quota_exceeded`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -847,8 +851,18 @@ paths:
         returns a **presigned URL** valid for ~5 minutes — GET it directly
         **without** the Authorization header. `?variant=thumb` returns the
         small preview when one exists (`hasThumbnail: true`; falls back to the
-        original, `contentType` then `image/webp`); `?download=1` sets an
+        original, `contentType` then `image/webp`); `?download=1` forces an
         attachment disposition.
+
+        **Only previewable types are served inline.** The URL carries
+        `Content-Disposition: inline` for images, PDF, plain text/CSV/Markdown
+        and audio/video; **every other type gets `attachment` even without
+        `?download=1`**. The vault accepts any well-formed MIME type, so an
+        uploaded HTML/SVG must never be rendered by the platform WebView off
+        the storage origin. `?variant=thumb` is always inline (the preview is
+        webp the client generated). Open the URL in a browser/WebView and the
+        platform will save rather than display anything non-previewable — if
+        the app needs the bytes, fetch them instead of navigating to them.
       parameters:
         - name: variant
           in: query
@@ -1066,6 +1080,12 @@ paths:
       description: |
         Exactly one of `?fileId=` / `?folderId=`, newest first. Editor only —
         tokens grant public access, so viewers can't read them.
+
+        Passing neither or **both** is a 422 — a two-target query is answered
+        for neither, never silently for one of them.
+
+        Only **active** links are returned: a link whose `expiresAt` has passed
+        is omitted, because its token no longer resolves on the share page.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - name: fileId
@@ -1872,7 +1892,7 @@ components:
         apiVersion:
           type: string
           description: Version of this `/api/v1` contract (= `info.version`).
-          example: "5.4.0"
+          example: "5.6.0"
         environment:
           type: string
           enum: [production, beta, development]

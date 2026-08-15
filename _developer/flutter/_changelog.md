@@ -19,6 +19,57 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.6.0 — 2026-08-15
+
+Correctness and hardening pass over the files vault from a review of the 5.3.0
+endpoints. No field was removed, renamed, or retyped, and a client that follows
+the documented contract needs no change — but several endpoints now *behave* the
+way the docs already described, so the differences are listed in full.
+
+### Fixed
+- **`GET /files/{id}/url` no longer serves arbitrary types inline.** The minted
+  URL previously carried `Content-Disposition: inline` for **any** stored
+  content type unless `?download=1`. The vault has no upload type allowlist, so
+  an uploaded `text/html` (or SVG) would render — and run its script — off the
+  storage origin when opened in a WebView. Inline is now limited to previewable
+  types (images, PDF, plain text/CSV/Markdown, audio/video); everything else
+  gets `attachment`. `?variant=thumb` stays inline. This matches what the web
+  app has always done.
+- **The 5 MB per-file cap now covers `thumb_<index>` previews.** They were
+  accepted and stored at any size, so a 1-byte file plus a 90 MB "preview"
+  bypassed the documented cap entirely. An oversized preview is now 413
+  `payload_too_large`, like an oversized file.
+- **`thumb_<index>` can no longer bind to the wrong file.** The index counts
+  file parts in send order (`files` entries before `file` entries) and is no
+  longer renumbered when a part isn't a file — previously a mixed or malformed
+  request silently attached a preview to a different file.
+- **`DELETE /files/{id}` and `DELETE /folders/{id}` delete the preview object
+  too.** Only the original was removed, so every thumbnailed file leaked its
+  `_thumb` object into storage permanently. No API shape change; the stored
+  bytes now actually go away, as the endpoint's description claimed.
+- **`GET /file-shares` returns only active links.** Expired rows were listed
+  indistinguishably from live ones, so a share sheet could offer a link that
+  404s on the share page.
+- **`GET /file-shares` with both `fileId` and `folderId` is now 422**, as
+  documented. It previously answered 200 with the *file's* links, so a client
+  querying a folder could render the wrong list.
+- **`GET /files` no longer creates rows on a viewer's read.** The predefined
+  "Transaction attachments" folder is materialized only for profiles the caller
+  can write to — a read-only grant was creating folders inside another member's
+  profile and being recorded as their author.
+
+**Flutter impact:** mostly none — all of the above move the API toward the
+documented contract. Two worth checking: (1) if the app *navigates* a WebView to
+the `/files/{id}/url` result expecting a document to display, non-previewable
+types will now download instead — fetch the bytes rather than navigating if you
+need them in-app; (2) a view-only user may not see the "Transaction attachments"
+folder until an editor opens that profile's vault — their transaction files are
+still returned in `transactionFiles`, so surface those directly if the folder is
+absent. Upload error messages lost their trailing full stops (still safe to
+display as-is).
+
+---
+
 ## 5.5.0 — 2026-08-14
 
 A **workspace storage quota**: 1 GB per workspace, covering vault files and

@@ -9,18 +9,11 @@ import {
   ATTACHMENT_SPREADSHEET_TYPES,
   FILE_INLINE_TYPES,
 } from "@/lib/validation";
-import { isAudioContentType, isVideoContentType } from "@/lib/files";
+import { contentDisposition, isAudioContentType, isVideoContentType } from "@/lib/files";
 
 export const dynamic = "force-dynamic";
 
 const URL_TTL_SECONDS = 300;
-
-/** Same header-hardening as the attachments route. */
-function contentDisposition(fileName: string, inline: boolean): string {
-  const type = inline ? "inline" : "attachment";
-  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
-  return `${type}; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
-}
 
 type Ctx = { params: Promise<{ id: string }> };
 
