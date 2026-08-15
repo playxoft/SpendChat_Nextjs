@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.6.0"
+  version: "5.7.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -1347,9 +1347,35 @@ paths:
       tags: [Profiles]
       summary: Delete a profile (admin only)
       description: >
-        409 for the last remaining profile ("You need at least one profile"), or
-        one that still has transactions ("Move this profile's transactions to
-        another profile first" — use /profiles/{id}/move).
+        `transactions` decides what happens to the transactions filed under the
+        profile: `delete` removes them (and their attachments) with it, `move`
+        re-files them under `to` first, and `reject` — the default, so a client
+        that sends nothing behaves exactly as before — refuses with 409 while
+        any remain ("Move this profile's transactions to another profile
+        first"). 409 for the last remaining profile ("You need at least one
+        profile") whatever the mode.
+
+
+        The profile's **vault files** (files, folders, tags and share links)
+        are deleted either way — moving transactions does not move the vault.
+        Call /profiles/{id}/deletion-impact first to show the counts.
+      parameters:
+        - name: transactions
+          in: query
+          required: false
+          description: What to do with the profile's transactions.
+          schema:
+            type: string
+            enum: [reject, delete, move]
+            default: reject
+        - name: to
+          in: query
+          required: false
+          description: >
+            Destination profile id. Required when `transactions=move` (422
+            otherwise); must be another profile in the same workspace that the
+            caller can edit.
+          schema: { type: string, format: uuid }
       responses:
         "200":
           description: Deletion acknowledged.
@@ -1398,6 +1424,32 @@ paths:
                     items: { $ref: "#/components/schemas/Profile" }
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/profiles/{id}/deletion-impact:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Profiles]
+      summary: What deleting this profile would take with it (admin only)
+      description: >
+        Counts for the delete confirmation. `transactions` is the number whose
+        fate the caller chooses (`?transactions=` on DELETE); `attachments` are
+        the receipts on those transactions, which follow them; `files` is the
+        profile's vault, which goes with the profile either way.
+      responses:
+        "200":
+          description: The counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/ProfileDeletionImpact" }
+                required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -2170,6 +2222,26 @@ components:
         name: { type: string, minLength: 1, maxLength: 20 }
         icon: { type: [string, "null"], maxLength: 16 }
         color: { type: [string, "null"], maxLength: 32 }
+
+    ProfileDeletionImpact:
+      type: object
+      description: What a profile delete would destroy, for the confirm step.
+      properties:
+        transactions:
+          type: integer
+          description: Transactions filed under the profile — deletable or movable.
+        files:
+          type: integer
+          description: Vault files stored under it. These always go with the profile.
+        attachments:
+          type: integer
+          description: >
+            Receipts attached to those transactions. Counted separately from
+            `files` because they follow their transactions: destroyed with
+            `transactions=delete`, re-filed with `transactions=move`. A profile
+            can hold no vault files and dozens of receipts, so a dialog that
+            only reads `files` under-reports what it is about to destroy.
+      required: [transactions, files, attachments]
 
     Summary:
       type: object

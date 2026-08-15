@@ -524,6 +524,29 @@ export const reorderProfilesSchema = z.object({
   ids: z.array(z.string().uuid()).min(1).max(100),
 });
 
+/**
+ * What a profile delete does with the transactions filed under it.
+ *
+ *   delete — remove them (and their attachments) along with the profile
+ *   move   — re-file them under `toProfileId`, then delete the profile
+ *   reject — refuse while the profile still has transactions
+ *
+ * `reject` is the default so a caller that says nothing (an older mobile build
+ * calling `DELETE /profiles/:id`) still gets the 409 it was written against
+ * rather than silently losing rows. The web dialog always sends a choice.
+ */
+export const deleteProfileSchema = z
+  .object({
+    transactions: z.enum(["reject", "delete", "move"]).default("reject"),
+    toProfileId: z.string().uuid().optional(),
+  })
+  .refine((v) => v.transactions !== "move" || !!v.toProfileId, {
+    message: "Choose a profile to move the transactions to",
+    path: ["toProfileId"],
+  });
+export type DeleteProfileInput = z.input<typeof deleteProfileSchema>;
+export type ProfileTransactionDisposal = z.infer<typeof deleteProfileSchema>["transactions"];
+
 export const workspaceRoleSchema = z.enum(["viewer", "editor", "admin"]);
 
 /** Shared so the bootstrap auto-name generator (`defaultWorkspaceName`) can keep

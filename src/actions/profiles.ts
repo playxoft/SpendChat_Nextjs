@@ -4,7 +4,12 @@ import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as profileService from "@/services/profiles";
-import { type ProfileInput, type UpdateProfileInput } from "@/lib/validation";
+import type { ProfileDeletionImpact } from "@/services/profiles";
+import {
+  type DeleteProfileInput,
+  type ProfileInput,
+  type UpdateProfileInput,
+} from "@/lib/validation";
 
 function revalidateApp() {
   revalidatePath("/app");
@@ -40,17 +45,42 @@ export async function updateProfile(input: UpdateProfileInput): Promise<ActionRe
   );
 }
 
-export async function deleteProfile(id: string): Promise<ActionResult> {
+/**
+ * Delete a profile. `disposal` says what happens to its transactions — the
+ * dialog always sends one (`delete` or `move`); omitting it keeps the old
+ * refuse-if-not-empty behaviour.
+ */
+export async function deleteProfile(
+  id: string,
+  disposal?: DeleteProfileInput,
+): Promise<ActionResult> {
   const user = await requireUser();
   return runAction(
     "deleteProfile",
     async () => {
-      await profileService.deleteProfile(user.id, id);
+      await profileService.deleteProfile(user.id, id, disposal);
       revalidateApp();
+      revalidatePath("/app/files");
       return {};
     },
-    { userId: user.id, profileId: id },
+    {
+      userId: user.id,
+      profileId: id,
+      transactions: disposal?.transactions ?? "reject",
+      toProfileId: disposal?.toProfileId,
+    },
   );
+}
+
+/** Counts shown in the delete dialog before anything is destroyed. */
+export async function getProfileDeletionImpact(
+  id: string,
+): Promise<ActionResult<ProfileDeletionImpact>> {
+  const user = await requireUser();
+  return runAction("getProfileDeletionImpact", () => profileService.getProfileDeletionImpact(user.id, id), {
+    userId: user.id,
+    profileId: id,
+  });
 }
 
 /** Move every transaction from one profile to another (editor on both). */

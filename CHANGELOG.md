@@ -14,9 +14,54 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.6.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.7.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.4.0] — 2026-08-15
+
+### Added
+
+- **Deleting a profile now asks what to do with its transactions.** Instead of
+  refusing until the profile was emptied by hand, the confirmation says how many
+  transactions are in it and offers two options: **delete them along with the
+  profile** (the default — a profile you're removing is usually one you're done
+  with) or **move them to another profile**, which re-files them with their
+  attachments so nothing is lost. Profiles with nothing in them delete as before.
+- **The confirmation says what else goes.** A profile's vault files have always
+  been deleted with it, whichever option you pick — now the dialog counts them
+  and says so before you commit, rather than after. It counts the receipts on
+  the profile's transactions too, so a profile with an empty vault and forty
+  receipts no longer says there's nothing else to lose.
+
+### Fixed
+
+- **Re-filing a transaction keeps its receipts.** Attachments stayed behind on
+  the old profile — hidden from the transaction they belonged to and destroyed
+  if that profile was later deleted — whether the transaction was moved in bulk
+  or one at a time from the transaction dialog. They now follow it in both
+  cases, and deleting a profile repairs anything an older build left behind
+  rather than destroying it.
+- **Deleting a profile frees its storage.** Its vault files and attachments
+  disappeared from the app but their stored bytes stayed, so the workspace's
+  1 GB quota kept counting space nothing could reach. Large profiles are now
+  cleared in batches, so a vault of hundreds of documents finishes instead of
+  timing out part-way.
+- **A profile delete can no longer half-happen.** Emptying the profile and
+  removing it are now one database transaction: if anything is written to the
+  profile while the delete is running, the whole thing rolls back and asks you
+  to retry, instead of destroying the transactions and leaving the profile —
+  and the delete confirms against freshly-read numbers, so transactions added
+  while the dialog sat open can't be swept up unseen.
+
+### Security
+
+- **The delete confirmation can't act on numbers it doesn't have.** If the
+  check of what a profile contains fails, the dialog now says so and offers to
+  retry. Previously it fell back to "this profile has no transactions" with the
+  delete button live, so one click could destroy a profile's entire history —
+  the refusal that exists to prevent exactly that never fired, because the app
+  had explicitly asked for the deletion.
 
 ## [0.3.0] — 2026-08-15
 

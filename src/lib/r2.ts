@@ -67,14 +67,15 @@ export function isR2Configured(): boolean {
 // Cache the signer across calls, re-created only if the credentials change.
 let client: AwsClient | null = null;
 let clientKey = "";
-function getClient(cfg: R2Config): AwsClient {
-  const key = `${cfg.accessKeyId}:${cfg.secretAccessKey}`;
+function getClient(cfg: R2Config, retries?: number): AwsClient {
+  const key = `${cfg.accessKeyId}:${cfg.secretAccessKey}:${retries ?? ""}`;
   if (client && clientKey === key) return client;
   client = new AwsClient({
     accessKeyId: cfg.accessKeyId,
     secretAccessKey: cfg.secretAccessKey,
     service: "s3",
     region: "auto",
+    ...(retries != null ? { retries } : {}),
   });
   clientKey = key;
   return client;
@@ -115,12 +116,10 @@ export async function uploadObject(
   }
 }
 
-/** Best-effort delete (signed DELETE). Never throws — a stale object is harmless. */
-export async function deleteObject(key: string): Promise<void> {
-  const cfg = readConfig();
-  if (!cfg) return;
+/** One signed DELETE through a given signer. Never throws. */
+async function deleteOne(cfg: R2Config, key: string, signer: AwsClient): Promise<void> {
   try {
-    const res = await getClient(cfg).fetch(objectUrl(cfg, key), { method: "DELETE" });
+    const res = await signer.fetch(objectUrl(cfg, key), { method: "DELETE" });
     // 204 = deleted, 404 = already gone; anything else is worth a warning.
     if (!res.ok && res.status !== 404) {
       logger.warn(`R2 delete of ${key} returned status ${res.status}`, {
@@ -133,6 +132,148 @@ export async function deleteObject(key: string): Promise<void> {
       event: "r2.delete_failed",
       error: err,
     });
+  }
+}
+
+/** Best-effort delete (signed DELETE). Never throws — a stale object is harmless. */
+export async function deleteObject(key: string): Promise<void> {
+  const cfg = readConfig();
+  if (!cfg) return;
+  return deleteOne(cfg, key, getClient(cfg));
+}
+
+/** Keys S3's multi-object delete accepts per call — its documented maximum. */
+const DELETE_BATCH_SIZE = 1000;
+
+/**
+ * How many objects `deleteObjects` will fall back to deleting one at a time
+ * when a batch call fails. Cloudflare allows 50 subrequests per request on the
+ * free plan and 1000 on paid, so an unbounded key-by-key retry of a large sweep
+ * is the same flood the batch exists to avoid: past the ceiling every fetch
+ * throws, the objects stay in the bucket anyway, and the request that was only
+ * cleaning up dies with them. Whatever the budget doesn't cover is logged.
+ */
+const MAX_INDIVIDUAL_FALLBACK = 100;
+
+/**
+ * aws4fetch retries a 5xx/429 ten times by default, with backoff. That's right
+ * for a single user-facing upload and wrong for a sweep: every attempt is
+ * another subrequest, so one bucket outage during a large delete turns the
+ * bounded budget above into eleven times as many calls (and minutes of
+ * waiting) for objects that are already unreachable. Sweeping gets one retry.
+ */
+const SWEEP_RETRIES = 1;
+
+/** Escape a key for the delete request's XML body. */
+function xmlEscape(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function sha256Hex(body: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(body));
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+/**
+ * One `POST /?delete` for up to `DELETE_BATCH_SIZE` keys. Returns false when
+ * the call itself failed, so the caller can retry those keys individually;
+ * per-key failures inside a 200 are logged and not retried (they're reported
+ * with a reason and are almost always "already gone").
+ */
+async function deleteBatch(cfg: R2Config, keys: string[], signer: AwsClient): Promise<boolean> {
+  const body =
+    '<?xml version="1.0" encoding="UTF-8"?><Delete><Quiet>true</Quiet>' +
+    keys.map((k) => `<Object><Key>${xmlEscape(k)}</Key></Object>`).join("") +
+    "</Delete>";
+  try {
+    const res = await signer.fetch(
+      `https://${cfg.accountId}.r2.cloudflarestorage.com/${cfg.bucket}?delete`,
+      {
+        method: "POST",
+        body,
+        headers: {
+          "content-type": "application/xml",
+          // Same reason as the PUT above: Next's fetch drops the implicit length.
+          "content-length": String(new TextEncoder().encode(body).byteLength),
+          // aws4fetch signs S3 requests with UNSIGNED-PAYLOAD by default. This
+          // is the one call whose body *names the objects to destroy*, so it is
+          // signed — an unsigned list of keys is a tampering target, and some
+          // S3 implementations reject a multi-object delete without integrity
+          // coverage outright.
+          "x-amz-content-sha256": await sha256Hex(body),
+        },
+      },
+    );
+    if (!res.ok) {
+      logger.warn(`R2 batch delete of ${keys.length} objects returned status ${res.status}`, {
+        event: "r2.delete_batch_failed",
+        status: res.status,
+        objects: keys.length,
+      });
+      return false;
+    }
+    // `<Quiet>` suppresses the per-key success entries, so anything the result
+    // still names is a key that survived.
+    const failed = ((await res.text().catch(() => "")).match(/<Error>/g) ?? []).length;
+    if (failed > 0) {
+      logger.warn(`R2 batch delete left ${failed} of ${keys.length} objects in the bucket`, {
+        event: "r2.delete_batch_partial",
+        failed,
+        objects: keys.length,
+      });
+    }
+    return true;
+  } catch (err) {
+    logger.warn(`R2 batch delete of ${keys.length} objects failed: ${describeError(err)}`, {
+      event: "r2.delete_batch_failed",
+      objects: keys.length,
+      error: err,
+    });
+    return false;
+  }
+}
+
+/**
+ * Best-effort delete of many objects at once. Never throws.
+ *
+ * Sweeping a deleted profile or folder one signed DELETE at a time is what
+ * makes a large delete fail: hundreds of sequential round-trips blow both the
+ * Workers subrequest ceiling and the request's time budget, so the caller gets
+ * an error for a delete that already committed and the objects are stranded in
+ * the bucket with nothing left in the database pointing at them. The batch API
+ * turns 1600 round-trips into two.
+ *
+ * Null/empty keys are ignored and duplicates collapsed, so callers can pass
+ * `[r2Key, thumbnailKey]` pairs straight through.
+ */
+export async function deleteObjects(keys: readonly (string | null | undefined)[]): Promise<void> {
+  const cfg = readConfig();
+  if (!cfg) return;
+  const unique = [...new Set(keys.filter((k): k is string => !!k))];
+  if (unique.length === 0) return;
+  const signer = getClient(cfg, SWEEP_RETRIES);
+  if (unique.length === 1) return deleteOne(cfg, unique[0]!, signer);
+
+  let budget = MAX_INDIVIDUAL_FALLBACK;
+  for (let i = 0; i < unique.length; i += DELETE_BATCH_SIZE) {
+    const batch = unique.slice(i, i + DELETE_BATCH_SIZE);
+    if (await deleteBatch(cfg, batch, signer)) continue;
+    const retried = batch.slice(0, budget);
+    budget -= retried.length;
+    for (const key of retried) await deleteOne(cfg, key, signer);
+    const stranded = batch.length - retried.length;
+    if (stranded > 0) {
+      logger.warn(`R2 left ${stranded} objects in the bucket after a batch delete failed`, {
+        event: "r2.delete_stranded",
+        stranded,
+      });
+    }
   }
 }
 

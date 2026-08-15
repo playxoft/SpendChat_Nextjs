@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, profiles, transactions } from "@/db/schema";
+import { categories, profiles, transactionAttachments, transactions } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { badRequest, forbidden, validationError } from "@/lib/errors";
 import { toMinorUnits } from "@/lib/money";
@@ -220,19 +220,35 @@ export async function updateTransaction(
     profileId = data.profileId;
   }
 
-  await db
-    .update(transactions)
-    .set({
-      type: data.type,
-      amountMinor: toMinorUnits(data.amount, money.currency, money.locale),
-      categoryId,
-      profileId,
-      title: pickTitle(data),
-      description: data.description?.trim() ? data.description.trim() : null,
-      occurredOn: data.occurredOn,
-      updatedAt: new Date(),
-    })
-    .where(eq(transactions.id, data.id));
+  const patch = {
+    type: data.type,
+    amountMinor: toMinorUnits(data.amount, money.currency, money.locale),
+    categoryId,
+    profileId,
+    title: pickTitle(data),
+    description: data.description?.trim() ? data.description.trim() : null,
+    occurredOn: data.occurredOn,
+    updatedAt: new Date(),
+  };
+
+  if (profileId === existing.profileId) {
+    await db.update(transactions).set(patch).where(eq(transactions.id, data.id));
+  } else {
+    // Re-filing a transaction has to carry its attachments' denormalized
+    // `profile_id` with it. That column is what scopes an attachment read, and
+    // it is `ON DELETE cascade` — left pointing at the old profile the receipt
+    // is invisible against the transaction it belongs to, and is destroyed (row
+    // *and* stored object) the moment that old profile is deleted, even though
+    // the transaction is alive elsewhere. One transaction so a failure can't
+    // commit the move without the receipts.
+    await db.transaction(async (tx) => {
+      await tx.update(transactions).set(patch).where(eq(transactions.id, data.id));
+      await tx
+        .update(transactionAttachments)
+        .set({ profileId })
+        .where(eq(transactionAttachments.transactionId, data.id));
+    });
+  }
 
   return getTransactionById(userId, workspaceId, data.id);
 }
