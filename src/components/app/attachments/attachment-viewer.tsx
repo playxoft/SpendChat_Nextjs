@@ -18,6 +18,7 @@ import {
   isVideoContentType,
 } from "@/lib/files";
 import { ATTACHMENT_SPREADSHEET_TYPES } from "@/lib/validation";
+import { MediaPlayer } from "@/components/media-player";
 import { cn } from "@/lib/utils";
 
 /** What the viewer needs to render + fetch an attachment. */
@@ -182,42 +183,31 @@ function AttachmentPreview({
 
 /**
  * Video/audio playback. The route 302s to a presigned URL, so the element gets
- * native Range support (seeking) instead of a proxied stream.
- *
- * Whether a given file plays is the browser's call, not ours — Chrome decodes
- * Matroska and Safari doesn't, Safari handles more QuickTime variants, and a
- * plain `.avi` plays almost nowhere. So every media type is offered to the
- * element and a decode failure (`onError`, which fires when no source is
- * usable) swaps in the download card. That way a format one engine supports
- * isn't withheld from it just because another engine can't cope.
+ * native Range support (seeking) instead of a proxied stream; `MediaPlayer`
+ * owns the "this engine can't decode it" fallback, shared with the share page.
  */
 function MediaPreview({ item, kind }: { item: ViewerAttachment; kind: "video" | "audio" }) {
-  const [failed, setFailed] = useState(false);
-  if (failed) return <DownloadCard item={item} unplayable />;
-
+  const fallback = <DownloadCard item={item} unplayable />;
   if (kind === "audio") {
     return (
       <div className="flex size-full items-center justify-center p-6">
-        <audio
+        <MediaPlayer
           src={viewUrlFor(item)}
-          controls
-          preload="metadata"
-          onError={() => setFailed(true)}
+          kind="audio"
           className="w-full max-w-xl"
+          fallback={fallback}
         />
       </div>
     );
   }
   return (
     <div className="flex size-full items-center justify-center p-4">
-      <video
+      <MediaPlayer
         src={viewUrlFor(item)}
-        controls
+        kind="video"
         autoPlay
-        playsInline
-        preload="metadata"
-        onError={() => setFailed(true)}
         className="max-h-full max-w-full"
+        fallback={fallback}
       />
     </div>
   );
@@ -253,7 +243,7 @@ function DownloadCard({ item, unplayable }: { item: ViewerAttachment; unplayable
           {unplayable ? (
             <>
               This browser can’t play this {fileTypeLabel(item.contentType).toLowerCase()}’s
-              format. Download it to watch in a media player.
+              format. Download it to open in a media player.
             </>
           ) : (
             <>

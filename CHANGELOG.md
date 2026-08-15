@@ -24,12 +24,28 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 - **Videos play in the file preview again.** Only `.mp4`, `.webm` and some
   `.mov` files ever previewed; `.mkv`, `.avi`, `.m4v`, `.wmv`, `.flv` and others
-  opened a download card instead. The cause was upload-side: browsers report no
-  file type at all for those extensions, so they were stored as anonymous
-  binaries and nothing downstream knew they were video. They're now recognized
-  by extension and streamed to the player with seeking support — and if your
-  browser genuinely can't decode a format, the preview says so instead of
-  showing a dead player. The same fix covers audio (`.flac`, `.opus`, `.aac`…).
+  opened a download card instead. Browsers report no file type at all for those
+  extensions, so they were stored as anonymous binaries and nothing downstream
+  knew they were video. They're now recognized by extension and streamed to the
+  player with seeking support — and if your browser genuinely can't decode a
+  format, the preview says so instead of showing a dead player. The same fix
+  covers audio (`.flac`, `.opus`, `.aac`…). **Files already in your vault are
+  covered too**: the type is worked out when a file is read, so everything you
+  uploaded before this release starts previewing without being re-uploaded.
+- **A view-only share link can no longer be turned into a download.** Making
+  every video and audio format previewable had a side effect on links shared
+  with downloads switched off: clicking a format no browser can play (`.avi`,
+  `.wmv`, `.flv`…) saved the file to the recipient's computer instead of
+  previewing it. Those files are no longer served over a view-only link at all,
+  and the page says so; playable media still previews.
+- **A shared link shows why a file won't play.** The public share page rendered
+  a broken player — no controls, no message — for a format the recipient's
+  browser couldn't decode. It now explains it, the same way the in-app preview
+  does, and offers the download when the link allows one.
+- **A TypeScript file is a file again.** Dropping a `.ts` file into the vault
+  filed it as a video, complete with a film-strip icon and a player that
+  errored on open. `.m4v` files also open properly in a new tab now instead of
+  downloading.
 
 ## [0.4.0] — 2026-08-15
 

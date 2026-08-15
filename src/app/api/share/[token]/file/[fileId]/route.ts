@@ -3,11 +3,13 @@ import { withRequestContext } from "@/lib/request-context";
 import { describeError, logger } from "@/lib/logger";
 import { isR2Configured, signedGetUrl } from "@/lib/r2";
 import { getSharedFileForDownload } from "@/services/files";
+import { ATTACHMENT_SPREADSHEET_TYPES, effectiveContentType } from "@/lib/validation";
 import {
-  ATTACHMENT_SPREADSHEET_TYPES,
-  FILE_INLINE_TYPES,
-} from "@/lib/validation";
-import { contentDisposition, isAudioContentType, isVideoContentType } from "@/lib/files";
+  contentDisposition,
+  isAudioContentType,
+  isVideoContentType,
+  rendersInBrowser,
+} from "@/lib/files";
 
 export const dynamic = "force-dynamic";
 
@@ -18,9 +20,13 @@ type Ctx = { params: Promise<{ token: string; fileId: string }> };
 /**
  * Serve a vault file to the holder of a share link — no session; the token is
  * the whole authorization. A file link serves exactly its file; a folder link
- * serves any file in the folder's subtree (checked in the service). View-only
- * links (`allowDownload: false`) refuse `?download=1` but still preview inline —
- * the same proxy/redirect split as the authenticated `/api/files/:id` route.
+ * serves any file in the folder's subtree (checked in the service). Same
+ * proxy/redirect split as the authenticated `/api/files/:id` route.
+ *
+ * View-only links (`allowDownload: false`) refuse `?download=1` **and** anything
+ * the browser wouldn't render — a preview the engine can't produce is a
+ * download by another name (see `rendersInBrowser`). Everything else previews
+ * inline, thumbnails included.
  */
 export async function GET(request: NextRequest, ctx: Ctx) {
   return withRequestContext("web", async () => {
@@ -41,12 +47,17 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     }
     // Thumbnails are previews, so they're served even on view-only links.
     const wantThumb = params.get("variant") === "thumb" && row.thumbnailKey != null;
-    const isMedia = isVideoContentType(row.contentType) || isAudioContentType(row.contentType);
-    const isInline = FILE_INLINE_TYPES.has(row.contentType);
-    const canProxy =
-      (isInline && !isMedia) || ATTACHMENT_SPREADSHEET_TYPES.has(row.contentType);
-    // A non-previewable type on a view-only link has no servable form at all.
-    if (!forceDownload && !wantThumb && !isInline && !canProxy && !allowDownload) {
+    const contentType = effectiveContentType(row.name, row.contentType);
+    const isMedia = isVideoContentType(contentType) || isAudioContentType(contentType);
+    // On this route "inline" has to mean *the browser will render it*, not just
+    // "it's on the inline allowlist". Media is allowlisted across the board so
+    // each engine can try every container, but navigating to a `.avi`/`.wmv`
+    // nothing decodes saves it to the recipient's disk — which is the one thing
+    // a view-only link promises won't happen. The guard is here and not only in
+    // the page's link builder because the token, not the client, is the caller.
+    const renders = rendersInBrowser(contentType);
+    const canProxy = (renders && !isMedia) || ATTACHMENT_SPREADSHEET_TYPES.has(contentType);
+    if (!forceDownload && !wantThumb && !renders && !allowDownload) {
       return Response.json({ error: "This link is view-only." }, { status: 403 });
     }
 
@@ -73,8 +84,8 @@ export async function GET(request: NextRequest, ctx: Ctx) {
           return Response.json({ error: "Couldn't open that file." }, { status: 502 });
         }
         const headers = new Headers({
-          "content-type": row.contentType,
-          "content-disposition": contentDisposition(row.name, isInline),
+          "content-type": contentType,
+          "content-disposition": contentDisposition(row.name, renders),
           "cache-control": "private, no-store",
           "x-content-type-options": "nosniff",
         });
@@ -83,10 +94,14 @@ export async function GET(request: NextRequest, ctx: Ctx) {
         return new Response(upstream.body, { status: 200, headers });
       }
 
-      const inline = !forceDownload && isMedia;
+      // Only what renders goes out inline; a container the browser would save
+      // is labelled `attachment`, so a download-allowed link is honest about
+      // what the click does instead of pretending to preview.
+      const inline = !forceDownload && renders;
       const url = await signedGetUrl(row.r2Key, {
         expiresSeconds: URL_TTL_SECONDS,
         disposition: contentDisposition(row.name, inline),
+        contentType,
       });
       return new Response(null, {
         status: 302,

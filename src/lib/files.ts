@@ -1,4 +1,9 @@
-import type { FileCategory } from "@/lib/validation";
+import {
+  BROWSER_PLAYABLE_MEDIA_TYPES,
+  FILE_INLINE_TYPES,
+  effectiveContentType,
+  type FileCategory,
+} from "@/lib/validation";
 import { attachmentTypeLabel } from "@/lib/attachments";
 
 /**
@@ -290,7 +295,10 @@ export function serializeFile(row: {
     profileId: row.profileId,
     folderId: row.folderId,
     name: row.name,
-    contentType: row.contentType,
+    // Re-derived, not echoed: rows written before the media map exists are
+    // `application/octet-stream`, and every view keys its icon, label, and
+    // preview off this field (see `effectiveContentType`).
+    contentType: effectiveContentType(row.name, row.contentType),
     sizeBytes: row.sizeBytes,
     category: (row.category as FileCategory | null) ?? null,
     tagIds: row.tagIds,
@@ -374,6 +382,26 @@ export const isVideoContentType = (contentType: string): boolean =>
   contentType.startsWith("video/");
 export const isAudioContentType = (contentType: string): boolean =>
   contentType.startsWith("audio/");
+
+/**
+ * Will a browser *render* this type, rather than save it to disk?
+ *
+ * Being on `FILE_INLINE_TYPES` isn't the same question. Media is inline across
+ * the board so each engine can try every container it might decode, but the
+ * containers no engine renders (avi, wmv, flv, …) still download when they're
+ * navigated to. That distinction only matters where a download is the thing we
+ * promised wouldn't happen: a **view-only** share link. Serving one of those
+ * inline there hands the recipient the file — so the share page offers no link
+ * for them and the share route refuses to serve them (a 403), which is exactly
+ * how they behaved before media became inline.
+ */
+export function rendersInBrowser(contentType: string): boolean {
+  if (!FILE_INLINE_TYPES.has(contentType)) return false;
+  if (isVideoContentType(contentType) || isAudioContentType(contentType)) {
+    return BROWSER_PLAYABLE_MEDIA_TYPES.has(contentType);
+  }
+  return true;
+}
 
 /** Short type label for tiles/rows ("PDF", "Video", "Audio", "ZIP", …). */
 export function fileTypeLabel(contentType: string): string {

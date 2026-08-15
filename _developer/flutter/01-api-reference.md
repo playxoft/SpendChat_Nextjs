@@ -483,11 +483,14 @@ Viewing needs **viewer** on the item's profile; every write needs **editor**.
 `?profile=<uuid>` scopes the list endpoints to one profile (anything else, incl.
 `all` or omitted → all accessible profiles — same rule as §5). Unlike
 attachments there's **no upload type allowlist** (videos, archives, anything).
-An upload whose `Content-Type` is missing or `application/octet-stream` has its
+A file whose `Content-Type` is missing or `application/octet-stream` has its
 type **resolved from the filename extension**, so a `.mkv`/`.avi`/`.m4v`/`.flac`
-is stored as its real `video/*` / `audio/*` type rather than a generic binary —
-send the filename with the extension intact and the stored `contentType` will
-be right. Size is capped at **5 MB per file — client-generated previews
+is reported as its real `video/*` / `audio/*` type rather than a generic binary
+— send the filename with the extension intact and the `contentType` will be
+right. The same resolution runs when a file is **read**, so files uploaded
+before this existed report their real type too; `.ts` is deliberately *not*
+treated as video (it's usually TypeScript source), and `.m4v` reports
+`video/mp4`, the container it actually is. Size is capped at **5 MB per file — client-generated previews
 included**,
 **10 files per upload**, and the
 workspace's **1 GB storage quota** (vault files + transaction attachments
@@ -502,7 +505,7 @@ only color + tags — rename/move/delete/share/upload-into are 400s.
 | `POST /files` | **multipart** — `profileId` (required), `folderId?`, files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. `<index>` counts file parts in send order (`files` before `file`) and is **not** renumbered around non-file parts. 400 no files / > 10 / predefined-folder destination; **413** file **or preview** > 5 MB (`payload_too_large`) or workspace quota exceeded (`storage_quota_exceeded`); 404 profile/folder not reachable |
 | `PATCH /files/{id}` | `{ name?, category?, tagIds?, folderId? }` (≥1; `category: null` clears, `folderId: null` → root) | 200 `data: VaultFile` | Editor. 400 "Nothing to update"; 422; 404 |
 | `DELETE /files/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Removes the stored object, its preview object, and share links to it. 422 non-UUID; 404 |
-| `GET /files/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Same contract as `GET /attachments/{id}/url` (`?variant=thumb`, `?download=1`; ~5 min TTL; GET without the Authorization header). **Inline only for previewable types** — images, PDF, text/CSV/Markdown, and **all** recognized audio/video containers (mp4, webm, quicktime, matroska, avi, wmv, flv, mpeg, 3gpp, mp2t, ogg; mp3, wav, m4a, aac, opus, flac, amr, wma). Anything else is served `attachment` even without `?download=1`, since the vault takes any MIME type and a stored HTML/SVG must never render in a WebView. Media is inline across the board because media bytes go to the decoder, never to a document parser. Whether a given container actually plays is the **player's** call — expect a decode failure on some formats and fall back to a download. `?variant=thumb` is always inline. 404 |
+| `GET /files/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Same contract as `GET /attachments/{id}/url` (`?variant=thumb`, `?download=1`; ~5 min TTL; GET without the Authorization header). **Inline only for previewable types** — images, PDF, text/CSV/Markdown, and **every `video/*` or `audio/*` type the server recognizes** (don't hard-code the list: it's whatever `contentType` comes back as for a media file, currently 23 types incl. `video/x-m4v`→`video/mp4`, `video/3gpp2` and `audio/webm`). Anything else is served `attachment` even without `?download=1`, since the vault takes any MIME type and a stored HTML/SVG must never render in a WebView. Media is inline across the board because media bytes go to the decoder, never to a document parser. Whether a given container actually plays is the **player's** call — expect a decode failure on some formats and fall back to a download. The URL also carries a `Content-Type` matching the `contentType` in the response, so a file stored before its container could be named still arrives typed. `?variant=thumb` is always inline. 404 |
 | `POST /folders` | `{ profileId, name, parentId?, color?, tagIds? }` | 201 `data: Folder` | Editor. 409 duplicate sibling name (case-insensitive); 400 predefined-folder parent; 422; 404 |
 | `PATCH /folders/{id}` | `{ name?, color?, tagIds?, parentId? }` (≥1; `parentId: null` → root, `color: null` clears) | 200 `data: Folder` | Editor. Predefined folder: color+tags only (400 otherwise). 400 move-into-own-subtree / "Nothing to update"; 409 duplicate name; 422; 404 |
 | `DELETE /folders/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Deletes the whole subtree (nested folders, files, stored objects, share links). 400 predefined folder; 422; 404 |
@@ -511,7 +514,7 @@ only color + tags — rename/move/delete/share/upload-into are 400s.
 | `PATCH /file-tags/{id}` | `{ name?, color? }` (≥1) | 200 `data: FileTag` | Editor. Every referencing item updates at once. 409; 422; 404 |
 | `DELETE /file-tags/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Detaches from every file/folder first. 422; 404 |
 | `GET /file-shares` | — (query `fileId` **or** `folderId`, exactly one) | 200 `data: FileShare[]` | **Editor** (tokens grant public access). Newest first, **active links only** — an expired one is omitted, since its token no longer opens the share page. 422 neither/both; 404 |
-| `POST /file-shares` | `{ fileId? \| folderId?, allowDownload?, expiresInDays? }` | 201 `data: FileShare` | Editor. Exactly one target (422). Folder link shares the whole subtree; 400 predefined folder. Build the link as `<web-origin>` + `sharePath`. |
+| `POST /file-shares` | `{ fileId? \| folderId?, allowDownload?, expiresInDays? }` | 201 `data: FileShare` | Editor. Exactly one target (422). Folder link shares the whole subtree; 400 predefined folder. Build the link as `<web-origin>` + `sharePath`. `allowDownload: false` is enforced as *no bytes leave except as a preview the browser renders* — the share page serves playable media and previewable documents inline, and 403s anything else (a `.avi`/`.wmv` "preview" would just be a download). |
 | `DELETE /file-shares/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Token stops working immediately. 422; 404 |
 
 ### AI (assisted entry — both endpoints cost money server-side, so they're extra-gated)

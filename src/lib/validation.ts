@@ -337,7 +337,11 @@ export type CreateFileShareInput = z.input<typeof createFileShareSchema>;
  */
 const VIDEO_EXTENSIONS: Record<string, string> = {
   mp4: "video/mp4",
-  m4v: "video/x-m4v",
+  // .m4v is an MP4 container. Typing it `video/x-m4v` gives Chrome no
+  // registered renderer, so "Open in new tab" saves the file instead of
+  // playing it — while `<video src>` plays it either way, since the media
+  // pipeline sniffs the container rather than trusting the header.
+  m4v: "video/mp4",
   webm: "video/webm",
   mov: "video/quicktime",
   qt: "video/quicktime",
@@ -350,7 +354,10 @@ const VIDEO_EXTENSIONS: Record<string, string> = {
   mpg: "video/mpeg",
   "3gp": "video/3gpp",
   "3g2": "video/3gpp2",
-  ts: "video/mp2t",
+  // Only the unambiguous MPEG-transport-stream extension. `.ts` is far more
+  // often TypeScript source, and Windows Chrome reports no `File.type` for it:
+  // mapping it here would file `budget-export.ts` as a video, label it "Video",
+  // serve it inline, and open it in a player that immediately errors.
   m2ts: "video/mp2t",
 };
 
@@ -396,6 +403,42 @@ export const FILE_INLINE_TYPES = new Set<string>([
   ...Object.values(MEDIA_EXTENSIONS),
 ]);
 
+/**
+ * The media types a mainstream browser engine actually has a decoder for.
+ *
+ * `FILE_INLINE_TYPES` is deliberately wider: every container is offered to
+ * `<video>`/`<audio>` so a format one engine can play isn't withheld from it,
+ * and the player swaps in a download card when the decode fails. That trade
+ * only works while a download is available — on a **view-only** share link it
+ * isn't, and a top-level navigation to a `video/x-ms-wmv` no engine can render
+ * doesn't show a dead player, it writes the file to the recipient's Downloads
+ * folder. That is precisely what `allowDownload: false` promises can't happen,
+ * so the view-only path serves inline only what will genuinely *render*
+ * (`rendersInBrowser` in `lib/files.ts`) and 403s the rest.
+ *
+ * Left out on purpose: avi, wmv, flv, 3gpp2, MPEG-TS, MPEG-1/2 program
+ * streams, amr and wma — legacy containers no engine ships a `<video>` decoder
+ * for. The list fails closed: a container added to `MEDIA_EXTENSIONS` counts as
+ * unrenderable on view-only links until it is added here too, so the worst a
+ * missing entry costs is a "no preview" message, never a silent download.
+ */
+export const BROWSER_PLAYABLE_MEDIA_TYPES = new Set<string>([
+  "video/mp4",
+  "video/webm",
+  "video/quicktime",
+  "video/x-matroska",
+  "video/ogg",
+  "video/3gpp",
+  "audio/mpeg",
+  "audio/wav",
+  "audio/mp4",
+  "audio/aac",
+  "audio/ogg",
+  "audio/opus",
+  "audio/flac",
+  "audio/webm",
+]);
+
 /** Fallback mime → extension map for uploads whose filename has no extension. */
 const FILE_TYPE_EXTENSIONS: Record<string, string> = {
   ...ATTACHMENT_CONTENT_TYPES,
@@ -437,6 +480,24 @@ export function resolveFileType(
   // for a .mkv/.avi/.m4v, and octet-stream would cost the file its preview.
   const byExt = ext ? (ATTACHMENT_EXTENSIONS[ext] ?? MEDIA_EXTENSIONS[ext]) : undefined;
   return { contentType: byExt ?? "application/octet-stream", ext: ext || "bin" };
+}
+
+/**
+ * The content type to *act* on for a stored file: its own, or the extension's
+ * canonical type when the row was written as an anonymous binary.
+ *
+ * Every `.mkv`/`.avi`/`.m4v`/`.flac` uploaded before `resolveFileType` learned
+ * the media map is still `application/octet-stream` in the database — which is
+ * the whole corpus the "videos don't preview" report came from. Fixing only the
+ * upload path would leave those a download card forever, so the type is
+ * re-derived wherever a file is serialized or served, and the fix applies on
+ * deploy instead of waiting on a backfill.
+ *
+ * Idempotent (a row already typed `video/*` resolves to itself) and pure string
+ * work, so it is cheap enough to run per row of a 500-row listing.
+ */
+export function effectiveContentType(fileName: string, storedType: string): string {
+  return resolveFileType(fileName, storedType).contentType;
 }
 
 export const themeSchema = z.enum(["light", "dark", "system"]);
