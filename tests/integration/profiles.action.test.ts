@@ -12,7 +12,15 @@ vi.mock("@/lib/r2", () => ({
 }));
 
 import { deleteObject, deleteObjects } from "@/lib/r2";
-import { files, profiles, transactionAttachments, transactions } from "@/db/schema";
+import {
+  fileShares,
+  fileTags,
+  files,
+  folders,
+  profiles,
+  transactionAttachments,
+  transactions,
+} from "@/db/schema";
 import {
   addProfile,
   updateProfile,
@@ -61,17 +69,73 @@ async function attach(userId: string, txnId: string, profileId: string, key: str
 }
 
 /** Put a file in a profile's vault (the part a delete always takes with it). */
-async function vaultFile(userId: string, profileId: string, key: string) {
-  await getTestDb()
+async function vaultFile(
+  userId: string,
+  profileId: string,
+  key: string,
+  opts: { folderId?: string; tagIds?: string[] } = {},
+): Promise<string> {
+  const [row] = await getTestDb()
     .insert(files)
     .values({
       workspaceId: await workspaceIdOf(userId),
       profileId,
+      folderId: opts.folderId ?? null,
+      tagIds: opts.tagIds ?? [],
       userId: uid(userId),
       r2Key: key,
       name: "notes.pdf",
       contentType: "application/pdf",
       sizeBytes: 10,
+    })
+    .returning({ id: files.id });
+  return row.id;
+}
+
+async function vaultFolder(
+  userId: string,
+  profileId: string,
+  name: string,
+  tagIds: string[] = [],
+  systemKey: string | null = null,
+): Promise<string> {
+  const [row] = await getTestDb()
+    .insert(folders)
+    .values({
+      workspaceId: await workspaceIdOf(userId),
+      profileId,
+      userId: uid(userId),
+      name,
+      tagIds,
+      systemKey,
+    })
+    .returning({ id: folders.id });
+  return row.id;
+}
+
+async function vaultTag(userId: string, profileId: string, name: string): Promise<string> {
+  const [row] = await getTestDb()
+    .insert(fileTags)
+    .values({
+      workspaceId: await workspaceIdOf(userId),
+      profileId,
+      userId: uid(userId),
+      name,
+      color: "#64748b",
+    })
+    .returning({ id: fileTags.id });
+  return row.id;
+}
+
+async function vaultShare(userId: string, profileId: string, fileId: string, token: string) {
+  await getTestDb()
+    .insert(fileShares)
+    .values({
+      workspaceId: await workspaceIdOf(userId),
+      profileId,
+      fileId,
+      userId: uid(userId),
+      token,
     });
 }
 
@@ -247,22 +311,113 @@ describe("deleteProfile", () => {
     expect((await deleteProfile(work.id, { transactions: "move" })).ok).toBe(false);
   });
 
-  it("takes the profile's vault with it, whatever happens to the transactions", async () => {
+  it("deletes the profile's vault when its contents are deleted", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    clearSweeps();
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    await vaultFile("a", work.id, "vault/doc.pdf");
+
+    expect((await deleteProfile(work.id, { transactions: "delete" })).ok).toBe(true);
+    expect(
+      await getTestDb().select().from(files).where(eq(files.profileId, work.id)),
+    ).toHaveLength(0);
+    expect(sweptKeys()).toContain("vault/doc.pdf");
+  });
+
+  /**
+   * Deleting a profile isn't a decision to discard its documents. `move` used to
+   * carry only the transactions, so the vault — folders, files, tags and share
+   * links — was cascaded away and its objects swept, even though the user had
+   * just said where everything should go.
+   */
+  it("moves the whole vault to the destination instead of deleting it", async () => {
     signInAs("a");
     await bootstrapUser("a");
     clearSweeps();
     const personal = await firstProfileId("a");
     await addProfile({ name: "Work" });
     const work = await profileByName("a", "Work");
-    await vaultFile("a", work.id, "vault/doc.pdf");
+    const tag = await vaultTag("a", work.id, "Receipts");
+    const folder = await vaultFolder("a", work.id, "Invoices", [tag]);
+    const file = await vaultFile("a", work.id, "vault/doc.pdf", { folderId: folder, tagIds: [tag] });
+    await vaultShare("a", work.id, file, "tok-move");
 
     expect(
       (await deleteProfile(work.id, { transactions: "move", toProfileId: personal })).ok,
     ).toBe(true);
+    expect(await profileByName("a", "Work")).toBeUndefined();
+
+    const db = getTestDb();
+    const [movedFile] = await db.select().from(files).where(eq(files.id, file));
+    expect(movedFile.profileId).toBe(personal);
+    // The tree moves whole: the file is still inside the folder it was in.
+    expect(movedFile.folderId).toBe(folder);
+    const [movedFolder] = await db.select().from(folders).where(eq(folders.id, folder));
+    expect(movedFolder.profileId).toBe(personal);
+    const [movedTag] = await db.select().from(fileTags).where(eq(fileTags.id, tag));
+    expect(movedTag.profileId).toBe(personal);
+    const [movedShare] = await db.select().from(fileShares).where(eq(fileShares.fileId, file));
+    expect(movedShare.profileId).toBe(personal);
+    // Nothing was orphaned, so nothing may leave the bucket.
+    expect(sweptKeys()).not.toContain("vault/doc.pdf");
+  });
+
+  /**
+   * `file_tags` is unique on (profile_id, lower(name)), so a tag whose name is
+   * already taken in the destination can't just be re-pointed — the move would
+   * fail outright. It merges instead, and the file keeps the tag it was given.
+   */
+  it("merges a vault tag whose name already exists in the destination", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const personal = await firstProfileId("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    const mine = await vaultTag("a", personal, "Receipts");
+    const theirs = await vaultTag("a", work.id, "receipts");
+    const file = await vaultFile("a", work.id, "vault/tagged.pdf", { tagIds: [theirs] });
+
     expect(
-      await getTestDb().select().from(files).where(eq(files.profileId, work.id)),
-    ).toHaveLength(0);
-    expect(sweptKeys()).toContain("vault/doc.pdf");
+      (await deleteProfile(work.id, { transactions: "move", toProfileId: personal })).ok,
+    ).toBe(true);
+
+    const db = getTestDb();
+    const [moved] = await db.select().from(files).where(eq(files.id, file));
+    expect(moved.tagIds).toEqual([mine]);
+    // The duplicate is gone rather than sitting alongside its twin.
+    expect(await db.select().from(fileTags).where(eq(fileTags.id, theirs))).toHaveLength(0);
+  });
+
+  /**
+   * The predefined "Transaction attachments" folder is unique per profile, so
+   * the source's can't move into a destination that already has one. It's
+   * dropped — but `files.folder_id` is ON DELETE cascade, so anything still
+   * under it has to be re-parented first or the drop destroys it.
+   */
+  it("re-parents out of the predefined folder rather than cascading it away", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    clearSweeps();
+    const personal = await firstProfileId("a");
+    await addProfile({ name: "Work" });
+    const work = await profileByName("a", "Work");
+    const mine = await vaultFolder("a", personal, "Transaction attachments", [], "transactions");
+    const theirs = await vaultFolder("a", work.id, "Transaction attachments", [], "transactions");
+    const file = await vaultFile("a", work.id, "vault/inside.pdf", { folderId: theirs });
+
+    expect(
+      (await deleteProfile(work.id, { transactions: "move", toProfileId: personal })).ok,
+    ).toBe(true);
+
+    const db = getTestDb();
+    const [moved] = await db.select().from(files).where(eq(files.id, file));
+    expect(moved).toBeDefined();
+    expect(moved.profileId).toBe(personal);
+    expect(moved.folderId).toBe(mine);
+    expect(await db.select().from(folders).where(eq(folders.id, theirs))).toHaveLength(0);
+    expect(sweptKeys()).not.toContain("vault/inside.pdf");
   });
 
   /**

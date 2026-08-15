@@ -14,9 +14,29 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.8.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.9.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.5.0] — 2026-08-15
+
+### Changed
+
+- **Moving a deleted profile's transactions now moves its files too.** Choosing
+  "move" when deleting a profile re-filed the transactions and their receipts
+  but still destroyed the vault — folders, files, tags and share links — which
+  the confirmation admitted only in a warning line: *"Moving transactions
+  doesn't move the vault."* Deleting a profile was never a decision to discard
+  its documents. The whole profile now moves: everything filed under it lands
+  in the profile you pick, keeping its folder structure, its tags, and the
+  links you'd already shared. Choosing "delete" still deletes it all.
+- **A profile with files but no transactions gets the same choice.** It had
+  none — the dialog only offered options when there were transactions to
+  decide about, so a profile holding nothing but documents was deleted along
+  with them without being asked. Anything worth moving now earns the question.
+- **The confirmation counts everything it's about to act on.** It named
+  transactions and left receipts and vault files to a footnote; it now says
+  "12 transactions, 40 receipts and 5 vault files" up front, on both options.
 
 ## [0.4.1] — 2026-08-15
 

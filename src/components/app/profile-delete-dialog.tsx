@@ -24,6 +24,7 @@ import {
 import { cn } from "@/lib/utils";
 import { deleteProfile, getProfileDeletionImpact } from "@/actions/profiles";
 import {
+  hasDisposableContents,
   profileDisposalRequest,
   type ProfileDeletionCounts,
   type ProfileDisposalChoice,
@@ -45,9 +46,24 @@ function plural(n: number, one: string, many = `${one}s`) {
 }
 
 /**
- * Confirms a profile delete and asks what to do with its transactions:
- * delete them with it (the default — deleting a profile usually means the
- * whole thread was a mistake or is over) or move them to another profile.
+ * "12 transactions, 40 receipts and 5 files" — only the parts that exist, so a
+ * profile with an empty vault isn't told about "0 files".
+ */
+function contentsSummary(counts: ProfileDeletionCounts): string {
+  const parts = [
+    counts.transactions > 0 && plural(counts.transactions, "transaction"),
+    counts.attachments > 0 && plural(counts.attachments, "receipt"),
+    counts.files > 0 && plural(counts.files, "vault file"),
+  ].filter((p): p is string => typeof p === "string");
+  if (parts.length <= 1) return parts[0] ?? "nothing";
+  return `${parts.slice(0, -1).join(", ")} and ${parts[parts.length - 1]}`;
+}
+
+/**
+ * Confirms a profile delete and asks what to do with everything filed under
+ * it — transactions, their receipts, and the vault: delete it all with the
+ * profile (the default — deleting a profile usually means the whole thread was
+ * a mistake or is over) or move it to another profile.
  *
  * The counts are fetched when the dialog opens rather than passed in, because
  * the sidebar list that renders this doesn't carry them and a destructive
@@ -119,7 +135,9 @@ export function ProfileDeleteDialog({
   const canMove = others.length > 0;
   const isOnlyProfile = others.length === 0;
   const counts = impact.status === "ready" ? impact.value : null;
-  const hasTransactions = (counts?.transactions ?? 0) > 0;
+  // Vault files make a profile just as movable as transactions do, so the
+  // choice is offered for either — see `hasDisposableContents`.
+  const hasContents = counts !== null && hasDisposableContents(counts);
 
   /**
    * `profileDisposalRequest` decides what may be asked for — anything the
@@ -187,9 +205,9 @@ export function ProfileDeleteDialog({
                 ? "Checking what’s in this profile…"
                 : impact.status === "error"
                   ? "Couldn’t check what’s in this profile."
-                  : hasTransactions
-                    ? `This profile holds ${plural(counts!.transactions, "transaction")}. Choose what happens to them.`
-                    : "This profile has no transactions."}
+                  : hasContents
+                    ? `This profile holds ${contentsSummary(counts!)}. Choose what happens to them.`
+                    : "This profile is empty."}
           </DialogDescription>
         </DialogHeader>
 
@@ -216,34 +234,26 @@ export function ProfileDeleteDialog({
           </p>
         )}
 
-        {!isOnlyProfile && hasTransactions && (
+        {!isOnlyProfile && hasContents && (
           <div
             role="radiogroup"
-            aria-label="What to do with this profile’s transactions"
+            aria-label="What to do with this profile’s contents"
             className="grid gap-2"
           >
             <OptionCard
               icon={<Trash2 className="size-4" />}
-              label="Delete the transactions"
-              description={`All ${plural(counts!.transactions, "transaction")}${
-                counts!.attachments > 0
-                  ? ` and their ${plural(counts!.attachments, "attachment")}`
-                  : ""
-              } are permanently removed.`}
+              label="Delete everything in it"
+              description={`All ${contentsSummary(counts!)} are permanently removed.`}
               active={disposal === "delete"}
               onSelect={() => chooseDisposal("delete")}
             />
             <OptionCard
               icon={<ArrowRight className="size-4" />}
-              label="Move them to another profile"
+              label="Move it to another profile"
               description={
                 canMove
-                  ? `The transactions are re-filed${
-                      counts!.attachments > 0
-                        ? `, with their ${plural(counts!.attachments, "attachment")},`
-                        : ","
-                    } and nothing is lost.`
-                  : "No other profile to move them to."
+                  ? `All ${contentsSummary(counts!)} are re-filed there. Nothing is lost.`
+                  : "No other profile to move it to."
               }
               active={disposal === "move"}
               disabled={!canMove}
@@ -252,9 +262,9 @@ export function ProfileDeleteDialog({
           </div>
         )}
 
-        {hasTransactions && disposal === "move" && canMove && (
+        {hasContents && disposal === "move" && canMove && (
           <div className="space-y-1.5">
-            <Label htmlFor="move-target">Move transactions to</Label>
+            <Label htmlFor="move-target">Move everything to</Label>
             <Select value={target} onValueChange={setTarget}>
               <SelectTrigger id="move-target" className="w-full">
                 <SelectValue placeholder="Choose a profile" />
@@ -271,15 +281,6 @@ export function ProfileDeleteDialog({
           </div>
         )}
 
-        {/* The vault isn't part of the choice — it goes with the profile either
-            way — so it's stated plainly instead of hidden behind an option. */}
-        {!isOnlyProfile && (counts?.files ?? 0) > 0 && (
-          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
-            {plural(counts!.files, "file")} in this profile’s vault will also be deleted.
-            {disposal === "move" && " Moving transactions doesn’t move the vault."}
-          </p>
-        )}
-
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={pending}>
             Cancel
@@ -291,7 +292,7 @@ export function ProfileDeleteDialog({
               pending ||
               isOnlyProfile ||
               impact.status !== "ready" ||
-              (hasTransactions && disposal === "move" && (!canMove || !target))
+              (hasContents && disposal === "move" && (!canMove || !target))
             }
           >
             Delete profile
