@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { AppTopbar } from "spendchat";
 
 const PROFILES = [
@@ -28,11 +29,16 @@ const BASE = {
 // The mobile counterpart to AppSidebar. The header is `md:hidden`, so at the
 // 1200px capture width it collapses to 2px; the scoped rule below re-shows it
 // inside this phone frame. The component itself is untouched.
-function PhoneFrame({ children }: { children: React.ReactNode }) {
+//
+// The frame attribute is card-specific (`data-ds-topbar-frame`, vs
+// `data-ds-bottomnav-frame` in BottomNav.tsx) because a <style> element's rules
+// are document-global: on a sheet rendering both cards, one shared attribute
+// would apply each card's `display:flex!important` inside the other's frame.
+function PhoneFrame({ children }: { children: ReactNode }) {
   return (
     <div className="w-full max-w-sm overflow-hidden rounded-lg border">
-      <style>{`@media (min-width:48rem){[data-ds-phone-frame] header{display:flex!important}}`}</style>
-      <div data-ds-phone-frame>{children}</div>
+      <style>{`@media (min-width:48rem){[data-ds-topbar-frame] header{display:flex!important}}`}</style>
+      <div data-ds-topbar-frame>{children}</div>
     </div>
   );
 }

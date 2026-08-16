@@ -33,7 +33,7 @@ export function Closed() {
 // placement overlays the trigger and clips the first group label in a card.
 export function Open() {
   return (
-    <Select defaultValue="groceries" open modal={false}>
+    <Select defaultValue="groceries" open>
       <SelectTrigger className="w-56">
         <SelectValue />
       </SelectTrigger>

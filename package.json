@@ -1,6 +1,6 @@
 {
   "name": "spendchat",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "description": "A minimal, chat-style money tracker — add, view, filter, download, and print your income and expenses.",
   "license": "AGPL-3.0-only",
@@ -27,6 +27,8 @@
     "start": "doppler run -- next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "//typecheck:design": "Type-checks .design-sync/ (previews, provider, stubs), which `typecheck` cannot see — TypeScript's include globs skip dot-directories. Regenerates ds-entry.ts first, because the previews import the component library through it. Run before a design-system re-sync.",
+    "typecheck:design": "node .design-sync/regen.mjs && tsc -p .design-sync/tsconfig.check.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
@@ -86,6 +88,7 @@
   },
   "devDependencies": {
     "@electric-sql/pglite": "^0.5.3",
+    "@tailwindcss/cli": "4.3.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pg": "^8.20.0",

@@ -1,12 +1,15 @@
 import { CategoryRow } from "spendchat";
 
+// `kind` needs `as const`: the prop is Pick<Category, … | "kind">, and
+// categories.kind is the txn-type enum ("income" | "expense"). Without it the
+// literal widens to string and the array no longer satisfies the prop.
 const CATEGORIES = [
-  { id: "1", name: "Groceries", icon: "🛒", kind: "expense" },
-  { id: "2", name: "Housing", icon: "🏠", kind: "expense" },
-  { id: "3", name: "Travel", icon: "✈️", kind: "expense" },
-  { id: "4", name: "Eating out", icon: "🍽️", kind: "expense" },
-  { id: "5", name: "Transport", icon: "🚌", kind: "expense" },
-  { id: "6", name: "Salary", icon: "💰", kind: "income" },
+  { id: "1", name: "Groceries", icon: "🛒", kind: "expense" as const },
+  { id: "2", name: "Housing", icon: "🏠", kind: "expense" as const },
+  { id: "3", name: "Travel", icon: "✈️", kind: "expense" as const },
+  { id: "4", name: "Eating out", icon: "🍽️", kind: "expense" as const },
+  { id: "5", name: "Transport", icon: "🚌", kind: "expense" as const },
+  { id: "6", name: "Salary", icon: "💰", kind: "income" as const },
 ];
 
 export function Selected() {

@@ -66,4 +66,7 @@ ds-bundle/
 .design-sync/learnings/
 .design-sync/node_modules
 .design-sync/ds-entry.ts
+# The claude.ai/design project this repo syncs to. Deliberately untracked: it
+# names one maintainer's design project, which shouldn't ship with the source.
+.design-sync/config.local.json
 /dist

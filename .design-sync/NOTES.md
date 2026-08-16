@@ -40,10 +40,29 @@ Run `node .design-sync/regen.mjs` before `package-build.mjs`, always. The driver
   `"use server"` import with an RPC reference, so the browser never holds those
   bodies either.
   - **`import type` from `@/db/schema` and `@/lib/queries` is fine** — those
-    erase at compile time. Only *runtime* imports of `@/actions/*`,
-    `@/services/*`, `@/lib/queries`, `@/lib/db` and `@/lib/firebase` are a
-    problem. That distinction is what makes the safe component set as wide as it
-    is; don't re-derive it from a naive grep.
+    erase at compile time. It is *runtime* imports of `@/actions/*`,
+    `@/services/*`, `@/lib/queries` and `@/lib/db` that can't be bundled, and
+    the entry set is curated to avoid them. That distinction is what makes the
+    safe component set as wide as it is; don't re-derive it from a naive grep.
+- **Three browser-side modules are stubbed too, for size rather than safety.**
+  Excluding a component was never an option for these — they sit under
+  components the design system is *for*:
+  - `@/lib/firebase` and `firebase/auth` — `UserMenu`, reached from both
+    `AppSidebar` and `AppTopbar`, signs out through them. They bundle fine; they
+    just bring ~600 KB of Firebase Web SDK that can never sign anyone in,
+    because the bundle has no `NEXT_PUBLIC_FIREBASE_CONFIG` and `firebaseConfig()`
+    throws on the first call. Stubbing swaps that failure for one that says so.
+  - `pdfjs-dist` — `PendingMessagesProvider` → `upload-client` → `thumbnail` →
+    `./pdf-thumbnail`. In the app that last hop is a dynamic import, so pdf.js
+    (~850 KB) loads only when someone uploads a PDF; a single-IIFE bundle has no
+    second chunk to defer it to, and its worker is resolved with
+    `new URL(…, import.meta.url)`, which an IIFE has no meaning for.
+
+  The stubs are hand-written and checked in under `.design-sync/stubs/`, wired
+  in by the same `paths` map as the action stubs. Together they take the bundle
+  from 4.2 MB to 2.9 MB. **Both tsconfigs have to carry the same `paths`** —
+  `tsconfig.sync.json` for the bundler, `tsconfig.emit.json` for the declaration
+  tree — or the shipped `.d.ts` documents code that isn't in the bundle.
 - **`.design-sync/browser-shim.ts` must stay the first import of `ds-entry.ts`.**
   Components using `next/link` / `next/navigation` pull in Next's client runtime,
   which reads `process.env.__NEXT_*` at module scope. esbuild only defines
@@ -54,12 +73,30 @@ Run `node .design-sync/regen.mjs` before `package-build.mjs`, always. The driver
   Next's app-router contexts. The router contexts are **deep imports from
   `next/dist/...`** — not public API. If previews start failing with
   "Cannot read properties of null", check those import paths first.
+  Its provider props mirror `src/app/layout.tsx` (`defaultTheme="system"`,
+  `enableSystem`, `delayDuration={300}`) and should keep mirroring it: pinning
+  the theme to light with `enableSystem={false}` puts the stylesheet's whole
+  `.dark` layer out of reach of every card, and since next-themes owns
+  `documentElement.classList` under `attribute="class"`, a `.dark` class applied
+  from outside is stripped on the next render.
+- **`conventions.md` is `cfg.readmeHeader`** — the first thing the design agent
+  reads. It has to name `DesignPreviewProvider`, because a screen built from the
+  documented wrap alone crashes the moment it uses a nav component.
 - **`eslint.config.mjs` ignores the generated trees.** `ds-bundle/`, `.ds-sync/`,
   `dist/` and `.design-sync/.cache/` are gitignored build output, but ESLint has
   its own ignore list and doesn't read `.gitignore` — without those entries
   `pnpm lint` fails with hundreds of errors from the bundle and the generated
   action stubs. (`tsc` is unaffected: TypeScript's `include` globs skip
-  dot-directories, so nothing under `.design-sync/` reaches `pnpm typecheck`.)
+  dot-directories, so nothing under `.design-sync/` reaches `pnpm typecheck` —
+  which is why the authored files here have their own program, run by
+  `pnpm typecheck:design` off `tsconfig.check.json`.)
+- **The target project id is not in `config.json`.** `cfg.projectId` names a
+  specific claude.ai/design project — one maintainer's — and this repo is source
+  anyone can clone, so it lives in **`.design-sync/config.local.json`**
+  (gitignored) instead. Read it from there when driving a sync; if that file is
+  missing, `DesignSync.list_projects` will find the project by name. Nothing in
+  `.ds-sync/` reads the key (it's on the accepted-key list and otherwise unused),
+  so a config without it validates and builds exactly the same.
 - **Fonts ship with the bundle.** The app loads Geist / Geist Mono through
   `next/font` in `src/app/layout.tsx`, which self-hosts them at build time —
   nothing reaches a bundle built outside Next. `.design-sync/fonts/` carries the
@@ -104,27 +141,38 @@ needed these, which are worth knowing before you "fix" them again:
 
 Card groups come from the source directory, except where that directory is on
 the converter's generic-name skip list. `ui/` and `components/` are both on it,
-so all 28 shadcn primitives would land in `general`. `regen.mjs` writes
+so every shadcn primitive (28 files, 29 cards — `Avatar` and `AvatarGroup` share
+`avatar.tsx`) and both brand marks would land in `general`. `regen.mjs` writes
 frontmatter-only `<Name>.md` files into `.design-sync/docs/` (bound by
-`cfg.docsDir`) to set `primitives` and `brand`. A doc category only wins where
-the directory-derived group came out generic — listing `app/`, `attachments/`,
+`cfg.docsDir`) to set `primitives` and `brand`. Which cards those are is
+**derived from the source path** in `componentSrcMap` — `^src/components/ui/`
+and `^src/components/<name>.tsx` — not from a list of names, because the path is
+what the converter actually reacts to. A doc category only wins where the
+directory-derived group came out generic — listing `app/`, `attachments/`,
 `files/`, `icons/` or `marketing/` components there writes files that look
 authoritative but are silently ignored. Keep the stubs body-less: a doc with
 prose *replaces* the synthesized `.prompt.md` (props table + preview examples).
 
 ## Re-sync risks — what can silently go stale
 
-- **Adding a component to `src/components` does nothing by itself.** It must be
-  added to `FILES` in `regen.mjs` *and* to `cfg.componentSrcMap`. There is no
-  auto-discovery: `ds-entry.ts` is curated on purpose.
+- **Adding a component to `src/components` does nothing by itself.** Add it to
+  `cfg.componentSrcMap`; `regen.mjs` derives the barrel, the declaration entry
+  and the card group from that one map. There is no auto-discovery —
+  `ds-entry.ts` is curated on purpose — and there is no second list to forget.
+  (The one hand-kept list is `EXTRAS` in `regen.mjs`: files that ship in the
+  bundle without claiming a card.)
 - **A new runtime import of a server module inside an already-synced component
   breaks the whole bundle**, not just that component (one IIFE). If a build
   suddenly reports unresolved `pg`/`fs`/`server-only`, trace the import graph
   from `ds-entry.ts` rather than the file the error names.
 - **Fixture data is inlined in the previews** (categories, profiles, workspaces,
-  attachments). If those prop shapes change, the previews still compile —
-  TypeScript never type-checks them, esbuild only transpiles — and the card just
-  renders wrong. Re-read the sheets after any prop-shape change.
+  attachments). `pnpm typecheck` can't see any of it: TypeScript's `include`
+  globs skip dot-directories, and the converter's bundler only transpiles — so
+  a prop-shape change used to leave every preview compiling and the card just
+  rendering wrong. **`pnpm typecheck:design` is the guard**: it regenerates
+  `ds-entry.ts`, resolves `spendchat` to it, and checks all 63 previews, the
+  provider and the stubs against the real component props. Run it after any
+  prop-shape change — it is what turns a silent wrong render into an error.
 - **`next/dist/...` router-context imports** in `preview-providers.tsx` are the
   most likely thing to break on a Next major upgrade.
 - **Geist is pinned to the woff2s in `.design-sync/fonts/`.** If the app switches
@@ -133,8 +181,12 @@ prose *replaces* the synthesized `.prompt.md` (props table + preview examples).
   `tailwind-entry.css`'s `--font-sans` / `--font-mono`. They are redistributed
   under the SIL OFL 1.1 (`.design-sync/fonts/OFL.txt`, attributed in `NOTICE`) —
   if you swap or add a family, update both.
-- **The Tailwind CLI is invoked as `@tailwindcss/cli@4` via `npx`** — a network
-  fetch on a cold cache, and a floating major-4 pin.
+- **The Tailwind CLI is pinned, and `regen.mjs` asserts it.** It used to run as
+  `npx --yes @tailwindcss/cli@4`: a network fetch on a cold cache, and a
+  floating pin that had already drifted (CLI 4.3.3 compiling what the app built
+  with 4.3.1), which quietly makes the cards' stylesheet not the app's. It is
+  now a pinned devDependency invoked from `node_modules/.bin`, and regen fails
+  if its version and `tailwindcss`'s disagree. When you bump one, bump both.
 - **Only latin + latin-ext font subsets ship.** Fine for the English UI; if
   marketing copy ever carries other scripts, re-subset.
 - **Playwright must match the cached chromium build.** This machine had chromium

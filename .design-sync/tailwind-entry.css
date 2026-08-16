@@ -1,11 +1,17 @@
 /* Generated-system compile entry for /design-sync.
 
    Wraps the app's real globals.css so the emitted CSS carries SpendChat's
-   @theme tokens, oklch palette and dark-mode block, and adds the preview
-   sources to Tailwind's scan set so utility classes used only in authored
-   preview cards are emitted too. */
+   @theme tokens, oklch palette and dark-mode block.
+
+   The one @source below is the only one needed, and it is worth knowing why:
+   Tailwind v4 detects sources automatically from the directory the CLI runs in
+   — regen.mjs chdir's to the repo root — so every class in `src/` is already
+   scanned, `src/lib/` included. What automatic detection skips is
+   dot-directories, which is exactly where the authored preview cards live, so
+   classes used only by a preview need this line. If a class ever goes missing
+   from the output, the question is which directory the CLI was invoked from,
+   not which @source is absent. */
 @import "../src/app/globals.css";
-@source "../src/components";
 @source "./previews";
 
 /* globals.css declares `@theme inline { --font-sans: var(--font-sans) }` and

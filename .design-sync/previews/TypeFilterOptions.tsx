@@ -23,7 +23,7 @@ export function Closed() {
 
 export function Open() {
   return (
-    <Select defaultValue="income" open modal={false}>
+    <Select defaultValue="income" open>
       <SelectTrigger className="w-44">
         <SelectValue />
       </SelectTrigger>

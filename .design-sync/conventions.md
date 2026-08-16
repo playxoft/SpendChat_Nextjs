@@ -6,28 +6,43 @@ v4**, deliberately minimal and neutral — no gradients, no decorative colour.
 
 ## Wrap the tree
 
-Two providers are required, or components throw or render unstyled:
+Wrap your screen in **`DesignPreviewProvider`**. It nests every context this
+library needs, in the right order — components throw, crash or render unstyled
+without them:
 
 ```jsx
-const { ThemeProvider, TooltipProvider, Button } = window.SpendChat;
+const { DesignPreviewProvider, Button } = window.SpendChat;
 
-<ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-  <TooltipProvider>
-    {/* your screen */}
-  </TooltipProvider>
-</ThemeProvider>
+<DesignPreviewProvider>
+  {/* your screen */}
+</DesignPreviewProvider>
 ```
+
+It takes an optional `pathname` (default `"/app"`); the nav components read it
+to mark the active item. What it supplies:
 
 - **`ThemeProvider`** (next-themes) sets the `.dark` class on the root element.
   Every colour token switches off that class, so without it dark mode does
-  nothing.
+  nothing. It runs in `system` mode, matching the app.
 - **`TooltipProvider`** is required by the bare `Tooltip` root. `TransactionBubble`,
   `ControlHint` and every icon-button hint use `Tooltip` internally and will
-  throw outside it. Mount it once, high up.
-- **`Toaster`** renders nothing on its own — mount it once near the root, then
-  call `toast.success("Transaction saved")` from `sonner`.
-- **`PendingMessagesProvider`** is additionally required by `TransactionComposer`
-  (it owns the optimistic chat rows). Only wrap it when you use that component.
+  throw outside it.
+- **`PendingMessagesProvider`** is required by `TransactionComposer`, which owns
+  the optimistic chat rows.
+- **Next's app-router contexts.** This is the one that bites. `AppSidebar`,
+  `AppTopbar`, `BottomNav`, `SettingsNav` and `ProfileSwitcher` all call
+  `usePathname()` / `useSearchParams()` / `useRouter()`, which return `null`
+  outside a Next render — and the components call `.get()` on the result. A
+  screen using any of them without this provider dies on "Cannot read
+  properties of null" and renders blank. Nothing else supplies these.
+
+`ThemeProvider`, `TooltipProvider` and `PendingMessagesProvider` are exported
+individually if you want to compose them yourself, but there is no separate
+export for the router contexts — anything with navigation in it needs
+`DesignPreviewProvider`.
+
+**`Toaster`** is not part of it: render it once near the root of your screen,
+then call `toast.success("Transaction saved")` from `sonner`.
 
 ## Styling idiom: Tailwind utility classes
 
@@ -128,6 +143,7 @@ const {
 - **One currency and locale per workspace**, not per transaction. Don't build a
   per-row currency picker.
 - **Categories are emoji + name** (`🛒 Groceries`). Keep the emoji.
-- **Server actions are stubbed in this bundle.** Anything that would write —
-  saving a transaction, renaming a category — throws a descriptive error. Wire
-  your own handlers; the components are presentation-complete.
+- **Anything that talks to a server is stubbed in this bundle.** Saving a
+  transaction, renaming a category, signing out, generating a PDF thumbnail —
+  each throws a descriptive error naming itself. Wire your own handlers; the
+  components are presentation-complete.

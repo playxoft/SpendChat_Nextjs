@@ -7,10 +7,17 @@
 //
 //  * next-themes `ThemeProvider` — the app's real theme root. It owns the
 //    `.dark` class the whole token layer keys off, so without it dark-mode
-//    styling has nothing to switch on.
+//    styling has nothing to switch on. Its props mirror `src/app/layout.tsx`
+//    exactly, and that matters in both directions: pinning `defaultTheme` to
+//    light with `enableSystem={false}` (which this used to do) makes the
+//    stylesheet's whole `.dark` layer unreachable from any card, and because
+//    next-themes owns `documentElement.classList` under `attribute="class"`, a
+//    `.dark` class applied from outside is stripped on the next render. Change
+//    the theme through this provider, or change it in the app first.
 //  * `TooltipProvider` — SpendChat's `Tooltip` is the bare Radix root; it
 //    throws outside a provider. TransactionBubble, ControlHint and every
-//    icon-button hint depend on this.
+//    icon-button hint depend on this. `delayDuration` mirrors the app too:
+//    Radix's default is 700ms, and the product's hover timing is 300ms.
 //  * `PendingMessagesProvider` — TransactionComposer calls
 //    `usePendingMessages()`, which throws by design outside it (optimistic
 //    chat rows live in that context).
@@ -58,8 +65,13 @@ export function DesignPreviewProvider({
     <AppRouterContext.Provider value={inertRouter}>
       <PathnameContext.Provider value={pathname}>
         <SearchParamsContext.Provider value={searchParams}>
-          <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
-            <TooltipProvider>
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            disableTransitionOnChange
+          >
+            <TooltipProvider delayDuration={300}>
               <PendingMessagesProvider>{children}</PendingMessagesProvider>
             </TooltipProvider>
           </ThemeProvider>

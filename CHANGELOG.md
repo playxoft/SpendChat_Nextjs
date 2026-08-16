@@ -18,6 +18,31 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.5.1] — 2026-08-16
+
+### Added
+
+- **The component library can be published to a Claude Design project.**
+  `.design-sync/` holds the tooling that turns SpendChat's own components into a
+  design system — a curated browser-safe barrel over `src/components`, the
+  compiled stylesheet, no-op stubs for everything that talks to a server, an
+  emitted type contract, and a preview card per component — so new screens can
+  be designed against the real components instead of generic stand-ins. No
+  application code changed: nothing here ships in the app or the Worker.
+- **`pnpm typecheck:design`** checks the preview cards, their inline fixtures
+  and the preview provider against the real component props. `pnpm typecheck`
+  can't see any of it — its globs skip dot-directories — so a renamed or
+  retyped prop would otherwise leave every preview compiling and the published
+  card quietly rendering the wrong thing.
+
+### Changed
+
+- **`NOTICE` declares the redistributed Geist and Geist Mono subsets** under the
+  SIL Open Font License 1.1. The app loads them through `next/font`, which
+  self-hosts at build time and so reaches nothing built outside Next; the
+  checked-in subsets are what keep the design bundle in the product's typeface.
+  The full licence text is in `.design-sync/fonts/OFL.txt`.
+
 ## [0.5.0] — 2026-08-15
 
 ### Changed

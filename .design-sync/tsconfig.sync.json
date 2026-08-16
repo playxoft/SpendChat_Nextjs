@@ -1,8 +1,15 @@
+// Path map the converter's bundler resolves imports through (cfg.tsconfig).
+// Each specific entry redirects a module that must not reach a browser bundle;
+// see the header of regen.mjs and `.design-sync/stubs/` for why each one is
+// here. Exact (wildcard-free) patterns win over "@/*", so order is cosmetic.
 {
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
       "@/actions/*": ["./.cache/stubs/actions/*"],
+      "@/lib/firebase": ["./stubs/firebase.ts"],
+      "firebase/auth": ["./stubs/firebase-auth.ts"],
+      "pdfjs-dist": ["./stubs/pdfjs-dist.ts"],
       "@/*": ["../src/*"]
     }
   }
