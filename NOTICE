@@ -4,3 +4,26 @@ Copyright 2026 Playxoft
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU Affero General Public License, Version 3, as published by
 the Free Software Foundation. See the LICENSE file for the full license text.
+
+
+THIRD-PARTY COMPONENTS
+======================
+
+This repository redistributes the following third-party material, which remains
+under its own license.
+
+Geist and Geist Mono
+--------------------
+Files:     .design-sync/fonts/geist-latin.woff2
+           .design-sync/fonts/geist-latin-ext.woff2
+           .design-sync/fonts/geist-mono-latin.woff2
+           .design-sync/fonts/geist-mono-latin-ext.woff2
+Copyright: Copyright (c) 2023 Vercel, in collaboration with basement.studio
+License:   SIL Open Font License, Version 1.1 — see .design-sync/fonts/OFL.txt
+Source:    https://github.com/vercel/geist-font
+
+These are the typefaces the application itself loads through next/font. The
+checked-in subsets (latin, latin-ext) exist so the design-system bundle
+produced by .design-sync/regen.mjs is self-contained; see .design-sync/NOTES.md.
+Fonts under the OFL are licensed separately from, and are not covered by, the
+AGPL-3.0 terms above.

@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/actions/*": ["./.cache/stubs/actions/*"],
+      "@/*": ["../src/*"]
+    }
+  }
+}

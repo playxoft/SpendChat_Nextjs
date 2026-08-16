@@ -1,0 +1,29 @@
+/* Generated-system compile entry for /design-sync.
+
+   Wraps the app's real globals.css so the emitted CSS carries SpendChat's
+   @theme tokens, oklch palette and dark-mode block, and adds the preview
+   sources to Tailwind's scan set so utility classes used only in authored
+   preview cards are emitted too. */
+@import "../src/app/globals.css";
+@source "../src/components";
+@source "./previews";
+
+/* globals.css declares `@theme inline { --font-sans: var(--font-sans) }` and
+   applies `font-sans` to <html>. In the app the referenced variable is defined
+   by next/font (`Geist({ variable: "--font-sans" })` in src/app/layout.tsx),
+   which emits a class onto <html> at render time. Nothing outside Next does
+   that, so in the design bundle `--font-sans` resolves to nothing and every
+   card renders in the browser's default serif.
+
+   Defining the two families here is what makes the bundle self-sufficient: the
+   @font-face rules and the .woff2 files themselves ship via cfg.extraFonts
+   (.design-sync/fonts/geist-fonts.css). The fallbacks match what next/font
+   generates, so text metrics stay close if a face fails to load. */
+:root {
+  --font-sans:
+    "Geist", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "Geist Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    "Liberation Mono", monospace;
+}

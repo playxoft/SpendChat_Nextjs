@@ -1,0 +1,30 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "incremental": false,
+    "rootDir": "..",
+    "declarationDir": "../dist/types",
+    "baseUrl": ".",
+    "paths": {
+      "@/actions/*": [
+        "./.cache/stubs/actions/*"
+      ],
+      "@/*": [
+        "../src/*"
+      ]
+    }
+  },
+  "files": [
+    "ds-entry.ts"
+  ],
+  "include": [],
+  "exclude": [
+    "../node_modules",
+    "../tests",
+    "../.next"
+  ]
+}

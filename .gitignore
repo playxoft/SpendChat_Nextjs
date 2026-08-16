@@ -58,3 +58,12 @@ Thumbs.db
 
 # ---- local-only, never committed (review reports, scratch notes, etc.) ----
 _developer/local-only/
+
+# /design-sync (Claude Design system sync)
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules
+.design-sync/ds-entry.ts
+/dist

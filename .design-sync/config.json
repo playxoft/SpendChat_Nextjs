@@ -1,0 +1,209 @@
+{
+  "projectId": "28460133-1279-4f59-afa3-c2e0a4481373",
+  "shape": "package",
+  "pkg": "spendchat",
+  "globalName": "SpendChat",
+  "entry": ".design-sync/ds-entry.ts",
+  "srcDir": "src/components",
+  "tsconfig": ".design-sync/tsconfig.sync.json",
+  "cssEntry": ".design-sync/.cache/tailwind.css",
+  "buildCmd": "node .design-sync/regen.mjs",
+  "componentSrcMap": {
+    "AlertDialog": "src/components/ui/alert-dialog.tsx",
+    "AppSidebar": "src/components/app/app-sidebar.tsx",
+    "AppTopbar": "src/components/app/app-topbar.tsx",
+    "AttachmentList": "src/components/app/attachments/attachment-list.tsx",
+    "AttachmentSquares": "src/components/app/attachments/attachment-squares.tsx",
+    "AttachmentTile": "src/components/app/attachments/attachment-tile.tsx",
+    "Avatar": "src/components/ui/avatar.tsx",
+    "AvatarGroup": "src/components/ui/avatar.tsx",
+    "Badge": "src/components/ui/badge.tsx",
+    "BottomNav": "src/components/app/bottom-nav.tsx",
+    "Button": "src/components/ui/button.tsx",
+    "Calendar": "src/components/ui/calendar.tsx",
+    "Card": "src/components/ui/card.tsx",
+    "CategoryPieChart": "src/components/app/category-pie-chart.tsx",
+    "CategoryRow": "src/components/app/category-row.tsx",
+    "ChatBalanceSkeleton": "src/components/app/chat-skeleton.tsx",
+    "ChatFeedSkeleton": "src/components/app/chat-skeleton.tsx",
+    "Checkbox": "src/components/ui/checkbox.tsx",
+    "ContextMenu": "src/components/ui/context-menu.tsx",
+    "ControlHint": "src/components/app/control-hint.tsx",
+    "CurrencyCombobox": "src/components/app/currency-combobox.tsx",
+    "DatePicker": "src/components/ui/date-picker.tsx",
+    "DateRangeFilter": "src/components/app/date-range-filter.tsx",
+    "DayDivider": "src/components/app/day-divider.tsx",
+    "Dialog": "src/components/ui/dialog.tsx",
+    "DropdownMenu": "src/components/ui/dropdown-menu.tsx",
+    "EmojiPicker": "src/components/ui/emoji-picker.tsx",
+    "EntryModeToggle": "src/components/app/entry-mode-toggle.tsx",
+    "GithubIcon": "src/components/icons/github.tsx",
+    "Input": "src/components/ui/input.tsx",
+    "Kbd": "src/components/ui/kbd.tsx",
+    "Label": "src/components/ui/label.tsx",
+    "Logo": "src/components/logo.tsx",
+    "MonthDivider": "src/components/app/month-divider.tsx",
+    "PasswordInput": "src/components/ui/password-input.tsx",
+    "Popover": "src/components/ui/popover.tsx",
+    "ProfileSwitcher": "src/components/app/profile-switcher.tsx",
+    "ScrollArea": "src/components/ui/scroll-area.tsx",
+    "Select": "src/components/ui/select.tsx",
+    "Separator": "src/components/ui/separator.tsx",
+    "SettingsNav": "src/components/app/settings-nav.tsx",
+    "Sheet": "src/components/ui/sheet.tsx",
+    "ShortcutList": "src/components/app/shortcut-list.tsx",
+    "SiteFooter": "src/components/marketing/site-footer.tsx",
+    "SiteNav": "src/components/marketing/site-nav.tsx",
+    "Skeleton": "src/components/ui/skeleton.tsx",
+    "StorageRing": "src/components/app/files/storage-ring.tsx",
+    "Switch": "src/components/ui/switch.tsx",
+    "Table": "src/components/ui/table.tsx",
+    "Tabs": "src/components/ui/tabs.tsx",
+    "Textarea": "src/components/ui/textarea.tsx",
+    "ThemeToggle": "src/components/theme-toggle.tsx",
+    "Toaster": "src/components/ui/sonner.tsx",
+    "Tooltip": "src/components/ui/tooltip.tsx",
+    "TransactionBubble": "src/components/app/transaction-bubble.tsx",
+    "TransactionComposer": "src/components/app/transaction-composer.tsx",
+    "TransactionFilters": "src/components/app/transaction-filters.tsx",
+    "TransactionsResultsSkeleton": "src/components/app/transactions-skeleton.tsx",
+    "TransactionsTableSkeleton": "src/components/app/transactions-skeleton.tsx",
+    "TypeFilterOptions": "src/components/app/type-filter-options.tsx",
+    "ViewerNotice": "src/components/app/viewer-notice.tsx",
+    "VoiceListeningStrip": "src/components/app/voice-mic.tsx",
+    "VoiceMicButton": "src/components/app/voice-mic.tsx"
+  },
+  "docsDir": ".design-sync/docs",
+  "provider": {
+    "component": "DesignPreviewProvider"
+  },
+  "overrides": {
+    "Dialog": {
+      "cardMode": "single",
+      "primaryStory": "EditTransaction",
+      "viewport": "520x420"
+    },
+    "Select": {
+      "cardMode": "single",
+      "primaryStory": "Open",
+      "viewport": "420x420"
+    },
+    "AlertDialog": {
+      "cardMode": "single",
+      "primaryStory": "DeleteTransaction",
+      "viewport": "520x360"
+    },
+    "DropdownMenu": {
+      "cardMode": "single",
+      "primaryStory": "RowActions",
+      "viewport": "420x400"
+    },
+    "ContextMenu": {
+      "cardMode": "single",
+      "primaryStory": "VaultItems",
+      "viewport": "420x360"
+    },
+    "Popover": {
+      "cardMode": "single",
+      "primaryStory": "WithHeader",
+      "viewport": "440x340"
+    },
+    "Sheet": {
+      "cardMode": "single",
+      "primaryStory": "Filters",
+      "viewport": "560x460"
+    },
+    "Tooltip": {
+      "cardMode": "single",
+      "primaryStory": "WithShortcut",
+      "viewport": "420x260"
+    },
+    "EmojiPicker": {
+      "cardMode": "column"
+    },
+    "Calendar": {
+      "cardMode": "column"
+    },
+    "TransactionComposer": {
+      "cardMode": "column"
+    },
+    "TransactionFilters": {
+      "cardMode": "column"
+    },
+    "AppSidebar": {
+      "cardMode": "single",
+      "primaryStory": "Rail",
+      "viewport": "980x620"
+    },
+    "AppTopbar": {
+      "cardMode": "column"
+    },
+    "SiteNav": {
+      "cardMode": "single",
+      "primaryStory": "Marketing",
+      "viewport": "1140x220"
+    },
+    "SiteFooter": {
+      "cardMode": "single",
+      "primaryStory": "Marketing",
+      "viewport": "900x520"
+    },
+    "CategoryPieChart": {
+      "cardMode": "column"
+    },
+    "CategoryRow": {
+      "cardMode": "column"
+    },
+    "BottomNav": {
+      "cardMode": "single",
+      "primaryStory": "Mobile",
+      "viewport": "420x220"
+    },
+    "TransactionsTableSkeleton": {
+      "cardMode": "column"
+    },
+    "TransactionsResultsSkeleton": {
+      "cardMode": "column"
+    },
+    "ChatFeedSkeleton": {
+      "cardMode": "column"
+    },
+    "AttachmentSquares": {
+      "cardMode": "column"
+    },
+    "VoiceListeningStrip": {
+      "cardMode": "column"
+    },
+    "ShortcutList": {
+      "cardMode": "single",
+      "primaryStory": "All",
+      "viewport": "560x900"
+    },
+    "TypeFilterOptions": {
+      "cardMode": "single",
+      "primaryStory": "Open",
+      "viewport": "420x340"
+    },
+    "VoiceMicButton": {
+      "cardMode": "column"
+    },
+    "StorageRing": {
+      "cardMode": "column"
+    },
+    "DatePicker": {
+      "cardMode": "column"
+    },
+    "Tabs": {
+      "cardMode": "column"
+    },
+    "SettingsNav": {
+      "cardMode": "single",
+      "primaryStory": "Rail",
+      "viewport": "1100x460"
+    }
+  },
+  "extraFonts": [
+    ".design-sync/fonts/geist-fonts.css"
+  ],
+  "readmeHeader": ".design-sync/conventions.md"
+}
