@@ -1,0 +1,62 @@
+// Declaration-emit program for the design-system sync (see regen.mjs).
+// Emits `.d.ts` for everything reachable from ds-entry.ts into ../dist/types,
+// which is what the converter reads each component's props from.
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "declarationMap": false,
+    "incremental": false,
+    "rootDir": "..",
+    "declarationDir": "../dist/types",
+    "baseUrl": ".",
+    // `cloudflare-env.d.ts` declares `Cloudflare.GlobalProps.mainModule` as
+    // `typeof import("./.open-next/worker")`. `.open-next/` is gitignored build
+    // output that exists only after a Worker build, so with `allowJs` on this
+    // program's error count depends on whether someone has run one — six
+    // declaration-emit errors out of generated JavaScript on a dev machine,
+    // zero in CI. Nothing in the entry graph is JavaScript; turning it off
+    // keeps that output out of the program, and the now-unresolvable import is
+    // inside a `.d.ts`, which `skipLibCheck` already ignores.
+    "allowJs": false,
+    // Stubbing `src/actions/*` to `Promise<any>` (see regen.mjs) erases the
+    // contextual types their callers destructure, which turns ordinary app
+    // code into implicit-any errors here and nowhere else — e.g.
+    // `res.drafts.map((d) => …)` in ai-transaction-input.tsx. Those aren't
+    // findings, they're the cost of the stubs. `pnpm typecheck` runs the same
+    // files against the real actions under full `strict`, so nothing is lost.
+    "noImplicitAny": false,
+    // Must mirror tsconfig.sync.json: the declaration tree has to describe the
+    // same modules the bundler resolves, or the shipped .d.ts documents code
+    // that isn't in the bundle.
+    "paths": {
+      "@/actions/*": ["./.cache/stubs/actions/*"],
+      "@/lib/firebase": ["./stubs/firebase.ts"],
+      "firebase/auth": ["./stubs/firebase-auth.ts"],
+      "pdfjs-dist": ["./stubs/pdfjs-dist.ts"],
+      "@/*": ["../src/*"]
+    }
+  },
+  "files": ["ds-entry.ts"],
+  // The repo's ambient declarations, which the root tsconfig picks up by glob
+  // and this program would otherwise miss. Without them it reports errors
+  // `pnpm typecheck` doesn't have (`Property 'HYPERDRIVE' does not exist on
+  // type 'CloudflareEnv'`, from src/db/index.ts) — and regen.mjs prints this
+  // program's diagnostic count as the health signal for the step, so a
+  // manufactured baseline makes a genuinely new error indistinguishable from
+  // noise. Listed as `include`, not `files`, because two of the three are
+  // generated and gitignored: `include` skips what isn't there, `files` errors
+  // on it. Keep in step with the `*.d.ts` files at the repo root.
+  //
+  // Nothing else belongs here: inheriting the root config's `include` would
+  // pull the whole repo into a declaration emit that only needs ds-entry.ts's
+  // graph. (And no `exclude` — it only ever filters `include`, never `files`,
+  // so entries for the entry graph would be dead configuration.)
+  "include": [
+    "../next-env.d.ts",
+    "../cloudflare-env.d.ts",
+    "../cloudflare-secrets.d.ts"
+  ]
+}

@@ -1,0 +1,42 @@
+// Type-checks the parts of .design-sync/ that nothing else covers: the 63
+// preview cards, the preview provider, and the hand-written module stubs.
+//
+// `pnpm typecheck` cannot see any of it — TypeScript's `include` wildcards skip
+// dot-directories, which is why the root tsconfig has to name `.next/types/**`
+// explicitly — and the converter's bundler only transpiles, so a preview that
+// passes a prop the component no longer accepts builds fine and renders wrong.
+// This config turns that silent wrong render into an error.
+//
+// Run it with `pnpm typecheck:design`, which regenerates ds-entry.ts first:
+// `spendchat` below resolves to that generated barrel, exactly as it does in
+// the bundle, so the previews are checked against the real component props.
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "incremental": false,
+    "baseUrl": ".",
+    // Both mirror tsconfig.emit.json — same program, same two reasons: keep
+    // gitignored `.open-next/` JavaScript out, and don't report the
+    // implicit-anys that stubbing `src/actions/*` to `any` manufactures. See
+    // the comments there.
+    "allowJs": false,
+    "noImplicitAny": false,
+    "paths": {
+      "spendchat": ["./ds-entry.ts"],
+      "@/actions/*": ["./.cache/stubs/actions/*"],
+      "@/lib/firebase": ["./stubs/firebase.ts"],
+      "firebase/auth": ["./stubs/firebase-auth.ts"],
+      "pdfjs-dist": ["./stubs/pdfjs-dist.ts"],
+      "@/*": ["../src/*"]
+    }
+  },
+  "files": ["preview-providers.tsx"],
+  "include": [
+    "previews/**/*.tsx",
+    "stubs/**/*.ts",
+    "../next-env.d.ts",
+    "../cloudflare-env.d.ts",
+    "../cloudflare-secrets.d.ts"
+  ]
+}
