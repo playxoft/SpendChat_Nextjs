@@ -244,21 +244,55 @@ gives a false reading:
 # (a) secret_text entries only — returns [] if everything is stored as vars
 npx wrangler secret list --env production
 
-# (b) what the deployed version ACTUALLY has bound (names only — see warning)
-npx wrangler deployments list --env production 2>&1 | grep -oE '[0-9a-f-]{36}' | head -1
-npx wrangler versions view <VERSION_ID> --env production 2>&1 \
+# (b) what the CURRENTLY SERVING version has bound (names only — see warning)
+npx wrangler deployments status --env production 2>&1 \
+  | grep -oE '\([0-9]+%\) [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'
+
+CURRENT=$(npx wrangler deployments status --env production 2>&1 \
+  | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1)
+npx wrangler versions view "$CURRENT" --env production 2>&1 \
   | grep -oE 'env\.[A-Z0-9_]+' | sort -u
 ```
 
+> **Use `deployments status`, never `deployments list`, to find the version to
+> inspect.** `status` returns the one deployment that is actually serving
+> traffic right now. That is the only thing this gate cares about: not the
+> newest version uploaded (a version can be uploaded and never deployed), and
+> not the newest *code* (after `wrangler rollback` the serving version is an
+> **older** one, and its bindings are what production is really running).
+>
+> Do **not** reconstruct it from `deployments list | grep ... | head -1`.
+> That list prints **oldest first**, so `head -1` silently returns the *oldest*
+> deployment — which is how this gate once reported nine secrets "missing" that
+> were present all along. `deployments status` has no ordering to get wrong.
+
+If the first command prints **more than one line**, a gradual rollout is in
+progress and two versions are serving simultaneously. Inspect **each** version
+id and report the split — a secret present on only one of them means a fraction
+of requests fail. Treat any divergence between them as a blocker.
+
 > **Never run `wrangler versions view` without that `grep`.** Plain-text
 > Environment Variables are printed **with their values**, so an unfiltered run
-> dumps live credentials into the transcript. The `grep -oE 'env\.[A-Z0-9_]+'`
-> pipe keeps it to names. If you have already run it unfiltered, do not echo,
-> quote, or summarise the values anywhere.
+> dumps live credentials into the transcript. Only the
+> `grep -oE 'env\.[A-Z0-9_]+'` pipe is safe: it emits names and nothing else.
+> A redaction filter that strips text after a colon (`sed 's/:.*//'`) does
+> **not** work here — values are printed in the form `env.NAME ("value")`, so
+> they survive and leak. If you have already run it unfiltered, do not echo,
+> quote, or summarise the values anywhere; tell the user which keys were
+> exposed and recommend rotating them.
+>
+> `wrangler deployments status` prints no bindings at all, so it needs no filter.
 
 Reconcile (b) against the table above — (b) is the source of truth, because it
 is the running Worker. Bindings are **per worker**: `spendchat-beta` having a
 value says nothing about `spendchat-production`.
+
+**Before reporting any secret as missing, re-read the version id you inspected
+and confirm it is the one `deployments status` named.** A "missing secret"
+finding is a NO-GO that costs the user a deploy — it is worth one command to
+confirm you were looking at the live version. Doppler holding the value while
+the Worker appears not to is the signature of having inspected the wrong
+version; check that before concluding the Worker is short a key.
 
 Also flag, as warnings rather than blockers:
 - **Anything bound as a plain Environment Variable that should be a secret.**
@@ -393,6 +427,13 @@ dashboard (Workers → spendchat-production → Deployments) or with
 rollback does not undo a database migration.** If the release included a
 destructive migration, rolling the Worker back leaves old code against a new
 schema — which is why Gate 4c refuses to ship those in one step.
+
+A rollback also **changes which version is serving**, so every fact Gate 5
+established about the Worker's bindings is now about a version that is no
+longer live. After any rollback, re-run Gate 5a against
+`wrangler deployments status` — the rolled-back-to version predates any secret
+added since it was built, which is exactly how a feature comes back up with its
+config missing.
 
 ---
 
