@@ -117,7 +117,8 @@ export function VoiceMicButton({
       }}
       className={cn(
         "relative shrink-0 touch-none rounded-full p-0 select-none",
-        dense ? "size-8" : "size-10",
+        // Matches the send button it sits beside inside the note box's corner.
+        dense ? "size-8" : "size-9",
         recording && "bg-red-500/10 text-red-600 hover:bg-red-500/15 dark:text-red-400",
       )}
     >

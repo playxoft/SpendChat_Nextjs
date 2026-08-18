@@ -18,7 +18,26 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
-## [0.5.2] — 2026-08-18
+## [0.5.3] — 2026-08-19
+
+### Changed
+
+- **The single-field composer is one box with two zones**: a currency chip for
+  the amount (₹, or whatever the workspace uses) and the title beside it. The
+  chip is there as soon as you click into the field, so the amount goes straight
+  into it instead of being parsed back out of a sentence. Space — or Enter —
+  hands over from the chip to the title, so "100 fruits" is still typed in one
+  burst; Backspace at the start of the title steps back into the chip. Pasting
+  "100 fruits" still splits itself across the two.
+- **The parse hint under that field is gone**, and the composer is a line
+  shorter for it. "Amount ₹0 — add a title" described a guess the field was
+  making; there's nothing to guess now. The over-limit warning stays.
+- **The composer card is more compact in both modes** — 16px shorter, with the
+  dead space under the fields gone. Its padding and row gaps came in a notch,
+  the AI note box and its mic/send buttons are a little smaller, the AI hint
+  line is `text-xs`, and the manual fields now hang from the card's bottom edge
+  at every density (not just compact), so what the two modes differ by sits in
+  the middle of the card instead of as a gap under the last field.
 
 ### Changed
 

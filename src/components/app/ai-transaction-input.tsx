@@ -580,7 +580,7 @@ export function AiTransactionInput({
       // taller than Manual, and both panes share one grid cell — so every dense
       // trim here (one-row note, smaller buttons, less bottom padding) shows up
       // as dead space removed from *Manual* too.
-      <div className={cn("flex h-full flex-col", dense ? "gap-1.5" : "gap-2")}>
+      <div className="flex h-full flex-col gap-1.5">
         {/* `MODE_ROW_DENSE` verbatim — Manual's control strip uses the same
             class so the toggle lands on the exact same pixel in both panes. */}
         <div className={dense ? MODE_ROW_DENSE : "flex items-center gap-2"}>
@@ -663,23 +663,21 @@ export function AiTransactionInput({
             //
             // pr reserves the corner for both buttons — mic and send — so a long
             // note never runs underneath them; pb clears them vertically. Both
-            // shrink with the buttons at dense (size-8 rather than size-10).
+            // shrink with the buttons at dense (size-8 rather than size-9).
             className={cn(
               "flex-1 resize-none md:text-base",
               mode === "ai" ? "field-sizing-content" : "field-sizing-fixed",
               dense
                 ? "min-h-[4.625rem] pr-20 pb-10 placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap"
-                : "min-h-[6.625rem] pr-24 pb-12",
+                : "min-h-[6.125rem] pr-24 pb-10",
             )}
             disabled={parsing}
           />
           {/* Mic left of send: dictate, then send — left to right, in order. */}
-          <div
-            className={cn(
-              "absolute flex items-center gap-1",
-              dense ? "right-1.5 bottom-1.5" : "right-2 bottom-2",
-            )}
-          >
+          {/* Tucked to the box's corner: the `pb` above is sized to exactly clear
+              this cluster, so every pixel it gives back is a pixel off the card —
+              which both modes share. */}
+          <div className="absolute right-1.5 bottom-1 flex items-center gap-1">
             <VoiceMicButton
               state={voice.state}
               level={voice.level}
@@ -695,7 +693,7 @@ export function AiTransactionInput({
               disabled={parsing || !text.trim()}
               aria-label="Turn your note into transactions"
               title="Turn your note into transactions"
-              className={cn("shrink-0 rounded-full p-0", dense ? "size-8" : "size-10", AI_BTN)}
+              className={cn("shrink-0 rounded-full p-0", dense ? "size-8" : "size-9", AI_BTN)}
             >
               {parsing ? (
                 <Loader2 className={cn("animate-spin", dense ? "size-4" : "size-5")} />
@@ -710,7 +708,9 @@ export function AiTransactionInput({
             "Hold to talk" on hover, and the ⓘ dialog above still documents the
             `#` and `( )` markers in full. */}
         {!dense && (
-          <p className="px-0.5 text-sm text-muted-foreground">
+          // `text-xs`: it's a hint, and at `text-sm` it was the second-tallest
+          // thing in the pane — height the card charges to Manual as well.
+          <p className="px-0.5 text-xs text-muted-foreground">
             Type or hold <Kbd combo={voiceCombo} className="align-middle" /> to speak — use{" "}
             <span className="font-mono text-foreground">#</span> for a category and{" "}
             <span className="font-mono text-foreground">( )</span> for a note.

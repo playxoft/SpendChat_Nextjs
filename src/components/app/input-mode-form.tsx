@@ -63,11 +63,15 @@ const OPTIONS: Option[] = [
     value: "combined",
     label: "One field (amount + title)",
     description:
-      "A single field. The leading number becomes the amount and the rest becomes the title — fastest for quick entries.",
+      "One field, two zones: a currency chip for the amount and the title beside it. Space jumps from the chip to the title — fastest for quick entries.",
     example: (
       <div className="flex flex-wrap items-center gap-1.5">
-        <Pill className="justify-start font-medium text-foreground">100 fruits</Pill>
-        <span className="text-xs text-muted-foreground">→ $100 · fruits</span>
+        <Pill className="justify-start gap-1.5">
+          <span className="rounded bg-muted px-1 text-[11px] font-medium tabular-nums text-foreground">
+            $ 100
+          </span>
+          fruits
+        </Pill>
       </div>
     ),
   },

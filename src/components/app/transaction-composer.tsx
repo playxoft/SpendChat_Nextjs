@@ -94,8 +94,11 @@ export function TransactionComposer({
   const [amount, setAmount] = useState("");
   const [categoryId, setCategoryId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
-  // Single-field ("combined") mode types amount + title together, e.g. "100 fruits".
+  // Single-field ("combined") mode is one box holding two zones: a currency chip
+  // for the amount and the title beside it. `combined` is the title half;
+  // `combinedAmount` is what's typed in the chip.
   const [combined, setCombined] = useState("");
+  const [combinedAmount, setCombinedAmount] = useState("");
   const [description, setDescription] = useState("");
   const [occurredOn, setOccurredOn] = useState(today);
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
@@ -113,6 +116,9 @@ export function TransactionComposer({
 
   const titleRef = useRef<HTMLInputElement>(null);
   const amountRef = useRef<HTMLInputElement>(null);
+  // The amount inside the single field's chip — a different input from
+  // `amountRef`, which belongs to the two-field layouts.
+  const chipRef = useRef<HTMLInputElement>(null);
   const descRef = useRef<HTMLInputElement>(null);
   const cats = useMemo(() => categories.filter((c) => c.kind === type), [categories, type]);
   const symbol = getCurrency(currency).symbol;
@@ -140,11 +146,15 @@ export function TransactionComposer({
   // The "/" category picker reads/writes whichever field holds the title text.
   const titleSource = isCombined ? combined : title;
   const setTitleSource = isCombined ? setCombined : setTitle;
-  // Live parse of the combined field for the inline preview + submit.
-  const quick = isCombined ? parseQuickEntry(combined, locale) : null;
-  // The combined field mixes amount + title, so blocking a keystroke would drop
-  // the title too. Instead flag the field red when the parsed amount is over the
-  // 9-digit cap; submit is blocked by the same check below.
+  // The single field's two zones read exactly like the two-field layouts — the
+  // chip is an amount input and the rest is a title input — so submit doesn't
+  // care which layout produced them.
+  const quick = isCombined
+    ? { amount: parseAmountInput(combinedAmount, locale), title: combined.trim() }
+    : null;
+  // Typing into the chip is capped at 9 whole digits like any amount field, but
+  // a *pasted* "100 fruits" can still land over the cap. Flag the field red then;
+  // submit is blocked by the same check below.
   const combinedAmountOverLimit = quick?.amount != null && quick.amount > AMOUNT_MAX;
 
   const toggleCombo = comboFor("tracker.toggle-type");
@@ -195,6 +205,14 @@ export function TransactionComposer({
     { requireNoOverlay: true },
   );
 
+  /** Move the caret to the end of one of the single field's two zones. */
+  function focusEnd(ref: React.RefObject<HTMLInputElement | null>) {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    el.setSelectionRange(el.value.length, el.value.length);
+  }
+
   function selectTagCategory(cat: Pick<Category, "id">) {
     setCategoryId(cat.id);
     setTitleSource((t) => t.replace(TAG_RE, "").replace(/\s+$/, ""));
@@ -205,34 +223,34 @@ export function TransactionComposer({
   function submit() {
     // Ignore sends while switching profile — the target profile is changing.
     if (switching) return;
-    // In combined mode the amount + title come from one parsed field. Both
-    // paths read the amount against the user's locale, and both yield null for
-    // anything ambiguous — never a silently mis-scaled number.
+    // Every layout reads its amount against the user's locale, and all of them
+    // yield null for anything ambiguous — never a silently mis-scaled number.
     const value = isCombined ? quick!.amount : parseAmountInput(amount, locale);
     const finalTitle = (isCombined ? quick!.title : title).trim();
+    // Where the amount is typed in the layout that's on screen.
+    const amountInputRef = isCombined ? chipRef : amountRef;
 
     if (value === null || value <= 0) {
       const example = formatAmountInput(12.5, locale);
+      const typed = isCombined ? combinedAmount : amount;
       toast.error(
-        isCombined
-          ? `Start with an amount, e.g. ${formatAmountInput(100, locale)} fruits`
-          : value === null && amount.trim()
-            ? `That amount isn't clear — try ${example}`
-            : "Enter an amount greater than 0",
+        value === null && typed.trim()
+          ? `That amount isn't clear — try ${example}`
+          : "Enter an amount greater than 0",
       );
-      titleRef.current?.focus();
+      (isCombined ? chipRef : titleRef).current?.focus();
       return;
     }
-    // Whole-number part capped at 9 digits; catches combined mode too, where the
-    // amount doesn't pass through the per-keystroke guard.
+    // Whole-number part capped at 9 digits; catches a pasted amount, which
+    // doesn't pass through the per-keystroke guard.
     if (value > AMOUNT_MAX) {
       toast.error("Amount is too large (max 9 digits)");
-      (isCombined ? titleRef : amountRef).current?.focus();
+      amountInputRef.current?.focus();
       return;
     }
     // A transaction needs an amount, a title, a date and a profile.
     if (!finalTitle) {
-      toast.error(isCombined ? "Add a title after the amount" : "Add a title");
+      toast.error("Add a title");
       titleRef.current?.focus();
       return;
     }
@@ -279,12 +297,15 @@ export function TransactionComposer({
     setAmount("");
     setTitle("");
     setCombined("");
+    setCombinedAmount("");
     setDescription("");
     setShowDescription(false);
     setCategoryId(null);
     setOccurredOn(today);
     setTagDismissed(false);
-    (isCombined || inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
+    // Back to whichever field the next entry starts in: the chip in single-field
+    // mode, the title in title-first, the amount otherwise.
+    (isCombined ? chipRef : inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
   }
 
   // Files dropped anywhere on the tracker page: filter to the free slots and
@@ -342,6 +363,33 @@ export function TransactionComposer({
     }
   }
 
+  // The chip's amount: space (and Enter) hands over to the title, so "100 fruits"
+  // is still one uninterrupted burst of typing — the space just moves the caret
+  // instead of being typed. That costs a space as a grouping separator, which a
+  // few locales use ("1 000"); typing the digits alone reads the same.
+  function onChipKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      if (combinedAmount.trim()) focusEnd(titleRef);
+      return;
+    }
+  }
+
+  // The title half: Backspace at its start steps back into the chip, the way it
+  // would if the two were one field.
+  function onCombinedTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (
+      e.key === "Backspace" &&
+      e.currentTarget.selectionStart === 0 &&
+      e.currentTarget.selectionEnd === 0
+    ) {
+      e.preventDefault();
+      focusEnd(chipRef);
+      return;
+    }
+    onTitleKeyDown(e);
+  }
+
   function onDescriptionKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -388,29 +436,25 @@ export function TransactionComposer({
 
   // The paperclip rides *inside* the title field, as a leading affordance —
   // attaching a receipt belongs to what you're describing, not to the
-  // date/profile/category cluster it used to sit in. The input reserves `pl-9`
-  // so text never runs under it.
-  const attachButton = (
-    <AttachmentDropzone
-      variant="inline"
-      onFiles={staged.add}
-      remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
-      disabled={switching}
-      className="absolute top-1/2 left-0.5 size-7 -translate-y-1/2"
-    />
-  );
+  // date/profile/category cluster it used to sit in.
+  function attachTrigger(className: string) {
+    return (
+      <AttachmentDropzone
+        variant="inline"
+        onFiles={staged.add}
+        remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
+        disabled={switching}
+        className={className}
+      />
+    );
+  }
+
+  // Overlaid on the title field, which reserves `pl-9` so text never runs under it.
+  const attachButton = attachTrigger("absolute top-1/2 left-0.5 size-7 -translate-y-1/2");
 
   // Amount-first mode instead puts the paperclip as a standalone leading button
   // at the very left of the row (left of the amount box), not inside a field.
-  const standaloneAttach = (
-    <AttachmentDropzone
-      variant="inline"
-      onFiles={staged.add}
-      remaining={ATTACHMENT_MAX_PER_TRANSACTION - staged.items.length}
-      disabled={switching}
-      className="size-8 shrink-0 border"
-    />
-  );
+  const standaloneAttach = attachTrigger("size-8 shrink-0 border");
 
   // The clip leads the title only when the title is the row's first field
   // (title-first). In amount-first mode it moves to `standaloneAttach` above, so
@@ -436,28 +480,104 @@ export function TransactionComposer({
     </div>
   );
 
-  // Single-field mode: "100 fruits" → amount 100, title "fruits". Uses titleRef
-  // so shortcuts that focus the title still land here, and onTitleKeyDown so the
-  // "/" category picker keeps working on the parsed title.
+  // Single-field mode: one box, two zones — a currency chip holding the amount
+  // and the title beside it. The chip is there from the first click, so the
+  // field shows what it wants rather than explaining it in a line of prose
+  // underneath; space (or Enter) hands over from the chip to the title, so
+  // "100 fruits" is still typed in one go.
+  //
+  // Not an `<Input>`: the chip, the paperclip and the title are siblings inside
+  // a shell that looks like an input (same border/ring tokens, with focus moved
+  // to `focus-within`). `titleRef` stays on the title half, so the shortcuts and
+  // the "#" picker that target it keep working.
   const combinedField = (
-    <div className="relative min-w-32 flex-1">
-      {attachButton}
-      <Input
+    <div
+      className={cn(
+        "flex h-9 min-w-32 flex-1 items-center gap-1.5 rounded-lg border border-input bg-transparent pr-2.5 pl-1 transition-colors dark:bg-input/30",
+        "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+        // Red bar when the amount is over the 9-digit cap (submit is blocked too).
+        combinedAmountOverLimit &&
+          "border-destructive ring-3 ring-destructive/20 dark:border-destructive/50 dark:ring-destructive/40",
+      )}
+      // The shell's own padding is dead space in a real input; a click there
+      // lands in whichever zone is still waiting to be filled.
+      onMouseDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        e.preventDefault();
+        focusEnd(combinedAmount.trim() ? titleRef : chipRef);
+      }}
+    >
+      {attachTrigger("size-7 shrink-0")}
+      {/* The amount chip. Its width follows what's typed (`ch` against tabular
+          figures), so a long amount doesn't get its own scrollbar and a short
+          one doesn't hold empty space in front of the title. */}
+      <div
+        className={cn(
+          "flex h-6 shrink-0 items-center gap-0.5 rounded-md pr-0.5 pl-1.5 text-sm font-medium transition-colors",
+          type === "income"
+            ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+            : "bg-muted text-foreground",
+        )}
+      >
+        <span aria-hidden className="opacity-70">
+          {symbol}
+        </span>
+        <input
+          ref={chipRef}
+          inputMode="decimal"
+          placeholder={placeholder}
+          value={combinedAmount}
+          maxLength={20}
+          onChange={(e) => {
+            const raw = e.target.value;
+            // A pasted "100 fruits" splits here: the number stays in the chip,
+            // the rest joins the title. Typed spaces never reach this — the
+            // keydown handler turns them into the hand-over to the title.
+            const pasted = raw.includes(" ") ? parseQuickEntry(raw, locale) : null;
+            if (pasted?.amount != null && pasted.title) {
+              setCombinedAmount(formatAmountInput(pasted.amount, locale));
+              setCombined((t) => (t ? `${pasted.title} ${t}` : pasted.title));
+              requestAnimationFrame(() => focusEnd(titleRef));
+              return;
+            }
+            // Numbers only, same rules as the two-field amount box: digits plus
+            // whatever a locale groups or points with, rejected once the
+            // whole-number part hits 9 digits.
+            const next = raw.replace(/[^\d.,\s]/g, "");
+            setCombinedAmount((prev) =>
+              integerDigitCount(next, locale) > AMOUNT_INTEGER_DIGITS_MAX ? prev : next,
+            );
+          }}
+          onKeyDown={onChipKeyDown}
+          aria-label="Amount"
+          aria-invalid={combinedAmountOverLimit || undefined}
+          // Just enough slack past the digits for the caret — any more reads as
+          // a gap between the number and the chip's right edge.
+          style={{ width: `${Math.max(placeholder.length, combinedAmount.length) + 0.25}ch` }}
+          className="bg-transparent tabular-nums outline-none placeholder:font-normal placeholder:text-muted-foreground"
+        />
+      </div>
+      <input
         ref={titleRef}
-        placeholder="e.g. 100 fruits"
+        placeholder="Add a title — type # to tag a category"
         value={combined}
-        // Room for the title plus a leading "999,999,999.99 " amount + space.
-        maxLength={TITLE_MAX + 18}
+        maxLength={TITLE_MAX}
         onChange={(e) => {
           setCombined(e.target.value);
           setTagDismissed(false);
           setTagIndex(0);
         }}
-        onKeyDown={onTitleKeyDown}
-        aria-label="Amount and title"
-        // Red bar when the amount is over the 9-digit cap (submit is blocked too).
-        aria-invalid={combinedAmountOverLimit || undefined}
-        className="h-9 w-full pl-9 md:text-base"
+        onKeyDown={onCombinedTitleKeyDown}
+        // Clicking an untouched field starts in the chip, wherever the click
+        // landed — the amount comes first in this layout, and a second click
+        // gets to the title if that's really what was wanted.
+        onMouseDown={(e) => {
+          if (combinedAmount.trim() || combined) return;
+          e.preventDefault();
+          chipRef.current?.focus();
+        }}
+        aria-label="Title"
+        className="h-full w-full min-w-0 bg-transparent text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
       />
     </div>
   );
@@ -621,7 +741,7 @@ export function TransactionComposer({
       <div
         className={cn(
           "mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background shadow-lg md:bg-background/95 md:backdrop-blur-sm",
-          dense ? "p-2.5" : "p-3",
+          dense ? "p-2" : "p-2.5",
         )}
       >
         {/* Both modes share a single grid cell, so the card is sized to the taller
@@ -672,18 +792,18 @@ export function TransactionComposer({
 
           <div
             className={cn(
-              "col-start-1 row-start-1 min-w-0",
-              // Compact stretches this pane to the shared cell so the strip can
-              // be pinned to the top (matching AI's, which `h-full` already
-              // pins) while the fields hang from the bottom — see `mt-auto`
-              // below. Slack, if the two panes ever differ, lands in the middle
-              // where nothing moves.
-              dense && "flex flex-col",
+              "col-start-1 row-start-1 flex min-w-0 flex-col",
+              // The pane stretches to the shared cell so the control strip is
+              // pinned to the top (matching AI's, which `h-full` already pins)
+              // while the fields hang from the bottom — see `mt-auto` below.
+              // Whatever the two panes differ by lands in the middle, where
+              // nothing moves; the card never shows it as dead space under the
+              // last field.
               mode === "manual" ? undefined : "invisible pointer-events-none",
             )}
           >
             <form
-              className={cn(dense && "flex flex-1 flex-col")}
+              className="flex flex-1 flex-col"
               onSubmit={(e) => {
                 e.preventDefault();
                 submit();
@@ -699,12 +819,9 @@ export function TransactionComposer({
                   native `disabled` on a fieldset cascades to all controls inside. */}
               <fieldset
                 disabled={switching}
-                className={cn(
-                  "m-0 min-w-0 border-0 p-0 transition-opacity disabled:opacity-60",
-                  dense && "flex flex-1 flex-col",
-                )}
+                className="m-0 flex min-w-0 flex-1 flex-col border-0 p-0 transition-opacity disabled:opacity-60"
               >
-                <div className={cn("flex flex-col", dense ? "flex-1 gap-1.5" : "gap-2")}>
+                <div className="flex flex-1 flex-col gap-1.5">
                   {/* Compact gathers the whole strip into one grouped widget so the
                       controls read as a set, with the Manual/AI switch left outside
                       it as its own raised button — it changes what the composer *is*,
@@ -744,7 +861,7 @@ export function TransactionComposer({
                       </div>
                     </div>
                   ) : (
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-1.5">
                       <div className="flex items-center gap-2">
                         <EntryModeToggle mode={mode} onChange={changeMode} />
                         {typeToggle}
@@ -766,55 +883,16 @@ export function TransactionComposer({
                       (`mt-auto`), leaving the strip pinned to the top. That split
                       is what lets the fields sit a few pixels off the bottom
                       without the Manual/AI toggle ever moving. */}
-                  <div className={cn("flex flex-col", dense ? "mt-auto gap-1.5" : "gap-2")}>
-                  {/* Live parse feedback — single-field mode only. There the amount
-                      and title are guesses pulled out of one string, so the user needs
-                      to see what was parsed; the two-field modes have labelled inputs
-                      that already say it, and the nudge just repeated them.
-
-                      Compact drops the nudge — a whole line spent on "Amount ₹0 — add
-                      a title" is the opposite of compact, and the field it describes
-                      is right below it. The over-limit warning stays at every density:
-                      it's the only signal that submit is blocked. */}
-                  {isCombined &&
-                    (combinedAmountOverLimit ? (
-                      <p className="px-0.5 text-xs text-destructive">Amount is too large (max 9 digits)</p>
-                    ) : dense ? null : (
-                      <p className="px-0.5 text-xs text-muted-foreground">
-                        {quick!.amount != null && quick!.title ? (
-                          <>
-                            Adds{" "}
-                            <span className="font-medium text-foreground tabular-nums">
-                              {symbol}
-                              {quick!.amount}
-                            </span>{" "}
-                            · <span className="font-medium text-foreground">{quick!.title}</span>
-                          </>
-                        ) : quick!.amount != null ? (
-                          <>
-                            Amount{" "}
-                            <span className="font-medium text-foreground tabular-nums">
-                              {symbol}
-                              {quick!.amount}
-                            </span>{" "}
-                            — now add a title
-                          </>
-                        ) : combined.trim() ? (
-                          <>
-                            Start with a number, e.g.{" "}
-                            <span className="font-medium text-foreground">100 fruits</span>
-                          </>
-                        ) : (
-                          <>
-                            Amount{" "}
-                            <span className="font-medium text-foreground tabular-nums">
-                              {symbol}0
-                            </span>{" "}
-                            — add a title
-                          </>
-                        )}
-                      </p>
-                    ))}
+                  <div className="mt-auto flex flex-col gap-1.5">
+                  {/* The single field used to carry a line of parse feedback under it
+                      ("Amount ₹0 — add a title"). The amount chip says the same thing
+                      in the field itself, so the line was a row of prose restating what
+                      was already on screen — it's gone, and the card is that much
+                      shorter. The over-limit warning stays at every density: it's the
+                      only signal that submit is blocked. */}
+                  {isCombined && combinedAmountOverLimit && (
+                    <p className="px-0.5 text-xs text-destructive">Amount is too large (max 9 digits)</p>
+                  )}
 
                   {/* Staged files sit just above the input row, like drafted photos in a
                       chat composer. Scrolls if several are queued. */}
