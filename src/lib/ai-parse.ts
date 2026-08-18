@@ -94,6 +94,22 @@ function buildSystemPrompt(
   ].join("\n");
 }
 
+/**
+ * Sentence-case the first character, leaving everything after it alone — so
+ * "banana" becomes "Banana" but "iPhone case" and "AC repair" survive intact.
+ *
+ * The model is asked for capitalized titles, but it echoes the note's casing
+ * often enough that a lowercase word lands in the review list next to
+ * hand-typed rows that always start with a capital. Doing it here (rather than
+ * trusting the prompt) is what makes it consistent.
+ */
+function sentenceCase(text: string): string {
+  const first = text.charAt(0);
+  // Only touch letters that actually have an uppercase form — a leading digit
+  // or symbol ("₹500 refund") must pass through untouched.
+  return first.toUpperCase() === first ? text : first.toUpperCase() + text.slice(1);
+}
+
 /** YYYY-MM-DD passthrough, defaulting to and never exceeding `today`. */
 function normalizeDate(raw: string | undefined, today: string): string {
   if (raw && /^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw > today ? today : raw;
@@ -165,11 +181,17 @@ export function draftsFromRawJson(
     const amount = typeof o.amount === "number" ? o.amount : Number(o.amount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > TRANSACTION_AMOUNT_MAX) continue;
 
-    const title = typeof o.title === "string" ? o.title.trim().slice(0, TRANSACTION_TITLE_MAX) : "";
-    if (!title) continue; // a transaction needs a title, same as the composer
+    // Sentence-case *before* the clamp: a few first characters grow when they
+    // are uppercased ("ß" → "SS"), so casing a string already cut to the limit
+    // hands the confirm path a title one character over it.
+    const titleRaw = typeof o.title === "string" ? o.title.trim() : "";
+    if (!titleRaw) continue; // a transaction needs a title, same as the composer
+    const title = sentenceCase(titleRaw).slice(0, TRANSACTION_TITLE_MAX).trim();
 
     const descRaw = typeof o.description === "string" ? o.description.trim() : "";
-    const description = descRaw ? descRaw.slice(0, TRANSACTION_DESCRIPTION_MAX) : undefined;
+    const description = descRaw
+      ? sentenceCase(descRaw).slice(0, TRANSACTION_DESCRIPTION_MAX).trim()
+      : undefined;
 
     const rawCat = typeof o.categoryName === "string" ? o.categoryName.trim() : "";
     const categoryName = rawCat ? (canonical.get(`${type}:${rawCat.toLowerCase()}`) ?? null) : null;

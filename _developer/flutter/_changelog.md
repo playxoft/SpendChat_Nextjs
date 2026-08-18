@@ -19,6 +19,22 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.9.1 — 2026-08-19
+
+`POST /ai/parse` sentence-cases the drafts it returns.
+
+- **`AiDraft.title` and `AiDraft.description` come back with their first
+  character uppercased** — a note reading "banana" now yields the title
+  "Banana". Only the first character is touched, so "iPhone case" and "3M tape"
+  are returned as the model produced them, and a draft starting with a digit or
+  a currency symbol is untouched. Both fields are still capped at 40/150
+  characters (the cap is applied after the casing, so neither can come back one
+  character over).
+
+**Flutter impact:** none required. Drafts shown in the review sheet will read
+capitalized without the app doing anything; if the app applies its own
+capitalization to draft titles, that can be dropped.
+
 ## 5.9.0 — 2026-08-15
 
 `transactions=move` now moves the profile's vault as well.

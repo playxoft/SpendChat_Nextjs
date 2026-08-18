@@ -580,11 +580,11 @@ export function AiTransactionInput({
       // taller than Manual, and both panes share one grid cell — so every dense
       // trim here (one-row note, smaller buttons, less bottom padding) shows up
       // as dead space removed from *Manual* too.
-      <div className={cn("flex h-full flex-col", dense ? "gap-1.5" : "gap-2")}>
+      <div className="flex h-full flex-col gap-1.5">
         {/* `MODE_ROW_DENSE` verbatim — Manual's control strip uses the same
             class so the toggle lands on the exact same pixel in both panes. */}
         <div className={dense ? MODE_ROW_DENSE : "flex items-center gap-2"}>
-          <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} />
+          <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} pane="ai" />
           <div className="ml-auto flex items-center gap-1">
             <AiHelpDialog symbol={symbol} />
             {canReset && resetButton}
@@ -602,13 +602,12 @@ export function AiTransactionInput({
           level={voice.level}
           liveSupported={voice.liveSupported}
         />
-        {/* Fills the leftover card height, capped at ~6 lines then it scrolls. */}
-        <div
-          className={cn(
-            "relative flex min-h-0 flex-1 flex-col",
-            dense ? "max-h-40" : "max-h-52",
-          )}
-        >
+        {/* Fills the leftover card height and grows with the note (the textarea
+            below is content-sized), capped here at ~12 lines — past that it
+            scrolls rather than climbing further up the screen. One cap for both
+            densities: they reserve the same vertical padding for the buttons
+            (`pb-10`), so the same max-height is the same number of lines. */}
+        <div className="relative flex min-h-0 max-h-84 flex-1 flex-col">
           {tagMenu}
           <Textarea
             ref={taRef}
@@ -622,30 +621,60 @@ export function AiTransactionInput({
             onKeyDown={onTextareaKeyDown}
             onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
             onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-            // Dense starts at one row — it still grows as you type (up to the
-            // max-h above), so this only trims the empty state.
+            // Ignored by browsers that honour `field-sizing: content` (they
+            // size to the text instead) — kept as the fallback everywhere else,
+            // where it still gives the empty box the height `min-h` pins below.
             rows={dense ? 1 : 2}
             // The server rejects anything longer; stop it here so a big paste
             // doesn't cost a round-trip (and a quota slot) just to be refused.
             maxLength={MAX_INPUT_CHARS}
             placeholder="Describe your spending — e.g. 200 fruits, 1000 electricity (June bill) #Bills, got 5000 salary"
             aria-label="Describe your transactions"
+            // Content-sized *while this is the visible pane*, so the box grows a
+            // line at a time with the note — an AI note is usually several
+            // sentences, and a fixed 2-line slot scrolled most of one out of
+            // sight while it was still being typed.
+            //
+            // Back to fixed sizing the moment Manual takes over. This pane stays
+            // mounted and keeps reserving height under Manual (that's what stops
+            // the mode toggle jumping — see the grid in `transaction-composer`),
+            // so a note left in here would otherwise hold the Manual card open
+            // at ten lines tall with nothing in it. Fixed sizing drops it back to
+            // its `rows` height, which is exactly the height Manual has always
+            // reserved; the note itself is untouched and grows again on return.
+            //
+            // Content sizing measures the *placeholder* too when the note is
+            // empty, and this placeholder wraps to two lines in dense's narrower
+            // box — which silently made the empty compact composer 20px taller
+            // than it used to be. Clamping the placeholder to one elided line
+            // there puts it back exactly, and costs nothing: at dense the box
+            // was one row, so the second line was already clipped out of sight.
+            // Normal is wide enough to show the whole thing, so it keeps it.
+            //
+            // `min-h` is the floor, for browsers with no `field-sizing` support
+            // (where `rows` above sizes the box) and for a card too short to
+            // stretch this: the heights `rows` gives — lines × 1.5rem
+            // (text-base) + pt-2 + the pb below + the 2px border.
+            //
             // pr reserves the corner for both buttons — mic and send — so a long
-            // note never runs underneath them; pb clears them vertically. Both
-            // shrink with the buttons at dense (size-8 rather than size-10).
+            // note never runs underneath them; it shrinks with the buttons at
+            // dense (size-8 rather than size-9). pb clears them vertically and
+            // is the same at both densities: it's sized to the taller pair, and
+            // dense's 4px of slack is cheaper than a second cap to keep in sync.
             className={cn(
-              "field-sizing-fixed min-h-0 flex-1 resize-none md:text-base",
-              dense ? "pr-20 pb-10" : "pr-24 pb-12",
+              "flex-1 resize-none md:text-base",
+              mode === "ai" ? "field-sizing-content" : "field-sizing-fixed",
+              dense
+                ? "min-h-[4.625rem] pr-20 pb-10 placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap"
+                : "min-h-[6.125rem] pr-24 pb-10",
             )}
             disabled={parsing}
           />
           {/* Mic left of send: dictate, then send — left to right, in order. */}
-          <div
-            className={cn(
-              "absolute flex items-center gap-1",
-              dense ? "right-1.5 bottom-1.5" : "right-2 bottom-2",
-            )}
-          >
+          {/* Tucked to the box's corner: the `pb` above is sized to exactly clear
+              this cluster, so every pixel it gives back is a pixel off the card —
+              which both modes share. */}
+          <div className="absolute right-1.5 bottom-1 flex items-center gap-1">
             <VoiceMicButton
               state={voice.state}
               level={voice.level}
@@ -661,7 +690,7 @@ export function AiTransactionInput({
               disabled={parsing || !text.trim()}
               aria-label="Turn your note into transactions"
               title="Turn your note into transactions"
-              className={cn("shrink-0 rounded-full p-0", dense ? "size-8" : "size-10", AI_BTN)}
+              className={cn("shrink-0 rounded-full p-0", dense ? "size-8" : "size-9", AI_BTN)}
             >
               {parsing ? (
                 <Loader2 className={cn("animate-spin", dense ? "size-4" : "size-5")} />
@@ -676,7 +705,9 @@ export function AiTransactionInput({
             "Hold to talk" on hover, and the ⓘ dialog above still documents the
             `#` and `( )` markers in full. */}
         {!dense && (
-          <p className="px-0.5 text-sm text-muted-foreground">
+          // `text-xs`: it's a hint, and at `text-sm` it was the second-tallest
+          // thing in the pane — height the card charges to Manual as well.
+          <p className="px-0.5 text-xs text-muted-foreground">
             Type or hold <Kbd combo={voiceCombo} className="align-middle" /> to speak — use{" "}
             <span className="font-mono text-foreground">#</span> for a category and{" "}
             <span className="font-mono text-foreground">( )</span> for a note.
@@ -690,7 +721,7 @@ export function AiTransactionInput({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} />
+        <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} pane="ai" />
         <p className="min-w-0 flex-1 truncate text-sm font-medium">
           Review {rows.length} transaction{rows.length === 1 ? "" : "s"}
         </p>

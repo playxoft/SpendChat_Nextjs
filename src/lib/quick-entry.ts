@@ -1,4 +1,9 @@
-import { isSpaceSeparator, localeSeparators, parseAmountInput } from "./parse-amount";
+import {
+  formatAmountInput,
+  isSpaceSeparator,
+  localeSeparators,
+  parseAmountInput,
+} from "./parse-amount";
 
 /**
  * Combined "quick entry" parser for the transaction composer's single-field mode.
@@ -70,4 +75,37 @@ export function parseQuickEntry(raw: string, locale = "en-US"): QuickEntry {
     return { amount, title };
   }
   return { amount: null, title: trimmed };
+}
+
+/**
+ * Text pasted into the single field's amount chip, split into what each of its
+ * two zones should hold — both as strings, since they go straight back into the
+ * inputs the user can still edit.
+ *
+ * "100 fruits" splits: the number goes to the chip, the words to the title.
+ * **Anything `parseQuickEntry` won't split confidently goes to the title
+ * whole**, chip empty — a title-first "coffee 250", "Dinner for 2 people 800",
+ * "Rs. 500 groceries", or "1 000 rent" where the space may be a grouping
+ * separator. Not because the words matter more than the number, but because
+ * the alternative is guessing which of several numbers is the amount, and this
+ * module exists to never do that: "Dinner for 2 people 800" reduced to its
+ * digits reads as 2800, and "Rs. 500" as 0.5 — both of which would submit
+ * without a warning. The composer blocks the send with an empty chip instead,
+ * and the whole paste stays on screen to be fixed.
+ *
+ * `decimals` is the workspace currency's (3 for KWD/BHD/OMR/JOD), so a pasted
+ * "12.345 lunch" isn't rounded on its way into the chip.
+ *
+ * The amount isn't capped here: one over the 9-digit limit is shown and flagged
+ * by the composer (and blocks the send) rather than being silently trimmed to a
+ * smaller number.
+ */
+export function splitChipPaste(
+  text: string,
+  locale = "en-US",
+  decimals = 2,
+): { amount: string; title: string } {
+  const { amount, title } = parseQuickEntry(text, locale);
+  if (amount === null) return { amount: "", title: text.trim() };
+  return { amount: formatAmountInput(amount, locale, decimals), title };
 }

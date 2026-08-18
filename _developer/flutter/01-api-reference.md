@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 5.9.0.** Every API change bumps this version and is logged
+**API spec version: 5.9.1.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -384,8 +384,8 @@ One reviewable transaction the AI extracted from the note. Maps 1:1 onto a
 {
   "type": "income" | "expense",
   "amount": 250,                        // major units, > 0, within input limits
-  "title": "Fruits",                    // ≤ 40 chars, never empty
-  "description": "June bill" | null,    // ≤ 150 chars
+  "title": "Fruits",                    // ≤ 40 chars, never empty; first letter sentence-cased by the server
+  "description": "June bill" | null,    // ≤ 150 chars; sentence-cased the same way
   "categoryId": "uuid" | null,          // an existing workspace category of this type, or null
   "categoryName": "Food" | null,        // its exact stored name (same match as categoryId)
   "occurredOn": "2026-07-29"            // defaults to "today" in your timezone; never future

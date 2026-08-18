@@ -271,6 +271,9 @@ function ProfileRow({
       ) : (
         <span className="w-2.5 shrink-0" aria-hidden />
       )}
+      {/* The shortcut hint lives *inside* the select button (like the "All
+          profiles" row below), so the whole row switches profile — clicking the
+          ⇧1 chip beside a name used to land on dead space. */}
       <button
         type="button"
         onClick={onSelect}
@@ -282,13 +285,13 @@ function ProfileRow({
       >
         <span aria-hidden className="text-base">{profile.icon ?? "👤"}</span>
         <span className="truncate">{profile.name}</span>
+        {shortcut ? (
+          <Kbd
+            combo={shortcut}
+            className="ml-auto shrink-0 opacity-60 transition-transform duration-200 group-hover:-translate-x-7"
+          />
+        ) : null}
       </button>
-      {shortcut ? (
-        <Kbd
-          combo={shortcut}
-          className="ml-auto shrink-0 opacity-60 transition-transform duration-200 group-hover:-translate-x-7"
-        />
-      ) : null}
       {/* Rename/delete a profile is admin-only. */}
       {canManage && (
         <DropdownMenu>

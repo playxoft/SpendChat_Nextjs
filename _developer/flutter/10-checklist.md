@@ -84,8 +84,8 @@ Cross-references point at the spec docs.
 - [ ] Empty state.
 - [ ] **Composer**: type toggle (clears category), date picker (max today),
       category chip row + "More" grid + `/` picker, profile picker (all-profiles),
-      the **three input modes**, combined parser + live preview, description
-      toggle, send button.
+      the **three input modes**, the combined field's two zones (chip hand-over
+      + paste splitting), description toggle, send button.
 - [ ] Submit validation (amount>0, title, date, profile) + toasts.
 - [ ] **Optimistic send**: append pending bubble, clear+refocus composer, POST,
       reconcile (sending coin / sent / failed + retry), scroll to bottom.

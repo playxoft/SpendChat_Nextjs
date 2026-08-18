@@ -14,9 +14,70 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.9.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.9.1**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.5.3] — 2026-08-19
+
+### Changed
+
+- **The single-field composer is one box with two zones**: a currency chip for
+  the amount (₹, or whatever the workspace uses) and the title beside it. The
+  chip is there as soon as you click into the field, so the amount goes straight
+  into it instead of being parsed back out of a sentence. Space — or Enter —
+  hands over from the chip to the title, so "100 fruits" is still typed in one
+  burst; Backspace at the start of the title steps back into the chip. Pasting
+  "100 fruits" still splits itself across the two; a paste that isn't an amount
+  followed by a title ("coffee 250") lands in the title whole, for you to move
+  the number yourself, rather than having one guessed out of it.
+  **The trade-off:** because a space in the amount now means "go to the title",
+  it can't also be a grouping separator — if you write amounts as "1 000", type
+  "1000" instead. Pasting "1 000 rent" is unaffected in locales that group with
+  a space, and elsewhere it goes to the title rather than being read as 1.
+- **The parse hint under that field is gone**, and the composer is a line
+  shorter for it. "Amount ₹0 — add a title" described a guess the field was
+  making; there's nothing to guess now. The over-limit warning stays.
+- **The composer card is more compact in both modes** — 16px shorter, with the
+  dead space under the fields gone. Its padding and row gaps came in a notch,
+  the AI note box and its mic/send buttons are a little smaller, the AI hint
+  line is `text-xs`, and the manual fields now hang from the card's bottom edge
+  at every density (not just compact), so what the two modes differ by sits in
+  the middle of the card instead of as a gap under the last field.
+- **The AI note box grows with the note**, a line at a time up to about twelve,
+  then it scrolls. A note covering a day's spending used to disappear upward two
+  lines at a time while you were still writing it. Wrapped text counts, not just
+  typed newlines.
+- **AI-parsed titles and descriptions come back capitalized** — "banana" is
+  saved as "Banana" — so drafts from a note match hand-typed rows instead of
+  echoing however the note was typed. Casing after the first letter is left
+  alone, so "iPhone case" and "3M tape" survive.
+- **The transactions table's User column shows the name only**, with the email
+  on hover. Printing both stacked doubled every row's height and squeezed the
+  columns people actually read.
+- **Search leads the transactions filter row**, ahead of the date, type and
+  category pickers.
+- **The theme control in the sidebar is a three-icon capsule** (light / dark /
+  system) instead of a menu — one click to the theme you want.
+- **The theme capsule and the Manual/AI switch are one Tab stop each**, with
+  the arrow keys moving between their options — how a segmented control is
+  expected to behave, and what both already announced themselves as.
+- **The Manual/AI switch keeps its muted track in compact mode.** It used to
+  invert to the card background there, which read as a different control between
+  the two densities.
+- **File and folder hover cards on `/files` use the app's own panel colours** —
+  dark in dark mode, white in light — rather than the inverted hint style, which
+  put a white card in front of a dark app and washed out the tag chips on it.
+
+### Fixed
+
+- **A dropdown inside a dialog no longer takes the dialog down with it.**
+  Picking a category, profile, date or emoji in the add/edit transaction dialog
+  dismissed the dialog along with the picker, so the form you had just opened
+  vanished under you; the click now closes only the dropdown. A dialog holding
+  a dropped receipt also counts as unsaved work now, and stays put.
+- **The whole profile row in the sidebar switches profiles**, including the
+  ⇧1…⇧0 shortcut chip — clicking the chip previously did nothing.
 
 ## [0.5.1] — 2026-08-16
 

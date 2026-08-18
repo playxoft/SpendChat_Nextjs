@@ -230,7 +230,8 @@ export const userSettings = pgTable("user_settings", {
   // How the transaction composer lays out its inputs:
   //   amount_title — amount field, then title (default / original layout)
   //   title_amount — title field, then amount
-  //   combined     — one field parsed as "<amount> <title>" (e.g. "100 fruits")
+  //   combined     — one field holding two zones: an amount chip and the title
+  //                  beside it (a paste of "100 fruits" splits across them)
   inputMode: text("input_mode").notNull().default("amount_title"),
   // ISO 639-1 codes the speech-to-text model is told to expect, e.g.
   // {en,ta,te} for someone who mixes Tamil and Telugu with English. A list (not

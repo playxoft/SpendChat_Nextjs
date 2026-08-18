@@ -122,12 +122,11 @@ Manual-mode element order:
    **date picker**, and — only when "All profiles" is active — a **profile
    picker** (and, on mobile in all-profiles mode, a compact category tag).
 2. **Category chip row** (full width; behaviour depends on layout — see §4.3).
-3. **Combined-mode live preview** (only in `combined` input mode).
-4. **Input row:** the amount/title fields (order depends on **input mode**), a
+3. **Input row:** the amount/title fields (order depends on **input mode**), a
    description-toggle button (mobile), and — on wide layouts — an inline send
    button.
-5. **Description field** (always visible on wide; toggled on mobile).
-6. **Full-width Send button** (mobile).
+4. **Description field** (always visible on wide; toggled on mobile).
+5. **Full-width Send button** (mobile).
 
 ### 4.1 Type toggle (segmented pill)
 A pill (`muted/50` track, rounded-full, hairline border, `p-0.5`) with two
@@ -174,7 +173,7 @@ The order/shape of the amount+title inputs is driven by the user's
 |---|---|
 | **`amount_title`** *(default)* | amount field, then title field |
 | **`title_amount`** | title field, then amount field |
-| **`combined`** | a **single field** parsed into amount + title |
+| **`combined`** | one field holding **two zones** — an amount chip and the title beside it |
 
 **Amount field:** a currency **symbol prefix** (from the currency), numeric
 keyboard (`decimal`), placeholder `"0.00"`, tabular. Sanitize input to digits +
@@ -184,9 +183,31 @@ keyboard (`decimal`), placeholder `"0.00"`, tabular. Sanitize input to digits +
 **40** chars (the server cap). Typing **`#query`** at the end opens an **inline
 category picker** (see §4.6).
 
-**Combined field:** placeholder `"e.g. 100 fruits"`, max **58** chars (title cap
-+ 18 for the amount part). Parse it (see §4.7) into `{ amount, title }`. The `#`
-category picker still works on the parsed title portion.
+**Combined field:** *not* one string that gets parsed. It's a shell styled like
+an input (same border/ring, focus moved to focus-within) holding two real
+inputs side by side:
+
+- an **amount chip** — a small rounded fill carrying the currency symbol and a
+  numeric input sized to its content (`decimal` keyboard, placeholder `"0.00"`,
+  digits + `.`/`,` only, max **20** chars). It tints with the type: muted for
+  expense, a faint emerald for income.
+- the **title** beside it — placeholder `"Add a title — type # to tag a
+  category"`, max **40** chars (the server cap), with the same `#` picker as
+  §4.6.
+
+Hand-over rules, so "100 fruits" is still typed in one burst:
+- **Space** (or **Enter**) in the chip moves the caret to the title, once the
+  chip has something in it. It is never typed into the amount — which costs the
+  space as a grouping separator in the locales that use one ("1 000"); typing
+  the digits alone reads the same.
+- **⌘/Ctrl+Enter** in the chip sends, like anywhere else.
+- **Backspace** at the very start of the title steps back into the chip.
+- Tapping the shell's padding lands in whichever zone is still empty; tapping
+  an untouched field starts in the chip.
+- **Pasting** into the chip splits (see §4.7).
+
+Over the 9-whole-digit cap the shell turns red (that state replaces the focus
+ring) and the send is blocked.
 
 **Enter/submit affordances (wide layouts, informational):** in `title_amount`,
 Enter on the amount (last field) submits; otherwise Enter advances to the next
@@ -201,8 +222,10 @@ When the title (or combined) field ends with `#query`:
 - Empty: `No category matches "{query}"`.
 - On mobile this is a nice-to-have; at minimum keep the "More" grid popover.
 
-### 4.7 Combined-mode parsing
-Parse the single field with this logic (mirror `src/lib/quick-entry.ts`):
+### 4.7 Pasting into the amount chip
+Typing fills the two zones directly (§4.5), so parsing is only needed for a
+**paste into the chip** — "100 fruits" copied from a message should still end up
+split. Mirror `src/lib/quick-entry.ts` (`parseQuickEntry` + `splitChipPaste`):
 
 ```
 QUICK_ENTRY_RE = /^\s*[^\d\s]?\s*(\d+(?:\.\d+)?)\s*(.*)$/
@@ -214,14 +237,20 @@ QUICK_ENTRY_RE = /^\s*[^\d\s]?\s*(\d+(?:\.\d+)?)\s*(.*)$/
 - Examples: `"100 fruits"` → `{100, "fruits"}`; `"12.50 lunch w/ team"` →
   `{12.5, "lunch w/ team"}`; `"$100 fruits"` → `{100, "fruits"}`; `"100"` →
   `{100, ""}`; `"fruits"` → `{null, "fruits"}` (no leading number ⇒ no amount).
-- Decimal separator is `.` only; `title` is trimmed.
+- The number swallows its own separators, so `"1,000 rent"` is 1000 — not 1 with
+  the title `",000 rent"`. Separators follow the user's locale.
 
-**Live preview** (above the input, 12px `muted-foreground`, only when the field
-is non-empty):
-- amount + title → `Adds {symbol}{amount} · {title}` (the `{symbol}{amount}` part
-  emphasised in `foreground`, tabular).
-- amount only → `Amount {symbol}{amount} — now add a title`.
-- neither → `Start with a number, e.g. 100 fruits`.
+**What to do with the result** — the amount goes in the chip, the title joins
+the title zone, and the caret follows it. **When the parse yields no amount, the
+whole pasted string goes to the title and the chip is left empty.** Do *not*
+salvage an amount by deleting the non-numeric characters: "Dinner for 2 people
+800" reduces to 2800 and "Rs. 500 groceries" to 0.5, both of which would send
+without a warning. An empty chip blocks the send and the paste stays on screen
+to be fixed — the whole point of this parser is that it never guesses at money.
+
+A paste of digits and separators alone needs no split: insert it as pasted, even
+if it lands over the 9-digit cap (it shows red), rather than dropping it
+silently.
 
 ### 4.8 Description field
 A single-line input (placeholder `"Add a description (optional)"`, max **150**,
@@ -235,11 +264,12 @@ toggle button (`align-left` icon; pressed state reflects visibility).
 
 ### 4.10 Validation (on submit)
 Check in this order; on failure show a **toast** and stop:
-1. **Amount** > 0 (combined mode uses the parsed amount). Empty/≤0 →
-   `"Enter an amount greater than 0"` (combined: `"Start with an amount, e.g.
-   100 fruits"`), focus the title/first field.
-2. **Title** required (trimmed). Empty → `"Add a title"` (combined: `"Add a
-   title after the amount"`).
+1. **Amount** > 0 (combined mode reads its chip). Unreadable → `"That amount
+   isn't clear — try 12.50"` (the example formatted in the user's locale);
+   empty/≤0 → `"Enter an amount greater than 0"`. Focus **the amount field** —
+   the one that's wrong. Over 9 whole digits → `"Amount is too large (max 9
+   digits)"`.
+2. **Title** required (trimmed). Empty → `"Add a title"`.
 3. **Date** present → else `"Pick a date"`.
 4. **Profile** resolved → else `"Pick a profile"`.
 

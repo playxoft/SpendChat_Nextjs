@@ -147,6 +147,10 @@ export function TransactionDialog({
   // still closes on an outside click.
   const baseline = defaultValues ?? emptyValues;
   const isDirty =
+    // A staged receipt is work too, and it's the one kind the form's own values
+    // don't carry — a pristine dialog holding a dropped file used to be
+    // dismissable by a click away, taking the file with it.
+    staged.items.length > 0 ||
     values.type !== baseline.type ||
     values.amount !== baseline.amount ||
     values.categoryId !== baseline.categoryId ||

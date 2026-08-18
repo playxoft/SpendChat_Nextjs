@@ -1,12 +1,20 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Pencil, Sparkles } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
+import { radioGroupKeys } from "@/lib/radio-group-keys";
 import { comboFor } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { ControlHint } from "./control-hint";
 
 export type EntryMode = "manual" | "ai";
+
+const MODES = ["manual", "ai"] as const;
+
+/** Marks both instances of this toggle, so the focus hand-over below can tell
+ * "focus was in one of these" from "focus was somewhere else entirely". */
+const TOGGLE_SLOT = "entry-mode-toggle";
 
 /** Blue→violet accent that marks the AI affordance. The app is otherwise
  * gradient-free (see AGENTS.md); this is a deliberate, user-requested exception
@@ -42,13 +50,44 @@ export function EntryModeToggle({
   onChange,
   className,
   dense = false,
+  pane,
 }: {
   mode: EntryMode;
   onChange: (m: EntryMode) => void;
   className?: string;
   dense?: boolean;
+  /** Which composer pane this instance lives in. Both panes stay mounted, so
+   * this is what tells the two twins apart when focus has to move between
+   * them — see the effect below. */
+  pane: EntryMode;
 }) {
   const combo = comboFor("tracker.toggle-mode");
+  const groupRef = useRef<HTMLDivElement>(null);
+
+  // Both composer panes render this toggle, pinned to the same pixel, and the
+  // pane that isn't showing stays mounted but hidden (that's what keeps the
+  // toggle from jumping on a switch). So the twin the keyboard was in is hidden
+  // by the very change it made and the browser drops focus to <body> — which
+  // would make the arrow keys work exactly once. The instance in the pane that's
+  // *appearing* takes focus instead; `pane` says which one that is, rather than
+  // asking the DOM which group is visible (a question that's easy to ask wrong:
+  // `checkVisibility()` ignores `visibility` unless told not to, `offsetParent`
+  // only sees `display: none`, and the outgoing button is still
+  // `document.activeElement` here because the blur is deferred a frame).
+  useEffect(() => {
+    if (pane !== mode) return;
+    const active = document.activeElement;
+    // Only when focus was already in one of the two twins. The `a` shortcut
+    // switches modes from anywhere — pulling focus into the composer then would
+    // be a surprise, and it's the reason this can't just always fire.
+    if (!(active instanceof HTMLElement) || !active.closest(`[data-slot="${TOGGLE_SLOT}"]`)) return;
+    const group = groupRef.current;
+    if (!group || group.contains(active)) return;
+    group.querySelector<HTMLElement>(`[role="radio"][data-mode="${mode}"]`)?.focus();
+  }, [mode, pane]);
+
+  // One tab stop, arrows move and select — what `role="radiogroup"` promises.
+  const keys = radioGroupKeys(MODES, mode);
   return (
     // `radiogroup`, not `tablist`: there are no tab panels here — picking a side
     // swaps which composer is live. A tablist would have a screen reader
@@ -56,6 +95,10 @@ export function EntryModeToggle({
     <div
       role="radiogroup"
       aria-label="Composer mode"
+      data-slot={TOGGLE_SLOT}
+      data-pane={pane}
+      ref={groupRef}
+      onKeyDown={(e) => keys.onKeyDown(e, onChange)}
       // Dense gives each side its own tooltip; a native title on the group would
       // fight with it (two hints for one hover).
       title={dense ? undefined : "Toggle Manual / AI"}
@@ -64,15 +107,15 @@ export function EntryModeToggle({
         // two *containers* on the strip, so they share a height; the controls
         // they wrap are all `h-8`. Left intrinsic the two containers differ by
         // ~6px, which reads as a mistake rather than a hierarchy.
-        "inline-flex h-9 shrink-0 items-center rounded-full border p-0.5 text-sm",
-        // Dense sits this beside the recessed control group, so it takes the
-        // opposite fill — raised on the card's own background — to read as a
-        // standalone button rather than another field in the set.
-        dense ? "bg-background shadow-sm" : "bg-muted/50",
+        "inline-flex h-9 shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm",
+        // Same muted track at every density: the active side is what carries
+        // the raised fill, and dense used to invert the track too — which read
+        // as a different control between the two densities rather than the same
+        // one, more tightly packed.
         className,
       )}
     >
-      {(["manual", "ai"] as const).map((m) => {
+      {MODES.map((m) => {
         const active = mode === m;
         const isAi = m === "ai";
         const label = isAi ? "AI mode" : "Manual mode";
@@ -83,6 +126,8 @@ export function EntryModeToggle({
               role="radio"
               aria-checked={active}
               aria-label={label}
+              data-mode={m}
+              tabIndex={keys.tabIndexFor(m)}
               onClick={() => onChange(m)}
               className={cn(
                 // `h-8` — the strip's one control height, matching the type,

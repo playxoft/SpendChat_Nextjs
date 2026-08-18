@@ -127,6 +127,52 @@ describe("draftsFromRawJson — the untrusted-output validator", () => {
     expect(d!.description).toHaveLength(150);
   });
 
+  it("clamps after sentence-casing, so a first letter that grows can't push it over", () => {
+    // "\u00df".toUpperCase() is "SS": casing a string that was already cut to the
+    // cap handed the confirm path a title one character too long for its Zod
+    // schema — a draft that looked fine in the review grid and failed on send.
+    const [d] = draftsFromRawJson(
+      wrap([
+        {
+          type: "expense",
+          amount: 10,
+          title: "\u00df" + "a".repeat(39),
+          description: "\u00df" + "b".repeat(149),
+          occurredOn: TODAY,
+        },
+      ]),
+      { categories: CATEGORIES, today: TODAY },
+    );
+    expect(d!.title).toHaveLength(40);
+    expect(d!.title.startsWith("SS")).toBe(true);
+    expect(d!.description).toHaveLength(150);
+  });
+
+  it("sentence-cases the title and description, leaving the rest of the casing alone", () => {
+    const [d] = draftsFromRawJson(
+      wrap([
+        {
+          type: "expense",
+          amount: 10,
+          title: "banana",
+          description: "from the iPhone store",
+          occurredOn: TODAY,
+        },
+      ]),
+      { categories: CATEGORIES, today: TODAY },
+    );
+    expect(d!.title).toBe("Banana");
+    expect(d!.description).toBe("From the iPhone store");
+  });
+
+  it("leaves a title that doesn't start with a letter untouched", () => {
+    const [d] = draftsFromRawJson(
+      wrap([{ type: "expense", amount: 10, title: "3M tape", occurredOn: TODAY }]),
+      { categories: CATEGORIES, today: TODAY },
+    );
+    expect(d!.title).toBe("3M tape");
+  });
+
   it("omits description when the model returns blank", () => {
     const [d] = draftsFromRawJson(
       wrap([{ type: "expense", amount: 10, title: "x", description: "  ", occurredOn: TODAY }]),
