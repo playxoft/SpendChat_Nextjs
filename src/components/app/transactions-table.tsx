@@ -145,7 +145,16 @@ function UserCell({ row }: { row: TransactionRow }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <span className="block min-w-0">{label}</span>
+        <span className="block min-w-0">
+          {label}
+          {/* The tooltip only ever reaches a mouse: Radix gives the trigger no
+              tab stop, and it suppresses the hover open for touch pointers. The
+              email is what tells two members with the same name apart, so it
+              also rides in the cell's text for anyone reading it another way —
+              off screen, at no cost to the row height this column just won
+              back. */}
+          <span className="sr-only">{` (${row.userEmail})`}</span>
+        </span>
       </TooltipTrigger>
       <TooltipContent side="top">{row.userEmail}</TooltipContent>
     </Tooltip>

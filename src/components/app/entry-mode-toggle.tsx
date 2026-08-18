@@ -68,13 +68,14 @@ export function EntryModeToggle({
     if (!handOverFocus.current) return;
     handOverFocus.current = false;
     for (const group of document.querySelectorAll<HTMLElement>(`[data-slot="${TOGGLE_SLOT}"]`)) {
-      const visible =
-        typeof group.checkVisibility === "function"
-          ? group.checkVisibility()
-          : group.offsetParent !== null;
-      if (!visible) continue;
-      group.querySelector<HTMLElement>(`[role="radio"][data-mode="${mode}"]`)?.focus();
-      return;
+      const twin = group.querySelector<HTMLElement>(`[role="radio"][data-mode="${mode}"]`);
+      twin?.focus();
+      // Whether the focus took is the test — a `visibility: hidden` element
+      // refuses it, and the hidden pane is the one rendered first. Asking the
+      // DOM which group is visible is the same question one step removed, and
+      // easy to ask wrong: `checkVisibility()` ignores `visibility` unless
+      // told not to, and `offsetParent` only ever sees `display: none`.
+      if (document.activeElement === twin) return;
     }
   }, [mode]);
 

@@ -411,15 +411,22 @@ export function TransactionComposer({
    */
   function onChipPaste(e: React.ClipboardEvent<HTMLInputElement>) {
     const text = e.clipboardData.getData("text");
-    // Digits and separators only: nothing to split, so let the browser paste it
-    // and `onChange`'s numeric guard clamp it.
-    if (!text || !/[^\d.,\s]/.test(text)) return;
+    if (!text) return;
     e.preventDefault();
     const el = e.currentTarget;
     const merged =
       combinedAmount.slice(0, el.selectionStart ?? combinedAmount.length) +
       text +
       combinedAmount.slice(el.selectionEnd ?? combinedAmount.length);
+    // Digits and separators only: nothing to split, so it lands as pasted.
+    // Letting the browser do it instead would hand it to `onChange`'s
+    // per-keystroke digit guard, which reverts the whole change — so pasting a
+    // 12-digit number left the chip empty with nothing said, while the same
+    // number with a title after it landed and was flagged red.
+    if (!/[^\d.,\s]/.test(text)) {
+      setCombinedAmount(merged.slice(0, CHIP_AMOUNT_MAX));
+      return;
+    }
     // "100 fruits" splits across the two zones; a paste that can't be read as
     // an amount plus a title lands in the title whole, chip empty, rather than
     // having a number guessed out of it (see `splitChipPaste`).
