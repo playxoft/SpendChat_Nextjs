@@ -83,14 +83,13 @@ export function ThemeCapsule({ className }: { className?: string }) {
   const keys = radioGroupKeys(
     CAPSULE_VALUES,
     hydrated ? (theme as (typeof CAPSULE_VALUES)[number] | undefined) : undefined,
-    setTheme,
   );
 
   return (
     <div
       role="radiogroup"
       aria-label="Theme"
-      onKeyDown={keys.onKeyDown}
+      onKeyDown={(e) => keys.onKeyDown(e, setTheme)}
       className={cn(
         "inline-flex items-center gap-0.5 rounded-full border bg-muted/50 p-0.5",
         className,

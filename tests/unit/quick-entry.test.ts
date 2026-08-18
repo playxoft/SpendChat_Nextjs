@@ -85,17 +85,48 @@ describe("splitChipPaste — text pasted into the composer's amount chip", () =>
     });
   });
 
-  it("keeps both halves of a title-first paste the parser won't split", () => {
-    // The chip strips anything that isn't part of an amount, so a paste whose
-    // words were left there would lose them with no way to get them back.
-    expect(splitChipPaste("coffee 250")).toEqual({ amount: "250", title: "coffee" });
+  it("hands a title-first paste to the title whole, rather than guessing", () => {
+    // The chip strips anything that isn't part of an amount, so leaving the
+    // words there would lose them — but salvaging the digits is worse (see the
+    // mis-scaling cases below). The whole string stays visible in the title
+    // instead, and the send is blocked until there's an amount.
+    expect(splitChipPaste("coffee 250")).toEqual({ amount: "", title: "coffee 250" });
   });
 
-  it("keeps both halves when the separator is a non-breaking space", () => {
+  it("never reduces a paste with several numbers to one amount", () => {
+    // Deleting the non-amount characters reads "Dinner for 2 people 800" as
+    // 2800 and "Rs. 500 groceries" as 0.5 — both under the 9-digit cap, so
+    // they would submit silently. The worst failure a money tracker can have.
+    for (const text of [
+      "Dinner for 2 people 800",
+      "iPhone 15 case 45000",
+      "Rs. 500 groceries",
+      "Taxi 1200 tip 50",
+    ]) {
+      expect(splitChipPaste(text)).toEqual({ amount: "", title: text });
+    }
+  });
+
+  it("keeps a paste the locale can't read as a number in the title", () => {
     // Copied from a web page or a spreadsheet: U+00A0 between the groups.
-    // The chip keeps the separator exactly as pasted: en-US can't read
-    // "1 000" as a number, so the composer asks rather than guessing 1 or 1000.
-    expect(splitChipPaste("1\u00a0000 rent")).toEqual({ amount: "1\u00a0000", title: "rent" });
+    // en-US doesn't group with a space, so "1 000" is either 1 or 1000 — the
+    // composer asks instead of picking one.
+    expect(splitChipPaste("1\u00a0000 rent")).toEqual({
+      amount: "",
+      title: "1\u00a0000 rent",
+    });
+    // ...and where the locale does group with a space, it splits normally.
+    expect(splitChipPaste("1 000 loyer", "fr-FR")).toEqual({ amount: "1000", title: "loyer" });
+  });
+
+  it("keeps every decimal the workspace currency has", () => {
+    // KWD/BHD/OMR/JOD have three. Formatting the pasted amount back into the
+    // chip at two would round it away before the send ever saw it.
+    expect(splitChipPaste("12.345 lunch", "en-US", 3)).toEqual({
+      amount: "12.345",
+      title: "lunch",
+    });
+    expect(splitChipPaste("12.345 lunch")).toEqual({ amount: "12.35", title: "lunch" });
   });
 
   it("hands a wordless paste to the chip alone", () => {
@@ -104,6 +135,11 @@ describe("splitChipPaste — text pasted into the composer's amount chip", () =>
 
   it("hands a numberless paste to the title alone", () => {
     expect(splitChipPaste("fruits")).toEqual({ amount: "", title: "fruits" });
+  });
+
+  it("trims what it hands over", () => {
+    expect(splitChipPaste("  coffee 250  ")).toEqual({ amount: "", title: "coffee 250" });
+    expect(splitChipPaste("  100  fruits  ")).toEqual({ amount: "100", title: "fruits" });
   });
 
   it("reads the amount against the user's locale", () => {

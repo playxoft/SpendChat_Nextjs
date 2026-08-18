@@ -420,9 +420,10 @@ export function TransactionComposer({
       combinedAmount.slice(0, el.selectionStart ?? combinedAmount.length) +
       text +
       combinedAmount.slice(el.selectionEnd ?? combinedAmount.length);
-    // "100 fruits" splits across the two zones; a paste the parser won't split
-    // keeps both halves anyway (see `splitChipPaste`), so nothing disappears.
-    const { amount, title } = splitChipPaste(merged, locale);
+    // "100 fruits" splits across the two zones; a paste that can't be read as
+    // an amount plus a title lands in the title whole, chip empty, rather than
+    // having a number guessed out of it (see `splitChipPaste`).
+    const { amount, title } = splitChipPaste(merged, locale, getCurrency(currency).decimals);
     setCombinedAmount(amount.slice(0, CHIP_AMOUNT_MAX));
     if (!title) return;
     addToTitle(title);
@@ -597,9 +598,14 @@ export function TransactionComposer({
           // and pasted text goes to `onChipPaste`, which splits it in two.
           onChange={(e) => {
             const next = e.target.value.replace(/[^\d.,\s]/g, "");
-            setCombinedAmount((prev) =>
-              integerDigitCount(next, locale) > AMOUNT_INTEGER_DIGITS_MAX ? prev : next,
-            );
+            setCombinedAmount((prev) => {
+              const digits = integerDigitCount(next, locale);
+              if (digits <= AMOUNT_INTEGER_DIGITS_MAX) return next;
+              // Already over the cap — only a paste gets there, and it's shown
+              // in red. Let an edit that shortens it through anyway, or
+              // Backspace would be a no-op and the field a dead end.
+              return digits < integerDigitCount(prev, locale) ? next : prev;
+            });
           }}
           onPaste={onChipPaste}
           onKeyDown={onChipKeyDown}

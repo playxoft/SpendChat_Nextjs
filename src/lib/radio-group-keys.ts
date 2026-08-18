@@ -13,19 +13,19 @@ import type { KeyboardEvent } from "react";
  *
  * Spread over the group and its options:
  *
- *   const keys = radioGroupKeys(VALUES, current, onSelect);
- *   <div role="radiogroup" onKeyDown={keys.onKeyDown}>
+ *   const keys = radioGroupKeys(VALUES, current);
+ *   <div role="radiogroup" onKeyDown={(e) => keys.onKeyDown(e, onSelect)}>
  *     <button role="radio" tabIndex={keys.tabIndexFor(value)} …
+ *
+ * `onSelect` is handed in at the event rather than up front so a caller whose
+ * handler touches a ref (the composer's toggle moves focus between two panes)
+ * isn't passing that ref into a function during render.
  *
  * Focus moves by walking the group's own `[role='radio']` children in document
  * order, so an option can be wrapped (in a tooltip trigger, say) without this
  * needing a ref per option — and without the group needing one at all.
  */
-export function radioGroupKeys<T>(
-  values: readonly T[],
-  current: T | undefined,
-  onSelect: (value: T) => void,
-) {
+export function radioGroupKeys<T>(values: readonly T[], current: T | undefined) {
   // Nothing selected — the theme capsule before hydration has read
   // localStorage — still has to be reachable, so the first option holds the
   // tab stop until there's a real selection.
@@ -35,7 +35,7 @@ export function radioGroupKeys<T>(
   );
 
   return {
-    onKeyDown(e: KeyboardEvent<HTMLElement>) {
+    onKeyDown(e: KeyboardEvent<HTMLElement>, onSelect: (value: T) => void) {
       const step =
         e.key === "ArrowRight" || e.key === "ArrowDown"
           ? 1

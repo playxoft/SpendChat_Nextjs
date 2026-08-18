@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Pencil, Sparkles } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
 import { radioGroupKeys } from "@/lib/radio-group-keys";
@@ -10,6 +11,9 @@ import { ControlHint } from "./control-hint";
 export type EntryMode = "manual" | "ai";
 
 const MODES = ["manual", "ai"] as const;
+
+/** Marks both instances of this toggle so each can find the other's twin. */
+const TOGGLE_SLOT = "entry-mode-toggle";
 
 /** Blue→violet accent that marks the AI affordance. The app is otherwise
  * gradient-free (see AGENTS.md); this is a deliberate, user-requested exception
@@ -52,8 +56,38 @@ export function EntryModeToggle({
   dense?: boolean;
 }) {
   const combo = comboFor("tracker.toggle-mode");
+
+  // Both composer panes render this toggle, pinned to the same pixel, and the
+  // pane that isn't showing stays mounted but `invisible` (that's what keeps the
+  // toggle from jumping on a switch). So the button that was just activated is
+  // hidden by the very change it made, and the browser drops focus to <body> —
+  // which would make the arrow keys work exactly once. Hand focus to the twin in
+  // the pane that's appearing, after the commit that swaps the two.
+  const handOverFocus = useRef(false);
+  useEffect(() => {
+    if (!handOverFocus.current) return;
+    handOverFocus.current = false;
+    for (const group of document.querySelectorAll<HTMLElement>(`[data-slot="${TOGGLE_SLOT}"]`)) {
+      const visible =
+        typeof group.checkVisibility === "function"
+          ? group.checkVisibility()
+          : group.offsetParent !== null;
+      if (!visible) continue;
+      group.querySelector<HTMLElement>(`[role="radio"][data-mode="${mode}"]`)?.focus();
+      return;
+    }
+  }, [mode]);
+
+  function selectMode(m: EntryMode) {
+    // Only when the keyboard (or a click that focused the button) was in here —
+    // the `a` shortcut switches modes without ever touching this control, and
+    // stealing focus into it then would be a surprise.
+    if (m !== mode) handOverFocus.current = document.activeElement?.getAttribute("role") === "radio";
+    onChange(m);
+  }
+
   // One tab stop, arrows move and select — what `role="radiogroup"` promises.
-  const keys = radioGroupKeys(MODES, mode, onChange);
+  const keys = radioGroupKeys(MODES, mode);
   return (
     // `radiogroup`, not `tablist`: there are no tab panels here — picking a side
     // swaps which composer is live. A tablist would have a screen reader
@@ -61,7 +95,8 @@ export function EntryModeToggle({
     <div
       role="radiogroup"
       aria-label="Composer mode"
-      onKeyDown={keys.onKeyDown}
+      data-slot={TOGGLE_SLOT}
+      onKeyDown={(e) => keys.onKeyDown(e, selectMode)}
       // Dense gives each side its own tooltip; a native title on the group would
       // fight with it (two hints for one hover).
       title={dense ? undefined : "Toggle Manual / AI"}
@@ -89,8 +124,9 @@ export function EntryModeToggle({
               role="radio"
               aria-checked={active}
               aria-label={label}
+              data-mode={m}
               tabIndex={keys.tabIndexFor(m)}
-              onClick={() => onChange(m)}
+              onClick={() => selectMode(m)}
               className={cn(
                 // `h-8` — the strip's one control height, matching the type,
                 // date and category controls in the group beside this.

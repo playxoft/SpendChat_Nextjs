@@ -28,8 +28,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   into it instead of being parsed back out of a sentence. Space — or Enter —
   hands over from the chip to the title, so "100 fruits" is still typed in one
   burst; Backspace at the start of the title steps back into the chip. Pasting
-  "100 fruits" still splits itself across the two — and a paste the split can't
-  read ("coffee 250") keeps both halves instead of dropping the words.
+  "100 fruits" still splits itself across the two; a paste that isn't an amount
+  followed by a title ("coffee 250") lands in the title whole, for you to move
+  the number yourself, rather than having one guessed out of it.
 - **The parse hint under that field is gone**, and the composer is a line
   shorter for it. "Amount ₹0 — add a title" described a guess the field was
   making; there's nothing to guess now. The over-limit warning stays.
@@ -39,10 +40,10 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   line is `text-xs`, and the manual fields now hang from the card's bottom edge
   at every density (not just compact), so what the two modes differ by sits in
   the middle of the card instead of as a gap under the last field.
-- **The AI note box grows with the note**, from the same starting height it has
-  always had up to about twelve lines, then it scrolls. A note covering a day's
-  spending used to disappear upward two lines at a time while you were still
-  writing it. Wrapped text counts, not just typed newlines.
+- **The AI note box grows with the note**, a line at a time up to about twelve,
+  then it scrolls. A note covering a day's spending used to disappear upward two
+  lines at a time while you were still writing it. Wrapped text counts, not just
+  typed newlines.
 - **AI-parsed titles and descriptions come back capitalized** — "banana" is
   saved as "Banana" — so drafts from a note match hand-typed rows instead of
   echoing however the note was typed. Casing after the first letter is left
