@@ -1,4 +1,9 @@
-import { isSpaceSeparator, localeSeparators, parseAmountInput } from "./parse-amount";
+import {
+  formatAmountInput,
+  isSpaceSeparator,
+  localeSeparators,
+  parseAmountInput,
+} from "./parse-amount";
 
 /**
  * Combined "quick entry" parser for the transaction composer's single-field mode.
@@ -70,4 +75,36 @@ export function parseQuickEntry(raw: string, locale = "en-US"): QuickEntry {
     return { amount, title };
   }
   return { amount: null, title: trimmed };
+}
+
+/**
+ * Text pasted into the single field's amount chip, split into what each of its
+ * two zones should hold — both as strings, since they go straight back into the
+ * inputs the user can still edit.
+ *
+ * `parseQuickEntry` covers the clean case ("100 fruits" → the number and the
+ * words). This adds the fallback the chip needs on top of it: a paste it won't
+ * split confidently — a title-first "coffee 250", or "1 000 rent" where the
+ * space may be a grouping separator — still has to keep both halves. The chip
+ * is a numbers-only field, so anything left there would otherwise be stripped
+ * on the way in and the words would vanish with no way to get them back.
+ *
+ * Nothing is capped here: an over-limit amount is shown and flagged by the
+ * composer (and blocks the send) rather than being silently trimmed to a
+ * smaller number.
+ */
+export function splitChipPaste(
+  text: string,
+  locale = "en-US",
+): { amount: string; title: string } {
+  const { amount, title } = parseQuickEntry(text, locale);
+  if (amount !== null) return { amount: formatAmountInput(amount, locale), title };
+  return {
+    // Keep the amount-ish characters where they were typed, hand the rest to
+    // the title. An ambiguous "1 000" stays visible and unparseable — the
+    // composer asks about it, which is this module's rule for anything it
+    // can't read without guessing.
+    amount: text.replace(/[^\d.,\s]/g, "").trim(),
+    title: text.replace(/[\d.,]+/g, " ").replace(/\s+/g, " ").trim(),
+  };
 }

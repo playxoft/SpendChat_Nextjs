@@ -127,6 +127,27 @@ describe("draftsFromRawJson — the untrusted-output validator", () => {
     expect(d!.description).toHaveLength(150);
   });
 
+  it("clamps after sentence-casing, so a first letter that grows can't push it over", () => {
+    // "\u00df".toUpperCase() is "SS": casing a string that was already cut to the
+    // cap handed the confirm path a title one character too long for its Zod
+    // schema — a draft that looked fine in the review grid and failed on send.
+    const [d] = draftsFromRawJson(
+      wrap([
+        {
+          type: "expense",
+          amount: 10,
+          title: "\u00df" + "a".repeat(39),
+          description: "\u00df" + "b".repeat(149),
+          occurredOn: TODAY,
+        },
+      ]),
+      { categories: CATEGORIES, today: TODAY },
+    );
+    expect(d!.title).toHaveLength(40);
+    expect(d!.title.startsWith("SS")).toBe(true);
+    expect(d!.description).toHaveLength(150);
+  });
+
   it("sentence-cases the title and description, leaving the rest of the casing alone", () => {
     const [d] = draftsFromRawJson(
       wrap([

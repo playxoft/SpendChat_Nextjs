@@ -11,6 +11,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { radioGroupKeys } from "@/lib/radio-group-keys";
 import { cn } from "@/lib/utils";
 
 const OPTIONS = [
@@ -60,6 +61,8 @@ const CAPSULE_OPTIONS = [
   { value: "system", label: "System", Icon: Monitor },
 ] as const;
 
+const CAPSULE_VALUES = CAPSULE_OPTIONS.map((o) => o.value);
+
 /**
  * The sidebar's theme control: all three choices as one segmented capsule, so
  * switching is a single click on the icon you want instead of opening a menu
@@ -76,11 +79,18 @@ export function ThemeCapsule({ className }: { className?: string }) {
     () => true,
     () => false,
   );
+  // One tab stop, arrows move and select — what `role="radiogroup"` promises.
+  const keys = radioGroupKeys(
+    CAPSULE_VALUES,
+    hydrated ? (theme as (typeof CAPSULE_VALUES)[number] | undefined) : undefined,
+    setTheme,
+  );
 
   return (
     <div
       role="radiogroup"
       aria-label="Theme"
+      onKeyDown={keys.onKeyDown}
       className={cn(
         "inline-flex items-center gap-0.5 rounded-full border bg-muted/50 p-0.5",
         className,
@@ -96,6 +106,7 @@ export function ThemeCapsule({ className }: { className?: string }) {
                 role="radio"
                 aria-checked={active}
                 aria-label={label}
+                tabIndex={keys.tabIndexFor(value)}
                 onClick={() => setTheme(value)}
                 className={cn(
                   "inline-flex size-7 items-center justify-center rounded-full transition-colors",

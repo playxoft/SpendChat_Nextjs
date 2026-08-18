@@ -14,7 +14,7 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.9.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.9.1**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
 
@@ -28,7 +28,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   into it instead of being parsed back out of a sentence. Space — or Enter —
   hands over from the chip to the title, so "100 fruits" is still typed in one
   burst; Backspace at the start of the title steps back into the chip. Pasting
-  "100 fruits" still splits itself across the two.
+  "100 fruits" still splits itself across the two — and a paste the split can't
+  read ("coffee 250") keeps both halves instead of dropping the words.
 - **The parse hint under that field is gone**, and the composer is a line
   shorter for it. "Amount ₹0 — add a title" described a guess the field was
   making; there's nothing to guess now. The over-limit warning stays.
@@ -38,9 +39,6 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   line is `text-xs`, and the manual fields now hang from the card's bottom edge
   at every density (not just compact), so what the two modes differ by sits in
   the middle of the card instead of as a gap under the last field.
-
-### Changed
-
 - **The AI note box grows with the note**, from the same starting height it has
   always had up to about twelve lines, then it scrolls. A note covering a day's
   spending used to disappear upward two lines at a time while you were still
@@ -56,6 +54,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   category pickers.
 - **The theme control in the sidebar is a three-icon capsule** (light / dark /
   system) instead of a menu — one click to the theme you want.
+- **The theme capsule and the Manual/AI switch are one Tab stop each**, with
+  the arrow keys moving between their options — how a segmented control is
+  expected to behave, and what both already announced themselves as.
 - **The Manual/AI switch keeps its muted track in compact mode.** It used to
   invert to the card background there, which read as a different control between
   the two densities.

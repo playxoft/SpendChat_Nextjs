@@ -34,7 +34,7 @@ import {
   integerDigitCount,
   parseAmountInput,
 } from "@/lib/parse-amount";
-import { parseQuickEntry } from "@/lib/quick-entry";
+import { splitChipPaste } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
@@ -51,6 +51,11 @@ import type { Category, Profile } from "@/db/schema";
 // Matches a trailing "#query" token typed into the title field — "#" is the
 // app-wide category trigger (in the AI note too).
 const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
+
+// How much text the amount chip holds. Nine whole digits is the real cap
+// (`AMOUNT_INTEGER_DIGITS_MAX`, enforced per keystroke below); this only stops a
+// pasted wall of digits from stretching the chip across the whole field.
+const CHIP_AMOUNT_MAX = 20;
 
 export function TransactionComposer({
   categories,
@@ -238,7 +243,7 @@ export function TransactionComposer({
           ? `That amount isn't clear — try ${example}`
           : "Enter an amount greater than 0",
       );
-      (isCombined ? chipRef : titleRef).current?.focus();
+      amountInputRef.current?.focus();
       return;
     }
     // Whole-number part capped at 9 digits; catches a pasted amount, which
@@ -368,11 +373,60 @@ export function TransactionComposer({
   // instead of being typed. That costs a space as a grouping separator, which a
   // few locales use ("1 000"); typing the digits alone reads the same.
   function onChipKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === " " || e.key === "Enter") {
+    // ⌘/Ctrl+Enter is the send shortcut printed on the Send button, and every
+    // other field lets it through to `submit()`. The hand-over must not eat it.
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (combinedAmount.trim()) focusEnd(titleRef);
+      submit();
       return;
     }
+    if (e.key === " " || e.key === "Enter") {
+      e.preventDefault();
+      // Nothing in the chip yet: Enter still sends, so an empty composer says
+      // what's missing instead of ignoring the key. A space just waits.
+      if (combinedAmount.trim()) focusEnd(titleRef);
+      else if (e.key === "Enter") submit();
+      return;
+    }
+  }
+
+  /**
+   * Merge text into the single field's title half. Goes through here rather
+   * than `setCombined` directly so a programmatic write keeps the two things a
+   * keystroke in that field guarantees: the stored 40-char cap (`maxLength`
+   * only ever constrains typing) and a re-armed "#" picker.
+   */
+  function addToTitle(text: string) {
+    setCombined((t) => (t ? `${text} ${t}` : text).slice(0, TITLE_MAX));
+    setTagDismissed(false);
+    setTagIndex(0);
+  }
+
+  /**
+   * Pasting into the chip, handled here rather than in `onChange` because a
+   * paste and a keystroke want opposite things. `onChange` strips whatever
+   * isn't part of an amount — right for a stray keypress, wrong for pasted
+   * text, whose words would vanish without a trace — and the chip's `maxLength`
+   * would clip "1200 rent for the flat" before there was anything left to split.
+   */
+  function onChipPaste(e: React.ClipboardEvent<HTMLInputElement>) {
+    const text = e.clipboardData.getData("text");
+    // Digits and separators only: nothing to split, so let the browser paste it
+    // and `onChange`'s numeric guard clamp it.
+    if (!text || !/[^\d.,\s]/.test(text)) return;
+    e.preventDefault();
+    const el = e.currentTarget;
+    const merged =
+      combinedAmount.slice(0, el.selectionStart ?? combinedAmount.length) +
+      text +
+      combinedAmount.slice(el.selectionEnd ?? combinedAmount.length);
+    // "100 fruits" splits across the two zones; a paste the parser won't split
+    // keeps both halves anyway (see `splitChipPaste`), so nothing disappears.
+    const { amount, title } = splitChipPaste(merged, locale);
+    setCombinedAmount(amount.slice(0, CHIP_AMOUNT_MAX));
+    if (!title) return;
+    addToTitle(title);
+    requestAnimationFrame(() => focusEnd(titleRef));
   }
 
   // The title half: Backspace at its start steps back into the chip, the way it
@@ -494,10 +548,14 @@ export function TransactionComposer({
     <div
       className={cn(
         "flex h-9 min-w-32 flex-1 items-center gap-1.5 rounded-lg border border-input bg-transparent pr-2.5 pl-1 transition-colors dark:bg-input/30",
-        "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
-        // Red bar when the amount is over the 9-digit cap (submit is blocked too).
-        combinedAmountOverLimit &&
-          "border-destructive ring-3 ring-destructive/20 dark:border-destructive/50 dark:ring-destructive/40",
+        // Red bar when the amount is over the 9-digit cap (submit is blocked
+        // too). It *replaces* the focus ring rather than layering under it:
+        // `focus-within:` carries a pseudo-class, so it outranks a plain
+        // `border-destructive` and the field would stay blue for as long as the
+        // caret is in the chip — which is exactly when the warning has to show.
+        combinedAmountOverLimit
+          ? "border-destructive ring-3 ring-destructive/20 dark:border-destructive/50 dark:ring-destructive/40"
+          : "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
       )}
       // The shell's own padding is dead space in a real input; a click there
       // lands in whichever zone is still waiting to be filled.
@@ -513,7 +571,11 @@ export function TransactionComposer({
           one doesn't hold empty space in front of the title. */}
       <div
         className={cn(
-          "flex h-6 shrink-0 items-center gap-0.5 rounded-md pr-0.5 pl-1.5 text-sm font-medium transition-colors",
+          // 16px under `md`: iOS Safari zooms the viewport in on a focused
+          // input below that, and this is the field the composer opens in.
+          // Every other input in the composer forces 16px there for the same
+          // reason; the chip reads as its own size on a desktop.
+          "flex h-6 shrink-0 items-center gap-0.5 rounded-md pr-0.5 pl-1.5 text-base font-medium transition-colors md:text-sm",
           type === "income"
             ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
             : "bg-muted text-foreground",
@@ -527,27 +589,19 @@ export function TransactionComposer({
           inputMode="decimal"
           placeholder={placeholder}
           value={combinedAmount}
-          maxLength={20}
+          maxLength={CHIP_AMOUNT_MAX}
+          // Numbers only, same rules as the two-field amount box: digits plus
+          // whatever a locale groups or points with, rejected once the
+          // whole-number part hits 9 digits. Typed spaces never reach this —
+          // the keydown handler turns them into the hand-over to the title —
+          // and pasted text goes to `onChipPaste`, which splits it in two.
           onChange={(e) => {
-            const raw = e.target.value;
-            // A pasted "100 fruits" splits here: the number stays in the chip,
-            // the rest joins the title. Typed spaces never reach this — the
-            // keydown handler turns them into the hand-over to the title.
-            const pasted = raw.includes(" ") ? parseQuickEntry(raw, locale) : null;
-            if (pasted?.amount != null && pasted.title) {
-              setCombinedAmount(formatAmountInput(pasted.amount, locale));
-              setCombined((t) => (t ? `${pasted.title} ${t}` : pasted.title));
-              requestAnimationFrame(() => focusEnd(titleRef));
-              return;
-            }
-            // Numbers only, same rules as the two-field amount box: digits plus
-            // whatever a locale groups or points with, rejected once the
-            // whole-number part hits 9 digits.
-            const next = raw.replace(/[^\d.,\s]/g, "");
+            const next = e.target.value.replace(/[^\d.,\s]/g, "");
             setCombinedAmount((prev) =>
               integerDigitCount(next, locale) > AMOUNT_INTEGER_DIGITS_MAX ? prev : next,
             );
           }}
+          onPaste={onChipPaste}
           onKeyDown={onChipKeyDown}
           aria-label="Amount"
           aria-invalid={combinedAmountOverLimit || undefined}

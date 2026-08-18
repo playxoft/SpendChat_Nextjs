@@ -138,8 +138,10 @@ function UserCell({ row }: { row: TransactionRow }) {
   const label = (
     <span className={cn("block truncate font-medium", authorColorClass(row.userId))}>{name}</span>
   );
-  // Nothing to reveal when the name *is* the email's local part or is missing.
-  if (!row.userEmail || row.userEmail === name) return label;
+  // Nothing to reveal when the name is missing, or is already the email's local
+  // part — which is what `authorDisplayName` falls back to, so this has to
+  // compare against that half rather than the whole address.
+  if (!row.userEmail || row.userEmail.split("@")[0] === name) return label;
   return (
     <Tooltip>
       <TooltipTrigger asChild>

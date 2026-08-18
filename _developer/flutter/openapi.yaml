@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.9.0"
+  version: "5.9.1"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -2619,8 +2619,17 @@ components:
           description: Positive major-unit amount, within TransactionInput's limits.
           exclusiveMinimum: 0
           maximum: 999999999.99
-        title: { type: string, maxLength: 40 }
-        description: { type: [string, "null"], maxLength: 150 }
+        title:
+          type: string
+          maxLength: 40
+          description: >
+            Sentence-cased by the server ("banana" comes back "Banana"), so
+            drafts read like hand-typed rows. Only the first character is
+            touched — "iPhone case" and "AC repair" survive as typed.
+        description:
+          type: [string, "null"]
+          maxLength: 150
+          description: Sentence-cased the same way as title.
         categoryId:
           type: [string, "null"]
           format: uuid

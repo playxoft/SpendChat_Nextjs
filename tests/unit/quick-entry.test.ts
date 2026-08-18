@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseQuickEntry } from "@/lib/quick-entry";
+import { parseQuickEntry, splitChipPaste } from "@/lib/quick-entry";
 
 describe("parseQuickEntry", () => {
   it("splits a leading integer amount from the title", () => {
@@ -73,3 +73,47 @@ describe("parseQuickEntry — grouped and locale-formatted amounts (B2)", () => 
   });
 });
 
+describe("splitChipPaste — text pasted into the composer's amount chip", () => {
+  it("splits a quick entry into the chip's two zones", () => {
+    expect(splitChipPaste("100 fruits")).toEqual({ amount: "100", title: "fruits" });
+  });
+
+  it("keeps a long title whole — the chip's own length cap must not reach it", () => {
+    expect(splitChipPaste("1200 rent for the flat")).toEqual({
+      amount: "1200",
+      title: "rent for the flat",
+    });
+  });
+
+  it("keeps both halves of a title-first paste the parser won't split", () => {
+    // The chip strips anything that isn't part of an amount, so a paste whose
+    // words were left there would lose them with no way to get them back.
+    expect(splitChipPaste("coffee 250")).toEqual({ amount: "250", title: "coffee" });
+  });
+
+  it("keeps both halves when the separator is a non-breaking space", () => {
+    // Copied from a web page or a spreadsheet: U+00A0 between the groups.
+    // The chip keeps the separator exactly as pasted: en-US can't read
+    // "1 000" as a number, so the composer asks rather than guessing 1 or 1000.
+    expect(splitChipPaste("1\u00a0000 rent")).toEqual({ amount: "1\u00a0000", title: "rent" });
+  });
+
+  it("hands a wordless paste to the chip alone", () => {
+    expect(splitChipPaste("100")).toEqual({ amount: "100", title: "" });
+  });
+
+  it("hands a numberless paste to the title alone", () => {
+    expect(splitChipPaste("fruits")).toEqual({ amount: "", title: "fruits" });
+  });
+
+  it("reads the amount against the user's locale", () => {
+    expect(splitChipPaste("12,50 Mittagessen", "de-DE")).toEqual({
+      amount: "12,5",
+      title: "Mittagessen",
+    });
+  });
+
+  it("does not trim an over-limit amount — the composer flags it instead", () => {
+    expect(splitChipPaste("12345678901 rent").amount).toBe("12345678901");
+  });
+});

@@ -181,13 +181,16 @@ export function draftsFromRawJson(
     const amount = typeof o.amount === "number" ? o.amount : Number(o.amount);
     if (!Number.isFinite(amount) || amount <= 0 || amount > TRANSACTION_AMOUNT_MAX) continue;
 
-    const titleRaw = typeof o.title === "string" ? o.title.trim().slice(0, TRANSACTION_TITLE_MAX) : "";
+    // Sentence-case *before* the clamp: a few first characters grow when they
+    // are uppercased ("ß" → "SS"), so casing a string already cut to the limit
+    // hands the confirm path a title one character over it.
+    const titleRaw = typeof o.title === "string" ? o.title.trim() : "";
     if (!titleRaw) continue; // a transaction needs a title, same as the composer
-    const title = sentenceCase(titleRaw);
+    const title = sentenceCase(titleRaw).slice(0, TRANSACTION_TITLE_MAX).trim();
 
     const descRaw = typeof o.description === "string" ? o.description.trim() : "";
     const description = descRaw
-      ? sentenceCase(descRaw.slice(0, TRANSACTION_DESCRIPTION_MAX))
+      ? sentenceCase(descRaw).slice(0, TRANSACTION_DESCRIPTION_MAX).trim()
       : undefined;
 
     const rawCat = typeof o.categoryName === "string" ? o.categoryName.trim() : "";

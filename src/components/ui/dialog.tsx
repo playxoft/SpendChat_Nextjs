@@ -54,8 +54,18 @@ function DialogOverlay({
  * absent: one can be open under the pointer when you click away, and it isn't a
  * layer the click is dismissing.
  */
-const OPEN_LAYER_SELECTOR =
-  "[data-slot='popover-content'],[data-slot='select-content'],[data-slot='dropdown-menu-content'],[data-slot='context-menu-content']"
+const OPEN_LAYER_SELECTOR = [
+  "popover-content",
+  "select-content",
+  "dropdown-menu-content",
+  "context-menu-content",
+]
+  // `[data-state='open']` matters: a layer that is already closing stays
+  // mounted for its exit animation, and without this a genuine outside click
+  // landing in that window would be handed to a dropdown the user has already
+  // dismissed — so the dialog would need two clicks to close.
+  .map((slot) => `[data-slot='${slot}'][data-state='open']`)
+  .join(",")
 
 /**
  * Was a dropdown on screen at the moment the pointer went down?
@@ -68,16 +78,21 @@ const OPEN_LAYER_SELECTOR =
  * is meant to protect.
  *
  * Capture phase, so it lands before Radix's own document listener.
+ *
+ * Only the dialogs that can dismiss on an outside click read this, so the
+ * listener is only installed for them — every other dialog would sample the
+ * document on each pointerdown and then throw the answer away.
  */
-function useLayerOpenOnPointerDown() {
+function useLayerOpenOnPointerDown(enabled: boolean) {
   const ref = React.useRef(false)
   React.useEffect(() => {
+    if (!enabled) return
     const onPointerDown = () => {
       ref.current = !!document.querySelector(OPEN_LAYER_SELECTOR)
     }
     document.addEventListener("pointerdown", onPointerDown, true)
     return () => document.removeEventListener("pointerdown", onPointerDown, true)
-  }, [])
+  }, [enabled])
   return ref
 }
 
@@ -93,7 +108,7 @@ function DialogContent({
   /** Opt back into dismiss-on-outside-click (off by default app-wide). */
   closeOnOutsideClick?: boolean
 }) {
-  const wasLayerOpenOnPointerDown = useLayerOpenOnPointerDown()
+  const wasLayerOpenOnPointerDown = useLayerOpenOnPointerDown(closeOnOutsideClick)
   return (
     <DialogPortal>
       <DialogOverlay />

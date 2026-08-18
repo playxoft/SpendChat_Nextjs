@@ -2,11 +2,14 @@
 
 import { Pencil, Sparkles } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
+import { radioGroupKeys } from "@/lib/radio-group-keys";
 import { comboFor } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { ControlHint } from "./control-hint";
 
 export type EntryMode = "manual" | "ai";
+
+const MODES = ["manual", "ai"] as const;
 
 /** Blue→violet accent that marks the AI affordance. The app is otherwise
  * gradient-free (see AGENTS.md); this is a deliberate, user-requested exception
@@ -49,6 +52,8 @@ export function EntryModeToggle({
   dense?: boolean;
 }) {
   const combo = comboFor("tracker.toggle-mode");
+  // One tab stop, arrows move and select — what `role="radiogroup"` promises.
+  const keys = radioGroupKeys(MODES, mode, onChange);
   return (
     // `radiogroup`, not `tablist`: there are no tab panels here — picking a side
     // swaps which composer is live. A tablist would have a screen reader
@@ -56,6 +61,7 @@ export function EntryModeToggle({
     <div
       role="radiogroup"
       aria-label="Composer mode"
+      onKeyDown={keys.onKeyDown}
       // Dense gives each side its own tooltip; a native title on the group would
       // fight with it (two hints for one hover).
       title={dense ? undefined : "Toggle Manual / AI"}
@@ -72,7 +78,7 @@ export function EntryModeToggle({
         className,
       )}
     >
-      {(["manual", "ai"] as const).map((m) => {
+      {MODES.map((m) => {
         const active = mode === m;
         const isAi = m === "ai";
         const label = isAi ? "AI mode" : "Manual mode";
@@ -83,6 +89,7 @@ export function EntryModeToggle({
               role="radio"
               aria-checked={active}
               aria-label={label}
+              tabIndex={keys.tabIndexFor(m)}
               onClick={() => onChange(m)}
               className={cn(
                 // `h-8` — the strip's one control height, matching the type,
