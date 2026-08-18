@@ -26,6 +26,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TransactionDialog } from "./transaction-dialog";
 import { amountToneClass } from "./transaction-bubble";
 import { AttachmentSquares } from "./attachments/attachment-squares";
@@ -117,19 +118,37 @@ const COLUMNS: Record<ColumnId, ColumnDef> = {
       formatMoney(signedMinor(row.type, row.amountMinor), currency, locale, { signed: true }),
   },
   user: {
+    cellClassName: "truncate",
     sortable: false,
-    render: (row) => (
-      <span className="flex min-w-0 flex-col leading-tight">
-        <span className={cn("truncate font-medium", authorColorClass(row.userId))}>
-          {authorDisplayName(row.userName, row.userEmail)}
-        </span>
-        {row.userEmail ? (
-          <span className="truncate text-xs text-muted-foreground">{row.userEmail}</span>
-        ) : null}
-      </span>
-    ),
+    render: (row) => <UserCell row={row} />,
   },
 };
+
+/**
+ * The "User" column: just who entered the row, in their author colour. The
+ * email is the disambiguator for two people sharing a first name, so it moves
+ * to a hover tooltip — printed under every name it doubled the row height and
+ * pushed the columns that matter (amount, title) into a narrower table.
+ *
+ * A component rather than inline JSX because the tooltip needs hooks, and the
+ * `COLUMNS` render map is a plain object.
+ */
+function UserCell({ row }: { row: TransactionRow }) {
+  const name = authorDisplayName(row.userName, row.userEmail);
+  const label = (
+    <span className={cn("block truncate font-medium", authorColorClass(row.userId))}>{name}</span>
+  );
+  // Nothing to reveal when the name *is* the email's local part or is missing.
+  if (!row.userEmail || row.userEmail === name) return label;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="block min-w-0">{label}</span>
+      </TooltipTrigger>
+      <TooltipContent side="top">{row.userEmail}</TooltipContent>
+    </Tooltip>
+  );
+}
 
 /** The attachments column cell: square file icons + a "+N" dropdown that opens a
  * popover list. A dedicated component so it can call the viewer hook (the

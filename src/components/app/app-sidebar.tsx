@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
-import { ThemeToggle } from "@/components/theme-toggle";
+import { ThemeCapsule } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
 import { Kbd } from "@/components/ui/kbd";
 import { ProfileList } from "./profile-list";
@@ -72,7 +72,7 @@ export function AppSidebar({
 
       <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
         <span className="text-xs text-muted-foreground">Theme</span>
-        <ThemeToggle />
+        <ThemeCapsule />
       </div>
       <div className="flex shrink-0 items-center border-t p-3">
         <UserMenu email={email} />

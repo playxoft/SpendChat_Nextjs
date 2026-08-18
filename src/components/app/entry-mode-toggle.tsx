@@ -64,11 +64,11 @@ export function EntryModeToggle({
         // two *containers* on the strip, so they share a height; the controls
         // they wrap are all `h-8`. Left intrinsic the two containers differ by
         // ~6px, which reads as a mistake rather than a hierarchy.
-        "inline-flex h-9 shrink-0 items-center rounded-full border p-0.5 text-sm",
-        // Dense sits this beside the recessed control group, so it takes the
-        // opposite fill — raised on the card's own background — to read as a
-        // standalone button rather than another field in the set.
-        dense ? "bg-background shadow-sm" : "bg-muted/50",
+        "inline-flex h-9 shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm",
+        // Same muted track at every density: the active side is what carries
+        // the raised fill, and dense used to invert the track too — which read
+        // as a different control between the two densities rather than the same
+        // one, more tightly packed.
         className,
       )}
     >

@@ -62,6 +62,20 @@ export function TransactionFilters({
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
+      {/* Search leads the row: it's the one control you reach for by name
+          rather than by browsing, and the filters after it narrow what it
+          searched. */}
+      <div className="relative">
+        <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          data-shortcut-search
+          placeholder="Search"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          className="w-44 pl-8"
+          aria-label="Search transactions"
+        />
+      </div>
       <DateRangeFilter
         from={from}
         to={to}
@@ -102,17 +116,6 @@ export function TransactionFilters({
           ))}
         </SelectContent>
       </Select>
-      <div className="relative">
-        <Search className="absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
-        <Input
-          data-shortcut-search
-          placeholder="Search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className="w-44 pl-8"
-          aria-label="Search transactions"
-        />
-      </div>
       {hasFilters && (
         <Button
           variant="ghost"

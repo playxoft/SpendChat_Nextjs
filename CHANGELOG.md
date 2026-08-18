@@ -18,6 +18,41 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.5.2] — 2026-08-18
+
+### Changed
+
+- **The AI note box grows with the note**, from the same starting height it has
+  always had up to about twelve lines, then it scrolls. A note covering a day's
+  spending used to disappear upward two lines at a time while you were still
+  writing it. Wrapped text counts, not just typed newlines.
+- **AI-parsed titles and descriptions come back capitalized** — "banana" is
+  saved as "Banana" — so drafts from a note match hand-typed rows instead of
+  echoing however the note was typed. Casing after the first letter is left
+  alone, so "iPhone case" and "3M tape" survive.
+- **The transactions table's User column shows the name only**, with the email
+  on hover. Printing both stacked doubled every row's height and squeezed the
+  columns people actually read.
+- **Search leads the transactions filter row**, ahead of the date, type and
+  category pickers.
+- **The theme control in the sidebar is a three-icon capsule** (light / dark /
+  system) instead of a menu — one click to the theme you want.
+- **The Manual/AI switch keeps its muted track in compact mode.** It used to
+  invert to the card background there, which read as a different control between
+  the two densities.
+- **File and folder hover cards on `/files` use the app's own panel colours** —
+  dark in dark mode, white in light — rather than the inverted hint style, which
+  put a white card in front of a dark app and washed out the tag chips on it.
+
+### Fixed
+
+- **A dropdown inside a dialog no longer takes the dialog down with it.**
+  Clicking away from an open category, profile, date or emoji picker in the
+  add/edit transaction dialog dismissed both, discarding what had been filled
+  in; the click now closes only the dropdown.
+- **The whole profile row in the sidebar switches profiles**, including the
+  ⇧1…⇧0 shortcut chip — clicking the chip previously did nothing.
+
 ## [0.5.1] — 2026-08-16
 
 ### Added

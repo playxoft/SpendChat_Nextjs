@@ -127,6 +127,31 @@ describe("draftsFromRawJson — the untrusted-output validator", () => {
     expect(d!.description).toHaveLength(150);
   });
 
+  it("sentence-cases the title and description, leaving the rest of the casing alone", () => {
+    const [d] = draftsFromRawJson(
+      wrap([
+        {
+          type: "expense",
+          amount: 10,
+          title: "banana",
+          description: "from the iPhone store",
+          occurredOn: TODAY,
+        },
+      ]),
+      { categories: CATEGORIES, today: TODAY },
+    );
+    expect(d!.title).toBe("Banana");
+    expect(d!.description).toBe("From the iPhone store");
+  });
+
+  it("leaves a title that doesn't start with a letter untouched", () => {
+    const [d] = draftsFromRawJson(
+      wrap([{ type: "expense", amount: 10, title: "3M tape", occurredOn: TODAY }]),
+      { categories: CATEGORIES, today: TODAY },
+    );
+    expect(d!.title).toBe("3M tape");
+  });
+
   it("omits description when the model returns blank", () => {
     const [d] = draftsFromRawJson(
       wrap([{ type: "expense", amount: 10, title: "x", description: "  ", occurredOn: TODAY }]),

@@ -635,7 +635,12 @@ export function TransactionComposer({
             React preserves state either way. The AI review list is several times
             taller than the manual row, so reserving *its* height would leave
             Manual staring at ~400px of empty card — for that one state we drop to
-            `hidden` and accept the small toggle shift. */}
+            `hidden` and accept the small toggle shift.
+
+            The AI note box also grows with what's typed in it, which would stretch
+            Manual the same way. That one is handled inside `AiTransactionInput`:
+            it only content-sizes while it's the visible pane, so what it reserves
+            under Manual is always its empty height. */}
         <div className="grid">
           <div
             className={cn(
@@ -711,10 +716,9 @@ export function TransactionComposer({
                     // the two panes.
                     <div className={MODE_ROW_DENSE}>
                       <EntryModeToggle mode={mode} onChange={changeMode} dense />
-                      {/* Recessed (muted fill) against the toggle's raised
-                          background fill — that contrast is what separates "a set
-                          of fields" from "the mode button". Each control inside
-                          keeps its own outline.
+                      {/* Recessed (muted fill), like the Manual/AI toggle beside
+                          it — the two read as one row of controls, separated by
+                          the gap and their own outlines rather than by fill.
 
                           Width differs by breakpoint because the contents do.
                           From `md` up the category slider lives in here and wants

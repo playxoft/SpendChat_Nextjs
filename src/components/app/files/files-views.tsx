@@ -675,7 +675,12 @@ const CARD =
 
 /** Full folder metadata, shown instantly when a grid tile or column row is
  * hovered. Column rows pass `side="right"` so the tooltip doesn't cover the
- * rows above/below. */
+ * rows above/below.
+ *
+ * `variant="surface"` because this is a card, not a hint: it carries a heading,
+ * a metadata block and the folder's own tag chips, whose colors are picked
+ * against the app background — on the default inverted tooltip they'd sit on a
+ * white panel in dark mode and wash out. */
 export function FolderMetaTooltip({
   folder,
   handlers,
@@ -690,7 +695,13 @@ export function FolderMetaTooltip({
     .filter((t): t is TagDTO => t != null);
   const size = handlers.folderSize(folder.id);
   return (
-    <TooltipContent side={side} align="start" sideOffset={6} className="flex-col items-start gap-1.5">
+    <TooltipContent
+      side={side}
+      align="start"
+      sideOffset={6}
+      variant="surface"
+      className="flex-col items-start gap-1.5"
+    >
       <p className="text-xs font-medium">{folder.name}</p>
       {tags.length > 0 ? (
         <span className="flex max-w-56 flex-wrap gap-1">
@@ -778,7 +789,9 @@ function FolderCard({
   );
 }
 
-/** Full file metadata, shown instantly when a grid tile or column row is hovered. */
+/** Full file metadata, shown instantly when a grid tile or column row is
+ * hovered — a card on the app's own panel surface, for the same reason as
+ * `FolderMetaTooltip` above. */
 export function FileMetaTooltip({
   file,
   handlers,
@@ -792,7 +805,13 @@ export function FileMetaTooltip({
     .map((id) => handlers.tagById(id))
     .filter((t): t is TagDTO => t != null);
   return (
-    <TooltipContent side={side} align="start" sideOffset={6} className="flex-col items-start gap-1.5">
+    <TooltipContent
+      side={side}
+      align="start"
+      sideOffset={6}
+      variant="surface"
+      className="flex-col items-start gap-1.5"
+    >
       <p className="text-xs font-medium">{file.name}</p>
       {tags.length > 0 ? (
         <span className="flex max-w-56 flex-wrap gap-1">
