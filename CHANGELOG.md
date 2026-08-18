@@ -31,6 +31,10 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   "100 fruits" still splits itself across the two; a paste that isn't an amount
   followed by a title ("coffee 250") lands in the title whole, for you to move
   the number yourself, rather than having one guessed out of it.
+  **The trade-off:** because a space in the amount now means "go to the title",
+  it can't also be a grouping separator — if you write amounts as "1 000", type
+  "1000" instead. Pasting "1 000 rent" is unaffected in locales that group with
+  a space, and elsewhere it goes to the title rather than being read as 1.
 - **The parse hint under that field is gone**, and the composer is a line
   shorter for it. "Amount ₹0 — add a title" described a guess the field was
   making; there's nothing to guess now. The over-limit warning stays.
@@ -68,9 +72,10 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 ### Fixed
 
 - **A dropdown inside a dialog no longer takes the dialog down with it.**
-  Clicking away from an open category, profile, date or emoji picker in the
-  add/edit transaction dialog dismissed both, discarding what had been filled
-  in; the click now closes only the dropdown.
+  Picking a category, profile, date or emoji in the add/edit transaction dialog
+  dismissed the dialog along with the picker, so the form you had just opened
+  vanished under you; the click now closes only the dropdown. A dialog holding
+  a dropped receipt also counts as unsaved work now, and stays put.
 - **The whole profile row in the sidebar switches profiles**, including the
   ⇧1…⇧0 shortcut chip — clicking the chip previously did nothing.
 

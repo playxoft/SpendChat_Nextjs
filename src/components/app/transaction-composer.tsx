@@ -397,7 +397,11 @@ export function TransactionComposer({
    * only ever constrains typing) and a re-armed "#" picker.
    */
   function addToTitle(text: string) {
-    setCombined((t) => (t ? `${text} ${t}` : text).slice(0, TITLE_MAX));
+    // Collapse whitespace first: an `<input>` strips newlines out of a value it
+    // is given, so a multi-line paste would leave the state holding characters
+    // the field can't show — and the send would save a title nobody saw.
+    const flat = text.replace(/\s+/g, " ").trim();
+    setCombined((t) => (t ? `${flat} ${t}` : flat).slice(0, TITLE_MAX));
     setTagDismissed(false);
     setTagIndex(0);
   }
@@ -606,12 +610,12 @@ export function TransactionComposer({
           onChange={(e) => {
             const next = e.target.value.replace(/[^\d.,\s]/g, "");
             setCombinedAmount((prev) => {
-              const digits = integerDigitCount(next, locale);
-              if (digits <= AMOUNT_INTEGER_DIGITS_MAX) return next;
+              if (integerDigitCount(next, locale) <= AMOUNT_INTEGER_DIGITS_MAX) return next;
               // Already over the cap — only a paste gets there, and it's shown
-              // in red. Let an edit that shortens it through anyway, or
-              // Backspace would be a no-op and the field a dead end.
-              return digits < integerDigitCount(prev, locale) ? next : prev;
+              // in red. Let any edit that makes it shorter through, or Backspace
+              // would be a no-op and the field a dead end. Length, not digits:
+              // deleting a decimal or a grouping separator has to count too.
+              return next.length < prev.length ? next : prev;
             });
           }}
           onPaste={onChipPaste}
@@ -636,8 +640,9 @@ export function TransactionComposer({
         }}
         onKeyDown={onCombinedTitleKeyDown}
         // Clicking an untouched field starts in the chip, wherever the click
-        // landed — the amount comes first in this layout, and a second click
-        // gets to the title if that's really what was wanted.
+        // landed — the amount comes first in this layout. Once either zone has
+        // something in it the redirect stops, so the title is a click away from
+        // then on (and Tab reaches it even before that).
         onMouseDown={(e) => {
           if (combinedAmount.trim() || combined) return;
           e.preventDefault();
@@ -891,15 +896,15 @@ export function TransactionComposer({
                 <div className="flex flex-1 flex-col gap-1.5">
                   {/* Compact gathers the whole strip into one grouped widget so the
                       controls read as a set, with the Manual/AI switch left outside
-                      it as its own raised button — it changes what the composer *is*,
-                      the rest only fill in a field. Normal keeps the original two
+                      it — it changes what the composer *is*, the rest only fill in
+                      a field. Normal keeps the original two
                       rows: controls, then the category slider under them. */}
                   {dense ? (
                     // `MODE_ROW_DENSE` — the AI pane's header uses the identical
                     // class, which is what keeps the toggle from moving between
                     // the two panes.
                     <div className={MODE_ROW_DENSE}>
-                      <EntryModeToggle mode={mode} onChange={changeMode} dense />
+                      <EntryModeToggle mode={mode} onChange={changeMode} dense pane="manual" />
                       {/* Recessed (muted fill), like the Manual/AI toggle beside
                           it — the two read as one row of controls, separated by
                           the gap and their own outlines rather than by fill.
@@ -930,7 +935,7 @@ export function TransactionComposer({
                   ) : (
                     <div className="flex flex-col gap-1.5">
                       <div className="flex items-center gap-2">
-                        <EntryModeToggle mode={mode} onChange={changeMode} />
+                        <EntryModeToggle mode={mode} onChange={changeMode} pane="manual" />
                         {typeToggle}
                         {/* The paperclip used to live here; it's now a prefix inside
                             the title field (see `attachButton`). */}

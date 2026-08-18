@@ -12,7 +12,8 @@ export type EntryMode = "manual" | "ai";
 
 const MODES = ["manual", "ai"] as const;
 
-/** Marks both instances of this toggle so each can find the other's twin. */
+/** Marks both instances of this toggle, so the focus hand-over below can tell
+ * "focus was in one of these" from "focus was somewhere else entirely". */
 const TOGGLE_SLOT = "entry-mode-toggle";
 
 /** Blue→violet accent that marks the AI affordance. The app is otherwise
@@ -49,43 +50,41 @@ export function EntryModeToggle({
   onChange,
   className,
   dense = false,
+  pane,
 }: {
   mode: EntryMode;
   onChange: (m: EntryMode) => void;
   className?: string;
   dense?: boolean;
+  /** Which composer pane this instance lives in. Both panes stay mounted, so
+   * this is what tells the two twins apart when focus has to move between
+   * them — see the effect below. */
+  pane: EntryMode;
 }) {
   const combo = comboFor("tracker.toggle-mode");
+  const groupRef = useRef<HTMLDivElement>(null);
 
   // Both composer panes render this toggle, pinned to the same pixel, and the
-  // pane that isn't showing stays mounted but `invisible` (that's what keeps the
-  // toggle from jumping on a switch). So the button that was just activated is
-  // hidden by the very change it made, and the browser drops focus to <body> —
-  // which would make the arrow keys work exactly once. Hand focus to the twin in
-  // the pane that's appearing, after the commit that swaps the two.
-  const handOverFocus = useRef(false);
+  // pane that isn't showing stays mounted but hidden (that's what keeps the
+  // toggle from jumping on a switch). So the twin the keyboard was in is hidden
+  // by the very change it made and the browser drops focus to <body> — which
+  // would make the arrow keys work exactly once. The instance in the pane that's
+  // *appearing* takes focus instead; `pane` says which one that is, rather than
+  // asking the DOM which group is visible (a question that's easy to ask wrong:
+  // `checkVisibility()` ignores `visibility` unless told not to, `offsetParent`
+  // only sees `display: none`, and the outgoing button is still
+  // `document.activeElement` here because the blur is deferred a frame).
   useEffect(() => {
-    if (!handOverFocus.current) return;
-    handOverFocus.current = false;
-    for (const group of document.querySelectorAll<HTMLElement>(`[data-slot="${TOGGLE_SLOT}"]`)) {
-      const twin = group.querySelector<HTMLElement>(`[role="radio"][data-mode="${mode}"]`);
-      twin?.focus();
-      // Whether the focus took is the test — a `visibility: hidden` element
-      // refuses it, and the hidden pane is the one rendered first. Asking the
-      // DOM which group is visible is the same question one step removed, and
-      // easy to ask wrong: `checkVisibility()` ignores `visibility` unless
-      // told not to, and `offsetParent` only ever sees `display: none`.
-      if (document.activeElement === twin) return;
-    }
-  }, [mode]);
-
-  function selectMode(m: EntryMode) {
-    // Only when the keyboard (or a click that focused the button) was in here —
-    // the `a` shortcut switches modes without ever touching this control, and
-    // stealing focus into it then would be a surprise.
-    if (m !== mode) handOverFocus.current = document.activeElement?.getAttribute("role") === "radio";
-    onChange(m);
-  }
+    if (pane !== mode) return;
+    const active = document.activeElement;
+    // Only when focus was already in one of the two twins. The `a` shortcut
+    // switches modes from anywhere — pulling focus into the composer then would
+    // be a surprise, and it's the reason this can't just always fire.
+    if (!(active instanceof HTMLElement) || !active.closest(`[data-slot="${TOGGLE_SLOT}"]`)) return;
+    const group = groupRef.current;
+    if (!group || group.contains(active)) return;
+    group.querySelector<HTMLElement>(`[role="radio"][data-mode="${mode}"]`)?.focus();
+  }, [mode, pane]);
 
   // One tab stop, arrows move and select — what `role="radiogroup"` promises.
   const keys = radioGroupKeys(MODES, mode);
@@ -97,7 +96,9 @@ export function EntryModeToggle({
       role="radiogroup"
       aria-label="Composer mode"
       data-slot={TOGGLE_SLOT}
-      onKeyDown={(e) => keys.onKeyDown(e, selectMode)}
+      data-pane={pane}
+      ref={groupRef}
+      onKeyDown={(e) => keys.onKeyDown(e, onChange)}
       // Dense gives each side its own tooltip; a native title on the group would
       // fight with it (two hints for one hover).
       title={dense ? undefined : "Toggle Manual / AI"}
@@ -127,7 +128,7 @@ export function EntryModeToggle({
               aria-label={label}
               data-mode={m}
               tabIndex={keys.tabIndexFor(m)}
-              onClick={() => selectMode(m)}
+              onClick={() => onChange(m)}
               className={cn(
                 // `h-8` — the strip's one control height, matching the type,
                 // date and category controls in the group beside this.

@@ -584,7 +584,7 @@ export function AiTransactionInput({
         {/* `MODE_ROW_DENSE` verbatim — Manual's control strip uses the same
             class so the toggle lands on the exact same pixel in both panes. */}
         <div className={dense ? MODE_ROW_DENSE : "flex items-center gap-2"}>
-          <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} />
+          <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} pane="ai" />
           <div className="ml-auto flex items-center gap-1">
             <AiHelpDialog symbol={symbol} />
             {canReset && resetButton}
@@ -604,15 +604,10 @@ export function AiTransactionInput({
         />
         {/* Fills the leftover card height and grows with the note (the textarea
             below is content-sized), capped here at ~12 lines — past that it
-            scrolls rather than climbing further up the screen. The two caps
-            differ only by the padding each density reserves for the buttons, so
-            both land on the same line count. */}
-        <div
-          className={cn(
-            "relative flex min-h-0 flex-1 flex-col",
-            dense ? "max-h-84" : "max-h-88",
-          )}
-        >
+            scrolls rather than climbing further up the screen. One cap for both
+            densities: they reserve the same vertical padding for the buttons
+            (`pb-10`), so the same max-height is the same number of lines. */}
+        <div className="relative flex min-h-0 max-h-84 flex-1 flex-col">
           {tagMenu}
           <Textarea
             ref={taRef}
@@ -662,8 +657,10 @@ export function AiTransactionInput({
             // (text-base) + pt-2 + the pb below + the 2px border.
             //
             // pr reserves the corner for both buttons — mic and send — so a long
-            // note never runs underneath them; pb clears them vertically. Both
-            // shrink with the buttons at dense (size-8 rather than size-9).
+            // note never runs underneath them; it shrinks with the buttons at
+            // dense (size-8 rather than size-9). pb clears them vertically and
+            // is the same at both densities: it's sized to the taller pair, and
+            // dense's 4px of slack is cheaper than a second cap to keep in sync.
             className={cn(
               "flex-1 resize-none md:text-base",
               mode === "ai" ? "field-sizing-content" : "field-sizing-fixed",
@@ -724,7 +721,7 @@ export function AiTransactionInput({
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} />
+        <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} pane="ai" />
         <p className="min-w-0 flex-1 truncate text-sm font-medium">
           Review {rows.length} transaction{rows.length === 1 ? "" : "s"}
         </p>
