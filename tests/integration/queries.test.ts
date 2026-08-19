@@ -499,27 +499,46 @@ describe("index/sort agreement", () => {
 
   // The merge assembles the page from one scan per profile, so the thing worth
   // proving is that it lands on exactly the rows and the order a single scan
-  // would have. Ties on `created_at` across profiles are the interesting part —
-  // that is where a merge can interleave differently from a sort.
+  // would have. Two conditions make that non-obvious, and both are seeded here:
+  // more rows than `VAULT_FILES_LIMIT`, so each branch's own limit is doing
+  // work and the union has to pick the global top 500 out of the per-profile
+  // top 500s; and heavy ties on `created_at` across profiles, which is where a
+  // merge can interleave differently from a sort.
   it("returns the same page merged across profiles as a single scan would", async () => {
     const db = getTestDb();
+    const txnId = await insertTxn(U, {
+      type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: personal,
+    });
     await db.execute(sql`
       insert into files (workspace_id, profile_id, user_id, r2_key, name, content_type, size_bytes, created_at)
       select ${W}::uuid, (array[${personal}::uuid, ${work}::uuid])[1 + (i % 2)], ${U}::uuid,
              'm/' || i, 'm' || i || '.pdf', 'application/pdf', 10 + i,
-             -- Only three distinct instants across 30 rows, so most of them tie.
-             timestamptz '2021-03-04 10:00:00+00' + ((i % 3) || ' seconds')::interval
-      from generate_series(1, 30) i`);
+             -- 700 rows over four instants: past the 500 cap, and mostly tied.
+             timestamptz '2021-03-04 10:00:00+00' + ((i % 4) || ' seconds')::interval
+      from generate_series(1, 700) i`);
+    await db.execute(sql`
+      insert into transaction_attachments
+        (transaction_id, profile_id, workspace_id, user_id, r2_key, file_name, content_type, size_bytes, created_at)
+      select ${txnId}::uuid, (array[${personal}::uuid, ${work}::uuid])[1 + (i % 2)], ${W}::uuid, ${U}::uuid,
+             'n/' || i, 'n' || i || '.pdf', 'application/pdf', 10 + i,
+             timestamptz '2021-03-04 10:00:00+00' + ((i % 4) || ' seconds')::interval
+      from generate_series(1, 700) i`);
 
-    const merged = await listVaultFiles(U, W);
-    const { rows: reference } = await db.execute(sql`
-      select id::text from files
-      where profile_id in (${sql.raw([personal, work].map((p) => `'${p}'::uuid`).join(", "))})
-      order by created_at desc, id desc
-      limit 500`);
+    const scope = sql.raw([personal, work].map((p) => `'${p}'::uuid`).join(", "));
 
-    expect(merged.map((f) => f.id)).toEqual(reference.map((r) => r.id));
-    expect(new Set(merged.map((f) => f.id)).size).toBe(merged.length);
+    const mergedFiles = await listVaultFiles(U, W);
+    const { rows: fileRef } = await db.execute(sql`
+      select id::text from files where profile_id in (${scope})
+      order by created_at desc, id desc limit 500`);
+    expect(mergedFiles).toHaveLength(500);
+    expect(mergedFiles.map((f) => f.id)).toEqual(fileRef.map((r) => r.id));
+
+    const mergedAttachments = await listTransactionFilesForVault(U, W);
+    const { rows: attRef } = await db.execute(sql`
+      select id::text from transaction_attachments where profile_id in (${scope})
+      order by created_at desc, id desc limit 500`);
+    expect(mergedAttachments).toHaveLength(500);
+    expect(mergedAttachments.map((a) => a.id)).toEqual(attRef.map((r) => r.id));
   });
 
   // The index existing proves nothing if the query stops being able to use it,

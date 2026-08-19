@@ -600,7 +600,9 @@ export const files = pgTable(
     // omits `profile`, so the mobile default — widens to `profile_id in (…)`,
     // which no btree returns in global date order. Both listings answer that
     // with one ordered scan per profile, merged, the way the transactions list
-    // and the feed do.
+    // and the feed do — up to `MERGE_APPEND_MAX_BRANCHES` profiles. A workspace
+    // wider than that falls back to the sorted scan, on the same reasoning the
+    // ceiling exists for everywhere else.
     //
     // `nullsFirst()` matters for the same reason it does on
     // `transactions_profile_date_idx`: `.desc()` alone emits `DESC NULLS LAST`,

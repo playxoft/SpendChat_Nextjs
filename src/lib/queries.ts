@@ -815,12 +815,6 @@ export async function listVaultFolders(
   return rows.map(serializeFolder);
 }
 
-/**
- * Vault files the user can view in the current workspace (optionally one
- * profile), newest first, joined with uploader + profile display fields.
- * Capped at `VAULT_FILES_LIMIT`; search/folder filtering happens client-side
- * on this working set.
- */
 /** The `files` columns the decorating joins hang off. */
 const vaultFileColumns = {
   id: files.id,
@@ -857,6 +851,12 @@ function mergeVaultFiles(branches: ReturnType<typeof vaultFileBranch>[], limit: 
     .as("page");
 }
 
+/**
+ * Vault files the user can view in the current workspace (optionally one
+ * profile), newest first, joined with uploader + profile display fields.
+ * Capped at `VAULT_FILES_LIMIT`; search/folder filtering happens client-side
+ * on this working set.
+ */
 export async function listVaultFiles(
   userId: string,
   workspaceId: string,
@@ -874,8 +874,9 @@ export async function listVaultFiles(
   // and Postgres sorts the whole match set instead. That is the path
   // `GET /api/v1/files` takes by default (no `profile` param means all of
   // them), so it is the one the mobile client hits every time.
+  const canMerge = scoped.length > 1 && scoped.length <= MERGE_APPEND_MAX_BRANCHES;
   const merged =
-    scoped.length > 1
+    canMerge
       ? mergeVaultFiles(
           scoped.map((id) => vaultFileBranch(eq(files.profileId, id), VAULT_FILES_LIMIT)),
           VAULT_FILES_LIMIT,
@@ -999,12 +1000,6 @@ export async function getVaultFolder(
   return row ?? null;
 }
 
-/**
- * Transaction attachments surfaced in the files page, flattened with the
- * parent transaction's info (title/amount/date) so a receipt is recognizable
- * outside its chat thread. Same access scoping as everything else; newest
- * first, capped like the vault list.
- */
 const vaultAttachmentColumns = {
   id: transactionAttachments.id,
   transactionId: transactionAttachments.transactionId,
@@ -1038,6 +1033,12 @@ function mergeVaultAttachments(
     .as("page");
 }
 
+/**
+ * Transaction attachments surfaced in the files page, flattened with the
+ * parent transaction's info (title/amount/date) so a receipt is recognizable
+ * outside its chat thread. Same access scoping as everything else; newest
+ * first, capped like the vault list.
+ */
 export async function listTransactionFilesForVault(
   userId: string,
   workspaceId: string,
@@ -1049,8 +1050,9 @@ export async function listTransactionFilesForVault(
 
   // Merged per profile for the same reason `listVaultFiles` is; this half of
   // the page is awaited alongside it, so it has to be as quick.
+  const canMerge = scoped.length > 1 && scoped.length <= MERGE_APPEND_MAX_BRANCHES;
   const merged =
-    scoped.length > 1
+    canMerge
       ? mergeVaultAttachments(
           scoped.map((id) =>
             vaultAttachmentBranch(eq(transactionAttachments.profileId, id), VAULT_FILES_LIMIT),
