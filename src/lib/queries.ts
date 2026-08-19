@@ -830,8 +830,10 @@ const vaultFileColumns = {
   userId: files.userId,
 };
 
-/** One profile's slice of the vault page: an ordered index scan, stopped early. */
-function vaultFileBranch(where: SQL | undefined, take: number) {
+/** One profile's slice of the vault page: an ordered index scan, stopped early.
+ * `where` is required, not optional: an absent predicate here would not be a
+ * narrower read, it would be the newest 500 files in the deployment. */
+function vaultFileBranch(where: SQL, take: number) {
   return getDb()
     .select(vaultFileColumns)
     .from(files)
@@ -874,6 +876,8 @@ export async function listVaultFiles(
   // and Postgres sorts the whole match set instead. That is the path
   // `GET /api/v1/files` takes by default (no `profile` param means all of
   // them), so it is the one the mobile client hits every time.
+  // Checked here as well as inside the helper, the way `pageOf` does it, so a
+  // wide workspace doesn't build N query trees only for the helper to drop them.
   const canMerge = scoped.length > 1 && scoped.length <= MERGE_APPEND_MAX_BRANCHES;
   const merged =
     canMerge
@@ -1012,7 +1016,8 @@ const vaultAttachmentColumns = {
   profileId: transactionAttachments.profileId,
 };
 
-function vaultAttachmentBranch(where: SQL | undefined, take: number) {
+/** As `vaultFileBranch`, and `where` is required for the same reason. */
+function vaultAttachmentBranch(where: SQL, take: number) {
   return getDb()
     .select(vaultAttachmentColumns)
     .from(transactionAttachments)
@@ -1050,6 +1055,7 @@ export async function listTransactionFilesForVault(
 
   // Merged per profile for the same reason `listVaultFiles` is; this half of
   // the page is awaited alongside it, so it has to be as quick.
+  // See `listVaultFiles` for why the count is checked here and in the helper.
   const canMerge = scoped.length > 1 && scoped.length <= MERGE_APPEND_MAX_BRANCHES;
   const merged =
     canMerge
