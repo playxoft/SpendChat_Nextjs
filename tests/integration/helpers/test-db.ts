@@ -13,10 +13,10 @@ let db: PgliteDatabase<typeof schema> | null = null;
  *
  * PGlite is Postgres 18, so `uuidv7()` and its interval overload come from
  * `pg_catalog` — the same built-ins production uses, and the ids these tests
- * mint are real v7. There used to be a `public` shim onto `gen_random_uuid()`
- * here for PGlite's Postgres 16 days; it was dead the moment PGlite moved to 18
- * (`pg_catalog` precedes `public` in `search_path`), and it was misleading:
- * ordering by `id` is a real tiebreaker in the feed and the list, so the tests
+ * mint are real v7. A `public` shim onto `gen_random_uuid()` used to sit here,
+ * from when PGlite was Postgres 16; it never took effect at this version
+ * (`pg_catalog` precedes `public` in `search_path`) and it was misleading, since
+ * ordering by `id` is a real tiebreaker in the feed and the list — the tests
  * need it to behave like production's, not like a random v4.
  */
 export async function initTestDb(): Promise<PgliteDatabase<typeof schema>> {
