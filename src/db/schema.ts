@@ -595,11 +595,14 @@ export const files = pgTable(
     // buffer reads to an index scan with no sort node at 22. The page reads
     // `transaction_attachments` in the same `Promise.all`, so that table carries
     // the twin of this index — fixing one alone would not have moved the page.
-    // Note the mobile
-    // route defaults the other way — `GET /api/v1/files` with no `profile` param
-    // means *all* of them — and that widens to `profile_id in (…)`, which no
-    // btree returns in global date order, so it still sorts. The fix there is
-    // the per-profile merge `listFeedPage` uses, if it ever earns one.
+    //
+    // All profiles — which is what `GET /api/v1/files` takes when the request
+    // omits `profile`, so the mobile default — widens to `profile_id in (…)`,
+    // which no btree returns in global date order. Both listings answer that
+    // with one ordered scan per profile, merged, the way the transactions list
+    // and the feed do — up to `MERGE_APPEND_MAX_BRANCHES` profiles. A workspace
+    // wider than that falls back to the sorted scan, on the same reasoning the
+    // ceiling exists for everywhere else.
     //
     // `nullsFirst()` matters for the same reason it does on
     // `transactions_profile_date_idx`: `.desc()` alone emits `DESC NULLS LAST`,

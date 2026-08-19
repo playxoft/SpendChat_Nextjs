@@ -497,17 +497,157 @@ describe("index/sort agreement", () => {
     ]);
   });
 
+  // Both vault listings changed how they scope: `inArray(profile_id, <subquery>)`
+  // AND `= $1` became an intersection against a resolved, request-memoized list.
+  // That is the part of this rewrite that could leak another profile's files,
+  // and the suite's existing isolation tests only assert on `folders`, which
+  // still uses the old subquery — so they would not have caught a mistake here.
+  describe("vault listing access scope", () => {
+    beforeEach(async () => {
+      const db = getTestDb();
+      const txnId = await insertTxn(U, {
+        type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: personal,
+      });
+      await db.insert(files).values([
+        { workspaceId: W, profileId: personal, userId: U, r2Key: "v/mine", name: "mine.pdf",
+          contentType: "application/pdf", sizeBytes: 1 },
+        { workspaceId: W, profileId: work, userId: U, r2Key: "v/work", name: "work.pdf",
+          contentType: "application/pdf", sizeBytes: 1 },
+      ]);
+      await db.insert(transactionAttachments).values({
+        transactionId: txnId, profileId: personal, workspaceId: W, userId: U,
+        r2Key: "a/mine", fileName: "mine.pdf", contentType: "application/pdf", sizeBytes: 1,
+      });
+    });
+
+    it("returns nothing for a profile the caller can't reach", async () => {
+      await bootstrapUser("strg");
+      const strgW = await workspaceIdOf("strg");
+      const strgProfile = await firstProfileId("strg");
+      // The dangerous failure is widening, not erroring: an unreachable profile
+      // must come back empty, never as "everything the caller can see".
+      expect(await listVaultFiles(U, W, strgProfile)).toEqual([]);
+      expect(await listTransactionFilesForVault(U, W, strgProfile)).toEqual([]);
+      // ...and the stranger sees none of ours, scoped or not.
+      expect(await listVaultFiles(uid("strg"), strgW)).toEqual([]);
+      expect(await listTransactionFilesForVault(uid("strg"), strgW)).toEqual([]);
+    });
+
+    it("returns nothing for a workspace the caller isn't in", async () => {
+      await bootstrapUser("strg");
+      const strgW = await workspaceIdOf("strg");
+      expect(await listVaultFiles(U, strgW)).toEqual([]);
+      expect(await listTransactionFilesForVault(U, strgW)).toEqual([]);
+    });
+
+    it("scopes to the one profile asked for, out of several accessible", async () => {
+      expect((await listVaultFiles(U, W)).map((f) => f.name).sort()).toEqual([
+        "mine.pdf",
+        "work.pdf",
+      ]);
+      expect((await listVaultFiles(U, W, work)).map((f) => f.name)).toEqual(["work.pdf"]);
+      expect((await listVaultFiles(U, W, personal)).map((f) => f.name)).toEqual(["mine.pdf"]);
+      expect(await listTransactionFilesForVault(U, W, work)).toEqual([]);
+      expect((await listTransactionFilesForVault(U, W, personal)).map((a) => a.name)).toEqual([
+        "mine.pdf",
+      ]);
+    });
+  });
+
+  // The merge assembles the page from one scan per profile, so what is worth
+  // proving is that it lands on exactly the rows and the order a single scan
+  // would. Two conditions make that non-obvious, and the seeding has to create
+  // both — an earlier version of this test created neither:
+  //
+  //  - **More rows per profile than `VAULT_FILES_LIMIT`**, so each branch's own
+  //    limit binds. Below the cap every branch returns everything and the union
+  //    is trivially right, whatever the branch limits say.
+  //  - **Ties on `created_at` that span profiles**, which is the only place a
+  //    merge can interleave differently from a sort. Deriving both the profile
+  //    and the timestamp from `i` is the trap: `i % 2` and `i % 4` correlate, so
+  //    every instant belongs to one profile and no tie ever crosses a branch.
+  //    The timestamp below is keyed on `i / 2` so the two are independent.
+  it("returns the same page merged across profiles as a single scan would", async () => {
+    const db = getTestDb();
+    const txnId = await insertTxn(U, {
+      type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: personal,
+    });
+    const seed = (table: "files" | "transaction_attachments") => sql.raw(`
+      insert into ${table}
+        (${table === "files" ? "" : "transaction_id, "}workspace_id, profile_id, user_id, r2_key,
+         ${table === "files" ? "name" : "file_name"}, content_type, size_bytes, created_at)
+      select ${table === "files" ? "" : `'${txnId}'::uuid, `}'${W}'::uuid,
+             (array['${personal}'::uuid, '${work}'::uuid])[1 + (i % 2)], '${U}'::uuid,
+             '${table}/' || i, 'f' || i, 'application/pdf', 10 + i,
+             timestamptz '2021-03-04 10:00:00+00' + ((i / 2) % 3 || ' seconds')::interval
+      from generate_series(1, 2200) i`);
+
+    for (const [table, run] of [
+      ["files", () => listVaultFiles(U, W)],
+      ["transaction_attachments", () => listTransactionFilesForVault(U, W)],
+    ] as const) {
+      await db.execute(seed(table));
+      const merged = await run();
+      const { rows: reference } = await db.execute(sql.raw(`
+        select id::text from ${table}
+        where profile_id in ('${personal}'::uuid, '${work}'::uuid)
+        order by created_at desc, id desc limit 500`));
+      // 1,100 rows per profile, so each branch's own limit of 500 is binding.
+      expect(merged, `${table} page size`).toHaveLength(500);
+      expect(merged.map((r) => r.id), `${table} page contents`).toEqual(
+        reference.map((r) => r.id),
+      );
+    }
+  });
+
   // The index existing proves nothing if the query stops being able to use it,
-  // so this explains the listing's *own* SQL and asserts the planner sorts
-  // nothing. Both halves of the vault page, since it awaits them together.
-  it("plans both vault listings without a sort when scoped to one profile", async () => {
-    for (const [label, run] of [
-      ["files", () => listVaultFiles(U, W, personal)],
-      ["attachments", () => listTransactionFilesForVault(U, W, personal)],
+  // so this explains each listing's *own* SQL and asserts the plan.
+  //
+  // "No `Seq Scan`" is too weak on its own — the failure this guards against is
+  // a `Sort` over a *bitmap* index scan, which mentions the index by name and
+  // scans nothing sequentially while reading the whole profile. So the assertion
+  // is on `Sort` nodes: a single-profile listing must have none, and an
+  // all-profiles one exactly the one the outer query restates over the page
+  // (joining a subquery does not preserve its order). Anything more means the
+  // page itself is being sorted. The merged shape is pinned to `Merge Append`
+  // too, since a plain `Append` plus a top-N sort would read every branch's full
+  // 500 rows and still satisfy everything else here.
+  it("reads both vault listings through the index, one profile or all", async () => {
+    const db = getTestDb();
+    const txnId = await insertTxn(U, {
+      type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: personal,
+    });
+    // Enough per profile that a sequential scan is the worse plan, and no more —
+    // this seeds on every run of the file. The number isn't arbitrary: measured
+    // on PGlite, the planner switches to the index between 750 and 1,250 rows
+    // per profile, so 1,500 each clears it with margin. Seed less and the test
+    // fails against a planner that is right.
+    for (const table of ["files", "transaction_attachments"] as const) {
+      await db.execute(sql.raw(`
+        insert into ${table}
+          (${table === "files" ? "" : "transaction_id, "}workspace_id, profile_id, user_id, r2_key,
+           ${table === "files" ? "name" : "file_name"}, content_type, size_bytes, created_at)
+        select ${table === "files" ? "" : `'${txnId}'::uuid, `}'${W}'::uuid,
+               (array['${personal}'::uuid, '${work}'::uuid])[1 + (i % 2)], '${U}'::uuid,
+               '${table}/' || i, 'f' || i, 'application/pdf', 10 + i,
+               timestamptz '2020-01-01' + (i || ' seconds')::interval
+        from generate_series(1, 3000) i`));
+      await db.execute(sql.raw(`analyze ${table}`));
+    }
+
+    for (const [label, index, merged, run] of [
+      ["files, one profile", "files_profile_created_idx", false, () => listVaultFiles(U, W, personal)],
+      ["files, all profiles", "files_profile_created_idx", true, () => listVaultFiles(U, W)],
+      ["attachments, one profile", "txn_attachments_profile_created_idx", false,
+        () => listTransactionFilesForVault(U, W, personal)],
+      // All profiles is what `GET /api/v1/files` takes by default, so it is the
+      // one that has to hold up — and it only does because of the merge.
+      ["attachments, all profiles", "txn_attachments_profile_created_idx", true,
+        () => listTransactionFilesForVault(U, W)],
     ] as const) {
       const statements = await captureSql(run);
       const listing = statements.find(
-        (s) => s.text.includes("order by") && s.text.includes("limit"),
+        (st) => st.text.includes("order by") && st.text.includes("limit"),
       );
       expect(listing, `no listing statement captured for ${label}`).toBeTruthy();
       const explained = await getTestClient().query(
@@ -517,7 +657,12 @@ describe("index/sort agreement", () => {
       const plan = (explained.rows as { "QUERY PLAN": string }[])
         .map((r) => r["QUERY PLAN"])
         .join("\n");
-      expect(plan, `${label} listing sorts:\n${plan}`).not.toMatch(/\bSort\b/);
+      const sorts = (plan.match(/(^|->\s+)Sort\b/gm) ?? []).length;
+      expect(sorts, `${label} sorts the page:\n${plan}`).toBe(merged ? 1 : 0);
+      expect(plan, `${label} ignores ${index}:\n${plan}`).toContain(index);
+      if (merged) {
+        expect(plan, `${label} lost its merge:\n${plan}`).toContain("Merge Append");
+      }
     }
   });
 });

@@ -815,6 +815,44 @@ export async function listVaultFolders(
   return rows.map(serializeFolder);
 }
 
+/** The `files` columns the decorating joins hang off. */
+const vaultFileColumns = {
+  id: files.id,
+  profileId: files.profileId,
+  folderId: files.folderId,
+  name: files.name,
+  contentType: files.contentType,
+  sizeBytes: files.sizeBytes,
+  category: files.category,
+  tagIds: files.tagIds,
+  thumbnailKey: files.thumbnailKey,
+  createdAt: files.createdAt,
+  userId: files.userId,
+};
+
+/** One profile's slice of the vault page: an ordered index scan, stopped early.
+ * `where` is required, not optional: an absent predicate here would not be a
+ * narrower read, it would be the newest 500 files in the deployment. */
+function vaultFileBranch(where: SQL, take: number) {
+  return getDb()
+    .select(vaultFileColumns)
+    .from(files)
+    .where(where)
+    .orderBy(desc(files.createdAt), desc(files.id))
+    .limit(take);
+}
+
+/** `mergeAppend` for the vault, which selects different columns. Same shape,
+ * same guards, same reason — see there. */
+function mergeVaultFiles(branches: ReturnType<typeof vaultFileBranch>[], limit: number) {
+  const [first, second, ...rest] = branches;
+  if (!first || !second || branches.length > MERGE_APPEND_MAX_BRANCHES) return null;
+  return unionAll(first, second, ...rest)
+    .orderBy(desc(files.createdAt), desc(files.id))
+    .limit(limit)
+    .as("page");
+}
+
 /**
  * Vault files the user can view in the current workspace (optionally one
  * profile), newest first, joined with uploader + profile display fields.
@@ -826,31 +864,52 @@ export async function listVaultFiles(
   workspaceId: string,
   profileId?: string,
 ): Promise<FileDTO[]> {
-  const db = getDb();
-  const conds = [inArray(files.profileId, accessibleProfileIds(userId, workspaceId))];
-  if (profileId) conds.push(eq(files.profileId, profileId));
-  const rows = await db
+  const accessible = await accessibleProfileIdList(userId, workspaceId);
+  // An explicit profile still has to be one the caller can reach; intersecting
+  // here is what the old `inArray(accessible) AND profile_id = $1` did.
+  const scoped = profileId ? accessible.filter((id) => id === profileId) : accessible;
+  if (scoped.length === 0) return [];
+
+  // One ordered index scan per profile, merged — the same shape and the same
+  // reason as the transactions list. A btree led by `profile_id` orders by
+  // profile first, so `profile_id in (…)` cannot come back in global date order
+  // and Postgres sorts the whole match set instead. That is the path
+  // `GET /api/v1/files` takes by default (no `profile` param means all of
+  // them), so it is the one the mobile client hits every time.
+  // Checked here as well as inside the helper, the way `pageOf` does it, so a
+  // wide workspace doesn't build N query trees only for the helper to drop them.
+  const canMerge = scoped.length > 1 && scoped.length <= MERGE_APPEND_MAX_BRANCHES;
+  const merged =
+    canMerge
+      ? mergeVaultFiles(
+          scoped.map((id) => vaultFileBranch(eq(files.profileId, id), VAULT_FILES_LIMIT)),
+          VAULT_FILES_LIMIT,
+        )
+      : null;
+  const page =
+    merged ?? vaultFileBranch(inArray(files.profileId, scoped), VAULT_FILES_LIMIT).as("page");
+
+  const rows = await getDb()
     .select({
-      id: files.id,
-      profileId: files.profileId,
-      folderId: files.folderId,
-      name: files.name,
-      contentType: files.contentType,
-      sizeBytes: files.sizeBytes,
-      category: files.category,
-      tagIds: files.tagIds,
-      thumbnailKey: files.thumbnailKey,
-      createdAt: files.createdAt,
+      id: page.id,
+      profileId: page.profileId,
+      folderId: page.folderId,
+      name: page.name,
+      contentType: page.contentType,
+      sizeBytes: page.sizeBytes,
+      category: page.category,
+      tagIds: page.tagIds,
+      thumbnailKey: page.thumbnailKey,
+      createdAt: page.createdAt,
       uploaderName: users.name,
       profileName: profiles.name,
       profileIcon: profiles.icon,
     })
-    .from(files)
-    .leftJoin(users, eq(files.userId, users.id))
-    .leftJoin(profiles, eq(files.profileId, profiles.id))
-    .where(and(...conds))
-    .orderBy(desc(files.createdAt), desc(files.id))
-    .limit(VAULT_FILES_LIMIT);
+    .from(page)
+    .leftJoin(users, eq(page.userId, users.id))
+    .leftJoin(profiles, eq(page.profileId, profiles.id))
+    // Joining a subquery doesn't preserve its order, so restate it.
+    .orderBy(desc(page.createdAt), desc(page.id));
   return rows.map(serializeFile);
 }
 
@@ -945,6 +1004,40 @@ export async function getVaultFolder(
   return row ?? null;
 }
 
+const vaultAttachmentColumns = {
+  id: transactionAttachments.id,
+  transactionId: transactionAttachments.transactionId,
+  fileName: transactionAttachments.fileName,
+  label: transactionAttachments.label,
+  contentType: transactionAttachments.contentType,
+  sizeBytes: transactionAttachments.sizeBytes,
+  thumbnailKey: transactionAttachments.thumbnailKey,
+  createdAt: transactionAttachments.createdAt,
+  profileId: transactionAttachments.profileId,
+};
+
+/** As `vaultFileBranch`, and `where` is required for the same reason. */
+function vaultAttachmentBranch(where: SQL, take: number) {
+  return getDb()
+    .select(vaultAttachmentColumns)
+    .from(transactionAttachments)
+    .where(where)
+    .orderBy(desc(transactionAttachments.createdAt), desc(transactionAttachments.id))
+    .limit(take);
+}
+
+function mergeVaultAttachments(
+  branches: ReturnType<typeof vaultAttachmentBranch>[],
+  limit: number,
+) {
+  const [first, second, ...rest] = branches;
+  if (!first || !second || branches.length > MERGE_APPEND_MAX_BRANCHES) return null;
+  return unionAll(first, second, ...rest)
+    .orderBy(desc(transactionAttachments.createdAt), desc(transactionAttachments.id))
+    .limit(limit)
+    .as("page");
+}
+
 /**
  * Transaction attachments surfaced in the files page, flattened with the
  * parent transaction's info (title/amount/date) so a receipt is recognizable
@@ -956,35 +1049,55 @@ export async function listTransactionFilesForVault(
   workspaceId: string,
   profileId?: string,
 ): Promise<TxnFileDTO[]> {
-  const db = getDb();
-  const conds = [
-    inArray(transactionAttachments.profileId, accessibleProfileIds(userId, workspaceId)),
-  ];
-  if (profileId) conds.push(eq(transactionAttachments.profileId, profileId));
-  const rows = await db
+  const accessible = await accessibleProfileIdList(userId, workspaceId);
+  const scoped = profileId ? accessible.filter((id) => id === profileId) : accessible;
+  if (scoped.length === 0) return [];
+
+  // Merged per profile for the same reason `listVaultFiles` is; this half of
+  // the page is awaited alongside it, so it has to be as quick.
+  // See `listVaultFiles` for why the count is checked here and in the helper.
+  const canMerge = scoped.length > 1 && scoped.length <= MERGE_APPEND_MAX_BRANCHES;
+  const merged =
+    canMerge
+      ? mergeVaultAttachments(
+          scoped.map((id) =>
+            vaultAttachmentBranch(eq(transactionAttachments.profileId, id), VAULT_FILES_LIMIT),
+          ),
+          VAULT_FILES_LIMIT,
+        )
+      : null;
+  const page =
+    merged ??
+    vaultAttachmentBranch(
+      inArray(transactionAttachments.profileId, scoped),
+      VAULT_FILES_LIMIT,
+    ).as("page");
+
+  const rows = await getDb()
     .select({
-      id: transactionAttachments.id,
-      transactionId: transactionAttachments.transactionId,
-      fileName: transactionAttachments.fileName,
-      label: transactionAttachments.label,
-      contentType: transactionAttachments.contentType,
-      sizeBytes: transactionAttachments.sizeBytes,
-      thumbnailKey: transactionAttachments.thumbnailKey,
-      createdAt: transactionAttachments.createdAt,
+      id: page.id,
+      transactionId: page.transactionId,
+      fileName: page.fileName,
+      label: page.label,
+      contentType: page.contentType,
+      sizeBytes: page.sizeBytes,
+      thumbnailKey: page.thumbnailKey,
+      createdAt: page.createdAt,
       txnTitle: transactions.title,
       txnType: transactions.type,
       txnAmountMinor: transactions.amountMinor,
       txnOccurredOn: transactions.occurredOn,
-      profileId: transactionAttachments.profileId,
+      profileId: page.profileId,
       profileName: profiles.name,
       profileIcon: profiles.icon,
     })
-    .from(transactionAttachments)
-    .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
-    .leftJoin(profiles, eq(transactionAttachments.profileId, profiles.id))
-    .where(and(...conds))
-    .orderBy(desc(transactionAttachments.createdAt), desc(transactionAttachments.id))
-    .limit(VAULT_FILES_LIMIT);
+    .from(page)
+    // Still an inner join, and it still can't drop a row: `transaction_id` is a
+    // FK that cascades, so every attachment has its transaction. Limiting first
+    // is therefore the same page, not a shorter one.
+    .innerJoin(transactions, eq(page.transactionId, transactions.id))
+    .leftJoin(profiles, eq(page.profileId, profiles.id))
+    .orderBy(desc(page.createdAt), desc(page.id));
   return rows.map((r) => ({
     id: r.id,
     transactionId: r.transactionId,

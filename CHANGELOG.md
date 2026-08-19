@@ -18,6 +18,18 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.5.6] — 2026-08-19
+
+### Fixed
+
+- **The files vault is fast when it's showing every profile, not just one.**
+  0.5.5 gave both of its tables an index the listing can read straight off, but
+  only a view scoped to a single profile could use it — asking for all of them
+  went back to reading everything and sorting it. That is the default the mobile
+  app gets, so the phone was on the slow path every time. Both halves of the
+  page now read one date-ordered index per profile and merge them. On a vault of
+  60,000 files, the all-profiles view went from reading 1,283 blocks to 36.
+
 ## [0.5.5] — 2026-08-19
 
 ### Fixed
@@ -494,5 +506,15 @@ chronologically; the work spans 2026-06-17 to 2026-08-14.
 - Repository metadata, `NOTICE`, and all repo links pointed at `playxoft/SpendChat_Nextjs`.
 
 [Unreleased]: https://github.com/playxoft/SpendChat_Nextjs
+[0.5.6]: https://github.com/playxoft/SpendChat_Nextjs
+[0.5.5]: https://github.com/playxoft/SpendChat_Nextjs
+[0.5.4]: https://github.com/playxoft/SpendChat_Nextjs
+[0.5.3]: https://github.com/playxoft/SpendChat_Nextjs
+[0.5.1]: https://github.com/playxoft/SpendChat_Nextjs
+[0.5.0]: https://github.com/playxoft/SpendChat_Nextjs
+[0.4.1]: https://github.com/playxoft/SpendChat_Nextjs
+[0.4.0]: https://github.com/playxoft/SpendChat_Nextjs
+[0.3.0]: https://github.com/playxoft/SpendChat_Nextjs
+[0.2.1]: https://github.com/playxoft/SpendChat_Nextjs
 [0.2.0]: https://github.com/playxoft/SpendChat_Nextjs
 [0.1.0]: https://github.com/playxoft/SpendChat_Nextjs
