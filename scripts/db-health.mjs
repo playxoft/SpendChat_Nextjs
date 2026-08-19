@@ -55,8 +55,14 @@ const NUMBERS = {
   "warn-at": { min: 1, max: 100 },
 };
 
+const seen = new Set();
 for (const arg of args) {
   const [name] = arg.split("=");
+  // A repeated flag means someone edited the command and meant the new value;
+  // silently keeping the first would be the same failing-open this whole block
+  // exists to prevent.
+  if (seen.has(name)) usageError(`${name} was given twice.`);
+  seen.add(name);
   if (SWITCHES.includes(name)) {
     if (arg.includes("=")) usageError(`${name} takes no value — write it bare.`);
     // `hasOwn`, not `in` or a truthiness check: `--constructor=5` would

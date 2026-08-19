@@ -6,8 +6,10 @@ info:
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 5.5.0 — see `_changelog.md` (this folder) for the
-    per-version history of API changes (what the Flutter app needs to update).
+    **Spec version** is `info.version` above — deliberately not repeated here,
+    because a second copy is a second thing to forget (this line said 5.5.0 for
+    four releases). See `_changelog.md` (this folder) for the per-version history
+    of API changes: what the Flutter app needs to update.
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
     request so server logs attribute the platform. It's optional and never
