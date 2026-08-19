@@ -77,6 +77,9 @@ export type TransactionRow = {
   attachments: AttachmentDTO[];
 };
 
+const profileIdsKey = (userId: string, workspaceId: string) =>
+  `accessible-profile-ids:${userId}:${workspaceId}`;
+
 /**
  * The ids of the profiles the caller can at least view in this workspace.
  *
@@ -91,9 +94,6 @@ export type TransactionRow = {
  * covers the route handlers and server actions, where React has no Flight
  * request to hang a cache off and silently stops memoizing.
  */
-const profileIdsKey = (userId: string, workspaceId: string) =>
-  `accessible-profile-ids:${userId}:${workspaceId}`;
-
 const accessibleProfileIdList = cache(
   async (userId: string, workspaceId: string): Promise<string[]> =>
     memoizeForRequest(profileIdsKey(userId, workspaceId), async () => {
