@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.9.1"
+  version: "5.9.2"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -285,6 +285,11 @@ paths:
     get:
       tags: [Transactions]
       summary: List transactions (newest first)
+      description: >
+        Newest first, ordered by `occurredOn desc, createdAt desc, id desc`.
+        The `id` tiebreaker makes the ordering total, so `limit`/`offset` paging
+        cannot repeat or skip rows that tie on both timestamps — which
+        bulk-created transactions always do.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/type"

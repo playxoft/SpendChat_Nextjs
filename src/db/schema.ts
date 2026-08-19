@@ -341,21 +341,28 @@ export const transactions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // Primary list + date-range filtering (most common query).
-    index("transactions_user_date_idx").on(t.userId, t.occurredOn.desc()),
-    // Filter by category.
-    index("transactions_user_category_idx").on(t.userId, t.categoryId),
-    // Filter by income/expense.
-    index("transactions_user_type_idx").on(t.userId, t.type),
-    // Chat feed ordering (newest first by entry time).
-    index("transactions_user_created_idx").on(t.userId, t.createdAt.desc()),
-    // Filter a user's transactions by profile (thread).
-    index("transactions_user_profile_idx").on(t.userId, t.profileId),
-    // FK maintenance: the composites above lead with user_id, so they can't
-    // serve a lookup keyed only on the FK column (category delete → set null,
-    // profile delete → restrict check). Single-column indexes for those.
+    // THE access path. Every read scopes to the profiles the caller can see in
+    // the current workspace (`transactions.user_id` is attribution, not access),
+    // then orders by the feed's cursor. Leading with `profile_id` lets Postgres
+    // merge-append one ordered index scan per accessible profile and stop at the
+    // page size, so a page costs the same whether the workspace holds 200 rows
+    // or a million. The trailing columns are exactly `listFeedPage`'s keyset
+    // cursor `(occurred_on, created_at, id)`, in the same direction, so the feed
+    // reads straight off the index with no sort.
+    //
+    // This also covers the `profile_id` FK restrict check, which is why there is
+    // no separate single-column index on it — a leading-column prefix serves it.
+    index("transactions_profile_date_idx").on(
+      t.profileId,
+      t.occurredOn.desc(),
+      t.createdAt.desc(),
+      t.id.desc(),
+    ),
+    // FK maintenance: category delete → set null. Not a prefix of anything above.
     index("transactions_category_idx").on(t.categoryId),
-    index("transactions_profile_idx").on(t.profileId),
+    // The account-deletion sweep (`deleteAccount` in services/settings.ts) is the
+    // one query that filters on `user_id` alone; this serves it as a prefix.
+    index("transactions_user_profile_idx").on(t.userId, t.profileId),
   ],
 );
 

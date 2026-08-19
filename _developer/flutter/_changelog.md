@@ -19,6 +19,26 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.9.2 — 2026-08-19
+
+`GET /transactions` returns a stable order for rows that tie on time.
+
+Transactions created in a single bulk request share `occurredOn` **and**
+`createdAt` to the microsecond. The list previously ordered only by those two,
+leaving tied rows in an undefined order — so with `limit`/`offset` paging the
+same row could come back on two consecutive pages, or be skipped between them.
+Ordering now falls through to `id` as a final tiebreaker.
+
+Newest-first ordering is otherwise unchanged, and no field, status or shape
+moved. The underlying query was also rewritten for performance; that part is
+invisible to clients.
+
+**Flutter impact:** none — no code changes needed. If the app de-duplicates
+paged transactions by id as a workaround, that guard is no longer necessary
+(harmless to keep).
+
+---
+
 ## 5.9.1 — 2026-08-19
 
 `POST /ai/parse` sentence-cases the drafts it returns.

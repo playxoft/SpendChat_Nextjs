@@ -14,9 +14,45 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.9.1**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.9.2**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.5.4] — 2026-08-19
+
+### Fixed
+
+- **Opening the transactions list no longer gets slower as a workspace fills
+  up.** The list was fetching every transaction the workspace owned, attaching
+  each one's category, profile and author, and only then sorting and keeping the
+  first fifty. The work grew with the workspace rather than with the page, which
+  nobody would notice at a few hundred rows and everybody would notice at a few
+  tens of thousands. It now picks the fifty rows first and looks up their
+  details afterwards, reading one date-ordered index per profile and stopping as
+  soon as the page is full. Measured on a workspace of a million transactions,
+  a page went from roughly 6,050,000 block reads to 401 — and, more to the
+  point, that number no longer moves as the workspace grows.
+- **A row can no longer appear twice, or go missing, while scrolling the
+  list.** Transactions added together in one go share a timestamp to the
+  microsecond, and rows tied on time had no defined order between them, so the
+  boundary between two pages could land differently for each page. Ordering now
+  falls through to the transaction's id, which is unique.
+
+### Changed
+
+- Dropped four indexes on `transactions` that no query could use — they were
+  keyed on who entered a row, while every read is scoped by which profile it
+  belongs to — and replaced them with one that matches how the table is actually
+  read. Reclaims roughly 41 MB per million rows and removes that much write work
+  from every insert and update.
+
+### Added
+
+- `pnpm db:health:dev` / `pnpm db:health:prod` — reports how close the database
+  is to its Neon storage cap (writes start failing at the cap, with no warning
+  shoulder), lists the largest tables, prunes rate-limit logs past a retention
+  window, and shows the slowest statements. Exits non-zero past 80% so it can
+  gate a cron or CI job. `--no-prune` reports without changing anything.
 
 ## [0.5.3] — 2026-08-19
 

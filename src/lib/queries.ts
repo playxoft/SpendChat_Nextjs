@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import { getDb } from "@/db";
 import {
@@ -77,12 +77,35 @@ export type TransactionRow = {
 };
 
 /**
+ * The ids of the profiles the caller can at least view in this workspace.
+ *
+ * Resolved to a plain array rather than left as a correlated subquery, because
+ * knowing the ids lets `pageOf` emit one ordered index scan per profile and
+ * merge them (see there). Inlined as a subquery the planner can only scan the
+ * whole workspace and sort — 6,052,367 buffer reads for a page of 50 at 1M rows,
+ * against 401 for the merged form.
+ *
+ * The extra round-trip is one indexed lookup returning a handful of rows, and
+ * React's `cache` dedupes it across every query in the same request.
+ */
+const accessibleProfileIdList = cache(
+  async (userId: string, workspaceId: string): Promise<string[]> => {
+    const rows = await accessibleProfileIds(userId, workspaceId);
+    return rows.map((r) => r.id);
+  },
+);
+
+/**
  * Reads are scoped to the profiles the user can at least view in the current
  * workspace — not to `transactions.user_id` (that column is attribution: who
  * entered the row, which matters in shared profiles).
+ *
+ * `profileIds` comes from `accessibleProfileIdList`. An empty list means the
+ * caller can see nothing here; every caller short-circuits before reaching this,
+ * since `inArray(col, [])` would otherwise have to be special-cased downstream.
  */
-function buildConditions(userId: string, workspaceId: string, f: TxnFilters) {
-  const conds = [inArray(transactions.profileId, accessibleProfileIds(userId, workspaceId))];
+function buildConditions(profileIds: string[], f: TxnFilters) {
+  const conds = [inArray(transactions.profileId, profileIds)];
   if (f.from) conds.push(gte(transactions.occurredOn, f.from));
   if (f.to) conds.push(lte(transactions.occurredOn, f.to));
   if (f.type) conds.push(eq(transactions.type, f.type));
@@ -101,21 +124,34 @@ function buildConditions(userId: string, workspaceId: string, f: TxnFilters) {
 }
 
 /**
- * Ordering for the list. No `sort` → the original newest-first order (unchanged,
- * so the mobile API is unaffected). A `sort` adds `createdAt`+`id` tiebreakers so
- * the total order is deterministic and offset paging (infinite scroll) is stable.
+ * Ordering for the list, expressed over `transactions` alone so it can be
+ * applied *before* the joins (see `pageOf`). No `sort` → newest first; a `sort`
+ * orders by that column. Either way the order is *total* — ties fall through to
+ * `created_at` then `id` — so offset paging (infinite scroll) can't drop or
+ * repeat a row.
+ *
+ * Sorting by category name is the one column that isn't on `transactions`. It
+ * reads through a correlated subquery rather than a join, so the pre-limit query
+ * stays join-free on every path; that sort is inherently a full sort of the
+ * match set either way, since no index can order by a joined column.
  */
 function orderByFor(f: TxnFilters) {
   if (!f.sort) {
-    return [desc(transactions.occurredOn), desc(transactions.createdAt)];
+    // `id` is the tiebreaker, not decoration: `addBulkTransactions` writes a
+    // whole batch in one statement, so rows routinely share `occurred_on` *and*
+    // `created_at`. Without a total order those ties can shuffle between two
+    // pages of the same list, which shows up as a row appearing twice or not at
+    // all while paging. It also matches `transactions_profile_date_idx` exactly.
+    return [desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id)];
   }
   const direction = f.dir === "asc" ? asc : desc;
   // Sort by the signed value so "Amount" ascending runs largest-expense →
   // largest-income, matching what the column displays.
   const amountSigned = sql`case when ${transactions.type} = 'income' then ${transactions.amountMinor} else -${transactions.amountMinor} end`;
+  const categoryName = sql`(select ${categories.name} from ${categories} where ${categories.id} = ${transactions.categoryId})`;
   const target = {
     date: transactions.occurredOn,
-    category: categories.name,
+    category: categoryName,
     title: transactions.title,
     description: transactions.description,
     amount: amountSigned,
@@ -123,69 +159,197 @@ function orderByFor(f: TxnFilters) {
   return [direction(target), desc(transactions.createdAt), desc(transactions.id)];
 }
 
-const txnSelection = {
+/** The transaction columns the outer select needs from the pre-limited page. */
+const pageColumns = {
   id: transactions.id,
   type: transactions.type,
   amountMinor: transactions.amountMinor,
   title: transactions.title,
   description: transactions.description,
-  // Alias so legacy callers reading `.note` still resolve to the title.
-  note: transactions.title,
   occurredOn: transactions.occurredOn,
   createdAt: transactions.createdAt,
   categoryId: transactions.categoryId,
-  categoryName: categories.name,
-  categoryIcon: categories.icon,
   profileId: transactions.profileId,
-  profileName: profiles.name,
-  profileIcon: profiles.icon,
   userId: transactions.userId,
-  userName: users.name,
-  userEmail: users.email,
-  // Files attached to the row, embedded as JSON so the detail dialog and the
-  // feed/table chips render straight from this query — no per-row round-trip.
-  // Correlated + ordered oldest-first (indexed on transaction_id, created_at);
-  // coalesced to an empty array when the row has none. node-postgres parses the
-  // jsonb, so this is already an `AttachmentDTO[]` on the row.
-  attachments: sql<AttachmentDTO[]>`(
-    select coalesce(
-      jsonb_agg(
-        jsonb_build_object(
-          'id', ${transactionAttachments.id},
-          'transactionId', ${transactionAttachments.transactionId},
-          'fileName', ${transactionAttachments.fileName},
-          'contentType', ${transactionAttachments.contentType},
-          'sizeBytes', ${transactionAttachments.sizeBytes},
-          'kind', ${transactionAttachments.kind},
-          'label', ${transactionAttachments.label},
-          'hasThumbnail', (${transactionAttachments.thumbnailKey} is not null),
-          'createdAt', ${transactionAttachments.createdAt}
-        )
-        order by ${transactionAttachments.createdAt}
-      ),
-      '[]'::jsonb
-    )
-    from ${transactionAttachments}
-    where ${transactionAttachments.transactionId} = ${transactions.id}
-  )`,
 };
+
+/** A page of `transactions` rows, already filtered, ordered and limited, as a
+ * subquery the decorating joins hang off. */
+type Page = ReturnType<typeof pageOf>;
+
+/**
+ * Past this many accessible profiles the per-profile merge-append stops paying
+ * for itself — every branch is another index scan and another chunk of SQL — so
+ * wide workspaces fall back to the single-scan form. Workspaces have a handful
+ * of profiles in practice; this is a guard, not a tuning knob.
+ */
+const MERGE_APPEND_MAX_BRANCHES = 24;
+
+/** One profile's slice of the page: an ordered index scan, stopped early. */
+function pageBranch(profileId: string, f: TxnFilters, take: number) {
+  const db = getDb();
+  return db
+    .select(pageColumns)
+    .from(transactions)
+    .where(buildConditions([profileId], f))
+    .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id))
+    .limit(take);
+}
+
+/**
+ * The heart of the list path: pick the page from `transactions` alone, then let
+ * the caller join the display columns onto the survivors.
+ *
+ * Two things are going on here, and both were measured against 1,000,000 rows in
+ * a single workspace (page of 50):
+ *
+ *  1. **Limit before joining.** Joining first makes the planner evaluate
+ *     `categories`, `profiles` and `users` for *every row the workspace owns*
+ *     before the sort throws all but 50 away — 2,677 ms and 6,052,367 buffer
+ *     reads. Limiting first drops that to 695 ms and 30,573.
+ *
+ *  2. **One ordered scan per profile, merged.** Even limited first, a single
+ *     `profile_id in (…)` scan still has to read every matching row and top-N
+ *     sort it, and the planner will happily pick a sequential scan to do it.
+ *     Emitting one branch per profile — each an ordered index scan over
+ *     `transactions_profile_date_idx`, each stopped at the page size — lets
+ *     Postgres `Merge Append` them and stop after 50 rows total: **35 ms and 401
+ *     buffer reads**, and it stays there as the workspace grows, because no
+ *     branch ever reads past what the page needs.
+ *
+ * The merge-append shape only works for the default cursor order. A custom
+ * column sort has to sort the whole match set whatever we do (no index can order
+ * by a joined category name), so those fall through to the single-scan form.
+ */
+function pageOf(profileIds: string[], f: TxnFilters, where?: SQL) {
+  const db = getDb();
+  const limit = f.limit ?? 100;
+  const offset = f.offset ?? 0;
+
+  const singleScan = () =>
+    db
+      .select(pageColumns)
+      .from(transactions)
+      .where(where ?? buildConditions(profileIds, f))
+      .orderBy(...orderByFor(f))
+      .limit(limit)
+      .offset(offset)
+      .as("page");
+
+  // An explicit predicate (the by-id lookup) is already a primary-key hit; a
+  // custom sort can't merge-append; one profile is a plain ordered index scan
+  // with no merging to do.
+  if (where || f.sort || profileIds.length < 2) return singleScan();
+  if (profileIds.length > MERGE_APPEND_MAX_BRANCHES) return singleScan();
+  // `f.profileId` narrows the list to one thread — same story as one profile.
+  if (f.profileId) return singleScan();
+
+  // Each branch must cover the offset too, since the merge happens above it.
+  const take = limit + offset;
+  const branches = profileIds.map((id) => pageBranch(id, f, take));
+  // `unionAll` needs its first two operands positionally; the length guard above
+  // already promises them, this narrows the types.
+  const [first, second, ...rest] = branches;
+  if (!first || !second) return singleScan();
+  return unionAll(first, second, ...rest)
+    .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id))
+    .limit(limit)
+    .offset(offset)
+    .as("page");
+}
+
+/**
+ * Re-state the ordering on the outer query. Joining a subquery does not preserve
+ * its row order, so without this the page comes back arbitrarily shuffled.
+ * Mirrors `orderByFor`, but reads the already-selected page columns — and can
+ * use the real `categories.name` join, since by here it is only 50 rows.
+ */
+function orderByPage(page: Page, f: TxnFilters) {
+  if (!f.sort) {
+    return [desc(page.occurredOn), desc(page.createdAt), desc(page.id)];
+  }
+  const direction = f.dir === "asc" ? asc : desc;
+  const amountSigned = sql`case when ${page.type} = 'income' then ${page.amountMinor} else -${page.amountMinor} end`;
+  const target = {
+    date: page.occurredOn,
+    category: categories.name,
+    title: page.title,
+    description: page.description,
+    amount: amountSigned,
+  }[f.sort];
+  return [direction(target), desc(page.createdAt), desc(page.id)];
+}
+
+/** The display columns, hung off an already-limited page of transactions. */
+function selectionFor(page: Page) {
+  return {
+    id: page.id,
+    type: page.type,
+    amountMinor: page.amountMinor,
+    title: page.title,
+    description: page.description,
+    // Alias so legacy callers reading `.note` still resolve to the title.
+    note: page.title,
+    occurredOn: page.occurredOn,
+    createdAt: page.createdAt,
+    categoryId: page.categoryId,
+    categoryName: categories.name,
+    categoryIcon: categories.icon,
+    profileId: page.profileId,
+    profileName: profiles.name,
+    profileIcon: profiles.icon,
+    userId: page.userId,
+    userName: users.name,
+    userEmail: users.email,
+    // Files attached to the row, embedded as JSON so the detail dialog and the
+    // feed/table chips render straight from this query — no per-row round-trip.
+    // Correlated + ordered oldest-first (indexed on transaction_id, created_at);
+    // coalesced to an empty array when the row has none. Runs once per *returned*
+    // row, because the page is already limited by the time it is projected.
+    attachments: sql<AttachmentDTO[]>`(
+      select coalesce(
+        jsonb_agg(
+          jsonb_build_object(
+            'id', ${transactionAttachments.id},
+            'transactionId', ${transactionAttachments.transactionId},
+            'fileName', ${transactionAttachments.fileName},
+            'contentType', ${transactionAttachments.contentType},
+            'sizeBytes', ${transactionAttachments.sizeBytes},
+            'kind', ${transactionAttachments.kind},
+            'label', ${transactionAttachments.label},
+            'hasThumbnail', (${transactionAttachments.thumbnailKey} is not null),
+            'createdAt', ${transactionAttachments.createdAt}
+          )
+          order by ${transactionAttachments.createdAt}
+        ),
+        '[]'::jsonb
+      )
+      from ${transactionAttachments}
+      where ${transactionAttachments.transactionId} = ${page.id}
+    )`,
+  };
+}
+
+/** Decorate a limited page with its category / profile / author columns. */
+function decorate(page: Page, f: TxnFilters) {
+  const db = getDb();
+  return db
+    .select(selectionFor(page))
+    .from(page)
+    .leftJoin(categories, eq(page.categoryId, categories.id))
+    .leftJoin(profiles, eq(page.profileId, profiles.id))
+    .leftJoin(users, eq(page.userId, users.id))
+    .orderBy(...orderByPage(page, f));
+}
 
 export async function listTransactions(
   userId: string,
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<TransactionRow[]> {
-  const db = getDb();
-  return db
-    .select(txnSelection)
-    .from(transactions)
-    .leftJoin(categories, eq(transactions.categoryId, categories.id))
-    .leftJoin(profiles, eq(transactions.profileId, profiles.id))
-    .leftJoin(users, eq(transactions.userId, users.id))
-    .where(buildConditions(userId, workspaceId, f))
-    .orderBy(...orderByFor(f))
-    .limit(f.limit ?? 100)
-    .offset(f.offset ?? 0);
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return [];
+  return decorate(pageOf(profileIds, f), f);
 }
 
 /**
@@ -199,20 +363,15 @@ export async function getTransactionById(
   workspaceId: string,
   id: string,
 ): Promise<TransactionRow | null> {
-  const db = getDb();
-  const [row] = await db
-    .select(txnSelection)
-    .from(transactions)
-    .leftJoin(categories, eq(transactions.categoryId, categories.id))
-    .leftJoin(profiles, eq(transactions.profileId, profiles.id))
-    .leftJoin(users, eq(transactions.userId, users.id))
-    .where(
-      and(
-        eq(transactions.id, id),
-        inArray(transactions.profileId, accessibleProfileIds(userId, workspaceId)),
-      ),
-    )
-    .limit(1);
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return null;
+  const f: TxnFilters = { limit: 1 };
+  const page = pageOf(
+    profileIds,
+    f,
+    and(eq(transactions.id, id), inArray(transactions.profileId, profileIds)),
+  );
+  const [row] = await decorate(page, f);
   return row ?? null;
 }
 
@@ -244,8 +403,10 @@ export async function listFeedPage(
   workspaceId: string,
   opts: { profileId?: string; limit: number; before?: FeedCursor },
 ): Promise<TransactionRow[]> {
-  const db = getDb();
-  const base = buildConditions(userId, workspaceId, { profileId: opts.profileId });
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return [];
+  const f: TxnFilters = { profileId: opts.profileId, limit: opts.limit };
+  const base = buildConditions(profileIds, f);
   const b = opts.before;
   const where = b
     ? and(
@@ -261,15 +422,24 @@ export async function listFeedPage(
         ),
       )
     : base;
-  return db
-    .select(txnSelection)
+  // The cursor's `(occurred_on, created_at, id)` order matches
+  // `transactions_profile_date_idx` exactly, so this reads straight off the
+  // index — no sort, and the page costs the same at any depth in history.
+  const db = getDb();
+  const page = db
+    .select(pageColumns)
     .from(transactions)
-    .leftJoin(categories, eq(transactions.categoryId, categories.id))
-    .leftJoin(profiles, eq(transactions.profileId, profiles.id))
-    .leftJoin(users, eq(transactions.userId, users.id))
     .where(where)
     .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id))
-    .limit(opts.limit);
+    .limit(opts.limit)
+    .as("page");
+  return db
+    .select(selectionFor(page))
+    .from(page)
+    .leftJoin(categories, eq(page.categoryId, categories.id))
+    .leftJoin(profiles, eq(page.profileId, profiles.id))
+    .leftJoin(users, eq(page.userId, users.id))
+    .orderBy(desc(page.occurredOn), desc(page.createdAt), desc(page.id));
 }
 
 export async function countTransactions(
@@ -277,11 +447,13 @@ export async function countTransactions(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<number> {
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return 0;
   const db = getDb();
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(transactions)
-    .where(buildConditions(userId, workspaceId, f));
+    .where(buildConditions(profileIds, f));
   return row?.count ?? 0;
 }
 
@@ -297,11 +469,13 @@ export async function listTransactionIds(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<string[]> {
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return [];
   const db = getDb();
   const rows = await db
     .select({ id: transactions.id })
     .from(transactions)
-    .where(buildConditions(userId, workspaceId, f));
+    .where(buildConditions(profileIds, f));
   return rows.map((r) => r.id);
 }
 
@@ -312,6 +486,8 @@ export async function getSummary(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<Summary> {
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return { income: 0, expense: 0, balance: 0 };
   const db = getDb();
   const rows = await db
     .select({
@@ -319,7 +495,7 @@ export async function getSummary(
       total: sql<string>`coalesce(sum(${transactions.amountMinor}), 0)`,
     })
     .from(transactions)
-    .where(buildConditions(userId, workspaceId, f))
+    .where(buildConditions(profileIds, f))
     .groupBy(transactions.type);
 
   let income = 0;
@@ -345,6 +521,8 @@ export async function getMonthlyTotals(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<MonthTotals[]> {
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return [];
   const db = getDb();
   const monthExpr = sql<string>`to_char(${transactions.occurredOn}, 'YYYY-MM')`;
   const rows = await db
@@ -354,7 +532,7 @@ export async function getMonthlyTotals(
       total: sql<string>`coalesce(sum(${transactions.amountMinor}), 0)`,
     })
     .from(transactions)
-    .where(buildConditions(userId, workspaceId, f))
+    .where(buildConditions(profileIds, f))
     .groupBy(monthExpr, transactions.type);
 
   const byMonth = new Map<string, MonthTotals>();
@@ -380,6 +558,8 @@ export async function getCategoryBreakdown(
   type: "income" | "expense",
   f: TxnFilters = {},
 ): Promise<CategoryBreakdownRow[]> {
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return [];
   const db = getDb();
   const rows = await db
     .select({
@@ -390,7 +570,7 @@ export async function getCategoryBreakdown(
     })
     .from(transactions)
     .leftJoin(categories, eq(transactions.categoryId, categories.id))
-    .where(and(buildConditions(userId, workspaceId, { ...f, type }), eq(transactions.type, type)))
+    .where(and(buildConditions(profileIds, { ...f, type }), eq(transactions.type, type)))
     .groupBy(transactions.categoryId, categories.name, categories.icon)
     .orderBy(desc(sql`sum(${transactions.amountMinor})`));
   return rows.map((r) => ({ ...r, total: Number(r.total) }));
@@ -404,9 +584,11 @@ export async function getMonthlyTrend(
   fromISO: string,
   profileId?: string,
 ): Promise<{ month: string; type: "income" | "expense"; total: number }[]> {
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return [];
   const db = getDb();
   const conds = [
-    inArray(transactions.profileId, accessibleProfileIds(userId, workspaceId)),
+    inArray(transactions.profileId, profileIds),
     gte(transactions.occurredOn, fromISO),
   ];
   if (profileId) conds.push(eq(transactions.profileId, profileId));

@@ -1,6 +1,6 @@
 {
   "name": "spendchat",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "private": true,
   "description": "A minimal, chat-style money tracker — add, view, filter, download, and print your income and expenses.",
   "license": "AGPL-3.0-only",
@@ -47,6 +47,9 @@
     "db:push:dev": "doppler run --config dev -- drizzle-kit push",
     "db:push:prod": "doppler run --config prd -- drizzle-kit push",
     "db:studio:dev": "doppler run --config dev -- drizzle-kit studio",
+    "//db:health": "Storage-cap check + rate-limit-log retention sweep. Exits 1 past --warn-at (default 80% of neon.max_cluster_size). Pass -- --no-prune to report only.",
+    "db:health:dev": "doppler run --config dev -- node scripts/db-health.mjs",
+    "db:health:prod": "doppler run --config prd -- node scripts/db-health.mjs",
     "db:studio:prod": "doppler run --config prd -- drizzle-kit studio",
     "kill-port": "lsof -ti:3010 | xargs kill -9"
   },
