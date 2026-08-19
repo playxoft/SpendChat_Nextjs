@@ -50,3 +50,42 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # No secrets and no service container: the integration suite runs Postgres
+      # in-process via PGlite and applies the real migrations to it, so this also
+      # catches a migration that won't replay. Whole run is well under a minute.
+      - name: Test
+        run: pnpm test
+
+      # The schema and the migrations have to agree, or a later `db:generate`
+      # quietly writes the missing migration into somebody else's branch.
+      # `--porcelain` rather than `git diff`, because drift shows up as a *new*
+      # migration file, which a diff against HEAD would not see.
+      - name: Check for schema drift
+        run: |
+          pnpm db:generate
+          drift="$(git status --porcelain -- src/db/migrations)"
+          if [ -n "$drift" ]; then
+            echo "::error::schema.ts and src/db/migrations disagree — run pnpm db:generate and commit the result"
+            echo "$drift"
+            exit 1
+          fi
