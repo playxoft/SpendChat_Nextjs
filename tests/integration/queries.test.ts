@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import { sql } from "drizzle-orm";
 import {
   listTransactions,
   listTransactionsAsc,
@@ -264,11 +265,12 @@ describe("listFeedPage", () => {
   // can carry without loss; assert it directly, because a walk seeded through
   // the app can only ever produce values the column already rounded.
   it("stores created_at at the millisecond precision the cursor round-trips", async () => {
-    const rows = (await getTestDb().execute(
-      `select datetime_precision from information_schema.columns
-       where table_name = 'transactions' and column_name = 'created_at'` as never,
-    )) as unknown as { rows: { datetime_precision: number }[] };
-    expect(Number(rows.rows[0]!.datetime_precision)).toBe(3);
+    const { rows } = await getTestDb().execute(sql`
+      select datetime_precision from information_schema.columns
+      where table_schema = 'public'
+        and table_name = 'transactions'
+        and column_name = 'created_at'`);
+    expect(Number(rows[0]!.datetime_precision)).toBe(3);
   });
 
   it("walks the whole feed from a cursor without repeating or skipping a row", async () => {
@@ -277,13 +279,12 @@ describe("listFeedPage", () => {
     // to the millisecond, which is what makes the tie survive the round trip. If
     // the column is ever widened, these land in the same millisecond with
     // different microseconds and the walk below drops the tail of the batch.
-    await db.execute(
-      `insert into transactions (user_id, type, amount_minor, occurred_on, profile_id, title, created_at)
-       select '${U}'::uuid, 'expense', 500 + i, date '2026-07-04',
-              (array['${personal}'::uuid, '${work}'::uuid])[1 + (i % 2)], 'walk ' || i,
-              timestamptz '2026-07-04 10:00:00.123000+00' + (i || ' microseconds')::interval
-       from generate_series(0, 8) i` as never,
-    );
+    await db.execute(sql`
+      insert into transactions (user_id, type, amount_minor, occurred_on, profile_id, title, created_at)
+      select ${U}::uuid, 'expense', 500 + i, date '2026-07-04',
+             (array[${personal}::uuid, ${work}::uuid])[1 + (i % 2)], 'walk ' || i,
+             timestamptz '2026-07-04 10:00:00.123000+00' + (i || ' microseconds')::interval
+      from generate_series(0, 8) i`);
     const all = await listFeedPage(U, W, { limit: 100 });
     expect(all).toHaveLength(13);
 

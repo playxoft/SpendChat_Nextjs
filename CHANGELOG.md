@@ -71,7 +71,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   row on a page was quietly stepped over: import a hundred transactions dated
   the same day and the feed showed the first forty, then jumped past the rest.
   They were still in the table and the totals; they just could not be scrolled
-  to. Timestamps are now recorded at the precision the marker can carry.
+  to. Timestamps are now recorded at the precision the marker can carry. One
+  side effect, once: transactions created before this release can report a
+  creation time up to a millisecond later than they used to.
 - Sorting the transactions table by Date, then clicking to reverse it, no longer
   falls back to the slow path — that click produces the list's own default
   order, so it now costs what the default costs.

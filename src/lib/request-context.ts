@@ -16,9 +16,10 @@ import { runWithRequestCache } from "@/lib/request-cache";
  * invokes them), "api" for the mobile REST API.
  *
  * The same scope carries the per-request read memo (`request-cache.ts`). Every
- * entry point that resolves an identity goes through this function, and outside
- * an RSC render is exactly where React's `cache()` stops memoizing — so this is
- * where the substitute belongs.
+ * *non-RSC* entry point that resolves an identity goes through this function —
+ * an RSC render resolves one too, but React's `cache()` already memoizes there,
+ * and outside a render is exactly where it stops. So this is where the
+ * substitute belongs.
  */
 export function withRequestContext<T>(
   fallbackPlatform: string,

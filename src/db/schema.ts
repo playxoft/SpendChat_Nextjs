@@ -356,7 +356,12 @@ export const transactions = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
       .notNull()
       .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Narrowed alongside `created_at`, which it has to stay comparable with:
+    // rounding one and not the other would leave rows that were never edited
+    // reporting an `updated_at` fractionally *before* their `created_at`.
+    updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [
     // THE access path. Every read scopes to the profiles the caller can see in

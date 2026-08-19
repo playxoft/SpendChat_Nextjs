@@ -11,22 +11,17 @@ let db: PgliteDatabase<typeof schema> | null = null;
  * Boot an in-process Postgres (PGlite), apply the real Drizzle migrations, and
  * return a Drizzle client wired to the app schema. Runs once per worker.
  *
- * PGlite is Postgres 16, which predates the built-in `uuidv7()` that migrations
- * 0001/0002 set as the id default — so we shim it onto `gen_random_uuid()`
- * (a v4 UUID; still unique and a valid UUID, which is all the tests need).
- * The interval overload is what migration 0007's backfill calls
- * (`uuidv7(created_at - clock_timestamp())`); it runs against empty tables
- * here, so a v4 stand-in is fine.
+ * PGlite is Postgres 18, so `uuidv7()` and its interval overload come from
+ * `pg_catalog` — the same built-ins production uses, and the ids these tests
+ * mint are real v7. There used to be a `public` shim onto `gen_random_uuid()`
+ * here for PGlite's Postgres 16 days; it was dead the moment PGlite moved to 18
+ * (`pg_catalog` precedes `public` in `search_path`), and it was misleading:
+ * ordering by `id` is a real tiebreaker in the feed and the list, so the tests
+ * need it to behave like production's, not like a random v4.
  */
 export async function initTestDb(): Promise<PgliteDatabase<typeof schema>> {
   if (db) return db;
   client = new PGlite();
-  await client.exec(
-    `CREATE OR REPLACE FUNCTION uuidv7() RETURNS uuid
-       AS $$ SELECT gen_random_uuid() $$ LANGUAGE sql;
-     CREATE OR REPLACE FUNCTION uuidv7(shift interval) RETURNS uuid
-       AS $$ SELECT gen_random_uuid() $$ LANGUAGE sql;`,
-  );
   // Minimal stand-in for the Neon-managed auth directory: bootstrap names
   // workspaces from it and invites are matched against it. Tests register
   // users via the seed helpers.
