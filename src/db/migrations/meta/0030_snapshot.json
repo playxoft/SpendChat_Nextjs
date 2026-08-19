@@ -1,5 +1,5 @@
 {
-  "id": "3268fd08-e00b-4ec3-8b50-0da249efcc71",
+  "id": "3f722ada-c481-40a8-88fa-db6f8a94a349",
   "prevId": "ec8c6e4f-b250-4d15-96af-6ce126aad49d",
   "version": "7",
   "dialect": "postgresql",
@@ -1331,14 +1331,26 @@
           "method": "btree",
           "with": {}
         },
-        "txn_attachments_profile_idx": {
-          "name": "txn_attachments_profile_idx",
+        "txn_attachments_profile_created_idx": {
+          "name": "txn_attachments_profile_created_idx",
           "columns": [
             {
               "expression": "profile_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "first"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "first"
             }
           ],
           "isUnique": false,
@@ -1351,12 +1363,6 @@
           "columns": [
             {
               "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

@@ -40,6 +40,38 @@ export async function initTestDb(): Promise<PgliteDatabase<typeof schema>> {
   return db;
 }
 
+/**
+ * Collect the SQL a block of app code actually sends, so a test can assert on
+ * the *real* statement rather than a copy of it that drifts. Used to `EXPLAIN`
+ * a listing's own query — asserting an index exists proves nothing if the query
+ * stopped being able to use it.
+ */
+export type CapturedStatement = { text: string; params: unknown[] };
+
+export async function captureSql(fn: () => Promise<unknown>): Promise<CapturedStatement[]> {
+  if (!client) throw new Error("Test DB not initialised — call initTestDb() first");
+  const pglite = client;
+  const original = pglite.query.bind(pglite);
+  const seen: CapturedStatement[] = [];
+  (pglite as { query: typeof original }).query = ((text: string, ...rest: unknown[]) => {
+    seen.push({ text, params: Array.isArray(rest[0]) ? (rest[0] as unknown[]) : [] });
+    return (original as (...a: unknown[]) => unknown)(text, ...rest);
+  }) as typeof original;
+  try {
+    await fn();
+  } finally {
+    (pglite as { query: typeof original }).query = original;
+  }
+  return seen;
+}
+
+/** The raw PGlite client, for tests that need to run a statement with its own
+ * bound parameters (EXPLAIN of a captured query). */
+export function getTestClient(): PGlite {
+  if (!client) throw new Error("Test DB not initialised — call initTestDb() first");
+  return client;
+}
+
 export function getTestDb(): PgliteDatabase<typeof schema> {
   if (!db) throw new Error("Test DB not initialised — call initTestDb() first");
   return db;

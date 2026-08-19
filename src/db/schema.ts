@@ -441,12 +441,23 @@ export const transactionAttachments = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // The primary read: all attachments for a transaction, oldest first.
+    // The primary read: all attachments for a transaction, oldest first. This
+    // is the correlated subquery every transaction row carries.
     index("txn_attachments_txn_idx").on(t.transactionId, t.createdAt),
-    // FK maintenance for the profile/workspace cascade deletes.
-    index("txn_attachments_profile_idx").on(t.profileId),
-    // Per-workspace listing / future storage metering.
-    index("txn_attachments_workspace_idx").on(t.workspaceId, t.createdAt),
+    // The vault's other half (`listTransactionFilesForVault`), which sits in the
+    // same `Promise.all` as `listVaultFiles` and so has to be as fast as it is —
+    // a page is only as quick as the slower of the two. Same shape and same
+    // reasoning as `files_profile_created_idx`, `nullsFirst()` included. Covers
+    // the `profile_id` FK cascade as a leading-column prefix.
+    index("txn_attachments_profile_created_idx").on(
+      t.profileId,
+      t.createdAt.desc().nullsFirst(),
+      t.id.desc().nullsFirst(),
+    ),
+    // The storage-quota sum and the workspace FK cascade. It used to carry
+    // `created_at` for a "per-workspace listing" that does not exist — nothing
+    // pairs `workspace_id` with a date here either.
+    index("txn_attachments_workspace_idx").on(t.workspaceId),
   ],
 );
 
@@ -581,7 +592,10 @@ export const files = pgTable(
     // It pays off when the listing is scoped to one profile, which is what
     // `/files` resolves to unless you ask for `?profile=all`: measured on 60,000
     // files, a page of 500 goes from a sequential scan and a top-N sort at 1,336
-    // buffer reads to an index scan with no sort node at 22. Note the mobile
+    // buffer reads to an index scan with no sort node at 22. The page reads
+    // `transaction_attachments` in the same `Promise.all`, so that table carries
+    // the twin of this index — fixing one alone would not have moved the page.
+    // Note the mobile
     // route defaults the other way — `GET /api/v1/files` with no `profile` param
     // means *all* of them — and that widens to `profile_id in (…)`, which no
     // btree returns in global date order, so it still sorts. The fix there is

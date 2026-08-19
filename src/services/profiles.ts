@@ -257,13 +257,17 @@ async function reprofileVault(tx: Tx, fromId: string, toId: string): Promise<voi
     // `array_replace` alone would leave a duplicate on anything already
     // carrying the destination's tag, so the result is rebuilt distinct.
     for (const table of [files, folders]) {
+      // Scoped to the source profile, like `deleteTag`'s equivalent. `src` is a
+      // tag of `fromId`, so this changes nothing about which rows match — it
+      // just lets the predicate lead with `profile_id` and use the index,
+      // instead of scanning the whole table once per colliding tag name.
       await tx.execute(sql`
         UPDATE ${table}
         SET tag_ids = (
           SELECT COALESCE(array_agg(DISTINCT t), '{}'::uuid[])
           FROM unnest(array_replace(tag_ids, ${src}::uuid, ${dst}::uuid)) AS t
         )
-        WHERE ${src}::uuid = ANY(tag_ids)
+        WHERE profile_id = ${fromId}::uuid AND ${src}::uuid = ANY(tag_ids)
       `);
     }
     await tx.delete(fileTags).where(eq(fileTags.id, src));
