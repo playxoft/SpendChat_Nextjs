@@ -19,6 +19,30 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.9.3 — 2026-08-19
+
+`createdAt` is stored at millisecond precision.
+
+`transactions.created_at` was a microsecond column, but every value that ever
+reached a client went through a JavaScript `Date` first, which holds
+milliseconds — so the API has only ever *reported* milliseconds. The column now
+matches, because the tracker feed's paging marker round-trips that value and the
+lost microseconds were making it skip rows.
+
+One wrinkle worth knowing about: Postgres **rounds** when narrowing precision,
+while the driver was **truncating**. So a transaction created before this
+release, whose hidden microseconds happened to be ≥ 500µs, now reports a
+`createdAt` up to **one millisecond later** than it did before. Rows created
+after this release are exact.
+
+No field, status or shape moved.
+
+**Flutter impact:** none — unless the app compares a cached `createdAt` for
+equality against a freshly fetched one, which would now differ by up to a
+millisecond for pre-release rows. Compare by `id`.
+
+---
+
 ## 5.9.2 — 2026-08-19
 
 `GET /transactions` returns a stable order for rows that tie on time.

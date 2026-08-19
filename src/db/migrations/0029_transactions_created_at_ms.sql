@@ -11,8 +11,13 @@
 -- round trip lossless: ties stay ties, and `id` breaks them the way the
 -- ordering already says it does.
 --
--- Nothing observable narrows. The API already serialised this column through a
--- `Date`, so every client has only ever seen milliseconds.
+-- Nothing observable narrows: the API already serialised this column through a
+-- `Date`, so every client has only ever seen milliseconds. One wrinkle, because
+-- it is the kind of thing that surprises someone later — Postgres **rounds**
+-- when it narrows precision, while node-postgres was **truncating**. So a row
+-- written before this migration whose hidden microseconds were ≥ 500µs now
+-- reports a `created_at` one millisecond later than it used to. Bounded, one
+-- time, and documented in the API changelog as spec 5.9.3.
 --
 -- This rewrites the table under ACCESS EXCLUSIVE. Instant at the current size
 -- (production holds a few hundred rows); on a large table, do it out of band.

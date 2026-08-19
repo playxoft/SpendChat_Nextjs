@@ -14,7 +14,7 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.9.2**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.9.3**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
 
