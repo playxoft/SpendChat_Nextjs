@@ -59,7 +59,9 @@ for (const arg of args) {
   const [name] = arg.split("=");
   if (SWITCHES.includes(name)) {
     if (arg.includes("=")) usageError(`${name} takes no value — write it bare.`);
-  } else if (name.startsWith("--") && NUMBERS[name.slice(2)]) {
+    // `hasOwn`, not `in` or a truthiness check: `--constructor=5` would
+    // otherwise find `Object.prototype.constructor` and sail through validation.
+  } else if (name.startsWith("--") && Object.hasOwn(NUMBERS, name.slice(2))) {
     if (!arg.includes("=")) usageError(`${name} needs ${name}=<n>, not a space.`);
   } else {
     usageError(`Unrecognised argument "${arg}".`);
@@ -128,14 +130,14 @@ async function main() {
   await client.connect();
   const { db, size, cap, unit } = await clusterSize(client);
 
-  // The cap is reported in whatever `pg_settings.unit` says; today Neon reports
+  // The cap comes back in whatever `pg_settings.unit` says; today Neon reports
   // MB. Anything else and the percentage below would be off by a factor of
-  // 1024, so refuse rather than gate on a number we've misread.
+  // 1024, so treat it as unreadable rather than gate on a number we've misread
+  // — which lands on the same "FAIL, cannot tell" verdict as a missing GUC.
   if (cap !== null && unit !== "MB") {
-    console.error(`neon.max_cluster_size is reported in "${unit}", not MB — cannot gate on it.`);
-    process.exit(2);
+    console.error(`neon.max_cluster_size is reported in "${unit}", not MB — ignoring it.`);
   }
-  const capMb = cap === null ? null : Number(cap);
+  const capMb = cap === null || unit !== "MB" ? null : Number(cap);
   // Neon reports -1 for "no limit"; that is a real, healthy answer, not a
   // missing one.
   const capBytes = capMb !== null && capMb > 0 ? capMb * MB : null;
@@ -147,7 +149,7 @@ async function main() {
     capBytes
       ? `cap             ${mb(capBytes)}  (${pct(used)} used, ${mb(Math.max(capBytes - size, 0))} free)`
       : capMb === null
-        ? `cap             not reported`
+        ? `cap             not readable`
         : `cap             none enforced (neon.max_cluster_size = ${capMb})`,
   );
 
@@ -208,7 +210,7 @@ async function main() {
     }
     if (total === 0) console.log(`pruned          nothing older than ${cutoff}`);
   } else {
-    console.log("pruned          skipped (--no-prune)");
+    console.log(`pruned          skipped (${args.find((a) => SWITCHES.includes(a))})`);
   }
 
   // Slowest statements, when pg_stat_statements is available. Being in

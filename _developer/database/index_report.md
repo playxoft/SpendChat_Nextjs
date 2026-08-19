@@ -13,11 +13,13 @@ FK-supporting, search), and reconcile with the stated rules:
 > report, not a living inventory — read it for the reasoning, not the current
 > state. Since it was written, `transactions` was re-indexed around `profile_id`
 > (the access column) rather than `user_id` (attribution): §3's
-> `transactions_profile_idx` and the four `user_id`-led indexes in the appendix
-> are gone, replaced by `transactions_profile_date_idx (profile_id, occurred_on
-> desc, created_at desc, id desc)` — which serves the `profile_id` FK check as a
-> leading-column prefix. `transactions_category_idx` and
-> `transactions_user_profile_idx` survive. `src/db/schema.ts` is the inventory.
+> `transactions_profile_idx`, and the four indexes on `(user_id, …)` for date,
+> category, type and created_at in the appendix, are gone — replaced by
+> `transactions_profile_date_idx (profile_id, occurred_on desc, created_at desc,
+> id desc)`, which serves the `profile_id` FK check as a leading-column prefix.
+> `transactions_category_idx` and `transactions_user_profile_idx` survive. That
+> also makes §5's "the search is already narrowed by `user_id` first" false —
+> reads narrow by profile now. `src/db/schema.ts` is the inventory.
 
 ---
 

@@ -289,7 +289,8 @@ paths:
         Newest first, ordered by `occurredOn desc, createdAt desc, id desc`.
         The `id` tiebreaker makes the ordering total, so `limit`/`offset` paging
         cannot repeat or skip rows that tie on both timestamps — which
-        bulk-created transactions always do.
+        bulk-created transactions routinely do, since a batch is written in one
+        statement and so always shares `createdAt`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/type"

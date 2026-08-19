@@ -453,7 +453,7 @@ the debug/about screen so a bug report names the exact deploy, and link
 ### Transactions
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /transactions` | — | 200 `data: Transaction[]`, `meta: { total, limit, offset, currency }` | Newest first (`occurredOn desc, createdAt desc, id desc`). The `id` tiebreaker makes the order **total**, so `limit`/`offset` paging can't repeat or skip rows that tie on time (bulk-created transactions share both timestamps). Filters + paging (§5). |
+| `GET /transactions` | — | 200 `data: Transaction[]`, `meta: { total, limit, offset, currency }` | Newest first (`occurredOn desc, createdAt desc, id desc`). The `id` tiebreaker makes the order **total**, so `limit`/`offset` paging can't repeat or skip rows that tie on time (a bulk batch is written in one statement, so it always shares `createdAt` and often `occurredOn` too). Filters + paging (§5). |
 | `POST /transactions` | `TransactionInput` | 201 `data: Transaction` | 422 validation; **403** "You don't have permission to add transactions in this workspace" (no writable profile) |
 | `GET /transactions/{id}` | — | 200 `data: Transaction` | 404 "Transaction not found" (also when the id lives in another workspace — workspace-scoped) |
 | `PATCH /transactions/{id}` | `TransactionInput` (full body) | 200 `data: Transaction` | Full replacement of mutable fields. Workspace-scoped (cross-workspace id → 404). 422; 404; 403 (editor role required on its profile; also on target profile if `profileId` changes) |

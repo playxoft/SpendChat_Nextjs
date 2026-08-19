@@ -256,6 +256,40 @@ describe("listFeedPage", () => {
     const rows = await listFeedPage(U, W, { profileId: work, limit: 10 });
     expect(rows.map((r) => r.title)).toEqual(["Tools"]);
   });
+
+  // The cursor is a row comparison, so Postgres can seek to it rather than
+  // filtering everything above it away. That only stays equivalent to the
+  // three-way OR it replaced while all three columns are NOT NULL — and it only
+  // stays *correct* while the walk can't repeat or skip a row across the ties
+  // a single-statement insert produces.
+  it("walks the whole feed from a cursor without repeating or skipping a row", async () => {
+    await getTestDb()
+      .insert(transactions)
+      .values(
+        Array.from({ length: 9 }, (_, i) => ({
+          userId: U,
+          type: "expense" as const,
+          amountMinor: 500 + i,
+          occurredOn: "2026-07-04",
+          profileId: i % 2 === 0 ? personal : work,
+          title: `walk ${i}`,
+        })),
+      );
+    const all = await listFeedPage(U, W, { limit: 100 });
+    expect(all).toHaveLength(13);
+
+    const walked: string[] = [];
+    let before: { occurredOn: string; createdAt: Date; id: string } | undefined;
+    for (;;) {
+      const page = await listFeedPage(U, W, { limit: 4, before });
+      if (page.length === 0) break;
+      walked.push(...page.map((r) => r.id));
+      const last = page[page.length - 1]!;
+      before = { occurredOn: last.occurredOn, createdAt: last.createdAt, id: last.id };
+    }
+    expect(walked).toEqual(all.map((r) => r.id));
+    expect(new Set(walked).size).toBe(13);
+  });
 });
 
 describe("listTransactionsAsc", () => {

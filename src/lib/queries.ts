@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { and, asc, desc, eq, gte, ilike, inArray, lt, lte, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import { getDb } from "@/db";
 import {
@@ -14,7 +14,7 @@ import {
   users,
 } from "@/db/schema";
 import { accessibleProfileIds } from "@/lib/workspaces";
-import { memoizeForRequest } from "@/lib/request-cache";
+import { forgetForRequest, memoizeForRequest } from "@/lib/request-cache";
 import type { AttachmentDTO } from "@/lib/attachments";
 import {
   serializeFile,
@@ -80,25 +80,38 @@ export type TransactionRow = {
 /**
  * The ids of the profiles the caller can at least view in this workspace.
  *
- * Resolved to a plain array rather than left as a correlated subquery, because
- * knowing the ids lets `pageOf` emit one ordered index scan per profile and
- * merge them (see there). Inlined as a subquery the planner can only scan the
- * whole workspace and sort — 6,052,367 buffer reads for a page of 50 at 1M rows,
- * against 401 for the merged form.
+ * Resolved to a plain array rather than left as a subquery, because knowing the
+ * ids lets `pageOf` emit one ordered index scan per profile and merge them (see
+ * there). Inlined as a subquery the planner can only scan the whole workspace
+ * and sort.
  *
  * The extra round-trip is one indexed lookup returning a handful of rows, and it
- * happens once per request however many of these queries run. That takes two
+ * happens once per entry scope however many of these queries run. That takes two
  * memos, not one: React's `cache` covers an RSC render, and `memoizeForRequest`
  * covers the route handlers and server actions, where React has no Flight
  * request to hang a cache off and silently stops memoizing.
  */
+const profileIdsKey = (userId: string, workspaceId: string) =>
+  `accessible-profile-ids:${userId}:${workspaceId}`;
+
 const accessibleProfileIdList = cache(
   async (userId: string, workspaceId: string): Promise<string[]> =>
-    memoizeForRequest(`accessible-profile-ids:${userId}:${workspaceId}`, async () => {
+    memoizeForRequest(profileIdsKey(userId, workspaceId), async () => {
       const rows = await accessibleProfileIds(userId, workspaceId);
       return rows.map((r) => r.id);
     }),
 );
+
+/**
+ * Drop the memoized profile list, for a request that just created a profile and
+ * will read through it again — `resolveProfileId`'s admin self-heal is the one
+ * such path. Without this the read after the write would still be scoped to the
+ * profiles that existed before it, and the row it just wrote would read as
+ * absent.
+ */
+export function forgetAccessibleProfiles(userId: string, workspaceId: string): void {
+  forgetForRequest(profileIdsKey(userId, workspaceId));
+}
 
 /**
  * Reads are scoped to the profiles the user can at least view in the current
@@ -255,9 +268,12 @@ function mergeAppend(branches: ReturnType<typeof pageBranch>[], limit: number, o
  *     buffer reads**, and it stays there as the workspace grows, because no
  *     branch ever reads past what the page needs.
  *
- * The merge-append shape only works for the default cursor order. A custom
- * column sort has to sort the whole match set whatever we do (no index can order
- * by a joined category name), so those fall through to the single-scan form.
+ * The merge-append shape only fits the newest-first order the index is built
+ * for; every other sort falls through to the single-scan form. Note that
+ * `sort=date` descending *is* that order — the table's Date header cycles
+ * asc → desc → unsorted, and the desc step emits exactly the same three columns
+ * in the same direction — so it merges too. Reading `f.sort` alone would make
+ * one click on a header quietly cost the whole workspace again.
  */
 function pageOf(profileIds: string[], f: TxnFilters) {
   const db = getDb();
@@ -274,10 +290,14 @@ function pageOf(profileIds: string[], f: TxnFilters) {
       .offset(offset)
       .as("page");
 
-  // A custom sort can't merge-append (no index orders by a joined category
-  // name); `f.profileId` narrows the list to one thread, which is already a
-  // plain ordered index scan with nothing to merge.
-  if (f.sort || f.profileId) return singleScan();
+  // `orderByFor` returns the cursor order for both of these; `dir` defaults to
+  // desc, so an absent `dir` counts.
+  const newestFirst = !f.sort || (f.sort === "date" && f.dir !== "asc");
+  // `f.profileId` narrows the list to one thread, which is already a plain
+  // ordered index scan with nothing to merge. Check the branch count here too,
+  // rather than building N query trees only for `mergeAppend` to discard them.
+  if (!newestFirst || f.profileId) return singleScan();
+  if (profileIds.length < 2 || profileIds.length > MERGE_APPEND_MAX_BRANCHES) return singleScan();
 
   // Each branch must cover the offset too, since the merge happens above it.
   const take = limit + offset;
@@ -429,22 +449,30 @@ export const FEED_PAGE_SIZE = 40;
 /** A cursor into the feed's (occurredOn, createdAt, id) order. */
 export type FeedCursor = { occurredOn: string; createdAt: Date; id: string };
 
-/** Access scope, plus "strictly older than the cursor" in the feed's order. */
+/**
+ * Access scope, plus "strictly older than the cursor" in the feed's order.
+ *
+ * The cursor is written as a **row comparison**, not the equivalent ladder of
+ * ORs, and that is the whole difference between seeking and filtering. Postgres
+ * turns `(a, b, c) < ($1, $2, $3)` into an index bound and starts the scan at
+ * the cursor; the OR form it can only evaluate as a filter, so every page reads
+ * from the newest row and throws away everything above the cursor — which makes
+ * scrolling back cost more the further back you have already scrolled. Measured
+ * on a 300,000-row table at a cursor 150,000 rows deep: 43 buffer reads against
+ * 50,453.
+ *
+ * The two are equivalent only because all three columns are NOT NULL (a NULL
+ * anywhere makes a row comparison NULL rather than false), and the seek only
+ * works because `transactions_profile_date_idx` sorts all three the same way.
+ */
 function feedConditions(profileIds: string[], opts: { profileId?: string; before?: FeedCursor }) {
   const base = buildConditions(profileIds, { profileId: opts.profileId });
   const b = opts.before;
   if (!b) return base;
   return and(
     base,
-    or(
-      lt(transactions.occurredOn, b.occurredOn),
-      and(eq(transactions.occurredOn, b.occurredOn), lt(transactions.createdAt, b.createdAt)),
-      and(
-        eq(transactions.occurredOn, b.occurredOn),
-        eq(transactions.createdAt, b.createdAt),
-        lt(transactions.id, b.id),
-      ),
-    ),
+    sql`(${transactions.occurredOn}, ${transactions.createdAt}, ${transactions.id}) <
+        (${b.occurredOn}::date, ${b.createdAt}::timestamptz, ${b.id}::uuid)`,
   );
 }
 
@@ -463,13 +491,16 @@ export async function listFeedPage(
   if (profileIds.length === 0) return [];
   // The cursor's `(occurred_on, created_at, id)` order is exactly
   // `transactions_profile_date_idx`'s trailing columns, so one profile reads
-  // straight off the index — no sort, and the page costs the same at any depth
-  // in history. Several profiles need the same merge as the list: a btree led by
+  // straight off the index — no sort, and (because `feedConditions` seeks rather
+  // than filters) the page costs the same at any depth in history. Several
+  // profiles need the same merge as the list: a btree led by
   // `profile_id` orders by profile first, so `profile_id in (…)` cannot produce
   // global date order and Postgres falls back to sorting the whole match set.
   // "All profiles" is a supported mode on the app's busiest page, so it gets one
-  // ordered scan per profile too. No offset to cover here — the cursor
-  // predicate is the same in every branch, so `limit` rows per branch is enough.
+  // ordered scan per profile too. There is no offset here, and that is what
+  // makes `limit` rows per branch enough: the global top-`limit` can take at
+  // most `limit` rows from any one branch. Add an offset and each branch would
+  // have to cover it, the way `pageOf` does.
   const merged = opts.profileId
     ? null
     : mergeAppend(

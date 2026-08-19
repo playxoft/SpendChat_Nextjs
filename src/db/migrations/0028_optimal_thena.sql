@@ -24,8 +24,12 @@
 -- transaction, so nobody observes an intermediate state — but lock duration is
 -- observable. `CREATE INDEX` holds SHARE (writes queue, reads pass), while
 -- `DROP INDEX` holds ACCESS EXCLUSIVE (reads block too). Dropping first would
--- hold that stronger lock across the entire index build. `IF EXISTS` keeps the
--- drops replayable on a database whose schema arrived via `db:push`.
+-- hold that stronger lock across the entire index build. That argument applies
+-- to a database seeing this for the first time, which is every deployed one;
+-- a branch that ran the earlier version takes ACCESS EXCLUSIVE at the leading
+-- drop and holds it through the rebuild, which is a fine trade for a dev branch.
+-- `IF EXISTS` keeps the drops replayable on a database whose schema arrived via
+-- `db:push`.
 --
 -- On a large `transactions` table the build is long enough to matter: prefer
 -- `CREATE INDEX CONCURRENTLY` / `DROP INDEX CONCURRENTLY` by hand and then

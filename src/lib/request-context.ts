@@ -15,9 +15,10 @@ import { runWithRequestCache } from "@/lib/request-cache";
  * `X-Client-Platform` header: "web" for server actions (only the Next.js app
  * invokes them), "api" for the mobile REST API.
  *
- * The same scope carries the per-request read memo (`request-cache.ts`). These
- * two are the only entry points outside an RSC render, which is exactly where
- * React's `cache()` stops memoizing — so this is where the substitute belongs.
+ * The same scope carries the per-request read memo (`request-cache.ts`). Every
+ * non-RSC entry point goes through this function, and outside an RSC render is
+ * exactly where React's `cache()` stops memoizing — so this is where the
+ * substitute belongs.
  */
 export function withRequestContext<T>(
   fallbackPlatform: string,

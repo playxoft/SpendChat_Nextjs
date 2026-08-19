@@ -142,7 +142,10 @@ and `runAction()` for server actions (`withRequestContext` in
 (`getApiContext` stamps user+workspace; the transaction service stamps the
 resolved `profileId`; `runAction` seeds from the action's `meta`). If you add a
 new request entry point outside those seams, wrap it in `withRequestContext(...)`
-so its logs aren't identity-less. `requestId` is Cloudflare's `cf-ray` in prod
+so its logs aren't identity-less — and because the same scope carries the
+per-request read memo (`src/lib/request-cache.ts`), which is what stands in for
+React's `cache()` everywhere outside an RSC render (React silently stops
+memoizing there). `requestId` is Cloudflare's `cf-ray` in prod
 (a generated uuid in dev); `platform` comes from the `X-Client-Platform` header
 (`web` for server actions, `api` when a mobile request omits it) — documented in
 the mobile API contract (`_developer/flutter/*`), so a change there follows the

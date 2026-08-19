@@ -364,9 +364,10 @@ export const transactions = pgTable(
     // `nulls_first` exactly — it does *not* reason "the column is NOT NULL, so
     // the null ordering can't matter". Get this wrong and the index is still
     // built, still used for the `profile_id` lookup, and still shows a
-    // `Merge Append` in EXPLAIN, but every branch underneath it becomes a
-    // sequential scan plus a top-N sort: measured on Postgres 18, 8,412 buffer
-    // reads for a page of 50 instead of 64.
+    // `Merge Append` in EXPLAIN — but every branch underneath it becomes a scan
+    // of the whole profile plus a top-N sort. Measured on Postgres 18 against
+    // 300,000 rows across three profiles, one page of 50: 164 buffer reads with
+    // the null ordering below, 31,793 without it.
     index("transactions_profile_date_idx").on(
       t.profileId,
       t.occurredOn.desc().nullsFirst(),

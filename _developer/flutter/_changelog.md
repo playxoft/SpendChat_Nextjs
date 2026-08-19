@@ -23,11 +23,15 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 `GET /transactions` returns a stable order for rows that tie on time.
 
-Transactions created in a single bulk request share `occurredOn` **and**
-`createdAt` to the microsecond. The list previously ordered only by those two,
+A bulk request writes its whole batch in one statement, so those transactions
+always share `createdAt` to the microsecond, and share `occurredOn` too whenever
+the drafts name the same date. The list previously ordered only by those two,
 leaving tied rows in an undefined order — so with `limit`/`offset` paging the
 same row could come back on two consecutive pages, or be skipped between them.
 Ordering now falls through to `id` as a final tiebreaker.
+
+`GET /transactions/export` reads the same query, so its CSV row order is now
+total in the same way.
 
 Newest-first ordering is otherwise unchanged, and no field, status or shape
 moved. The underlying query was also rewritten for performance; that part is
