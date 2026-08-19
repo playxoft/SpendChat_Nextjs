@@ -39,10 +39,12 @@ export function memoizeForRequest<T>(key: string, load: () => Promise<T>): Promi
   if (!store) return load();
   const hit = store.get(key);
   if (hit) return hit as Promise<T>;
-  const pending = load().catch((err: unknown) => {
+  const pending: Promise<T> = load().catch((err: unknown) => {
     // Don't let one failed round trip stand in for every later read of the same
     // key. The caller still sees the rejection; the next one gets a fresh try.
-    store.delete(key);
+    // Only evict ourselves: a `forgetForRequest` plus a fresh load can have
+    // replaced this entry already, and that one is healthy.
+    if (store.get(key) === pending) store.delete(key);
     throw err;
   });
   store.set(key, pending);

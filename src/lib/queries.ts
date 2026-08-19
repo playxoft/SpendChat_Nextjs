@@ -108,6 +108,10 @@ const accessibleProfileIdList = cache(
  * such path. Without this the read after the write would still be scoped to the
  * profiles that existed before it, and the row it just wrote would read as
  * absent.
+ *
+ * This clears the request-scoped memo, not React's `cache`, which has no
+ * eviction. That is enough because the two never both apply: `cache` only
+ * memoizes inside an RSC render, and nothing mutates during one.
  */
 export function forgetAccessibleProfiles(userId: string, workspaceId: string): void {
   forgetForRequest(profileIdsKey(userId, workspaceId));
@@ -271,9 +275,11 @@ function mergeAppend(branches: ReturnType<typeof pageBranch>[], limit: number, o
  * The merge-append shape only fits the newest-first order the index is built
  * for; every other sort falls through to the single-scan form. Note that
  * `sort=date` descending *is* that order — the table's Date header cycles
- * asc → desc → unsorted, and the desc step emits exactly the same three columns
+ * unsorted → asc → desc, and the desc step emits exactly the same three columns
  * in the same direction — so it merges too. Reading `f.sort` alone would make
- * one click on a header quietly cost the whole workspace again.
+ * the second click on that header quietly cost the whole workspace. The first
+ * click can't be rescued: ascending by date still descending by the tiebreakers
+ * mixes directions, and no single index serves that.
  */
 function pageOf(profileIds: string[], f: TxnFilters) {
   const db = getDb();
@@ -461,9 +467,12 @@ export type FeedCursor = { occurredOn: string; createdAt: Date; id: string };
  * on a 300,000-row table at a cursor 150,000 rows deep: 43 buffer reads against
  * 50,453.
  *
- * The two are equivalent only because all three columns are NOT NULL (a NULL
- * anywhere makes a row comparison NULL rather than false), and the seek only
- * works because `transactions_profile_date_idx` sorts all three the same way.
+ * The seek only works because `transactions_profile_date_idx` sorts all three
+ * columns the same way. What the form needs to be *correct*, though, is that
+ * the cursor names the row it came from exactly: it is a bound, so a value a
+ * fraction early silently excludes everything tied with that row. `created_at`
+ * is `timestamptz(3)` for precisely that reason — see the column — because the
+ * cursor round-trips through a JavaScript `Date`.
  */
 function feedConditions(profileIds: string[], opts: { profileId?: string; before?: FeedCursor }) {
   const base = buildConditions(profileIds, { profileId: opts.profileId });

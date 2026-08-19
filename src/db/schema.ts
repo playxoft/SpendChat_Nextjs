@@ -342,7 +342,20 @@ export const transactions = pgTable(
     // the shared `TRANSACTION_DESCRIPTION_MAX`, in lockstep with validation.
     description: varchar("description", { length: TRANSACTION_DESCRIPTION_MAX }),
     occurredOn: date("occurred_on").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // Millisecond precision, deliberately — this is the only timestamp in the
+    // schema that a client sends back to us. It is the middle term of the
+    // tracker feed's keyset cursor (`listFeedPage`), and the round trip goes
+    // through a JavaScript `Date`, which holds milliseconds and silently drops
+    // the microseconds Postgres would otherwise store. The cursor would then
+    // name an instant fractionally *before* the row it came from, and every row
+    // tied with that row — a bulk import shares `created_at` to the microsecond
+    // across the whole batch — would sort after the cursor and be skipped. Rows
+    // that exist, that the table shows, that scrolling the feed can never
+    // reach. `timestamptz(3)` makes the round trip lossless, so ties stay ties
+    // and `id` breaks them. Do not widen it without changing the cursor.
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

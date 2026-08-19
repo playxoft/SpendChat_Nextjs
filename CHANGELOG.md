@@ -64,6 +64,14 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   jumps straight to where the last page ended. On a profile with 300,000
   transactions, a page 150,000 rows deep went from about 50,000 block reads to
   43.
+- **Transactions imported together no longer disappear from the tracker feed.**
+  A batch is written in one go, so every row in it carries the same timestamp
+  down to the microsecond — but the marker the feed uses to ask for the next
+  page could only carry milliseconds. Anything sharing a timestamp with the last
+  row on a page was quietly stepped over: import a hundred transactions dated
+  the same day and the feed showed the first forty, then jumped past the rest.
+  They were still in the table and the totals; they just could not be scrolled
+  to. Timestamps are now recorded at the precision the marker can carry.
 - Sorting the transactions table by Date, then clicking to reverse it, no longer
   falls back to the slow path — that click produces the list's own default
   order, so it now costs what the default costs.

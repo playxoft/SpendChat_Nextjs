@@ -11,6 +11,7 @@ import {
   type TransactionRow,
 } from "@/lib/queries";
 import { setLogContext } from "@/lib/log-context";
+import { logger } from "@/lib/logger";
 import { time } from "@/lib/timing";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { rolesAtLeast } from "@/lib/rbac";
@@ -177,8 +178,15 @@ export async function createTransaction(
   );
   // We just wrote it into a profile this user can reach, so a miss means the
   // read's scoping disagrees with the write's. Say that, rather than handing a
-  // null down the serializer and failing somewhere unrelated.
-  if (!created) throw new Error(`Transaction ${id} was written but is not readable back`);
+  // null down the serializer and failing somewhere unrelated. The id stays out
+  // of the message — it's interpolated into the log line — and goes in `meta`.
+  if (!created) {
+    logger.error("A transaction was written but could not be read back", {
+      event: "transaction.write_read_mismatch",
+      transactionId: id,
+    });
+    throw new Error("Transaction was written but is not readable back");
+  }
   return created;
 }
 

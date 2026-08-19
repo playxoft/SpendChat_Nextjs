@@ -30,7 +30,9 @@
  * be the thing that empties them.
  *
  * Exit codes: 0 healthy · 1 past the storage threshold · 2 bad usage or a cap we
- * can't read (so a gate never passes blind) · 3 the run itself failed.
+ * can't read (so a gate never passes blind) · 3 the run itself failed. A cap we
+ * can't read also skips the sweep: if the database can't tell us its own state,
+ * that is not the moment to delete from it.
  */
 import pg from "pg";
 
@@ -161,11 +163,15 @@ async function main() {
 
   // The verdict comes before the sweep on purpose: it is the one line the run
   // exists to produce, and a failure further down must not swallow it.
+  let prune = PRUNE;
   if (used === null && capMb === null) {
     console.error(
-      "\nFAIL neon.max_cluster_size is not readable — cannot tell how much headroom is left.",
+      "\nFAIL neon.max_cluster_size is not readable — cannot tell how much headroom is left." +
+        "\n     Skipping the retention sweep: if we can't read the database's own idea of" +
+        "\n     its health, this is not the moment to delete from it.",
     );
     process.exitCode = 2;
+    prune = false;
   } else if (used !== null && used >= WARN_AT) {
     console.error(
       `\nFAIL storage is at ${pct(used)} of the ${mb(capBytes)} cap (threshold ${WARN_AT}%).` +
@@ -188,7 +194,7 @@ async function main() {
     "\nlargest tables  " + tables.map((t) => `${t.name} ${mb(Number(t.bytes))}`).join(", "),
   );
 
-  if (PRUNE) {
+  if (prune) {
     const cutoff = `${RETENTION_DAYS} days`;
     let total = 0;
     // Table names are interpolated, so this list must stay a hard-coded literal
@@ -216,7 +222,8 @@ async function main() {
     }
     if (total === 0) console.log(`pruned          nothing older than ${cutoff}`);
   } else {
-    console.log(`pruned          skipped (${args.find((a) => SWITCHES.includes(a))})`);
+    const why = PRUNE ? "unreadable storage cap" : args.find((a) => SWITCHES.includes(a));
+    console.log(`pruned          skipped (${why})`);
   }
 
   // Slowest statements, when pg_stat_statements is available. Being in
