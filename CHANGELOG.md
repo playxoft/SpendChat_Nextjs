@@ -18,6 +18,27 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.5.5] — 2026-08-19
+
+### Fixed
+
+- **Opening the files vault no longer slows down as the vault fills up.** The
+  page builds its list from two tables — uploaded files and transaction
+  attachments — and both were indexed by workspace, while every read of either
+  is scoped by profile. That's the same mismatch `transactions` had in 0.5.4,
+  in the same place, and both also sorted their dates the one way Postgres
+  won't match to the order the vault asks for. So the page read everything it
+  could see and sorted the lot to show the first screen. On a vault of 60,000
+  files, opening it went from reading 1,336 blocks to 22. This is the normal
+  view, which shows one profile; "All profiles" still sorts, and is unchanged.
+- Merging two profiles no longer re-reads every file in the database once for
+  each tag name the two have in common.
+
+### Changed
+
+- Replaced those indexes with ones the listings read straight off, plus plain
+  ones for the storage-quota total.
+
 ## [0.5.4] — 2026-08-19
 
 ### Added

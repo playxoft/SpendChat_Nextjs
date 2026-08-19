@@ -50,3 +50,53 @@ jobs:
 
       - name: Typecheck
         run: pnpm typecheck
+
+      # Lives here rather than in the test job so it reports independently: a PR
+      # that both breaks a test and forgets a generated migration should learn
+      # both facts in one run, not one per push. Needs nothing the steps above
+      # haven't already installed.
+      #
+      # `--porcelain` rather than `git diff`, because drift shows up as a *new*
+      # migration file, which a diff against HEAD would not see. And
+      # `db:generate` is guarded: for a rename it wants an interactive prompt,
+      # and on a runner it exits non-zero before the message below could print.
+      - name: Check for schema drift
+        run: |
+          pnpm db:generate < /dev/null || {
+            echo "::error::pnpm db:generate could not run non-interactively (a rename needs a prompt) — run it locally and commit the result"
+            exit 1
+          }
+          drift="$(git status --porcelain -- src/db/migrations)"
+          if [ -n "$drift" ]; then
+            echo "::error::schema.ts and src/db/migrations disagree — run pnpm db:generate and commit the result"
+            echo "$drift"
+            exit 1
+          fi
+
+  # Setup below intentionally mirrors lint-and-typecheck; the comments on that
+  # job explain why the Node version and the pnpm action are pinned the way they
+  # are. Keep the two in step.
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # No secrets and no service container: the integration suite runs Postgres
+      # in-process via PGlite and applies the real migrations to it, so this also
+      # catches a migration that won't replay. Whole run is well under a minute.
+      - name: Test
+        run: pnpm test

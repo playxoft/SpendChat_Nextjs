@@ -4,6 +4,8 @@ import {
   listTransactions,
   listTransactionsAsc,
   listFeedPage,
+  listVaultFiles,
+  listTransactionFilesForVault,
   getTransactionById,
   countTransactions,
   getSummary,
@@ -23,7 +25,7 @@ import {
   insertTxn,
   workspaceIdOf,
 } from "./helpers/seed";
-import { getTestDb } from "./helpers/test-db";
+import { captureSql, getTestClient, getTestDb } from "./helpers/test-db";
 
 const U = uid("q");
 let W: string;
@@ -447,5 +449,75 @@ describe("getWorkspaceStorageUsage", () => {
 
     expect(await getWorkspaceStorageUsage(W)).toBe(7_000);
     expect(await getWorkspaceStorageUsage(otherWs)).toBe(999);
+  });
+});
+
+/**
+ * These guard a class of bug, not one instance of it.
+ *
+ * Postgres matches an index to a sort on pathkeys that compare the null
+ * ordering **exactly** — it does not reason "the column is NOT NULL, so this
+ * can't matter". Drizzle's `.desc()` emits `DESC NULLS LAST`, but `ORDER BY x
+ * DESC` means `DESC NULLS FIRST`, so a `.desc()` index silently fails to serve
+ * the sort it was built for: still created, still used for the leading-column
+ * lookup, and `EXPLAIN` still shows the shape you expected, with the `Sort`
+ * hiding one level down. It cost `transactions` 31,793 buffer reads a page
+ * instead of 164 before anyone noticed, and the vault's two tables carried the
+ * same mistake for months after.
+ */
+describe("index/sort agreement", () => {
+  it("has no index whose null ordering our ORDER BYs can't use", async () => {
+    // Postgres prints only *non-default* null ordering, and the default follows
+    // the direction: `NULLS FIRST` for DESC, `NULLS LAST` for ASC. So anything
+    // printed here — `DESC NULLS LAST`, or a bare `NULLS FIRST` on an ascending
+    // column — is by definition the half no plain `ORDER BY` can match.
+    const { rows } = await getTestDb().execute(sql`
+      select indexname, indexdef from pg_indexes
+      where schemaname = 'public'
+        and (indexdef like '%DESC NULLS LAST%' or indexdef like '%NULLS FIRST%')
+      order by indexname`);
+    expect(rows.map((r) => `${r.indexname}: ${r.indexdef}`)).toEqual([]);
+  });
+
+  it("indexes the vault's two tables by the column their reads scope to", async () => {
+    const { rows } = await getTestDb().execute(sql`
+      select indexname, regexp_replace(indexdef, '^.* USING ', '') as shape
+      from pg_indexes
+      where schemaname = 'public' and tablename in ('files', 'transaction_attachments')
+      order by indexname`);
+    expect(rows.map((r) => `${r.indexname}: ${r.shape}`)).toEqual([
+      "files_folder_idx: btree (folder_id)",
+      "files_pkey: btree (id)",
+      "files_profile_created_idx: btree (profile_id, created_at DESC, id DESC)",
+      "files_workspace_idx: btree (workspace_id)",
+      "transaction_attachments_pkey: btree (id)",
+      "txn_attachments_profile_created_idx: btree (profile_id, created_at DESC, id DESC)",
+      "txn_attachments_txn_idx: btree (transaction_id, created_at)",
+      "txn_attachments_workspace_idx: btree (workspace_id)",
+    ]);
+  });
+
+  // The index existing proves nothing if the query stops being able to use it,
+  // so this explains the listing's *own* SQL and asserts the planner sorts
+  // nothing. Both halves of the vault page, since it awaits them together.
+  it("plans both vault listings without a sort when scoped to one profile", async () => {
+    for (const [label, run] of [
+      ["files", () => listVaultFiles(U, W, personal)],
+      ["attachments", () => listTransactionFilesForVault(U, W, personal)],
+    ] as const) {
+      const statements = await captureSql(run);
+      const listing = statements.find(
+        (s) => s.text.includes("order by") && s.text.includes("limit"),
+      );
+      expect(listing, `no listing statement captured for ${label}`).toBeTruthy();
+      const explained = await getTestClient().query(
+        `explain (costs off) ${listing!.text}`,
+        listing!.params,
+      );
+      const plan = (explained.rows as { "QUERY PLAN": string }[])
+        .map((r) => r["QUERY PLAN"])
+        .join("\n");
+      expect(plan, `${label} listing sorts:\n${plan}`).not.toMatch(/\bSort\b/);
+    }
   });
 });

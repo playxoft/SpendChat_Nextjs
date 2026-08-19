@@ -441,12 +441,23 @@ export const transactionAttachments = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // The primary read: all attachments for a transaction, oldest first.
+    // The primary read: all attachments for a transaction, oldest first. This
+    // is the correlated subquery every transaction row carries.
     index("txn_attachments_txn_idx").on(t.transactionId, t.createdAt),
-    // FK maintenance for the profile/workspace cascade deletes.
-    index("txn_attachments_profile_idx").on(t.profileId),
-    // Per-workspace listing / future storage metering.
-    index("txn_attachments_workspace_idx").on(t.workspaceId, t.createdAt),
+    // The vault's other half (`listTransactionFilesForVault`), which sits in the
+    // same `Promise.all` as `listVaultFiles` and so has to be as fast as it is —
+    // a page is only as quick as the slower of the two. Same shape and same
+    // reasoning as `files_profile_created_idx`, `nullsFirst()` included. Covers
+    // the `profile_id` FK cascade as a leading-column prefix.
+    index("txn_attachments_profile_created_idx").on(
+      t.profileId,
+      t.createdAt.desc().nullsFirst(),
+      t.id.desc().nullsFirst(),
+    ),
+    // The storage-quota sum and the workspace FK cascade. It used to carry
+    // `created_at` for a "per-workspace listing" that does not exist — nothing
+    // pairs `workspace_id` with a date here either.
+    index("txn_attachments_workspace_idx").on(t.workspaceId),
   ],
 );
 
@@ -573,10 +584,40 @@ export const files = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // The vault's default listing: a workspace's files, newest first.
-    index("files_workspace_created_idx").on(t.workspaceId, t.createdAt.desc()),
-    // Browsing a folder + FK maintenance for the cascades.
-    index("files_profile_idx").on(t.profileId),
+    // The vault's listing (`listVaultFiles`), newest first. Access scopes by
+    // `profile_id` here just as it does on `transactions` — `workspace_id` is
+    // the quota scope, not the read scope — so this leads with `profile_id` and
+    // carries the listing's exact order.
+    //
+    // It pays off when the listing is scoped to one profile, which is what
+    // `/files` resolves to unless you ask for `?profile=all`: measured on 60,000
+    // files, a page of 500 goes from a sequential scan and a top-N sort at 1,336
+    // buffer reads to an index scan with no sort node at 22. The page reads
+    // `transaction_attachments` in the same `Promise.all`, so that table carries
+    // the twin of this index — fixing one alone would not have moved the page.
+    // Note the mobile
+    // route defaults the other way — `GET /api/v1/files` with no `profile` param
+    // means *all* of them — and that widens to `profile_id in (…)`, which no
+    // btree returns in global date order, so it still sorts. The fix there is
+    // the per-profile merge `listFeedPage` uses, if it ever earns one.
+    //
+    // `nullsFirst()` matters for the same reason it does on
+    // `transactions_profile_date_idx`: `.desc()` alone emits `DESC NULLS LAST`,
+    // which the planner will not match against `ORDER BY x DESC` — sorted that
+    // way this index measures the same 1,336 buffers as having no index at all.
+    // Also serves the profile-delete sweep, the tag detach, the file count, and
+    // the `profile_id` FK cascade, all as a leading-column prefix. (One query
+    // escapes it: the tag merge in `moveProfileData` matches on `tag_ids` alone,
+    // with no profile predicate, and full-scans regardless.)
+    index("files_profile_created_idx").on(
+      t.profileId,
+      t.createdAt.desc().nullsFirst(),
+      t.id.desc().nullsFirst(),
+    ),
+    // The storage-quota sum (`getWorkspaceStorageUsage`) and the workspace FK
+    // cascade. No query pairs `workspace_id` with a date, so it stops here.
+    index("files_workspace_idx").on(t.workspaceId),
+    // Browsing a folder's subtree + the folder FK cascade.
     index("files_folder_idx").on(t.folderId),
   ],
 );
