@@ -14,6 +14,7 @@ import {
   users,
 } from "@/db/schema";
 import { accessibleProfileIds } from "@/lib/workspaces";
+import { memoizeForRequest } from "@/lib/request-cache";
 import type { AttachmentDTO } from "@/lib/attachments";
 import {
   serializeFile,
@@ -85,14 +86,18 @@ export type TransactionRow = {
  * whole workspace and sort — 6,052,367 buffer reads for a page of 50 at 1M rows,
  * against 401 for the merged form.
  *
- * The extra round-trip is one indexed lookup returning a handful of rows, and
- * React's `cache` dedupes it across every query in the same request.
+ * The extra round-trip is one indexed lookup returning a handful of rows, and it
+ * happens once per request however many of these queries run. That takes two
+ * memos, not one: React's `cache` covers an RSC render, and `memoizeForRequest`
+ * covers the route handlers and server actions, where React has no Flight
+ * request to hang a cache off and silently stops memoizing.
  */
 const accessibleProfileIdList = cache(
-  async (userId: string, workspaceId: string): Promise<string[]> => {
-    const rows = await accessibleProfileIds(userId, workspaceId);
-    return rows.map((r) => r.id);
-  },
+  async (userId: string, workspaceId: string): Promise<string[]> =>
+    memoizeForRequest(`accessible-profile-ids:${userId}:${workspaceId}`, async () => {
+      const rows = await accessibleProfileIds(userId, workspaceId);
+      return rows.map((r) => r.id);
+    }),
 );
 
 /**
@@ -177,23 +182,56 @@ const pageColumns = {
  * subquery the decorating joins hang off. */
 type Page = ReturnType<typeof pageOf>;
 
-/**
- * Past this many accessible profiles the per-profile merge-append stops paying
- * for itself — every branch is another index scan and another chunk of SQL — so
- * wide workspaces fall back to the single-scan form. Workspaces have a handful
- * of profiles in practice; this is a guard, not a tuning knob.
- */
+/** The widest workspace the per-profile merge is worth emitting for; see
+ * `mergeAppend`. */
 const MERGE_APPEND_MAX_BRANCHES = 24;
 
-/** One profile's slice of the page: an ordered index scan, stopped early. */
-function pageBranch(profileId: string, f: TxnFilters, take: number) {
+/**
+ * The newest-first total order, over `transactions` itself: the list's default
+ * ordering and the feed's keyset cursor, which are deliberately the same shape
+ * so one index serves both.
+ *
+ * Built fresh on every call rather than hoisted to a constant, because Drizzle
+ * rewrites a set operation's `ORDER BY` chunks **in place** (a column becomes a
+ * bare identifier, since only output column names are legal there). A shared
+ * array would come back mutated and the next non-union query built from it would
+ * emit unqualified names into a join.
+ */
+function cursorOrder() {
+  return [desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id)];
+}
+
+/** One profile's slice of a page: an ordered index scan, stopped early. */
+function pageBranch(where: SQL | undefined, take: number) {
   const db = getDb();
   return db
     .select(pageColumns)
     .from(transactions)
-    .where(buildConditions([profileId], f))
-    .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id))
+    .where(where)
+    .orderBy(...cursorOrder())
     .limit(take);
+}
+
+/**
+ * One ordered index scan per profile, `UNION ALL`-ed so Postgres can
+ * `Merge Append` them and stop at the page size.
+ *
+ * Returns null when the shape doesn't apply, so the caller can fall back to a
+ * single scan: fewer than two branches has nothing to merge, and past
+ * `MERGE_APPEND_MAX_BRANCHES` every extra branch is another index scan and
+ * another chunk of SQL for less and less benefit. Workspaces have a handful of
+ * profiles in practice; the ceiling is a guard, not a tuning knob.
+ */
+function mergeAppend(branches: ReturnType<typeof pageBranch>[], limit: number, offset = 0) {
+  // `unionAll` takes its first two operands positionally; destructuring is what
+  // proves to TypeScript that they exist.
+  const [first, second, ...rest] = branches;
+  if (!first || !second || branches.length > MERGE_APPEND_MAX_BRANCHES) return null;
+  return unionAll(first, second, ...rest)
+    .orderBy(...cursorOrder())
+    .limit(limit)
+    .offset(offset)
+    .as("page");
 }
 
 /**
@@ -221,7 +259,7 @@ function pageBranch(profileId: string, f: TxnFilters, take: number) {
  * column sort has to sort the whole match set whatever we do (no index can order
  * by a joined category name), so those fall through to the single-scan form.
  */
-function pageOf(profileIds: string[], f: TxnFilters, where?: SQL) {
+function pageOf(profileIds: string[], f: TxnFilters) {
   const db = getDb();
   const limit = f.limit ?? 100;
   const offset = f.offset ?? 0;
@@ -230,31 +268,36 @@ function pageOf(profileIds: string[], f: TxnFilters, where?: SQL) {
     db
       .select(pageColumns)
       .from(transactions)
-      .where(where ?? buildConditions(profileIds, f))
+      .where(buildConditions(profileIds, f))
       .orderBy(...orderByFor(f))
       .limit(limit)
       .offset(offset)
       .as("page");
 
-  // An explicit predicate (the by-id lookup) is already a primary-key hit; a
-  // custom sort can't merge-append; one profile is a plain ordered index scan
-  // with no merging to do.
-  if (where || f.sort || profileIds.length < 2) return singleScan();
-  if (profileIds.length > MERGE_APPEND_MAX_BRANCHES) return singleScan();
-  // `f.profileId` narrows the list to one thread — same story as one profile.
-  if (f.profileId) return singleScan();
+  // A custom sort can't merge-append (no index orders by a joined category
+  // name); `f.profileId` narrows the list to one thread, which is already a
+  // plain ordered index scan with nothing to merge.
+  if (f.sort || f.profileId) return singleScan();
 
   // Each branch must cover the offset too, since the merge happens above it.
   const take = limit + offset;
-  const branches = profileIds.map((id) => pageBranch(id, f, take));
-  // `unionAll` needs its first two operands positionally; the length guard above
-  // already promises them, this narrows the types.
-  const [first, second, ...rest] = branches;
-  if (!first || !second) return singleScan();
-  return unionAll(first, second, ...rest)
-    .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id))
-    .limit(limit)
-    .offset(offset)
+  const branches = profileIds.map((id) => pageBranch(buildConditions([id], f), take));
+  return mergeAppend(branches, limit, offset) ?? singleScan();
+}
+
+/**
+ * A single transaction by id, scoped to the caller's profiles. A primary-key hit
+ * — nothing to page and nothing to merge — so it stays its own shape rather than
+ * an option on `pageOf`, where an absent predicate would silently widen into
+ * "the newest row in the workspace".
+ */
+function rowOf(id: string, profileIds: string[]) {
+  const db = getDb();
+  return db
+    .select(pageColumns)
+    .from(transactions)
+    .where(and(eq(transactions.id, id), inArray(transactions.profileId, profileIds)))
+    .limit(1)
     .as("page");
 }
 
@@ -365,13 +408,7 @@ export async function getTransactionById(
 ): Promise<TransactionRow | null> {
   const profileIds = await accessibleProfileIdList(userId, workspaceId);
   if (profileIds.length === 0) return null;
-  const f: TxnFilters = { limit: 1 };
-  const page = pageOf(
-    profileIds,
-    f,
-    and(eq(transactions.id, id), inArray(transactions.profileId, profileIds)),
-  );
-  const [row] = await decorate(page, f);
+  const [row] = await decorate(rowOf(id, profileIds), {});
   return row ?? null;
 }
 
@@ -392,6 +429,25 @@ export const FEED_PAGE_SIZE = 40;
 /** A cursor into the feed's (occurredOn, createdAt, id) order. */
 export type FeedCursor = { occurredOn: string; createdAt: Date; id: string };
 
+/** Access scope, plus "strictly older than the cursor" in the feed's order. */
+function feedConditions(profileIds: string[], opts: { profileId?: string; before?: FeedCursor }) {
+  const base = buildConditions(profileIds, { profileId: opts.profileId });
+  const b = opts.before;
+  if (!b) return base;
+  return and(
+    base,
+    or(
+      lt(transactions.occurredOn, b.occurredOn),
+      and(eq(transactions.occurredOn, b.occurredOn), lt(transactions.createdAt, b.createdAt)),
+      and(
+        eq(transactions.occurredOn, b.occurredOn),
+        eq(transactions.createdAt, b.createdAt),
+        lt(transactions.id, b.id),
+      ),
+    ),
+  );
+}
+
 /**
  * One page of the tracker chat feed, newest-first, optionally older than a
  * cursor. Keyset paginated on (occurredOn, createdAt, id) so paging stays stable
@@ -405,41 +461,23 @@ export async function listFeedPage(
 ): Promise<TransactionRow[]> {
   const profileIds = await accessibleProfileIdList(userId, workspaceId);
   if (profileIds.length === 0) return [];
-  const f: TxnFilters = { profileId: opts.profileId, limit: opts.limit };
-  const base = buildConditions(profileIds, f);
-  const b = opts.before;
-  const where = b
-    ? and(
-        base,
-        or(
-          lt(transactions.occurredOn, b.occurredOn),
-          and(eq(transactions.occurredOn, b.occurredOn), lt(transactions.createdAt, b.createdAt)),
-          and(
-            eq(transactions.occurredOn, b.occurredOn),
-            eq(transactions.createdAt, b.createdAt),
-            lt(transactions.id, b.id),
-          ),
-        ),
-      )
-    : base;
-  // The cursor's `(occurred_on, created_at, id)` order matches
-  // `transactions_profile_date_idx` exactly, so this reads straight off the
-  // index — no sort, and the page costs the same at any depth in history.
-  const db = getDb();
-  const page = db
-    .select(pageColumns)
-    .from(transactions)
-    .where(where)
-    .orderBy(desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id))
-    .limit(opts.limit)
-    .as("page");
-  return db
-    .select(selectionFor(page))
-    .from(page)
-    .leftJoin(categories, eq(page.categoryId, categories.id))
-    .leftJoin(profiles, eq(page.profileId, profiles.id))
-    .leftJoin(users, eq(page.userId, users.id))
-    .orderBy(desc(page.occurredOn), desc(page.createdAt), desc(page.id));
+  // The cursor's `(occurred_on, created_at, id)` order is exactly
+  // `transactions_profile_date_idx`'s trailing columns, so one profile reads
+  // straight off the index — no sort, and the page costs the same at any depth
+  // in history. Several profiles need the same merge as the list: a btree led by
+  // `profile_id` orders by profile first, so `profile_id in (…)` cannot produce
+  // global date order and Postgres falls back to sorting the whole match set.
+  // "All profiles" is a supported mode on the app's busiest page, so it gets one
+  // ordered scan per profile too. No offset to cover here — the cursor
+  // predicate is the same in every branch, so `limit` rows per branch is enough.
+  const merged = opts.profileId
+    ? null
+    : mergeAppend(
+        profileIds.map((id) => pageBranch(feedConditions([id], opts), opts.limit)),
+        opts.limit,
+      );
+  const page = merged ?? pageBranch(feedConditions(profileIds, opts), opts.limit).as("page");
+  return decorate(page, {});
 }
 
 export async function countTransactions(

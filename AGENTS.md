@@ -22,6 +22,11 @@ Authentication, secrets via Doppler.
   files — reserve them for dev; prefer `db:migrate:prod` for prod so prod stays a
   reviewed, replayable migration history. `db:studio:dev` / `db:studio:prod`
   open Studio.
+- `pnpm db:health:dev` / `db:health:prod` — storage headroom against Neon's hard
+  `neon.max_cluster_size` cap (writes fail at the cap with no warning shoulder),
+  largest tables, slowest statements. Exits 1 past `--warn-at` (default 80%), so
+  it can gate a cron. **It also deletes** `ai_usage_log` / `email_send_log` rows
+  past `--retention-days` (default 30) unless you pass `-- --no-prune`.
 - `pnpm preview` / `pnpm deploy:dev` / `pnpm deploy:prod` — Worker build / deploy
 
 ## Conventions

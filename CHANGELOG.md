@@ -37,6 +37,10 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   microsecond, and rows tied on time had no defined order between them, so the
   boundary between two pages could land differently for each page. Ordering now
   falls through to the transaction's id, which is unique.
+- **The tracker feed's "All profiles" view got the same treatment.** It was
+  still reading every transaction in the workspace and sorting the lot to show
+  the newest forty; it now reads one date-ordered index per profile and stops
+  once the page is full, the way a single profile already did.
 
 ### Changed
 
@@ -52,7 +56,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   is to its Neon storage cap (writes start failing at the cap, with no warning
   shoulder), lists the largest tables, prunes rate-limit logs past a retention
   window, and shows the slowest statements. Exits non-zero past 80% so it can
-  gate a cron or CI job. `--no-prune` reports without changing anything.
+  gate a cron or CI job. `--no-prune` (or `--dry-run`) reports without changing
+  anything, and because the sweep deletes by default, a malformed or unknown
+  flag stops the run rather than being ignored.
 
 ## [0.5.3] — 2026-08-19
 

@@ -2,6 +2,8 @@ import { describe, it, expect, beforeEach } from "vitest";
 import {
   listTransactions,
   listTransactionsAsc,
+  listFeedPage,
+  getTransactionById,
   countTransactions,
   getSummary,
   getCategoryBreakdown,
@@ -11,7 +13,7 @@ import {
   getWorkspaceStorageUsage,
 } from "@/lib/queries";
 import { addProfile } from "@/actions/profiles";
-import { files, transactionAttachments } from "@/db/schema";
+import { files, transactionAttachments, transactions } from "@/db/schema";
 import { signInAs, uid } from "./helpers/session";
 import {
   bootstrapUser,
@@ -136,6 +138,123 @@ describe("listTransactions", () => {
     });
     const rows = await listTransactions(U, W);
     expect(rows.find((r) => r.title === "not mine")).toBeUndefined();
+  });
+
+  // Rows written in one statement share `occurred_on` *and* `created_at` to the
+  // microsecond, which is what `addBulkTransactions` does. Without `id` as a
+  // final tiebreaker the order between them is undefined, so the boundary
+  // between two pages can land differently for each page and a row comes back
+  // twice or not at all. Both profiles are represented, so this runs through
+  // the merge-append shape rather than a single scan.
+  describe("rows tied on both timestamps", () => {
+    const DAY = "2026-07-04";
+    const range = { from: DAY, to: DAY };
+
+    beforeEach(async () => {
+      await getTestDb()
+        .insert(transactions)
+        .values(
+          Array.from({ length: 6 }, (_, i) => ({
+            userId: U,
+            type: "expense" as const,
+            amountMinor: 100 + i,
+            occurredOn: DAY,
+            profileId: i % 2 === 0 ? personal : work,
+            title: `tie ${i}`,
+          })),
+        );
+    });
+
+    it("orders them by id, descending", async () => {
+      const ids = (await listTransactions(U, W, range)).map((r) => r.id);
+      expect(ids).toHaveLength(6);
+      expect(ids).toEqual([...ids].sort().reverse());
+    });
+
+    it("pages through them without repeating or skipping one", async () => {
+      const all = (await listTransactions(U, W, range)).map((r) => r.id);
+      const paged: string[] = [];
+      for (let offset = 0; offset < 6; offset += 2) {
+        paged.push(...(await listTransactions(U, W, { ...range, limit: 2, offset })).map((r) => r.id));
+      }
+      expect(paged).toEqual(all);
+      expect(new Set(paged).size).toBe(6);
+    });
+  });
+
+  // The page is picked from `transactions` alone and the joins hang off it, so
+  // a custom sort is expressed twice: once inside the subquery (category via a
+  // correlated subquery, since the join isn't there yet) and once outside it
+  // (via the real join). These pin the two to the same answer.
+  describe("column sorts", () => {
+    it("sorts by category name ascending, uncategorized last", async () => {
+      const rows = await listTransactions(U, W, { sort: "category", dir: "asc" });
+      expect(rows.map((r) => r.categoryName)).toEqual(["Groceries", "Groceries", "Salary", null]);
+      expect(rows.map((r) => r.title)).toEqual(["snacks", "Veg apples", "June pay", "Tools"]);
+    });
+
+    it("sorts by category name descending, uncategorized first", async () => {
+      const rows = await listTransactions(U, W, { sort: "category", dir: "desc" });
+      expect(rows.map((r) => r.categoryName)).toEqual([null, "Salary", "Groceries", "Groceries"]);
+    });
+
+    it("sorts by signed amount, so ascending runs biggest expense → biggest income", async () => {
+      const rows = await listTransactions(U, W, { sort: "amount", dir: "asc" });
+      expect(rows.map((r) => r.title)).toEqual(["Tools", "Veg apples", "snacks", "June pay"]);
+    });
+  });
+});
+
+describe("getTransactionById", () => {
+  it("returns the row with its category, profile and author joined", async () => {
+    const [target] = await listTransactions(U, W, { search: "Veg apples" });
+    const row = await getTransactionById(U, W, target!.id);
+    expect(row).toMatchObject({
+      id: target!.id,
+      title: "Veg apples",
+      categoryName: "Groceries",
+      profileId: personal,
+    });
+    expect(row!.attachments).toEqual([]);
+  });
+
+  it("reads as absent from a workspace that can't see it", async () => {
+    const [target] = await listTransactions(U, W, { search: "Veg apples" });
+    await bootstrapUser("other");
+    const otherW = await workspaceIdOf("other");
+    expect(await getTransactionById(uid("other"), otherW, target!.id)).toBeNull();
+  });
+
+  it("returns null for an id that doesn't exist", async () => {
+    expect(await getTransactionById(U, W, uid("nope"))).toBeNull();
+  });
+});
+
+describe("listFeedPage", () => {
+  it("merges every accessible profile, newest first", async () => {
+    const rows = await listFeedPage(U, W, { limit: 10 });
+    expect(rows.map((r) => r.occurredOn)).toEqual([
+      "2026-06-15",
+      "2026-06-10",
+      "2026-06-01",
+      "2026-05-20",
+    ]);
+  });
+
+  it("pages back through history from a cursor", async () => {
+    const first = await listFeedPage(U, W, { limit: 2 });
+    expect(first.map((r) => r.occurredOn)).toEqual(["2026-06-15", "2026-06-10"]);
+    const last = first[first.length - 1]!;
+    const older = await listFeedPage(U, W, {
+      limit: 2,
+      before: { occurredOn: last.occurredOn, createdAt: last.createdAt, id: last.id },
+    });
+    expect(older.map((r) => r.occurredOn)).toEqual(["2026-06-01", "2026-05-20"]);
+  });
+
+  it("can be scoped to a single profile", async () => {
+    const rows = await listFeedPage(U, W, { profileId: work, limit: 10 });
+    expect(rows.map((r) => r.title)).toEqual(["Tools"]);
   });
 });
 

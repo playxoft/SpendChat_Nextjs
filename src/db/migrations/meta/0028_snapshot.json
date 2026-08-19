@@ -1,5 +1,5 @@
 {
-  "id": "bae392f1-85b1-44a1-9e6a-e843de14f2ca",
+  "id": "6e8a842e-e680-4ec8-bacd-d23646e957b5",
   "prevId": "734a3cd0-2c92-43be-b896-9f8c216ad11b",
   "version": "7",
   "dialect": "postgresql",
@@ -1498,19 +1498,19 @@
               "expression": "occurred_on",
               "isExpression": false,
               "asc": false,
-              "nulls": "last"
+              "nulls": "first"
             },
             {
               "expression": "created_at",
               "isExpression": false,
               "asc": false,
-              "nulls": "last"
+              "nulls": "first"
             },
             {
               "expression": "id",
               "isExpression": false,
               "asc": false,
-              "nulls": "last"
+              "nulls": "first"
             }
           ],
           "isUnique": false,
