@@ -14,9 +14,69 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.9.1**) and reported as `apiVersion` by the same endpoint.
+(currently spec **5.9.3**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.5.4] — 2026-08-19
+
+### Added
+
+- `pnpm db:health:dev` / `pnpm db:health:prod` — reports how close the database
+  is to its Neon storage cap (writes start failing at the cap, with no warning
+  shoulder), lists the largest tables, prunes rate-limit logs past a retention
+  window, and shows the slowest statements. Exits non-zero past 80% so it can
+  gate a cron or CI job. `--no-prune` (or `--dry-run`) reports without changing
+  anything, and because the sweep deletes by default, a malformed or unknown
+  flag stops the run rather than being ignored.
+
+### Changed
+
+- Replaced five indexes on `transactions` with one that matches how the table is
+  actually read. Four were keyed on who entered a row, while every read is
+  scoped by which profile it belongs to, so no read could use them; the fifth
+  became redundant. Reclaims roughly 41 MB per million rows and removes that
+  much write work from every insert and update.
+
+### Fixed
+
+- **Opening the transactions list no longer gets slower as a workspace fills
+  up.** The list was fetching every transaction the workspace owned, attaching
+  each one's category, profile and author, and only then sorting and keeping the
+  first fifty. The work grew with the workspace rather than with the page, which
+  nobody would notice at a few hundred rows and everybody would notice at a few
+  tens of thousands. It now picks the fifty rows first and looks up their
+  details afterwards, reading one date-ordered index per profile and stopping as
+  soon as the page is full. Measured on a workspace of a million transactions,
+  a page went from roughly 6,050,000 block reads to a few hundred — and, more to
+  the point, that number no longer moves as the workspace grows.
+- **A row can no longer appear twice, or go missing, while scrolling the
+  list.** Transactions added together in one go share a timestamp to the
+  microsecond, and rows tied on time had no defined order between them, so the
+  boundary between two pages could land differently for each page. Ordering now
+  falls through to the transaction's id, which is unique.
+- **The tracker feed's "All profiles" view reads the same way.** It was still
+  reading every transaction in the workspace and sorting the lot to show the
+  newest forty; it now reads one date-ordered index per profile and stops once
+  the page is full.
+- **Scrolling back through the feed no longer gets slower the further back you
+  go.** Each step was re-reading the history above it and discarding it; it now
+  jumps straight to where the last page ended. On a profile with 300,000
+  transactions, a page 150,000 rows deep went from about 50,000 block reads to
+  43.
+- **Transactions imported together no longer disappear from the tracker feed.**
+  A batch is written in one go, so every row in it carries the same timestamp
+  down to the microsecond — but the marker the feed uses to ask for the next
+  page could only carry milliseconds. Anything sharing a timestamp with the last
+  row on a page was quietly stepped over: import a hundred transactions dated
+  the same day and the feed showed the first forty, then jumped past the rest.
+  They were still in the table and the totals; they just could not be scrolled
+  to. Timestamps are now recorded at the precision the marker can carry. One
+  side effect, once: transactions created before this release can report a
+  creation time up to a millisecond later than they used to.
+- Sorting the transactions table by Date, then clicking to reverse it, no longer
+  falls back to the slow path — that click produces the list's own default
+  order, so it now costs what the default costs.
 
 ## [0.5.3] — 2026-08-19
 

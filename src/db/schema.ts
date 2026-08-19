@@ -175,6 +175,10 @@ export const workspaceInvites = pgTable(
  * recipients are arbitrary addresses, so without a cap a malicious account
  * could use our verified sending domain as a spam/phishing primitive.
  * Deliberately stores no recipient address (it's PII we don't need here).
+ *
+ * Nothing in the app deletes from this table; `pnpm db:health:*` sweeps rows
+ * past its retention window (30 days by default), so the audit trail is only as
+ * long as that window. The rate limiter itself reads one hour.
  */
 export const emailSendLog = pgTable(
   "email_send_log",
@@ -197,7 +201,8 @@ export const emailSendLog = pgTable(
  * `email_send_log` — an authenticated user can otherwise loop a server action
  * that spends the operator's API budget — and it doubles as the usage record.
  * Stores no note text: the input is the user's own financial data and none of it
- * is needed to count requests.
+ * is needed to count requests. Retention is the same as `email_send_log`: only
+ * `pnpm db:health:*` ever deletes, past its window.
  */
 export const aiUsageLog = pgTable(
   "ai_usage_log",
@@ -337,25 +342,61 @@ export const transactions = pgTable(
     // the shared `TRANSACTION_DESCRIPTION_MAX`, in lockstep with validation.
     description: varchar("description", { length: TRANSACTION_DESCRIPTION_MAX }),
     occurredOn: date("occurred_on").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    // Millisecond precision, deliberately — this is the only timestamp in the
+    // schema that a client sends back to us. It is the middle term of the
+    // tracker feed's keyset cursor (`listFeedPage`), and the round trip goes
+    // through a JavaScript `Date`, which holds milliseconds and silently drops
+    // the microseconds Postgres would otherwise store. The cursor would then
+    // name an instant fractionally *before* the row it came from, and every row
+    // tied with that row — a bulk import shares `created_at` to the microsecond
+    // across the whole batch — would sort after the cursor and be skipped. Rows
+    // that exist, that the table shows, that scrolling the feed can never
+    // reach. `timestamptz(3)` makes the round trip lossless, so ties stay ties
+    // and `id` breaks them. Do not widen it without changing the cursor.
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    // Narrowed alongside `created_at`, which it has to stay comparable with:
+    // rounding one and not the other would leave rows that were never edited
+    // reporting an `updated_at` fractionally *before* their `created_at`.
+    updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
   },
   (t) => [
-    // Primary list + date-range filtering (most common query).
-    index("transactions_user_date_idx").on(t.userId, t.occurredOn.desc()),
-    // Filter by category.
-    index("transactions_user_category_idx").on(t.userId, t.categoryId),
-    // Filter by income/expense.
-    index("transactions_user_type_idx").on(t.userId, t.type),
-    // Chat feed ordering (newest first by entry time).
-    index("transactions_user_created_idx").on(t.userId, t.createdAt.desc()),
-    // Filter a user's transactions by profile (thread).
-    index("transactions_user_profile_idx").on(t.userId, t.profileId),
-    // FK maintenance: the composites above lead with user_id, so they can't
-    // serve a lookup keyed only on the FK column (category delete → set null,
-    // profile delete → restrict check). Single-column indexes for those.
+    // THE access path. Every read scopes to the profiles the caller can see in
+    // the current workspace (`transactions.user_id` is attribution, not access),
+    // then orders by the feed's cursor. Leading with `profile_id` lets Postgres
+    // merge-append one ordered index scan per accessible profile and stop at the
+    // page size, so a page costs the same whether the workspace holds 200 rows
+    // or a million. The trailing columns are exactly `listFeedPage`'s keyset
+    // cursor `(occurred_on, created_at, id)`, in the same direction, so the feed
+    // reads straight off the index with no sort.
+    //
+    // This also covers the `profile_id` FK restrict check, which is why there is
+    // no separate single-column index on it — a leading-column prefix serves it.
+    //
+    // `nullsFirst()` is load-bearing, not decoration. Drizzle's `.desc()` emits
+    // `DESC NULLS LAST`, while SQL's `ORDER BY x DESC` means `DESC NULLS FIRST`.
+    // The planner matches an index to a sort on pathkeys, and pathkeys compare
+    // `nulls_first` exactly — it does *not* reason "the column is NOT NULL, so
+    // the null ordering can't matter". Get this wrong and the index is still
+    // built, still used for the `profile_id` lookup, and still shows a
+    // `Merge Append` in EXPLAIN — but every branch underneath it becomes a scan
+    // of the whole profile plus a top-N sort. Measured on Postgres 18 against
+    // 300,000 rows across three profiles, one page of 50: 164 buffer reads with
+    // the null ordering below, 31,793 without it.
+    index("transactions_profile_date_idx").on(
+      t.profileId,
+      t.occurredOn.desc().nullsFirst(),
+      t.createdAt.desc().nullsFirst(),
+      t.id.desc().nullsFirst(),
+    ),
+    // FK maintenance: category delete → set null. Not a prefix of anything above.
     index("transactions_category_idx").on(t.categoryId),
-    index("transactions_profile_idx").on(t.profileId),
+    // The account-deletion sweep (`deleteAccount` in services/settings.ts) is the
+    // one query that filters on `user_id` alone; this serves it as a prefix.
+    index("transactions_user_profile_idx").on(t.userId, t.profileId),
   ],
 );
 

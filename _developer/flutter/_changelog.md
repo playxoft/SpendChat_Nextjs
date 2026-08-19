@@ -19,6 +19,54 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.9.3 — 2026-08-19
+
+`createdAt` is stored at millisecond precision.
+
+`transactions.created_at` was a microsecond column, but every value that ever
+reached a client went through a JavaScript `Date` first, which holds
+milliseconds — so the API has only ever *reported* milliseconds. The column now
+matches, because the tracker feed's paging marker round-trips that value and the
+lost microseconds were making it skip rows.
+
+One wrinkle worth knowing about: Postgres **rounds** when narrowing precision,
+while the driver was **truncating**. So a transaction created before this
+release, whose hidden microseconds happened to be ≥ 500µs, now reports a
+`createdAt` up to **one millisecond later** than it did before. Rows created
+after this release are exact.
+
+No field, status or shape moved.
+
+**Flutter impact:** none — unless the app compares a cached `createdAt` for
+equality against a freshly fetched one, which would now differ by up to a
+millisecond for pre-release rows. Compare by `id`.
+
+---
+
+## 5.9.2 — 2026-08-19
+
+`GET /transactions` returns a stable order for rows that tie on time.
+
+A bulk request writes its whole batch in one statement, so those transactions
+always share `createdAt` to the microsecond, and share `occurredOn` too whenever
+the drafts name the same date. The list previously ordered only by those two,
+leaving tied rows in an undefined order — so with `limit`/`offset` paging the
+same row could come back on two consecutive pages, or be skipped between them.
+Ordering now falls through to `id` as a final tiebreaker.
+
+`GET /transactions/export` reads the same query, so its CSV row order is now
+total in the same way.
+
+Newest-first ordering is otherwise unchanged, and no field, status or shape
+moved. The underlying query was also rewritten for performance; that part is
+invisible to clients.
+
+**Flutter impact:** none — no code changes needed. If the app de-duplicates
+paged transactions by id as a workaround, that guard is no longer necessary
+(harmless to keep).
+
+---
+
 ## 5.9.1 — 2026-08-19
 
 `POST /ai/parse` sentence-cases the drafts it returns.

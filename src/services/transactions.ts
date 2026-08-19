@@ -5,8 +5,13 @@ import { categories, profiles, transactionAttachments, transactions } from "@/db
 import { ensureBootstrap } from "@/lib/auth";
 import { badRequest, forbidden, validationError } from "@/lib/errors";
 import { toMinorUnits } from "@/lib/money";
-import { getTransactionById, type TransactionRow } from "@/lib/queries";
+import {
+  forgetAccessibleProfiles,
+  getTransactionById,
+  type TransactionRow,
+} from "@/lib/queries";
 import { setLogContext } from "@/lib/log-context";
+import { logger } from "@/lib/logger";
 import { time } from "@/lib/timing";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { rolesAtLeast } from "@/lib/rbac";
@@ -78,7 +83,13 @@ async function resolveProfileId(
       .values({ userId, workspaceId, name: "Personal", icon: "👤", sortOrder: 0 })
       .onConflictDoNothing()
       .returning({ id: profiles.id });
-    if (row) return row.id;
+    if (row) {
+      // This request may already have memoized "the profiles you can see", and
+      // it no longer includes all of them — the read-back below would then miss
+      // the row we're about to write.
+      forgetAccessibleProfiles(userId, workspaceId);
+      return row.id;
+    }
   }
   throw forbidden("You don't have permission to add transactions in this workspace");
 }
@@ -165,7 +176,18 @@ export async function createTransaction(
   const created = await time("createTransaction.readCreated", () =>
     getTransactionById(userId, workspaceId, id),
   );
-  return created!;
+  // We just wrote it into a profile this user can reach, so a miss means the
+  // read's scoping disagrees with the write's. Say that, rather than handing a
+  // null down the serializer and failing somewhere unrelated. The id stays out
+  // of the message — it's interpolated into the log line — and goes in `meta`.
+  if (!created) {
+    logger.error("A transaction was written but could not be read back", {
+      event: "transaction.write_read_mismatch",
+      transactionId: id,
+    });
+    throw new Error("Transaction was written but is not readable back");
+  }
+  return created;
 }
 
 /**

@@ -1,13 +1,15 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.9.1"
+  version: "5.9.3"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
 
-    **Spec version:** 5.5.0 — see `_changelog.md` (this folder) for the
-    per-version history of API changes (what the Flutter app needs to update).
+    **Spec version** is `info.version` above — deliberately not repeated here,
+    because a second copy is a second thing to forget (this line said 5.5.0 for
+    four releases). See `_changelog.md` (this folder) for the per-version history
+    of API changes: what the Flutter app needs to update.
 
     **Telemetry header.** Send `X-Client-Platform: android | ios` on every
     request so server logs attribute the platform. It's optional and never
@@ -285,6 +287,12 @@ paths:
     get:
       tags: [Transactions]
       summary: List transactions (newest first)
+      description: >
+        Newest first, ordered by `occurredOn desc, createdAt desc, id desc`.
+        The `id` tiebreaker makes the ordering total, so `limit`/`offset` paging
+        cannot repeat or skip rows that tie on both timestamps — which
+        bulk-created transactions routinely do, since a batch is written in one
+        statement and so always shares `createdAt`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/type"

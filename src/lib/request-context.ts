@@ -1,6 +1,7 @@
 import "server-only";
 import { headers } from "next/headers";
 import { runWithLogContext, seedFromHeaders, setLogContext } from "@/lib/log-context";
+import { runWithRequestCache } from "@/lib/request-cache";
 
 /**
  * Establish a per-request logging context around `fn` so every log emitted
@@ -13,6 +14,12 @@ import { runWithLogContext, seedFromHeaders, setLogContext } from "@/lib/log-con
  * `fallbackPlatform` is the platform to record when the client sends no
  * `X-Client-Platform` header: "web" for server actions (only the Next.js app
  * invokes them), "api" for the mobile REST API.
+ *
+ * The same scope carries the per-request read memo (`request-cache.ts`). Every
+ * *non-RSC* entry point that resolves an identity goes through this function —
+ * an RSC render resolves one too, but React's `cache()` already memoizes there,
+ * and outside a render is exactly where it stops. So this is where the
+ * substitute belongs.
  */
 export function withRequestContext<T>(
   fallbackPlatform: string,
@@ -27,6 +34,6 @@ export function withRequestContext<T>(
       // Outside a request scope the seed still gets a generated id + platform.
     }
     setLogContext(seedFromHeaders(get, fallbackPlatform));
-    return fn();
+    return runWithRequestCache(fn);
   });
 }

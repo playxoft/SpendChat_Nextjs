@@ -132,6 +132,11 @@ Maintainer (Doppler-backed) equivalents: `pnpm dev`, `pnpm build`, `pnpm preview
 `pnpm deploy:dev` / `pnpm deploy:prod`, and `pnpm db:migrate:dev` /
 `pnpm db:migrate:prod` / `pnpm db:studio:dev` / `pnpm db:studio:prod`.
 
+`pnpm db:health:dev` / `pnpm db:health:prod` report how much of Neon's storage
+cap is used (writes start failing at the cap) and exit non-zero past 80%, so a
+cron can catch it early. They also **delete** rate-limit-log rows older than 30
+days — add `-- --no-prune` to report without changing anything.
+
 > Every DB script names its environment explicitly — there is no bare default, so
 > you can't apply a migration to the wrong database by forgetting a flag.
 

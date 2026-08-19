@@ -22,6 +22,11 @@ Authentication, secrets via Doppler.
   files — reserve them for dev; prefer `db:migrate:prod` for prod so prod stays a
   reviewed, replayable migration history. `db:studio:dev` / `db:studio:prod`
   open Studio.
+- `pnpm db:health:dev` / `db:health:prod` — storage headroom against Neon's hard
+  `neon.max_cluster_size` cap (writes fail at the cap with no warning shoulder),
+  largest tables, slowest statements. Exits 1 past `--warn-at` (default 80%), so
+  it can gate a cron. **It also deletes** `ai_usage_log` / `email_send_log` rows
+  past `--retention-days` (default 30) unless you pass `-- --no-prune`.
 - `pnpm preview` / `pnpm deploy:dev` / `pnpm deploy:prod` — Worker build / deploy
 
 ## Conventions
@@ -137,7 +142,10 @@ and `runAction()` for server actions (`withRequestContext` in
 (`getApiContext` stamps user+workspace; the transaction service stamps the
 resolved `profileId`; `runAction` seeds from the action's `meta`). If you add a
 new request entry point outside those seams, wrap it in `withRequestContext(...)`
-so its logs aren't identity-less. `requestId` is Cloudflare's `cf-ray` in prod
+so its logs aren't identity-less — and because the same scope carries the
+per-request read memo (`src/lib/request-cache.ts`), which is what stands in for
+React's `cache()` everywhere outside an RSC render (React silently stops
+memoizing there). `requestId` is Cloudflare's `cf-ray` in prod
 (a generated uuid in dev); `platform` comes from the `X-Client-Platform` header
 (`web` for server actions, `api` when a mobile request omits it) — documented in
 the mobile API contract (`_developer/flutter/*`), so a change there follows the
