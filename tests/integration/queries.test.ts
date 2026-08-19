@@ -497,17 +497,75 @@ describe("index/sort agreement", () => {
     ]);
   });
 
+  // The merge assembles the page from one scan per profile, so the thing worth
+  // proving is that it lands on exactly the rows and the order a single scan
+  // would have. Ties on `created_at` across profiles are the interesting part —
+  // that is where a merge can interleave differently from a sort.
+  it("returns the same page merged across profiles as a single scan would", async () => {
+    const db = getTestDb();
+    await db.execute(sql`
+      insert into files (workspace_id, profile_id, user_id, r2_key, name, content_type, size_bytes, created_at)
+      select ${W}::uuid, (array[${personal}::uuid, ${work}::uuid])[1 + (i % 2)], ${U}::uuid,
+             'm/' || i, 'm' || i || '.pdf', 'application/pdf', 10 + i,
+             -- Only three distinct instants across 30 rows, so most of them tie.
+             timestamptz '2021-03-04 10:00:00+00' + ((i % 3) || ' seconds')::interval
+      from generate_series(1, 30) i`);
+
+    const merged = await listVaultFiles(U, W);
+    const { rows: reference } = await db.execute(sql`
+      select id::text from files
+      where profile_id in (${sql.raw([personal, work].map((p) => `'${p}'::uuid`).join(", "))})
+      order by created_at desc, id desc
+      limit 500`);
+
+    expect(merged.map((f) => f.id)).toEqual(reference.map((r) => r.id));
+    expect(new Set(merged.map((f) => f.id)).size).toBe(merged.length);
+  });
+
   // The index existing proves nothing if the query stops being able to use it,
-  // so this explains the listing's *own* SQL and asserts the planner sorts
-  // nothing. Both halves of the vault page, since it awaits them together.
-  it("plans both vault listings without a sort when scoped to one profile", async () => {
-    for (const [label, run] of [
-      ["files", () => listVaultFiles(U, W, personal)],
-      ["attachments", () => listTransactionFilesForVault(U, W, personal)],
+  // so this explains each listing's *own* SQL and asserts the page is read
+  // through the index rather than scanned. Enough rows are seeded that a
+  // sequential scan is clearly the worse plan, or the planner would rightly
+  // pick one on a handful of fixtures and the assertion would mean nothing.
+  //
+  // Note what is *not* asserted: the outer query re-sorts, and always will —
+  // joining a subquery does not preserve its order, so the listing restates it.
+  // That sort is over the page (<= 500 rows), not the table. What the index
+  // buys is everything below it.
+  it("reads both vault listings through the index, one profile or all", async () => {
+    const db = getTestDb();
+    await db.execute(sql`
+      insert into files (workspace_id, profile_id, user_id, r2_key, name, content_type, size_bytes, created_at)
+      select ${W}::uuid, (array[${personal}::uuid, ${work}::uuid])[1 + (i % 2)], ${U}::uuid,
+             'k/' || i, 'f' || i || '.pdf', 'application/pdf', 1000 + i,
+             timestamptz '2020-01-01' + (i || ' seconds')::interval
+      from generate_series(1, 4000) i`);
+    const txnId = await insertTxn(U, {
+      type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: personal,
+    });
+    await db.execute(sql`
+      insert into transaction_attachments
+        (transaction_id, profile_id, workspace_id, user_id, r2_key, file_name, content_type, size_bytes, created_at)
+      select ${txnId}::uuid, (array[${personal}::uuid, ${work}::uuid])[1 + (i % 2)], ${W}::uuid, ${U}::uuid,
+             'a/' || i, 'a' || i || '.pdf', 'application/pdf', 100 + i,
+             timestamptz '2020-01-01' + (i || ' seconds')::interval
+      from generate_series(1, 4000) i`);
+    await db.execute(sql`analyze files`);
+    await db.execute(sql`analyze transaction_attachments`);
+
+    for (const [label, table, index, run] of [
+      ["files, one profile", "files", "files_profile_created_idx", () => listVaultFiles(U, W, personal)],
+      ["files, all profiles", "files", "files_profile_created_idx", () => listVaultFiles(U, W)],
+      ["attachments, one profile", "transaction_attachments", "txn_attachments_profile_created_idx",
+        () => listTransactionFilesForVault(U, W, personal)],
+      // All profiles is what `GET /api/v1/files` takes by default, so it is the
+      // one that has to hold up — and it only does because of the merge.
+      ["attachments, all profiles", "transaction_attachments", "txn_attachments_profile_created_idx",
+        () => listTransactionFilesForVault(U, W)],
     ] as const) {
       const statements = await captureSql(run);
       const listing = statements.find(
-        (s) => s.text.includes("order by") && s.text.includes("limit"),
+        (st) => st.text.includes("order by") && st.text.includes("limit"),
       );
       expect(listing, `no listing statement captured for ${label}`).toBeTruthy();
       const explained = await getTestClient().query(
@@ -517,7 +575,8 @@ describe("index/sort agreement", () => {
       const plan = (explained.rows as { "QUERY PLAN": string }[])
         .map((r) => r["QUERY PLAN"])
         .join("\n");
-      expect(plan, `${label} listing sorts:\n${plan}`).not.toMatch(/\bSort\b/);
+      expect(plan, `${label} scans ${table}:\n${plan}`).not.toContain(`Seq Scan on ${table}`);
+      expect(plan, `${label} ignores ${index}:\n${plan}`).toContain(index);
     }
   });
 });
