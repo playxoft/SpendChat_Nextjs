@@ -18,6 +18,25 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.6.0] — 2026-08-21
+
+### Added
+
+- **If you're already signed in, the home page offers to take you to the app.**
+  A card slides in on the right — "Go to app", plus a checkbox to make that the
+  default. Tick it and visiting the home page sends you straight to your
+  tracker from then on, on that browser. Dismiss it and it stays quiet for the
+  rest of the visit.
+- Changed your mind? Open **`/?stay=1`** to load the home page anyway; the card
+  appears with the box already ticked, so you can untick it there.
+
+### Notes
+
+- Signed-out visitors see none of this — the home page is exactly as it was, and
+  it stays statically rendered, so nothing about its speed or search indexing
+  changes. The preference is per browser rather than per account, which is what
+  lets the home page skip an account lookup before deciding where to send you.
+
 ## [0.5.7] — 2026-08-21
 
 ### Fixed
