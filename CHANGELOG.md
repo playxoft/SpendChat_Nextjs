@@ -18,6 +18,19 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.5.7] — 2026-08-21
+
+### Fixed
+
+- **AI mode now goes quiet while you switch profile or workspace, the way
+  manual entry already did.** Only the manual side of the composer dimmed and
+  locked during a switch; the AI note stayed live, so you could keep typing,
+  hold the mic, parse a note, or confirm a reviewed batch while the profile
+  underneath you was still changing — and a batch confirmed in that window
+  landed in whichever profile finished loading. Both sides now dim and lock
+  together, including the note, the mic (its hold-to-talk shortcut included),
+  and the review list's Save.
+
 ## [0.5.6] — 2026-08-19
 
 ### Fixed

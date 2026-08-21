@@ -42,6 +42,7 @@ import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import { useHoldShortcut, useIsMac } from "@/hooks/use-shortcut";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
 import { VoiceListeningStrip, VoiceMicButton } from "./voice-mic";
+import { useLoadingOverlay } from "./loading-overlay";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
@@ -248,6 +249,11 @@ export function AiTransactionInput({
   const [rows, setRows] = useState<Row[] | null>(null);
   const [parsing, startParse] = useTransition();
   const [saving, startSave] = useTransition();
+  // A profile or workspace switch in flight. Manual disables its whole fieldset
+  // on this; AI has to as well, or the two panes disagree about whether the
+  // composer is usable — and a note parsed against the old profile would save
+  // into the new one.
+  const { pending: switching } = useLoadingOverlay();
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
   const idRef = useRef(0);
   const nextKey = () => ++idRef.current;
@@ -380,6 +386,9 @@ export function AiTransactionInput({
   );
 
   function handleParse() {
+    // Mirrors the manual composer's `submit()`: ignore while switching, since
+    // the profile the drafts would land in is mid-change.
+    if (switching) return;
     const note = text.trim();
     if (!note) {
       toast.error("Type a note first");
@@ -457,13 +466,17 @@ export function AiTransactionInput({
   // the review list has no textarea to dictate into. `allowInInput` stays false
   // so typing "m" in the note types an m, exactly like the other bare-key
   // shortcuts.
-  const voiceEnabled = mode === "ai" && !rows && !parsing;
+  // `!switching` is load-bearing in a way the rest of this pane's disabling is
+  // not: `useHoldShortcut` binds to `window`, so unlike every control below it
+  // the fieldset can't switch it off.
+  const voiceEnabled = mode === "ai" && !rows && !parsing && !switching;
   useHoldShortcut(voiceCombo, voice.start, voice.stop, {
     enabled: voiceEnabled,
     requireNoOverlay: true,
   });
 
   function handleConfirm() {
+    if (switching) return;
     if (!rows) return;
     if (validRows.length === 0) {
       toast.error("Add an amount and a title to at least one row");
@@ -580,7 +593,10 @@ export function AiTransactionInput({
       // taller than Manual, and both panes share one grid cell — so every dense
       // trim here (one-row note, smaller buttons, less bottom padding) shows up
       // as dead space removed from *Manual* too.
-      <div className="flex h-full flex-col gap-1.5">
+      <fieldset
+        disabled={switching}
+        className="m-0 flex h-full min-w-0 flex-col gap-1.5 border-0 p-0 transition-opacity disabled:opacity-60"
+      >
         {/* `MODE_ROW_DENSE` verbatim — Manual's control strip uses the same
             class so the toggle lands on the exact same pixel in both panes. */}
         <div className={dense ? MODE_ROW_DENSE : "flex items-center gap-2"}>
@@ -713,13 +729,16 @@ export function AiTransactionInput({
             <span className="font-mono text-foreground">( )</span> for a note.
           </p>
         )}
-      </div>
+      </fieldset>
     );
   }
 
   // Review state: an editable row per parsed draft, then confirm.
   return (
-    <div className="flex flex-col gap-2">
+    <fieldset
+      disabled={switching}
+      className="m-0 flex min-w-0 flex-col gap-2 border-0 p-0 transition-opacity disabled:opacity-60"
+    >
       <div className="flex items-center gap-2">
         <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} pane="ai" />
         <p className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -903,6 +922,6 @@ export function AiTransactionInput({
           {saving ? "Saving…" : `Add ${validRows.length}`}
         </Button>
       </div>
-    </div>
+    </fieldset>
   );
 }
