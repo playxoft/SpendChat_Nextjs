@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { onIdTokenChanged } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
+import { notifyHandoffChange } from "@/lib/app-redirect";
 
 /**
  * Keeps the server's `__session` cookie in sync with Firebase's client-side
@@ -27,6 +28,12 @@ export function AuthBridge() {
         } else {
           await fetch("/api/auth/session", { method: "DELETE" });
         }
+        // Those two requests are what set and clear the landing page's session
+        // hint, server-side — nothing in the browser can see that write. Say so
+        // here, or `/` renders its handoff against a hint that arrived after it
+        // last looked, and only a reload would fix it (in either direction: a
+        // card that never appears, or one still offering the app after sign-out).
+        notifyHandoffChange();
       } catch {
         // Transient network error — the next token change re-syncs.
       }

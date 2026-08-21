@@ -18,6 +18,34 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.6.1] — 2026-08-21
+
+### Fixed
+
+- **The home page's "go to app" card now closes when you close it.** If you had
+  ticked "Always take me straight here", the ✕ did nothing — on `/?stay=1`, the
+  one page where you were most likely to press it.
+- **Ticking that box no longer throws you out of the page you're on.** It sets
+  what happens on your *next* visit; before, the tick itself redirected you
+  immediately, and the only way back was a URL nothing on the page mentioned.
+  The card now says where that way back is.
+- If the app doesn't open within a few seconds, the home page comes back with a
+  "Try again" instead of leaving you on a spinner you can't get out of.
+- The card now appears (and disappears) as soon as you sign in or out, rather
+  than waiting for the next reload — including after signing out in another tab.
+- **A held mic no longer keeps recording when you switch profile or workspace.**
+  The switch disabled the button mid-press, which left the recording running to
+  its one-minute cut-off with your mic still open.
+- ⌘/Ctrl+E and `a` are now ignored during a profile or workspace switch, like
+  the rest of the composer already was — they could flip the transaction type
+  (clearing the chosen category) or swap entry modes on a locked composer. `r`
+  and `b` likewise no longer open an add dialog mid-switch.
+
+### Changed
+
+- The **Cookie Policy** now lists the two cookies the home page handoff uses
+  (`sc_signed_in`, `sc_go_to_app`), what each holds, and how to clear them.
+
 ## [0.6.0] — 2026-08-21
 
 ### Added

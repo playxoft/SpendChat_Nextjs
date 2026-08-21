@@ -21,6 +21,7 @@
  * trade-off is that the preference is per-browser rather than per-account.
  */
 
+import { deleteCookie, readCookie, writeCookie } from "@/lib/cookies";
 import { SESSION_HINT_COOKIE } from "@/lib/session-cookie";
 
 const PREF_COOKIE = "sc_go_to_app";
@@ -41,13 +42,16 @@ const DISMISSED_KEY = "spendchat:app-handoff-dismissed";
 /** Fired when the preference changes, so the prompt can re-render. */
 export const APP_REDIRECT_CHANGE_EVENT = "spendchat:app-redirect-change";
 
-function readCookie(name: string): string | null {
-  if (typeof document === "undefined") return null;
-  // Escape the name: it lands in a regex, and a future rename containing a
-  // metacharacter would otherwise silently match the wrong thing.
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]*)`));
-  return match?.[1] ?? null;
+/**
+ * Tell the store its cookies may have changed. The writers below call it; so
+ * does `AuthBridge`, because the session hint is written **server-side** by
+ * `/api/auth/session` — nothing on this side can observe that write, so without
+ * the nudge the feature stays inert for the whole visit in which a session
+ * first appears.
+ */
+export function notifyHandoffChange() {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(APP_REDIRECT_CHANGE_EVENT));
 }
 
 /** Whether this browser holds a session. A hint for UI only — see the module doc. */
@@ -61,10 +65,9 @@ export function prefersApp(): boolean {
 }
 
 export function setPrefersApp(value: boolean) {
-  document.cookie = value
-    ? `${PREF_COOKIE}=1; path=/; max-age=${PREF_MAX_AGE_SECONDS}; samesite=lax`
-    : `${PREF_COOKIE}=; path=/; max-age=0; samesite=lax`;
-  window.dispatchEvent(new Event(APP_REDIRECT_CHANGE_EVENT));
+  if (value) writeCookie(PREF_COOKIE, "1", PREF_MAX_AGE_SECONDS);
+  else deleteCookie(PREF_COOKIE);
+  notifyHandoffChange();
 }
 
 export function isPromptDismissed(): boolean {
@@ -82,10 +85,12 @@ export function dismissPrompt() {
   try {
     sessionStorage.setItem(DISMISSED_KEY, "1");
   } catch {
-    // Non-fatal: the prompt reappears on the next navigation, which is a far
-    // better failure than a thrown error on the marketing site.
+    // Non-fatal, and *not* what makes the close button work: the caller keeps
+    // its own in-memory dismissal for this render (see `AppHandoff`). This
+    // write is only the durable half — it's what keeps the card down when the
+    // visitor navigates back to `/` later in the same tab.
   }
-  window.dispatchEvent(new Event(APP_REDIRECT_CHANGE_EVENT));
+  notifyHandoffChange();
 }
 
 /**
@@ -121,11 +126,22 @@ let cached: HandoffState = SERVER_SNAPSHOT;
 
 export function subscribeHandoff(callback: () => void) {
   window.addEventListener(APP_REDIRECT_CHANGE_EVENT, callback);
-  // Back/forward can add or drop `?stay=1` without a reload.
+  // Back/forward can add or drop `?stay=1` without a reload — and so can a soft
+  // navigation, which fires `pushState` instead of `popstate`, so re-read on
+  // both. `pageshow` covers a bfcache restore, where the cookies may have
+  // changed in another tab while this page sat frozen; `visibilitychange` and
+  // `focus` cover that same tab coming back without a restore (signing out
+  // elsewhere should stop this page offering the app).
   window.addEventListener("popstate", callback);
+  window.addEventListener("pageshow", callback);
+  window.addEventListener("focus", callback);
+  document.addEventListener("visibilitychange", callback);
   return () => {
     window.removeEventListener(APP_REDIRECT_CHANGE_EVENT, callback);
     window.removeEventListener("popstate", callback);
+    window.removeEventListener("pageshow", callback);
+    window.removeEventListener("focus", callback);
+    document.removeEventListener("visibilitychange", callback);
   };
 }
 
@@ -151,4 +167,35 @@ export function getHandoffSnapshot(): HandoffState {
 
 export function getHandoffServerSnapshot(): HandoffState {
   return SERVER_SNAPSHOT;
+}
+
+/** What the landing page shows a visitor: nothing, the card, or the cover while
+ * it hands them over to `/app`. */
+export type HandoffView = "redirect" | "card" | "hidden";
+
+/**
+ * The single place the four inputs are weighed, kept pure so every combination
+ * is testable — the gating used to be a chain of early returns in the component,
+ * where `dismissed && !prefers` quietly made the close button a no-op for
+ * exactly the visitors most likely to press it.
+ */
+export function handoffView(
+  { signedIn, prefers, dismissed, stay }: HandoffState,
+  options: {
+    /**
+     * The visitor changed the preference during *this* visit. The box records
+     * what should happen next time; acting on a tick immediately would turn a
+     * checkbox into a one-click one-way door out of the only page that can
+     * untick it.
+     */
+    changedHere?: boolean;
+    /** The redirect was started and never arrived. Show the card — it holds the
+     * only working way out (a real link, and the checkbox). */
+    stalled?: boolean;
+  } = {},
+): HandoffView {
+  if (!signedIn) return "hidden";
+  if (prefers && !stay && !options.changedHere && !options.stalled) return "redirect";
+  if (dismissed) return "hidden";
+  return "card";
 }

@@ -33,6 +33,13 @@ const BAR_COUNT = 9;
  * gesture, however it ended (up, cancel, or the button unmounting). Every
  * handler funnels into `onStop`, which is idempotent, so the overlap is free.
  *
+ * One ending it does **not** cover: this button being `disabled` while still
+ * held. A disabled control dispatches no pointer events, and disabling doesn't
+ * release the capture (only leaving the document does), so nothing here fires
+ * at all — the hold has to be ended by whoever disabled the button. That's what
+ * the AI pane's "stop on switch" effect is for; a caller that disables this
+ * mid-gesture and forgets owes the user an open mic until the 60s auto-stop.
+ *
  * A browser that steals the gesture (scroll, permission prompt on some touch
  * platforms) fires `pointercancel`, which also stops. That can cost the very
  * first recording — the one where the permission prompt appears — but "your

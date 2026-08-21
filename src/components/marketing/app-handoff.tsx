@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import {
   dismissPrompt,
   getHandoffServerSnapshot,
   getHandoffSnapshot,
+  handoffView,
   setPrefersApp,
   subscribeHandoff,
 } from "@/lib/app-redirect";
@@ -22,11 +23,19 @@ import {
  * That is the whole reason the state lives in cookies read on the client (see
  * `lib/app-redirect.ts`); the page stays statically rendered and indexable.
  *
- * Once the box is ticked, `/` stops rendering for that browser and goes
- * straight to `/app`. `?stay=1` is the way back — it suppresses the redirect for
- * one visit and shows this card with the box already ticked, so the switch that
- * turned the behaviour on is also the one that turns it off.
+ * Once the box is ticked, `/` stops rendering for that browser **from the next
+ * visit** and goes straight to `/app`. `?stay=1` is the way back — it suppresses
+ * the redirect for one visit and shows this card with the box already ticked, so
+ * the switch that turned the behaviour on is also the one that turns it off.
+ * `handoffView` decides which of the three states this is; everything here is
+ * the rendering of that decision.
  */
+
+/** How long to wait for `/app` before giving the page back. Long enough that a
+ * slow cold start still lands on the app, short enough that a failed navigation
+ * isn't an indefinite spinner over a page the visitor can't reach. */
+const REDIRECT_TIMEOUT_MS = 6000;
+
 export function AppHandoff() {
   const router = useRouter();
   // Everything comes from one external store, including `?stay=1` — reading the
@@ -34,22 +43,44 @@ export function AppHandoff() {
   // or out of static rendering. During hydration the store serves the frozen
   // server snapshot ("signed out"), so the prerendered HTML and the first
   // client render agree; the real values land on the re-render straight after.
-  const { signedIn, prefers, dismissed, stay } = useSyncExternalStore(
+  const state = useSyncExternalStore(
     subscribeHandoff,
     getHandoffSnapshot,
     getHandoffServerSnapshot,
   );
 
-  const redirecting = signedIn && prefers && !stay;
+  // Dismissal, held here as well as in sessionStorage: storage throws in a
+  // private or partitioned context, and without this the X would dispatch its
+  // event, the store would re-read the same "not dismissed", and the button
+  // would visibly do nothing.
+  const [dismissedHere, setDismissedHere] = useState(false);
+  // The box was ticked during this visit — see `handoffView`.
+  const [changedHere, setChangedHere] = useState(false);
+  // `/app` was asked for and never arrived.
+  const [stalled, setStalled] = useState(false);
+
+  const view = handoffView(
+    { ...state, dismissed: state.dismissed || dismissedHere },
+    { changedHere, stalled },
+  );
 
   useEffect(() => {
-    if (redirecting) router.replace("/app");
-  }, [redirecting, router]);
+    if (view !== "redirect") return;
+    router.replace("/app");
+    // `router.replace` reports nothing back: if the RSC fetch 5xxes, times out
+    // on a cold DB, or the visitor is offline with the static shell cached,
+    // `view` stays "redirect" forever and the cover below sits over a fully
+    // rendered page with no way through it — the preference that put them there
+    // is only editable from behind it. Give the page back instead; the card's
+    // "Go to app" is a plain link, i.e. a real second attempt.
+    const timer = setTimeout(() => setStalled(true), REDIRECT_TIMEOUT_MS);
+    return () => clearTimeout(timer);
+  }, [view, router]);
 
   // While the redirect is in flight, cover the page. The static HTML has
   // already painted by the time hydration runs, so without this the landing
   // page flashes on every visit for someone who asked never to see it.
-  if (redirecting) {
+  if (view === "redirect") {
     return (
       <div
         className="fixed inset-0 z-[60] flex items-center justify-center bg-background"
@@ -61,11 +92,7 @@ export function AppHandoff() {
     );
   }
 
-  if (!signedIn) return null;
-  // Already going straight to the app, and not here to change that: the card
-  // would be offering something that is already happening.
-  if (prefers && !stay) return null;
-  if (dismissed && !prefers) return null;
+  if (view === "hidden") return null;
 
   return (
     <div
@@ -79,7 +106,10 @@ export function AppHandoff() {
           type="button"
           variant="ghost"
           size="icon"
-          onClick={dismissPrompt}
+          onClick={() => {
+            setDismissedHere(true);
+            dismissPrompt();
+          }}
           aria-label="Dismiss"
           className="absolute top-1.5 right-1.5 size-7 text-muted-foreground"
         >
@@ -87,26 +117,44 @@ export function AppHandoff() {
         </Button>
 
         <div className="pr-6">
-          <p className="text-sm font-medium">You&rsquo;re signed in</p>
+          <p className="text-sm font-medium">
+            {stalled ? "Still here?" : "You’re signed in"}
+          </p>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Pick up where you left off.
+            {stalled ? "Opening the app took too long." : "Pick up where you left off."}
           </p>
         </div>
 
         <Button asChild className="w-full gap-2">
           <a href="/app">
-            Go to app
+            {stalled ? "Try again" : "Go to app"}
             <ArrowRight className="size-4" />
           </a>
         </Button>
 
         <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
           <Checkbox
-            checked={prefers}
-            onCheckedChange={(checked) => setPrefersApp(checked === true)}
+            checked={state.prefers}
+            onCheckedChange={(checked) => {
+              // Recorded now, acted on next visit: `changedHere` is what stops
+              // the tick from redirecting the page out from under the person
+              // who just ticked it.
+              setChangedHere(true);
+              setPrefersApp(checked === true);
+            }}
           />
           Always take me straight here
         </label>
+
+        {/* `?stay=1` is the only way back once this is on, so it has to be
+            written down somewhere the visitor will actually see it — and this
+            card is the one place they're guaranteed to be looking at it. */}
+        {state.prefers && (
+          <p className="text-xs text-muted-foreground">
+            From your next visit this page opens the app. To see it again, untick
+            above or open <span className="font-mono text-foreground">/?stay=1</span>.
+          </p>
+        )}
       </div>
     </div>
   );

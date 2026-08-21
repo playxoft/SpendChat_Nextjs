@@ -4,6 +4,8 @@
  * tracking scripts once this cookie reads "granted", so nothing loads —
  * and trackEvent() stays a no-op — until the visitor accepts.
  */
+import { readCookie, writeCookie } from "@/lib/cookies";
+
 export type ConsentValue = "granted" | "denied";
 
 const COOKIE_NAME = "cookie_consent";
@@ -15,13 +17,14 @@ export const CONSENT_CHANGE_EVENT = "spendchat:cookie-consent-change";
 export const CONSENT_REOPEN_EVENT = "spendchat:cookie-consent-reopen";
 
 export function readConsent(): ConsentValue | null {
-  if (typeof document === "undefined") return null;
-  const match = document.cookie.match(/(?:^|;\s*)cookie_consent=(granted|denied)/);
-  return (match?.[1] as ConsentValue | undefined) ?? null;
+  // Anything else — an empty value, or a hand-edited one — reads as "not
+  // decided yet", which keeps the scripts blocked and re-asks.
+  const value = readCookie(COOKIE_NAME);
+  return value === "granted" || value === "denied" ? value : null;
 }
 
 export function writeConsent(value: ConsentValue) {
-  document.cookie = `${COOKIE_NAME}=${value}; path=/; max-age=${COOKIE_MAX_AGE_SECONDS}; samesite=lax`;
+  writeCookie(COOKIE_NAME, value, COOKIE_MAX_AGE_SECONDS);
   window.dispatchEvent(new CustomEvent<ConsentValue>(CONSENT_CHANGE_EVENT, { detail: value }));
 }
 

@@ -2,9 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   getHandoffServerSnapshot,
   getHandoffSnapshot,
+  handoffView,
   hasSessionHint,
   prefersApp,
   setPrefersApp,
+  type HandoffState,
+  type HandoffView,
 } from "@/lib/app-redirect";
 
 /**
@@ -143,5 +146,71 @@ describe("getHandoffSnapshot", () => {
     expect(getHandoffSnapshot().stay).toBe(false);
     vi.stubGlobal("window", { dispatchEvent: () => true, location: { search: "?stay=1" } });
     expect(getHandoffSnapshot().stay).toBe(true);
+  });
+});
+
+/**
+ * Every combination of the four inputs, written out rather than derived, so the
+ * table states the intended semantics instead of restating the implementation.
+ * The two rows worth reading twice are `stay` + `dismissed` (the close button
+ * has to work on `/?stay=1`, which is where a visitor with the preference on
+ * always lands) and `prefers` + `dismissed` (dismissing silences the card; it
+ * never cancels a preference the visitor set deliberately).
+ */
+const state = (
+  signedIn: boolean,
+  prefers: boolean,
+  dismissed: boolean,
+  stay: boolean,
+): HandoffState => ({ signedIn, prefers, dismissed, stay });
+
+const TABLE: [HandoffState, HandoffView][] = [
+  // Signed out: nothing at all, whatever else is set. This is every crawler and
+  // every stranger, i.e. the landing page's actual audience.
+  [state(false, false, false, false), "hidden"],
+  [state(false, false, false, true), "hidden"],
+  [state(false, false, true, false), "hidden"],
+  [state(false, false, true, true), "hidden"],
+  [state(false, true, false, false), "hidden"],
+  [state(false, true, false, true), "hidden"],
+  [state(false, true, true, false), "hidden"],
+  [state(false, true, true, true), "hidden"],
+  // Signed in, no preference: offer once per visit, and stay quiet after the X.
+  [state(true, false, false, false), "card"],
+  [state(true, false, false, true), "card"],
+  [state(true, false, true, false), "hidden"],
+  [state(true, false, true, true), "hidden"],
+  // Signed in with the preference: straight through, unless `?stay=1` says the
+  // visitor came here to change it.
+  [state(true, true, false, false), "redirect"],
+  [state(true, true, false, true), "card"],
+  [state(true, true, true, false), "redirect"],
+  // …and the X works there, which it did not when the gate read
+  // `dismissed && !prefers`.
+  [state(true, true, true, true), "hidden"],
+];
+
+describe("handoffView", () => {
+  it.each(TABLE)("%o → %s", (input, expected) => {
+    expect(handoffView(input)).toBe(expected);
+  });
+
+  it("does not redirect on the tick that sets the preference", () => {
+    // Otherwise the checkbox is a one-click one-way door: ticking it on `/`
+    // yanks the visitor to the app before they can untick it, and the only way
+    // back is a URL they have never been shown.
+    const ticked = state(true, true, false, false);
+    expect(handoffView(ticked)).toBe("redirect");
+    expect(handoffView(ticked, { changedHere: true })).toBe("card");
+  });
+
+  it("still hides the card after the tick if it was already dismissed", () => {
+    expect(handoffView(state(true, true, true, false), { changedHere: true })).toBe("hidden");
+  });
+
+  it("gives the page back when the redirect never arrives", () => {
+    // The cover is opaque and full-screen; without this the visitor is left
+    // staring at a spinner with no way to reach the checkbox that put it there.
+    expect(handoffView(state(true, true, false, false), { stalled: true })).toBe("card");
   });
 });
