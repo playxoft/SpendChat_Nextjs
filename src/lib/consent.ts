@@ -4,12 +4,11 @@
  * tracking scripts once this cookie reads "granted", so nothing loads —
  * and trackEvent() stays a no-op — until the visitor accepts.
  */
-import { readCookie, writeCookie } from "@/lib/cookies";
+import { SIX_MONTHS_SECONDS, readCookie, writeCookie } from "@/lib/cookies";
 
 export type ConsentValue = "granted" | "denied";
 
 const COOKIE_NAME = "cookie_consent";
-const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180; // 180 days
 
 /** Fired on the window whenever consent is recorded, so AnalyticsProvider can react. */
 export const CONSENT_CHANGE_EVENT = "spendchat:cookie-consent-change";
@@ -24,7 +23,7 @@ export function readConsent(): ConsentValue | null {
 }
 
 export function writeConsent(value: ConsentValue) {
-  writeCookie(COOKIE_NAME, value, COOKIE_MAX_AGE_SECONDS);
+  writeCookie(COOKIE_NAME, value, SIX_MONTHS_SECONDS);
   window.dispatchEvent(new CustomEvent<ConsentValue>(CONSENT_CHANGE_EVENT, { detail: value }));
 }
 

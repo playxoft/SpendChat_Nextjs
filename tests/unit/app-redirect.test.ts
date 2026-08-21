@@ -4,6 +4,7 @@ import {
   getHandoffSnapshot,
   handoffView,
   hasSessionHint,
+  isPromptDismissed,
   prefersApp,
   setPrefersApp,
   type HandoffState,
@@ -115,6 +116,28 @@ describe("setPrefersApp", () => {
   });
 });
 
+describe("isPromptDismissed", () => {
+  it("is false, not a crash, in a browser that blocks storage", () => {
+    // Chrome with all cookies blocked (and a partitioned or sandboxed context)
+    // throws from the `sessionStorage` accessor itself, so even
+    // `typeof sessionStorage` throws. The check has to sit *inside* the try, or
+    // the guard against storage throwing is the throw — on a path
+    // `useSyncExternalStore` runs during every render of the landing page.
+    Object.defineProperty(globalThis, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new DOMException("The operation is insecure.", "SecurityError");
+      },
+    });
+    try {
+      expect(isPromptDismissed()).toBe(false);
+      expect(() => getHandoffSnapshot()).not.toThrow();
+    } finally {
+      Reflect.deleteProperty(globalThis, "sessionStorage");
+    }
+  });
+});
+
 describe("getHandoffSnapshot", () => {
   it("returns the same reference while nothing changes", () => {
     // useSyncExternalStore compares by identity; a fresh object every call is
@@ -156,6 +179,12 @@ describe("getHandoffSnapshot", () => {
  * has to work on `/?stay=1`, which is where a visitor with the preference on
  * always lands) and `prefers` + `dismissed` (dismissing silences the card; it
  * never cancels a preference the visitor set deliberately).
+ *
+ * The table is run **as at arrival** — `arrivedWithPreference` mirrors
+ * `signedIn && prefers`, which is the state a page load actually presents. The
+ * cases where it does *not* mirror them (a tick, or a session that appears
+ * mid-visit) are the separate tests below, and they're the whole reason the
+ * option exists.
  */
 const state = (
   signedIn: boolean,
@@ -163,6 +192,9 @@ const state = (
   dismissed: boolean,
   stay: boolean,
 ): HandoffState => ({ signedIn, prefers, dismissed, stay });
+
+const onArrival = (s: HandoffState) =>
+  handoffView(s, { arrivedWithPreference: s.signedIn && s.prefers });
 
 const TABLE: [HandoffState, HandoffView][] = [
   // Signed out: nothing at all, whatever else is set. This is every crawler and
@@ -186,31 +218,63 @@ const TABLE: [HandoffState, HandoffView][] = [
   [state(true, true, false, true), "card"],
   [state(true, true, true, false), "redirect"],
   // …and the X works there, which it did not when the gate read
-  // `dismissed && !prefers`.
+  // `dismissed && !prefers`. (Arriving on `?stay=1` clears an *older*
+  // dismissal — see `clearPromptDismissal` — so this row is the visitor
+  // pressing X on the card in front of them.)
   [state(true, true, true, true), "hidden"],
 ];
 
 describe("handoffView", () => {
   it.each(TABLE)("%o → %s", (input, expected) => {
-    expect(handoffView(input)).toBe(expected);
+    expect(onArrival(input)).toBe(expected);
   });
 
   it("does not redirect on the tick that sets the preference", () => {
     // Otherwise the checkbox is a one-click one-way door: ticking it on `/`
     // yanks the visitor to the app before they can untick it, and the only way
-    // back is a URL they have never been shown.
+    // back is a URL they have never been shown. A tick means `prefers` is true
+    // now but was not at arrival.
     const ticked = state(true, true, false, false);
-    expect(handoffView(ticked)).toBe("redirect");
-    expect(handoffView(ticked, { changedHere: true })).toBe("card");
+    expect(handoffView(ticked, { arrivedWithPreference: true })).toBe("redirect");
+    expect(handoffView(ticked, { arrivedWithPreference: false })).toBe("card");
+  });
+
+  it("does not redirect when the session appears mid-visit", () => {
+    // `sc_go_to_app` lives 180 days and the session hint 30, so a visitor can
+    // hold the preference while signed out. They land on `/`, start reading,
+    // sign in in another tab, and come back to this one — which re-reads the
+    // cookies on focus. Acting on the preference *then* would navigate them off
+    // a page they had settled on, so arrival is what counts.
+    expect(handoffView(state(true, true, false, false), { arrivedWithPreference: false })).toBe(
+      "card",
+    );
   });
 
   it("still hides the card after the tick if it was already dismissed", () => {
-    expect(handoffView(state(true, true, true, false), { changedHere: true })).toBe("hidden");
+    expect(
+      handoffView(state(true, true, true, false), { arrivedWithPreference: false }),
+    ).toBe("hidden");
   });
 
   it("gives the page back when the redirect never arrives", () => {
-    // The cover is opaque and full-screen; without this the visitor is left
-    // staring at a spinner with no way to reach the checkbox that put it there.
-    expect(handoffView(state(true, true, false, false), { stalled: true })).toBe("card");
+    // The cover is an opaque modal; without this the visitor is left staring at
+    // a spinner with no way to reach the checkbox that put it there.
+    expect(
+      handoffView(state(true, true, false, false), {
+        arrivedWithPreference: true,
+        stalled: true,
+      }),
+    ).toBe("card");
+  });
+
+  it("lets an untick take effect during a stalled redirect", () => {
+    // The card shown after a stall is the only place to turn this off, so the
+    // live cookie has to win over what arrival looked like.
+    expect(
+      handoffView(state(true, false, false, false), {
+        arrivedWithPreference: true,
+        stalled: true,
+      }),
+    ).toBe("card");
   });
 });

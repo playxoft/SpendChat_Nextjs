@@ -46,6 +46,13 @@ describe("readCookie", () => {
     expect(readCookie("tz")).toBeNull();
   });
 
+  it("survives a value that isn't valid percent-encoding", () => {
+    // Written by something other than us — decoding throws, and the raw text is
+    // a better answer than an exception on the landing page.
+    cookieJar = "x=100%";
+    expect(readCookie("x")).toBe("100%");
+  });
+
   it("returns an empty value rather than treating it as missing", () => {
     // The callers decide what an empty value means; conflating it with "absent"
     // here would hide a cookie that was cleared by writing an empty string.
@@ -66,7 +73,22 @@ describe("readCookie", () => {
 describe("writeCookie", () => {
   it("scopes to the whole site and sets the max-age it was given", () => {
     writeCookie("tz", "Asia/Kolkata", 60);
-    expect(writes).toEqual(["tz=Asia/Kolkata; path=/; max-age=60; samesite=lax"]);
+    // Percent-encoded on the way out; Next's parser decodes on the way in, so
+    // the server still reads "Asia/Kolkata".
+    expect(writes).toEqual(["tz=Asia%2FKolkata; path=/; max-age=60; samesite=lax"]);
+  });
+
+  it("encodes a value that would otherwise truncate the cookie", () => {
+    // A raw ";" ends the value and turns its tail into a bogus attribute — the
+    // stored cookie would silently be "a" and the rest would vanish.
+    writeCookie("x", "a; max-age=0", 60);
+    expect(writes[0]).toBe("x=a%3B%20max-age%3D0; path=/; max-age=60; samesite=lax");
+  });
+
+  it("round-trips through readCookie", () => {
+    writeCookie("x", "a; b=c, d /e", 60);
+    cookieJar = writes[0]!.split(";")[0]!;
+    expect(readCookie("x")).toBe("a; b=c, d /e");
   });
 
   it("omits Secure off https, where the browser would refuse the cookie", () => {

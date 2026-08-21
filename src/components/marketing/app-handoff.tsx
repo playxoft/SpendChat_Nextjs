@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  clearPromptDismissal,
   dismissPrompt,
   getHandoffServerSnapshot,
   getHandoffSnapshot,
@@ -33,7 +34,7 @@ import {
 
 /** How long to wait for `/app` before giving the page back. Long enough that a
  * slow cold start still lands on the app, short enough that a failed navigation
- * isn't an indefinite spinner over a page the visitor can't reach. */
+ * isn't an indefinite cover over a page the visitor can't reach. */
 const REDIRECT_TIMEOUT_MS = 6000;
 
 export function AppHandoff() {
@@ -49,19 +50,40 @@ export function AppHandoff() {
     getHandoffServerSnapshot,
   );
 
+  // What arrival looked like — see `handoffView`'s `arrivedWithPreference`.
+  // Read in the initializer rather than an effect so the cover paints on the
+  // same commit as the first real snapshot, with no frame of landing page in
+  // between; it can't affect hydration, because the store is still serving its
+  // "signed out" server snapshot on that render.
+  const [arrivedWithPreference] = useState(() => {
+    if (typeof window === "undefined") return false;
+    const arrival = getHandoffSnapshot();
+    return arrival.signedIn && arrival.prefers;
+  });
+
   // Dismissal, held here as well as in sessionStorage: storage throws in a
-  // private or partitioned context, and without this the X would dispatch its
+  // private or partitioned context, and without this the ✕ would dispatch its
   // event, the store would re-read the same "not dismissed", and the button
   // would visibly do nothing.
   const [dismissedHere, setDismissedHere] = useState(false);
-  // The box was ticked during this visit — see `handoffView`.
-  const [changedHere, setChangedHere] = useState(false);
   // `/app` was asked for and never arrived.
   const [stalled, setStalled] = useState(false);
+  const coverRef = useRef<HTMLDialogElement>(null);
+
+  // Arriving on `?stay=1` is a request for this card, so it outranks a ✕ from
+  // earlier in the tab — otherwise the dismissal would hide the only control
+  // that can turn the preference off. Pressing ✕ *here* still works: that sets
+  // `dismissedHere` for this page view.
+  // Read from the store rather than from `state`, so this is unambiguously an
+  // arrival-only effect: re-running it whenever `stay` flips would undo a
+  // dismissal the visitor made on this very page.
+  useEffect(() => {
+    if (getHandoffSnapshot().stay) clearPromptDismissal();
+  }, []);
 
   const view = handoffView(
     { ...state, dismissed: state.dismissed || dismissedHere },
-    { changedHere, stalled },
+    { arrivedWithPreference, stalled },
   );
 
   useEffect(() => {
@@ -77,18 +99,29 @@ export function AppHandoff() {
     return () => clearTimeout(timer);
   }, [view, router]);
 
-  // While the redirect is in flight, cover the page. The static HTML has
-  // already painted by the time hydration runs, so without this the landing
-  // page flashes on every visit for someone who asked never to see it.
+  // The cover is a real modal, opened through `showModal()`, which is what
+  // makes it mean what it looks like: the browser puts it in the top layer and
+  // marks the rest of the document inert, so the landing page underneath can't
+  // be tabbed into or read out by a screen reader while it's up. A plain
+  // `fixed inset-0` div only hides it from people who can see it.
+  useEffect(() => {
+    const dialog = coverRef.current;
+    if (!dialog || dialog.open) return;
+    dialog.showModal();
+  }, [view]);
+
   if (view === "redirect") {
     return (
-      <div
-        className="fixed inset-0 z-[60] flex items-center justify-center bg-background"
-        role="status"
+      <dialog
+        ref={coverRef}
         aria-label="Opening the app"
+        // Esc is the manual version of the timeout below — someone who realises
+        // the navigation is going nowhere shouldn't have to wait it out.
+        onCancel={() => setStalled(true)}
+        className="fixed inset-0 z-[60] m-0 hidden h-dvh max-h-none w-screen max-w-none items-center justify-center border-0 bg-background p-0 text-foreground backdrop:bg-background open:flex"
       >
         <div className="size-6 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-foreground" />
-      </div>
+      </dialog>
     );
   }
 
@@ -135,13 +168,7 @@ export function AppHandoff() {
         <label className="flex cursor-pointer items-center gap-2 text-sm text-muted-foreground">
           <Checkbox
             checked={state.prefers}
-            onCheckedChange={(checked) => {
-              // Recorded now, acted on next visit: `changedHere` is what stops
-              // the tick from redirecting the page out from under the person
-              // who just ticked it.
-              setChangedHere(true);
-              setPrefersApp(checked === true);
-            }}
+            onCheckedChange={(checked) => setPrefersApp(checked === true)}
           />
           Always take me straight here
         </label>

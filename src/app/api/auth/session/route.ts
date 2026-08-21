@@ -91,7 +91,13 @@ export async function POST(request: NextRequest) {
     store.set(SESSION_COOKIE, idToken, sessionCookieOptions());
     // Readable by the statically-rendered landing page, which has no other way
     // to know a visitor is signed in. A hint only — never an access decision.
-    store.set(SESSION_HINT_COOKIE, "1", sessionHintCookieOptions());
+    // `Secure` from this request's own scheme, so it matches the preference
+    // cookie the landing page writes beside it (see `sessionHintCookieOptions`).
+    store.set(
+      SESSION_HINT_COOKIE,
+      "1",
+      sessionHintCookieOptions(new URL(request.url).protocol === "https:"),
+    );
     // The refresh token is what keeps the session alive for the month — re-set it
     // on every sync so its expiry slides forward with each visit.
     if (refreshToken) {

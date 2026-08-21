@@ -18,6 +18,32 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-08-21
+
+### Fixed
+
+- **The home page no longer navigates you to the app part-way through reading
+  it.** If you had the "always take me straight here" preference but signed in
+  somewhere else, coming back to the tab could yank you to the app. The handoff
+  is now decided when the page loads, and only then.
+- **`/?stay=1` works even if you dismissed the card earlier.** Dismissing it and
+  then returning to that URL used to leave the preference with no way to reach
+  its off switch for the rest of the visit.
+- The home page no longer errors for people browsing with all storage blocked —
+  reading the dismissal could throw where it was meant to be caught.
+- While the app opens, the page behind the loading cover is properly inert: it
+  can't be tabbed into or read out by a screen reader any more. **Esc** now
+  cancels the wait and gives the page back.
+- A held mic is released whenever the button is disabled mid-hold — not just
+  during a profile switch, but also when a parse starts under it.
+
+### Changed
+
+- The **Cookie Policy** now describes `__session` accurately (it carries your
+  sign-in token, and therefore your name and email), lists `__refresh` alongside
+  it, and no longer implies `/?stay=1` clears the "go straight to the app"
+  preference — unticking the box does.
+
 ## [0.6.1] — 2026-08-21
 
 ### Fixed

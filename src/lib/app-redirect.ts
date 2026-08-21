@@ -21,11 +21,10 @@
  * trade-off is that the preference is per-browser rather than per-account.
  */
 
-import { deleteCookie, readCookie, writeCookie } from "@/lib/cookies";
+import { SIX_MONTHS_SECONDS, deleteCookie, readCookie, writeCookie } from "@/lib/cookies";
 import { SESSION_HINT_COOKIE } from "@/lib/session-cookie";
 
 const PREF_COOKIE = "sc_go_to_app";
-const PREF_MAX_AGE_SECONDS = 60 * 60 * 24 * 180; // 180 days, like cookie consent
 
 /**
  * Query param that suppresses the redirect for one visit, so someone who turned
@@ -65,18 +64,22 @@ export function prefersApp(): boolean {
 }
 
 export function setPrefersApp(value: boolean) {
-  if (value) writeCookie(PREF_COOKIE, "1", PREF_MAX_AGE_SECONDS);
+  // Six months, the same lifetime as the consent choice beside it.
+  if (value) writeCookie(PREF_COOKIE, "1", SIX_MONTHS_SECONDS);
   else deleteCookie(PREF_COOKIE);
   notifyHandoffChange();
 }
 
 export function isPromptDismissed(): boolean {
-  if (typeof sessionStorage === "undefined") return false;
   try {
+    // `typeof sessionStorage` is inside the try on purpose: the check itself
+    // resolves the property, and the getter is what throws (Chrome with all
+    // cookies blocked, a partitioned context, Safari in private mode). Left
+    // outside, the guard against storage throwing would be the throw — on a
+    // path `useSyncExternalStore` runs during every render of the landing page.
+    if (typeof sessionStorage === "undefined") return false;
     return sessionStorage.getItem(DISMISSED_KEY) === "1";
   } catch {
-    // Safari in private mode throws on sessionStorage access; treat it as
-    // "not dismissed" rather than letting the landing page fail to render.
     return false;
   }
 }
@@ -91,6 +94,23 @@ export function dismissPrompt() {
     // visitor navigates back to `/` later in the same tab.
   }
   notifyHandoffChange();
+}
+
+/**
+ * Forget a dismissal. Called when the visitor arrives on `?stay=1`, which is a
+ * deliberate request for this card — it's the only place the preference can be
+ * turned off. Without this, one ✕ earlier in the tab would outrank the escape
+ * hatch and hand back the one-way door `?stay=1` exists to prevent.
+ */
+export function clearPromptDismissal() {
+  try {
+    if (typeof sessionStorage === "undefined") return;
+    sessionStorage.removeItem(DISMISSED_KEY);
+  } catch {
+    // Nothing was stored if storage throws — the caller's own state is enough.
+  } finally {
+    notifyHandoffChange();
+  }
 }
 
 /**
@@ -126,12 +146,18 @@ let cached: HandoffState = SERVER_SNAPSHOT;
 
 export function subscribeHandoff(callback: () => void) {
   window.addEventListener(APP_REDIRECT_CHANGE_EVENT, callback);
-  // Back/forward can add or drop `?stay=1` without a reload — and so can a soft
-  // navigation, which fires `pushState` instead of `popstate`, so re-read on
-  // both. `pageshow` covers a bfcache restore, where the cookies may have
-  // changed in another tab while this page sat frozen; `visibilitychange` and
-  // `focus` cover that same tab coming back without a restore (signing out
-  // elsewhere should stop this page offering the app).
+  // Back/forward can add or drop `?stay=1` without a reload. `pageshow` covers
+  // a bfcache restore, where the cookies may have changed in another tab while
+  // this page sat frozen; `visibilitychange` and `focus` cover that same tab
+  // coming back without a restore (signing out elsewhere should stop this page
+  // offering the app).
+  //
+  // A same-page `pushState` — a `<Link>` from `/?stay=1` to `/` — is *not*
+  // observed: there's no event for it short of patching `history`, which isn't
+  // worth doing to a public page. The cost is bounded to `stay` reading stale
+  // for the rest of that visit, and the outcome of a stale `stay` is the card
+  // instead of the redirect, which is the safe direction. Nothing here decides
+  // the redirect anyway — `AppHandoff` latches that at arrival.
   window.addEventListener("popstate", callback);
   window.addEventListener("pageshow", callback);
   window.addEventListener("focus", callback);
@@ -183,19 +209,27 @@ export function handoffView(
   { signedIn, prefers, dismissed, stay }: HandoffState,
   options: {
     /**
-     * The visitor changed the preference during *this* visit. The box records
-     * what should happen next time; acting on a tick immediately would turn a
-     * checkbox into a one-click one-way door out of the only page that can
-     * untick it.
+     * The visitor was **already** signed in with the preference on when this
+     * page loaded — `signedIn && prefers` as at arrival, latched by the caller.
+     *
+     * The handoff is an arrival decision, and this is what keeps it one. Two
+     * things would otherwise navigate someone away from a page they had settled
+     * on: ticking the box (the preference is for *next* time — acting on it now
+     * makes a checkbox a one-click one-way door out of the only page that can
+     * untick it), and the session hint landing mid-visit, which happens
+     * whenever a signed-out reader signs in elsewhere and comes back to this
+     * tab, since the preference cookie outlives the hint by five months.
      */
-    changedHere?: boolean;
+    arrivedWithPreference?: boolean;
     /** The redirect was started and never arrived. Show the card — it holds the
      * only working way out (a real link, and the checkbox). */
     stalled?: boolean;
   } = {},
 ): HandoffView {
   if (!signedIn) return "hidden";
-  if (prefers && !stay && !options.changedHere && !options.stalled) return "redirect";
+  // `prefers` is read live as well, so unticking during a stalled redirect
+  // takes effect immediately rather than waiting for a reload.
+  if (options.arrivedWithPreference && prefers && !stay && !options.stalled) return "redirect";
   if (dismissed) return "hidden";
   return "card";
 }

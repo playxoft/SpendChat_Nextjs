@@ -44,12 +44,23 @@ export const SESSION_HINT_COOKIE = "sc_signed_in";
 const THIRTY_DAYS = 60 * 60 * 24 * 30;
 
 /**
- * Options for `SESSION_HINT_COOKIE`: identical to the session cookies' — same
- * expiry, so the hint disappears exactly when the session does — except that
- * the browser must be able to read it.
+ * Options for `SESSION_HINT_COOKIE`: the session cookies' expiry, so the hint
+ * disappears exactly when the session does, but readable by the browser — and
+ * `Secure` follows the *connection* rather than the environment.
+ *
+ * That difference is deliberate. `sessionCookieOptions` fails closed because it
+ * carries a token; this one carries `"1"` and no identity, so there is nothing
+ * to protect, and the fail-closed rule would actively break it: on a
+ * production-mode build served over plain http (`pnpm preview`, an http staging
+ * origin) the browser silently discards a `Secure` cookie, while `sc_go_to_app`
+ * — written client-side, where `lib/cookies.ts` reads `location.protocol` — is
+ * kept. The two halves of one feature would then disagree, and the handoff
+ * would look like a logic bug instead of a dropped attribute.
+ *
+ * @param secure whether the request that sets it arrived over https.
  */
-export function sessionHintCookieOptions(maxAge: number = THIRTY_DAYS) {
-  return { ...sessionCookieOptions(maxAge), httpOnly: false };
+export function sessionHintCookieOptions(secure: boolean, maxAge: number = THIRTY_DAYS) {
+  return { ...sessionCookieOptions(maxAge), httpOnly: false, secure };
 }
 
 export function sessionCookieOptions(maxAge: number = THIRTY_DAYS) {

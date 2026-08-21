@@ -12,6 +12,11 @@
  * whole point of them.
  */
 
+/** Shared lifetimes, so the same "how long should this last" answer isn't
+ * restated (and then quietly changed in one place) per cookie. */
+export const SIX_MONTHS_SECONDS = 60 * 60 * 24 * 180;
+export const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
+
 /** One compiled pattern per cookie name — `readCookie` runs on every render of
  * the landing page's store, and a fresh `RegExp` there is pure waste. */
 const patterns = new Map<string, RegExp>();
@@ -31,11 +36,27 @@ function patternFor(name: string): RegExp {
 
 export function readCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
-  return document.cookie.match(patternFor(name))?.[1] ?? null;
+  const raw = document.cookie.match(patternFor(name))?.[1];
+  if (raw === undefined) return null;
+  try {
+    return decodeURIComponent(raw);
+  } catch {
+    // A malformed `%` sequence — written by something other than us — throws.
+    // The raw text is a better answer than an exception on the landing page.
+    return raw;
+  }
 }
 
+/**
+ * Percent-encoded on the way in and out, because `;` in a value truncates the
+ * cookie and turns its tail into a bogus attribute. It also keeps this side
+ * agreeing with the server: Next's cookie parser decodes what it reads
+ * (`@edge-runtime/cookies`), so an unencoded `/` here and a decoded one there
+ * would drift the moment a value stopped being `"1"`.
+ */
 export function writeCookie(name: string, value: string, maxAgeSeconds: number) {
-  document.cookie = `${name}=${value}; path=/; max-age=${maxAgeSeconds}; samesite=lax${secureAttribute()}`;
+  const encoded = encodeURIComponent(value);
+  document.cookie = `${name}=${encoded}; path=/; max-age=${maxAgeSeconds}; samesite=lax${secureAttribute()}`;
 }
 
 /** Same attributes as the write, minus the value: a cookie is only replaced by

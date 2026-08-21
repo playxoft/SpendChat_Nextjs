@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { Loader2, Mic } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -33,12 +34,15 @@ const BAR_COUNT = 9;
  * gesture, however it ended (up, cancel, or the button unmounting). Every
  * handler funnels into `onStop`, which is idempotent, so the overlap is free.
  *
- * One ending it does **not** cover: this button being `disabled` while still
- * held. A disabled control dispatches no pointer events, and disabling doesn't
- * release the capture (only leaving the document does), so nothing here fires
- * at all — the hold has to be ended by whoever disabled the button. That's what
- * the AI pane's "stop on switch" effect is for; a caller that disables this
- * mid-gesture and forgets owes the user an open mic until the 60s auto-stop.
+ * One ending none of those cover: this button being **disabled while still
+ * held**. A disabled control dispatches no pointer events, and disabling
+ * doesn't release the capture (only leaving the document does), so not one
+ * handler above fires and the mic runs to the recorder's 60s auto-stop with the
+ * OS recording indicator lit. That happens on two different paths — the
+ * `disabled` prop flipping (a parse started mid-hold), and an ancestor
+ * `<fieldset disabled>` locking the pane during a profile switch, which changes
+ * no prop here at all — so it's watched below with `:disabled`, which is the
+ * one check that sees both. Callers don't have to remember it.
  *
  * A browser that steals the gesture (scroll, permission prompt on some touch
  * platforms) fires `pointercancel`, which also stops. That can cost the very
@@ -72,6 +76,33 @@ export function VoiceMicButton({
 }) {
   const recording = state === "recording" || state === "starting";
   const busy = state === "transcribing";
+
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Whether a gesture that started here is still open, so the effect below only
+  // ends holds this button actually owns.
+  const holding = useRef(false);
+  const onStopRef = useRef(onStop);
+  useEffect(() => {
+    onStopRef.current = onStop;
+  });
+
+  // No dependency array: this has to run after *every* commit, because the
+  // thing it watches for isn't a prop. `:disabled` matches both a disabled
+  // button and one inside a disabled `<fieldset>` (the DOM `disabled` property
+  // only reflects the former), so this is the single place the "held while it
+  // was disabled" ending is paid for — see the docblock.
+  useEffect(() => {
+    if (!holding.current) return;
+    if (!buttonRef.current?.matches(":disabled")) return;
+    holding.current = false;
+    onStopRef.current();
+  });
+
+  function endHold() {
+    holding.current = false;
+    onStop();
+  }
+
   const label = recording
     ? "Release to transcribe"
     : busy
@@ -80,6 +111,7 @@ export function VoiceMicButton({
 
   const button = (
     <Button
+      ref={buttonRef}
       type="button"
       variant="ghost"
       disabled={disabled || busy}
@@ -92,6 +124,7 @@ export function VoiceMicButton({
       // selection, a scroll gesture, or the touch callout menu mid-recording.
       onPointerDown={(e) => {
         e.preventDefault();
+        holding.current = true;
         try {
           // Route the rest of this gesture here regardless of where the pointer
           // goes. Throws NotFoundError if the pointer is already gone, in which
@@ -104,22 +137,23 @@ export function VoiceMicButton({
       }}
       onPointerUp={(e) => {
         e.preventDefault();
-        onStop();
+        endHold();
       }}
-      onPointerCancel={onStop}
-      onLostPointerCapture={onStop}
+      onPointerCancel={endHold}
+      onLostPointerCapture={endHold}
       // A held Space/Enter on a focused button repeats keydown; ignore the
       // repeats so keyboard users get one recording, not a stutter of starts.
       onKeyDown={(e) => {
         if ((e.key === " " || e.key === "Enter") && !e.repeat) {
           e.preventDefault();
+          holding.current = true;
           onStart();
         }
       }}
       onKeyUp={(e) => {
         if (e.key === " " || e.key === "Enter") {
           e.preventDefault();
-          onStop();
+          endHold();
         }
       }}
       className={cn(

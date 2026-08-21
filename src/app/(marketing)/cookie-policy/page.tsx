@@ -33,21 +33,28 @@ const cookieTable = [
     name: "__session",
     provider: "Firebase Authentication (Google)",
     purpose:
-      "Keeps you signed in. Strictly necessary — set only once you sign in, not by the marketing pages themselves, and unaffected by your analytics choice below.",
+      "Keeps you signed in. It holds your Firebase sign-in token, which identifies you (and carries the name and email on your account). Strictly necessary — set only once you sign in, not by the marketing pages themselves, and unaffected by your analytics choice below.",
     duration: "Session, until you sign out",
+  },
+  {
+    name: "__refresh",
+    provider: "Firebase Authentication (Google)",
+    purpose:
+      "The long-lived half of the same sign-in: it lets us renew the token above so you aren't signed out an hour after closing the app. Set and cleared with __session.",
+    duration: "30 days, or until you sign out",
   },
   {
     name: "sc_signed_in",
     provider: siteConfig.name,
     purpose:
-      "A yes/no marker that this browser has a signed-in session — no name, no email, no token. It's what lets the home page offer to take you to your tracker instead of showing you the sales pitch again. Set and cleared alongside your sign-in.",
+      "A yes/no marker that this browser has a signed-in session — no name, no email, no token, just “1”. It's what lets the home page offer to take you to your tracker instead of showing you the sales pitch again. Set and cleared alongside your sign-in.",
     duration: "30 days, or until you sign out",
   },
   {
     name: "sc_go_to_app",
     provider: siteConfig.name,
     purpose:
-      "Set only if you tick “Always take me straight here” on that offer: it sends this browser from the home page straight to the app. Untick the box, or open /?stay=1, to clear it.",
+      "Set only if you tick “Always take me straight here” on that offer: it sends this browser from the home page straight to the app. Open /?stay=1 to reach the home page anyway, and untick the box there to clear it.",
     duration: "180 days",
   },
   {
@@ -141,8 +148,10 @@ export default function CookiePolicyPage() {
             The {siteConfig.name} and Firebase rows are strictly necessary — the site
             can&apos;t remember your consent choice, keep you signed in, or honour your
             &ldquo;take me straight to the app&rdquo; choice without them, so they
-            aren&apos;t covered by the Accept/Decline choice below. None of them carries
-            a name, an email or a token, and none is used for analytics. The Google
+            aren&apos;t covered by the Accept/Decline choice below. The two Firebase
+            rows carry your sign-in itself; the three {siteConfig.name} ones hold only a
+            setting (&ldquo;granted&rdquo;, &ldquo;1&rdquo;) and identify no one. None
+            of the five is used for analytics or shared with anyone. The Google
             Analytics and Microsoft Clarity rows are only ever set if you click Accept.
           </p>
         </section>

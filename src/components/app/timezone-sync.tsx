@@ -2,10 +2,8 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { writeCookie } from "@/lib/cookies";
+import { ONE_YEAR_SECONDS, writeCookie } from "@/lib/cookies";
 import { TZ_COOKIE } from "@/lib/timezone";
-
-const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365;
 
 /**
  * Reports the browser's IANA timezone to the server via the `tz` cookie so that
