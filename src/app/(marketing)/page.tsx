@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { GithubIcon } from "@/components/icons/github";
 import { TrackerDemo } from "@/components/marketing/tracker-demo";
 import { JsonLd } from "@/components/json-ld";
+import { AppHandoff } from "@/components/marketing/app-handoff";
 import { faqs } from "@/lib/faq";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
@@ -80,6 +81,12 @@ export default function LandingPage() {
   return (
     <>
       <JsonLd data={jsonLd} />
+
+      {/* Signed-in visitors only, and entirely client-side — this page stays
+          statically rendered, so crawlers and signed-out visitors see the
+          landing page exactly as before. Only mounted here: the other
+          marketing pages (blog, docs, pricing) stay reachable while signed in. */}
+      <AppHandoff />
 
       {/* Hero — fills the viewport (minus the fixed top nav). */}
       <section className="mx-auto flex min-h-[calc(100svh-5rem)] max-w-6xl flex-col justify-center px-4 py-10">

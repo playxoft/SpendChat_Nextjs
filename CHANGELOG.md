@@ -18,6 +18,92 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.6.2] — 2026-08-21
+
+### Fixed
+
+- **The home page no longer navigates you to the app part-way through reading
+  it.** If you had the "always take me straight here" preference but signed in
+  somewhere else, coming back to the tab could yank you to the app. The handoff
+  is now decided when the page loads, and only then.
+- **`/?stay=1` works even if you dismissed the card earlier.** Dismissing it and
+  then returning to that URL used to leave the preference with no way to reach
+  its off switch for the rest of the visit.
+- The home page no longer errors for people browsing with all storage blocked —
+  reading the dismissal could throw where it was meant to be caught.
+- While the app opens, the page behind the loading cover is properly inert: it
+  can't be tabbed into or read out by a screen reader any more. **Esc** now
+  cancels the wait and gives the page back.
+- A held mic is released whenever the button is disabled mid-hold — not just
+  during a profile switch, but also when a parse starts under it.
+
+### Changed
+
+- The **Cookie Policy** now describes `__session` accurately (it carries your
+  sign-in token, and therefore your name and email), lists `__refresh` alongside
+  it, and no longer implies `/?stay=1` clears the "go straight to the app"
+  preference — unticking the box does.
+
+## [0.6.1] — 2026-08-21
+
+### Fixed
+
+- **The home page's "go to app" card now closes when you close it.** If you had
+  ticked "Always take me straight here", the ✕ did nothing — on `/?stay=1`, the
+  one page where you were most likely to press it.
+- **Ticking that box no longer throws you out of the page you're on.** It sets
+  what happens on your *next* visit; before, the tick itself redirected you
+  immediately, and the only way back was a URL nothing on the page mentioned.
+  The card now says where that way back is.
+- If the app doesn't open within a few seconds, the home page comes back with a
+  "Try again" instead of leaving you on a spinner you can't get out of.
+- The card now appears (and disappears) as soon as you sign in or out, rather
+  than waiting for the next reload — including after signing out in another tab.
+- **A held mic no longer keeps recording when you switch profile or workspace.**
+  The switch disabled the button mid-press, which left the recording running to
+  its one-minute cut-off with your mic still open.
+- ⌘/Ctrl+E and `a` are now ignored during a profile or workspace switch, like
+  the rest of the composer already was — they could flip the transaction type
+  (clearing the chosen category) or swap entry modes on a locked composer. `r`
+  and `b` likewise no longer open an add dialog mid-switch.
+
+### Changed
+
+- The **Cookie Policy** now lists the two cookies the home page handoff uses
+  (`sc_signed_in`, `sc_go_to_app`), what each holds, and how to clear them.
+
+## [0.6.0] — 2026-08-21
+
+### Added
+
+- **If you're already signed in, the home page offers to take you to the app.**
+  A card slides in on the right — "Go to app", plus a checkbox to make that the
+  default. Tick it and visiting the home page sends you straight to your
+  tracker from then on, on that browser. Dismiss it and it stays quiet for the
+  rest of the visit.
+- Changed your mind? Open **`/?stay=1`** to load the home page anyway; the card
+  appears with the box already ticked, so you can untick it there.
+
+### Notes
+
+- Signed-out visitors see none of this — the home page is exactly as it was, and
+  it stays statically rendered, so nothing about its speed or search indexing
+  changes. The preference is per browser rather than per account, which is what
+  lets the home page skip an account lookup before deciding where to send you.
+
+## [0.5.7] — 2026-08-21
+
+### Fixed
+
+- **AI mode now goes quiet while you switch profile or workspace, the way
+  manual entry already did.** Only the manual side of the composer dimmed and
+  locked during a switch; the AI note stayed live, so you could keep typing,
+  hold the mic, parse a note, or confirm a reviewed batch while the profile
+  underneath you was still changing — and a batch confirmed in that window
+  landed in whichever profile finished loading. Both sides now dim and lock
+  together, including the note, the mic (its hold-to-talk shortcut included),
+  and the review list's Save.
+
 ## [0.5.6] — 2026-08-19
 
 ### Fixed

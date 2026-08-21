@@ -19,9 +19,49 @@
 export const SESSION_COOKIE = "__session";
 export const REFRESH_COOKIE = "__refresh";
 
+/**
+ * A **non-httpOnly** breadcrumb saying "this browser has a session", set and
+ * cleared alongside `__session`.
+ *
+ * It carries no token and no identity — just `"1"`. It exists because the
+ * marketing landing page is statically rendered and must stay that way (see
+ * AGENTS.md § SEO): it has no server-side auth, and the real session cookies
+ * are httpOnly, so nothing on that page can otherwise tell a signed-in visitor
+ * from a stranger. Reading this synchronously in the browser lets `/` offer
+ * "go to the app" without a DB call, an auth round-trip, or giving up static
+ * rendering.
+ *
+ * **Never gate access on this.** It is a UI hint that any visitor can forge
+ * from the console. Every real authorisation decision goes through
+ * `getCurrentUser`/`requireUser`, which verify the signed `__session` token.
+ * The worst a forged value can do is show someone a "go to the app" prompt,
+ * and `/app` then bounces them to sign-in exactly as it would have anyway.
+ */
+export const SESSION_HINT_COOKIE = "sc_signed_in";
+
 // Keep users signed in for a month; the refresh token re-mints ID tokens for the
 // whole window, and each visit re-sets the cookies (sliding expiration).
 const THIRTY_DAYS = 60 * 60 * 24 * 30;
+
+/**
+ * Options for `SESSION_HINT_COOKIE`: the session cookies' expiry, so the hint
+ * disappears exactly when the session does, but readable by the browser — and
+ * `Secure` follows the *connection* rather than the environment.
+ *
+ * That difference is deliberate. `sessionCookieOptions` fails closed because it
+ * carries a token; this one carries `"1"` and no identity, so there is nothing
+ * to protect, and the fail-closed rule would actively break it: on a
+ * production-mode build served over plain http (`pnpm preview`, an http staging
+ * origin) the browser silently discards a `Secure` cookie, while `sc_go_to_app`
+ * — written client-side, where `lib/cookies.ts` reads `location.protocol` — is
+ * kept. The two halves of one feature would then disagree, and the handoff
+ * would look like a logic bug instead of a dropped attribute.
+ *
+ * @param secure whether the request that sets it arrived over https.
+ */
+export function sessionHintCookieOptions(secure: boolean, maxAge: number = THIRTY_DAYS) {
+  return { ...sessionCookieOptions(maxAge), httpOnly: false, secure };
+}
 
 export function sessionCookieOptions(maxAge: number = THIRTY_DAYS) {
   return {

@@ -196,8 +196,15 @@ export function TransactionComposer({
   // is open (e.g. bulk add), where ⌘E belongs to the focused row there, and not
   // in AI mode, where the manual fields are hidden: it would silently flip a
   // type the user can't see.
+  //
+  // `!switching` for the same reason it's on the voice hold: these bind to
+  // `window`, so the disabled fieldset below — which locks every *control* while
+  // a profile or workspace switch is in flight — can't reach them. Without it
+  // ⌘E flips the type (and clears the category) on fields the user can't see
+  // and didn't touch, and "a" swaps the pane while both toggles are disabled.
+  // Any new window-bound shortcut in the composer needs the same guard.
   useShortcut(toggleCombo, () => switchType(), {
-    enabled: mode === "manual",
+    enabled: mode === "manual" && !switching,
     allowInInput: true,
     requireNoOverlay: true,
   });
@@ -207,7 +214,7 @@ export function TransactionComposer({
   useShortcut(
     comboFor("tracker.toggle-mode"),
     () => changeMode(mode === "manual" ? "ai" : "manual"),
-    { requireNoOverlay: true },
+    { requireNoOverlay: true, enabled: !switching },
   );
 
   /** Move the caret to the end of one of the single field's two zones. */

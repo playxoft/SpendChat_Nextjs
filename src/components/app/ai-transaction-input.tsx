@@ -42,6 +42,7 @@ import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import { useHoldShortcut, useIsMac } from "@/hooks/use-shortcut";
 import { comboFor, formatShortcut } from "@/lib/shortcuts";
 import { VoiceListeningStrip, VoiceMicButton } from "./voice-mic";
+import { useLoadingOverlay } from "./loading-overlay";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
@@ -196,6 +197,43 @@ function DescriptionCell({
 }
 
 /**
+ * The pane's switch lock, stated once for both of the branches below.
+ *
+ * A `disabled` fieldset is what locks AI entry while a profile or workspace
+ * switch is in flight: the native `disabled` cascades to every control inside,
+ * so nothing can be typed, sent or confirmed against a profile that is on its
+ * way out. Two things it can't reach, and which therefore guard themselves:
+ * anything bound to `window` (the voice hold, the composer's shortcuts) and a
+ * Radix overlay that was already open, since its content is portalled to
+ * `document.body` — outside this subtree. `handleParse`/`handleConfirm` check
+ * `switching` for that reason.
+ *
+ * `min-w-0` is load-bearing: a fieldset defaults to `min-inline-size:
+ * min-content`, which stops the flex children inside from ever shrinking.
+ */
+function SwitchLock({
+  disabled,
+  className,
+  children,
+}: {
+  disabled: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <fieldset
+      disabled={disabled}
+      className={cn(
+        "m-0 flex min-w-0 flex-col border-0 p-0 transition-opacity disabled:opacity-60",
+        className,
+      )}
+    >
+      {children}
+    </fieldset>
+  );
+}
+
+/**
  * The composer's "AI" mode: the user types a free-text note, the model turns it
  * into one or more transaction drafts, and those are shown as an editable
  * preview to review before saving. Confirming reuses the existing bulk-save path
@@ -248,6 +286,11 @@ export function AiTransactionInput({
   const [rows, setRows] = useState<Row[] | null>(null);
   const [parsing, startParse] = useTransition();
   const [saving, startSave] = useTransition();
+  // A profile or workspace switch in flight. Manual disables its whole fieldset
+  // on this; AI has to as well, or the two panes disagree about whether the
+  // composer is usable — and a note parsed against the old profile would save
+  // into the new one.
+  const { pending: switching } = useLoadingOverlay();
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
   const idRef = useRef(0);
   const nextKey = () => ++idRef.current;
@@ -380,6 +423,12 @@ export function AiTransactionInput({
   );
 
   function handleParse() {
+    // Not dead code, though every trigger for it today is inside the disabled
+    // fieldset: `disabled` doesn't reach a Radix overlay rendered through a
+    // portal (it mounts to `document.body`), and it never reaches anything
+    // bound to `window`. This and `handleConfirm` are the two that spend a
+    // model call and write rows, so they check for themselves.
+    if (switching) return;
     const note = text.trim();
     if (!note) {
       toast.error("Type a note first");
@@ -457,13 +506,22 @@ export function AiTransactionInput({
   // the review list has no textarea to dictate into. `allowInInput` stays false
   // so typing "m" in the note types an m, exactly like the other bare-key
   // shortcuts.
-  const voiceEnabled = mode === "ai" && !rows && !parsing;
+  // `!switching` is load-bearing in a way the rest of this pane's disabling is
+  // not: `useHoldShortcut` binds to `window`, so unlike every control below it
+  // the fieldset can't switch it off. (It does end a hold in progress when
+  // `enabled` flips — see the hook. The *pointer* hold is ended by the mic
+  // button itself, which watches for being disabled mid-gesture.)
+  const voiceEnabled = mode === "ai" && !rows && !parsing && !switching;
   useHoldShortcut(voiceCombo, voice.start, voice.stop, {
     enabled: voiceEnabled,
     requireNoOverlay: true,
   });
 
   function handleConfirm() {
+    // Mirrors the manual composer's `submit()`, and matters more here: the
+    // drafts would be written against `targetProfileId`, which is recomputed
+    // from the incoming props the moment the switch lands.
+    if (switching) return;
     if (!rows) return;
     if (validRows.length === 0) {
       toast.error("Add an amount and a title to at least one row");
@@ -580,7 +638,7 @@ export function AiTransactionInput({
       // taller than Manual, and both panes share one grid cell — so every dense
       // trim here (one-row note, smaller buttons, less bottom padding) shows up
       // as dead space removed from *Manual* too.
-      <div className="flex h-full flex-col gap-1.5">
+      <SwitchLock disabled={switching} className="h-full gap-1.5">
         {/* `MODE_ROW_DENSE` verbatim — Manual's control strip uses the same
             class so the toggle lands on the exact same pixel in both panes. */}
         <div className={dense ? MODE_ROW_DENSE : "flex items-center gap-2"}>
@@ -713,13 +771,13 @@ export function AiTransactionInput({
             <span className="font-mono text-foreground">( )</span> for a note.
           </p>
         )}
-      </div>
+      </SwitchLock>
     );
   }
 
   // Review state: an editable row per parsed draft, then confirm.
   return (
-    <div className="flex flex-col gap-2">
+    <SwitchLock disabled={switching} className="gap-2">
       <div className="flex items-center gap-2">
         <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} pane="ai" />
         <p className="min-w-0 flex-1 truncate text-sm font-medium">
@@ -903,6 +961,6 @@ export function AiTransactionInput({
           {saving ? "Saving…" : `Add ${validRows.length}`}
         </Button>
       </div>
-    </div>
+    </SwitchLock>
   );
 }

@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { ONE_YEAR_SECONDS, writeCookie } from "@/lib/cookies";
 import { TZ_COOKIE } from "@/lib/timezone";
 
 /**
@@ -17,7 +18,7 @@ export function TimezoneSync({ current }: { current: string }) {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (!tz || tz === current) return;
     // One year; SameSite=Lax is enough — same-site requests send it next load.
-    document.cookie = `${TZ_COOKIE}=${tz}; path=/; max-age=31536000; samesite=lax`;
+    writeCookie(TZ_COOKIE, tz, ONE_YEAR_SECONDS);
     router.refresh();
   }, [current, router]);
   return null;
