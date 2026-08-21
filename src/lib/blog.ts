@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import * as csvTaxes from "@/content/blog/export-expenses-to-csv-for-taxes.mdx";
 import * as receipts from "@/content/blog/how-to-organize-receipts-digitally.mdx";
 import * as sharedExpenses from "@/content/blog/how-to-track-shared-expenses-with-your-partner.mdx";
 import * as categorising from "@/content/blog/how-to-categorize-expenses.mdx";
@@ -74,6 +75,7 @@ type MdxModule = { default: ComponentType; meta: BlogMeta };
  * `src/content/blog` and adding one line here.
  */
 const registry: { slug: string; mod: MdxModule }[] = [
+  { slug: "export-expenses-to-csv-for-taxes", mod: csvTaxes },
   { slug: "how-to-organize-receipts-digitally", mod: receipts },
   { slug: "how-to-track-shared-expenses-with-your-partner", mod: sharedExpenses },
   { slug: "how-to-categorize-expenses", mod: categorising },
