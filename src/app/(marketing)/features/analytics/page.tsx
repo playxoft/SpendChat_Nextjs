@@ -147,7 +147,8 @@ export default function AnalyticsPage() {
           <Link href={featureLink("transactions")} className="underline underline-offset-4">
             transactions table
           </Link>{" "}
-          will show you the uncategorised rows in one filter. Your categories are
+          is where you&apos;ll spot it — an uncategorised row shows with an empty
+          category column, so they stand out as you scan. Your categories are
           yours to shape — see{" "}
           <Link href={featureLink("categories")} className="underline underline-offset-4">
             custom categories

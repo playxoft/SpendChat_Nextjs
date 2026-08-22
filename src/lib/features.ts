@@ -162,12 +162,12 @@ export const FEATURES: Feature[] = [
     title: "Export Expenses to CSV, or Print a Report",
     h1: "Your data leaves as easily as it arrives",
     description:
-      "Download the exact view you're looking at as a CSV, or print a clean report and save it as a PDF. No export limits, no paid tier, no lock-in.",
+      "Download the view you're looking at as a CSV, or print a clean report and save it as a PDF. No paid tier, no watermark, no lock-in.",
     blurb: "CSV of the filtered view, or a print-ready PDF report.",
     icon: "Download",
     group: "understand",
     related: ["transactions", "analytics", "privacy-and-security", "bulk-add"],
-    published: false,
+    published: true,
   },
 
   // ---- Organise ----
@@ -195,7 +195,7 @@ export const FEATURES: Feature[] = [
     icon: "Building2",
     group: "organise",
     related: ["multiple-profiles", "categories", "privacy-and-security", "receipts-and-files"],
-    published: false,
+    published: true,
   },
   {
     slug: "categories",
@@ -208,7 +208,7 @@ export const FEATURES: Feature[] = [
     icon: "Tags",
     group: "organise",
     related: ["chat-expense-tracker", "analytics", "workspaces", "ai-expense-tracker"],
-    published: false,
+    published: true,
   },
   {
     slug: "keyboard-shortcuts",
@@ -221,7 +221,7 @@ export const FEATURES: Feature[] = [
     icon: "Keyboard",
     group: "organise",
     related: ["chat-expense-tracker", "multiple-profiles", "bulk-add", "transactions"],
-    published: false,
+    published: true,
   },
   {
     slug: "privacy-and-security",
@@ -234,7 +234,7 @@ export const FEATURES: Feature[] = [
     icon: "ShieldCheck",
     group: "organise",
     related: ["voice-expense-tracker", "ai-expense-tracker", "export-and-print", "workspaces"],
-    published: false,
+    published: true,
   },
 ];
 

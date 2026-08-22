@@ -33,7 +33,7 @@ const faqs = [
   },
   {
     q: "Does the export match what I'm looking at?",
-    a: "Exactly. The CSV is the current view — same filters, same sort — so there's no step where you export everything and then delete rows in a spreadsheet.",
+    a: "The filters carry over exactly, so there's no step where you export everything and then delete rows in a spreadsheet. Two things to know: the file is always ordered newest first regardless of how you've sorted the table, and it carries the title rather than the longer description.",
   },
   {
     q: "Can I sort by amount to find my biggest expenses?",
@@ -79,7 +79,7 @@ export default function TransactionsPage() {
           },
           {
             title: "Take it with you",
-            body: "Export the view as CSV or print it. What you exported is what you were looking at — same filters, same order.",
+            body: "Export the view as CSV or print it. Every filter you applied narrows the file the same way, so you never export everything and prune it afterwards.",
           },
         ]}
       />
@@ -130,6 +130,12 @@ export default function TransactionsPage() {
           afterwards, no wondering whether the file matched the screen.
         </p>
         <p>
+          Two honest caveats. The file is ordered newest first whatever sort
+          you had on screen, and it carries each transaction&apos;s title rather
+          than its longer description — so the export is the shape of your
+          history, not a verbatim copy of every note in it.
+        </p>
+        <p>
           The print layout follows the same rule: it strips the interface and
           prints the rows you filtered to, which your browser will happily save
           as a PDF. More on both in{" "}
@@ -169,7 +175,7 @@ export default function TransactionsPage() {
           },
           {
             title: "Anyone with an accountant",
-            body: "One filtered CSV per profile per year, with your notes intact, instead of a shoebox and an apology.",
+            body: "One filtered CSV per profile per year — dated, categorised and totalled — instead of a shoebox and an apology.",
           },
         ]}
       />

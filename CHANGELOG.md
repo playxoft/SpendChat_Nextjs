@@ -18,6 +18,35 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-08-22
+
+### Added
+
+- **The last five feature pages** — shared workspaces, custom categories,
+  keyboard shortcuts, export and print, and privacy and security. Every feature
+  now has a page of its own, each with a demo you can use without an account.
+- The **workspaces** demo shows what a role actually means: change someone from
+  viewer to editor and watch which profiles they can reach change with it,
+  including the case where a per-profile grant beats their workspace role.
+- The **shortcuts** demo responds to real keystrokes — press `t` and the
+  sidebar moves — and its cheat sheet is generated from the app's own registry,
+  so it can never advertise a key the app doesn't bind.
+- The **export** demo shows the actual CSV you would download, regenerated from
+  the app's own serialiser as you change the filters, including how it quotes a
+  title containing a comma and a quotation mark.
+- The **privacy** page is a plain account of what leaves your device for each
+  action, and says outright what we don't have: no encryption at rest, no
+  audits or certifications, no two-factor authentication.
+
+### Fixed
+
+- Several claims on the newer feature pages were wrong and have been corrected
+  against the code: the CSV export carries your filters but **not** your sort
+  order (it is always newest first), it holds the title rather than the longer
+  description, and a single file covers up to 5,000 transactions. The analytics
+  page also claimed the transactions table can filter to uncategorised rows,
+  which it can't.
+
 ## [0.10.0] — 2026-08-22
 
 ### Added

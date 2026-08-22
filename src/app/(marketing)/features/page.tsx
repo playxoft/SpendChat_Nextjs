@@ -142,7 +142,7 @@ const groups = [
       {
         icon: Download,
         title: "CSV download",
-        body: "Export the current, filtered view to a clean CSV in one click. Perfect for backups, spreadsheets, or sharing with an accountant. No export limits and no paid tier gating it.",
+        body: "Export the current, filtered view to a clean CSV in one click. Perfect for backups, spreadsheets, or sharing with an accountant. No paid tier gating it, and no watermark.",
       },
       {
         icon: Printer,
