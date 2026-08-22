@@ -36,8 +36,24 @@ import { useCallback, useEffect, useRef } from "react";
 export type ScriptAt = (ms: number, fn: () => void) => void;
 
 export function useScriptedDemo(
-  play: () => void,
-  { threshold = 0.3 }: { threshold?: number } = {},
+  /**
+   * The script. Receives the scheduler as its argument rather than closing over
+   * it, so a caller whose `play` is defined before this hook runs doesn't have
+   * to smuggle `at` in through a ref — a render-phase ref write, which React
+   * and the lint rule both object to.
+   */
+  play: (at: ScriptAt) => void,
+  {
+    threshold = 0.3,
+    /**
+     * Play once when the container scrolls into view. Turn this off where the
+     * caller owns its own trigger — the homepage's entry sequence watches four
+     * separate step elements and restarts the script each time a different one
+     * takes the middle of the viewport, which is a different question from
+     * "has this appeared yet".
+     */
+    autoPlay = true,
+  }: { threshold?: number; autoPlay?: boolean } = {},
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
   const timers = useRef<number[]>([]);
@@ -57,14 +73,17 @@ export function useScriptedDemo(
     timers.current.push(window.setTimeout(fn, ms));
   }, []);
 
+  const run = useCallback(() => playRef.current(at), [at]);
+
   /** Cancel whatever is running and play from the top. */
   const start = useCallback(() => {
     played.current = true;
     clearTimers();
-    playRef.current();
-  }, [clearTimers]);
+    run();
+  }, [clearTimers, run]);
 
   useEffect(() => {
+    if (!autoPlay) return;
     const el = containerRef.current;
     if (!el) return;
 
@@ -74,7 +93,7 @@ export function useScriptedDemo(
           if (entry.isIntersecting && !played.current) {
             played.current = true;
             clearTimers();
-            playRef.current();
+            run();
           }
         }
       },
@@ -82,9 +101,9 @@ export function useScriptedDemo(
     );
     observer.observe(el);
     return () => observer.disconnect();
-  }, [clearTimers, threshold]);
+  }, [autoPlay, clearTimers, run, threshold]);
 
   useEffect(() => clearTimers, [clearTimers]);
 
-  return { containerRef, at, clearTimers, start };
+  return { containerRef, at, clearTimers, start, run };
 }

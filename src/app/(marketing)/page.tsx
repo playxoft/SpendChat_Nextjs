@@ -15,7 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { GithubIcon } from "@/components/icons/github";
-import { TrackerDemo } from "@/components/marketing/tracker-demo";
+import { ChatDemo } from "@/components/marketing/demo/chat-demo";
 import { EntryMethods } from "@/components/marketing/entry-methods";
 import { FeatureIcon } from "@/components/marketing/feature-icon";
 import { SpendBreakdown, SpendChart } from "@/components/marketing/spend-breakdown";
@@ -277,7 +277,11 @@ export default function LandingPage() {
           </div>
 
           <div className="animate-rise min-w-0 lg:pl-4">
-            <TrackerDemo />
+            {/* The same composer the app ships, at the density the app uses,
+                with the input where the app puts it — at the bottom, under the
+                feed. The rail is dropped: the hero has no room for it beside
+                the copy, and the composer is what this section is about. */}
+            <ChatDemo sidebar={false} className="h-[30rem]" />
             <p className="mt-3 text-center text-xs text-muted-foreground">
               Live demo — type an amount, pick a category, and hit send.
             </p>
@@ -327,9 +331,10 @@ export default function LandingPage() {
           </h2>
           <p className="mt-3 text-muted-foreground">
             The reason people stop tracking is friction, not intent — so what
-            matters is the moment of entry. Each tab below fills itself in: the
-            fields you&apos;d type into, the key you&apos;d hold, the box
-            you&apos;d paste into. Use whichever is fastest when the money moved.
+            matters is the moment of entry. Keep scrolling and the composer
+            works through all four: the fields you&apos;d type into, the
+            sentence you&apos;d write, the key you&apos;d hold, the rows
+            you&apos;d paste. Each one ends the same way, in the feed above it.
           </p>
         </div>
         <div className="mt-12">

@@ -83,7 +83,7 @@ export default async function BlogPostPage({ params }: Params) {
   };
 
   return (
-    <article className="mx-auto max-w-2xl px-4 pb-24 pt-10 sm:pt-16">
+    <article className="mx-auto max-w-2xl px-4 pb-24 pt-4 sm:pt-6">
       <JsonLd data={articleJsonLd} />
       <Link
         href="/blog"
@@ -117,7 +117,7 @@ export default async function BlogPostPage({ params }: Params) {
           alt={post.title}
           width={1200}
           height={630}
-          className="mt-8 h-auto w-full rounded-2xl border"
+          className="mt-8 h-auto w-full rounded-2xl border sm:-mx-8 sm:w-[calc(100%+4rem)] lg:-mx-24 lg:w-[calc(100%+12rem)] lg:max-w-none"
         />
       )}
 

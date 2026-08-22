@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowRight, ArrowUp, RotateCcw, Sparkles } from "lucide-react";
+import { ArrowRight, ArrowUp, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
@@ -43,7 +43,15 @@ import { comboFor } from "@/lib/shortcuts";
  * is in the HTML a crawler receives. That matters: a demo that only appears
  * after hydration contributes nothing to what the page is *about*.
  */
-export function ChatDemo() {
+export function ChatDemo({
+  sidebar = true,
+  className = "h-[36rem]",
+}: {
+  /** Drop the app rail — the hero has no room for it beside the copy. */
+  sidebar?: boolean;
+  /** Pinned frame height; the hero runs shorter than a feature page. */
+  className?: string;
+} = {}) {
   const feed = useDemoFeed("Personal");
   const [mode, setMode] = useState<EntryMode>("manual");
   const [type, setType] = useState<DemoTxnType>("expense");
@@ -113,10 +121,11 @@ export function ChatDemo() {
     <DemoFrame
       label="Interactive tracker demo"
       active="/app"
+      sidebar={sidebar}
       // Pinned so switching Manual → AI, which swaps the composer for a taller
       // panel, doesn't move the rest of the page. Tall enough that the feed
       // shows a real stretch of history rather than a sliver of it.
-      className="h-[36rem]"
+      className={className}
       header={
         <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
           <DemoSummaryBar
@@ -156,17 +165,6 @@ export function ChatDemo() {
                   />
                 </div>
               </DemoControlGroup>
-            )}
-            {feed.txns.length > 3 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={feed.reset}
-                className="ml-auto h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
-              >
-                <RotateCcw className="size-3.5" /> Reset
-              </Button>
             )}
           </div>
 

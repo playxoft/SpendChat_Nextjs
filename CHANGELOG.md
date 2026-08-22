@@ -18,6 +18,31 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.13.0] — 2026-08-22
+
+### Changed
+
+- **The four entry methods are now one widget you scroll through**, not tabs.
+  Keep reading and the composer works its way from typing two fields, to
+  writing a sentence, to holding the mic, to pasting rows — and each one ends
+  with what you entered sitting in the feed as ordinary transactions, which is
+  the point being made. Nothing is hidden behind a click any more, so all four
+  descriptions are on the page for anyone reading or searching.
+- The widget is taller, and the composer sits at the bottom under the history —
+  where the app puts it.
+- **The hero now shows the app's own composer** rather than a separate,
+  slightly different one built for the homepage. There was one composer too
+  many in the codebase; there is now one.
+- Blog covers run edge to edge on the cards, and are larger on the post itself,
+  which also starts closer to the top of the window.
+- The transactions type filter is a dropdown — All, + Income, − Expense —
+  rather than a three-way switch.
+
+### Removed
+
+- The Reset button on the chat demo. It was housekeeping for a demo that resets
+  itself.
+
 ## [0.12.0] — 2026-08-22
 
 ### Added

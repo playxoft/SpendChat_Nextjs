@@ -9,7 +9,6 @@ import {
   DEMO_PROFILE_ICON,
   DEMO_SEEDS,
 } from "@/components/marketing/demo/demo-data";
-import { TrackerDemo } from "@/components/marketing/tracker-demo";
 import { ChatDemo } from "@/components/marketing/demo/chat-demo";
 import { AiDemo } from "@/components/marketing/demo/ai-demo";
 import { VoiceDemo } from "@/components/marketing/demo/voice-demo";
@@ -104,8 +103,8 @@ export default function DemoGalleryPage() {
       </section>
 
       <section>
-        <h2 className="mb-4 text-xl font-medium">TrackerDemo — hero</h2>
-        <TrackerDemo />
+        <h2 className="mb-4 text-xl font-medium">ChatDemo — hero variant (no rail)</h2>
+        <ChatDemo sidebar={false} className="h-[30rem]" />
         <TryItCaption action="type an amount, pick a category, and hit send" />
       </section>
 

@@ -64,7 +64,11 @@ export default function BlogPage() {
           <Link
             key={post.slug}
             href={`/blog/${post.slug}`}
-            className="group flex flex-col rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
+            // `overflow-hidden` on the card and no padding of its own: the
+            // cover runs edge to edge and the card's own radius clips its
+            // corners, so there's no seam between the two. Padding moves to the
+            // text block below.
+            className="group flex flex-col overflow-hidden rounded-2xl border bg-card transition-all hover:-translate-y-0.5 hover:shadow-md"
           >
             {post.image && (
               // Plain <img>: covers are static files in `public/`, served
@@ -79,9 +83,10 @@ export default function BlogPage() {
                 width={1200}
                 height={630}
                 loading="lazy"
-                className="mb-5 h-auto w-full rounded-xl border"
+                className="h-auto w-full border-b"
               />
             )}
+            <div className="flex flex-1 flex-col p-6">
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="rounded-full bg-muted px-2.5 py-0.5 font-medium">
                 {post.tag}
@@ -98,6 +103,7 @@ export default function BlogPage() {
               Read post
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
             </span>
+            </div>
           </Link>
         ))}
       </div>
