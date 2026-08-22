@@ -1,4 +1,6 @@
-import { DEMO_CURRENCY, DEMO_LOCALE } from "./demo-data";
+"use client";
+
+import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -26,6 +28,7 @@ export function DemoSummaryBar({
   expenseMinor: number;
   className?: string;
 }) {
+  const money = useDemoMoney();
   const negative = balanceMinor < 0 && "text-rose-600 dark:text-rose-400";
 
   return (
@@ -33,15 +36,15 @@ export function DemoSummaryBar({
       <div>
         <p className="text-sm text-muted-foreground">{label} balance</p>
         <p className={cn("text-xl font-semibold tabular-nums", negative)}>
-          {formatMoney(balanceMinor, DEMO_CURRENCY, DEMO_LOCALE)}
+          {formatMoney(demoAmount(balanceMinor, money), money.code, money.locale)}
         </p>
       </div>
       <div className="flex gap-4 pb-1 text-sm sm:text-base">
         <span className="text-emerald-600 dark:text-emerald-400">
-          +{formatMoney(incomeMinor, DEMO_CURRENCY, DEMO_LOCALE)} in
+          +{formatMoney(demoAmount(incomeMinor, money), money.code, money.locale)} in
         </span>
         <span className="text-muted-foreground">
-          −{formatMoney(expenseMinor, DEMO_CURRENCY, DEMO_LOCALE)} out
+          −{formatMoney(demoAmount(expenseMinor, money), money.code, money.locale)} out
         </span>
       </div>
     </div>

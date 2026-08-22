@@ -8,7 +8,8 @@ import { DemoFrame } from "./demo-frame";
 import { DemoFeed } from "./demo-feed";
 import { DemoSummaryBar } from "./demo-summary-bar";
 import { DemoProfilePicker } from "./demo-controls";
-import { DEMO_CURRENCY, DEMO_LOCALE, demoCategory } from "./demo-data";
+import { DEMO_LOCALE, demoCategory } from "./demo-data";
+import { demoAmountInput, useDemoMoney, type DemoMoneyFormat } from "@/hooks/use-demo-currency";
 import { useDemoFeed } from "./use-demo-feed";
 import { bulkDelimiter, parseBulk } from "@/lib/bulk-parser";
 import { formatMoney, signedMinor, toMinorUnits } from "@/lib/money";
@@ -21,14 +22,25 @@ import { cn } from "@/lib/utils";
  */
 const TODAY = "2026-08-21";
 
-/** Deliberately includes one broken row, because that's the interesting case. */
-const SAMPLE = [
-  "12.50, Lunch with the team, Food & Dining, expense",
-  "62, Weekly groceries, Groceries, expense",
-  "24, Bus pass top-up, Transport, expense",
-  "2000, August salary, Salary, income",
-  "lots, Cinema tickets, Entertainment, expense",
-].join("\n");
+/**
+ * The sample, built for whatever separators the visitor's locale implies —
+ * see `demoAmountInput`. The last row is deliberately unparseable, because how
+ * an importer reports a bad row is the thing worth showing.
+ */
+function sampleFor(money: DemoMoneyFormat): string {
+  const delimiter = bulkDelimiter("", money.locale);
+  const join = delimiter === "\t" ? "\t" : `${delimiter} `;
+  const amount = (usdMinor: number) => demoAmountInput(usdMinor, money);
+  return [
+    [amount(1250), "Lunch with the team", "Food & Dining", "expense"],
+    [amount(6200), "Weekly groceries", "Groceries", "expense"],
+    [amount(2400), "Bus pass top-up", "Transport", "expense"],
+    [amount(200000), "August salary", "Salary", "income"],
+    ["lots", "Cinema tickets", "Entertainment", "expense"],
+  ]
+    .map((row) => row.join(join))
+    .join("\n");
+}
 
 /**
  * Bulk import, running the app's real parser.
@@ -42,8 +54,13 @@ const SAMPLE = [
  */
 export function BulkAddDemo() {
   const feed = useDemoFeed("Personal");
-  const [text, setText] = useState(SAMPLE);
+  const money = useDemoMoney();
+  // `null` means "untouched", so the sample can follow the detected currency
+  // once it resolves after hydration. Holding it in state instead would freeze
+  // whatever the server rendered.
+  const [edited, setEdited] = useState<string | null>(null);
   const [imported, setImported] = useState(false);
+  const text = edited ?? sampleFor(money);
 
   const result = useMemo(() => parseBulk(text, TODAY, DEMO_LOCALE), [text]);
   const delimiter = useMemo(
@@ -56,19 +73,19 @@ export function BulkAddDemo() {
     feed.addMany(
       result.drafts.map((draft) => ({
         type: draft.type,
-        amountMinor: toMinorUnits(draft.amount, DEMO_CURRENCY, DEMO_LOCALE),
+        amountMinor: toMinorUnits(draft.amount, money.code, money.locale),
         title: draft.title || draft.note || "Transaction",
         categoryName: draft.categoryName ?? "Other",
         categoryIcon: demoCategory(draft.categoryName ?? "")?.icon ?? "💸",
       })),
     );
-    setText("");
+    setEdited("");
     setImported(true);
   }
 
   function reset() {
     feed.reset();
-    setText(SAMPLE);
+    setEdited(null);
     setImported(false);
   }
 
@@ -113,7 +130,7 @@ export function BulkAddDemo() {
           <Textarea
             value={text}
             onChange={(e) => {
-              setText(e.target.value);
+              setEdited(e.target.value);
               setImported(false);
             }}
             rows={4}
@@ -156,10 +173,10 @@ export function BulkAddDemo() {
                       {formatMoney(
                         signedMinor(
                           draft.type,
-                          toMinorUnits(draft.amount, DEMO_CURRENCY, DEMO_LOCALE),
+                          toMinorUnits(draft.amount, money.code, money.locale),
                         ),
-                        DEMO_CURRENCY,
-                        DEMO_LOCALE,
+                        money.code,
+                        money.locale,
                         { signed: true },
                       )}
                     </span>

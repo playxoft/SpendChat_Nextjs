@@ -12,8 +12,8 @@ import {
 } from "@/components/ui/select";
 import { RowTypeToggle } from "@/components/app/ai-accent";
 import { DemoDateChip } from "./demo-controls";
-import { DEMO_CURRENCY, DEMO_LOCALE, demoCategories, type DemoTxnType } from "./demo-data";
-import { getCurrency } from "@/lib/currencies";
+import { DEMO_LOCALE, demoCategories, type DemoTxnType } from "./demo-data";
+import { useDemoMoney } from "@/hooks/use-demo-currency";
 import { parseAmountInput } from "@/lib/parse-amount";
 
 /** One reviewable draft, edited as strings — the shape the app's review step uses. */
@@ -71,7 +71,7 @@ export function DemoDraftRows({
   onPatch: (key: number, changes: Partial<DemoDraft>) => void;
   onRemove: (key: number) => void;
 }) {
-  const currency = getCurrency(DEMO_CURRENCY);
+  const money = useDemoMoney();
 
   return (
     <div className="min-h-0 flex-1 overflow-auto">
@@ -89,7 +89,7 @@ export function DemoDraftRows({
             />
             <div className="relative">
               <span className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-xs text-muted-foreground">
-                {currency.symbol}
+                {money.currency.symbol}
               </span>
               <Input
                 inputMode="decimal"

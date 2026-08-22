@@ -21,15 +21,10 @@ import {
   DemoProfilePicker,
   DemoTypeToggle,
 } from "./demo-controls";
-import {
-  DEMO_CURRENCY,
-  DEMO_LOCALE,
-  demoCategories,
-  type DemoTxnType,
-} from "./demo-data";
+import { demoCategories, type DemoTxnType } from "./demo-data";
+import { useDemoMoney } from "@/hooks/use-demo-currency";
 import { useDemoFeed } from "./use-demo-feed";
 import { featurePath, getFeature } from "@/lib/features";
-import { getCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
 import { amountPlaceholder, parseAmountInput } from "@/lib/parse-amount";
 import { comboFor } from "@/lib/shortcuts";
@@ -73,7 +68,7 @@ export function ChatDemo() {
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
-  const currency = getCurrency(DEMO_CURRENCY);
+  const money = useDemoMoney();
   const aiPage = getFeature("ai-expense-tracker");
 
   // Keep the newest bubble in view. Scoped to the demo's own scroller, so it
@@ -89,7 +84,7 @@ export function ChatDemo() {
     setCategoryId(first ? `${next}:${first.name}` : null);
   }
 
-  const parsed = parseAmountInput(amount, DEMO_LOCALE);
+  const parsed = parseAmountInput(amount, money.locale);
   const canSend = parsed !== null && parsed > 0;
 
   function send() {
@@ -98,7 +93,7 @@ export function ChatDemo() {
     feed.add({
       type,
       // The real conversion, so the demo can't drift into float arithmetic.
-      amountMinor: toMinorUnits(amount, DEMO_CURRENCY, DEMO_LOCALE),
+      amountMinor: toMinorUnits(amount, money.code, money.locale),
       title: title.trim() || cat?.name || "Transaction",
       categoryName: cat?.name ?? "Other",
       categoryIcon: cat?.icon ?? "💸",
@@ -180,11 +175,11 @@ export function ChatDemo() {
               <div className="flex items-end gap-2">
                 <div className="relative shrink-0">
                   <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
-                    {currency.symbol}
+                    {money.currency.symbol}
                   </span>
                   <Input
                     inputMode="decimal"
-                    placeholder={amountPlaceholder(DEMO_LOCALE, currency.decimals)}
+                    placeholder={amountPlaceholder(money.locale, money.currency.decimals)}
                     value={amount}
                     onChange={(e) => setAmount(e.target.value.replace(/[^\d.,\s]/g, ""))}
                     onKeyDown={onKeyDown}

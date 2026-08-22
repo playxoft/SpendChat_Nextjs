@@ -23,7 +23,8 @@ import { amountToneClass } from "@/components/app/transaction-bubble";
 import { COLUMN_LABELS } from "@/components/app/transaction-columns-store";
 import { DemoFrame } from "./demo-frame";
 import { DemoDateChip, DemoTypeToggle } from "./demo-controls";
-import { DEMO_CURRENCY, DEMO_LOCALE, type DemoTxnType } from "./demo-data";
+import { type DemoTxnType } from "./demo-data";
+import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
 import { transactionsToReportCsv } from "@/lib/transactions-csv";
 import { formatDateShort } from "@/lib/dates";
 import { formatMoney, signedMinor } from "@/lib/money";
@@ -84,11 +85,11 @@ const PROFILE_NAME = "Personal";
 const FILENAME = `spendchat-${RANGE.to}.csv`;
 
 /** Pad a seed row out to the shape the exporter takes. */
-function toReportRow(seed: Seed, i: number): ReportRow {
+function toReportRow(seed: Seed, i: number, amountMinor: number): ReportRow {
   return {
     id: `demo-${i}`,
     type: seed.type,
-    amountMinor: seed.amountMinor,
+    amountMinor,
     title: seed.title,
     description: null,
     note: seed.title,
@@ -125,6 +126,7 @@ function toReportRow(seed: Seed, i: number): ReportRow {
 export function ExportDemo() {
   const [type, setType] = useState<DemoTxnType | "all">("all");
   const [category, setCategory] = useState(CATEGORIES[0]);
+  const money = useDemoMoney();
 
   const rows = useMemo(
     () =>
@@ -136,20 +138,21 @@ export function ExportDemo() {
     [type, category],
   );
 
-  // Newest first, the transactions table's default sort — and the export
-  // follows the sort, so the file's row order is the screen's row order.
+  // Newest first. That is the transactions table's default *and* the order the
+  // export always uses — the route resolves filters but not sort, so the file
+  // is newest-first whichever column the table happens to be sorted by.
   const csv = useMemo(
     () =>
       transactionsToReportCsv({
-        rows: rows.map(toReportRow),
-        currency: DEMO_CURRENCY,
-        locale: DEMO_LOCALE,
+        rows: rows.map((row, i) => toReportRow(row, i, demoAmount(row.amountMinor, money))),
+        currency: money.code,
+        locale: money.locale,
         workspaceName: WORKSPACE_NAME,
         profileName: PROFILE_NAME,
         from: RANGE.from,
         to: RANGE.to,
       }),
-    [rows],
+    [rows, money],
   );
 
   // The file is CRLF (RFC 4180, and what Excel expects). A lone CR inside a
@@ -159,7 +162,7 @@ export function ExportDemo() {
   const display = csv.replace(/\r\n/g, "\n");
   const lineCount = csv.split("\r\n").length;
 
-  const net = rows.reduce((sum, r) => sum + signedMinor(r.type, r.amountMinor), 0);
+  const net = rows.reduce((sum, r) => sum + signedMinor(r.type, demoAmount(r.amountMinor, money)), 0);
 
   function downloadCsv() {
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -213,7 +216,7 @@ export function ExportDemo() {
           <span className="text-muted-foreground">
             {rows.length} of {SEED.length} rows ·{" "}
             <span className={cn("tabular-nums", net >= 0 && "text-emerald-600 dark:text-emerald-400")}>
-              {formatMoney(net, DEMO_CURRENCY, DEMO_LOCALE, { signed: true })}
+              {formatMoney(net, money.code, money.locale, { signed: true })}
             </span>{" "}
             net
           </span>
@@ -257,7 +260,7 @@ export function ExportDemo() {
                 rows.map((row, i) => (
                   <TableRow key={`${row.date}-${i}`}>
                     <TableCell className="whitespace-nowrap align-top text-muted-foreground">
-                      {formatDateShort(row.date, DEMO_LOCALE)}
+                      {formatDateShort(row.date, money.locale)}
                     </TableCell>
                     <TableCell className="align-top">
                       {/* Wrapping rather than truncating: the whole point of the
@@ -274,9 +277,9 @@ export function ExportDemo() {
                       )}
                     >
                       {formatMoney(
-                        signedMinor(row.type, row.amountMinor),
-                        DEMO_CURRENCY,
-                        DEMO_LOCALE,
+                        signedMinor(row.type, demoAmount(row.amountMinor, money)),
+                        money.code,
+                        money.locale,
                         { signed: true },
                       )}
                     </TableCell>

@@ -22,8 +22,9 @@ import {
 import { amountToneClass } from "@/components/app/transaction-bubble";
 import { COLUMN_LABELS } from "@/components/app/transaction-columns-store";
 import { DemoFrame } from "./demo-frame";
-import { DemoTypeToggle } from "./demo-controls";
-import { DEMO_CURRENCY, DEMO_LOCALE, type DemoTxnType } from "./demo-data";
+import { DemoTypeFilter, type DemoTypeFilterValue } from "./demo-controls";
+import { type DemoTxnType } from "./demo-data";
+import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
 import { formatMoney, signedMinor } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -83,11 +84,12 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
  * Everything here runs on the array above: no query, no account, nothing saved.
  */
 export function TransactionsDemo() {
-  const [type, setType] = useState<DemoTxnType | "all">("all");
+  const [type, setType] = useState<DemoTypeFilterValue>("all");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const money = useDemoMoney();
 
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -119,7 +121,12 @@ export function TransactionsDemo() {
     }
   }
 
-  const total = rows.reduce((sum, r) => sum + signedMinor(r.type, r.amountMinor), 0);
+  // Scaled into the visitor's currency before summing, so the footer total and
+  // the rows above it can never disagree by a rounding step.
+  const total = rows.reduce(
+    (sum, r) => sum + signedMinor(r.type, demoAmount(r.amountMinor, money)),
+    0,
+  );
 
   return (
     <DemoFrame
@@ -128,11 +135,7 @@ export function TransactionsDemo() {
       className="h-[36rem]"
       header={
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-3">
-          <DemoTypeToggle
-            dense
-            type={type === "all" ? "expense" : type}
-            onChange={(t) => setType(type === t ? "all" : t)}
-          />
+          <DemoTypeFilter value={type} onChange={setType} />
           <Select value={category} onValueChange={setCategory}>
             <SelectTrigger className="h-8 w-auto min-w-40 gap-1" aria-label="Category">
               <SelectValue />
@@ -167,7 +170,7 @@ export function TransactionsDemo() {
             {rows.length} of {ROWS.length} transactions
           </span>
           <span className={cn("tabular-nums", total >= 0 && "text-emerald-600 dark:text-emerald-400")}>
-            {formatMoney(total, DEMO_CURRENCY, DEMO_LOCALE, { signed: true })}
+            {formatMoney(total, money.code, money.locale, { signed: true })}
           </span>
         </div>
       }
@@ -233,9 +236,9 @@ export function TransactionsDemo() {
                     className={cn("text-right tabular-nums", amountToneClass(row.type))}
                   >
                     {formatMoney(
-                      signedMinor(row.type, row.amountMinor),
-                      DEMO_CURRENCY,
-                      DEMO_LOCALE,
+                      signedMinor(row.type, demoAmount(row.amountMinor, money)),
+                      money.code,
+                      money.locale,
                       { signed: true },
                     )}
                   </TableCell>

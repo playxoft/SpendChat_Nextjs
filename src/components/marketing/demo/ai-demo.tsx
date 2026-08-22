@@ -20,21 +20,35 @@ import {
   patchDraft,
   type DemoDraft,
 } from "./demo-draft-rows";
-import { DEMO_CURRENCY, DEMO_LOCALE, demoCategory } from "./demo-data";
+import { demoCategory } from "./demo-data";
+import {
+  demoAmountInput,
+  useDemoMoney,
+  type DemoMoneyFormat,
+} from "@/hooks/use-demo-currency";
 import { useDemoFeed } from "./use-demo-feed";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { toMinorUnits } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-/** The sentence the demo types out. Deliberately messy — that's the point. */
-const NOTE = "lunch 12.50, groceries 62, and 40 for the taxi home";
+/**
+ * The sentence the demo types out, and the drafts a parse of it "returns".
+ *
+ * Both are derived from the visitor's currency rather than hard-coded, so an
+ * Indian reader sees a sentence with rupee-sized numbers in it instead of a
+ * ₹12.50 lunch. Deliberately messy prose either way — that's the point.
+ */
+function noteFor(money: DemoMoneyFormat): string {
+  return `lunch ${demoAmountInput(1250, money)}, groceries ${demoAmountInput(6200, money)}, and ${demoAmountInput(4000, money)} for the taxi home`;
+}
 
-/** What the parse "returns" — one draft per item in the sentence. */
-const PARSED: DemoDraft[] = [
-  { key: 1, type: "expense", amount: "12.50", title: "Lunch", categoryName: "Food & Dining" },
-  { key: 2, type: "expense", amount: "62.00", title: "Groceries", categoryName: "Groceries" },
-  { key: 3, type: "expense", amount: "40.00", title: "Taxi home", categoryName: "Transport" },
-];
+function parsedFor(money: DemoMoneyFormat): DemoDraft[] {
+  return [
+    { key: 1, type: "expense", amount: demoAmountInput(1250, money), title: "Lunch", categoryName: "Food & Dining" },
+    { key: 2, type: "expense", amount: demoAmountInput(6200, money), title: "Groceries", categoryName: "Groceries" },
+    { key: 3, type: "expense", amount: demoAmountInput(4000, money), title: "Taxi home", categoryName: "Transport" },
+  ];
+}
 
 type Stage = "typing" | "parsing" | "review" | "saved";
 
@@ -62,13 +76,22 @@ const ROW_STAGGER_MS = 140;
  */
 export function AiDemo() {
   const feed = useDemoFeed("Personal");
+  const money = useDemoMoney();
   const reduced = useReducedMotion();
 
   const [mode, setMode] = useState<EntryMode>("ai");
   const [stage, setStage] = useState<Stage>("review");
-  const [typed, setTyped] = useState(NOTE);
-  const [rows, setRows] = useState<DemoDraft[]>(PARSED);
-  const [visibleRows, setVisibleRows] = useState(PARSED.length);
+  // `null` means "untouched", so the note and drafts follow the detected
+  // currency once it resolves after hydration; seeding state directly would
+  // freeze whatever the server rendered.
+  const [typedOverride, setTypedOverride] = useState<string | null>(null);
+  const [rowsOverride, setRowsOverride] = useState<DemoDraft[] | null>(null);
+
+  const note = noteFor(money);
+  const parsed = parsedFor(money);
+  const typed = typedOverride ?? note;
+  const rows = rowsOverride ?? parsed;
+  const [visibleRows, setVisibleRows] = useState(3);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const timers = useRef<number[]>([]);
@@ -87,35 +110,35 @@ export function AiDemo() {
   const play = useCallback(() => {
     clearTimers();
     setMode("ai");
-    setRows(PARSED);
+    setRowsOverride(null);
     setVisibleRows(0);
-    setTyped("");
+    setTypedOverride("");
     setStage("typing");
 
-    for (let i = 1; i <= NOTE.length; i++) {
-      at(i * CHAR_MS, () => setTyped(NOTE.slice(0, i)));
+    for (let i = 1; i <= note.length; i++) {
+      at(i * CHAR_MS, () => setTypedOverride(note.slice(0, i)));
     }
 
-    const parseStart = NOTE.length * CHAR_MS + PAUSE_MS;
+    const parseStart = note.length * CHAR_MS + PAUSE_MS;
     at(parseStart, () => setStage("parsing"));
 
     const reviewStart = parseStart + PARSE_MS;
     at(reviewStart, () => setStage("review"));
-    PARSED.forEach((_, i) => {
+    parsed.forEach((_, i) => {
       at(reviewStart + i * ROW_STAGGER_MS, () => setVisibleRows(i + 1));
     });
-  }, [at, clearTimers]);
+  }, [at, clearTimers, note, parsed]);
 
   /** Back to the finished state immediately — the reduced-motion path, and
    * what "Replay" falls back to when motion is off. */
   const showResult = useCallback(() => {
     clearTimers();
     setMode("ai");
-    setTyped(NOTE);
-    setRows(PARSED);
-    setVisibleRows(PARSED.length);
+    setTypedOverride(null);
+    setRowsOverride(null);
+    setVisibleRows(parsed.length);
     setStage("review");
-  }, [clearTimers]);
+  }, [clearTimers, parsed.length]);
 
   // Play once, when it scrolls into view. Autoplaying on mount would run the
   // whole sequence above the fold before anyone had scrolled to it.
@@ -142,7 +165,7 @@ export function AiDemo() {
   useEffect(() => clearTimers, [clearTimers]);
 
   function patch(key: number, changes: Partial<DemoDraft>) {
-    setRows((prev) => patchDraft(prev, key, changes));
+    setRowsOverride(patchDraft(rows, key, changes));
   }
 
   const validRows = useMemo(() => rows.filter(isValidDraft), [rows]);
@@ -152,7 +175,7 @@ export function AiDemo() {
     feed.addMany(
       validRows.map((r) => ({
         type: r.type,
-        amountMinor: toMinorUnits(r.amount, DEMO_CURRENCY, DEMO_LOCALE),
+        amountMinor: toMinorUnits(r.amount, money.code, money.locale),
         title: r.title.trim(),
         categoryName: r.categoryName || "Other",
         categoryIcon: demoCategory(r.categoryName)?.icon ?? "💸",
@@ -160,8 +183,8 @@ export function AiDemo() {
     );
     clearTimers();
     setStage("saved");
-    setTyped("");
-    setRows([]);
+    setTypedOverride("");
+    setRowsOverride([]);
   }
 
   const isNoteStage = stage === "typing" || stage === "parsing";
@@ -270,16 +293,14 @@ export function AiDemo() {
                 {/* The note that produced these drafts, so the parse can be
                     checked against what was typed. */}
                 <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                  {NOTE}
+                  {note}
                 </p>
 
                 <DemoDraftRows
                   rows={rows}
                   visible={visibleRows}
                   onPatch={patch}
-                  onRemove={(key) =>
-                    setRows((prev) => prev.filter((r) => r.key !== key))
-                  }
+                  onRemove={(key) => setRowsOverride(rows.filter((r) => r.key !== key))}
                 />
 
                 <div className="flex items-center justify-between gap-2">

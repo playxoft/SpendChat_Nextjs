@@ -1,7 +1,10 @@
+"use client";
+
 import { Fragment } from "react";
 import { DayDivider } from "@/components/app/day-divider";
 import { TransactionBubble } from "@/components/app/transaction-bubble";
-import { DEMO_CURRENCY, DEMO_LOCALE, type DemoTxn } from "./demo-data";
+import { type DemoTxn } from "./demo-data";
+import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
 import { formatMoney, signedMinor } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -29,6 +32,8 @@ export function DemoFeed({
   defaultDay?: string;
   className?: string;
 }) {
+  const money = useDemoMoney();
+
   const groups: { day: string; rows: DemoTxn[] }[] = [];
   for (const txn of txns) {
     const day = txn.day ?? defaultDay;
@@ -47,9 +52,9 @@ export function DemoFeed({
               key={t.id}
               type={t.type}
               amountLabel={formatMoney(
-                signedMinor(t.type, t.amountMinor),
-                DEMO_CURRENCY,
-                DEMO_LOCALE,
+                signedMinor(t.type, demoAmount(t.amountMinor, money)),
+                money.code,
+                money.locale,
                 { signed: true },
               )}
               title={t.title}

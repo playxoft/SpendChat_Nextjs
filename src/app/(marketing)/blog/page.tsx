@@ -38,6 +38,8 @@ export default function BlogPage() {
       description: post.excerpt,
       datePublished: post.date,
       dateModified: post.updated ?? post.date,
+      // Absolute, as schema.org requires — a relative URL is silently dropped.
+      image: `${siteConfig.url}${post.image ?? siteConfig.ogImage}`,
       url: `${siteConfig.url}/blog/${post.slug}`,
     })),
   };
@@ -64,6 +66,22 @@ export default function BlogPage() {
             href={`/blog/${post.slug}`}
             className="group flex flex-col rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
           >
+            {post.image && (
+              // Plain <img>: covers are static files in `public/`, served
+              // straight off the CDN, so next/image's optimizer (a Worker
+              // invocation on OpenNext) would only add a hop. The intrinsic
+              // 1200×630 is stated so the card reserves its space before the
+              // bytes arrive and the grid doesn't jump.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={post.image}
+                alt={post.title}
+                width={1200}
+                height={630}
+                loading="lazy"
+                className="mb-5 h-auto w-full rounded-xl border"
+              />
+            )}
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="rounded-full bg-muted px-2.5 py-0.5 font-medium">
                 {post.tag}

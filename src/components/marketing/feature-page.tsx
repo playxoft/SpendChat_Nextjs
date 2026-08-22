@@ -2,6 +2,12 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
+} from "@/components/ui/accordion";
 import { JsonLd } from "@/components/json-ld";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { FeatureIcon } from "@/components/marketing/feature-icon";
@@ -135,20 +141,23 @@ export function FeaturePage({
         </section>
       )}
 
-      {/* FAQ — visible text and the structured data come from the same array. */}
+      {/* FAQ — the visible text and the structured data come from one array, so
+          they can't drift. The answers stay mounted while collapsed (see
+          `AccordionContent`), which is what keeps them in the server-rendered
+          HTML that both crawlers and the `FAQPage` markup depend on. */}
       {faqs.length > 0 && (
         <section className="mt-16">
-          <h2 className="text-2xl font-semibold tracking-tight">Questions</h2>
-          <dl className="mt-6 divide-y border-t">
+          <h2 className="text-2xl font-semibold tracking-tight">FAQ</h2>
+          <Accordion type="multiple" className="mt-6 border-t">
             {faqs.map((faq) => (
-              <div key={faq.q} className="py-5">
-                <dt className="font-medium">{faq.q}</dt>
-                <dd className="mt-1.5 leading-relaxed text-muted-foreground">
+              <AccordionItem key={faq.q} value={faq.q}>
+                <AccordionTrigger>{faq.q}</AccordionTrigger>
+                <AccordionContent className="leading-relaxed text-muted-foreground">
                   {faq.a}
-                </dd>
-              </div>
+                </AccordionContent>
+              </AccordionItem>
             ))}
-          </dl>
+          </Accordion>
         </section>
       )}
 

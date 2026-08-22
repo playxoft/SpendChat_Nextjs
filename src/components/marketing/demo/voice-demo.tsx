@@ -22,7 +22,8 @@ import {
   patchDraft,
   type DemoDraft,
 } from "./demo-draft-rows";
-import { DEMO_CURRENCY, DEMO_LOCALE, demoCategory } from "./demo-data";
+import { demoCategory } from "./demo-data";
+import { useDemoMoney } from "@/hooks/use-demo-currency";
 import { useDemoFeed } from "./use-demo-feed";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { toMinorUnits } from "@/lib/money";
@@ -123,6 +124,7 @@ const LEVEL_TICK_MS = 90;
  */
 export function VoiceDemo() {
   const feed = useDemoFeed("Personal");
+  const money = useDemoMoney();
   const reduced = useReducedMotion();
 
   const [scriptId, setScriptId] = useState(SCRIPTS[0].id);
@@ -265,7 +267,7 @@ export function VoiceDemo() {
     feed.addMany(
       validRows.map((r) => ({
         type: r.type,
-        amountMinor: toMinorUnits(r.amount, DEMO_CURRENCY, DEMO_LOCALE),
+        amountMinor: toMinorUnits(r.amount, money.code, money.locale),
         title: r.title.trim(),
         categoryName: r.categoryName || "Other",
         categoryIcon: demoCategory(r.categoryName)?.icon ?? "💸",

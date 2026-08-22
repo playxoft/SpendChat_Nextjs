@@ -1,0 +1,302 @@
+<!doctype html>
+<!--
+  Source for public/blog/<slug>.png — the 1200x630 cover shown at the top of a
+  blog post, on the blog index card, and as that post's social preview when the
+  link is shared (WhatsApp, Telegram, X, Slack, ...).
+
+  One file renders every post: the slug is read from the query string
+  (?post=<slug>) and looked up in the POSTS table below. Keep that table in sync
+  with `export const meta` in src/content/blog/<slug>.mdx — the title, excerpt
+  and tag here should be the same strings the page renders.
+
+  Static PNGs on purpose, for the same reason as scripts/og-image.html:
+  generating them at runtime with next/og makes OpenNext bundle @vercel/og +
+  resvg.wasm (~2.2 MB) into the Worker.
+
+  To regenerate after editing this file (or after adding a post), run from the
+  repo root — needs Chrome, and keep each result <300 KB or WhatsApp falls back
+  to a small thumbnail:
+
+    mkdir -p public/blog
+    for slug in \
+      introducing-spendchat \
+      spendchat-is-now-open-source \
+      track-your-money-like-a-conversation
+    do
+      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+        --headless=new --disable-gpu --hide-scrollbars \
+        --force-device-scale-factor=1 --window-size=1200,630 \
+        --virtual-time-budget=4000 \
+        --screenshot="public/blog/$slug.png" \
+        "file://$PWD/scripts/blog-image.html?post=$slug"
+    done
+
+  Chat apps cache previews hard — after a re-render, force a refresh through
+  developers.facebook.com/tools/debug/ (WhatsApp) or @WebpageBot (Telegram).
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* The app's dark-theme tokens, copied from src/app/globals.css (`.dark`)
+         so a cover can never drift from the product's palette. */
+      :root {
+        --background: oklch(0.145 0 0); /* page background   */
+        --foreground: oklch(0.985 0 0); /* primary text      */
+        --muted: oklch(0.269 0 0); /* pill background   */
+        --muted-foreground: oklch(0.708 0 0); /* secondary text    */
+        --border: oklch(1 0 0 / 10%); /* hairlines         */
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        width: 1200px;
+        height: 630px;
+      }
+      body {
+        position: relative;
+        overflow: hidden;
+        background: var(--background);
+        color: var(--foreground);
+        font-family: "Geist", -apple-system, BlinkMacSystemFont, "SF Pro Text",
+          "Segoe UI", Roboto, sans-serif;
+        /* Hairline inset frame — keeps the card off a dark chat background
+           (WhatsApp/Telegram dark mode) without adding decoration. */
+        box-shadow: inset 0 0 0 1px var(--border);
+      }
+
+      /* Faint grid, fading out towards the bottom-left. Neutral white at 3.5%
+         alpha: depth without a second colour, and cheap in a PNG. */
+      .grid {
+        position: absolute;
+        inset: 0;
+        background-image: linear-gradient(
+            to right,
+            rgba(255, 255, 255, 0.035) 1px,
+            transparent 1px
+          ),
+          linear-gradient(
+            to bottom,
+            rgba(255, 255, 255, 0.035) 1px,
+            transparent 1px
+          );
+        background-size: 60px 60px;
+        -webkit-mask-image: radial-gradient(
+          90% 110% at 100% 0%,
+          #000 0%,
+          transparent 62%
+        );
+      }
+      /* Soft vignette: a barely-there light source in the top-right corner. */
+      .glow {
+        position: absolute;
+        inset: 0;
+        background: radial-gradient(
+          58% 72% at 96% 6%,
+          rgba(255, 255, 255, 0.07) 0%,
+          transparent 60%
+        );
+      }
+
+      .card {
+        position: relative;
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+        justify-content: space-between;
+        padding: 68px 84px 60px;
+      }
+
+      /* Brand */
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .mark {
+        width: 38px;
+        height: 38px;
+        flex: none;
+      }
+      .wordmark {
+        font-size: 30px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+        line-height: 1;
+      }
+
+      /* Body */
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        background: var(--muted);
+        color: var(--foreground);
+        border-radius: 999px;
+        padding: 7px 18px;
+        font-size: 20px;
+        font-weight: 500;
+        letter-spacing: 0.01em;
+      }
+      .title {
+        margin-top: 26px;
+        font-size: 62px;
+        font-weight: 600;
+        line-height: 1.12;
+        letter-spacing: -0.028em;
+        max-width: 900px;
+        text-wrap: balance;
+      }
+      /* Long headlines step down a size rather than wrapping to three lines. */
+      .title.long {
+        font-size: 56px;
+      }
+      /* ~810px holds two lines of any of the excerpts below at this size —
+         keep it to two, since a third crowds the footer rule. */
+      .excerpt {
+        margin-top: 22px;
+        font-size: 26px;
+        font-weight: 400;
+        line-height: 1.45;
+        letter-spacing: -0.004em;
+        color: var(--muted-foreground);
+        max-width: 810px;
+        text-wrap: pretty;
+      }
+
+      /* Footer */
+      .foot {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding-top: 26px;
+        border-top: 1px solid var(--border);
+        font-size: 20px;
+        color: var(--muted-foreground);
+      }
+      .meta {
+        display: flex;
+        align-items: center;
+      }
+      .dot {
+        margin: 0 10px;
+        color: rgba(255, 255, 255, 0.25);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid"></div>
+    <div class="glow"></div>
+
+    <div class="card">
+      <div class="brand">
+        <!-- SpendChat mark — the same chat bubble + $ as src/components/logo.tsx -->
+        <svg class="mark" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="1.75"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+          <text
+            x="12"
+            y="10.4"
+            text-anchor="middle"
+            dominant-baseline="middle"
+            font-size="9"
+            font-weight="600"
+            fill="currentColor"
+            font-family="Geist, -apple-system, system-ui, sans-serif"
+          >
+            $
+          </text>
+        </svg>
+        <div class="wordmark">SpendChat</div>
+      </div>
+
+      <div>
+        <span class="tag" id="tag"></span>
+        <h1 class="title" id="title"></h1>
+        <p class="excerpt" id="excerpt"></p>
+      </div>
+
+      <div class="foot">
+        <div class="meta">
+          <span id="date"></span>
+          <span class="dot">·</span>
+          <span id="reading"></span>
+        </div>
+        <div>spendchat.app</div>
+      </div>
+    </div>
+
+    <script>
+      // Mirrors `export const meta` in src/content/blog/<slug>.mdx.
+      // `excerpt` may be shortened here to keep the cover to two lines — the
+      // page still shows the full one.
+      const POSTS = {
+        "introducing-spendchat": {
+          tag: "Product",
+          title: "Introducing SpendChat",
+          excerpt:
+            "A minimal, fast, private money tracker — add income and expenses in seconds, then filter, export, and print.",
+          date: "2026-05-12",
+          readingMinutes: 2,
+        },
+        "spendchat-is-now-open-source": {
+          tag: "Open source",
+          title: "SpendChat is now open source",
+          excerpt:
+            "The entire app is public under the AGPL-3.0. Here's what that means for your data and your trust.",
+          date: "2026-06-02",
+          readingMinutes: 2,
+        },
+        "track-your-money-like-a-conversation": {
+          tag: "Philosophy",
+          title: "Track your money like a conversation",
+          excerpt:
+            "Why we built logging a transaction to feel like sending a message — and why that tiny change is the whole product.",
+          date: "2026-06-15",
+          readingMinutes: 3,
+        },
+      };
+
+      const slug = new URLSearchParams(location.search).get("post");
+      const post = POSTS[slug];
+      if (!post) {
+        document.body.innerHTML =
+          '<div style="padding:80px;font-size:32px">Unknown post: ' +
+          (slug || "(none)") +
+          "</div>";
+      } else {
+        const titleEl = document.getElementById("title");
+        document.getElementById("tag").textContent = post.tag;
+        titleEl.textContent = post.title;
+        document.getElementById("excerpt").textContent = post.excerpt;
+        // Same format as formatPostDate() in src/lib/blog.ts.
+        document.getElementById("date").textContent = new Date(
+          post.date + "T00:00:00",
+        ).toLocaleDateString("en-US", {
+          year: "numeric",
+          month: "long",
+          day: "numeric",
+        });
+        document.getElementById("reading").textContent =
+          post.readingMinutes + " min read";
+        if (post.title.length > 30) titleEl.classList.add("long");
+      }
+    </script>
+  </body>
+</html>

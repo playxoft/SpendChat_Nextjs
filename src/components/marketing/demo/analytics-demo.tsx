@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { LazyCategoryChart } from "@/components/marketing/lazy-category-chart";
 import { DemoFrame } from "./demo-frame";
-import { DEMO_CURRENCY, DEMO_LOCALE } from "./demo-data";
+import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -78,8 +78,6 @@ const TREND = [
   { month: "Aug", income: 235000, expense: 209150 },
 ];
 
-const MAX_TREND = Math.max(...TREND.flatMap((t) => [t.income, t.expense]), 1);
-
 function StatCard({
   label,
   value,
@@ -117,13 +115,41 @@ function StatCard({
 export function AnalyticsDemo() {
   const [range, setRange] = useState<Range>("month");
   const [kind, setKind] = useState<Kind>("expense");
+  const money = useDemoMoney();
 
-  const data = BREAKDOWN[range][kind];
+  // Every figure is scaled into the visitor's currency at the same point, so
+  // the cards, the chart and the trend can't drift apart by a rounding step.
+  const data = useMemo(
+    () =>
+      BREAKDOWN[range][kind].map((slice) => ({
+        ...slice,
+        value: demoAmount(slice.value, money),
+      })),
+    [range, kind, money],
+  );
+
   const totals = useMemo(() => {
-    const income = BREAKDOWN[range].income.reduce((s, c) => s + c.value, 0);
-    const expense = BREAKDOWN[range].expense.reduce((s, c) => s + c.value, 0);
+    const income = BREAKDOWN[range].income.reduce(
+      (sum, c) => sum + demoAmount(c.value, money),
+      0,
+    );
+    const expense = BREAKDOWN[range].expense.reduce(
+      (sum, c) => sum + demoAmount(c.value, money),
+      0,
+    );
     return { income, expense, net: income - expense };
-  }, [range]);
+  }, [range, money]);
+
+  const trend = useMemo(
+    () =>
+      TREND.map((t) => ({
+        month: t.month,
+        income: demoAmount(t.income, money),
+        expense: demoAmount(t.expense, money),
+      })),
+    [money],
+  );
+  const maxTrend = Math.max(...trend.flatMap((t) => [t.income, t.expense]), 1);
 
   return (
     <DemoFrame
@@ -158,16 +184,16 @@ export function AnalyticsDemo() {
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard
             label="Income"
-            value={formatMoney(totals.income, DEMO_CURRENCY, DEMO_LOCALE)}
+            value={formatMoney(totals.income, money.code, money.locale)}
             positive
           />
           <StatCard
             label="Expenses"
-            value={formatMoney(totals.expense, DEMO_CURRENCY, DEMO_LOCALE)}
+            value={formatMoney(totals.expense, money.code, money.locale)}
           />
           <StatCard
             label="Net"
-            value={formatMoney(totals.net, DEMO_CURRENCY, DEMO_LOCALE)}
+            value={formatMoney(totals.net, money.code, money.locale)}
             positive={totals.net >= 0}
           />
         </div>
@@ -208,8 +234,8 @@ export function AnalyticsDemo() {
             <LazyCategoryChart
               key={`${range}-${kind}`}
               data={data}
-              currency={DEMO_CURRENCY}
-              locale={DEMO_LOCALE}
+              currency={money.code}
+              locale={money.locale}
             />
           </CardContent>
         </Card>
@@ -229,7 +255,7 @@ export function AnalyticsDemo() {
               </span>
             </div>
             <ul className="space-y-3">
-              {TREND.map((t) => (
+              {trend.map((t) => (
                 <li key={t.month} className="flex items-center gap-3">
                   <span className="w-12 shrink-0 text-xs text-muted-foreground">
                     {t.month}
@@ -237,15 +263,15 @@ export function AnalyticsDemo() {
                   <div className="flex-1 space-y-1">
                     <div
                       className="h-2.5 rounded-full bg-emerald-500/70"
-                      style={{ width: `${(t.income / MAX_TREND) * 100}%` }}
+                      style={{ width: `${(t.income / maxTrend) * 100}%` }}
                     />
                     <div
                       className="h-2.5 rounded-full bg-foreground/60"
-                      style={{ width: `${(t.expense / MAX_TREND) * 100}%` }}
+                      style={{ width: `${(t.expense / maxTrend) * 100}%` }}
                     />
                   </div>
                   <span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {formatMoney(t.income - t.expense, DEMO_CURRENCY, DEMO_LOCALE)}
+                    {formatMoney(t.income - t.expense, money.code, money.locale)}
                   </span>
                 </li>
               ))}

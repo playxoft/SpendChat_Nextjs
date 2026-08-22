@@ -12,13 +12,14 @@ import {
   patchDraft,
   type DemoDraft,
 } from "@/components/marketing/demo/demo-draft-rows";
+import { DEMO_SEEDS } from "@/components/marketing/demo/demo-data";
 import {
-  DEMO_CURRENCY,
-  DEMO_LOCALE,
-  DEMO_SEEDS,
-} from "@/components/marketing/demo/demo-data";
+  demoAmountInput,
+  useDemoMoney,
+  type DemoMoneyFormat,
+} from "@/hooks/use-demo-currency";
 import { featurePath, getFeature } from "@/lib/features";
-import { parseBulk } from "@/lib/bulk-parser";
+import { bulkDelimiter, parseBulk } from "@/lib/bulk-parser";
 import { formatMoney, signedMinor, toMinorUnits } from "@/lib/money";
 
 /**
@@ -37,16 +38,25 @@ import { formatMoney, signedMinor, toMinorUnits } from "@/lib/money";
 /** Fixed so nothing reads the clock during render — see `demo-data.ts`. */
 const BULK_TODAY = "2026-08-01";
 
-const BULK_SAMPLE = [
-  "12.50, Lunch with the team, Food & Dining, expense",
-  "62, Weekly groceries, Groceries, expense",
-  "2000, August salary, Salary, income",
-].join("\n");
+/** Built for the visitor's separators — see `demoAmountInput`. */
+function bulkSampleFor(money: DemoMoneyFormat): string {
+  const delimiter = bulkDelimiter("", money.locale);
+  const join = delimiter === "\t" ? "\t" : `${delimiter} `;
+  return [
+    [demoAmountInput(1250, money), "Lunch with the team", "Food & Dining", "expense"],
+    [demoAmountInput(6200, money), "Weekly groceries", "Groceries", "expense"],
+    [demoAmountInput(200000, money), "August salary", "Salary", "income"],
+  ]
+    .map((row) => row.join(join))
+    .join("\n");
+}
 
-const AI_DRAFTS: DemoDraft[] = [
-  { key: 1, type: "expense", amount: "4.50", title: "Coffee", categoryName: "Food & Dining" },
-  { key: 2, type: "expense", amount: "62.00", title: "Groceries", categoryName: "Groceries" },
-];
+function aiDraftsFor(money: DemoMoneyFormat): DemoDraft[] {
+  return [
+    { key: 1, type: "expense", amount: demoAmountInput(450, money), title: "Coffee", categoryName: "Food & Dining" },
+    { key: 2, type: "expense", amount: demoAmountInput(6200, money), title: "Groceries", categoryName: "Groceries" },
+  ];
+}
 
 const METHODS = [
   {
@@ -84,15 +94,21 @@ const METHODS = [
 ] as const;
 
 export function EntryMethods() {
-  const [bulkText, setBulkText] = useState(BULK_SAMPLE);
-  const [aiRows, setAiRows] = useState<DemoDraft[]>(AI_DRAFTS);
+  const money = useDemoMoney();
+  // `null` means "untouched", so both samples can follow the detected currency
+  // once it resolves after hydration. Seeding state directly would freeze
+  // whatever the server rendered.
+  const [bulkEdit, setBulkEdit] = useState<string | null>(null);
+  const [aiEdit, setAiEdit] = useState<DemoDraft[] | null>(null);
+  const bulkText = bulkEdit ?? bulkSampleFor(money);
+  const aiRows = aiEdit ?? aiDraftsFor(money);
 
   // The real parser, running in the browser. It's a pure function over a
   // string, so a marketing page can use it directly — which makes this preview
   // genuinely honest rather than a mock-up of what parsing looks like.
   const bulk = useMemo(
-    () => parseBulk(bulkText, BULK_TODAY, DEMO_LOCALE),
-    [bulkText],
+    () => parseBulk(bulkText, BULK_TODAY, money.locale),
+    [bulkText, money.locale],
   );
 
   return (
@@ -142,17 +158,16 @@ export function EntryMethods() {
                 {method.id === "ai" && (
                   <div className="space-y-2">
                     <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                      coffee 4.50 and 62 on groceries
+                      coffee {demoAmountInput(450, money)} and{" "}
+                      {demoAmountInput(6200, money)} on groceries
                     </p>
                     <DemoDraftRows
                       rows={aiRows}
                       visible={aiRows.length}
                       onPatch={(key, changes) =>
-                        setAiRows((prev) => patchDraft(prev, key, changes))
+                        setAiEdit(patchDraft(aiRows, key, changes))
                       }
-                      onRemove={(key) =>
-                        setAiRows((prev) => prev.filter((r) => r.key !== key))
-                      }
+                      onRemove={(key) => setAiEdit(aiRows.filter((r) => r.key !== key))}
                     />
                   </div>
                 )}
@@ -179,7 +194,7 @@ export function EntryMethods() {
                   <div className="space-y-2">
                     <Textarea
                       value={bulkText}
-                      onChange={(e) => setBulkText(e.target.value)}
+                      onChange={(e) => setBulkEdit(e.target.value)}
                       rows={4}
                       aria-label="Paste transactions"
                       spellCheck={false}
@@ -222,10 +237,10 @@ export function EntryMethods() {
                                 {formatMoney(
                                   signedMinor(
                                     draft.type,
-                                    toMinorUnits(draft.amount, DEMO_CURRENCY, DEMO_LOCALE),
+                                    toMinorUnits(draft.amount, money.code, money.locale),
                                   ),
-                                  DEMO_CURRENCY,
-                                  DEMO_LOCALE,
+                                  money.code,
+                                  money.locale,
                                   { signed: true },
                                 )}
                               </span>

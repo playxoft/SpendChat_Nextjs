@@ -94,6 +94,87 @@ export function DemoTypeToggle({
   );
 }
 
+/** What a transaction-type *filter* can be set to — unlike the composer's
+ * toggle, "no filter" is a first-class option rather than an absence. */
+export type DemoTypeFilterValue = "all" | DemoTxnType;
+
+/**
+ * The type filter for the transactions view.
+ *
+ * Three explicit segments rather than the composer's two. The composer is
+ * *choosing* what a new transaction is, so expense-or-income is the whole
+ * question; a filter also has to express "don't filter", and the honest way to
+ * offer that is a third option you can see and click. Leaving it implicit —
+ * click the active side again to clear it — is a state you can only discover by
+ * accident, and there's nothing on screen that says the filter is off.
+ */
+export function DemoTypeFilter({
+  value,
+  onChange,
+  className,
+}: {
+  value: DemoTypeFilterValue;
+  onChange: (v: DemoTypeFilterValue) => void;
+  className?: string;
+}) {
+  const options: { id: DemoTypeFilterValue; label: string; icon?: typeof Minus }[] = [
+    { id: "all", label: "Both" },
+    { id: "expense", label: "Expense", icon: Minus },
+    { id: "income", label: "Income", icon: Plus },
+  ];
+
+  return (
+    <div
+      role="radiogroup"
+      aria-label="Transaction type"
+      className={cn(
+        "inline-flex h-8 shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm",
+        className,
+      )}
+    >
+      {options.map((option) => {
+        const active = value === option.id;
+        const Icon = option.icon;
+        const color =
+          option.id === "income"
+            ? "text-emerald-600 dark:text-emerald-400"
+            : "text-rose-600 dark:text-rose-400";
+        return (
+          <button
+            key={option.id}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            aria-label={option.label}
+            onClick={() => onChange(option.id)}
+            className={cn(
+              "inline-flex items-center gap-1 rounded-full px-2.5 py-1 transition-colors",
+              active
+                ? "bg-background font-medium shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {option.id === "all" ? (
+              <>
+                {/* Both signs, so the "no filter" option reads as covering the
+                    two rather than as a third kind of transaction. */}
+                <Minus className="size-3.5 text-rose-600 dark:text-rose-400" aria-hidden />
+                <Plus className="size-3.5 text-emerald-600 dark:text-emerald-400" aria-hidden />
+                <span className="hidden sm:inline">Both</span>
+              </>
+            ) : (
+              <>
+                {Icon && <Icon className={cn("size-4", color)} aria-hidden />}
+                <span className="hidden sm:inline">{option.label}</span>
+              </>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /**
  * The profile control, matching the composer's `profileSelect`: the emoji is
  * the profile's identity, with the name alongside it once there's room. Dense
