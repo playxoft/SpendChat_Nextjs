@@ -18,6 +18,54 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-08-22
+
+### Added
+
+- **The homepage now shows you entering a transaction, not just the result.**
+  Each of the four tabs under "Four ways to add a transaction" animates its own
+  input as the section scrolls into view: the amount and title fields typing
+  themselves and a send that drops a bubble into the feed, a messy sentence
+  landing in the AI note box and coming back as drafts, the mic button
+  recording with the words arriving as you'd hear them, and a paste box filling
+  in row by row while the real parser previews it underneath. Each tab has a
+  Replay control, and anyone who has asked their system for reduced motion sees
+  the finished state without any of it moving.
+- **A files section on the homepage** — folders with their colour tints, files
+  with their tags and sizes, and the workspace storage gauge, with the vault's
+  specifics (share links, 1 GB per workspace, 5 MB per file) beside it.
+- **A shortcuts section you can actually use** — click the panel, press `t`,
+  and the section changes. Every key shown comes from the app's own registry,
+  and the panel listens only while it has focus, so the page's own keyboard
+  behaviour is untouched.
+
+- **Every demo now shows money in your own currency.** A page pricing lunch at
+  $12.50 asks a reader in Chennai to translate before the product feels like
+  it's for them, so the demos read a currency from your browser and scale the
+  example amounts to match — ₹3,200 for a weekly shop rather than ₹40. Nothing
+  about your own data is converted; the app still stores each workspace in its
+  own currency and does no conversion at all.
+- **Blog posts have cover images**, shown on the index, on the post itself, and
+  as the preview card when a post is shared.
+
+### Changed
+
+- The receipts card and the static list of shortcut chips have been replaced by
+  the two sections above.
+- **Answers on the feature pages are now expandable**, under a heading that says
+  FAQ rather than Questions. They stay in the page for search engines and for
+  anyone reading without JavaScript.
+- The transactions filter has an explicit **Both (−/+)** option. Clearing it
+  used to mean clicking the selected side a second time, which nothing on
+  screen told you about.
+
+### Fixed
+
+- The bulk-import demos pasted a comma-separated sample regardless of where you
+  are, so in every locale that writes decimals with a comma — much of Europe —
+  the preview reported every row as broken. The sample is now written in your
+  own format.
+
 ## [0.11.0] — 2026-08-22
 
 ### Added

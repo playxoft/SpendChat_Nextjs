@@ -18,12 +18,13 @@ import { GithubIcon } from "@/components/icons/github";
 import { TrackerDemo } from "@/components/marketing/tracker-demo";
 import { EntryMethods } from "@/components/marketing/entry-methods";
 import { FeatureIcon } from "@/components/marketing/feature-icon";
-import { LazyCategoryChart } from "@/components/marketing/lazy-category-chart";
+import { SpendBreakdown, SpendChart } from "@/components/marketing/spend-breakdown";
+import { FilesPreview } from "@/components/marketing/demo/files-preview";
+import { ShortcutsPreview } from "@/components/marketing/demo/shortcuts-preview";
 import { JsonLd } from "@/components/json-ld";
 import { AppHandoff } from "@/components/marketing/app-handoff";
 import { faqs } from "@/lib/faq";
 import { featureLink, featurePath, publishedFeatures } from "@/lib/features";
-import { formatMoney } from "@/lib/money";
 import { faqJsonLd } from "@/lib/seo";
 import { comboFor } from "@/lib/shortcuts";
 import { siteConfig } from "@/lib/site";
@@ -31,9 +32,6 @@ import { marketingCta } from "@/lib/marketing";
 
 /** How many FAQs the homepage shows before sending people to `/faq`. */
 const HOME_FAQ_COUNT = 6;
-
-const CURRENCY = "USD";
-const LOCALE = "en-US";
 
 const trustPoints = [
   {
@@ -72,13 +70,14 @@ const spendByCategory = [
   { name: "Utilities", icon: "💡", value: 6800 },
 ];
 
-const homeShortcuts = [
-  { id: "action.add", label: "Add a transaction" },
-  { id: "tracker.toggle-mode", label: "Switch to AI entry" },
-  { id: "tracker.voice", label: "Hold to dictate" },
-  { id: "tracker.submit", label: "Send it" },
-  { id: "profiles.switch", label: "Jump to a profile" },
-  { id: "global.shortcuts", label: "See every shortcut" },
+/** The vault's specifics, server-rendered beside the live panel. */
+const fileFacts = [
+  "Folders you can colour, tags you define",
+  "Grid, list or column view",
+  "Drag files in from your desktop",
+  "A revocable share link per file",
+  "1 GB per workspace, 5 MB per file",
+  "Attachments live on the transaction too",
 ];
 
 type Cell = string | boolean;
@@ -165,7 +164,6 @@ function ComparisonCell({ value }: { value: Cell }) {
 export default function LandingPage() {
   const features = publishedFeatures();
   const homeFaqs = faqs.slice(0, HOME_FAQ_COUNT);
-  const totalSpendMinor = spendByCategory.reduce((sum, c) => sum + c.value, 0);
 
   const jsonLd = {
     "@context": "https://schema.org",
@@ -328,8 +326,10 @@ export default function LandingPage() {
             Four ways to add a transaction
           </h2>
           <p className="mt-3 text-muted-foreground">
-            The reason people stop tracking is friction, not intent. So there are
-            four ways in — use whichever is fastest at the moment the money moved.
+            The reason people stop tracking is friction, not intent — so what
+            matters is the moment of entry. Each tab below fills itself in: the
+            fields you&apos;d type into, the key you&apos;d hold, the box
+            you&apos;d paste into. Use whichever is fastest when the money moved.
           </p>
         </div>
         <div className="mt-12">
@@ -351,33 +351,9 @@ export default function LandingPage() {
                 to build and nothing to configure: open it and the answer is
                 already there.
               </p>
-              {/* Server-rendered, so the breakdown is readable even before the
-                  chart loads — and so a crawler sees the numbers at all. */}
-              <dl className="mt-6 space-y-2">
-                {spendByCategory.map((category) => {
-                  const share = Math.round((category.value / totalSpendMinor) * 100);
-                  return (
-                    <div key={category.name} className="flex items-center gap-3">
-                      <dt className="flex w-40 shrink-0 items-center gap-1.5 text-sm">
-                        <span aria-hidden>{category.icon}</span>
-                        {category.name}
-                      </dt>
-                      <div
-                        className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-muted"
-                        aria-hidden
-                      >
-                        <div
-                          className="h-full rounded-full bg-foreground/70"
-                          style={{ width: `${share}%` }}
-                        />
-                      </div>
-                      <dd className="w-20 shrink-0 text-right text-sm tabular-nums text-muted-foreground">
-                        {formatMoney(category.value, CURRENCY, LOCALE)}
-                      </dd>
-                    </div>
-                  );
-                })}
-              </dl>
+              {/* The numbers in plain text beside the chart — which is what
+                  lets the chart itself be lazy. See `SpendBreakdown`. */}
+              <SpendBreakdown data={spendByCategory} />
               <Link
                 href={featureLink("analytics")}
                 className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4"
@@ -386,19 +362,15 @@ export default function LandingPage() {
               </Link>
             </div>
             <div className="min-w-0 rounded-2xl border bg-card p-4">
-              <LazyCategoryChart
-                data={spendByCategory}
-                currency={CURRENCY}
-                locale={LOCALE}
-              />
+              <SpendChart data={spendByCategory} />
             </div>
           </div>
         </div>
       </section>
 
-      {/* Profiles, workspaces, receipts */}
+      {/* Profiles, workspaces */}
       <section className="mx-auto max-w-6xl px-4 py-20">
-        <div className="grid gap-5 md:grid-cols-3">
+        <div className="grid gap-5 md:grid-cols-2">
           <div className="rounded-2xl border bg-card p-6">
             <div className="flex size-11 items-center justify-center rounded-xl border bg-background">
               <Users className="size-5" />
@@ -414,24 +386,6 @@ export default function LandingPage() {
               className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4"
             >
               Profiles <ArrowRight className="size-3.5" />
-            </Link>
-          </div>
-
-          <div className="rounded-2xl border bg-card p-6">
-            <div className="flex size-11 items-center justify-center rounded-xl border bg-background">
-              <Paperclip className="size-5" />
-            </div>
-            <h2 className="mt-4 text-xl font-medium">Receipts, kept with the expense</h2>
-            <p className="mt-2 leading-relaxed text-muted-foreground">
-              Attach a receipt, bill or invoice to any transaction, and keep
-              everything else in a Drive-style vault with folders, colour tags
-              and share links. Every workspace gets 1&nbsp;GB.
-            </p>
-            <Link
-              href={featureLink("receipts-and-files")}
-              className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4"
-            >
-              Receipts &amp; files <ArrowRight className="size-3.5" />
             </Link>
           </div>
 
@@ -455,6 +409,55 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* Receipts & files */}
+      <section className="border-t">
+        <div className="mx-auto max-w-6xl px-4 py-20">
+          <div className="grid items-center gap-10 lg:grid-cols-2">
+            <div className="min-w-0">
+              <span className="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs text-muted-foreground">
+                <Paperclip className="size-3.5" /> Receipts &amp; files
+              </span>
+              <h2 className="mt-5 text-3xl font-semibold tracking-tight">
+                The receipt stays with the expense
+              </h2>
+              <p className="mt-3 leading-relaxed text-muted-foreground">
+                Attach a bill, invoice or photo to any transaction and it lands
+                in the vault beside it. Everything else lives in folders you
+                colour and tags you define — and when someone needs one document
+                rather than your account, they get a link to that one document.
+              </p>
+              {/* Rendered on the server, so the specifics are readable — and
+                  indexable — whether or not the panel beside them ever loads. */}
+              <ul className="mt-6 grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                {fileFacts.map((fact) => (
+                  <li key={fact} className="flex items-start gap-2">
+                    <Check
+                      className="mt-0.5 size-4 shrink-0 text-emerald-600 dark:text-emerald-400"
+                      aria-hidden
+                    />
+                    {fact}
+                  </li>
+                ))}
+              </ul>
+              <Link
+                href={featureLink("receipts-and-files")}
+                data-track-event="nav_link_click"
+                data-track-params={JSON.stringify({
+                  location: "home_files",
+                  label: "receipts-and-files",
+                })}
+                className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4"
+              >
+                More on receipts &amp; files <ArrowRight className="size-3.5" />
+              </Link>
+            </div>
+            <div className="min-w-0">
+              <FilesPreview />
+            </div>
+          </div>
+        </div>
+      </section>
+
       {/* Speed */}
       <section className="border-t bg-muted/30">
         <div className="mx-auto max-w-6xl px-4 py-20">
@@ -473,24 +476,25 @@ export default function LandingPage() {
                 manual. Press <Kbd combo={comboFor("global.shortcuts")} className="align-middle" /> for
                 the full cheat sheet.
               </p>
+              <p className="mt-3 leading-relaxed text-muted-foreground">
+                Click the panel and try one. The keys come from the app&apos;s own
+                registry, and nothing outside the panel hears them.
+              </p>
               <Link
                 href={featureLink("keyboard-shortcuts")}
+                data-track-event="nav_link_click"
+                data-track-params={JSON.stringify({
+                  location: "home_shortcuts",
+                  label: "keyboard-shortcuts",
+                })}
                 className="mt-6 inline-flex items-center gap-1.5 text-sm font-medium underline underline-offset-4"
               >
                 Every shortcut <ArrowRight className="size-3.5" />
               </Link>
             </div>
-            <ul className="min-w-0 divide-y rounded-2xl border bg-card">
-              {homeShortcuts.map((shortcut) => (
-                <li
-                  key={shortcut.id}
-                  className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
-                >
-                  <span>{shortcut.label}</span>
-                  <Kbd combo={comboFor(shortcut.id)} />
-                </li>
-              ))}
-            </ul>
+            <div className="min-w-0">
+              <ShortcutsPreview />
+            </div>
           </div>
         </div>
       </section>
