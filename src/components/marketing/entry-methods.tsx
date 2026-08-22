@@ -237,7 +237,7 @@ export function EntryMethods() {
                     <p className="px-0.5 text-xs text-muted-foreground">
                       {bulk.drafts.length} ready
                       {bulk.errors.length > 0 &&
-                        ` · ${bulk.errors.length} line${bulk.errors.length === 1 ? "" : "s"} need fixing`}
+                        ` · ${bulk.errors.length} ${bulk.errors.length === 1 ? "line needs" : "lines need"} fixing`}
                       {" — edit the box above and watch it re-parse."}
                     </p>
                   </div>

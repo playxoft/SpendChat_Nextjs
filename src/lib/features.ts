@@ -113,7 +113,7 @@ export const FEATURES: Feature[] = [
     icon: "ListPlus",
     group: "capture",
     related: ["chat-expense-tracker", "transactions", "categories", "export-and-print"],
-    published: false,
+    published: true,
   },
 
   // ---- Understand ----
@@ -128,7 +128,7 @@ export const FEATURES: Feature[] = [
     icon: "Table2",
     group: "understand",
     related: ["analytics", "export-and-print", "chat-expense-tracker", "categories"],
-    published: false,
+    published: true,
   },
   {
     slug: "analytics",
@@ -141,7 +141,7 @@ export const FEATURES: Feature[] = [
     icon: "ChartColumn",
     group: "understand",
     related: ["transactions", "multiple-profiles", "export-and-print", "categories"],
-    published: false,
+    published: true,
   },
   {
     slug: "receipts-and-files",
@@ -154,7 +154,7 @@ export const FEATURES: Feature[] = [
     icon: "Paperclip",
     group: "understand",
     related: ["transactions", "workspaces", "export-and-print", "privacy-and-security"],
-    published: false,
+    published: true,
   },
   {
     slug: "export-and-print",

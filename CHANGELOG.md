@@ -18,6 +18,34 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-08-22
+
+### Added
+
+- **Four more feature pages, each with a working demo** — the transactions
+  table, analytics, the receipts vault, and bulk import. The transactions demo
+  really filters, searches your notes and sorts; the analytics demo swaps its
+  whole dataset when you change the range; the bulk-import demo runs the app's
+  actual parser on every keystroke, including on the one sample row that's
+  broken on purpose.
+- The Features menu now opens on hover, and clicking "Features" goes to the
+  overview page instead of only toggling the menu.
+
+### Changed
+
+- **Every demo now runs at the app's compact density**, so the whole control
+  strip sits on one line the way it does in the app — which also gives the feed
+  back the vertical space it was spending on a taller composer.
+- Demo feeds fill from the bottom and span two days, so they show a day divider
+  and read as a history someone has been keeping rather than three rows in an
+  empty box.
+
+### Fixed
+
+- The AI and voice note boxes were stretching to fill the composer instead of
+  sizing to their content, which made them several times taller than the app's.
+- The bulk-import preview said "1 line need fixing".
+
 ## [0.9.0] — 2026-08-21
 
 ### Added

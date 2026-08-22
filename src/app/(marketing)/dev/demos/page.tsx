@@ -14,6 +14,10 @@ import { ChatDemo } from "@/components/marketing/demo/chat-demo";
 import { AiDemo } from "@/components/marketing/demo/ai-demo";
 import { VoiceDemo } from "@/components/marketing/demo/voice-demo";
 import { ProfilesDemo } from "@/components/marketing/demo/profiles-demo";
+import { TransactionsDemo } from "@/components/marketing/demo/transactions-demo";
+import { AnalyticsDemo } from "@/components/marketing/demo/analytics-demo";
+import { FilesDemo } from "@/components/marketing/demo/files-demo";
+import { BulkAddDemo } from "@/components/marketing/demo/bulk-add-demo";
 import { formatMoney, signedMinor } from "@/lib/money";
 import { createMetadata } from "@/lib/seo";
 
@@ -127,6 +131,30 @@ export default function DemoGalleryPage() {
         <h2 className="mb-4 text-xl font-medium">ProfilesDemo — /features/multiple-profiles</h2>
         <ProfilesDemo />
         <TryItCaption action="switch between Personal, Home and Business" />
+      </section>
+
+      <section>
+        <h2 className="mb-4 text-xl font-medium">TransactionsDemo — /features/transactions</h2>
+        <TransactionsDemo />
+        <TryItCaption action="filter, search the notes, or sort by amount" />
+      </section>
+
+      <section>
+        <h2 className="mb-4 text-xl font-medium">AnalyticsDemo — /features/analytics</h2>
+        <AnalyticsDemo />
+        <TryItCaption action="change the range or flip expense/income" />
+      </section>
+
+      <section>
+        <h2 className="mb-4 text-xl font-medium">FilesDemo — /features/receipts-and-files</h2>
+        <FilesDemo />
+        <TryItCaption action="filter by a tag, or switch grid/list" />
+      </section>
+
+      <section>
+        <h2 className="mb-4 text-xl font-medium">BulkAddDemo — /features/bulk-add</h2>
+        <BulkAddDemo />
+        <TryItCaption action="edit the rows and watch the preview re-parse" />
       </section>
     </div>
   );
