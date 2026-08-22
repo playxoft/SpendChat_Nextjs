@@ -19,7 +19,7 @@ export const metadata: Metadata = {
   },
   description: siteConfig.description,
   applicationName: siteConfig.name,
-  keywords: [...siteConfig.keywords],
+  // No `keywords` here on purpose — see `siteConfig.topics`.
   authors: [{ name: siteConfig.author }],
   creator: siteConfig.author,
   alternates: { canonical: "/" },

@@ -21,10 +21,25 @@ export function CategoryPieChart({
   data,
   currency,
   locale,
+  animate = true,
 }: {
   data: { name: string; value: number; icon?: string | null }[];
   currency: string;
   locale: string;
+  /**
+   * Play the slice-in animation on mount. On by default, which is what the
+   * analytics page wants.
+   *
+   * Turn it off where the chart mounts into a container whose size isn't
+   * settled yet — a lazily-loaded chunk arriving mid-layout, most obviously.
+   * Recharts' `ResponsiveContainer` starts at a width of -1 until its
+   * ResizeObserver fires, and if the entry animation resolves against that it
+   * finishes at degenerate geometry: the sector groups are in the DOM with no
+   * `<path>` inside them, and a later resize doesn't re-run it. Without the
+   * animation the geometry is derived from whatever size the current render
+   * has, so the correct measurement simply draws the pie.
+   */
+  animate?: boolean;
 }) {
   if (data.length === 0) {
     return (
@@ -49,6 +64,7 @@ export function CategoryPieChart({
               outerRadius={90}
               paddingAngle={2}
               strokeWidth={1}
+              isAnimationActive={animate}
             >
               {data.map((_, i) => (
                 <Cell key={i} fill={COLORS[i % COLORS.length]} />

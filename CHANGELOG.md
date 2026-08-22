@@ -18,6 +18,80 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-08-21
+
+### Added
+
+- **The home page now shows what the app actually does.** It described the
+  product as it stood six months ago; AI entry, voice, receipts, analytics,
+  profiles and shared workspaces were nowhere on it. New sections cover all of
+  them, plus who it's for, how it compares to bank-linking apps and
+  spreadsheets, and a keyboard-shortcut list that reads from the app's own
+  registry rather than being typed out separately.
+- **"Four ways to add a transaction"** — a tabbed section covering chat, AI,
+  voice and bulk paste. The bulk tab runs the app's real parser as you type, so
+  you can edit the pasted rows and watch them re-parse.
+- A spending breakdown with the category chart from the analytics page. The
+  numbers are also written out as a plain list, so they're readable before the
+  chart loads and to anything that never loads it.
+- The FAQ gained eight entries covering bank connections, AI, voice, profiles,
+  sharing, receipts and installation.
+
+### Fixed
+
+- **The category chart could render as an empty circle.** When it loaded late —
+  as it now does on the home page — its mount-time animation could resolve
+  against a container it hadn't measured yet and draw nothing at all. The
+  animation is now optional, and off wherever the chart arrives lazily.
+
+## [0.8.0] — 2026-08-21
+
+### Added
+
+- **Four feature pages, each with a live demo you can use without an account** —
+  chat entry, AI entry, voice entry, and profiles. The demos are built from the
+  app's own components, so what you try on the marketing site is what you get
+  after signing up: the same transaction bubbles, the same category picker, the
+  same Manual/AI toggle, the same push-to-talk mic.
+- The **voice page lets you hear the multi-language case rather than read about
+  it** — switch between English, Hinglish, Tamil-with-English and Spanish and
+  watch each one come back transcribed and split into transactions. It also
+  lists all 27 languages you can pick from.
+- The AI demo runs the whole sequence — a messy sentence typing itself out, the
+  parse, the editable drafts, the confirm — and replays on demand. It scripts a
+  fixed example rather than calling a model, and says so.
+- No microphone is ever requested by the voice demo, and nothing any demo does
+  is saved.
+
+### Changed
+
+- The AI accent gradient now has one definition instead of two near-identical
+  copies, which is what makes "there is exactly one gradient in this app"
+  enforceable.
+
+## [0.7.0] — 2026-08-21
+
+### Added
+
+- **The Features page now covers everything the app actually does.** AI entry,
+  voice entry, receipts and the files vault, analytics, profiles, shared
+  workspaces and custom categories were all missing from it — the page still
+  described the product as it stood six months ago.
+- **A Features menu in the site navigation**, grouped into Capture, Understand
+  and Organise, so each feature page is one click away from anywhere on the
+  marketing site. On phones the same list appears under Features in the menu.
+- Feature pages are described once, in one place, and the hub page, the
+  navigation menu and the sitemap all read from it — so a new one can't be
+  published and then quietly forgotten by the sitemap.
+- Breadcrumbs on nested marketing pages, so a search result shows
+  Home › Features › … instead of a bare URL.
+
+### Changed
+
+- The `keywords` meta tag is gone from every page. Google has ignored it since
+  2009 and Bing reads a stuffed one as a spam signal; the terms it listed belong
+  in the page copy, which is where they now live.
+
 ## [0.6.2] — 2026-08-21
 
 ### Fixed

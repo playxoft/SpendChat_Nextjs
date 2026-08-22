@@ -13,15 +13,23 @@ export const siteConfig = {
   supportEmail: "support@spendchat.app",
   /** Shared social/chat preview card: `public/opengraph-image.png`, 1200×630. */
   ogImage: "/opengraph-image.png",
-  keywords: [
+  /**
+   * Editorial reference only — the themes the marketing site is written around.
+   * Deliberately **not** emitted as a `<meta name="keywords">` tag: Google
+   * dropped that signal in 2009 and Bing treats stuffing it as a spam marker.
+   * Keywords earn their place in titles, headings, body copy, anchor text, and
+   * slugs. If you find yourself wiring this array into `metadata`, don't.
+   */
+  topics: [
     "money tracker",
     "expense tracker",
-    "budget app",
-    "personal finance",
+    "chat expense tracker",
+    "AI expense tracker",
+    "voice expense tracker",
     "income and expense tracker",
-    "spending tracker",
+    "expense tracker without bank connection",
+    "open source expense tracker",
     "free expense tracker",
-    "finance app",
   ],
   /** AGPL-3.0; source is public. */
   license: "AGPL-3.0",

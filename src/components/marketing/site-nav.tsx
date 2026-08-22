@@ -15,6 +15,7 @@ import {
 import { GithubIcon } from "@/components/icons/github";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { FeaturesMenu, FeaturesMenuMobile } from "@/components/marketing/features-menu";
 import { trackEvent } from "@/lib/analytics";
 import { marketingNav, siteConfig } from "@/lib/site";
 
@@ -44,18 +45,24 @@ export function SiteNav() {
         {/* Desktop links — centred, absorbing the free space. */}
         <div className="flex min-w-0 flex-1 items-center justify-center">
           <div className="hidden items-center gap-1 lg:flex">
-            {marketingNav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() =>
-                  trackEvent("nav_link_click", { label: item.label, location: "desktop" })
-                }
-                className="rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                {item.label}
-              </Link>
-            ))}
+            {marketingNav.map((item) =>
+              // Features opens the directory of feature pages instead of going
+              // straight to the hub; every other entry stays a plain link.
+              item.href === "/features" ? (
+                <FeaturesMenu key={item.href} />
+              ) : (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() =>
+                    trackEvent("nav_link_click", { label: item.label, location: "desktop" })
+                  }
+                  className="rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  {item.label}
+                </Link>
+              ),
+            )}
           </div>
         </div>
 
@@ -133,17 +140,24 @@ export function SiteNav() {
 
               <nav className="flex flex-col px-3 py-3">
                 {marketingNav.map((item) => (
-                  <SheetClose asChild key={item.href}>
-                    <Link
-                      href={item.href}
-                      onClick={() =>
-                        trackEvent("nav_link_click", { label: item.label, location: "mobile" })
-                      }
-                      className="rounded-lg px-3 py-2.5 text-base font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    >
-                      {item.label}
-                    </Link>
-                  </SheetClose>
+                  <div key={item.href} className="contents">
+                    <SheetClose asChild>
+                      <Link
+                        href={item.href}
+                        onClick={() =>
+                          trackEvent("nav_link_click", { label: item.label, location: "mobile" })
+                        }
+                        className="rounded-lg px-3 py-2.5 text-base font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        {item.label}
+                      </Link>
+                    </SheetClose>
+                    {/* Feature pages listed inline under Features, so they're
+                        one tap away on mobile and in the DOM for crawlers. */}
+                    {item.href === "/features" && (
+                      <FeaturesMenuMobile onNavigate={() => setOpen(false)} />
+                    )}
+                  </div>
                 ))}
                 <SheetClose asChild>
                   <a

@@ -7,6 +7,7 @@ import { radioGroupKeys } from "@/lib/radio-group-keys";
 import { comboFor } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import { ControlHint } from "./control-hint";
+import { AI_GRADIENT } from "./ai-accent";
 
 export type EntryMode = "manual" | "ai";
 
@@ -15,11 +16,6 @@ const MODES = ["manual", "ai"] as const;
 /** Marks both instances of this toggle, so the focus hand-over below can tell
  * "focus was in one of these" from "focus was somewhere else entirely". */
 const TOGGLE_SLOT = "entry-mode-toggle";
-
-/** Blue→violet accent that marks the AI affordance. The app is otherwise
- * gradient-free (see AGENTS.md); this is a deliberate, user-requested exception
- * so AI entry stands out from plain Manual entry. */
-const AI_GRADIENT = "bg-gradient-to-r from-blue-600 to-violet-600";
 
 /**
  * The row this toggle rides in, at compact density — applied verbatim by *both*

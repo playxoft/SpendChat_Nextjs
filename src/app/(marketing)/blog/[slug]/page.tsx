@@ -76,7 +76,7 @@ export default async function BlogPostPage({ params }: Params) {
     image: `${siteConfig.url}${post.image ?? siteConfig.ogImage}`,
     url,
     mainEntityOfPage: { "@type": "WebPage", "@id": url },
-    keywords: post.tag,
+    articleSection: post.tag,
   };
 
   return (

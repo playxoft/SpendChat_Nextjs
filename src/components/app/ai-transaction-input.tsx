@@ -5,7 +5,6 @@ import {
   ArrowUp,
   CornerDownRight,
   Loader2,
-  Minus,
   Pencil,
   Plus,
   RotateCcw,
@@ -53,14 +52,10 @@ import type { BulkDraft } from "@/lib/bulk-parser";
 import { cn } from "@/lib/utils";
 import { EntryModeToggle, MODE_ROW_DENSE, type EntryMode } from "./entry-mode-toggle";
 import { AiHelpDialog } from "./ai-help-dialog";
+import { AI_BTN, RowTypeToggle } from "./ai-accent";
 import type { Category, Profile } from "@/db/schema";
 
 const NONE = "none";
-
-// Blue→violet AI accent — the same deliberate, gradient-free-app exception the
-// mode toggle uses (see AGENTS.md). Applied to AI mode's primary actions.
-const AI_BTN =
-  "border-0 bg-gradient-to-r from-blue-600 to-violet-600 text-white shadow-sm hover:from-blue-600 hover:to-violet-700";
 
 // A trailing "#query" immediately before the caret opens the category picker.
 const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
@@ -76,43 +71,6 @@ type Row = {
   categoryName: string;
   occurredOn: string;
 };
-
-/** Compact expense/income switch — the tracker's pill toggle stripped to icons. */
-function RowTypeToggle({
-  value,
-  onChange,
-}: {
-  value: "income" | "expense";
-  onChange: (t: "income" | "expense") => void;
-}) {
-  return (
-    <div className="inline-flex shrink-0 items-center rounded-full border bg-muted/60 p-0.5">
-      {(["expense", "income"] as const).map((t) => {
-        const active = value === t;
-        const Icon = t === "income" ? Plus : Minus;
-        const color =
-          t === "income"
-            ? "text-emerald-600 dark:text-emerald-400"
-            : "text-rose-600 dark:text-rose-400";
-        return (
-          <button
-            key={t}
-            type="button"
-            onClick={() => onChange(t)}
-            aria-label={t}
-            aria-pressed={active}
-            className={cn(
-              "inline-flex items-center justify-center rounded-full px-2.5 py-1 transition-all",
-              active ? "bg-background shadow-sm" : "opacity-45 hover:opacity-90",
-            )}
-          >
-            <Icon className={cn("size-4", color)} />
-          </button>
-        );
-      })}
-    </div>
-  );
-}
 
 /**
  * The review row's description, on its own 2nd line under the title column. Reads
