@@ -325,21 +325,25 @@ export default function LandingPage() {
 
       {/* Four ways to add a transaction */}
       <section className="mx-auto max-w-6xl px-4 py-20">
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-semibold tracking-tight">
-            Four ways to add a transaction
-          </h2>
-          <p className="mt-3 text-muted-foreground">
-            The reason people stop tracking is friction, not intent — so what
-            matters is the moment of entry. Keep scrolling and the composer
-            works through all four: the fields you&apos;d type into, the
-            sentence you&apos;d write, the key you&apos;d hold, the rows
-            you&apos;d paste. Each one ends the same way, in the feed above it.
-          </p>
-        </div>
-        <div className="mt-12">
-          <EntryMethods />
-        </div>
+        {/* The heading is passed in rather than rendered here: it pins with
+            the demo, so it has to live inside that block. */}
+        <EntryMethods
+          header={
+            <>
+              <h2 className="text-3xl font-semibold tracking-tight">
+                Four ways to add a transaction
+              </h2>
+              <p className="mt-3 hidden text-muted-foreground sm:block">
+                The reason people stop tracking is friction, not intent — so
+                what matters is the moment of entry. Keep scrolling and the
+                composer works through all four: the fields you&apos;d type
+                into, the sentence you&apos;d write, the key you&apos;d hold,
+                the rows you&apos;d paste. Each one ends the same way, in the
+                feed above it.
+              </p>
+            </>
+          }
+        />
       </section>
 
       {/* Analytics */}

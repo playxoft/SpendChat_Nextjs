@@ -37,6 +37,19 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   which also starts closer to the top of the window.
 - The transactions type filter is a dropdown — All, + Income, − Expense —
   rather than a three-way switch.
+- The section's heading and description now stay put while you scroll it, and
+  only the method under them changes — so the four descriptions swap in place
+  instead of travelling up the page past the heading.
+
+### Fixed
+
+- **Amounts added by a demo were converted twice.** A ₹1,000 lunch imported
+  through the bulk demo showed as ₹80,000: the seeded rows are written in
+  dollars and converted for the reader, but a row a demo had just added was
+  already in the reader's currency and got multiplied a second time on its way
+  into the feed. Conversion now happens in exactly one place.
+- Some seeded amounts were the wrong size — a $360 afternoon coffee, and a chai
+  that didn't match the ₹20 in the sentence being spoken above it.
 
 ### Removed
 

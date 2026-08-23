@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -49,7 +49,7 @@ import {
 } from "@/hooks/use-demo-currency";
 import { bulkDelimiter, parseBulk } from "@/lib/bulk-parser";
 import { featureLink, featurePath, getFeature } from "@/lib/features";
-import { toMinorUnits } from "@/lib/money";
+import { formatMoney, signedMinor, toMinorUnits } from "@/lib/money";
 import { comboFor } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -156,8 +156,12 @@ const INTERIM_MS = 520;
 const LEVEL_TICK_MS = 90;
 const BULK_TODAY = "2026-08-21";
 
-/** Seeded in USD minor units; converted per visitor by `demoAmountInput`. */
-const CHAT_AMOUNT_MINOR = 36000;
+/**
+ * Seeded in USD minor units; converted per visitor by `demoAmountInput`.
+ * Keep these the size of the thing they name — a demo full of $360 coffees
+ * reads as a mock-up, and once the multiplier lands it reads as broken.
+ */
+const CHAT_AMOUNT_MINOR = 360;
 const CHAT_TITLE = "Afternoon coffee";
 
 function aiNoteFor(money: DemoMoneyFormat): string {
@@ -178,8 +182,8 @@ const VOICE_TRANSCRIPT = "chai 20 aur groceries 620";
 
 function voiceDraftsFor(money: DemoMoneyFormat): DemoDraft[] {
   return [
-    { key: 1, type: "expense", amount: demoAmountInput(2500, money), title: "Chai", categoryName: "Food & Dining" },
-    { key: 2, type: "expense", amount: demoAmountInput(7750, money), title: "Groceries", categoryName: "Groceries" },
+    { key: 1, type: "expense", amount: demoAmountInput(25, money), title: "Chai", categoryName: "Food & Dining" },
+    { key: 2, type: "expense", amount: demoAmountInput(775, money), title: "Groceries", categoryName: "Groceries" },
   ];
 }
 
@@ -194,7 +198,7 @@ function bulkRowsFor(money: DemoMoneyFormat): string[] {
   ].map((row) => row.join(join));
 }
 
-export function EntryMethods() {
+export function EntryMethods({ header }: { header: ReactNode }) {
   const money = useDemoMoney();
   const reduced = useReducedMotion();
   const feed = useDemoFeed("Personal");
@@ -471,14 +475,43 @@ export function EntryMethods() {
   );
 
   return (
-    <div ref={containerRef} className="lg:grid lg:grid-cols-2 lg:gap-12">
-      {/* Sticky in both layouts — on a phone it pins under the nav while the
-          steps scroll beneath it; on a desktop it holds the right column. */}
-      <div className="sticky top-20 z-10 -mx-4 mb-6 bg-background px-4 py-3 lg:order-2 lg:top-24 lg:mx-0 lg:mb-0 lg:self-start lg:bg-transparent lg:px-0 lg:py-0">
+    <div ref={containerRef} className="relative">
+      {/*
+        Scroll drivers. They render nothing — their only jobs are to give the
+        section its length and to tell the observer which method the reader has
+        reached. The visible row is pinned over the top of them, so the copy
+        swaps in place instead of travelling up the page and colliding with the
+        section heading above it.
+      */}
+      <div aria-hidden>
+        {METHODS.map((m, i) => (
+          <div
+            key={m.id}
+            data-method={m.id}
+            ref={(el) => {
+              stepRefs.current[i] = el;
+            }}
+            className="h-[70vh]"
+          />
+        ))}
+      </div>
+
+      <div className="pointer-events-none absolute inset-0">
+        {/*
+          The whole unit pins: the section's heading and description stay put
+          while only the method underneath them changes. Pinning the heading is
+          what keeps it from scrolling away and, with the copy held in its own
+          slot below, what guarantees the two can never collide.
+        */}
+        <div className="pointer-events-auto sticky top-20 lg:top-24">
+          <div className="mx-auto max-w-2xl text-center">{header}</div>
+
+          <div className="mt-6 lg:mt-10 lg:grid lg:grid-cols-2 lg:items-center lg:gap-12">
+      <div className="lg:order-2">
         <DemoFrame
           label="Interactive entry demo"
           sidebar={false}
-          className="h-[26rem] lg:h-[40rem]"
+          className="h-[min(20rem,calc(100svh-26rem))] lg:h-[min(38rem,calc(100svh-20rem))]"
           header={
             <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
               <DemoSummaryBar
@@ -666,9 +699,20 @@ export function EntryMethods() {
                                   "text-emerald-600 dark:text-emerald-400",
                               )}
                             >
-                              {draft.type === "income" ? "+" : "−"}
-                              {money.currency.symbol}
-                              {draft.amount}
+                              {/* The app's own formatter, so the preview groups
+                                  thousands and places the sign exactly as the
+                                  feed above it will. The parser hands back
+                                  major units; `toMinorUnits` is the only
+                                  sanctioned way across that boundary. */}
+                              {formatMoney(
+                                signedMinor(
+                                  draft.type,
+                                  toMinorUnits(draft.amount, money.code, money.locale),
+                                ),
+                                money.code,
+                                money.locale,
+                                { signed: true },
+                              )}
                             </span>
                           </li>
                         ))}
@@ -698,48 +742,36 @@ export function EntryMethods() {
         </DemoFrame>
       </div>
 
-      {/* All four steps are always in the document — no tabs, so no copy hidden
-          behind a click from either a reader or a crawler. */}
-      <div className="lg:order-1">
-        {METHODS.map((m, i) => {
+      {/*
+        One slot, four pieces of copy. All four stay in the document — the
+        inactive ones are stacked underneath at zero opacity rather than
+        unmounted, so every method's description is in the server-rendered HTML
+        and readable by assistive tech in order, while a sighted reader sees one
+        at a time. `min-h` holds the slot open at the tallest of them, so the
+        widget beside it doesn't shift as they swap.
+      */}
+      <div className="relative mb-6 min-h-[13rem] lg:order-1 lg:mb-0 lg:min-h-[17rem]">
+        {METHODS.map((m) => {
           const isActive = m.id === active;
           const target = getFeature(m.slug);
           return (
             <div
               key={m.id}
-              data-method={m.id}
-              ref={(el) => {
-                stepRefs.current[i] = el;
-              }}
-              className="flex min-h-[55vh] flex-col justify-center py-8 lg:min-h-[70vh]"
+              className={cn(
+                "flex flex-col transition-opacity duration-500",
+                isActive
+                  ? "relative opacity-100"
+                  : "pointer-events-none absolute inset-0 opacity-0",
+              )}
             >
-              <span
-                className={cn(
-                  "inline-flex w-fit items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition-colors",
-                  isActive
-                    ? "border-foreground bg-foreground text-background"
-                    : "text-muted-foreground",
-                )}
-              >
+              <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-foreground bg-foreground px-3 py-1 text-xs text-background">
                 <m.icon className="size-3.5" />
                 {m.label}
               </span>
-              <h3
-                className={cn(
-                  "mt-4 text-2xl font-medium tracking-tight transition-opacity sm:text-3xl",
-                  !isActive && "opacity-55",
-                )}
-              >
+              <h3 className="mt-4 text-2xl font-medium tracking-tight sm:text-3xl">
                 {m.heading}
               </h3>
-              <p
-                className={cn(
-                  "mt-3 leading-relaxed text-muted-foreground transition-opacity",
-                  !isActive && "opacity-55",
-                )}
-              >
-                {m.body}
-              </p>
+              <p className="mt-3 leading-relaxed text-muted-foreground">{m.body}</p>
               <Link
                 href={target ? featurePath(target.slug) : featureLink(m.slug)}
                 data-track-event="nav_link_click"
@@ -755,6 +787,9 @@ export function EntryMethods() {
             </div>
           );
         })}
+      </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -1,6 +1,6 @@
 "use client";
 
-import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
+import { useDemoMoney } from "@/hooks/use-demo-currency";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -36,15 +36,15 @@ export function DemoSummaryBar({
       <div>
         <p className="text-sm text-muted-foreground">{label} balance</p>
         <p className={cn("text-xl font-semibold tabular-nums", negative)}>
-          {formatMoney(demoAmount(balanceMinor, money), money.code, money.locale)}
+          {formatMoney(balanceMinor, money.code, money.locale)}
         </p>
       </div>
       <div className="flex gap-4 pb-1 text-sm sm:text-base">
         <span className="text-emerald-600 dark:text-emerald-400">
-          +{formatMoney(demoAmount(incomeMinor, money), money.code, money.locale)} in
+          +{formatMoney(incomeMinor, money.code, money.locale)} in
         </span>
         <span className="text-muted-foreground">
-          −{formatMoney(demoAmount(expenseMinor, money), money.code, money.locale)} out
+          −{formatMoney(expenseMinor, money.code, money.locale)} out
         </span>
       </div>
     </div>

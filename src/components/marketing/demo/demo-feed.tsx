@@ -4,7 +4,7 @@ import { Fragment } from "react";
 import { DayDivider } from "@/components/app/day-divider";
 import { TransactionBubble } from "@/components/app/transaction-bubble";
 import { type DemoTxn } from "./demo-data";
-import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
+import { useDemoMoney } from "@/hooks/use-demo-currency";
 import { formatMoney, signedMinor } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -52,7 +52,7 @@ export function DemoFeed({
               key={t.id}
               type={t.type}
               amountLabel={formatMoney(
-                signedMinor(t.type, demoAmount(t.amountMinor, money)),
+                signedMinor(t.type, t.amountMinor),
                 money.code,
                 money.locale,
                 { signed: true },
