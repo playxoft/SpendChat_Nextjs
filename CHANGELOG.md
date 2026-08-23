@@ -27,7 +27,10 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   — while each method's description scrolls up with the page, fading in as it
   reaches the middle and back out as it leaves. The fade follows the scroll
   wheel rather than playing a fixed animation once you cross a line, so it goes
-  at whatever pace you read at, forwards or back.
+  at whatever pace you read at, forwards or back. Past the last method the
+  heading, the copy and the widget go up the page together and the next section
+  follows — previously the widget slid away on its own while the heading stayed
+  stuck to the top.
 - The demo now starts on the method you arrive at. Previously the first one sat
   idle until you scrolled to the second, so the opening example was the one you
   never saw run.

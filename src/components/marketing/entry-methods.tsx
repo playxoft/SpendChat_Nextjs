@@ -73,7 +73,10 @@ import { cn } from "@/lib/utils";
  *
  * Two things hold still and one moves. The section heading pins at the top and
  * the widget pins beneath it, because they're the constants — the same claim,
- * the same composer, all the way down. The four descriptions are ordinary
+ * the same composer, all the way down. They pin as a single element, so they
+ * also *leave* as one when the section runs out; two sticky boxes each release
+ * at their own `top + height`, which had the widget sliding away out from under
+ * a heading that was still stuck to the top. The four descriptions are ordinary
  * blocks in the flow: they scroll past like the rest of the page, fading up as
  * they approach the reading line and back out as they leave it. That fade is
  * computed from each block's distance to that line on every frame rather than
@@ -259,17 +262,24 @@ export function EntryMethods({ header }: { header: ReactNode }) {
   const headerRef = useRef<HTMLDivElement>(null);
   const widgetRef = useRef<HTMLDivElement>(null);
   const copyRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef<HTMLDivElement>(null);
   // The scroll handler switches methods from outside React's render, so the
   // script reads the method from a ref rather than from state one commit behind.
   const methodRef = useRef<Method>("chat");
   const startedRef = useRef(false);
 
   /**
-   * How far down the pinned heading reaches, so the widget can pin directly
+   * How far down the pinned heading reaches, so the widget sits directly
    * beneath it. Measured rather than assumed: the heading wraps to a different
    * number of lines at every width, and its description is hidden below `sm`.
    */
   const [pinTop, setPinTop] = useState<number | null>(null);
+  /**
+   * The height of the whole pinned block — heading plus widget. Only the
+   * stacked layout needs it, where it's how far down the copy has to start to
+   * clear what's overhead.
+   */
+  const [pinnedHeight, setPinnedHeight] = useState<number | null>(null);
 
   const chatAmount = demoAmountInput(CHAT_AMOUNT_MINOR, money);
   const aiNote = aiNoteFor(money);
@@ -468,12 +478,15 @@ export function EntryMethods({ header }: { header: ReactNode }) {
    * render before the browser has laid the heading out anyway.
    */
   useEffect(() => {
-    const el = headerRef.current;
-    if (!el) return;
+    const heading = headerRef.current;
+    const pinned = pinnedRef.current;
+    if (!heading || !pinned) return;
     const observer = new ResizeObserver(() => {
-      setPinTop(NAV_CLEARANCE_PX + el.offsetHeight);
+      setPinTop(NAV_CLEARANCE_PX + heading.offsetHeight);
+      setPinnedHeight(pinned.offsetHeight);
     });
-    observer.observe(el);
+    observer.observe(heading);
+    observer.observe(pinned);
     return () => observer.disconnect();
   }, []);
 
@@ -606,282 +619,323 @@ export function EntryMethods({ header }: { header: ReactNode }) {
     [],
   );
 
+  const vars: CSSProperties = {};
+  if (pinTop !== null) (vars as Record<string, string>)["--pin-top"] = `${pinTop}px`;
+  if (pinnedHeight !== null)
+    (vars as Record<string, string>)["--pinned-h"] = `${pinnedHeight}px`;
+
   return (
     <div
       ref={containerRef}
-      className="relative"
-      style={pinTop === null ? undefined : ({ "--pin-top": `${pinTop}px` } as CSSProperties)}
+      className="grid grid-cols-1 lg:grid-cols-2 lg:gap-12"
+      style={pinTop === null && pinnedHeight === null ? undefined : vars}
     >
       {/*
-        The heading pins first and everything else is measured from it. It needs
-        an opaque background because the copy now scrolls up behind it rather
-        than swapping in a slot underneath — that's the whole change, and this
-        is what keeps the two from ever being legible on top of each other.
+        The heading and the widget are **one** sticky block, not two.
+
+        That's what makes them arrive and leave as a set. Two sticky elements
+        release at their own `top + height`, so a widget pinned lower and taller
+        than the heading above it starts sliding away while the heading is still
+        stuck to the top — the section came apart at exactly the moment it
+        should have been leaving in one piece. As a single element there's only
+        one release point, and the last method's copy, the heading over it and
+        the widget beside it all go up the page together.
+
+        It sits in the same grid cell as the copy rather than above it, so the
+        copy runs the full height of the section and this rides over it. Hence
+        `pointer-events-none` on the block and `-auto` on its two visible
+        halves: on a wide screen the empty left half of this row lies directly
+        over the copy's links.
       */}
-      <div ref={headerRef} className="sticky top-20 z-20 bg-background pb-6">
-        <div className="mx-auto max-w-2xl text-center">{header}</div>
-      </div>
-
-      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-12">
+      <div
+        ref={pinnedRef}
+        // `col-end` rather than `col-span`: a span leaves the column start
+        // implicit, and auto-placement can't fit a two-column item into row 1
+        // once the copy has claimed column 1 — so it invents a third column and
+        // parks the whole block in the right half. Both edges stated, both
+        // items explicitly placed, no auto-placement involved.
+        className="pointer-events-none sticky top-20 z-10 col-start-1 col-end-2 row-start-1 self-start lg:col-end-3"
+      >
         {/*
-          The widget pins directly below the heading — beside the copy on a wide
-          screen, above it on a narrow one, where it also has to mask the copy
-          passing behind. Its height is what's left of the viewport once the
-          pinned heading has taken its share, with a lower ceiling on small
-          screens so there's still room to read underneath.
+          Opaque, and full width rather than the width of the text, because the
+          copy scrolls up behind it — this is what stops the two ever being
+          legible on top of each other.
         */}
-        <div
-          ref={widgetRef}
-          className="sticky z-10 mb-10 bg-background pb-4 lg:order-2 lg:mb-0 lg:pb-0"
-          style={{ top: pinTop ?? undefined }}
-        >
-          <DemoFrame
-            label="Interactive entry demo"
-            sidebar={false}
-            className="h-[min(20rem,calc(100svh_-_var(--pin-top,9rem)_-_15rem))] lg:h-[min(38rem,calc(100svh_-_var(--pin-top,15rem)_-_4rem))]"
-            header={
-              <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
-                <DemoSummaryBar
-                  label="August"
-                  balanceMinor={feed.balanceMinor}
-                  incomeMinor={feed.totals.incomeMinor}
-                  expenseMinor={feed.totals.expenseMinor}
-                  className="min-w-0 flex-1"
-                />
-                <DemoProfilePicker profile={feed.profile} onChange={feed.setProfile} />
-              </div>
-            }
-            bodyClassName="overflow-hidden"
-            footer={
-              <div className="flex shrink-0 flex-col gap-2 border-t bg-muted/20 px-4 py-3">
-                <div className={MODE_ROW_DENSE}>
-                  <EntryModeToggle mode={mode} onChange={() => {}} dense pane={mode} />
-                  {active === "chat" ? (
-                    <DemoControlGroup>
-                      <DemoTypeToggle dense type="expense" onChange={() => {}} />
-                      <DemoDateChip />
-                      <div className="min-w-0 flex-1">
-                        <CategoryRow
-                          dense
-                          categories={cats}
-                          value="expense:Food & Dining"
-                          onChange={() => {}}
-                        />
-                      </div>
-                    </DemoControlGroup>
-                  ) : (
-                    <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                      {showingDrafts
-                        ? `Review ${drafts.length} transaction${drafts.length === 1 ? "" : "s"}`
-                        : method.caption}
-                    </p>
-                  )}
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={start}
-                    className="ml-auto h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
-                  >
-                    Replay
-                  </Button>
-                </div>
-
-                {active === "chat" && (
-                  <div className="flex items-end gap-2">
-                    <div className="relative shrink-0">
-                      <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
-                        {money.currency.symbol}
-                      </span>
-                      <Input
-                        readOnly
-                        value={stage === "chat-amount" ? `${amountText}${CARET}` : amountText}
-                        placeholder={demoAmountInput(0, money)}
-                        aria-label="Amount"
-                        className={cn(
-                          "h-9 w-28 pl-7 tabular-nums",
-                          stage === "chat-amount" && "ring-2 ring-ring/50",
-                        )}
-                      />
-                    </div>
-                    <Input
-                      readOnly
-                      value={stage === "chat-title" ? `${titleText}${CARET}` : titleText}
-                      placeholder="What was it for?"
-                      aria-label="Title"
-                      className={cn(
-                        "h-9 min-w-0 flex-1",
-                        stage === "chat-title" && "ring-2 ring-ring/50",
-                      )}
-                    />
-                    <Button
-                      type="button"
-                      aria-label="Send transaction"
-                      className={cn(
-                        "h-9 shrink-0 gap-1.5 px-3 transition-transform",
-                        stage === "chat-send" && "scale-90",
-                      )}
-                    >
-                      <ArrowUp className="size-4" />
-                    </Button>
-                  </div>
-                )}
-
-                {(active === "ai" || active === "voice") &&
-                  (showingDrafts ? (
-                    <>
-                      {note && (
-                        <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                          {note}
-                        </p>
-                      )}
-                      <DemoDraftRows
-                        rows={drafts}
-                        visible={visibleDrafts}
-                        onPatch={() => {}}
-                        onRemove={() => {}}
-                      />
-                      <div className="flex items-center justify-end">
-                        <Button type="button" className={cn("h-9 gap-1.5", AI_BTN)}>
-                          <ArrowUp className="size-4" /> Add {drafts.length}
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <div className="flex flex-col gap-1.5">
-                      {active === "voice" && voiceState !== "idle" && (
-                        <VoiceListeningStrip
-                          state={voiceState}
-                          interim={VOICE_INTERIM[interimIdx] ?? ""}
-                          level={level}
-                          liveSupported
-                        />
-                      )}
-                      <div className="relative flex flex-col">
-                        <Textarea
-                          readOnly
-                          rows={2}
-                          value={stage === "ai-typing" ? `${note}${CARET}` : note}
-                          placeholder={
-                            active === "voice"
-                              ? "Hold the mic and say what you spent"
-                              : "Describe your spending"
-                          }
-                          aria-label="Describe your transactions"
-                          className="min-h-[4.625rem] resize-none pr-20 pb-10"
-                        />
-                        <div className="absolute right-1.5 bottom-1 flex items-center gap-1">
-                          {active === "voice" && (
-                            <VoiceMicButton
-                              state={voiceState}
-                              level={level}
-                              onStart={() => {}}
-                              onStop={() => {}}
-                              hint={`hold ${comboFor("tracker.voice").toUpperCase()}`}
-                              dense
-                            />
-                          )}
-                          <Button
-                            type="button"
-                            aria-label="Turn your note into transactions"
-                            className={cn("size-8 shrink-0 rounded-full p-0", AI_BTN)}
-                          >
-                            {stage === "ai-parsing" || stage === "voice-parsing" ? (
-                              <Loader2 className="size-4 animate-spin" />
-                            ) : (
-                              <ArrowUp className="size-4" />
-                            )}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-
-                {active === "bulk" && (
-                  <div className="flex flex-col gap-2">
-                    <Textarea
-                      readOnly
-                      rows={3}
-                      value={stage === "bulk-typing" ? `${bulkText}${CARET}` : bulkText}
-                      placeholder="Paste rows here — one transaction per line"
-                      aria-label="Paste transactions"
-                      spellCheck={false}
-                      className="resize-none font-mono text-xs"
-                    />
-                    {bulkParsed.drafts.length > 0 && (
-                      <div className="max-h-24 overflow-y-auto rounded-lg border">
-                        <ul className="divide-y text-sm">
-                          {bulkParsed.drafts.map((draft, i) => (
-                            <li
-                              key={i}
-                              className="flex items-center justify-between gap-3 px-3 py-1.5"
-                            >
-                              <span className="min-w-0 truncate">
-                                {draft.title || draft.note}
-                              </span>
-                              <span
-                                className={cn(
-                                  "shrink-0 tabular-nums",
-                                  draft.type === "income" &&
-                                    "text-emerald-600 dark:text-emerald-400",
-                                )}
-                              >
-                                {/* The app's own formatter, so the preview groups
-                                    thousands and places the sign exactly as the
-                                    feed above it will. The parser hands back
-                                    major units; `toMinorUnits` is the only
-                                    sanctioned way across that boundary. */}
-                                {formatMoney(
-                                  signedMinor(
-                                    draft.type,
-                                    toMinorUnits(draft.amount, money.code, money.locale),
-                                  ),
-                                  money.code,
-                                  money.locale,
-                                  { signed: true },
-                                )}
-                              </span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between gap-2">
-                      <p className="text-xs text-muted-foreground">
-                        {bulkParsed.drafts.length} ready
-                      </p>
-                      <Button type="button" className="h-9 gap-1.5">
-                        <ArrowUp className="size-4" /> Import {bulkParsed.drafts.length}
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            }
-          >
-            <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-3">
-              {/* Bottom-anchored, like the app's chat feed — and the section's
-                  argument: whichever way it went in, it ends up here. */}
-              <div className="flex min-h-full flex-col justify-end">
-                <DemoFeed txns={feed.txns} />
-              </div>
-            </div>
-          </DemoFrame>
+        <div ref={headerRef} className="pointer-events-auto bg-background pb-6">
+          <div className="mx-auto max-w-2xl text-center">{header}</div>
         </div>
 
-        {/*
-          Four ordinary blocks in the flow — this column is what gives the section
-          its length, and scrolling it is what drives everything else. Each block
-          is a viewport-and-a-bit tall so its copy has the screen to itself on the
-          way past, and centred in that space so it meets the reading line the
-          fade is measured against.
+        <div className="lg:grid lg:grid-cols-2 lg:gap-12">
+          {/* The copy's half of the row: left empty, and see-through. */}
+          <div aria-hidden className="hidden lg:block" />
+          {/*
+            Beside the copy on a wide screen, above it on a narrow one — where
+            it also has to mask the copy passing behind. Its height is what's
+            left of the viewport once the pinned heading has taken its share,
+            with a lower ceiling on small screens so there's still room to read
+            underneath.
+          */}
+          <div
+            ref={widgetRef}
+            className="pointer-events-auto bg-background pb-6 lg:pb-0"
+          >
+            <DemoFrame
+              label="Interactive entry demo"
+              sidebar={false}
+              className="h-[min(20rem,calc(100svh_-_var(--pin-top,9rem)_-_15rem))] lg:h-[min(38rem,calc(100svh_-_var(--pin-top,15rem)_-_4rem))]"
+              header={
+                <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
+                  <DemoSummaryBar
+                    label="August"
+                    balanceMinor={feed.balanceMinor}
+                    incomeMinor={feed.totals.incomeMinor}
+                    expenseMinor={feed.totals.expenseMinor}
+                    className="min-w-0 flex-1"
+                  />
+                  <DemoProfilePicker profile={feed.profile} onChange={feed.setProfile} />
+                </div>
+              }
+              bodyClassName="overflow-hidden"
+              footer={
+                <div className="flex shrink-0 flex-col gap-2 border-t bg-muted/20 px-4 py-3">
+                  <div className={MODE_ROW_DENSE}>
+                    <EntryModeToggle mode={mode} onChange={() => {}} dense pane={mode} />
+                    {active === "chat" ? (
+                      <DemoControlGroup>
+                        <DemoTypeToggle dense type="expense" onChange={() => {}} />
+                        <DemoDateChip />
+                        <div className="min-w-0 flex-1">
+                          <CategoryRow
+                            dense
+                            categories={cats}
+                            value="expense:Food & Dining"
+                            onChange={() => {}}
+                          />
+                        </div>
+                      </DemoControlGroup>
+                    ) : (
+                      <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                        {showingDrafts
+                          ? `Review ${drafts.length} transaction${drafts.length === 1 ? "" : "s"}`
+                          : method.caption}
+                      </p>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={start}
+                      className="ml-auto h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
+                    >
+                      Replay
+                    </Button>
+                  </div>
 
-          They're never unmounted or hidden, only faded, so all four descriptions
-          are in the server-rendered HTML and read in order by assistive tech —
-          and if the fade never runs (no JS, reduced motion) the section degrades
-          to four readable blocks rather than three blank ones.
-        */}
-        <div ref={copyRef} className="lg:order-1">
+                  {active === "chat" && (
+                    <div className="flex items-end gap-2">
+                      <div className="relative shrink-0">
+                        <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
+                          {money.currency.symbol}
+                        </span>
+                        <Input
+                          readOnly
+                          value={stage === "chat-amount" ? `${amountText}${CARET}` : amountText}
+                          placeholder={demoAmountInput(0, money)}
+                          aria-label="Amount"
+                          className={cn(
+                            "h-9 w-28 pl-7 tabular-nums",
+                            stage === "chat-amount" && "ring-2 ring-ring/50",
+                          )}
+                        />
+                      </div>
+                      <Input
+                        readOnly
+                        value={stage === "chat-title" ? `${titleText}${CARET}` : titleText}
+                        placeholder="What was it for?"
+                        aria-label="Title"
+                        className={cn(
+                          "h-9 min-w-0 flex-1",
+                          stage === "chat-title" && "ring-2 ring-ring/50",
+                        )}
+                      />
+                      <Button
+                        type="button"
+                        aria-label="Send transaction"
+                        className={cn(
+                          "h-9 shrink-0 gap-1.5 px-3 transition-transform",
+                          stage === "chat-send" && "scale-90",
+                        )}
+                      >
+                        <ArrowUp className="size-4" />
+                      </Button>
+                    </div>
+                  )}
+
+                  {(active === "ai" || active === "voice") &&
+                    (showingDrafts ? (
+                      <>
+                        {note && (
+                          <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                            {note}
+                          </p>
+                        )}
+                        <DemoDraftRows
+                          rows={drafts}
+                          visible={visibleDrafts}
+                          onPatch={() => {}}
+                          onRemove={() => {}}
+                        />
+                        <div className="flex items-center justify-end">
+                          <Button type="button" className={cn("h-9 gap-1.5", AI_BTN)}>
+                            <ArrowUp className="size-4" /> Add {drafts.length}
+                          </Button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="flex flex-col gap-1.5">
+                        {active === "voice" && voiceState !== "idle" && (
+                          <VoiceListeningStrip
+                            state={voiceState}
+                            interim={VOICE_INTERIM[interimIdx] ?? ""}
+                            level={level}
+                            liveSupported
+                          />
+                        )}
+                        <div className="relative flex flex-col">
+                          <Textarea
+                            readOnly
+                            rows={2}
+                            value={stage === "ai-typing" ? `${note}${CARET}` : note}
+                            placeholder={
+                              active === "voice"
+                                ? "Hold the mic and say what you spent"
+                                : "Describe your spending"
+                            }
+                            aria-label="Describe your transactions"
+                            className="min-h-[4.625rem] resize-none pr-20 pb-10"
+                          />
+                          <div className="absolute right-1.5 bottom-1 flex items-center gap-1">
+                            {active === "voice" && (
+                              <VoiceMicButton
+                                state={voiceState}
+                                level={level}
+                                onStart={() => {}}
+                                onStop={() => {}}
+                                hint={`hold ${comboFor("tracker.voice").toUpperCase()}`}
+                                dense
+                              />
+                            )}
+                            <Button
+                              type="button"
+                              aria-label="Turn your note into transactions"
+                              className={cn("size-8 shrink-0 rounded-full p-0", AI_BTN)}
+                            >
+                              {stage === "ai-parsing" || stage === "voice-parsing" ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <ArrowUp className="size-4" />
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+
+                  {active === "bulk" && (
+                    <div className="flex flex-col gap-2">
+                      <Textarea
+                        readOnly
+                        rows={3}
+                        value={stage === "bulk-typing" ? `${bulkText}${CARET}` : bulkText}
+                        placeholder="Paste rows here — one transaction per line"
+                        aria-label="Paste transactions"
+                        spellCheck={false}
+                        className="resize-none font-mono text-xs"
+                      />
+                      {bulkParsed.drafts.length > 0 && (
+                        <div className="max-h-24 overflow-y-auto rounded-lg border">
+                          <ul className="divide-y text-sm">
+                            {bulkParsed.drafts.map((draft, i) => (
+                              <li
+                                key={i}
+                                className="flex items-center justify-between gap-3 px-3 py-1.5"
+                              >
+                                <span className="min-w-0 truncate">
+                                  {draft.title || draft.note}
+                                </span>
+                                <span
+                                  className={cn(
+                                    "shrink-0 tabular-nums",
+                                    draft.type === "income" &&
+                                      "text-emerald-600 dark:text-emerald-400",
+                                  )}
+                                >
+                                  {/* The app's own formatter, so the preview groups
+                                      thousands and places the sign exactly as the
+                                      feed above it will. The parser hands back
+                                      major units; `toMinorUnits` is the only
+                                      sanctioned way across that boundary. */}
+                                  {formatMoney(
+                                    signedMinor(
+                                      draft.type,
+                                      toMinorUnits(draft.amount, money.code, money.locale),
+                                    ),
+                                    money.code,
+                                    money.locale,
+                                    { signed: true },
+                                  )}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-xs text-muted-foreground">
+                          {bulkParsed.drafts.length} ready
+                        </p>
+                        <Button type="button" className="h-9 gap-1.5">
+                          <ArrowUp className="size-4" /> Import {bulkParsed.drafts.length}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              }
+            >
+              <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-3">
+                {/* Bottom-anchored, like the app's chat feed — and the section's
+                    argument: whichever way it went in, it ends up here. */}
+                <div className="flex min-h-full flex-col justify-end">
+                  <DemoFeed txns={feed.txns} />
+                </div>
+              </div>
+            </DemoFrame>
+          </div>
+        </div>
+      </div>
+
+      {/*
+        Four ordinary blocks in the flow — this column is what gives the section
+        its length, and scrolling it is what drives everything else. Each block
+        is a viewport-and-a-bit tall so its copy has the screen to itself on the
+        way past, and centred in that space so it meets the reading line the
+        fade is measured against.
+
+        They're never unmounted or hidden, only faded, so all four descriptions
+        are in the server-rendered HTML and read in order by assistive tech —
+        and if the fade never runs (no JS, reduced motion) the section degrades
+        to four readable blocks rather than three blank ones.
+
+        It shares a cell with the pinned block, so it starts far enough down to
+        clear whatever is overhead: the whole block when they're stacked, just
+        the heading when the widget is alongside. The fallbacks are only for the
+        first paint, before the measurement lands.
+      */}
+      <div
+        ref={copyRef}
+        className="col-start-1 col-end-2 row-start-1 pt-[var(--pinned-h,26rem)] lg:pt-[calc(var(--pin-top,15rem)_-_5rem)]"
+      >
           {METHODS.map((m, i) => {
             const target = getFeature(m.slug);
             return (
@@ -916,7 +970,16 @@ export function EntryMethods({ header }: { header: ReactNode }) {
               </div>
             );
           })}
-        </div>
+
+          {/*
+            A beat at the end. The pinned block releases when the column runs
+            out, and the last method's beat lands with most of its own block
+            still below the fold — without this the widget would start leaving
+            while the paste it is demonstrating was still being typed. Short on
+            purpose: long enough to watch the import land, not so long that the
+            section overstays after there's nothing left to read.
+          */}
+          <div aria-hidden className="h-[25vh]" />
       </div>
     </div>
   );
