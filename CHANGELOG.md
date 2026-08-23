@@ -18,6 +18,29 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.13.1] — 2026-08-23
+
+### Changed
+
+- **The four entry methods scroll past instead of swapping in place.** The
+  section's heading and the composer beside it stay put — they're the constants
+  — while each method's description scrolls up with the page, fading in as it
+  reaches the middle and back out as it leaves. The fade follows the scroll
+  wheel rather than playing a fixed animation once you cross a line, so it goes
+  at whatever pace you read at, forwards or back.
+- The demo now starts on the method you arrive at. Previously the first one sat
+  idle until you scrolled to the second, so the opening example was the one you
+  never saw run.
+- The hero's tracker is taller, and sized against the viewport rather than
+  fixed, so it fills a desktop screen without pushing its own buttons below the
+  fold on a laptop.
+- **The "you're signed in" card sees itself out after ten seconds.** It's an
+  offer, not a task, and it was sitting in the corner for the whole visit.
+  Pointing at it pauses the countdown; moving away restarts it. Two cards don't
+  time out, because they hold the only way out of where you are: the one you
+  reach by `?stay=1`, whose checkbox is the only switch that turns the redirect
+  off, and the one that appears when opening the app took too long.
+
 ## [0.13.0] — 2026-08-22
 
 ### Changed

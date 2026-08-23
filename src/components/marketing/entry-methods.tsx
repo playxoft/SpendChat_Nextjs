@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -62,6 +70,22 @@ import { cn } from "@/lib/utils";
  * server HTML until it was forced to mount. Stepping on scroll inverts that:
  * the reader keeps reading, the composer keeps changing under their eye, and
  * every method's copy is simply on the page.
+ *
+ * Two things hold still and one moves. The section heading pins at the top and
+ * the widget pins beneath it, because they're the constants — the same claim,
+ * the same composer, all the way down. The four descriptions are ordinary
+ * blocks in the flow: they scroll past like the rest of the page, fading up as
+ * they approach the reading line and back out as they leave it. That fade is
+ * computed from each block's distance to that line on every frame rather than
+ * toggled by a class, so it tracks the scroll wheel exactly instead of playing
+ * a fixed-length animation after a threshold trips.
+ *
+ * The reading line isn't a magic number: it's the middle of whatever space is
+ * left once the pinned parts are measured. On a wide screen the widget sits
+ * beside the copy and only the heading is overhead; on a narrow one the widget
+ * is overhead too and the copy reads underneath it. Measuring the rendered
+ * boxes covers both without a media query here having to agree with the `lg:`
+ * ones in the markup.
  *
  * The widget mirrors the app's own layout — history above, composer pinned to
  * the bottom, input where your hands already are. Every method ends the same
@@ -148,6 +172,21 @@ type Stage =
  * absolutely-positioned one has to reproduce the field's metrics exactly. */
 const CARET = "▌";
 
+/**
+ * Clearance for the floating nav pill (`h-14` inside `pt-4`), which is the
+ * height the pinned heading has to start below — matching `top-20` on it.
+ */
+const NAV_CLEARANCE_PX = 80;
+
+/**
+ * The fade, as fractions of the viewport height: a block is fully opaque while
+ * its centre is within `FADE_FULL` of the reading line and gone by `FADE_GONE`.
+ * Blocks are ~70vh apart, so at most one is legible at a time and the handover
+ * happens as one leaves rather than by cutting between them.
+ */
+const FADE_FULL = 0.12;
+const FADE_GONE = 0.38;
+
 const CHAR_MS = 42;
 const HOLD_MS = 420;
 const PARSE_MS = 900;
@@ -217,9 +256,20 @@ export function EntryMethods({ header }: { header: ReactNode }) {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const stepRefs = useRef<(HTMLDivElement | null)[]>([]);
-  // The observer switches methods from outside React's render, so the script
-  // reads the method from a ref rather than from state one commit behind.
+  const headerRef = useRef<HTMLDivElement>(null);
+  const widgetRef = useRef<HTMLDivElement>(null);
+  const copyRef = useRef<HTMLDivElement>(null);
+  // The scroll handler switches methods from outside React's render, so the
+  // script reads the method from a ref rather than from state one commit behind.
   const methodRef = useRef<Method>("chat");
+  const startedRef = useRef(false);
+
+  /**
+   * How far down the pinned heading reaches, so the widget can pin directly
+   * beneath it. Measured rather than assumed: the heading wraps to a different
+   * number of lines at every width, and its description is hidden below `sm`.
+   */
+  const [pinTop, setPinTop] = useState<number | null>(null);
 
   const chatAmount = demoAmountInput(CHAT_AMOUNT_MINOR, money);
   const aiNote = aiNoteFor(money);
@@ -412,35 +462,117 @@ export function EntryMethods({ header }: { header: ReactNode }) {
   });
 
   /**
-   * One observer over the four steps: whichever holds the middle band of the
-   * viewport is the active method, and switching to it replays its script.
-   *
-   * `rootMargin` collapses the viewport to a thin strip through its centre, so
-   * exactly one step qualifies at a time and the widget can't flicker between
-   * two of them at a boundary. `setActive` runs in a callback, never an effect
-   * body — which is both the lint rule and why the typing doesn't stutter.
+   * Measure the pinned heading. `ResizeObserver` fires once as soon as it
+   * observes, so this needs no priming call — which is just as well, since
+   * setting state from an effect body is a lint error and, here, a wasted
+   * render before the browser has laid the heading out anyway.
    */
   useEffect(() => {
-    const els = stepRefs.current.filter(Boolean) as HTMLDivElement[];
-    if (els.length === 0) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          const id = entry.target.getAttribute("data-method") as Method | null;
-          if (!id || id === methodRef.current) continue;
-          methodRef.current = id;
-          setActive(id);
-          clearTimers();
-          run();
-        }
-      },
-      { rootMargin: "-45% 0px -45% 0px", threshold: 0 },
-    );
-    els.forEach((el) => observer.observe(el));
+    const el = headerRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      setPinTop(NAV_CLEARANCE_PX + el.offsetHeight);
+    });
+    observer.observe(el);
     return () => observer.disconnect();
-  }, [clearTimers, run]);
+  }, []);
+
+  /**
+   * The scroll pass: fade each block by its distance to the reading line, and
+   * make the nearest one the active method.
+   *
+   * This is a per-frame measurement rather than an `IntersectionObserver`
+   * because the two jobs want different answers. Activeness is a threshold —
+   * one method at a time — but the fade is continuous, and an observer can only
+   * report that a box crossed a line, not how far past it the box now is. Both
+   * fall out of the same `getBoundingClientRect`, read once per frame.
+   *
+   * Nothing here writes to React state except `setActive`, and that only when
+   * the method actually changes: opacity goes straight onto the node. Rendering
+   * four blocks on every scroll frame to change one number would drop frames on
+   * exactly the phones this section is longest on.
+   */
+  useEffect(() => {
+    const copy = copyRef.current;
+    const widget = widgetRef.current;
+    const header = headerRef.current;
+    const blocks = stepRefs.current.filter(Boolean) as HTMLDivElement[];
+    if (!copy || !widget || !header || blocks.length === 0) return;
+
+    let frame = 0;
+
+    const update = () => {
+      frame = 0;
+      const vh = window.innerHeight;
+      const copyBox = copy.getBoundingClientRect();
+      const widgetBox = widget.getBoundingClientRect();
+
+      // Off screen: nothing to fade, and nothing to play. A homepage animation
+      // that runs while it's still three sections below the fold has finished
+      // by the time anyone arrives — so leaving marks it unplayed, and the
+      // script starts again on the way back in.
+      if (copyBox.bottom < 0 || copyBox.top > vh) {
+        startedRef.current = false;
+        return;
+      }
+
+      // Side by side, or stacked? Taken from the boxes themselves so this
+      // doesn't have to restate the `lg:` breakpoint in the markup — and so it
+      // still holds if the columns ever swap or the widget moves.
+      const beside =
+        widgetBox.left >= copyBox.right - 1 || widgetBox.right <= copyBox.left + 1;
+      // Whatever is pinned above the copy: always the heading, plus the widget
+      // when it's stacked on top rather than alongside.
+      const covered = beside
+        ? header.getBoundingClientRect().bottom
+        : Math.max(header.getBoundingClientRect().bottom, widgetBox.bottom);
+      const focus = (Math.max(0, Math.min(covered, vh)) + vh) / 2;
+
+      let nearest = 0;
+      let nearestDistance = Infinity;
+
+      blocks.forEach((el, i) => {
+        const box = el.getBoundingClientRect();
+        const distance = Math.abs(box.top + box.height / 2 - focus);
+        if (distance < nearestDistance) {
+          nearestDistance = distance;
+          nearest = i;
+        }
+        if (reduced) return;
+        const opacity = Math.max(
+          0,
+          Math.min(1, (FADE_GONE * vh - distance) / ((FADE_GONE - FADE_FULL) * vh)),
+        );
+        const next = opacity.toFixed(2);
+        if (el.style.opacity !== next) el.style.opacity = next;
+      });
+
+      const id = METHODS[nearest].id;
+      // The first pass also starts the show. Without it the section's opening
+      // method would sit there idle — the reader arrives already on it, so
+      // "changed method" never fires for it.
+      if (id !== methodRef.current || !startedRef.current) {
+        methodRef.current = id;
+        startedRef.current = true;
+        setActive(id);
+        clearTimers();
+        run();
+      }
+    };
+
+    const schedule = () => {
+      if (frame === 0) frame = window.requestAnimationFrame(update);
+    };
+
+    schedule();
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
+  }, [clearTimers, reduced, run]);
 
   // Keep the newest bubble in view, inside the widget's own scroller.
   useEffect(() => {
@@ -475,320 +607,315 @@ export function EntryMethods({ header }: { header: ReactNode }) {
   );
 
   return (
-    <div ref={containerRef} className="relative">
+    <div
+      ref={containerRef}
+      className="relative"
+      style={pinTop === null ? undefined : ({ "--pin-top": `${pinTop}px` } as CSSProperties)}
+    >
       {/*
-        Scroll drivers. They render nothing — their only jobs are to give the
-        section its length and to tell the observer which method the reader has
-        reached. The visible row is pinned over the top of them, so the copy
-        swaps in place instead of travelling up the page and colliding with the
-        section heading above it.
+        The heading pins first and everything else is measured from it. It needs
+        an opaque background because the copy now scrolls up behind it rather
+        than swapping in a slot underneath — that's the whole change, and this
+        is what keeps the two from ever being legible on top of each other.
       */}
-      <div aria-hidden>
-        {METHODS.map((m, i) => (
-          <div
-            key={m.id}
-            data-method={m.id}
-            ref={(el) => {
-              stepRefs.current[i] = el;
-            }}
-            className="h-[70vh]"
-          />
-        ))}
+      <div ref={headerRef} className="sticky top-20 z-20 bg-background pb-6">
+        <div className="mx-auto max-w-2xl text-center">{header}</div>
       </div>
 
-      <div className="pointer-events-none absolute inset-0">
+      <div className="lg:grid lg:grid-cols-2 lg:items-start lg:gap-12">
         {/*
-          The whole unit pins: the section's heading and description stay put
-          while only the method underneath them changes. Pinning the heading is
-          what keeps it from scrolling away and, with the copy held in its own
-          slot below, what guarantees the two can never collide.
+          The widget pins directly below the heading — beside the copy on a wide
+          screen, above it on a narrow one, where it also has to mask the copy
+          passing behind. Its height is what's left of the viewport once the
+          pinned heading has taken its share, with a lower ceiling on small
+          screens so there's still room to read underneath.
         */}
-        <div className="pointer-events-auto sticky top-20 lg:top-24">
-          <div className="mx-auto max-w-2xl text-center">{header}</div>
-
-          <div className="mt-6 lg:mt-10 lg:grid lg:grid-cols-2 lg:items-center lg:gap-12">
-      <div className="lg:order-2">
-        <DemoFrame
-          label="Interactive entry demo"
-          sidebar={false}
-          className="h-[min(20rem,calc(100svh-26rem))] lg:h-[min(38rem,calc(100svh-20rem))]"
-          header={
-            <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
-              <DemoSummaryBar
-                label="August"
-                balanceMinor={feed.balanceMinor}
-                incomeMinor={feed.totals.incomeMinor}
-                expenseMinor={feed.totals.expenseMinor}
-                className="min-w-0 flex-1"
-              />
-              <DemoProfilePicker profile={feed.profile} onChange={feed.setProfile} />
-            </div>
-          }
-          bodyClassName="overflow-hidden"
-          footer={
-            <div className="flex shrink-0 flex-col gap-2 border-t bg-muted/20 px-4 py-3">
-              <div className={MODE_ROW_DENSE}>
-                <EntryModeToggle mode={mode} onChange={() => {}} dense pane={mode} />
-                {active === "chat" ? (
-                  <DemoControlGroup>
-                    <DemoTypeToggle dense type="expense" onChange={() => {}} />
-                    <DemoDateChip />
-                    <div className="min-w-0 flex-1">
-                      <CategoryRow
-                        dense
-                        categories={cats}
-                        value="expense:Food & Dining"
-                        onChange={() => {}}
-                      />
-                    </div>
-                  </DemoControlGroup>
-                ) : (
-                  <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                    {showingDrafts
-                      ? `Review ${drafts.length} transaction${drafts.length === 1 ? "" : "s"}`
-                      : method.caption}
-                  </p>
-                )}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={start}
-                  className="ml-auto h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
-                >
-                  Replay
-                </Button>
+        <div
+          ref={widgetRef}
+          className="sticky z-10 mb-10 bg-background pb-4 lg:order-2 lg:mb-0 lg:pb-0"
+          style={{ top: pinTop ?? undefined }}
+        >
+          <DemoFrame
+            label="Interactive entry demo"
+            sidebar={false}
+            className="h-[min(20rem,calc(100svh_-_var(--pin-top,9rem)_-_15rem))] lg:h-[min(38rem,calc(100svh_-_var(--pin-top,15rem)_-_4rem))]"
+            header={
+              <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
+                <DemoSummaryBar
+                  label="August"
+                  balanceMinor={feed.balanceMinor}
+                  incomeMinor={feed.totals.incomeMinor}
+                  expenseMinor={feed.totals.expenseMinor}
+                  className="min-w-0 flex-1"
+                />
+                <DemoProfilePicker profile={feed.profile} onChange={feed.setProfile} />
               </div>
-
-              {active === "chat" && (
-                <div className="flex items-end gap-2">
-                  <div className="relative shrink-0">
-                    <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
-                      {money.currency.symbol}
-                    </span>
-                    <Input
-                      readOnly
-                      value={stage === "chat-amount" ? `${amountText}${CARET}` : amountText}
-                      placeholder={demoAmountInput(0, money)}
-                      aria-label="Amount"
-                      className={cn(
-                        "h-9 w-28 pl-7 tabular-nums",
-                        stage === "chat-amount" && "ring-2 ring-ring/50",
-                      )}
-                    />
-                  </div>
-                  <Input
-                    readOnly
-                    value={stage === "chat-title" ? `${titleText}${CARET}` : titleText}
-                    placeholder="What was it for?"
-                    aria-label="Title"
-                    className={cn(
-                      "h-9 min-w-0 flex-1",
-                      stage === "chat-title" && "ring-2 ring-ring/50",
-                    )}
-                  />
+            }
+            bodyClassName="overflow-hidden"
+            footer={
+              <div className="flex shrink-0 flex-col gap-2 border-t bg-muted/20 px-4 py-3">
+                <div className={MODE_ROW_DENSE}>
+                  <EntryModeToggle mode={mode} onChange={() => {}} dense pane={mode} />
+                  {active === "chat" ? (
+                    <DemoControlGroup>
+                      <DemoTypeToggle dense type="expense" onChange={() => {}} />
+                      <DemoDateChip />
+                      <div className="min-w-0 flex-1">
+                        <CategoryRow
+                          dense
+                          categories={cats}
+                          value="expense:Food & Dining"
+                          onChange={() => {}}
+                        />
+                      </div>
+                    </DemoControlGroup>
+                  ) : (
+                    <p className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                      {showingDrafts
+                        ? `Review ${drafts.length} transaction${drafts.length === 1 ? "" : "s"}`
+                        : method.caption}
+                    </p>
+                  )}
                   <Button
                     type="button"
-                    aria-label="Send transaction"
-                    className={cn(
-                      "h-9 shrink-0 gap-1.5 px-3 transition-transform",
-                      stage === "chat-send" && "scale-90",
-                    )}
+                    variant="ghost"
+                    size="sm"
+                    onClick={start}
+                    className="ml-auto h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
                   >
-                    <ArrowUp className="size-4" />
+                    Replay
                   </Button>
                 </div>
-              )}
 
-              {(active === "ai" || active === "voice") &&
-                (showingDrafts ? (
-                  <>
-                    {note && (
-                      <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                        {note}
-                      </p>
-                    )}
-                    <DemoDraftRows
-                      rows={drafts}
-                      visible={visibleDrafts}
-                      onPatch={() => {}}
-                      onRemove={() => {}}
-                    />
-                    <div className="flex items-center justify-end">
-                      <Button type="button" className={cn("h-9 gap-1.5", AI_BTN)}>
-                        <ArrowUp className="size-4" /> Add {drafts.length}
-                      </Button>
-                    </div>
-                  </>
-                ) : (
-                  <div className="flex flex-col gap-1.5">
-                    {active === "voice" && voiceState !== "idle" && (
-                      <VoiceListeningStrip
-                        state={voiceState}
-                        interim={VOICE_INTERIM[interimIdx] ?? ""}
-                        level={level}
-                        liveSupported
-                      />
-                    )}
-                    <div className="relative flex flex-col">
-                      <Textarea
+                {active === "chat" && (
+                  <div className="flex items-end gap-2">
+                    <div className="relative shrink-0">
+                      <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
+                        {money.currency.symbol}
+                      </span>
+                      <Input
                         readOnly
-                        rows={2}
-                        value={stage === "ai-typing" ? `${note}${CARET}` : note}
-                        placeholder={
-                          active === "voice"
-                            ? "Hold the mic and say what you spent"
-                            : "Describe your spending"
-                        }
-                        aria-label="Describe your transactions"
-                        className="min-h-[4.625rem] resize-none pr-20 pb-10"
-                      />
-                      <div className="absolute right-1.5 bottom-1 flex items-center gap-1">
-                        {active === "voice" && (
-                          <VoiceMicButton
-                            state={voiceState}
-                            level={level}
-                            onStart={() => {}}
-                            onStop={() => {}}
-                            hint={`hold ${comboFor("tracker.voice").toUpperCase()}`}
-                            dense
-                          />
+                        value={stage === "chat-amount" ? `${amountText}${CARET}` : amountText}
+                        placeholder={demoAmountInput(0, money)}
+                        aria-label="Amount"
+                        className={cn(
+                          "h-9 w-28 pl-7 tabular-nums",
+                          stage === "chat-amount" && "ring-2 ring-ring/50",
                         )}
-                        <Button
-                          type="button"
-                          aria-label="Turn your note into transactions"
-                          className={cn("size-8 shrink-0 rounded-full p-0", AI_BTN)}
-                        >
-                          {stage === "ai-parsing" || stage === "voice-parsing" ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <ArrowUp className="size-4" />
-                          )}
-                        </Button>
-                      </div>
+                      />
                     </div>
-                  </div>
-                ))}
-
-              {active === "bulk" && (
-                <div className="flex flex-col gap-2">
-                  <Textarea
-                    readOnly
-                    rows={3}
-                    value={stage === "bulk-typing" ? `${bulkText}${CARET}` : bulkText}
-                    placeholder="Paste rows here — one transaction per line"
-                    aria-label="Paste transactions"
-                    spellCheck={false}
-                    className="resize-none font-mono text-xs"
-                  />
-                  {bulkParsed.drafts.length > 0 && (
-                    <div className="max-h-24 overflow-y-auto rounded-lg border">
-                      <ul className="divide-y text-sm">
-                        {bulkParsed.drafts.map((draft, i) => (
-                          <li
-                            key={i}
-                            className="flex items-center justify-between gap-3 px-3 py-1.5"
-                          >
-                            <span className="min-w-0 truncate">
-                              {draft.title || draft.note}
-                            </span>
-                            <span
-                              className={cn(
-                                "shrink-0 tabular-nums",
-                                draft.type === "income" &&
-                                  "text-emerald-600 dark:text-emerald-400",
-                              )}
-                            >
-                              {/* The app's own formatter, so the preview groups
-                                  thousands and places the sign exactly as the
-                                  feed above it will. The parser hands back
-                                  major units; `toMinorUnits` is the only
-                                  sanctioned way across that boundary. */}
-                              {formatMoney(
-                                signedMinor(
-                                  draft.type,
-                                  toMinorUnits(draft.amount, money.code, money.locale),
-                                ),
-                                money.code,
-                                money.locale,
-                                { signed: true },
-                              )}
-                            </span>
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-xs text-muted-foreground">
-                      {bulkParsed.drafts.length} ready
-                    </p>
-                    <Button type="button" className="h-9 gap-1.5">
-                      <ArrowUp className="size-4" /> Import {bulkParsed.drafts.length}
+                    <Input
+                      readOnly
+                      value={stage === "chat-title" ? `${titleText}${CARET}` : titleText}
+                      placeholder="What was it for?"
+                      aria-label="Title"
+                      className={cn(
+                        "h-9 min-w-0 flex-1",
+                        stage === "chat-title" && "ring-2 ring-ring/50",
+                      )}
+                    />
+                    <Button
+                      type="button"
+                      aria-label="Send transaction"
+                      className={cn(
+                        "h-9 shrink-0 gap-1.5 px-3 transition-transform",
+                        stage === "chat-send" && "scale-90",
+                      )}
+                    >
+                      <ArrowUp className="size-4" />
                     </Button>
                   </div>
-                </div>
-              )}
-            </div>
-          }
-        >
-          <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-3">
-            {/* Bottom-anchored, like the app's chat feed — and the section's
-                argument: whichever way it went in, it ends up here. */}
-            <div className="flex min-h-full flex-col justify-end">
-              <DemoFeed txns={feed.txns} />
-            </div>
-          </div>
-        </DemoFrame>
-      </div>
+                )}
 
-      {/*
-        One slot, four pieces of copy. All four stay in the document — the
-        inactive ones are stacked underneath at zero opacity rather than
-        unmounted, so every method's description is in the server-rendered HTML
-        and readable by assistive tech in order, while a sighted reader sees one
-        at a time. `min-h` holds the slot open at the tallest of them, so the
-        widget beside it doesn't shift as they swap.
-      */}
-      <div className="relative mb-6 min-h-[13rem] lg:order-1 lg:mb-0 lg:min-h-[17rem]">
-        {METHODS.map((m) => {
-          const isActive = m.id === active;
-          const target = getFeature(m.slug);
-          return (
-            <div
-              key={m.id}
-              className={cn(
-                "flex flex-col transition-opacity duration-500",
-                isActive
-                  ? "relative opacity-100"
-                  : "pointer-events-none absolute inset-0 opacity-0",
-              )}
-            >
-              <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-foreground bg-foreground px-3 py-1 text-xs text-background">
-                <m.icon className="size-3.5" />
-                {m.label}
-              </span>
-              <h3 className="mt-4 text-2xl font-medium tracking-tight sm:text-3xl">
-                {m.heading}
-              </h3>
-              <p className="mt-3 leading-relaxed text-muted-foreground">{m.body}</p>
-              <Link
-                href={target ? featurePath(target.slug) : featureLink(m.slug)}
-                data-track-event="nav_link_click"
-                data-track-params={JSON.stringify({
-                  location: "home_entry_methods",
-                  label: m.slug,
-                })}
-                className="mt-5 inline-flex w-fit items-center gap-1.5 text-sm font-medium underline underline-offset-4"
-              >
-                {m.link}
-                <ArrowRight className="size-3.5" />
-              </Link>
+                {(active === "ai" || active === "voice") &&
+                  (showingDrafts ? (
+                    <>
+                      {note && (
+                        <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                          {note}
+                        </p>
+                      )}
+                      <DemoDraftRows
+                        rows={drafts}
+                        visible={visibleDrafts}
+                        onPatch={() => {}}
+                        onRemove={() => {}}
+                      />
+                      <div className="flex items-center justify-end">
+                        <Button type="button" className={cn("h-9 gap-1.5", AI_BTN)}>
+                          <ArrowUp className="size-4" /> Add {drafts.length}
+                        </Button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex flex-col gap-1.5">
+                      {active === "voice" && voiceState !== "idle" && (
+                        <VoiceListeningStrip
+                          state={voiceState}
+                          interim={VOICE_INTERIM[interimIdx] ?? ""}
+                          level={level}
+                          liveSupported
+                        />
+                      )}
+                      <div className="relative flex flex-col">
+                        <Textarea
+                          readOnly
+                          rows={2}
+                          value={stage === "ai-typing" ? `${note}${CARET}` : note}
+                          placeholder={
+                            active === "voice"
+                              ? "Hold the mic and say what you spent"
+                              : "Describe your spending"
+                          }
+                          aria-label="Describe your transactions"
+                          className="min-h-[4.625rem] resize-none pr-20 pb-10"
+                        />
+                        <div className="absolute right-1.5 bottom-1 flex items-center gap-1">
+                          {active === "voice" && (
+                            <VoiceMicButton
+                              state={voiceState}
+                              level={level}
+                              onStart={() => {}}
+                              onStop={() => {}}
+                              hint={`hold ${comboFor("tracker.voice").toUpperCase()}`}
+                              dense
+                            />
+                          )}
+                          <Button
+                            type="button"
+                            aria-label="Turn your note into transactions"
+                            className={cn("size-8 shrink-0 rounded-full p-0", AI_BTN)}
+                          >
+                            {stage === "ai-parsing" || stage === "voice-parsing" ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <ArrowUp className="size-4" />
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+
+                {active === "bulk" && (
+                  <div className="flex flex-col gap-2">
+                    <Textarea
+                      readOnly
+                      rows={3}
+                      value={stage === "bulk-typing" ? `${bulkText}${CARET}` : bulkText}
+                      placeholder="Paste rows here — one transaction per line"
+                      aria-label="Paste transactions"
+                      spellCheck={false}
+                      className="resize-none font-mono text-xs"
+                    />
+                    {bulkParsed.drafts.length > 0 && (
+                      <div className="max-h-24 overflow-y-auto rounded-lg border">
+                        <ul className="divide-y text-sm">
+                          {bulkParsed.drafts.map((draft, i) => (
+                            <li
+                              key={i}
+                              className="flex items-center justify-between gap-3 px-3 py-1.5"
+                            >
+                              <span className="min-w-0 truncate">
+                                {draft.title || draft.note}
+                              </span>
+                              <span
+                                className={cn(
+                                  "shrink-0 tabular-nums",
+                                  draft.type === "income" &&
+                                    "text-emerald-600 dark:text-emerald-400",
+                                )}
+                              >
+                                {/* The app's own formatter, so the preview groups
+                                    thousands and places the sign exactly as the
+                                    feed above it will. The parser hands back
+                                    major units; `toMinorUnits` is the only
+                                    sanctioned way across that boundary. */}
+                                {formatMoney(
+                                  signedMinor(
+                                    draft.type,
+                                    toMinorUnits(draft.amount, money.code, money.locale),
+                                  ),
+                                  money.code,
+                                  money.locale,
+                                  { signed: true },
+                                )}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs text-muted-foreground">
+                        {bulkParsed.drafts.length} ready
+                      </p>
+                      <Button type="button" className="h-9 gap-1.5">
+                        <ArrowUp className="size-4" /> Import {bulkParsed.drafts.length}
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            }
+          >
+            <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-3">
+              {/* Bottom-anchored, like the app's chat feed — and the section's
+                  argument: whichever way it went in, it ends up here. */}
+              <div className="flex min-h-full flex-col justify-end">
+                <DemoFeed txns={feed.txns} />
+              </div>
             </div>
-          );
-        })}
-      </div>
-          </div>
+          </DemoFrame>
+        </div>
+
+        {/*
+          Four ordinary blocks in the flow — this column is what gives the section
+          its length, and scrolling it is what drives everything else. Each block
+          is a viewport-and-a-bit tall so its copy has the screen to itself on the
+          way past, and centred in that space so it meets the reading line the
+          fade is measured against.
+
+          They're never unmounted or hidden, only faded, so all four descriptions
+          are in the server-rendered HTML and read in order by assistive tech —
+          and if the fade never runs (no JS, reduced motion) the section degrades
+          to four readable blocks rather than three blank ones.
+        */}
+        <div ref={copyRef} className="lg:order-1">
+          {METHODS.map((m, i) => {
+            const target = getFeature(m.slug);
+            return (
+              <div
+                key={m.id}
+                data-method={m.id}
+                ref={(el) => {
+                  stepRefs.current[i] = el;
+                }}
+                className="flex min-h-[62vh] flex-col justify-center lg:min-h-[70vh]"
+              >
+                <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-foreground bg-foreground px-3 py-1 text-xs text-background">
+                  <m.icon className="size-3.5" />
+                  {m.label}
+                </span>
+                <h3 className="mt-4 text-2xl font-medium tracking-tight sm:text-3xl">
+                  {m.heading}
+                </h3>
+                <p className="mt-3 leading-relaxed text-muted-foreground">{m.body}</p>
+                <Link
+                  href={target ? featurePath(target.slug) : featureLink(m.slug)}
+                  data-track-event="nav_link_click"
+                  data-track-params={JSON.stringify({
+                    location: "home_entry_methods",
+                    label: m.slug,
+                  })}
+                  className="mt-5 inline-flex w-fit items-center gap-1.5 text-sm font-medium underline underline-offset-4"
+                >
+                  {m.link}
+                  <ArrowRight className="size-3.5" />
+                </Link>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

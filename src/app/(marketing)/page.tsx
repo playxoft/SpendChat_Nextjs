@@ -280,8 +280,17 @@ export default function LandingPage() {
             {/* The same composer the app ships, at the density the app uses,
                 with the input where the app puts it — at the bottom, under the
                 feed. The rail is dropped: the hero has no room for it beside
-                the copy, and the composer is what this section is about. */}
-            <ChatDemo sidebar={false} className="h-[30rem]" />
+                the copy, and the composer is what this section is about.
+
+                Height takes as much of the fold as the hero can spare rather
+                than a fixed figure: the demo is the thing worth showing, but a
+                hero that outgrows the viewport hides its own buttons. The
+                subtraction covers the nav, the section padding and the caption
+                underneath, so it grows on a desktop and gives way on a laptop. */}
+            <ChatDemo
+              sidebar={false}
+              className="h-[32rem] lg:h-[min(38rem,calc(100svh-13rem))]"
+            />
             <p className="mt-3 text-center text-xs text-muted-foreground">
               Live demo — type an amount, pick a category, and hit send.
             </p>
