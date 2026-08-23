@@ -37,12 +37,34 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - The hero's tracker is taller, and sized against the viewport rather than
   fixed, so it fills a desktop screen without pushing its own buttons below the
   fold on a laptop.
+- The last of the four entry methods no longer fades out. A method fades to
+  make room for the next one and there isn't one, so it now stays readable
+  until it leaves with everything else.
 - **The "you're signed in" card sees itself out after ten seconds.** It's an
   offer, not a task, and it was sitting in the corner for the whole visit.
   Pointing at it pauses the countdown; moving away restarts it. Two cards don't
   time out, because they hold the only way out of where you are: the one you
   reach by `?stay=1`, whose checkbox is the only switch that turns the redirect
   off, and the one that appears when opening the app took too long.
+
+### Fixed
+
+- **The homepage no longer jumps a thousand pixels down the page on load.**
+  Every demo composer carries the app's category strip, which centres the
+  selected chip when it mounts — through `scrollIntoView`, which is free to
+  scroll the page as well as the strip. On a phone that landed you below the
+  hero before you had touched anything. It scrolls the strip and nothing else
+  now, in the app as well as on the marketing pages.
+- **The homepage no longer scrolls sideways on a phone.** The comparison table
+  scrolls inside its own container, but the screen-reader labels in its tick
+  and dash cells are absolutely positioned, and with nothing positioned around
+  them they were being placed against the document — pushing the page 140px
+  wider than the screen. With the page wider than the viewport, the fixed
+  navigation bar no longer covered it, which is what made the whole thing look
+  broken.
+- The demo composer's controls fit on a phone. The date chip — which reads
+  "Today" and does nothing — is hidden below `sm`, where it was crowding the
+  category row out of the strip and leaving the Replay button on top of it.
 
 ## [0.13.0] — 2026-08-22
 

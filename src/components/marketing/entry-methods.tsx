@@ -546,16 +546,25 @@ export function EntryMethods({ header }: { header: ReactNode }) {
 
       blocks.forEach((el, i) => {
         const box = el.getBoundingClientRect();
-        const distance = Math.abs(box.top + box.height / 2 - focus);
+        // Signed: negative once the block has risen past the reading line.
+        const offset = box.top + box.height / 2 - focus;
+        const distance = Math.abs(offset);
         if (distance < nearestDistance) {
           nearestDistance = distance;
           nearest = i;
         }
         if (reduced) return;
-        const opacity = Math.max(
-          0,
-          Math.min(1, (FADE_GONE * vh - distance) / ((FADE_GONE - FADE_FULL) * vh)),
-        );
+        // The last method fades in and then stays. A block fades out to make
+        // room for the next one, and there isn't one — fading it would leave
+        // the widget demonstrating a paste with nothing left saying what the
+        // paste is. It goes when the whole block goes, still readable.
+        const past = offset < 0 && i === blocks.length - 1;
+        const opacity = past
+          ? 1
+          : Math.max(
+              0,
+              Math.min(1, (FADE_GONE * vh - distance) / ((FADE_GONE - FADE_FULL) * vh)),
+            );
         const next = opacity.toFixed(2);
         if (el.style.opacity !== next) el.style.opacity = next;
       });

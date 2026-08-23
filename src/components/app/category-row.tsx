@@ -41,10 +41,26 @@ export function CategoryRow({
 
   // Keep the selected chip visible in the scroller — e.g. when it's chosen via
   // the "/" command in the title and lives off-screen in the horizontal scroll.
+  //
+  // Scrolls the strip itself rather than calling `scrollIntoView`, which is
+  // free to scroll every scrollable ancestor including the page. That's what it
+  // did: this effect runs on mount with whatever category is already selected,
+  // and on the marketing pages — where the same composer is on show halfway
+  // down a long page — landing on the homepage dragged the visitor a thousand
+  // pixels past the hero before they had touched anything. The intent here is
+  // horizontal and local; this does only that.
   React.useEffect(() => {
     if (!value) return;
-    const el = scrollRef.current?.querySelector(`[data-cat-id="${value}"]`);
-    el?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
+    const box = scrollRef.current;
+    const el = box?.querySelector(`[data-cat-id="${value}"]`);
+    if (!box || !el) return;
+    const boxRect = box.getBoundingClientRect();
+    const chip = el.getBoundingClientRect();
+    // Measured through the rects rather than `offsetLeft`, which is relative to
+    // whichever ancestor happens to be positioned — not necessarily this strip.
+    const left =
+      box.scrollLeft + (chip.left - boxRect.left) - (boxRect.width - chip.width) / 2;
+    box.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
   }, [value]);
 
   // Full-list grid + "Edit categories" — shared by the "More" popover and the

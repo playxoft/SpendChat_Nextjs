@@ -216,6 +216,12 @@ export function DemoControlGroup({
  *
  * Inert on purpose: a real picker drags `react-day-picker` into the marketing
  * bundle, and no demo here is about choosing a date.
+ *
+ * Hidden on a phone. It's the widest thing in the control strip and the least
+ * load-bearing — it says "Today", which is also what it would say if it weren't
+ * there. Keeping it made the strip wider than the frame, so the category row
+ * was clipped and the Replay button sat on top of its last chip. Everything
+ * else in the strip is either the demo's subject or its controls.
  */
 export function DemoDateChip({
   label = "Today",
@@ -227,7 +233,7 @@ export function DemoDateChip({
   return (
     <span
       className={cn(
-        "inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm font-normal text-muted-foreground",
+        "hidden h-8 shrink-0 items-center gap-1.5 rounded-md border px-2.5 text-sm font-normal text-muted-foreground sm:inline-flex",
         className,
       )}
     >

@@ -528,8 +528,17 @@ export default function LandingPage() {
           </p>
         </div>
         {/* Wide table, scrollable inside its own container so the page body
-            never scrolls sideways on a phone. */}
-        <div className="mt-10 overflow-x-auto">
+            never scrolls sideways on a phone.
+
+            `relative` is what actually makes that true. The tick and dash cells
+            each carry an `sr-only` label, and `sr-only` is `position: absolute`
+            — with no positioned ancestor those spans resolve against the
+            initial containing block, so a cell sitting at 500px inside a
+            36rem-wide table lands 500px into the *document*, and the page
+            picks up horizontal scroll on a 393px phone. Everything else looked
+            right; the give-away was `documentElement.scrollWidth` exceeding
+            `body.scrollWidth`, since the escapees are laid out above body. */}
+        <div className="relative mt-10 overflow-x-auto">
           <table className="w-full min-w-[36rem] border-collapse text-sm">
             <thead>
               <tr className="border-b">
