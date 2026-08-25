@@ -1,10 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { AlertTriangle, ArrowUp, RotateCcw } from "lucide-react";
+import { AlertTriangle, ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { DemoFrame } from "./demo-frame";
+import { DemoReplay } from "./demo-replay";
 import { DemoFeed } from "./demo-feed";
 import { DemoSummaryBar } from "./demo-summary-bar";
 import { DemoProfilePicker } from "./demo-controls";
@@ -90,6 +91,7 @@ export function BulkAddDemo() {
   }
 
   return (
+    <>
     <DemoFrame
       label="Interactive bulk import demo"
       active="/app"
@@ -116,15 +118,6 @@ export function BulkAddDemo() {
             <p className="min-w-0 truncate text-xs text-muted-foreground">
               amount{delimiter} note{delimiter} category{delimiter} type{delimiter} date
             </p>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={reset}
-              className="ml-auto h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
-            >
-              <RotateCcw className="size-3.5" /> Reset
-            </Button>
           </div>
 
           <Textarea
@@ -222,5 +215,8 @@ export function BulkAddDemo() {
         </div>
       </div>
     </DemoFrame>
+    {/* "Reset", not "Replay": you edit this one, so it puts your sample back. */}
+    <DemoReplay onClick={reset} label="Reset" />
+    </>
   );
 }

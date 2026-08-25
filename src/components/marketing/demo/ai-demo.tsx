@@ -11,6 +11,7 @@ import {
 } from "@/components/app/entry-mode-toggle";
 import { AI_BTN } from "@/components/app/ai-accent";
 import { DemoFrame } from "./demo-frame";
+import { DemoReplay } from "./demo-replay";
 import { DemoFeed } from "./demo-feed";
 import { DemoSummaryBar } from "./demo-summary-bar";
 import { DemoProfilePicker } from "./demo-controls";
@@ -226,15 +227,6 @@ export function AiDemo() {
                   Review {rows.length} transaction{rows.length === 1 ? "" : "s"}
                 </p>
               )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={reduced ? showResult : play}
-                className="ml-auto h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
-              >
-                <Play className="size-3.5" /> Replay
-              </Button>
             </div>
 
             {mode === "manual" ? (
@@ -329,6 +321,7 @@ export function AiDemo() {
           </div>
         </div>
       </DemoFrame>
+      <DemoReplay onClick={reduced ? showResult : play} />
     </div>
   );
 }

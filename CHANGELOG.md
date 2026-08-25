@@ -42,8 +42,12 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   isn't the composer — showing it there said the wrong thing about where the
   feature lives. The dialog opens over the widget with the grid the real one
   has — a row per transaction, type, amount, title and category each in its own
-  field — filling as the paste is typed. Importing closes it with the
-  transactions in the feed behind.
+  field. Nothing is typed: a paste arrives as a block, so the grid fills a row
+  at a time. Importing closes it with the transactions in the feed behind.
+- **Every demo's replay control moved out of the widget and under it.** It was
+  sitting in the composer's control strip, which is a copy of the app's — and
+  the app has no Replay button in it, so the demo was editing the thing it was
+  meant to be showing, and crowding the real controls on a narrow screen.
 - The last method now parks on the reading line rather than scrolling past it.
   The other three have somewhere to go — the next method — but the fourth has
   nothing after it, and letting it climb away left the widget demonstrating a

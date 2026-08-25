@@ -13,6 +13,7 @@ import {
 import { AI_BTN } from "@/components/app/ai-accent";
 import { VoiceListeningStrip, VoiceMicButton } from "@/components/app/voice-mic";
 import { DemoFrame } from "./demo-frame";
+import { DemoReplay } from "./demo-replay";
 import { DemoFeed } from "./demo-feed";
 import { DemoSummaryBar } from "./demo-summary-bar";
 import { DemoProfilePicker } from "./demo-controls";
@@ -339,15 +340,6 @@ export function VoiceDemo() {
                   Review {rows.length} transaction{rows.length === 1 ? "" : "s"}
                 </p>
               )}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => (reduced ? showResult(script) : startRecording(script, true))}
-                className="ml-auto h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
-              >
-                <Play className="size-3.5" /> Replay
-              </Button>
             </div>
 
             {mode === "manual" ? (
@@ -455,6 +447,9 @@ export function VoiceDemo() {
           </div>
         </div>
       </DemoFrame>
+      <DemoReplay
+        onClick={() => (reduced ? showResult(script) : startRecording(script, true))}
+      />
     </div>
   );
 }

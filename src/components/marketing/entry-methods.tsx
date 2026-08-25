@@ -33,6 +33,7 @@ import { VoiceListeningStrip, VoiceMicButton } from "@/components/app/voice-mic"
 import { DemoFrame } from "@/components/marketing/demo/demo-frame";
 import { DemoFeed } from "@/components/marketing/demo/demo-feed";
 import { DemoBulkDialog } from "@/components/marketing/demo/bulk-dialog";
+import { DemoReplay } from "@/components/marketing/demo/demo-replay";
 import { DemoSummaryBar } from "@/components/marketing/demo/demo-summary-bar";
 import {
   DemoControlGroup,
@@ -151,9 +152,9 @@ const METHODS: {
     icon: ListPlus,
     slug: "bulk-add",
     heading: "Paste rows straight from a spreadsheet",
-    body: "One transaction per line — amount, note, category, type, date. Every keystroke re-parses, so you see exactly what would be saved, and anything that needs fixing, before a single record is.",
+    body: "One transaction per line — amount, note, category, type, date. Paste the block and every line lands as a row you can correct, each field its own: type, amount, title, category. Nothing is written until you say import.",
     link: "See how bulk import works",
-    caption: "The real parser, on every keystroke",
+    caption: "Every pasted line, as a row you can fix",
   },
 ];
 
@@ -170,7 +171,6 @@ type Stage =
   | "voice-parsing"
   | "voice-review"
   | "bulk-open"
-  | "bulk-typing"
   | "bulk-preview"
   | "bulk-importing"
   | "saved";
@@ -258,7 +258,6 @@ export function EntryMethods({ header }: { header: ReactNode }) {
   const [amountText, setAmountText] = useState("");
   const [titleText, setTitleText] = useState("");
   const [note, setNote] = useState("");
-  const [bulkText, setBulkText] = useState("");
   const [interimIdx, setInterimIdx] = useState(0);
   const [level, setLevel] = useState(0);
   const [drafts, setDrafts] = useState<DemoDraft[]>([]);
@@ -310,7 +309,6 @@ export function EntryMethods({ header }: { header: ReactNode }) {
     setAmountText("");
     setTitleText("");
     setNote("");
-    setBulkText("");
     setInterimIdx(0);
     setLevel(0);
     setDrafts([]);
@@ -456,28 +454,26 @@ export function EntryMethods({ header }: { header: ReactNode }) {
       return;
     }
 
-    // Bulk opens a dialog over the app, so the demo does too: the box appears
+    // Bulk opens a dialog over the app, so the demo does too: the box arrives
     // first and everything after it happens inside.
+    //
+    // Nothing types here. A paste lands as a block — that's the whole point of
+    // the method — so the grid fills a row at a time and the reader watches
+    // what a paste *produces* rather than someone typing one out.
     setStage("bulk-open");
-    const rowCharMs = CHAR_MS * 0.45;
-    let elapsed = DIALOG_MS;
-    bulkRows.forEach((row, index) => {
-      for (let i = 1; i <= row.length; i++) {
-        at(elapsed + i * rowCharMs, () => {
-          setStage("bulk-typing");
-          setBulkText([...bulkRows.slice(0, index), row.slice(0, i)].join("\n"));
-        });
-      }
-      elapsed += row.length * rowCharMs + 200;
+    const bulkDrafts = bulkDraftsFromText(bulkRows.join("\n"));
+    at(DIALOG_MS, () => {
+      setVisibleDrafts(0);
+      setStage("bulk-preview");
     });
-    // No separate "now parse" beat: the rows appear as they're typed, because
-    // that's what the app does and what the copy beside this claims.
-    at(elapsed, () => setStage("bulk-preview"));
-    const importAt = elapsed + 1100;
+    bulkDrafts.forEach((_, i) =>
+      at(DIALOG_MS + 120 + i * ROW_STAGGER_MS, () => setVisibleDrafts(i + 1)),
+    );
+    const importAt = DIALOG_MS + 120 + bulkDrafts.length * ROW_STAGGER_MS + 1100;
     at(importAt, () => setStage("bulk-importing"));
     at(importAt + 280, () => {
-      commit(bulkDraftsFromText(bulkRows.join("\n")));
-      setBulkText("");
+      commit(bulkDrafts);
+      setVisibleDrafts(0);
       // "saved" closes the dialog, which is the point of the beat: the rows are
       // in the feed behind it.
       setStage("saved");
@@ -650,7 +646,6 @@ export function EntryMethods({ header }: { header: ReactNode }) {
   const manualPane = active === "chat" || active === "bulk";
   const bulkOpen =
     stage === "bulk-open" ||
-    stage === "bulk-typing" ||
     stage === "bulk-preview" ||
     stage === "bulk-importing";
   const showingDrafts = stage === "ai-review" || stage === "voice-review";
@@ -661,9 +656,21 @@ export function EntryMethods({ header }: { header: ReactNode }) {
         ? "transcribing"
         : "idle";
 
-  const bulkParsed = useMemo(
-    () => parseBulk(bulkText, BULK_TODAY, money.locale),
-    [bulkText, money.locale],
+  /**
+   * The rows the dialog shows, as the app's own dialog would fill them:
+   * `parseBulk` reads the pasted block and `formatAmountInput` writes each
+   * amount the way the real amount cell does, so a comma-decimal visitor sees
+   * "12,5" here exactly as they would in the app.
+   */
+  const bulkDialogRows = useMemo(
+    () =>
+      bulkDraftsFromText(bulkRows.join("\n")).map((draft) => ({
+        type: draft.type,
+        amount: formatAmountInput(Number(draft.amount), money.locale),
+        title: draft.title,
+        categoryName: draft.categoryName || undefined,
+      })),
+    [bulkDraftsFromText, bulkRows, money.locale],
   );
 
   const cats = useMemo(
@@ -743,15 +750,8 @@ export function EntryMethods({ header }: { header: ReactNode }) {
               overlay={
                 <DemoBulkDialog
                   open={bulkOpen}
-                  text={stage === "bulk-typing" ? `${bulkText}${CARET}` : bulkText}
-                  drafts={bulkParsed.drafts.map((draft) => ({
-                    type: draft.type,
-                    // The app's dialog fills its amount cells with exactly
-                    // this, so a comma-decimal visitor sees "12,5" here too.
-                    amount: formatAmountInput(draft.amount, money.locale),
-                    title: draft.title || draft.note || "Transaction",
-                    categoryName: draft.categoryName ?? undefined,
-                  }))}
+                  drafts={bulkDialogRows}
+                  visible={visibleDrafts}
                   money={money}
                   pressed={stage === "bulk-importing"}
                 />
@@ -794,15 +794,6 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                           : method.caption}
                       </p>
                     )}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      onClick={start}
-                      className="ml-auto h-8 shrink-0 gap-1.5 text-xs text-muted-foreground"
-                    >
-                      Replay
-                    </Button>
                   </div>
 
                   {manualPane && (
@@ -926,6 +917,7 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                 </div>
               </div>
             </DemoFrame>
+            <DemoReplay onClick={start} />
           </div>
         </div>
       </div>

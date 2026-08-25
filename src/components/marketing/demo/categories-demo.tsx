@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Plus, RotateCcw, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { CategoryRow } from "@/components/app/category-row";
 import { DemoFrame } from "./demo-frame";
+import { DemoReplay } from "./demo-replay";
 import { DemoControlGroup, DemoDateChip, DemoTypeToggle } from "./demo-controls";
 import { demoCategories, type DemoTxnType } from "./demo-data";
 import { cn } from "@/lib/utils";
@@ -128,6 +129,7 @@ export function CategoriesDemo() {
   }
 
   return (
+    <>
     <DemoFrame
       label="Interactive categories demo"
       active="/app/settings"
@@ -146,17 +148,6 @@ export function CategoriesDemo() {
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
             <DemoTypeToggle dense type={kind} onChange={switchKind} />
-            {dirty && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={reset}
-                className="h-8 gap-1.5 text-xs text-muted-foreground"
-              >
-                <RotateCcw className="size-3.5" /> Reset
-              </Button>
-            )}
           </div>
         </div>
       }
@@ -251,6 +242,10 @@ export function CategoriesDemo() {
         </p>
       </div>
     </DemoFrame>
+    {/* "Reset", not "Replay": this demo has no script to replay — it puts back
+        the categories you edited. */}
+    {dirty && <DemoReplay onClick={reset} label="Reset" />}
+    </>
   );
 }
 
