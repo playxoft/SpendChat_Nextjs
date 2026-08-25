@@ -57,6 +57,7 @@ import {
   type DemoMoneyFormat,
 } from "@/hooks/use-demo-currency";
 import { bulkDelimiter, parseBulk } from "@/lib/bulk-parser";
+import { formatAmountInput } from "@/lib/parse-amount";
 import { featureLink, featurePath, getFeature } from "@/lib/features";
 import { toMinorUnits } from "@/lib/money";
 import { comboFor } from "@/lib/shortcuts";
@@ -286,6 +287,17 @@ export function EntryMethods({ header }: { header: ReactNode }) {
    * clear what's overhead.
    */
   const [pinnedHeight, setPinnedHeight] = useState<number | null>(null);
+  /**
+   * Where the last method's block parks so its copy sits on the reading line.
+   *
+   * It's the only one that sticks. The other three have somewhere to go — the
+   * next method — so they scroll off the way any block does. The fourth has
+   * nothing after it, and letting it climb away left the widget demonstrating a
+   * paste with nothing beside it saying what the paste was. So it holds where
+   * it was read, and the page keeps scrolling underneath until the section is
+   * done with and the whole thing leaves together.
+   */
+  const [lastTop, setLastTop] = useState<number | null>(null);
 
   const chatAmount = demoAmountInput(CHAT_AMOUNT_MINOR, money);
   const aiNote = aiNoteFor(money);
@@ -584,6 +596,18 @@ export function EntryMethods({ header }: { header: ReactNode }) {
         if (el.style.opacity !== next) el.style.opacity = next;
       });
 
+      // Where the sticky last block has to sit for its copy to land on the
+      // line. Taken from the *pinned* geometry rather than the live boxes: on
+      // the way in, before the heading has reached its offset, the live figure
+      // is still travelling, and a sticky top that moves while you scroll makes
+      // the block crawl.
+      const lastEl = blocks[blocks.length - 1];
+      if (lastEl && pinTop !== null && pinnedHeight !== null) {
+        const settled = beside ? pinTop : NAV_CLEARANCE_PX + pinnedHeight;
+        const next = Math.round((settled + vh) / 2 - lastEl.offsetHeight / 2);
+        setLastTop((current) => (current === next ? current : next));
+      }
+
       const id = METHODS[nearest].id;
       // The first pass also starts the show. Without it the section's opening
       // method would sit there idle — the reader arrives already on it, so
@@ -609,7 +633,7 @@ export function EntryMethods({ header }: { header: ReactNode }) {
       window.removeEventListener("resize", schedule);
       if (frame !== 0) window.cancelAnimationFrame(frame);
     };
-  }, [clearTimers, reduced, run]);
+  }, [clearTimers, pinTop, pinnedHeight, reduced, run]);
 
   // Keep the newest bubble in view, inside the widget's own scroller.
   useEffect(() => {
@@ -722,7 +746,9 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                   text={stage === "bulk-typing" ? `${bulkText}${CARET}` : bulkText}
                   drafts={bulkParsed.drafts.map((draft) => ({
                     type: draft.type,
-                    amount: String(draft.amount),
+                    // The app's dialog fills its amount cells with exactly
+                    // this, so a comma-decimal visitor sees "12,5" here too.
+                    amount: formatAmountInput(draft.amount, money.locale),
                     title: draft.title || draft.note || "Transaction",
                     categoryName: draft.categoryName ?? undefined,
                   }))}
@@ -927,6 +953,7 @@ export function EntryMethods({ header }: { header: ReactNode }) {
       >
           {METHODS.map((m, i) => {
             const target = getFeature(m.slug);
+            const isLast = i === METHODS.length - 1;
             return (
               <div
                 key={m.id}
@@ -934,7 +961,15 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                 ref={(el) => {
                   stepRefs.current[i] = el;
                 }}
-                className="flex min-h-[62vh] flex-col justify-center lg:min-h-[70vh]"
+                // The last one parks on the reading line instead of climbing
+                // past it — see `lastTop`. Sticky within the copy column, so it
+                // holds for the length of the tail below it and then leaves
+                // with everything else.
+                style={isLast && lastTop !== null ? { top: lastTop } : undefined}
+                className={cn(
+                  "flex min-h-[62vh] flex-col justify-center lg:min-h-[70vh]",
+                  isLast && lastTop !== null && "sticky",
+                )}
               >
                 <span className="inline-flex w-fit items-center gap-1.5 rounded-full border border-foreground bg-foreground px-3 py-1 text-xs text-background">
                   <m.icon className="size-3.5" />
@@ -968,7 +1003,7 @@ export function EntryMethods({ header }: { header: ReactNode }) {
             purpose: long enough to watch the import land, not so long that the
             section overstays after there's nothing left to read.
           */}
-          <div aria-hidden className="h-[25vh]" />
+          <div aria-hidden className="h-[35vh]" />
       </div>
     </div>
   );

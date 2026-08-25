@@ -1,9 +1,9 @@
 "use client";
 
-import { ArrowUp, Minus, Plus } from "lucide-react";
+import { ChevronDown, Minus, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { formatMoney, signedMinor, toMinorUnits } from "@/lib/money";
 import type { DemoMoneyFormat } from "@/hooks/use-demo-currency";
 import { cn } from "@/lib/utils";
 
@@ -11,19 +11,24 @@ import { cn } from "@/lib/utils";
  * The app's bulk-add dialog, as a still.
  *
  * Bulk import is the one entry method that doesn't happen in the composer: in
- * the app it opens a dialog over the tracker, you paste a block of rows into
- * it, and it fills a grid you can correct before anything is saved. Showing it
- * as another box in the composer footer told the wrong story about where the
- * feature lives, which is what this replaces — the demo now opens over the
- * widget the way the real thing opens over the app.
+ * the app it opens a dialog over the tracker, and what that dialog *is* is an
+ * editable grid — a row per transaction, every cell a field you can fix before
+ * anything is saved. The paste box is a way of filling that grid, not the point
+ * of it, which is why it sits underneath rather than on top.
  *
- * Trimmed rather than reproduced: the real grid has six editable columns and a
- * date picker per row, none of which fits a demo frame half a viewport wide.
- * What's kept is what carries the claim — the paste box, and every pasted line
- * turned into a row you can read before you commit it.
+ * So this is the grid, with the shapes the real one uses: the pill type toggle,
+ * `h-8` inputs, the currency prefix inside the amount, a select for the
+ * category, a row-delete on the end. Two columns don't survive the trip —
+ * Description and Date — because a demo frame is a third the width of the real
+ * dialog, and those are the two a reader can most afford to imagine. Category
+ * goes too below `sm`.
  *
- * Presentational and inert. The parent owns the script and passes the state in,
- * so the typing here stays in step with the feed underneath.
+ * Everything is `readOnly` and inert. This is a film of the dialog, not a fork
+ * of it, and a cell you can type into that does nothing is worse than one that
+ * plainly isn't yours.
+ *
+ * Presentational: the parent owns the script and passes the state in, so the
+ * typing here stays in step with the feed underneath.
  */
 export function DemoBulkDialog({
   text,
@@ -36,10 +41,15 @@ export function DemoBulkDialog({
   text: string;
   /**
    * Rows the real parser made of `text` — re-parsed on every keystroke, which
-   * is the claim the copy beside this makes, so there's no separate "now
-   * parse" beat to stagger.
+   * is the claim the copy beside this makes, so the grid fills as the paste is
+   * typed rather than after a separate "now parse" beat.
    */
-  drafts: { type: "income" | "expense"; amount: string; title: string; categoryName?: string }[];
+  drafts: {
+    type: "income" | "expense";
+    amount: string;
+    title: string;
+    categoryName?: string;
+  }[];
   money: DemoMoneyFormat;
   /** The import button mid-press. */
   pressed?: boolean;
@@ -66,83 +76,170 @@ export function DemoBulkDialog({
       >
         <div className="flex shrink-0 flex-col gap-0.5 border-b px-4 py-3">
           <p className="text-sm font-semibold">Bulk add transactions</p>
-          {/* The format line is the first thing to go on a phone: the frame is
-              a third the height there, and a two-line subtitle costs a row of
-              the preview — which is the part worth seeing. */}
+          {/* The subtitle is the first thing to go on a phone: the frame is a
+              third the height there, and a second line costs a row of the grid
+              — which is the part worth seeing. */}
           <p className="hidden text-xs text-muted-foreground sm:block">
-            One transaction per line — amount, note, category, type, date.
+            A row per transaction. Fix anything before it saves.
           </p>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3">
-          {/* Two lines on a phone, three from `sm`. `rows` can't be
-              responsive, so the height comes from the class instead. */}
+          {/* `shrink-0`, or the grid gives up height to the paste box below it
+              and clips a row in half — the panel scrolls instead. */}
+          <div className="shrink-0 overflow-hidden rounded-lg border">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/70">
+                <tr className="[&>th]:px-2 [&>th]:py-1 [&>th]:text-left [&>th]:font-medium sm:[&>th]:py-1.5">
+                  <th className="w-16">Type</th>
+                  <th className="w-24">Amount</th>
+                  <th className="min-w-28">Title</th>
+                  <th className="hidden w-28 sm:table-cell">Category</th>
+                  <th className="w-8" />
+                </tr>
+              </thead>
+              {/* Tighter rows on a phone: the frame is a third the height, and
+                  the four rows below have to leave the paste box visible. */}
+              <tbody className="[&>tr>td]:px-2 [&>tr>td]:py-1 [&>tr]:border-t sm:[&>tr>td]:py-1.5">
+                {drafts.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="text-muted-foreground">
+                      Nothing yet — paste below.
+                    </td>
+                  </tr>
+                ) : (
+                  drafts.map((row, i) => (
+                    <tr key={i}>
+                      <td>
+                        <TypeToggle type={row.type} />
+                      </td>
+                      <td>
+                        <div className="relative">
+                          <span className="pointer-events-none absolute top-1/2 left-2 -translate-y-1/2 text-xs text-muted-foreground">
+                            {money.currency.symbol}
+                          </span>
+                          <Input
+                            readOnly
+                            value={row.amount}
+                            aria-label="Amount"
+                            className="h-7 pl-6 tabular-nums sm:h-8"
+                          />
+                        </div>
+                      </td>
+                      <td>
+                        <Input
+                          readOnly
+                          value={row.title}
+                          aria-label="Title"
+                          className="h-7 sm:h-8"
+                        />
+                      </td>
+                      <td className="hidden sm:table-cell">
+                        {/* Shaped like the real row's category select. Inert: a
+                            live one would need the workspace's categories. */}
+                        <span className="flex h-7 w-full items-center justify-between gap-1 rounded-md border px-2 text-sm sm:h-8">
+                          <span className="min-w-0 truncate">
+                            {row.categoryName || (
+                              <span className="text-muted-foreground">None</span>
+                            )}
+                          </span>
+                          <ChevronDown className="size-3.5 shrink-0 opacity-50" />
+                        </span>
+                      </td>
+                      <td>
+                        <span className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground sm:size-8">
+                          <Trash2 className="size-3.5" />
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {/* The row of actions under the grid in the real dialog, and the
+              first thing to go when there's no room: on a phone the grid and
+              the paste box carry the story on their own. */}
+          <div className="hidden flex-wrap items-center gap-2 sm:flex">
+            <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5">
+              <Plus className="size-3.5" /> Add row
+            </Button>
+            <Button type="button" variant="outline" size="sm" className="h-8 gap-1.5">
+              <ChevronDown className="size-3.5 rotate-180" /> Paste from spreadsheet
+            </Button>
+            <span className="ml-auto text-xs text-muted-foreground">
+              {drafts.length} ready
+            </span>
+          </div>
+
+          {/* Open, because pasting is what this section is about. In the app
+              it's folded away behind the button above until you ask for it.
+
+              Capped on a phone: `Textarea` is `field-sizing-content`, so it
+              grows with what's in it, and three rows that wrap to six lines
+              would take the panel and leave the grid clipped. */}
           <Textarea
             readOnly
             rows={2}
             value={text}
-            placeholder="Paste rows here"
+            placeholder="Paste rows here — one transaction per line"
             aria-label="Paste rows"
             spellCheck={false}
-            className="min-h-0 resize-none font-mono text-xs sm:min-h-[5.25rem]"
+            className="max-h-11 min-h-0 shrink-0 resize-none font-mono text-xs sm:max-h-none sm:min-h-[4rem]"
           />
-
-          {drafts.length > 0 && (
-            // The grid the paste becomes. Same reading order as the app's:
-            // what kind, how much, what for, filed where.
-            <div className="overflow-hidden rounded-lg border">
-              <table className="w-full text-sm">
-                <tbody className="[&>tr]:border-t [&>tr:first-child]:border-t-0 [&>tr>td]:px-2 [&>tr>td]:py-1.5">
-                  {drafts.map((row, i) => {
-                    const Icon = row.type === "income" ? Plus : Minus;
-                    return (
-                      <tr key={i}>
-                        <td className="w-6">
-                          <Icon
-                            className={cn(
-                              "size-3.5",
-                              row.type === "income"
-                                ? "text-emerald-600 dark:text-emerald-400"
-                                : "text-rose-600 dark:text-rose-400",
-                            )}
-                          />
-                        </td>
-                        <td className="w-24 text-right tabular-nums">
-                          {formatMoney(
-                            signedMinor(
-                              row.type,
-                              toMinorUnits(row.amount, money.code, money.locale),
-                            ),
-                            money.code,
-                            money.locale,
-                            { signed: true },
-                          )}
-                        </td>
-                        <td className="min-w-0">
-                          <span className="block truncate">{row.title}</span>
-                        </td>
-                        <td className="hidden w-28 truncate text-muted-foreground sm:table-cell">
-                          {row.categoryName}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
         </div>
 
         <div className="flex shrink-0 items-center justify-between gap-2 border-t bg-muted/20 px-4 py-3">
-          <p className="text-xs text-muted-foreground">{drafts.length} ready</p>
+          <p className="text-xs text-muted-foreground sm:hidden">{drafts.length} ready</p>
           <Button
             type="button"
-            className={cn("h-9 shrink-0 gap-1.5 transition-transform", pressed && "scale-90")}
+            className={cn(
+              "ml-auto h-9 shrink-0 gap-1.5 transition-transform",
+              pressed && "scale-90",
+            )}
           >
-            <ArrowUp className="size-4" /> Import {drafts.length}
+            Import {drafts.length}
           </Button>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * The dialog's per-row expense/income switch — the composer's pill toggle
+ * shrunk to two icons, tinted the way the real one tints the active side.
+ */
+function TypeToggle({ type }: { type: "income" | "expense" }) {
+  return (
+    <span className="inline-flex items-center rounded-full border bg-muted/60 p-0.5">
+      {(["expense", "income"] as const).map((t) => {
+        const active = type === t;
+        const Icon = t === "income" ? Plus : Minus;
+        return (
+          <span
+            key={t}
+            className={cn(
+              "inline-flex items-center justify-center rounded-full px-1.5 py-0.5",
+              active
+                ? t === "income"
+                  ? "bg-emerald-500/15 shadow-sm ring-1 ring-emerald-500/40 dark:bg-emerald-500/25"
+                  : "bg-rose-500/15 shadow-sm ring-1 ring-rose-500/40 dark:bg-rose-500/25"
+                : "opacity-45",
+            )}
+          >
+            <Icon
+              className={cn(
+                "size-3.5",
+                t === "income"
+                  ? "text-emerald-600 dark:text-emerald-400"
+                  : "text-rose-600 dark:text-rose-400",
+              )}
+            />
+          </span>
+        );
+      })}
+    </span>
   );
 }
