@@ -3,7 +3,7 @@
  *   "mod+e"        → Cmd on macOS, Ctrl elsewhere
  *   "shift+enter"  → Shift + Enter
  *   "/"            → a single key
- * `mod` renders as ⌘ on macOS and "Ctrl" on Windows/Linux.
+ * `mod` renders as ⌘ on macOS and ⌃ on Windows/Linux.
  */
 export type ShortcutDef = {
   id: string;
@@ -49,34 +49,89 @@ export function comboFor(id: string): string {
   return getShortcut(id)?.combo ?? "";
 }
 
-/** Split a combo into display tokens, localized for the platform. */
+/** The key as it's typed, for anything that isn't a named key. */
+function plainKey(part: string): string {
+  return part.length === 1
+    ? part.toUpperCase()
+    : part.charAt(0).toUpperCase() + part.slice(1);
+}
+
+/**
+ * Split a combo into **display** tokens — glyphs wherever a key has one, on
+ * every platform.
+ *
+ * Windows used to get the words: a `mod+enter` chip read "Ctrl" "Enter", two
+ * wide boxes where a Mac had two small ones, and in a compact control strip
+ * that's the difference between fitting and not. ⌃ and ↵ are the same symbols
+ * either way, so a hint stays the size of a hint.
+ *
+ * Alt keeps its name below: ⌥ means Option, and Windows has no glyph for Alt
+ * that anyone would recognise — an unreadable symbol is worse than a wide one.
+ *
+ * These are for the eye only. `Kbd` renders them `aria-hidden`, and anything
+ * spoken or written into prose wants `shortcutKeyNames` instead — a screen
+ * reader announcing "up arrowhead" helps nobody.
+ */
 export function formatShortcutKeys(combo: string, isMac: boolean): string[] {
   if (!combo) return [];
   return combo.split("+").map((part) => {
     switch (part) {
       case "mod":
-        return isMac ? "⌘" : "Ctrl";
+        return isMac ? "⌘" : "⌃";
       case "shift":
-        return isMac ? "⇧" : "Shift";
+        return "⇧";
       case "alt":
         return isMac ? "⌥" : "Alt";
       case "ctrl":
-        return isMac ? "⌃" : "Ctrl";
+        return "⌃";
       case "enter":
-        return isMac ? "↵" : "Enter";
+        return "↵";
       case "esc":
         return "Esc";
       case "space":
         return "Space";
       default:
-        return part.length === 1
-          ? part.toUpperCase()
-          : part.charAt(0).toUpperCase() + part.slice(1);
+        return plainKey(part);
     }
   });
 }
 
-/** A flat single-string rendering (e.g. for title attributes). */
+/**
+ * The same combo in **words**, for anywhere the symbols can't do the job:
+ * `aria-label`s, titles, and prose (including the FAQ copy that Google reads,
+ * where "Ctrl + Enter" is a phrase people search for and "⌃ + ↵" is not).
+ */
+export function shortcutKeyNames(combo: string, isMac: boolean): string[] {
+  if (!combo) return [];
+  return combo.split("+").map((part) => {
+    switch (part) {
+      case "mod":
+        return isMac ? "Cmd" : "Ctrl";
+      case "shift":
+        return "Shift";
+      case "alt":
+        return isMac ? "Option" : "Alt";
+      case "ctrl":
+        return isMac ? "Control" : "Ctrl";
+      case "enter":
+        return "Enter";
+      case "esc":
+        return "Esc";
+      case "space":
+        return "Space";
+      default:
+        return plainKey(part);
+    }
+  });
+}
+
+/** A flat single-string rendering for visible inline hints — all glyphs, so
+ * they run together the way ⌘↵ does rather than needing a separator. */
 export function formatShortcut(combo: string, isMac: boolean): string {
-  return formatShortcutKeys(combo, isMac).join(isMac ? "" : "+");
+  return formatShortcutKeys(combo, isMac).join("");
+}
+
+/** A flat single-string rendering for screen readers and titles. */
+export function describeShortcut(combo: string, isMac: boolean): string {
+  return shortcutKeyNames(combo, isMac).join("+");
 }

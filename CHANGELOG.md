@@ -49,6 +49,17 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ### Fixed
 
+- **The category strip no longer carries a scrollbar on Windows.** It had a
+  4px one, which macOS draws over the content only while you scroll and
+  Windows draws permanently, taking a slice out of a row that is only as tall
+  as its chips. There's no bar on it now, on any platform — you swipe or
+  shift-scroll the strip, and every category is also one tap away in the picker
+  beside it.
+- **Shortcut hints use symbols on Windows too.** `Ctrl` `Enter` was two wide
+  boxes where a Mac had two small ones, which is the difference between fitting
+  in a compact control strip and not; it now reads ⌃ ↵ everywhere. Screen
+  readers and the shortcuts page still get the words — "Ctrl+Enter" is what
+  gets announced and what people search for.
 - **The homepage no longer jumps a thousand pixels down the page on load.**
   Every demo composer carries the app's category strip, which centres the
   selected chip when it mounts — through `scrollIntoView`, which is free to

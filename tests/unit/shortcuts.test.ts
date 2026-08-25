@@ -5,6 +5,8 @@ import {
   comboFor,
   formatShortcutKeys,
   formatShortcut,
+  shortcutKeyNames,
+  describeShortcut,
 } from "@/lib/shortcuts";
 
 describe("registry", () => {
@@ -55,12 +57,14 @@ describe("formatShortcutKeys", () => {
     ]);
   });
 
-  it("localizes modifiers for Windows/Linux", () => {
+  it("uses the same glyphs on Windows/Linux, so a hint is the size of a hint", () => {
+    // Alt is the exception: ⌥ means Option, and Windows has no Alt glyph
+    // anyone would recognise.
     expect(formatShortcutKeys("mod+shift+alt+ctrl", false)).toEqual([
-      "Ctrl",
-      "Shift",
+      "⌃",
+      "⇧",
       "Alt",
-      "Ctrl",
+      "⌃",
     ]);
   });
 
@@ -73,7 +77,7 @@ describe("formatShortcutKeys", () => {
 
   it("renders named keys", () => {
     expect(formatShortcutKeys("enter", true)).toEqual(["↵"]);
-    expect(formatShortcutKeys("enter", false)).toEqual(["Enter"]);
+    expect(formatShortcutKeys("enter", false)).toEqual(["↵"]);
     expect(formatShortcutKeys("esc", false)).toEqual(["Esc"]);
     expect(formatShortcutKeys("space", false)).toEqual(["Space"]);
   });
@@ -90,8 +94,35 @@ describe("formatShortcutKeys", () => {
 });
 
 describe("formatShortcut", () => {
-  it("joins with no separator on mac and '+' elsewhere", () => {
+  it("runs the glyphs together on every platform", () => {
     expect(formatShortcut("mod+e", true)).toBe("⌘E");
-    expect(formatShortcut("mod+e", false)).toBe("Ctrl+E");
+    expect(formatShortcut("mod+e", false)).toBe("⌃E");
+    expect(formatShortcut("mod+enter", false)).toBe("⌃↵");
+  });
+});
+
+describe("shortcutKeyNames / describeShortcut", () => {
+  // What a screen reader announces and what the shortcuts page puts in its
+  // prose. The glyphs above are for the eye only — "up arrowhead, downwards
+  // arrow with corner leftwards" is not a keyboard shortcut.
+  it("spells the modifiers out", () => {
+    expect(shortcutKeyNames("mod+shift+alt+ctrl", true)).toEqual([
+      "Cmd",
+      "Shift",
+      "Option",
+      "Control",
+    ]);
+    expect(shortcutKeyNames("mod+shift+alt+ctrl", false)).toEqual([
+      "Ctrl",
+      "Shift",
+      "Alt",
+      "Ctrl",
+    ]);
+  });
+
+  it("names the keys the glyphs stand for", () => {
+    expect(describeShortcut("mod+enter", false)).toBe("Ctrl+Enter");
+    expect(describeShortcut("mod+enter", true)).toBe("Cmd+Enter");
+    expect(describeShortcut("", false)).toBe("");
   });
 });

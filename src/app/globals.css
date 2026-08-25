@@ -212,22 +212,22 @@
   animation: mt-stamp 0.55s cubic-bezier(0.2, 1.5, 0.45, 1) both;
 }
 
-/* A very thin, unobtrusive horizontal/vertical scrollbar (used by the
-   single-row category picker). */
-@utility scrollbar-thin {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklch, var(--foreground) 20%, transparent) transparent;
+/* No scrollbar at all on a strip that scrolls sideways — the single-row
+   category picker, and the tag strips in the marketing demos.
+
+   This used to be a 4px `scrollbar-thin`, which is what a Mac does with any
+   scrollbar anyway: draw it over the content, only while scrolling. Windows
+   and Linux draw a real one that takes up layout space, so the strip lost a
+   slice of its height to a permanent grey bar sitting under chips that are
+   already only as tall as the row allows. A row of chips isn't a document; you
+   swipe or shift-scroll it, and every category is also one tap away in the
+   picker beside it, so nothing here is reachable only by dragging a bar. */
+@utility no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge */
 
   &::-webkit-scrollbar {
-    height: 4px;
-    width: 4px;
-  }
-  &::-webkit-scrollbar-track {
-    background: transparent;
-  }
-  &::-webkit-scrollbar-thumb {
-    background: color-mix(in oklch, var(--foreground) 20%, transparent);
-    border-radius: 9999px;
+    display: none;
   }
 }
 

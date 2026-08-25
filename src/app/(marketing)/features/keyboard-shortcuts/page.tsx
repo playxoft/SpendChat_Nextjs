@@ -9,7 +9,7 @@ import {
 import { Kbd } from "@/components/ui/kbd";
 import { featureLink, getFeature } from "@/lib/features";
 import { createMetadata } from "@/lib/seo";
-import { comboFor, formatShortcutKeys } from "@/lib/shortcuts";
+import { comboFor, shortcutKeyNames } from "@/lib/shortcuts";
 
 const SLUG = "keyboard-shortcuts";
 const feature = getFeature(SLUG)!;
@@ -31,8 +31,10 @@ export const metadata = createMetadata({
  */
 function comboText(id: string): string {
   const combo = comboFor(id);
-  const mac = formatShortcutKeys(combo, true).join(" + ");
-  const pc = formatShortcutKeys(combo, false).join(" + ");
+  // Words, not glyphs: this is prose and JSON-LD, and "Ctrl + Enter" is what
+  // someone types into Google. `Kbd` is where the symbols belong.
+  const mac = shortcutKeyNames(combo, true).join(" + ");
+  const pc = shortcutKeyNames(combo, false).join(" + ");
   return mac === pc ? mac : `${mac} on a Mac, ${pc} on Windows and Linux`;
 }
 

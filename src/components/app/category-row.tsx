@@ -167,7 +167,7 @@ export function CategoryRow({
     <div className="flex items-center gap-1.5">
       <div
         ref={scrollRef}
-        className="scrollbar-thin flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-1"
+        className="no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
       >
         {categories.length === 0 ? (
           <span className="text-xs text-muted-foreground">No categories yet.</span>

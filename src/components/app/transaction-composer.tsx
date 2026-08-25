@@ -37,7 +37,7 @@ import {
 import { splitChipPaste } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { comboFor, formatShortcut } from "@/lib/shortcuts";
+import { comboFor, describeShortcut, formatShortcut } from "@/lib/shortcuts";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
   ATTACHMENT_MAX_PER_TRANSACTION,
@@ -164,7 +164,10 @@ export function TransactionComposer({
 
   const toggleCombo = comboFor("tracker.toggle-type");
   const submitCombo = comboFor("tracker.submit");
+  // Glyphs on the button, words in the label: "⌃↵" keeps the button the size
+  // of a button on Windows, and a screen reader still hears "Ctrl+Enter".
   const submitLabel = formatShortcut(submitCombo, isMac);
+  const submitSpoken = describeShortcut(submitCombo, isMac);
 
   // When a specific profile is active it's locked in; only "All profiles" lets
   // the user choose where a new transaction lands.
@@ -473,7 +476,7 @@ export function TransactionComposer({
   const sendButton = (
     <Button
       type="submit"
-      aria-label={`Send transaction (${submitLabel})`}
+      aria-label={`Send transaction (${submitSpoken})`}
       className="h-9 gap-1.5 px-3"
     >
       <ArrowUp className="size-4" />
@@ -1075,7 +1078,7 @@ export function TransactionComposer({
                   {/* Full-width send on mobile — easy thumb reach at the bottom. */}
                   <Button
                     type="submit"
-                    aria-label={`Send transaction (${submitLabel})`}
+                    aria-label={`Send transaction (${submitSpoken})`}
                     className="h-9 w-full gap-1.5 text-sm md:hidden"
                   >
                     <ArrowUp className="size-4" /> Send

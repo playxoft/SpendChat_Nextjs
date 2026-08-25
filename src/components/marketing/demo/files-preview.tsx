@@ -76,7 +76,7 @@ export function FilesPreview() {
   return (
     <div className="flex h-[24rem] min-w-0 flex-col overflow-hidden rounded-2xl border bg-card shadow-sm">
       <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
-        <div className="-mx-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-1">
+        <div className="no-scrollbar -mx-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-1">
           {TAGS.map((tag) => {
             const active = activeTag === tag.name;
             return (

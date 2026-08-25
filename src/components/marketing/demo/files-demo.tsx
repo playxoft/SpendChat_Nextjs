@@ -126,7 +126,7 @@ export function FilesDemo() {
             <StorageRing usedBytes={USED_BYTES} limitBytes={LIMIT_BYTES} />
           </div>
 
-          <div className="-mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
+          <div className="no-scrollbar -mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
             {TAGS.map((tag) => {
               const active = activeTag === tag.name;
               return (
