@@ -32,6 +32,7 @@ import {
 import { VoiceListeningStrip, VoiceMicButton } from "@/components/app/voice-mic";
 import { DemoFrame } from "@/components/marketing/demo/demo-frame";
 import { DemoFeed } from "@/components/marketing/demo/demo-feed";
+import { DemoBulkDialog } from "@/components/marketing/demo/bulk-dialog";
 import { DemoSummaryBar } from "@/components/marketing/demo/demo-summary-bar";
 import {
   DemoControlGroup,
@@ -57,7 +58,7 @@ import {
 } from "@/hooks/use-demo-currency";
 import { bulkDelimiter, parseBulk } from "@/lib/bulk-parser";
 import { featureLink, featurePath, getFeature } from "@/lib/features";
-import { formatMoney, signedMinor, toMinorUnits } from "@/lib/money";
+import { toMinorUnits } from "@/lib/money";
 import { comboFor } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
@@ -167,8 +168,10 @@ type Stage =
   | "voice-transcribing"
   | "voice-parsing"
   | "voice-review"
+  | "bulk-open"
   | "bulk-typing"
   | "bulk-preview"
+  | "bulk-importing"
   | "saved";
 
 /** A block caret, appended to the value being typed rather than overlaid — an
@@ -189,6 +192,9 @@ const NAV_CLEARANCE_PX = 80;
  */
 const FADE_FULL = 0.12;
 const FADE_GONE = 0.38;
+
+/** How long the bulk dialog takes to arrive before anything is typed into it. */
+const DIALOG_MS = 420;
 
 const CHAR_MS = 42;
 const HOLD_MS = 420;
@@ -438,21 +444,30 @@ export function EntryMethods({ header }: { header: ReactNode }) {
       return;
     }
 
-    setStage("bulk-typing");
+    // Bulk opens a dialog over the app, so the demo does too: the box appears
+    // first and everything after it happens inside.
+    setStage("bulk-open");
     const rowCharMs = CHAR_MS * 0.45;
-    let elapsed = 0;
+    let elapsed = DIALOG_MS;
     bulkRows.forEach((row, index) => {
       for (let i = 1; i <= row.length; i++) {
-        at(elapsed + i * rowCharMs, () =>
-          setBulkText([...bulkRows.slice(0, index), row.slice(0, i)].join("\n")),
-        );
+        at(elapsed + i * rowCharMs, () => {
+          setStage("bulk-typing");
+          setBulkText([...bulkRows.slice(0, index), row.slice(0, i)].join("\n"));
+        });
       }
       elapsed += row.length * rowCharMs + 200;
     });
+    // No separate "now parse" beat: the rows appear as they're typed, because
+    // that's what the app does and what the copy beside this claims.
     at(elapsed, () => setStage("bulk-preview"));
-    at(elapsed + 1500, () => {
+    const importAt = elapsed + 1100;
+    at(importAt, () => setStage("bulk-importing"));
+    at(importAt + 280, () => {
       commit(bulkDraftsFromText(bulkRows.join("\n")));
       setBulkText("");
+      // "saved" closes the dialog, which is the point of the beat: the rows are
+      // in the feed behind it.
       setStage("saved");
     });
   }, [
@@ -603,7 +618,17 @@ export function EntryMethods({ header }: { header: ReactNode }) {
   }, [feed.txns, stage]);
 
   const method = METHODS.find((m) => m.id === active) ?? METHODS[0];
-  const mode: EntryMode = active === "chat" ? "manual" : "ai";
+  // What the composer *behind* the dialog shows. Bulk is manual entry with a
+  // dialog over it, not an AI pane.
+  const mode: EntryMode = active === "ai" || active === "voice" ? "ai" : "manual";
+  // Bulk runs over the manual composer rather than replacing it — the dialog
+  // covers the app, it doesn't become the app.
+  const manualPane = active === "chat" || active === "bulk";
+  const bulkOpen =
+    stage === "bulk-open" ||
+    stage === "bulk-typing" ||
+    stage === "bulk-preview" ||
+    stage === "bulk-importing";
   const showingDrafts = stage === "ai-review" || stage === "voice-review";
   const voiceState =
     stage === "voice-recording"
@@ -691,6 +716,20 @@ export function EntryMethods({ header }: { header: ReactNode }) {
             <DemoFrame
               label="Interactive entry demo"
               sidebar={false}
+              overlay={
+                <DemoBulkDialog
+                  open={bulkOpen}
+                  text={stage === "bulk-typing" ? `${bulkText}${CARET}` : bulkText}
+                  drafts={bulkParsed.drafts.map((draft) => ({
+                    type: draft.type,
+                    amount: String(draft.amount),
+                    title: draft.title || draft.note || "Transaction",
+                    categoryName: draft.categoryName ?? undefined,
+                  }))}
+                  money={money}
+                  pressed={stage === "bulk-importing"}
+                />
+              }
               className="h-[min(20rem,calc(100svh_-_var(--pin-top,9rem)_-_15rem))] lg:h-[min(38rem,calc(100svh_-_var(--pin-top,15rem)_-_4rem))]"
               header={
                 <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
@@ -709,7 +748,7 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                 <div className="flex shrink-0 flex-col gap-2 border-t bg-muted/20 px-4 py-3">
                   <div className={MODE_ROW_DENSE}>
                     <EntryModeToggle mode={mode} onChange={() => {}} dense pane={mode} />
-                    {active === "chat" ? (
+                    {manualPane ? (
                       <DemoControlGroup>
                         <DemoTypeToggle dense type="expense" onChange={() => {}} />
                         <DemoDateChip />
@@ -740,7 +779,7 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                     </Button>
                   </div>
 
-                  {active === "chat" && (
+                  {manualPane && (
                     <div className="flex items-end gap-2">
                       <div className="relative shrink-0">
                         <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-muted-foreground">
@@ -850,65 +889,6 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                       </div>
                     ))}
 
-                  {active === "bulk" && (
-                    <div className="flex flex-col gap-2">
-                      <Textarea
-                        readOnly
-                        rows={3}
-                        value={stage === "bulk-typing" ? `${bulkText}${CARET}` : bulkText}
-                        placeholder="Paste rows here — one transaction per line"
-                        aria-label="Paste transactions"
-                        spellCheck={false}
-                        className="resize-none font-mono text-xs"
-                      />
-                      {bulkParsed.drafts.length > 0 && (
-                        <div className="max-h-24 overflow-y-auto rounded-lg border">
-                          <ul className="divide-y text-sm">
-                            {bulkParsed.drafts.map((draft, i) => (
-                              <li
-                                key={i}
-                                className="flex items-center justify-between gap-3 px-3 py-1.5"
-                              >
-                                <span className="min-w-0 truncate">
-                                  {draft.title || draft.note}
-                                </span>
-                                <span
-                                  className={cn(
-                                    "shrink-0 tabular-nums",
-                                    draft.type === "income" &&
-                                      "text-emerald-600 dark:text-emerald-400",
-                                  )}
-                                >
-                                  {/* The app's own formatter, so the preview groups
-                                      thousands and places the sign exactly as the
-                                      feed above it will. The parser hands back
-                                      major units; `toMinorUnits` is the only
-                                      sanctioned way across that boundary. */}
-                                  {formatMoney(
-                                    signedMinor(
-                                      draft.type,
-                                      toMinorUnits(draft.amount, money.code, money.locale),
-                                    ),
-                                    money.code,
-                                    money.locale,
-                                    { signed: true },
-                                  )}
-                                </span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-xs text-muted-foreground">
-                          {bulkParsed.drafts.length} ready
-                        </p>
-                        <Button type="button" className="h-9 gap-1.5">
-                          <ArrowUp className="size-4" /> Import {bulkParsed.drafts.length}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
                 </div>
               }
             >

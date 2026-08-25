@@ -32,6 +32,7 @@ export function DemoFrame({
   sidebarBottom,
   header,
   footer,
+  overlay,
   children,
   className,
   bodyClassName,
@@ -50,6 +51,12 @@ export function DemoFrame({
   header?: ReactNode;
   /** Pinned to the bottom of the content pane — usually the composer. */
   footer?: ReactNode;
+  /**
+   * Covers the whole frame, sidebar included — for a demo whose story is a
+   * dialog. The app's dialogs cover the app, so one drawn inside the content
+   * pane would be a smaller claim than the real thing makes.
+   */
+  overlay?: ReactNode;
   children: ReactNode;
   className?: string;
   /** Applied to the scrolling body between `header` and `footer`. */
@@ -59,7 +66,7 @@ export function DemoFrame({
     <section
       aria-label={label}
       className={cn(
-        "flex w-full overflow-hidden rounded-2xl border bg-background shadow-xl",
+        "relative flex w-full overflow-hidden rounded-2xl border bg-background shadow-xl",
         className,
       )}
     >
@@ -117,6 +124,8 @@ export function DemoFrame({
         <div className={cn("min-h-0 min-w-0 flex-1", bodyClassName)}>{children}</div>
         {footer}
       </div>
+
+      {overlay}
     </section>
   );
 }

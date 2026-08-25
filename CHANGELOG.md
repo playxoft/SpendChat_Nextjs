@@ -37,6 +37,12 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - The hero's tracker is taller, and sized against the viewport rather than
   fixed, so it fills a desktop screen without pushing its own buttons below the
   fold on a laptop.
+- **Bulk paste opens the bulk-add dialog**, the way it does in the app,
+  instead of being a third box in the composer. It's the one entry method that
+  isn't the composer — showing it there said the wrong thing about where the
+  feature lives. The dialog opens over the widget, the rows are typed into it
+  and parsed as they land, and importing closes it with the transactions in the
+  feed behind.
 - The last of the four entry methods no longer fades out. A method fades to
   make room for the next one and there isn't one, so it now stays readable
   until it leaves with everything else.
