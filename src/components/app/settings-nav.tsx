@@ -35,7 +35,7 @@ export function SettingsNav() {
   return (
     <nav
       aria-label="Settings sections"
-      className="flex gap-1 overflow-x-auto pb-2 lg:w-44 lg:shrink-0 lg:flex-col lg:overflow-visible lg:pb-0"
+      className="no-scrollbar flex gap-1 overflow-x-auto pb-2 lg:w-44 lg:shrink-0 lg:flex-col lg:overflow-visible lg:pb-0"
     >
       {SETTINGS_SECTIONS.map((s) => {
         const active = pathname === s.href || pathname.startsWith(`${s.href}/`);

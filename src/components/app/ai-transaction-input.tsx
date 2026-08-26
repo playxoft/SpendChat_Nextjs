@@ -801,7 +801,7 @@ export function AiTransactionInput({
           viewport is narrower than the row, the whole list scrolls sideways as
           one — columns never shift row-to-row, and nothing wraps to a 2nd line
           except the optional description. */}
-      <div className="max-h-72 overflow-auto">
+      <div className="scrollbar-slim max-h-72 overflow-auto">
         <div className="min-w-[38rem] space-y-2 pr-1">
           {rows.map((r) => {
             const cats = categories.filter((c) => c.kind === r.type);

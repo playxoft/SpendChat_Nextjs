@@ -66,6 +66,15 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ### Fixed
 
+- **No horizontal scrollbar in the interface shoves content around on Windows
+  any more.** A Mac draws scrollbars over the content and only while you
+  scroll; Windows and Linux draw a real one that takes layout space out of the
+  box it belongs to, so a bar appearing under a row of chips or a table moved
+  everything above it. Every sideways scroller in the app and on the site now
+  either has no bar (rows of chips and tabs, where 6px is a sixth of the row
+  and nothing is reachable only by dragging) or a 6px one instead of the
+  platform's 17 (tables and grids, where the bar is the only thing saying
+  there's more to the right). The page's own scrollbar is untouched.
 - **The category strip no longer carries a scrollbar on Windows.** It had a
   4px one, which macOS draws over the content only while you scroll and
   Windows draws permanently, taking a slice out of a row that is only as tall

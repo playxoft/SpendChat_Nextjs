@@ -405,7 +405,7 @@ export function BulkAddDialog({
           ref={scrollRef}
           onKeyDownCapture={onGridKeyDown}
           onFocusCapture={onGridFocus}
-          className="max-h-[55vh] overflow-auto rounded-lg border"
+          className="scrollbar-slim max-h-[55vh] overflow-auto rounded-lg border"
         >
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-muted/70 backdrop-blur-sm">

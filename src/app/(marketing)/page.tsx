@@ -538,7 +538,7 @@ export default function LandingPage() {
             picks up horizontal scroll on a 393px phone. Everything else looked
             right; the give-away was `documentElement.scrollWidth` exceeding
             `body.scrollWidth`, since the escapees are laid out above body. */}
-        <div className="relative mt-10 overflow-x-auto">
+        <div className="scrollbar-slim relative mt-10 overflow-x-auto">
           <table className="w-full min-w-[36rem] border-collapse text-sm">
             <thead>
               <tr className="border-b">

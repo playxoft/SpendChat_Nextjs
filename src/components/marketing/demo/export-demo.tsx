@@ -240,7 +240,7 @@ export function ExportDemo() {
         {/* The view. `min-w-0` on both panes matters: a grid item defaults to
             `min-width: auto`, so one long CSV line would stretch its column and
             squeeze the table instead of scrolling inside its own box. */}
-        <div className="min-h-0 min-w-0 overflow-auto">
+        <div className="scrollbar-slim min-h-0 min-w-0 overflow-auto">
           <Table className="w-full">
             <TableHeader className="sticky top-0 z-10 bg-background">
               <TableRow>
@@ -297,7 +297,7 @@ export function ExportDemo() {
             <span className="min-w-0 truncate font-mono">{FILENAME}</span>
             <span className="ml-auto shrink-0 tabular-nums">{lineCount} lines</span>
           </div>
-          <div className="min-h-0 min-w-0 flex-1 overflow-auto">
+          <div className="scrollbar-slim min-h-0 min-w-0 flex-1 overflow-auto">
             <pre className="p-3 font-mono text-[11px] leading-5">{display}</pre>
           </div>
         </div>

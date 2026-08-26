@@ -142,7 +142,7 @@ export function FilesColumnView({
     // Fills the viewport below the toolbar (topbar + bottom nav on mobile),
     // so the column rules run the full height of the screen.
     <div className="flex h-[calc(100svh-17.5rem)] min-h-96 flex-col overflow-hidden rounded-lg border bg-background md:h-[calc(100svh-9.75rem)]">
-      <div className="flex min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
+      <div className="scrollbar-slim flex min-h-0 flex-1 overflow-x-auto overflow-y-hidden">
         {levels.map(({ parent }, i) => (
           <Column
             key={parent?.id ?? "root"}

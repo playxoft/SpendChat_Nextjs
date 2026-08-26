@@ -175,7 +175,7 @@ export function TransactionsDemo() {
         </div>
       }
     >
-      <div className="h-full overflow-auto">
+      <div className="scrollbar-slim h-full overflow-auto">
         <Table className="w-full">
           <TableHeader className="sticky top-0 z-10 bg-background">
             <TableRow>

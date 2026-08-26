@@ -260,7 +260,7 @@ export function SharedFolderBrowser({
           ))}
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-xl border">
+        <div className="scrollbar-slim overflow-x-auto rounded-xl border">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">

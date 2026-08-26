@@ -338,12 +338,12 @@ function TextTablePreview({ src, asTable }: { src: string; asTable: boolean }) {
   }
 
   return (
-    <div className="flex size-full justify-center overflow-auto p-4">
+    <div className="scrollbar-slim flex size-full justify-center overflow-auto p-4">
       <div className="w-full max-w-5xl overflow-hidden rounded-xl border bg-background">
         {asTable ? (
           <CsvTable text={state.text} />
         ) : (
-          <pre className="max-h-full overflow-auto p-4 text-xs leading-relaxed whitespace-pre-wrap text-foreground">
+          <pre className="scrollbar-slim max-h-full overflow-auto p-4 text-xs leading-relaxed whitespace-pre-wrap text-foreground">
             {state.text.slice(0, 200_000)}
           </pre>
         )}
@@ -369,7 +369,7 @@ export function SheetTable({ rows, truncated }: { rows: string[][]; truncated: b
   const [header, ...body] = rows;
   const cols = header!.length;
   return (
-    <div className="overflow-auto">
+    <div className="scrollbar-slim overflow-auto">
       <table className="w-full border-collapse text-sm">
         <thead className="sticky top-0 bg-muted">
           <tr>

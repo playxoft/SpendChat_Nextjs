@@ -256,7 +256,7 @@ export function TransactionsTable({
   return (
     // Full-width bordered box: the table always fills it (constant width), so
     // hiding a column widens the rest rather than shrinking the table; when the
-    // columns outgrow the box, the inner `overflow-x-auto` (from <Table>) scrolls.
+    // columns outgrow the box, the inner `scrollbar-slim overflow-x-auto` (from <Table>) scrolls.
     <div className="w-full overflow-hidden rounded-xl border print-area">
       <DndContext
         id="transactions-columns"

@@ -101,7 +101,7 @@ export function AnalyticsFilters({ today, locale }: { today: string; locale?: st
     <div className="flex flex-wrap items-center gap-2 print:hidden">
       {/* Segmented range toggle: scrolls horizontally on narrow screens
           instead of pushing the page wider than the viewport. */}
-      <div className="flex h-9 min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-md border bg-muted/40 p-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="no-scrollbar flex h-9 min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-md border bg-muted/40 p-1">
         {RANGES.map((r) => {
           const active = activeKey === r.key;
           return (

@@ -74,7 +74,7 @@ export function DemoDraftRows({
   const money = useDemoMoney();
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto">
+    <div className="scrollbar-slim min-h-0 flex-1 overflow-auto">
       {/* One shared grid template across every row, so columns line up instead
           of shifting row to row — the app uses the same approach. */}
       <div className="min-w-[34rem] space-y-2 pr-1">
