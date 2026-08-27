@@ -6,6 +6,7 @@ import {
   signedMinor,
   minorToInputString,
 } from "@/lib/money";
+import { parseAmountInput } from "@/lib/parse-amount";
 
 describe("toMinorUnits", () => {
   it("converts 2-decimal currencies", () => {
@@ -85,6 +86,15 @@ describe("formatMoney", () => {
   it("respects 0-decimal currencies", () => {
     expect(formatMoney(1500, "JPY")).toBe("¥1,500");
   });
+
+  it("keeps the locale's own numerals — it is a display formatter", () => {
+    // The counterpart to `minorToInputString`'s Latin pin below: nobody reads
+    // this string back, so an ar-EG user should see their own digits. Pinning
+    // `latn` here would be the opposite mistake.
+    const out = formatMoney(4000, "EGP", "ar-EG");
+    expect(out).toContain("٤٠");
+    expect(out).not.toMatch(/40/);
+  });
 });
 
 describe("signedMinor", () => {
@@ -103,5 +113,37 @@ describe("minorToInputString", () => {
   it("renders unsigned, fixed-precision major units", () => {
     expect(minorToInputString(-1250, "USD")).toBe("12.50");
     expect(minorToInputString(1500, "JPY")).toBe("1500");
+  });
+
+  it("uses the locale's decimal separator", () => {
+    expect(minorToInputString(4000, "EUR", "de-DE")).toBe("40,00");
+  });
+
+  it("round-trips back through the parser it feeds", () => {
+    // This is the whole point of the helper: the edit dialog prefills an amount
+    // field with it and re-reads that field with `parseAmountInput` on submit.
+    // The digit-system locales are the ones that broke — `ar-EG` rendered
+    // "٤٠٫٠٠", which the parser rejects, so Save failed on every row until the
+    // amount was retyped in ASCII. These are real `user_settings.locale`
+    // values, set from `Accept-Language` at bootstrap.
+    for (const locale of ["en-US", "de-DE", "fr-FR", "en-IN", "ar-EG", "bn-IN", "fa-IR", "mr-IN", "ne-NP"]) {
+      for (const [minor, currency] of [
+        [4000, "USD"],
+        [125050, "USD"],
+        [1500, "JPY"],
+        [12345, "KWD"],
+      ] as const) {
+        const rendered = minorToInputString(minor, currency, locale);
+        expect(
+          parseAmountInput(rendered, locale),
+          `${currency}/${locale} rendered ${minor} as "${rendered}"`,
+        ).not.toBeNull();
+        expect(toMinorUnits(rendered, currency, locale)).toBe(minor);
+      }
+    }
+  });
+
+  it("falls back to a plain ASCII string for an unusable locale tag", () => {
+    expect(minorToInputString(4000, "USD", "en_US")).toBe("40.00");
   });
 });
