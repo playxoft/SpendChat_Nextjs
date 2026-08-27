@@ -9,11 +9,12 @@ import { DemoReplay } from "./demo-replay";
 import { DemoFeed } from "./demo-feed";
 import { DemoSummaryBar } from "./demo-summary-bar";
 import { DemoProfilePicker } from "./demo-controls";
-import { DEMO_LOCALE, demoCategory } from "./demo-data";
+import { draftsToTxns, isValidDraft, type DemoDraft } from "./demo-draft-rows";
 import { demoAmountInput, useDemoMoney, type DemoMoneyFormat } from "@/hooks/use-demo-currency";
 import { useDemoFeed } from "./use-demo-feed";
 import { bulkDelimiter, parseBulk } from "@/lib/bulk-parser";
 import { formatMoney, signedMinor, toMinorUnits } from "@/lib/money";
+import { formatAmountInput } from "@/lib/parse-amount";
 import { cn } from "@/lib/utils";
 
 /**
@@ -63,23 +64,68 @@ export function BulkAddDemo() {
   const [imported, setImported] = useState(false);
   const text = edited ?? sampleFor(money);
 
-  const result = useMemo(() => parseBulk(text, TODAY, DEMO_LOCALE), [text]);
+  // Parsed with the *visitor's* locale, the same one `sampleFor` wrote the
+  // sample in. A fixed `en-US` here would read "12,50; Lunch; …" as a broken
+  // amount and fail every row for the half of Europe whose decimal mark is a
+  // comma — the wall of red this demo exists to avoid. The locale is part of
+  // both dependency lists because it lands after hydration, and a memo keyed on
+  // the text alone would still be parsing as en-US once it does.
+  const result = useMemo(() => parseBulk(text, TODAY, money.locale), [text, money.locale]);
   const delimiter = useMemo(
-    () => bulkDelimiter(text.split("\n")[0] ?? "", DEMO_LOCALE),
-    [text],
+    () => bulkDelimiter(text.split("\n")[0] ?? "", money.locale),
+    [text, money.locale],
   );
 
-  function importDrafts() {
-    if (result.drafts.length === 0) return;
-    feed.addMany(
-      result.drafts.map((draft) => ({
+  /**
+   * Every parsed line, in the shape the shared commit path takes — the rows the
+   * preview lists *and* the rows the button commits, mapped once.
+   *
+   * `parseBulk` hands back an amount as a `number` and the shared mapping reads
+   * it as a string *in the visitor's format*, so the hand-off goes through
+   * `formatAmountInput` rather than `String()`: `String(12.5)` is "12.5", and
+   * in `de-DE` (or `fr-FR`, `es-ES`, `pt-BR`, …) the dot is the *grouping*
+   * separator, which `parseAmountInput` rejects as invalid grouping. Every row
+   * in the preview would then be dropped as unsaveable and the import would
+   * land nothing, silently, for a large part of the world.
+   *
+   * **The currency's decimals are part of that round trip.** `formatAmountInput`
+   * defaults to two, and for KWD, BHD, OMR and JOD the third decimal *is* the
+   * minor unit: a typed "99.999" came back "100" and committed 100.000 dinars,
+   * while the preview line beside it still read KD 99.999. The one promise this
+   * page makes is that you see exactly what would be saved, so the string the
+   * preview prices and the string the import saves are now the same string, cut
+   * to the same precision the currency actually has.
+   */
+  const previewDrafts: DemoDraft[] = useMemo(
+    () =>
+      result.drafts.map((draft, i) => ({
+        key: i,
         type: draft.type,
-        amountMinor: toMinorUnits(draft.amount, money.code, money.locale),
+        amount: formatAmountInput(draft.amount, money.locale, money.currency.decimals),
         title: draft.title || draft.note || "Transaction",
-        categoryName: draft.categoryName ?? "Other",
-        categoryIcon: demoCategory(draft.categoryName ?? "")?.icon ?? "💸",
+        categoryName: draft.categoryName ?? "",
       })),
-    );
+    [result.drafts, money],
+  );
+
+  /**
+   * Exactly what Import would write, already converted — through the same
+   * mapping the AI, voice and homepage demos use, so "what a draft becomes" is
+   * decided once.
+   *
+   * The count, the button's `disabled` and the commit all read this array and
+   * not `result.drafts`, which is the pre-filter list. Counting the wrong one is
+   * how the demo came to say "Import 1", call `addMany([])`, clear the box and
+   * report "Imported — check the feed above" over an unchanged feed: `parseBulk`
+   * happily reads "0.001" as an amount, and it is not a saveable one. Anything
+   * `draftsToTxns` drops is shown as dropped in the list below rather than
+   * quietly counted as ready.
+   */
+  const ready = useMemo(() => draftsToTxns(previewDrafts, money), [previewDrafts, money]);
+
+  function importDrafts() {
+    if (ready.length === 0) return;
+    feed.addMany(ready);
     setEdited("");
     setImported(true);
   }
@@ -136,45 +182,64 @@ export function BulkAddDemo() {
           {/* The preview. Errors are listed with their line number, the way the
               app reports them, so a bad row is findable rather than just counted. */}
           <div className="max-h-32 min-h-0 overflow-y-auto rounded-lg border">
-            {result.drafts.length === 0 && result.errors.length === 0 ? (
+            {previewDrafts.length === 0 && result.errors.length === 0 ? (
               <p className="px-3 py-2 text-sm text-muted-foreground">
                 {imported ? "Imported — check the feed above." : "Nothing to preview yet."}
               </p>
             ) : (
               <ul className="divide-y text-sm">
-                {result.drafts.map((draft, i) => (
-                  <li
-                    key={`draft-${i}`}
-                    className="flex items-center justify-between gap-3 px-3 py-1.5"
-                  >
-                    <span className="min-w-0 truncate">
-                      {draft.title || draft.note}
-                      {draft.categoryName && (
-                        <span className="text-muted-foreground">
-                          {" · "}
-                          {draft.categoryName}
+                {previewDrafts.map((draft) => {
+                  // A line the parser accepted can still be unsaveable, and
+                  // there is exactly one way left: an amount smaller than the
+                  // currency's smallest unit ("0.001" in dollars, "0.4" in yen).
+                  // `parseBulk` rejects the rest — a blank title falls back to
+                  // "Transaction", and a negative or unreadable amount never
+                  // reaches this list. Saying so beside the row is the honest
+                  // version of dropping it: it is in the paste, it isn't in the
+                  // count, and the reader can see which line to fix.
+                  const saveable = isValidDraft(draft, money);
+                  return (
+                    <li
+                      key={`draft-${draft.key}`}
+                      className="flex items-center justify-between gap-3 px-3 py-1.5"
+                    >
+                      <span
+                        className={cn("min-w-0 truncate", !saveable && "text-muted-foreground")}
+                      >
+                        {draft.title}
+                        {draft.categoryName && (
+                          <span className="text-muted-foreground">
+                            {" · "}
+                            {draft.categoryName}
+                          </span>
+                        )}
+                      </span>
+                      {saveable ? (
+                        <span
+                          className={cn(
+                            "shrink-0 tabular-nums",
+                            draft.type === "income" &&
+                              "text-emerald-600 dark:text-emerald-400",
+                          )}
+                        >
+                          {formatMoney(
+                            signedMinor(
+                              draft.type,
+                              toMinorUnits(draft.amount, money.code, money.locale),
+                            ),
+                            money.code,
+                            money.locale,
+                            { signed: true },
+                          )}
+                        </span>
+                      ) : (
+                        <span className="shrink-0 text-xs text-destructive">
+                          Too small to import
                         </span>
                       )}
-                    </span>
-                    <span
-                      className={cn(
-                        "shrink-0 tabular-nums",
-                        draft.type === "income" &&
-                          "text-emerald-600 dark:text-emerald-400",
-                      )}
-                    >
-                      {formatMoney(
-                        signedMinor(
-                          draft.type,
-                          toMinorUnits(draft.amount, money.code, money.locale),
-                        ),
-                        money.code,
-                        money.locale,
-                        { signed: true },
-                      )}
-                    </span>
-                  </li>
-                ))}
+                    </li>
+                  );
+                })}
                 {result.errors.map((error) => (
                   <li
                     key={`error-${error.line}`}
@@ -191,19 +256,21 @@ export function BulkAddDemo() {
           </div>
 
           <div className="flex items-center justify-between gap-2">
+            {/* Counted off `ready` — the array the button commits — so the
+                number and the outcome agree by construction. */}
             <p className="min-w-0 text-xs text-muted-foreground">
-              {result.drafts.length} ready
+              {ready.length} ready
               {result.errors.length > 0 &&
                 ` · ${result.errors.length} ${result.errors.length === 1 ? "line needs" : "lines need"} fixing`}
             </p>
             <Button
               type="button"
               onClick={importDrafts}
-              disabled={result.drafts.length === 0}
+              disabled={ready.length === 0}
               className="h-9 shrink-0 gap-1.5"
             >
               <ArrowUp className="size-4" />
-              Import {result.drafts.length}
+              Import {ready.length}
             </Button>
           </div>
         </div>

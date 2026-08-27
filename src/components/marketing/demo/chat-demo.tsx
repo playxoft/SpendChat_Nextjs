@@ -22,12 +22,38 @@ import {
   DemoTypeToggle,
 } from "./demo-controls";
 import { demoCategories, type DemoTxnType } from "./demo-data";
-import { useDemoMoney } from "@/hooks/use-demo-currency";
+import {
+  demoAmountInput,
+  useDemoMoney,
+  type DemoMoneyFormat,
+} from "@/hooks/use-demo-currency";
 import { useDemoFeed } from "./use-demo-feed";
 import { featurePath, getFeature } from "@/lib/features";
 import { toMinorUnits } from "@/lib/money";
 import { amountPlaceholder, parseAmountInput } from "@/lib/parse-amount";
 import { comboFor } from "@/lib/shortcuts";
+
+/**
+ * The example sentence the AI panel invites you to type.
+ *
+ * Priced from the visitor's own currency, for the same reason `ai-demo.tsx`'s
+ * `noteFor` is and in the same shape: the balance bar two inches above this
+ * line renders through `useDemoMoney`, so a hard-coded "coffee 4.50" sat
+ * directly under ₹200,000.00 for every Indian reader. It also wasn't a sentence
+ * they could type — where the decimal mark is a comma, "4.50" is not an amount
+ * the app's parser will accept, and this line is an instruction.
+ *
+ * Seeded in USD minor units like every other demo amount, so `demoAmountInput`
+ * scales it to something plausible rather than converting it.
+ *
+ * Kept here rather than imported from `ai-demo.tsx`: this component is the
+ * homepage hero, and reaching into that module for one string would pull the
+ * whole AI demo — its draft rows, its scheduler — into the homepage's bundle to
+ * render a sentence.
+ */
+function aiExampleNote(money: DemoMoneyFormat): string {
+  return `coffee ${demoAmountInput(450, money)} and ${demoAmountInput(6200, money)} on groceries`;
+}
 
 /**
  * The tracker, playable, on a marketing page.
@@ -76,6 +102,7 @@ export function ChatDemo({
   );
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const titleRef = useRef<HTMLInputElement>(null);
   const money = useDemoMoney();
   const aiPage = getFeature("ai-expense-tracker");
 
@@ -92,16 +119,29 @@ export function ChatDemo({
     setCategoryId(first ? `${next}:${first.name}` : null);
   }
 
-  const parsed = parseAmountInput(amount, money.locale);
-  const canSend = parsed !== null && parsed > 0;
+  /**
+   * What this amount would actually be saved as — the real conversion, so the
+   * demo can't drift into float arithmetic, and so the Send button is deciding
+   * about the same number the feed will receive.
+   *
+   * Guarding the *typed* value instead was subtly wrong on any currency with no
+   * minor units: "0.4" parses to a perfectly good 0.4, passes a `> 0` check on
+   * the major number, and then rounds to zero ¥. The demo would file a ¥0
+   * transaction, which is the one thing the app's composer will never do.
+   */
+  const amountMinor = useMemo(() => {
+    const major = parseAmountInput(amount, money.locale);
+    if (major === null) return null;
+    return toMinorUnits(major, money.code, money.locale);
+  }, [amount, money.code, money.locale]);
+  const canSend = amountMinor !== null && amountMinor > 0;
 
   function send() {
-    if (!canSend) return;
+    if (amountMinor === null || amountMinor <= 0) return;
     const cat = cats.find((c) => c.id === categoryId) ?? cats[0];
     feed.add({
       type,
-      // The real conversion, so the demo can't drift into float arithmetic.
-      amountMinor: toMinorUnits(amount, money.code, money.locale),
+      amountMinor,
       title: title.trim() || cat?.name || "Transaction",
       categoryName: cat?.name ?? "Other",
       categoryIcon: cat?.icon ?? "💸",
@@ -110,11 +150,24 @@ export function ChatDemo({
     setTitle("");
   }
 
-  function onKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      send();
-    }
+  /**
+   * Enter moves on rather than sending, which is what the app does here and for
+   * the same reason (`transaction-composer.tsx`'s `onAmountKeyDown`): this
+   * composer is amount-first, so Enter on the amount alone would file a
+   * transaction with no title — and the fallback names it after its category,
+   * so the feed filled up with rows called "Food & Dining". The title is the
+   * last field, so that one sends.
+   */
+  function onAmountKeyDown(e: React.KeyboardEvent) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    titleRef.current?.focus();
+  }
+
+  function onTitleKeyDown(e: React.KeyboardEvent) {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    send();
   }
 
   return (
@@ -180,17 +233,18 @@ export function ChatDemo({
                     placeholder={amountPlaceholder(money.locale, money.currency.decimals)}
                     value={amount}
                     onChange={(e) => setAmount(e.target.value.replace(/[^\d.,\s]/g, ""))}
-                    onKeyDown={onKeyDown}
+                    onKeyDown={onAmountKeyDown}
                     aria-label="Amount"
                     className="h-9 w-28 pl-7 tabular-nums"
                   />
                 </div>
                 <Input
+                  ref={titleRef}
                   placeholder="What was it for?"
                   value={title}
                   maxLength={80}
                   onChange={(e) => setTitle(e.target.value)}
-                  onKeyDown={onKeyDown}
+                  onKeyDown={onTitleKeyDown}
                   aria-label="Title"
                   className="h-9 min-w-0 flex-1"
                 />
@@ -219,8 +273,8 @@ export function ChatDemo({
                 AI entry turns a sentence into transactions
               </p>
               <p className="text-sm text-muted-foreground">
-                Type “coffee 4.50 and 62 on groceries” and review the drafts
-                before anything saves.
+                Type “{aiExampleNote(money)}” and review the drafts before
+                anything saves.
               </p>
               {aiPage ? (
                 <Link
