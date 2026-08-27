@@ -18,6 +18,47 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.13.2] — 2026-08-26
+
+### Fixed
+
+- **Editing an amount no longer fails to save if your language uses its own
+  numerals.** The edit dialog prefilled the amount as "٤٠٫٠٠" for Arabic,
+  Bengali, Persian, Marathi, Nepali and Burmese locales — legible, but rejected
+  by the app's own parser, so Save failed on every attempt until you retyped the
+  number in ASCII. The locale is picked automatically from your browser at
+  sign-up, so nobody chose this. Amounts written back into an input now pin
+  Latin digits the way every other round-tripping formatter already did;
+  displayed amounts keep your numerals.
+- **Keyboard hints are spoken again.** A shortcut chip sitting in a sentence was
+  hidden from screen readers, so "Press ⌘↵ to send" was read as "Press to send".
+  Chips in prose now carry the combo in words, punctuation keys are named
+  ("Slash", "Hash", "Backtick") instead of being dropped at a reader's default
+  verbosity, and the shortcuts reference — in Settings, in the `/` dialog, and on
+  the marketing page — announces each row's key instead of a list of verbs.
+- **Blog previews stopped disappearing from search and chat.** Post images in the
+  page's structured data were relative on the article page, which Google drops,
+  and a post pointing at an absolute URL had the site address pasted in front of
+  it. The first cover on the index also loads eagerly now, since it is usually
+  the largest thing on the screen.
+- Several corrections to the feature pages, which had promised things the app
+  does not do: filtering to uncategorised transactions, archiving a profile, and
+  unlimited exports. Bulk import (500 rows) and export (5,000 transactions) now
+  state their real limits, and the privacy and export pages no longer contradict
+  each other about the latter.
+
+### Changed
+
+- The marketing demos follow your own currency and number format throughout —
+  the voice transcript now quotes the same figures the rows it produces show, the
+  bulk preview and the import agree to the last decimal for currencies with three
+  of them, and a demo can no longer offer to import a row it would silently drop.
+- The mobile navigation menu scrolls, so "Sign in" and "Get started free" are
+  reachable on a phone now that the menu lists every feature page.
+- The analytics page renders its ranked category list as part of the page rather
+  than inside the chart's lazily-loaded bundle, so it is there before the chart
+  is — and for anything that reads the page without running it.
+
 ## [0.13.1] — 2026-08-23
 
 ### Changed
