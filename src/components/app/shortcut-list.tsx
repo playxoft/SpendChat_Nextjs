@@ -1,10 +1,13 @@
 "use client";
 
 import { Kbd } from "@/components/ui/kbd";
-import { SHORTCUTS } from "@/lib/shortcuts";
+import { useIsMac } from "@/hooks/use-shortcut";
+import { SHORTCUTS, labelNamesShortcut } from "@/lib/shortcuts";
 
+/** Word characters only, so a label splits into the words a reader would hear. */
 /** Read-only reference of the app's keyboard shortcuts, grouped by scope. */
 export function ShortcutList() {
+  const isMac = useIsMac();
   const scopes = Array.from(new Set(SHORTCUTS.map((s) => s.scope)));
 
   return (
@@ -19,7 +22,7 @@ export function ShortcutList() {
                 className="flex items-center justify-between gap-4 px-3 py-2 text-sm"
               >
                 <span>{s.label}</span>
-                <Kbd combo={s.combo} />
+                <Kbd combo={s.combo} describe={!labelNamesShortcut(s.label, s.combo, isMac)} />
               </li>
             ))}
           </ul>

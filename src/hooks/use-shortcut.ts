@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { isTypingTarget, matchesCombo, normalizeKey, splitCombo } from "@/lib/shortcuts";
 
 function detectMac(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -26,18 +27,6 @@ export function useIsMac(): boolean {
   );
 }
 
-function isTypingTarget(target: EventTarget | null): boolean {
-  const el = target as HTMLElement | null;
-  if (!el) return false;
-  const tag = el.tagName;
-  return (
-    tag === "INPUT" ||
-    tag === "TEXTAREA" ||
-    tag === "SELECT" ||
-    el.isContentEditable === true
-  );
-}
-
 /**
  * True when a modal layer (dialog, menu, select listbox, etc.) is open. Radix
  * unmounts these on close, so their presence in the DOM means they're open.
@@ -49,38 +38,6 @@ function hasOpenOverlay(): boolean {
   return !!document.querySelector(
     '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]',
   );
-}
-
-function normalizeKey(e: KeyboardEvent): string {
-  // Match a few keys by physical code so Shift combos work regardless of layout
-  // (Shift+1 yields "!", Shift+` yields "~", etc.).
-  if (typeof e.code === "string") {
-    const digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code);
-    if (digit) return digit[1];
-    if (e.code === "Backquote") return "`";
-  }
-  if (e.key === "Enter") return "enter";
-  if (e.key === "Escape") return "esc";
-  if (e.key === " ") return "space";
-  return e.key.toLowerCase();
-}
-
-function matches(e: KeyboardEvent, combo: string, isMac: boolean): boolean {
-  const parts = combo.toLowerCase().split("+");
-  const key = parts[parts.length - 1];
-  const wantMod = parts.includes("mod");
-  const wantShift = parts.includes("shift");
-  const wantAlt = parts.includes("alt");
-
-  const modActive = isMac ? e.metaKey : e.ctrlKey;
-  const otherMod = isMac ? e.ctrlKey : e.metaKey;
-
-  if (wantMod !== modActive) return false;
-  if (wantMod && otherMod) return false;
-  if (wantShift !== e.shiftKey) return false;
-  if (wantAlt !== e.altKey) return false;
-
-  return normalizeKey(e) === key;
 }
 
 type Options = {
@@ -146,7 +103,7 @@ export function useHoldShortcut(
       if (e.repeat || heldRef.current) return;
       if (!allowInInput && isTypingTarget(e.target)) return;
       if (requireNoOverlay && hasOpenOverlay()) return;
-      if (!matches(e, combo, isMac)) return;
+      if (!matchesCombo(e, combo, isMac)) return;
       e.preventDefault();
       heldRef.current = true;
       downRef.current();
@@ -155,7 +112,7 @@ export function useHoldShortcut(
       // Match on the key alone: modifiers are often let go first, and a combo
       // check here would miss the release and leave the hold stuck on.
       if (!heldRef.current) return;
-      const key = combo.toLowerCase().split("+").pop()!;
+      const key = splitCombo(combo.toLowerCase()).pop()!;
       if (normalizeKey(e) !== key) return;
       e.preventDefault();
       release();
@@ -194,7 +151,7 @@ export function useShortcut(
       const ke = e as KeyboardEvent;
       if (!allowInInput && isTypingTarget(ke.target)) return;
       if (requireNoOverlay && hasOpenOverlay()) return;
-      if (matches(ke, combo, isMac)) {
+      if (matchesCombo(ke, combo, isMac)) {
         ke.preventDefault();
         handler(ke);
       }
