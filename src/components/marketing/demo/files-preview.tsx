@@ -4,6 +4,14 @@ import { useMemo, useState } from "react";
 import { Folder, Share2 } from "lucide-react";
 import { attachmentGlyph } from "@/components/app/attachments/attachment-icon";
 import { StorageRing } from "@/components/app/files/storage-ring";
+import {
+  DEMO_FILES,
+  DEMO_FILE_TAGS,
+  DEMO_FOLDERS,
+  DEMO_STORAGE_LIMIT_BYTES,
+  DEMO_STORAGE_USED_BYTES,
+  demoTagColor,
+} from "./demo-data";
 import { formatFileSize } from "@/lib/attachments";
 import { cn } from "@/lib/utils";
 
@@ -15,54 +23,66 @@ import { cn } from "@/lib/utils";
  * view modes and the sidebar — which is right for a feature page that has
  * nothing else to say, and far too tall for one band of a landing page. This
  * keeps the three things that make the vault legible at a glance (folders
- * tinted with their own colour, files carrying tag dots and sizes, and the
+ * tinted with their own colour, files carrying named tags and sizes, and the
  * workspace storage gauge) and drops the rest.
+ *
+ * **The chrome is what differs, not the vault.** Both read their contents from
+ * `demo-data.ts`, so the quota, the folders, the tag colours and the files are
+ * one set of facts told twice at two sizes. What's local here is only the
+ * *shortening*: which tags survive the compact strip, and therefore which files
+ * come with them.
  *
  * `StorageRing` and `attachmentGlyph` are the app's own. The ring especially is
  * worth importing rather than redrawing: its arc, its colour-tone thresholds
  * and its compact "0.1/1 GB" label are all logic that would rot in a copy.
  *
- * Filtering runs on the array below. Nothing is uploaded, stored or fetched,
+ * Filtering runs on the seed array. Nothing is uploaded, stored or fetched,
  * and the panel is a fixed height so filtering to one tag can't move the page.
  */
 
-/** 1 GB per workspace, the real quota. */
-const LIMIT_BYTES = 1024 ** 3;
-const USED_BYTES = 118_400_000;
+/**
+ * Three tags, not the vault's four: a fourth chip crowds the compact strip, and
+ * the point of the band is "files carry colours", which three make as well as
+ * four. Named rather than sliced so adding a tag to the shared list doesn't
+ * silently change which one this drops.
+ */
+const PREVIEW_TAG_NAMES = ["Receipts", "Invoices", "Tax"];
 
-/** Drawn from the vault's own swatch list (`VAULT_COLORS`). */
-const TAGS = [
-  { name: "Receipts", color: "#22c55e" },
-  { name: "Invoices", color: "#3b82f6" },
-  { name: "Tax", color: "#a855f7" },
-] as const;
+const TAGS = DEMO_FILE_TAGS.filter((t) => PREVIEW_TAG_NAMES.includes(t.name));
 
-const FOLDERS = [
-  { name: "Transaction attachments", color: "#64748b" },
-  { name: "2026 tax", color: "#a855f7" },
-  { name: "Home", color: "#0ea5e9" },
-] as const;
+/**
+ * …and only the files those tags reach. A row whose every tag was dropped would
+ * show a bare name with no dots beside it, which is precisely the thing this
+ * band is trying to demonstrate.
+ */
+const FILES = DEMO_FILES.filter((f) =>
+  f.tags.some((t) => PREVIEW_TAG_NAMES.includes(t)),
+);
 
-type VaultFile = {
-  id: number;
-  name: string;
-  contentType: string;
-  bytes: number;
-  modified: string;
-  tags: string[];
-};
-
-const FILES: VaultFile[] = [
-  { id: 1, name: "Grocery receipt.jpg", contentType: "image/jpeg", bytes: 842_000, modified: "21 Aug", tags: ["Receipts"] },
-  { id: 2, name: "Electricity bill July.pdf", contentType: "application/pdf", bytes: 214_000, modified: "18 Aug", tags: ["Invoices"] },
-  { id: 3, name: "Client invoice 0042.pdf", contentType: "application/pdf", bytes: 186_000, modified: "15 Aug", tags: ["Invoices", "Tax"] },
-  { id: 4, name: "Rent receipt Aug.png", contentType: "image/png", bytes: 640_000, modified: "5 Aug", tags: ["Receipts", "Tax"] },
-  { id: 5, name: "Expenses Q2.csv", contentType: "text/csv", bytes: 38_000, modified: "1 Aug", tags: ["Tax"] },
-  { id: 6, name: "Pharmacy receipt.jpg", contentType: "image/jpeg", bytes: 402_000, modified: "12 Aug", tags: ["Receipts"] },
-];
-
-function tagColor(name: string): string {
-  return TAGS.find((t) => t.name === name)?.color ?? "#64748b";
+/**
+ * The same tag chip the full demo draws, for the same reason — a swatch with no
+ * name beside it is a fact only a sighted reader who can separate the hues gets
+ * to have (WCAG 1.4.1). The long version of that argument, and why this isn't
+ * the app's own `TagChip`, is in `files-demo.tsx`; it's copied here rather than
+ * imported from there because the chrome is what's local to each of these two
+ * files, and importing it would pull the whole 38rem demo into the homepage
+ * bundle for the sake of twelve lines.
+ */
+function DemoTagChip({ tag }: { tag: string }) {
+  const color = demoTagColor(tag);
+  return (
+    <span
+      className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-xs"
+      style={{ borderColor: `${color}55`, background: `${color}1a` }}
+    >
+      <span
+        aria-hidden
+        className="size-1.5 shrink-0 rounded-full"
+        style={{ background: color }}
+      />
+      <span className="truncate">{tag}</span>
+    </span>
+  );
 }
 
 export function FilesPreview() {
@@ -102,13 +122,16 @@ export function FilesPreview() {
             );
           })}
         </div>
-        <StorageRing usedBytes={USED_BYTES} limitBytes={LIMIT_BYTES} />
+        <StorageRing
+          usedBytes={DEMO_STORAGE_USED_BYTES}
+          limitBytes={DEMO_STORAGE_LIMIT_BYTES}
+        />
       </div>
 
       <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {/* Folders first, tinted with their own colour — the vault's shape. */}
         <div className="grid gap-2 sm:grid-cols-3">
-          {FOLDERS.map((folder) => (
+          {DEMO_FOLDERS.map((folder) => (
             <div
               key={folder.name}
               className="flex items-center gap-2 rounded-xl border p-2.5"
@@ -126,22 +149,26 @@ export function FilesPreview() {
 
         <ul className="divide-y rounded-xl border">
           {files.map((file) => (
-            <li key={file.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+            // Wraps, like the full demo's rows: the named chips need width, and
+            // the thing that must not lose it is the filename. `min-w-32` gives
+            // the name a floor, which is what makes the line break at all — a
+            // `flex-1` item's hypothetical size is its basis (0), so the row
+            // would otherwise stay on one line with the name squeezed to
+            // nothing.
+            <li
+              key={file.id}
+              className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm"
+            >
               <span className="shrink-0 text-muted-foreground">
                 {attachmentGlyph(file.contentType, "size-4")}
               </span>
-              <span className="min-w-0 flex-1 truncate">{file.name}</span>
+              <span className="min-w-32 flex-1 truncate">{file.name}</span>
               <span className="flex shrink-0 items-center gap-1">
                 {file.tags.map((tag) => (
-                  <span
-                    key={tag}
-                    aria-hidden
-                    className="size-2 rounded-full"
-                    style={{ background: tagColor(tag) }}
-                  />
+                  <DemoTagChip key={tag} tag={tag} />
                 ))}
               </span>
-              <span className="w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+              <span className="ml-auto w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                 {formatFileSize(file.bytes)}
               </span>
               <span className="hidden w-14 shrink-0 text-right text-xs text-muted-foreground sm:block">

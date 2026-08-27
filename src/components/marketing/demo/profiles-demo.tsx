@@ -14,6 +14,7 @@ import {
   type DemoProfile,
 } from "./demo-data";
 import { useDemoFeed } from "./use-demo-feed";
+import { comboFor } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 
 /**
@@ -27,18 +28,38 @@ import { cn } from "@/lib/utils";
  *
  * The sidebar is the app's, via `DemoFrame`, with the profile list rendered
  * into its `sidebarTop` slot the way the real one is — including the Shift+n
- * shortcut chips, which come from the shortcut registry rather than being
- * typed out here.
+ * shortcut chips, which are built from the shortcut registry rather than being
+ * typed out here (see `profileCombo` below).
  */
+
+/**
+ * The registry names the profile chord once, as the first slot (`shift+1`)
+ * plus a label that explains the 1…9 range; a sidebar has to show every row its
+ * own number. So the modifier comes out of the registry and only the digit is
+ * computed here — the same split `shortcuts-demo.tsx` makes, and the reason a
+ * change to `src/lib/shortcuts.ts` reaches these chips instead of leaving them
+ * quietly wrong.
+ */
+const PROFILE_MOD = comboFor("profiles.switch").split("+").slice(0, -1).join("+");
+
+/** Shift + 1…9, then 0 for a tenth profile — the app's own numbering. */
+function profileCombo(index: number): string {
+  return `${PROFILE_MOD}+${(index + 1) % 10}`;
+}
+
 export function ProfilesDemo() {
   const feed = useDemoFeed("Personal");
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Reset the scroll position when the books change, so a switch always starts
-  // at the top of that profile's feed rather than wherever the last one was.
+  // Land on the newest row when the books change, rather than wherever the last
+  // profile happened to be scrolled to. The feed is bottom-anchored (see the
+  // note on it below), so the start of a profile's feed is its *bottom* — this
+  // used to scroll to 0, which parked every switch on the oldest transaction in
+  // a ledger the visitor had never seen. Scoped to the demo's own scroller, so
+  // it never moves the page under the reader.
   useEffect(() => {
     const el = scrollRef.current;
-    if (el) el.scrollTop = 0;
+    if (el) el.scrollTop = el.scrollHeight;
   }, [feed.profile]);
 
   return (
@@ -80,7 +101,7 @@ export function ProfilesDemo() {
                       {DEMO_PROFILE_ICON[profile]}
                     </span>
                     <span className="truncate">{profile}</span>
-                    <Kbd combo={`shift+${i + 1}`} className="ml-auto shrink-0 opacity-60" />
+                    <Kbd combo={profileCombo(i)} className="ml-auto shrink-0 opacity-60" />
                   </button>
                 </div>
               );
@@ -93,7 +114,10 @@ export function ProfilesDemo() {
               <span className="flex min-w-0 flex-1 items-center gap-2.5 py-2 text-sm">
                 <LayoutGrid className="size-4" />
                 <span className="truncate">All profiles</span>
-                <Kbd combo="shift+`" className="ml-auto shrink-0 opacity-60" />
+                <Kbd
+                  combo={comboFor("profiles.all")}
+                  className="ml-auto shrink-0 opacity-60"
+                />
               </span>
             </div>
           </div>
@@ -123,8 +147,11 @@ export function ProfilesDemo() {
     >
       <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-3">
         {/* The feed grows from the bottom, as it does in the app: the newest
-            transaction sits just above the composer rather than leaving a gap
-            beneath a short history. */}
+            transaction sits at the bottom edge of the pane — where the app
+            keeps it, just above the composer — rather than leaving a gap
+            beneath a short history. There's no composer in this frame: the
+            switcher is the whole story here, and a second copy of the
+            tracker's input would only compete with it for attention. */}
         <div className="flex min-h-full flex-col justify-end">
           <DemoFeed txns={feed.txns} />
         </div>

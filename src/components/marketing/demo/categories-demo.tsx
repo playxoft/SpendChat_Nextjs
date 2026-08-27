@@ -92,8 +92,6 @@ export function CategoriesDemo() {
     trimmed.length > 0 &&
     visible.some((c) => c.name.trim().toLowerCase() === trimmed.toLowerCase());
 
-  const dirty = useMemo(() => JSON.stringify(cats) !== JSON.stringify(SEED), [cats]);
-
   function switchKind(next: DemoTxnType) {
     setKind(next);
     setSelectedId(cats.find((c) => c.kind === next)?.id ?? null);
@@ -141,9 +139,13 @@ export function CategoriesDemo() {
         <div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3">
           <div className="min-w-0">
             <p className="text-sm font-medium">Categories</p>
+            {/* Counts what the list below is actually showing. `cats` is both
+                kinds at once, so it read "16 categories" over a list of 10 —
+                the toggle beside it filters the list, and a count that ignores
+                the toggle is just a wrong number. */}
             <p className="truncate text-xs text-muted-foreground">
-              {cats.length} categor{cats.length === 1 ? "y" : "ies"} · shared with
-              everyone in this workspace
+              {visible.length} {kind} categor{visible.length === 1 ? "y" : "ies"} ·
+              shared with everyone in this workspace
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
@@ -243,8 +245,12 @@ export function CategoriesDemo() {
       </div>
     </DemoFrame>
     {/* "Reset", not "Replay": this demo has no script to replay — it puts back
-        the categories you edited. */}
-    {dirty && <DemoReplay onClick={reset} label="Reset" />}
+        the categories you edited. Always rendered, never gated on "has anything
+        changed yet": a button that appears on the first keystroke inserts ~44px
+        under the frame and shifts the rest of the page down while you're typing
+        in it, which is exactly the layout shift the pinned frame above is there
+        to avoid. */}
+    <DemoReplay onClick={reset} label="Reset" />
     </>
   );
 }

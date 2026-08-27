@@ -20,9 +20,21 @@ import { cn } from "@/lib/utils";
  * `sidebarTop` / `sidebarBottom` slots, which individual demos fill with
  * whatever their story needs.
  *
- * Server component on purpose: the seeded state renders into the HTML, so a
- * crawler reads real transactions rather than an empty shell that only fills in
- * after hydration. Demos supply their own `"use client"` islands as children.
+ * No `"use client"` of its own — but that isn't the same as being a server
+ * component. Every demo that uses this is a client island, and a directive-less
+ * module imported by one is compiled into the client graph along with it, so in
+ * practice this always renders twice: once on the server for the HTML, once in
+ * the browser to hydrate. The directive is omitted because nothing here needs
+ * it, not because it keeps the file off the client.
+ *
+ * The property that matters survives that, and it's the one to protect: the
+ * first render — the server one — already has the seeded state in it, so a
+ * crawler reads a filled-in app rather than an empty shell that only fills in
+ * after hydration. That's why the demos seed `useState` initialisers rather
+ * than effects, and why nothing in this subtree may read `Date.now()`,
+ * `Math.random()` or `navigator` while rendering: those differ between the two
+ * renders, and a hydration mismatch throws the whole frame away and redraws it
+ * client-side, which is exactly the empty-shell outcome this avoids.
  */
 export function DemoFrame({
   label,
