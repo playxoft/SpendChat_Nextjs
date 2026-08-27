@@ -25,9 +25,11 @@ import { cn } from "@/lib/utils";
  * dialog, and those are the two a reader can most afford to imagine. Category
  * goes too below `sm`.
  *
- * Everything is `readOnly` and inert. This is a film of the dialog, not a fork
- * of it, and a cell you can type into that does nothing is worse than one that
- * plainly isn't yours.
+ * Everything is `readOnly`, and the whole dialog is `inert` — the buttons
+ * under the grid included, which are shapes rather than controls. This is a
+ * film of the dialog, not a fork of it, and a cell you can type into or a
+ * button you can press that does nothing is worse than one that plainly isn't
+ * yours.
  *
  * Presentational: the parent owns the script and passes the state in, so the
  * rows land in step with the feed underneath.
@@ -63,8 +65,20 @@ export function DemoBulkDialog({
   const rows = drafts.slice(0, visible);
 
   return (
+    /*
+     * `inert`, not just `aria-hidden`. The grid's cells are `readOnly` inputs
+     * and the action row holds three real `<Button>`s — every one of them
+     * focusable, and `aria-hidden` doesn't change that. A subtree that is
+     * hidden from assistive tech but still in the tab order is the worst of
+     * both: a keyboard reader tabs into controls their screen reader refuses to
+     * name, and does it *twice*, since the closed dialog only drops out of the
+     * layout by way of `opacity-0 pointer-events-none`. `inert` takes it out of
+     * the tab order and the accessibility tree together; `aria-hidden` stays for
+     * the browsers that don't have it yet.
+     */
     <div
       aria-hidden
+      inert
       className={cn(
         "absolute inset-0 z-10 flex items-center justify-center p-3 transition-opacity duration-300",
         open ? "opacity-100" : "pointer-events-none opacity-0",
