@@ -260,8 +260,9 @@ export default function PrivacyAndSecurityPage() {
           >
             download your transactions as CSV
           </Link>{" "}
-          — the exact view you&apos;re looking at, with no export limit and no
-          paid tier gating it — or print a report. From Settings you can clear
+          — the exact view you&apos;re looking at, as often as you like, with
+          no paid tier gating it and up to 5,000 transactions per file — or
+          print a report. From Settings you can clear
           transactions and keep the account, or delete the account outright,
           which removes your transactions, the workspaces you own and everything
           in them, your memberships, and your settings. Both make you type

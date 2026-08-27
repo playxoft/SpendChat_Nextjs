@@ -1,4 +1,4 @@
-import { createMetadata } from "@/lib/seo";
+import { createMetadata, faqJsonLd } from "@/lib/seo";
 import Link from "next/link";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -15,19 +15,11 @@ export const metadata = createMetadata({
 });
 
 export default function FaqPage() {
-  const faqJsonLd = {
-    "@context": "https://schema.org",
-    "@type": "FAQPage",
-    mainEntity: faqs.map((f) => ({
-      "@type": "Question",
-      name: f.q,
-      acceptedAnswer: { "@type": "Answer", text: f.a },
-    })),
-  };
-
   return (
     <div className="mx-auto max-w-3xl px-4 py-16">
-      <JsonLd data={faqJsonLd} />
+      {/* The markup and the visible list come from the same array, so an answer
+          can never be marked up without being on the page. */}
+      <JsonLd data={faqJsonLd(faqs)} />
       <div className="text-center">
         <h1 className="text-4xl font-semibold tracking-tight">
           Frequently asked questions

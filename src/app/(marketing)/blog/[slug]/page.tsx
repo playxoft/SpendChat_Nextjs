@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
 import { getPost, formatPostDate } from "@/lib/blog";
-import { ogImage } from "@/lib/seo";
+import { absoluteImage, ogImage } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
@@ -76,7 +76,9 @@ export default async function BlogPostPage({ params }: Params) {
       url: siteConfig.url,
     },
     publisher: { "@type": "Organization", name: siteConfig.name, url: siteConfig.url },
-    image: `${siteConfig.url}${post.image ?? siteConfig.ogImage}`,
+    // Absolute, and *not* by bare concatenation: a post may ship an absolute
+    // cover, which prefixing would corrupt into a URL Google silently drops.
+    image: absoluteImage(post.image ?? siteConfig.ogImage),
     url,
     mainEntityOfPage: { "@type": "WebPage", "@id": url },
     articleSection: post.tag,

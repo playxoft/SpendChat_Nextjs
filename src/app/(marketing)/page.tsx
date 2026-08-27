@@ -491,8 +491,9 @@ export default function LandingPage() {
                 Single keys move between views and start an entry, ⌘/Ctrl combos
                 send it, and every chip in the interface tells you its shortcut —
                 so you learn them by using the app rather than by reading a
-                manual. Press <Kbd combo={comboFor("global.shortcuts")} className="align-middle" /> for
-                the full cheat sheet.
+                manual. Press{" "}
+                <Kbd combo={comboFor("global.shortcuts")} className="align-middle" describe />{" "}
+                for the full cheat sheet.
               </p>
               <p className="mt-3 leading-relaxed text-muted-foreground">
                 Click the panel and try one. The keys come from the app&apos;s own

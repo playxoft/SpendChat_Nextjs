@@ -37,7 +37,7 @@ const faqs = [
   },
   {
     q: "Why don't my category totals add up to what I expected?",
-    a: "Almost always because some transactions are uncategorised — they count toward your balance but sit outside every category. The fastest fix is the transactions table: filter to no category and fill them in.",
+    a: "Two things usually explain it. The breakdown shows one side at a time — expenses by default, income when you flip it — so it won't reconcile against a net figure; and everything you didn't categorise is pooled into a single \"Uncategorized\" line rather than dropped, which is usually the line nobody expected. To clear that line, sort the transactions table by its Category column so those rows collect together, then click each one and pick a category.",
   },
   {
     q: "Can I export or print a report?",
@@ -131,9 +131,12 @@ export default function AnalyticsPage() {
 
       <FeatureSection title="It's only as good as your categories">
         <p>
-          Analytics is downstream of categorisation. An uncategorised transaction
-          still counts toward your balance but belongs to no slice, so a page
-          full of them is a page that quietly under-reports everything.
+          Analytics is downstream of categorisation. Nothing goes missing when
+          you skip a category — every uncategorised transaction is pooled into a
+          single &ldquo;Uncategorized&rdquo; line, so the slices still add up to
+          the total. But that line explains nothing, and a breakdown whose
+          largest entry is Uncategorized has answered your question with a
+          shrug.
         </p>
         <p>
           That&apos;s why entry is built to make the category cheap — one click
@@ -147,9 +150,10 @@ export default function AnalyticsPage() {
           <Link href={featureLink("transactions")} className="underline underline-offset-4">
             transactions table
           </Link>{" "}
-          is where you&apos;ll spot it — an uncategorised row shows with an empty
-          category column, so they stand out as you scan. Your categories are
-          yours to shape — see{" "}
+          is where you&apos;ll spot it — an uncategorised row reads
+          &ldquo;Uncategorized&rdquo; in the Category column, and sorting the
+          table by that column brings every one of them together, ready to be
+          filled in. Your categories are yours to shape — see{" "}
           <Link href={featureLink("categories")} className="underline underline-offset-4">
             custom categories
           </Link>

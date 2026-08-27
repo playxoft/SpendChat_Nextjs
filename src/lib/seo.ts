@@ -38,6 +38,28 @@ export const ogImage = {
 };
 
 /**
+ * An image URL made absolute for **JSON-LD**, which — unlike `metadata` — has
+ * no `metadataBase` to resolve a relative path against. Schema.org consumers
+ * want a fully-qualified URL, and a bare "/blog/x.png" is simply dropped.
+ *
+ * Only what needs the prefix gets it. `BlogMeta.image` is documented as
+ * root-relative *or* absolute, so a post pointing at a CDN would otherwise come
+ * out as "https://spendchat.apphttps://cdn.example.com/cover.png" — which
+ * Google drops just as quietly as the relative URL this exists to avoid, and
+ * nothing validates either one.
+ *
+ * It lives here rather than beside one of its callers because there are two —
+ * the blog index's `Blog` markup and the post page's `BlogPosting` — and a
+ * private copy in the first is precisely how the second was left broken.
+ */
+export function absoluteImage(image: string): string {
+  // Any scheme, plus protocol-relative "//host/...".
+  return /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(image)
+    ? image
+    : `${siteConfig.url}${image}`;
+}
+
+/**
  * Builds a page's `metadata` export.
  *
  * Use this for every new page instead of hand-writing a `Metadata` object. Two
