@@ -24,6 +24,11 @@ jobs:
       # Writing the results to the Security tab is the whole point of the job.
       security-events: write
       contents: read
+      # Required by github/codeql-action on a private repo: the action reads its
+      # own workflow run to attach the results to it. Without this the analysis
+      # completes and then fails on "Resource not accessible by integration"
+      # while uploading — a green scan reported as a red job.
+      actions: read
 
     steps:
       - name: Checkout
