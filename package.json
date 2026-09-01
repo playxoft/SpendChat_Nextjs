@@ -2,7 +2,7 @@
   "name": "spendchat",
   "version": "0.14.0",
   "private": true,
-  "description": "A minimal, chat-style money tracker \u2014 add, view, filter, download, and print your income and expenses.",
+  "description": "A minimal, chat-style money tracker — add, view, filter, download, and print your income and expenses.",
   "license": "AGPL-3.0-only",
   "author": "Playxoft",
   "homepage": "https://spendchat.app",
@@ -27,7 +27,7 @@
     "start": "doppler run -- next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "//typecheck:design": "Type-checks .design-sync/ (previews, provider, stubs), which `typecheck` cannot see \u2014 TypeScript's include globs skip dot-directories. Regenerates ds-entry.ts first, because the previews import the component library through it. Run before a design-system re-sync.",
+    "//typecheck:design": "Type-checks .design-sync/ (previews, provider, stubs), which `typecheck` cannot see — TypeScript's include globs skip dot-directories. Regenerates ds-entry.ts first, because the previews import the component library through it. Run before a design-system re-sync.",
     "typecheck:design": "node .design-sync/regen.mjs && tsc -p .design-sync/tsconfig.check.json",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -48,7 +48,7 @@
     "db:push:prod": "doppler run --config prd -- drizzle-kit push",
     "db:studio:dev": "doppler run --config dev -- drizzle-kit studio",
     "db:studio:prod": "doppler run --config prd -- drizzle-kit studio",
-    "//db:health": "Storage-cap check + rate-limit-log retention sweep. DELETES from ai_usage_log/email_send_log by default \u2014 pass -- --no-prune (or --dry-run) to report only. Exits 1 past --warn-at (default 80% of neon.max_cluster_size), 2 on bad usage or an unreadable cap, 3 on failure.",
+    "//db:health": "Storage-cap check + rate-limit-log retention sweep. DELETES from ai_usage_log/email_send_log by default — pass -- --no-prune (or --dry-run) to report only. Exits 1 past --warn-at (default 80% of neon.max_cluster_size), 2 on bad usage or an unreadable cap, 3 on failure.",
     "db:health:dev": "doppler run --config dev -- node scripts/db-health.mjs",
     "db:health:prod": "doppler run --config prd -- node scripts/db-health.mjs",
     "kill-port": "lsof -ti:3010 | xargs kill -9"
@@ -92,7 +92,7 @@
     "@neondatabase/serverless": "^1.1.0",
     "@tailwindcss/cli": "4.3.1",
     "@tailwindcss/postcss": "^4",
-    "@types/node": "^20",
+    "@types/node": "^22",
     "@types/pg": "^8.20.0",
     "@types/react": "^19",
     "@types/react-dom": "^19",
@@ -107,12 +107,12 @@
     "wrangler": "^4.101.0"
   },
   "pnpm": {
-    "//overrides": "Transitive packages our dependencies still pin below a security advisory. EVERY entry here stays inside the dependent's declared major, because an override that crosses one silently breaks the dependent: an earlier version of this block forced protobufjs 8 onto @grpc/proto-loader, which declares ^7.2.5. Re-derive the list after any dependency change rather than carrying it forward \u2014 removing firebase-admin alone made five of the original nine entries unnecessary. DELIBERATELY NOT OVERRIDDEN: esbuild. Both of its advisories are esbuild's own dev server (a CORS hole, and a Windows file read); wrangler and drizzle-kit use it as a library and never start that server, and wrangler pins esbuild to an exact 0.27.3 because it drives the plugin API \u2014 so the override would risk the deploy toolchain to silence something that cannot affect us.",
+    "//overrides": "Transitive packages our dependencies still pin below a security advisory. EVERY entry is bounded to the dependent's declared major (0.x: to its minor), because an unbounded override silently breaks the dependent the day a new major ships: an earlier version of this block forced protobufjs 8 onto @grpc/proto-loader, which declares ^7.2.5. Re-derive the list after any dependency change rather than carrying it forward — removing firebase-admin alone made five of the original nine entries unnecessary. DELIBERATELY NOT OVERRIDDEN: esbuild. Both of its advisories are esbuild's own dev server (a CORS hole, and a Windows file read); wrangler and drizzle-kit use it as a library and never start that server, and wrangler pins esbuild to an exact 0.27.3 because it drives the plugin API — so the override would risk the deploy toolchain to silence something that cannot affect us.",
     "overrides": {
-      "postcss": ">=8.5.23",
-      "sharp": ">=0.35.0",
-      "undici": ">=7.29.0",
-      "ws@>=8.0.0 <8.21.0": ">=8.21.0"
+      "postcss": "^8.5.23",
+      "sharp": ">=0.35.0 <0.36.0",
+      "undici": "^7.29.0",
+      "ws@>=8.0.0 <8.21.0": "^8.21.0"
     }
   }
 }

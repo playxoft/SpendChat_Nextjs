@@ -19,7 +19,7 @@ import { deleteObjects, keyFromPublicUrl } from "@/lib/r2";
 import { collectProfileObjectKeys } from "./storage-keys";
 import { assertEmailSendAllowed } from "@/lib/email-quota";
 import { siteConfig } from "@/lib/site";
-import { badRequest, validationError } from "@/lib/errors";
+import { badRequest, conflict, isForeignKeyViolation, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
 import {
@@ -208,73 +208,86 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
   // The sweep itself stays *outside*, after the commit: object storage has no
   // rollback, so deleting bytes for a transaction that then aborts would be the
   // one unrecoverable step in an otherwise recoverable operation.
-  const doomedKeys = await db.transaction(async (tx) => {
-    const owned = await tx
-      .select({ id: workspaces.id })
-      .from(workspaces)
-      .where(eq(workspaces.ownerId, userId));
-    const ownedIds = owned.map((w) => w.id);
+  let doomedKeys: { keys: (string | null)[]; workspaces: number };
+  try {
+    doomedKeys = await db.transaction(async (tx) => {
+      const owned = await tx
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.ownerId, userId));
+      const ownedIds = owned.map((w) => w.id);
 
-    // Every R2 key this account is about to strand, read BEFORE the deletes:
-    // nothing cascades in object storage, so once the rows are gone the bytes
-    // are unreachable — no screen can list them, no later sweep can find them —
-    // while still being stored and still being billed. For a vault that holds
-    // title deeds and certificates, "unreachable" is emphatically not
-    // "deleted", and an erasure request has to mean the bytes as well.
-    const keys: (string | null)[] = [];
+      // Every R2 key this account is about to strand, read BEFORE the deletes:
+      // nothing cascades in object storage, so once the rows are gone the bytes
+      // are unreachable — no screen can list them, no later sweep can find them —
+      // while still being stored and still being billed. For a vault that holds
+      // title deeds and certificates, "unreachable" is emphatically not
+      // "deleted", and an erasure request has to mean the bytes as well.
+      const keys: (string | null)[] = [];
 
-    if (ownedIds.length > 0) {
-      const ownedProfiles = await tx
-        .select({ id: profiles.id })
-        .from(profiles)
-        .where(inArray(profiles.workspaceId, ownedIds));
-      const profileIds = ownedProfiles.map((p) => p.id);
-      if (profileIds.length > 0) {
-        keys.push(...(await collectProfileObjectKeys(tx, profileIds)));
-        await tx.delete(transactions).where(inArray(transactions.profileId, profileIds));
-        await tx.delete(profiles).where(inArray(profiles.id, profileIds));
+      if (ownedIds.length > 0) {
+        const ownedProfiles = await tx
+          .select({ id: profiles.id })
+          .from(profiles)
+          .where(inArray(profiles.workspaceId, ownedIds));
+        const profileIds = ownedProfiles.map((p) => p.id);
+        if (profileIds.length > 0) {
+          keys.push(...(await collectProfileObjectKeys(tx, profileIds)));
+          await tx.delete(transactions).where(inArray(transactions.profileId, profileIds));
+          await tx.delete(profiles).where(inArray(profiles.id, profileIds));
+        }
       }
+
+      // Attachments on transactions this user authored in *other people's*
+      // workspaces. The rows cascade off the transaction delete below; the objects
+      // are this account's to take with it, since the transaction was.
+      const authoredElsewhere = await tx
+        .select({
+          r2Key: transactionAttachments.r2Key,
+          thumbnailKey: transactionAttachments.thumbnailKey,
+        })
+        .from(transactionAttachments)
+        .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
+        .where(eq(transactions.userId, userId));
+      keys.push(...authoredElsewhere.flatMap((r) => [r.r2Key, r.thumbnailKey]));
+
+      // The avatar: the one stored object that is a picture of the person, and
+      // the one the first version of this sweep missed. It hangs off `users.image`
+      // rather than a profile, so no profile-keyed query reaches it, and the row
+      // holding the only pointer to it is deleted below. `keyFromPublicUrl`
+      // returns null for a Google avatar seeded at sign-in, which lives in
+      // someone else's bucket and is not ours to delete.
+      const [me] = await tx
+        .select({ image: users.image })
+        .from(users)
+        .where(eq(users.id, userId));
+      if (me?.image) keys.push(keyFromPublicUrl(me.image));
+
+      // Transactions the user authored in workspaces shared with them.
+      await tx.delete(transactions).where(eq(transactions.userId, userId));
+      if (ownedIds.length > 0) {
+        // Members/invites cascade with the workspace rows.
+        await tx.delete(workspaces).where(inArray(workspaces.id, ownedIds));
+      }
+      await tx.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
+      await tx.delete(profileAccess).where(eq(profileAccess.userId, userId));
+      await tx.delete(userSettings).where(eq(userSettings.userId, userId));
+      // The identity row last (the Firebase credential is deleted client-side).
+      await tx.delete(users).where(eq(users.id, userId));
+
+      return { keys, workspaces: ownedIds.length };
+    });
+  } catch (err) {
+    // The race the comment above describes, turned into something the user can
+    // act on. `deleteProfile` does the same: the rollback means nothing was
+    // lost, so this is a retry, not a 500. Without this the person deleting
+    // their account sees an opaque failure for a situation that resolves itself
+    // on a second click.
+    if (isForeignKeyViolation(err)) {
+      throw conflict("Something was added to your account while it was being deleted — try again");
     }
-
-    // Attachments on transactions this user authored in *other people's*
-    // workspaces. The rows cascade off the transaction delete below; the objects
-    // are this account's to take with it, since the transaction was.
-    const authoredElsewhere = await tx
-      .select({
-        r2Key: transactionAttachments.r2Key,
-        thumbnailKey: transactionAttachments.thumbnailKey,
-      })
-      .from(transactionAttachments)
-      .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
-      .where(eq(transactions.userId, userId));
-    keys.push(...authoredElsewhere.flatMap((r) => [r.r2Key, r.thumbnailKey]));
-
-    // The avatar: the one stored object that is a picture of the person, and
-    // the one the first version of this sweep missed. It hangs off `users.image`
-    // rather than a profile, so no profile-keyed query reaches it, and the row
-    // holding the only pointer to it is deleted below. `keyFromPublicUrl`
-    // returns null for a Google avatar seeded at sign-in, which lives in
-    // someone else's bucket and is not ours to delete.
-    const [me] = await tx
-      .select({ image: users.image })
-      .from(users)
-      .where(eq(users.id, userId));
-    if (me?.image) keys.push(keyFromPublicUrl(me.image));
-
-    // Transactions the user authored in workspaces shared with them.
-    await tx.delete(transactions).where(eq(transactions.userId, userId));
-    if (ownedIds.length > 0) {
-      // Members/invites cascade with the workspace rows.
-      await tx.delete(workspaces).where(inArray(workspaces.id, ownedIds));
-    }
-    await tx.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
-    await tx.delete(profileAccess).where(eq(profileAccess.userId, userId));
-    await tx.delete(userSettings).where(eq(userSettings.userId, userId));
-    // The identity row last (the Firebase credential is deleted client-side).
-    await tx.delete(users).where(eq(users.id, userId));
-
-    return { keys, workspaces: ownedIds.length };
-  });
+    throw err;
+  }
 
   // After the commit, and deliberately not inside it: `deleteObjects` never
   // throws, so a bucket that is unreachable right now can't resurrect an account
@@ -285,11 +298,14 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
   const objects = doomedKeys.keys.filter((k): k is string => Boolean(k));
   await deleteObjects(objects);
   // `objects`, not the raw array: every row contributes a thumbnail slot whether
-  // or not it has one, so the unfiltered length double-counts. This number is
-  // the only thing an operator sees in BetterStack's list view, so it has to be
-  // the count of objects actually swept.
+  // or not it has one, so the unfiltered length double-counts. It is still the
+  // count *submitted*, not the count removed — `deleteObjects` de-duplicates and
+  // logs-and-continues on a failed batch — so the message says "submitted". This
+  // is the only line an operator sees in BetterStack's list view, and reading a
+  // successful sweep off a failed one is exactly the mistake to prevent; the
+  // `r2.delete_stranded` warning is what reports the failures.
   logger.info(
-    `Account deleted, removing ${doomedKeys.workspaces} owned workspace(s) and ${objects.length} stored object(s)`,
+    `Account deleted, removing ${doomedKeys.workspaces} owned workspace(s) and submitting ${objects.length} stored object(s) for deletion`,
     {
       event: "account.deleted",
       userId,

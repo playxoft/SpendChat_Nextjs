@@ -1,10 +1,10 @@
 import type { NextRequest } from "next/server";
 import { getApiContext } from "@/lib/api-auth";
 import { apiOk, handle } from "@/lib/api-response";
-import { ApiError, badRequest } from "@/lib/errors";
+import { ApiError } from "@/lib/errors";
 import { isR2Configured } from "@/lib/r2";
 import { createAttachments } from "@/services/attachments";
-import { assertUploadBodySize, parseUploadForm } from "@/lib/upload-form";
+import { readUploadForm } from "@/lib/upload-form";
 import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_PER_TRANSACTION } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -31,22 +31,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     }
     const { id } = await ctx.params;
 
-    assertUploadBodySize(request, {
-      maxFiles: ATTACHMENT_MAX_PER_TRANSACTION,
-      maxBytes: ATTACHMENT_MAX_BYTES,
-    });
-
-    let form: FormData;
-    try {
-      form = await request.formData();
-    } catch {
-      throw badRequest("Send the files as multipart form data");
-    }
-
-    const uploads = await parseUploadForm(form, {
+    const { uploads } = await readUploadForm(request, {
       maxFiles: ATTACHMENT_MAX_PER_TRANSACTION,
       maxBytes: ATTACHMENT_MAX_BYTES,
       tooManyMessage: `You can attach at most ${ATTACHMENT_MAX_PER_TRANSACTION} files at once`,
+      malformedMessage: "Send the files as multipart form data",
     });
     const attachments = await createAttachments(user.id, workspace.id, id, uploads);
     return apiOk(attachments, 201);

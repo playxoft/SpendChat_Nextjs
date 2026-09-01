@@ -242,11 +242,13 @@ export default function PrivacyPage() {
           <p>
             Connections are encrypted in transit. Every query is scoped to what your
             account is allowed to see, all input is validated, and the app sends strict
-            security headers. Files are stored in a private bucket and are never public:
-            each download is a signed link that expires in minutes. Session tokens are
-            held in httpOnly cookies your browser will not expose to scripts. No system is
-            perfectly secure, but these are the measures we take, and you can read every
-            one of them in the source.
+            security headers. Receipts and vault documents are served only through
+            signed links that expire in minutes — they are never openly listable or
+            guessable. Two things are deliberately reachable without signing in, because
+            that is what they are for: your profile picture, and any share link you
+            create. Session tokens are held in httpOnly cookies your browser will not
+            expose to scripts. No system is perfectly secure, but these are the measures
+            we take, and you can read every one of them in the source.
           </p>
         </section>
 
@@ -266,10 +268,19 @@ export default function PrivacyPage() {
               <span className="text-foreground">Erasure</span> — delete your whole account
               from <span className="text-foreground">Settings → Account</span>, without
               emailing anyone. That removes your transactions, the workspaces you own and
-              everything inside them, your uploaded files, your memberships and your
-              settings. Your sign-in credential is removed in the same step; if you have
-              been signed in a while, our authentication provider asks you to sign in once
-              more before it will do that, and the app tells you so.
+              everything you put in them (files included), your memberships and your
+              settings. Two limits worth stating plainly: content you added to a workspace
+              someone else owns stays with that workspace, because it is theirs to keep;
+              and the app tries to delete your sign-in credential in the same step, but if
+              you have been signed in a while our authentication provider refuses without
+              a fresh sign-in. If that happens, write to us at{" "}
+              <a
+                href={`mailto:${siteConfig.supportEmail}`}
+                className="text-foreground underline underline-offset-4"
+              >
+                {siteConfig.supportEmail}
+              </a>{" "}
+              and we will remove it.
             </li>
             <li>
               <span className="text-foreground">Objection and withdrawal of consent</span>{" "}

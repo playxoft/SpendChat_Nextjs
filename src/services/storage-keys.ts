@@ -38,7 +38,7 @@ export async function collectProfileObjectKeys(
   const doomedFiles = await tx
     .select({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey })
     .from(files)
-    .where(ids.length === 1 ? eq(files.profileId, ids[0]!) : inArray(files.profileId, ids));
+    .where(inArray(files.profileId, ids));
 
   const doomedAttachments = await tx
     .select({
@@ -47,11 +47,7 @@ export async function collectProfileObjectKeys(
     })
     .from(transactionAttachments)
     .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
-    .where(
-      ids.length === 1
-        ? eq(transactions.profileId, ids[0]!)
-        : inArray(transactions.profileId, ids),
-    );
+    .where(inArray(transactions.profileId, ids));
 
   return [...doomedFiles, ...doomedAttachments].flatMap((r) => [r.r2Key, r.thumbnailKey]);
 }

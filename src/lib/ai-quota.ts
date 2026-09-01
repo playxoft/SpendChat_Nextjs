@@ -16,6 +16,9 @@ import { tooManyRequests } from "@/lib/errors";
  */
 export const AI_REQUESTS_PER_HOUR = 30;
 
+/** Advisory-lock namespace, so this can't collide with `email-quota.ts`. */
+const LOCK_NAMESPACE = 1;
+
 /**
  * Per-user hourly cap on calls that reach a paid model provider, enforced
  * *before* the request and after any permission checks (denied calls must not
@@ -33,11 +36,22 @@ export const AI_REQUESTS_PER_HOUR = 30;
  * `RowExclusiveLock`, which doesn't conflict with itself. Two concurrent
  * statements both count 29, both insert, and the user is at 31.
  *
- * `pg_advisory_xact_lock` is what actually serializes them. It is keyed on the
- * user, so callers queue only behind themselves and never behind the rest of
- * the workspace, and it is released when the transaction ends — including on
- * rollback, so a failure can't strand the lock. The count and the insert then
- * run with the guarantee the naive version only claimed.
+ * A per-user advisory lock is what actually serializes them, and it is the
+ * **try** form on purpose. `pg_advisory_xact_lock` blocks with no timeout, which
+ * turns the exact burst this exists to stop into a queue: 500 simultaneous calls
+ * would each open a transaction and hold a real Neon connection while waiting
+ * for a budget that only 30 of them can have — a rate limiter that amplifies
+ * into connection exhaustion for every other user of the database.
+ * `pg_try_advisory_xact_lock` returns immediately instead, and losing the race
+ * *is* the answer: a second request arriving while this user's own check is
+ * still running is, definitionally, the concurrency the cap exists to refuse.
+ * The lock is released when the transaction ends, rollback included, so a
+ * failure can't strand it.
+ *
+ * The key is namespaced (`LOCK_NAMESPACE`, two-argument form) so this doesn't
+ * collide with `email-quota.ts`, which locks on the same user id. The two
+ * counters share nothing, and without the namespace a user's invite emails and
+ * their AI requests would block each other for no reason.
  *
  * Mirrors `assertEmailSendAllowed` in `email-quota.ts`: the log table is both
  * the audit trail and the counter. `kind` labels the call site; the budget is
@@ -51,11 +65,16 @@ export async function assertAiRequestAllowed(
 ): Promise<void> {
   const db = getDb();
   await db.transaction(async (tx) => {
-    // Taken first, so every concurrent caller for this user is behind it before
-    // any of them counts. `hashtext` maps the uuid onto the int4 key the lock
-    // takes; a collision with another user costs a moment's waiting, never a
-    // wrong answer, because the count below is still filtered by `userId`.
-    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}))`);
+    // Taken before anything is counted. `hashtext` maps the uuid onto the int4
+    // key the lock takes; a collision with another user costs one refused
+    // request, never a wrong answer, because the count below is still filtered
+    // by `userId`.
+    const [lock] = (
+      await tx.execute<{ got: boolean }>(
+        sql`select pg_try_advisory_xact_lock(${LOCK_NAMESPACE}, hashtext(${userId})) as got`,
+      )
+    ).rows;
+    if (!lock?.got) throw tooManyRequests(limitMessage);
 
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const [row] = await tx

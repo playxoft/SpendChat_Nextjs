@@ -55,3 +55,21 @@ export function validationError(message: string, details?: unknown): ApiError {
 export function tooManyRequests(message = "Too many requests — try again later"): ApiError {
   return new ApiError(429, "rate_limited", message);
 }
+
+/**
+ * A Postgres foreign-key violation (SQLSTATE 23503), unwrapped through however
+ * many layers the driver has wrapped it in.
+ *
+ * Shared by the two paths that delete profiles wholesale: both empty a profile
+ * and then delete it as separate statements (`transactions.profile_id` is ON
+ * DELETE restrict), so a row written in between makes the delete fail. Inside a
+ * transaction that rolls back cleanly, which makes it a retry rather than a
+ * 500 — but only if the caller can recognise it.
+ */
+export function isForeignKeyViolation(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e != null && depth < 5; depth++) {
+    if (typeof e === "object" && (e as { code?: unknown }).code === "23503") return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}

@@ -19,11 +19,32 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.9.5 — 2026-09-02
+
+`POST /ai/transcribe` can now answer 413.
+
+5.9.4 added a `Content-Length` guard to the two multipart *upload* endpoints and
+said so. The same guard was then added to `/ai/transcribe` — which takes the
+largest bodies in the product and should have had it first — without updating
+this spec, so 5.9.4's entry claiming "Both multipart upload endpoints" and
+"Flutter impact: none" was wrong for this route. This corrects it.
+
+A recording whose declared `Content-Length` is over the 4 MB cap is refused with
+413 `payload_too_large` before the body is read. The existing 400 for an
+oversized recording is unchanged and still applies when the client streams
+without declaring a length.
+
+**Flutter impact:** if the app branches on 400 to show "recording too long", add
+413 alongside it, or the message degrades to a generic error for large
+recordings. Both mean the same thing.
+
+---
+
 ## 5.9.4 — 2026-09-02
 
 Oversized uploads are refused before the body is read.
 
-Both multipart upload endpoints — `POST /transactions/{id}/attachments` and
+Two multipart upload endpoints — `POST /transactions/{id}/attachments` and
 `POST /files` — now check `Content-Length` against the most those limits could
 ever permit and return 413 `payload_too_large` immediately, instead of buffering
 the entire body into the Worker and rejecting it afterwards. A body far past the

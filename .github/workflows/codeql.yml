@@ -33,10 +33,11 @@ jobs:
       # Writing the results to the Security tab is the whole point of the job.
       security-events: write
       contents: read
-      # Required by github/codeql-action on a private repo: the action reads its
-      # own workflow run to attach the results to it. Without this the analysis
-      # completes and then fails on "Resource not accessible by integration"
-      # while uploading — a green scan reported as a red job.
+      # Kept for the day this repository goes public and the job above starts
+      # running. The action reads its own workflow run to attach results to it,
+      # and without this it finishes the analysis and then fails the upload with
+      # "Resource not accessible by integration" — a green scan reported as a red
+      # job, which is how this was found. Harmless while the job is skipped.
       actions: read
 
     steps:

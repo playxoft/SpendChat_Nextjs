@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import { isR2Configured } from "@/lib/r2";
 import { createAttachments } from "@/services/attachments";
-import { assertUploadBodySize, parseUploadForm } from "@/lib/upload-form";
+import { readUploadForm } from "@/lib/upload-form";
 import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_PER_TRANSACTION } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -72,27 +72,13 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     const { id } = await ctx.params;
 
     try {
-      assertUploadBodySize(request, {
-        maxFiles: ATTACHMENT_MAX_PER_TRANSACTION,
-        maxBytes: ATTACHMENT_MAX_BYTES,
-      });
-    } catch (err) {
-      return fail(err);
-    }
-
-    let form: FormData;
-    try {
-      form = await request.formData();
-    } catch {
-      return Response.json({ error: "Invalid upload." }, { status: 400 });
-    }
-
-    try {
-      // Shape/size rejections throw; `fail()` preserves their status (400/413).
-      const uploads = await parseUploadForm(form, {
+      // Size guard, body read and part parsing in one call, so a future upload
+      // route can't take the parser without the guard (see `readUploadForm`).
+      const { uploads } = await readUploadForm(request, {
         maxFiles: ATTACHMENT_MAX_PER_TRANSACTION,
         maxBytes: ATTACHMENT_MAX_BYTES,
         tooManyMessage: `You can attach at most ${ATTACHMENT_MAX_PER_TRANSACTION} files at once`,
+        malformedMessage: "Invalid upload.",
       });
       const workspace = await getCurrentWorkspace(user.id);
       setLogContext({ workspaceId: workspace.id });

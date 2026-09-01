@@ -13,7 +13,7 @@ import {
   transactions,
 } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
-import { conflict, validationError } from "@/lib/errors";
+import { conflict, isForeignKeyViolation, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { deleteObjects } from "@/lib/r2";
 import { collectProfileObjectKeys } from "./storage-keys";
@@ -48,14 +48,6 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
  * Drizzle wraps a driver error in its own query error, so the `cause` chain is
  * walked rather than just the thrown value.
  */
-function isForeignKeyViolation(err: unknown): boolean {
-  for (let e: unknown = err, depth = 0; e != null && depth < 5; depth++) {
-    if (typeof e === "object" && (e as { code?: unknown }).code === "23503") return true;
-    e = (e as { cause?: unknown }).cause;
-  }
-  return false;
-}
-
 /**
  * The profile was deleted by someone else between the access check and the
  * delete. Thrown rather than returned so the transaction rolls back: the

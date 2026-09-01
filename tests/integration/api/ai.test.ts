@@ -173,14 +173,13 @@ describe("/api/v1/ai — gating before the provider", () => {
 
     // Leave exactly one slot, then ask for twelve.
     //
-    // Read what this does and does not prove. The gate counts and inserts in
-    // ONE statement specifically so a burst can't slip past — the old
-    // read-then-insert pair let every request in a burst see the same
-    // under-limit count and pass. But PGlite is a single in-process Postgres
-    // connection and serializes every query, so this harness **cannot stage the
-    // true race**; it passes against the broken implementation too, which was
-    // checked rather than assumed. The atomicity guarantee lives in the SQL and
-    // is verified by reading it.
+    // Read what this does and does not prove. The gate takes a namespaced
+    // per-user `pg_try_advisory_xact_lock` and only then counts and inserts, so
+    // a concurrent second caller loses the lock and is refused outright. But
+    // PGlite is a single in-process connection and serializes every query, so
+    // this harness **cannot stage the true race** — it passed against the
+    // read-then-insert version too, which was checked rather than assumed. The
+    // serialization guarantee lives in the lock and is verified by reading it.
     //
     // What this does guard is the arithmetic either way: exactly one caller is
     // admitted, and the ledger ends on the cap rather than past it. A rewrite

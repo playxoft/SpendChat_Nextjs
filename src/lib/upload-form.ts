@@ -45,11 +45,15 @@ export function assertUploadBodySize(
 ): void {
   const declared = Number(request.headers.get("content-length"));
   if (!Number.isFinite(declared) || declared <= 0) return;
-  // Every file at the cap, plus multipart framing and the ordinary form fields
-  // beside them. Previews are not given a slot of their own: a batch that is all
-  // full-size files *and* all full-size previews is not a real upload, and
-  // counting it doubles the ceiling this exists to lower.
-  const limit = maxFiles * maxBytes + SLACK_BYTES;
+  // Every file at the cap, plus framing. Previews get no slot of their own: a
+  // batch that is all full-size files *and* all full-size previews is not a real
+  // upload, and counting it doubles the ceiling this exists to lower.
+  //
+  // The slack is per *additional* part, so a single-part route gets none. On a
+  // one-file route it would otherwise sit between the guard and the route's own
+  // cap, and the same user action — one oversized recording — would come back as
+  // 400 or 413 depending on which side of that gap it landed.
+  const limit = maxFiles * maxBytes + (maxFiles > 1 ? SLACK_BYTES : 0);
   if (declared > limit) {
     throw new ApiError(413, "payload_too_large", "That upload is too large");
   }
@@ -133,4 +137,36 @@ export async function parseUploadForm(
       };
     }),
   );
+}
+
+/**
+ * The one entry point every multipart upload route should use: guard the body
+ * size, read the form, and parse the file parts — in that order, together.
+ *
+ * This exists because the pieces were separate and a route forgot one. The
+ * `Content-Length` guard was wired into four routes; `/ai/transcribe`, added a
+ * commit later and carrying the largest bodies in the product, was written
+ * without it, and nothing could have caught that: the guard was a line you had
+ * to remember, not a thing the parser did. Handing back both the raw `form`
+ * (routes still need `profileId`/`folderId` off it) and the parsed parts means
+ * a new upload route gets the guard by taking the only path that parses.
+ *
+ * Every rejection throws — `handle()` maps it for the `/api/v1` routes and the
+ * cookie-session routes funnel it through their own `fail()` — so both keep the
+ * statuses they had: 413 for an oversized body or part, 400 for a bad shape.
+ */
+export async function readUploadForm(
+  request: Request,
+  options: ParseUploadFormOptions & { malformedMessage: string },
+): Promise<{ form: FormData; uploads: UploadPart[] }> {
+  assertUploadBodySize(request, options);
+
+  let form: FormData;
+  try {
+    form = await request.formData();
+  } catch {
+    throw badRequest(options.malformedMessage);
+  }
+
+  return { form, uploads: await parseUploadForm(form, options) };
 }
