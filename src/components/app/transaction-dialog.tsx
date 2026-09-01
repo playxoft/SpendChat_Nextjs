@@ -39,12 +39,7 @@ import {
 import { cn } from "@/lib/utils";
 import { addTransaction, updateTransaction, deleteTransaction } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
-import {
-  amountPlaceholder,
-  formatAmountInput,
-  integerDigitCount,
-  parseAmountInput,
-} from "@/lib/parse-amount";
+import { amountPlaceholder, formatAmountInput, integerDigitCount, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
   ATTACHMENT_MAX_PER_TRANSACTION,
@@ -348,7 +343,7 @@ export function TransactionDialog({
                   // with); reject the keystroke once the whole-number part hits the
                   // 9-digit cap. The authoritative check is still `amountSchema`.
                   onChange={(e) => {
-                    const next = e.target.value.replace(/[^\d.,\s]/g, "");
+                    const next = stripNonAmountChars(e.target.value, locale);
                     setValues((v) =>
                       integerDigitCount(next, locale) > AMOUNT_INTEGER_DIGITS_MAX
                         ? v

@@ -63,6 +63,159 @@ export function localeSeparators(locale: string = DEFAULT_LOCALE): Separators {
 }
 
 /**
+ * Every Unicode decimal digit, mapped to its ASCII counterpart.
+ *
+ * Built from `Intl.supportedValuesOf("numberingSystem")` rather than a
+ * hand-kept list of code points, so a numbering system ICU knows about is one
+ * this parser accepts. ~78 systems x 10 digits, built once, and only when a
+ * non-ASCII digit actually turns up.
+ */
+let digitMap: Map<string, string> | null = null;
+
+function unicodeDigits(): Map<string, string> {
+  if (digitMap) return digitMap;
+  const map = new Map<string, string>();
+  let systems: string[] = [];
+  try {
+    systems = Intl.supportedValuesOf("numberingSystem");
+  } catch {
+    // Old runtime without `supportedValuesOf` — ASCII only, as before.
+  }
+  for (const system of systems) {
+    try {
+      const format = new Intl.NumberFormat("en", {
+        numberingSystem: system,
+        useGrouping: false,
+      });
+      for (let d = 0; d <= 9; d++) {
+        const glyph = format.format(d);
+        // Must be exactly one code point *and* a Unicode decimal digit.
+        //
+        // Both halves matter. The code-point test admits the astral digits
+        // (`mathbold`'s "𝟒") that a naive `.length === 1` would drop, and
+        // matches how the loop below walks the string. The `Nd` test keeps out
+        // `hanidec`, whose glyphs are 〇一二三…: those are positional digits in
+        // principle, but they are also ordinary CJK words, so accepting them
+        // meant `parseAmountInput("一")` returned 1 where it used to return
+        // null — and "一" is a character a Chinese or Japanese speaker types in
+        // running text. `Nd` is also exactly what `stripNonAmountChars` allows
+        // through, so the filter and the parser accept the same set rather than
+        // disagreeing about one.
+        if ([...glyph].length !== 1 || !/\p{Nd}/u.test(glyph)) continue;
+        if (!map.has(glyph)) map.set(glyph, String(d));
+      }
+    } catch {
+      // Unsupported numbering system on this runtime — skip it.
+    }
+  }
+  digitMap = map;
+  return map;
+}
+
+const nativeCache = new Map<string, Separators | null>();
+
+/**
+ * The separators a locale uses when it writes its *own* numerals.
+ *
+ * Cached like `localeSeparators`, and for a sharper reason: both callers below
+ * sit on the typing hot path — `stripNonAmountChars` runs on every keystroke in
+ * an amount field, and `parseAmountInput` on every render that reads one — so
+ * an uncached `Intl.NumberFormat` here is a formatter constructed per character.
+ */
+function nativeSeparators(locale: string): Separators | null {
+  const cached = nativeCache.get(locale);
+  if (cached !== undefined) return cached;
+
+  let separators: Separators | null = null;
+  try {
+    const parts = new Intl.NumberFormat(locale).formatToParts(12345.6);
+    const group = parts.find((p) => p.type === "group")?.value;
+    const decimal = parts.find((p) => p.type === "decimal")?.value;
+    if (group && decimal && group !== decimal) separators = { group, decimal };
+  } catch {
+    // Unknown/malformed locale tag.
+  }
+  nativeCache.set(locale, separators);
+  return separators;
+}
+
+const ASCII_AMOUNT = /^[\d\s.,+-]*$/;
+
+/**
+ * Rewrite an amount the way the rest of this module expects to read it: ASCII
+ * digits, and the locale's Latin-numeral separators.
+ *
+ * This is the other half of the `latn` pin in `money.ts`. Pinning the formatter
+ * fixed what the app *writes* into an amount field; a person typing on their
+ * own keyboard writes the other direction. Without this an `ar-EG` user — the
+ * exact case that fix exists for — types "٤٠٫٠٠" and every path here rejects
+ * it, so the row prefills correctly and still cannot be retyped.
+ *
+ * Both halves move: the digits (Arabic-Indic "٤" to "4") and the separators
+ * (U+066B ARABIC DECIMAL SEPARATOR to the "." that `localeSeparators` reports
+ * for the same locale). One pass, so a mapped character is never re-read.
+ */
+export function normalizeNumerals(
+  raw: string,
+  locale: string = DEFAULT_LOCALE,
+): string {
+  // Overwhelmingly the common case, and worth not building the map for.
+  if (ASCII_AMOUNT.test(raw)) return raw;
+
+  const digits = unicodeDigits();
+  const latn = localeSeparators(locale);
+  const native = nativeSeparators(locale);
+
+  let out = "";
+  for (const ch of raw) {
+    const digit = digits.get(ch);
+    if (digit !== undefined) {
+      out += digit;
+    } else if (native && ch === native.decimal && ch !== latn.decimal) {
+      out += latn.decimal;
+    } else if (native && ch === native.group && ch !== latn.group) {
+      out += latn.group;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+/**
+ * Strip everything that can't be part of a typed amount, for the `onChange` of
+ * an amount field.
+ *
+ * Lives here rather than in each input because there are five of them (the
+ * composer's two, the edit dialog, the AI review grid, the bulk grid) and they
+ * were five copies of `/[^\d.,\s]/g` — an ASCII-only class that silently ate
+ * every keystroke from an Arabic, Devanagari or Bengali keyboard. `\p{Nd}`
+ * keeps the digit, and `normalizeNumerals` turns it into something
+ * `parseAmountInput` can read.
+ */
+const stripCache = new Map<string, RegExp>();
+
+export function stripNonAmountChars(
+  value: string,
+  locale: string = DEFAULT_LOCALE,
+): string {
+  // Compiled once per locale — this runs on every keystroke.
+  let disallowed = stripCache.get(locale);
+  if (!disallowed) {
+    const native = nativeSeparators(locale);
+    const extra = native ? native.group + native.decimal : "";
+    const escaped = extra.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+    disallowed = new RegExp(`[^\\p{Nd}.,\\s${escaped}]`, "gu");
+    stripCache.set(locale, disallowed);
+  }
+  // `lastIndex` doesn't survive a `g` regex between calls of `replace`, which
+  // resets it — but the instance is shared, so this is stated rather than
+  // assumed.
+  disallowed.lastIndex = 0;
+  return value.replace(disallowed, "");
+}
+
+/**
  * Count the digits in the whole-number part of a typed amount, locale-aware:
  * everything before the first decimal separator, with grouping ignored. Amount
  * inputs use this to stop typing once the whole-number part hits the digit cap
@@ -73,8 +226,11 @@ export function integerDigitCount(
   locale: string = DEFAULT_LOCALE,
 ): number {
   const { decimal } = localeSeparators(locale);
-  const decimalAt = value.indexOf(decimal);
-  const intPart = decimalAt === -1 ? value : value.slice(0, decimalAt);
+  // Normalised first, so a cap meant to stop at 12 digits doesn't let 20
+  // through the moment they're typed in Devanagari.
+  const normalized = normalizeNumerals(value, locale);
+  const decimalAt = normalized.indexOf(decimal);
+  const intPart = decimalAt === -1 ? normalized : normalized.slice(0, decimalAt);
   return (intPart.match(/\d/g) ?? []).length;
 }
 
@@ -110,7 +266,10 @@ export function parseAmountInput(
   const { group, decimal } = localeSeparators(locale);
   const groupIsSpace = SPACE_ONE.test(group);
 
-  let s = raw.trim();
+  // Before the sign, the separators or the digit check — all three are written
+  // in ASCII and would reject a perfectly valid amount typed in the locale's
+  // own numerals.
+  let s = normalizeNumerals(raw, locale).trim();
   if (!s) return null;
 
   // Leading sign (only one, only up front).

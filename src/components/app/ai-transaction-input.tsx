@@ -24,12 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getCurrency } from "@/lib/currencies";
-import {
-  amountPlaceholder,
-  formatAmountInput,
-  integerDigitCount,
-  parseAmountInput,
-} from "@/lib/parse-amount";
+import { amountPlaceholder, formatAmountInput, integerDigitCount, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 import {
   addBulkTransactions,
   parseTransactionsWithAI,
@@ -830,7 +825,7 @@ export function AiTransactionInput({
                     // is then silently dropped by `createBulkFromDrafts`, so the
                     // user is told "Added 4" after confirming 5.
                     onChange={(e) => {
-                      const next = e.target.value.replace(/[^\d.,\s]/g, "");
+                      const next = stripNonAmountChars(e.target.value, locale);
                       if (integerDigitCount(next, locale) > AMOUNT_INTEGER_DIGITS_MAX) return;
                       patch(r.key, { amount: next });
                     }}

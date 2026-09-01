@@ -28,12 +28,7 @@ import { PageAttachmentDrop } from "./attachments/page-attachment-drop";
 import { pickAcceptedFiles } from "./attachments/upload-client";
 import { getCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
-import {
-  amountPlaceholder,
-  formatAmountInput,
-  integerDigitCount,
-  parseAmountInput,
-} from "@/lib/parse-amount";
+import { amountPlaceholder, formatAmountInput, integerDigitCount, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 import { splitChipPaste } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -498,7 +493,7 @@ export function TransactionComposer({
         // points with (comma, period, space); the parser rejects the rest.
         // Reject the keystroke once the whole-number part hits 9 digits.
         onChange={(e) => {
-          const next = e.target.value.replace(/[^\d.,\s]/g, "");
+          const next = stripNonAmountChars(e.target.value, locale);
           setAmount((prev) =>
             integerDigitCount(next, locale) > AMOUNT_INTEGER_DIGITS_MAX ? prev : next,
           );
@@ -618,7 +613,7 @@ export function TransactionComposer({
           // the keydown handler turns them into the hand-over to the title —
           // and pasted text goes to `onChipPaste`, which splits it in two.
           onChange={(e) => {
-            const next = e.target.value.replace(/[^\d.,\s]/g, "");
+            const next = stripNonAmountChars(e.target.value, locale);
             setCombinedAmount((prev) => {
               if (integerDigitCount(next, locale) <= AMOUNT_INTEGER_DIGITS_MAX) return next;
               // Already over the cap — only a paste gets there, and it's shown

@@ -20,7 +20,7 @@ import {
 } from "./demo-data";
 import { useDemoMoney, type DemoMoneyFormat } from "@/hooks/use-demo-currency";
 import { toMinorUnits } from "@/lib/money";
-import { parseAmountInput } from "@/lib/parse-amount";
+import { parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 
 /** One reviewable draft, edited as strings — the shape the app's review step uses. */
 export type DemoDraft = {
@@ -202,7 +202,7 @@ export function DemoDraftRows({
                 inputMode="decimal"
                 value={row.amount}
                 onChange={(e) =>
-                  onPatch(row.key, { amount: e.target.value.replace(/[^\d.,\s]/g, "") })
+                  onPatch(row.key, { amount: stripNonAmountChars(e.target.value, money.locale) })
                 }
                 aria-label="Amount"
                 // Each field answers for itself. Wired to the whole-draft
