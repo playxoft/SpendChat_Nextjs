@@ -34,7 +34,7 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           # Wrangler (used by cf-typegen below) requires Node >= 22; 20 fails the
           # typegen step. 22 is current LTS and satisfies Next 16 too.
@@ -95,7 +95,7 @@ jobs:
         uses: pnpm/action-setup@v4
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
