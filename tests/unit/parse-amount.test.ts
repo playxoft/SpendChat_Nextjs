@@ -1,10 +1,5 @@
 import { describe, it, expect } from "vitest";
-import {
-  amountPlaceholder,
-  formatAmountInput,
-  localeSeparators,
-  parseAmountInput,
-} from "@/lib/parse-amount";
+import { amountPlaceholder, formatAmountInput, integerDigitCount, localeSeparators, normalizeNumerals, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 
 describe("localeSeparators", () => {
   it("reads the separators out of the locale", () => {
@@ -128,3 +123,51 @@ describe("formatAmountInput", () => {
     }
   });
 });
+
+/**
+ * The other half of the `latn` pin in `money.ts`.
+ *
+ * That fix made what the app *writes* into an amount field re-readable. This is
+ * what a person *types* on their own keyboard: without it an `ar-EG` user — the
+ * exact case the pin exists for — could open Edit on a row, see a correct
+ * "40.00", clear it, type "٤٠٫٠٠" and watch the field stay empty, with no error
+ * and nothing saved.
+ */
+describe("amounts typed in the locale's own numerals", () => {
+  it("reads Arabic-Indic, Bengali, Devanagari and Persian digits", () => {
+    expect(parseAmountInput("٤٠٫٠٠", "ar-EG")).toBe(40);
+    expect(parseAmountInput("৪০.০০", "bn-IN")).toBe(40);
+    expect(parseAmountInput("४०.००", "hi-IN")).toBe(40);
+    expect(parseAmountInput("۴۰٫۰۰", "fa-IR")).toBe(40);
+  });
+
+  it("maps the locale's own decimal and grouping separators", () => {
+    // U+066B ARABIC DECIMAL SEPARATOR and U+066C ARABIC THOUSANDS SEPARATOR.
+    expect(normalizeNumerals("٤٠٫٠٠", "ar-EG")).toBe("40.00");
+    expect(parseAmountInput("١٬٢٥٠٫٥٠", "ar-EG")).toBe(1250.5);
+  });
+
+  it("keeps the input sanitiser from eating those keystrokes", () => {
+    // The five amount fields ran `/[^\d.,\s]/g`, and JS `\d` is ASCII-only,
+    // so every one of these collapsed to "" or "." as it was typed.
+    expect(stripNonAmountChars("٤٠٫٠٠", "ar-EG")).toBe("٤٠٫٠٠");
+    expect(stripNonAmountChars("৪০.০০", "bn-IN")).toBe("৪০.০০");
+    expect(stripNonAmountChars("40.00", "en-US")).toBe("40.00");
+    // Still strips what isn't part of an amount.
+    expect(stripNonAmountChars("40abc.00", "en-US")).toBe("40.00");
+  });
+
+  it("leaves ASCII input exactly as it was", () => {
+    expect(parseAmountInput("1,250.50", "en-US")).toBe(1250.5);
+    expect(parseAmountInput("1.250,50", "de-DE")).toBe(1250.5);
+    // Still ambiguous, still rejected — the normaliser must not loosen this.
+    expect(parseAmountInput("1,50", "en-US")).toBeNull();
+    expect(normalizeNumerals("1,250.50", "en-US")).toBe("1,250.50");
+  });
+
+  it("counts native digits against the whole-number cap", () => {
+    expect(integerDigitCount("١٢٣٤", "ar-EG")).toBe(4);
+    expect(integerDigitCount("٤٠٫٠٠", "ar-EG")).toBe(2);
+  });
+});
+

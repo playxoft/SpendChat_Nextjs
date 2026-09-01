@@ -1,5 +1,5 @@
 import { toCsv, rowsToCsv, type Cell } from "@/lib/csv";
-import { fromMinorUnits, signedMinor, formatMoney } from "@/lib/money";
+import { fromMinorUnits, signedMinor } from "@/lib/money";
 import { getCurrency } from "@/lib/currencies";
 import { formatDateLabel } from "@/lib/dates";
 import { siteConfig } from "@/lib/site";
@@ -76,9 +76,24 @@ export function transactionsToReportCsv({
     ["Date range", rangeLabel],
     [],
     // Totals up top, before the table.
-    ["Total income", formatMoney(incomeMinor, currency, locale)],
-    ["Total expense", formatMoney(expenseMinor, currency, locale)],
-    ["Net (income − expense)", formatMoney(netMinor, currency, locale)],
+    //
+    // Written the same way as the Amount column — a plain number and the
+    // currency beside it — rather than through `formatMoney`.
+    //
+    // `formatMoney` is a *display* formatter, and its output is not a number to
+    // a spreadsheet. Its negative sign is U+2212 MINUS SIGN, not ASCII "-", so
+    // Excel and Sheets read the Net cell as text: it can't be summed, compared
+    // or charted, and no error says why. Under a locale with its own numerals
+    // (`ar-EG`, `bn-IN`, `fa-IR` — real `user_settings.locale` values, set from
+    // `Accept-Language`) it also emits Arabic-Indic digits and a right-to-left
+    // mark straight into the file.
+    //
+    // This is the same split `src/lib/money.ts` documents between display and
+    // round-tripping formatters; a CSV cell is read by a machine, so it takes
+    // the round-tripping side.
+    ["Total income", fromMinorUnits(incomeMinor, currency).toFixed(decimals), currency],
+    ["Total expense", fromMinorUnits(expenseMinor, currency).toFixed(decimals), currency],
+    ["Net (income − expense)", fromMinorUnits(netMinor, currency).toFixed(decimals), currency],
     [],
     ["Date", "Type", "Category", "Title", "Amount", "Currency"],
     ...rows.map((r) => [

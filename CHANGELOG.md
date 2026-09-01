@@ -18,6 +18,31 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.13.4] — 2026-09-01
+
+### Fixed
+
+- **You can type an amount in your own numerals again.** Every amount field —
+  the composer, the edit dialog, the AI review grid, the bulk grid — filtered
+  keystrokes through a rule that only recognised the digits 0-9, so an Arabic,
+  Persian, Devanagari or Bengali keyboard produced nothing at all: no character
+  appeared, and no error said why. The row would show you a perfectly correct
+  "٤٠٫٠٠" and then refuse to let you retype it. Amounts now accept any numeral
+  system, including the locale's own decimal and grouping separators, and are
+  read back the same way. This is the half that was missing from 0.13.2's fix
+  for saving a prefilled amount in those locales.
+- **Totals in a downloaded report are numbers your spreadsheet can add up.**
+  The three totals at the top of the CSV were written as display text: the
+  negative sign was U+2212 MINUS SIGN rather than an ASCII hyphen, so Excel and
+  Sheets read the Net cell as words instead of a figure — it couldn't be summed,
+  compared or charted, and nothing explained why. Under a locale with its own
+  numerals the same cells also carried Arabic-Indic digits and a right-to-left
+  mark. They are now plain numbers with the currency in its own column, matching
+  the Amount column and the table's own footer total.
+
+  The Date column still follows your locale, including its numerals — that's
+  deliberate, and unchanged.
+
 ## [0.13.3] — 2026-09-01
 
 ### Fixed

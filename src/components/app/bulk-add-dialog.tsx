@@ -26,11 +26,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Kbd } from "@/components/ui/kbd";
 import { bulkDelimiter, parseBulk, type BulkDraft } from "@/lib/bulk-parser";
-import {
-  amountPlaceholder,
-  formatAmountInput,
-  parseAmountInput,
-} from "@/lib/parse-amount";
+import { amountPlaceholder, formatAmountInput, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 import { addBulkTransactions } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
 import { comboFor, matchesCombo } from "@/lib/shortcuts";
@@ -448,7 +444,7 @@ export function BulkAddDialog({
                           // decimal/thousands separator so text can't be entered.
                           onChange={(e) =>
                             patch(r.key, {
-                              amount: e.target.value.replace(/[^\d.,\s]/g, ""),
+                              amount: stripNonAmountChars(e.target.value, locale),
                             })
                           }
                           placeholder={placeholder}

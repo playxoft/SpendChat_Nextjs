@@ -30,7 +30,7 @@ import {
 import { useDemoFeed } from "./use-demo-feed";
 import { featurePath, getFeature } from "@/lib/features";
 import { toMinorUnits } from "@/lib/money";
-import { amountPlaceholder, parseAmountInput } from "@/lib/parse-amount";
+import { amountPlaceholder, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 import { comboFor } from "@/lib/shortcuts";
 
 /**
@@ -232,7 +232,7 @@ export function ChatDemo({
                     inputMode="decimal"
                     placeholder={amountPlaceholder(money.locale, money.currency.decimals)}
                     value={amount}
-                    onChange={(e) => setAmount(e.target.value.replace(/[^\d.,\s]/g, ""))}
+                    onChange={(e) => setAmount(stripNonAmountChars(e.target.value, money.locale))}
                     onKeyDown={onAmountKeyDown}
                     aria-label="Amount"
                     className="h-9 w-28 pl-7 tabular-nums"
