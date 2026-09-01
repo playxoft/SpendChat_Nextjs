@@ -273,29 +273,30 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
     // The identity row last (the Firebase credential is deleted client-side).
     await tx.delete(users).where(eq(users.id, userId));
 
-    logger.info(`Account deleted, removing ${ownedIds.length} owned workspace(s)`, {
-      event: "account.deleted",
-      userId,
-      workspaces: ownedIds.length,
-    });
-    return keys;
+    return { keys, workspaces: ownedIds.length };
   });
 
   // After the commit, and deliberately not inside it: `deleteObjects` never
   // throws, so a bucket that is unreachable right now can't resurrect an account
   // the user has already been told is gone. A failed sweep leaves the keys for
   // the operator, not the user.
-  const objects = doomedKeys.filter(Boolean);
+  // Logged after the commit, not inside it: a transaction that fails to commit
+  // would otherwise have already announced a deletion that did not happen.
+  const objects = doomedKeys.keys.filter((k): k is string => Boolean(k));
   await deleteObjects(objects);
-  // `objects`, not `doomedKeys`: every row contributes a thumbnail slot whether
-  // or not it has one, so the raw array double-counts. This number is the only
-  // thing an operator sees in BetterStack's list view, so it has to be the
-  // count of objects actually swept.
-  logger.info(`Swept ${objects.length} stored object(s) for the deleted account`, {
-    event: "account.objects_swept",
-    userId,
-    objects: objects.length,
-  });
+  // `objects`, not the raw array: every row contributes a thumbnail slot whether
+  // or not it has one, so the unfiltered length double-counts. This number is
+  // the only thing an operator sees in BetterStack's list view, so it has to be
+  // the count of objects actually swept.
+  logger.info(
+    `Account deleted, removing ${doomedKeys.workspaces} owned workspace(s) and ${objects.length} stored object(s)`,
+    {
+      event: "account.deleted",
+      userId,
+      workspaces: doomedKeys.workspaces,
+      objects: objects.length,
+    },
+  );
 }
 
 /**
