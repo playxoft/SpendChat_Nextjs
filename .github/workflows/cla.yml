@@ -47,7 +47,14 @@ jobs:
           path-to-signatures: "signatures/cla.json"
           path-to-document: "https://github.com/playxoft/SpendChat_Nextjs/blob/master/CLA.md"
           branch: "cla-signatures"
-          allowlist: dependabot[bot],github-actions[bot]
+          # Bots, and Playxoft's own maintainers. The CLA exists so an *outside*
+          # contributor grants Playxoft the licence it needs to ship their work
+          # in the commercial product as well as here — the copyright holder
+          # does not need to grant that to itself, and without this the owner is
+          # blocked on their own pull requests by a contract with their own
+          # company. Add a maintainer here only when their contributions already
+          # belong to Playxoft; everyone else signs.
+          allowlist: dependabot[bot],github-actions[bot],rnithin133
           # Must match CONTRIBUTING.md and CLA.md verbatim — the string in the
           # docs is the string contributors will paste.
           custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
