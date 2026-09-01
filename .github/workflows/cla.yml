@@ -1,0 +1,58 @@
+name: CLA
+
+# Gates every external pull request on a signed CLA (see CLA.md). This repo is
+# open core: the CLA is what lets Playxoft ship contributions in the commercial
+# product as well as here, so a PR merged without one is a permanent ambiguity
+# in the licence chain — not something to sort out later.
+#
+# Signatures are recorded in `signatures/cla.json` on the `cla-signatures`
+# branch, which already exists in this repository — the action fails if the
+# branch it writes to is missing, so don't delete it.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, closed, synchronize]
+
+# `pull_request_target` runs with a token that can write to this repo, so the
+# permissions are stated explicitly and kept to what recording a signature and
+# commenting on the PR actually need.
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    name: Check CLA signature
+    runs-on: ubuntu-latest
+    steps:
+      - name: CLA Assistant
+        # Skip the workflow's own bookkeeping comments, and only act on a real
+        # signature comment or a pull-request event.
+        if: >
+          (github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA')
+          || github.event_name == 'pull_request_target'
+        # Pinned to a commit SHA, not the v2.6.1 tag. This job runs on
+        # `pull_request_target` with `contents: write` and `actions: write`, in
+        # the base-repo context, for pull requests from any fork — so a retagged
+        # or compromised third-party action would execute with write access to
+        # this repository, from a PR nobody has reviewed. A tag is mutable; a
+        # SHA is not. (= v2.6.1)
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: "signatures/cla.json"
+          path-to-document: "https://github.com/playxoft/SpendChat_Nextjs/blob/master/CLA.md"
+          branch: "cla-signatures"
+          allowlist: dependabot[bot],github-actions[bot]
+          # Must match CONTRIBUTING.md and CLA.md verbatim — the string in the
+          # docs is the string contributors will paste.
+          custom-pr-sign-comment: "I have read the CLA Document and I hereby sign the CLA"
+          custom-notsigned-prcomment: >
+            Thanks for the pull request! Before it can be merged, please read our
+            [Contributor License Agreement](https://github.com/playxoft/SpendChat_Nextjs/blob/master/CLA.md)
+            and sign it by posting the comment below. You keep the copyright to your
+            work — this is a licence grant, not a transfer. Signing is needed only once.

@@ -1,0 +1,61 @@
+name: CodeQL
+
+# Static analysis for the JavaScript/TypeScript in this repo. It runs on the
+# same events as CI plus a weekly schedule, because an advisory can make code
+# that was fine last month vulnerable this month without a single commit.
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # Mondays, 06:00 UTC — off the back of the weekly Dependabot run.
+    - cron: "0 6 * * 1"
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze
+    runs-on: ubuntu-latest
+
+    # Code scanning is free on public repositories and requires the paid
+    # Advanced Security add-on on private ones. This repository is about to go
+    # public; until it does, the analysis runs to completion and then fails on
+    # the upload ("Advanced Security must be enabled"), which reads as a broken
+    # workflow rather than the billing gate it is. Skipping while private keeps
+    # the check honest, and the job starts working by itself the moment the
+    # repository is made public — no edit needed on the day.
+    if: github.event.repository.private == false
+    permissions:
+      # Writing the results to the Security tab is the whole point of the job.
+      security-events: write
+      contents: read
+      # Kept for the day this repository goes public and the job above starts
+      # running. The action reads its own workflow run to attach results to it,
+      # and without this it finishes the analysis and then fails the upload with
+      # "Resource not accessible by integration" — a green scan reported as a red
+      # job, which is how this was found. Harmless while the job is skipped.
+      actions: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          # `security-and-quality` over the default `security` — the extra
+          # queries are the ones that catch a missing await or an unused check,
+          # which in this codebase means a permission gate that never ran.
+          queries: security-and-quality
+
+      # No build step: CodeQL analyses the TypeScript sources directly, and a
+      # real `next build` here would need Doppler secrets it must not have.
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"

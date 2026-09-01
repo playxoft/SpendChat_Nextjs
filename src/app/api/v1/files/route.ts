@@ -5,7 +5,7 @@ import { ApiError, badRequest } from "@/lib/errors";
 import { parseActiveProfile } from "@/lib/filters";
 import { isR2Configured } from "@/lib/r2";
 import { VAULT_FILES_LIMIT } from "@/lib/queries";
-import { parseUploadForm } from "@/lib/upload-form";
+import { readUploadForm } from "@/lib/upload-form";
 import { getVaultWorkingSet, uploadVaultFiles } from "@/services/files";
 import { FILE_MAX_BYTES, FILE_MAX_PER_UPLOAD, STORAGE_QUOTA_BYTES } from "@/lib/validation";
 
@@ -60,12 +60,12 @@ export async function POST(request: NextRequest) {
       throw new ApiError(503, "storage_unavailable", "File uploads aren't configured on this server.");
     }
 
-    let form: FormData;
-    try {
-      form = await request.formData();
-    } catch {
-      throw badRequest("Send the files as multipart form data");
-    }
+    const { form, uploads } = await readUploadForm(request, {
+      maxFiles: FILE_MAX_PER_UPLOAD,
+      maxBytes: FILE_MAX_BYTES,
+      tooManyMessage: `You can upload at most ${FILE_MAX_PER_UPLOAD} files at once`,
+      malformedMessage: "Send the files as multipart form data",
+    });
 
     const profileId = form.get("profileId");
     if (typeof profileId !== "string" || !profileId) {
@@ -74,11 +74,6 @@ export async function POST(request: NextRequest) {
     const folderRaw = form.get("folderId");
     const folderId = typeof folderRaw === "string" && folderRaw ? folderRaw : null;
 
-    const uploads = await parseUploadForm(form, {
-      maxFiles: FILE_MAX_PER_UPLOAD,
-      maxBytes: FILE_MAX_BYTES,
-      tooManyMessage: `You can upload at most ${FILE_MAX_PER_UPLOAD} files at once`,
-    });
     const created = await uploadVaultFiles(user.id, workspace.id, { profileId, folderId }, uploads);
     return apiOk(created, 201);
   });

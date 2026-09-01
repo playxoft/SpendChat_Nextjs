@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 5.9.3.** Every API change bumps this version and is logged
+**API spec version: 5.9.5.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -55,7 +55,7 @@ Every JSON response uses one of two shapes:
 | `conflict` | 409 | Duplicate name; last profile; non-empty profile delete; email already registered with a different sign-in method (unverified email only — see § Authentication) |
 | `validation_error` | 422 | Zod validation failed (`details` = field→message) |
 | `rate_limited` | 429 | Shared per-user AI quota spent (30 calls/hour across `/ai/*`) |
-| `payload_too_large` | 413 | An uploaded attachment file exceeds 5 MB |
+| `payload_too_large` | 413 | An uploaded attachment file exceeds 5 MB, or the whole request body is larger than the endpoint's limits could ever allow (rejected from `Content-Length`, before the body is read) |
 | `storage_quota_exceeded` | 413 | The upload would push the workspace past its 1 GB storage quota (message says how much space remains — displayable as-is) |
 | `ai_failed` | 502 | The upstream AI model provider errored — retry is reasonable |
 | `ai_unavailable` | 503 | That AI feature's model isn't configured on the server (feature off) |
@@ -525,7 +525,7 @@ that feature's model isn't configured (treat as feature-off, like the web);
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `POST /ai/parse` | `{ text, timezone? }` — text ≤ 2000 chars; timezone = IANA device zone (omitted → UTC) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `#Category` tags a category, `(parens)` → description, relative dates resolve against `timezone`. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…") |
-| `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) | 200 `data: { text }` | Voice note → transcript (≤ 1200 chars) for the composer; user fixes it, then it goes through `/ai/parse` like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB (~1 min — cap recording at 60 s). Languages guided by `settings.voiceLanguages`; amounts come back as digits. 400 bad/empty/oversized audio or no speech — a 400 on format/size/emptiness costs **no quota slot** (those checks precede the role + quota gates), so retrying is free |
+| `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) | 200 `data: { text }` | Voice note → transcript (≤ 1200 chars) for the composer; user fixes it, then it goes through `/ai/parse` like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB (~1 min — cap recording at 60 s). Languages guided by `settings.voiceLanguages`; amounts come back as digits. **413** when the request's `Content-Length` alone exceeds 4 MB (refused before the body is read); 400 bad/empty/oversized audio or no speech — a 400 on format/size/emptiness costs **no quota slot** (those checks precede the role + quota gates), so retrying is free. 413 and 400 mean the same thing here (recording too long) and differ only in whether the client declared its size |
 
 ### Categories (scoped to the current workspace via `X-Workspace-Id`)
 Shared by every member of the workspace. Reads need workspace access; writes

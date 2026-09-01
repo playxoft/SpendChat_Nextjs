@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
 import { setLogContext } from "@/lib/log-context";
+import { assertUploadBodySize } from "@/lib/upload-form";
 import { withRequestContext } from "@/lib/request-context";
 import { describeError, logger } from "@/lib/logger";
 import {
@@ -64,6 +65,12 @@ export async function POST(request: NextRequest) {
         { error: "Image uploads aren't configured on this server." },
         { status: 503 },
       );
+    }
+
+    try {
+      assertUploadBodySize(request, { maxFiles: 1, maxBytes: MAX_BYTES });
+    } catch {
+      return Response.json({ error: "Image must be 2 MB or smaller." }, { status: 413 });
     }
 
     let file: File | null = null;

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
 import { LogOut, Settings as SettingsIcon } from "lucide-react";
+import { GithubIcon } from "@/components/icons/github";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -15,6 +16,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { signOut } from "firebase/auth";
 import { clearSession, getFirebaseAuth } from "@/lib/firebase";
+import { siteConfig } from "@/lib/site";
 import { hrefWithProfile } from "./nav-items";
 
 export function UserMenu({
@@ -75,6 +77,28 @@ export function UserMenu({
           disabled={pending}
         >
           <LogOut className="size-4" /> Sign out
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {/*
+          The AGPL's network clause (section 13) asks a hosted copy to offer its
+          users the source, and this menu is the one piece of furniture every
+          signed-in user has on every screen — it renders in the desktop sidebar
+          and, `compact`, in the mobile topbar. The marketing footer carries the
+          same link but never appears inside /app, so on its own it reaches
+          nobody actually using the program. Keeping the offer here is also what
+          makes the promise on the landing page true for anyone who forks this
+          and deploys it.
+        */}
+        <DropdownMenuItem asChild>
+          <a
+            href={siteConfig.links.github}
+            target="_blank"
+            rel="noreferrer"
+            className="cursor-pointer"
+          >
+            <GithubIcon className="size-4" />
+            <span className="truncate">Source code · {siteConfig.license}</span>
+          </a>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

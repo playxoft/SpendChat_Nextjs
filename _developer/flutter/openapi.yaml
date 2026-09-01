@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.9.3"
+  version: "5.9.5"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -559,7 +559,13 @@ paths:
         `payload_too_large`), the workspace's **1 GB storage quota** (413
         `storage_quota_exceeded` when the batch doesn't fit), and only
         these types: JPEG, PNG, WebP, GIF, PDF, Word (doc/docx), Excel
-        (xls/xlsx), CSV, plain text (422 otherwise). The created attachments
+        (xls/xlsx), CSV, plain text (422 otherwise).
+
+        A request whose `Content-Length` alone is past what those limits could
+        ever allow is refused with 413 `payload_too_large` **before the body is
+        read**, so a client that streams a huge upload sees the rejection early
+        rather than after the transfer. Same code and status as the per-file
+        check — nothing new to handle. The created attachments
         are also embedded on the transaction (`Transaction.attachments`) from
         then on.
       requestBody:
@@ -774,6 +780,12 @@ paths:
         **5 MB per file — previews included** (413 `payload_too_large`), and
         the workspace's **1 GB storage quota** — a batch whose combined size
         doesn't fit gets 413 `storage_quota_exceeded`.
+
+        A request whose `Content-Length` alone is past what those limits could
+        ever allow is refused with 413 `payload_too_large` **before the body is
+        read**, so a client that streams a huge upload sees the rejection early
+        rather than after the transfer. Same code and status as the per-file
+        check — nothing new to handle.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1722,6 +1734,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/AiFailed" }
         "503": { $ref: "#/components/responses/AiUnavailable" }
@@ -1745,9 +1758,17 @@ paths:
         → 200000); spoken languages are transcribed as spoken (never
         translated), guided by the user's `voiceLanguages` setting.
 
-        Gates, in order: 400 (missing/empty/oversized/unsupported audio, or no
-        speech heard), 403 (viewer in this workspace), 429 (shared 30/hour AI
-        quota), 503 (transcribe model not configured), 502 (provider failed).
+        Gates, in order: 413 (the request body's `Content-Length` alone is past
+        the 4 MB cap — refused before the body is read), 400 (missing/empty/
+        oversized/unsupported audio, or no speech heard), 403 (viewer in this
+        workspace), 429 (shared 30/hour AI quota), 503 (transcribe model not
+        configured), 502 (provider failed).
+
+        The 413 and the 400 report the same thing — a recording over 4 MB — and
+        differ only in whether the client declared the size up front. A client
+        that sends `Content-Length` gets the 413 without uploading; one that
+        streams without it uploads and gets the 400. Handle both as "recording
+        too long".
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:

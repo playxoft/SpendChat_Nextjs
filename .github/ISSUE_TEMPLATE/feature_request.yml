@@ -19,5 +19,8 @@ body:
   - type: markdown
     attributes:
       value: |
-        Note: MoneyTracker is intentionally minimal. Some ideas are out of scope
-        for the MVP (see the "Out of scope" section in `docs/CHECKLIST.md`).
+        Note: SpendChat is intentionally minimal — a small, fast tracker rather
+        than a full accounting package. Bank connections and aggregators are a
+        permanent non-goal: see the
+        [Privacy & security](https://spendchat.app/features/privacy-and-security)
+        page for why.

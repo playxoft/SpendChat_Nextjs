@@ -12,6 +12,22 @@ THIRD-PARTY COMPONENTS
 This repository redistributes the following third-party material, which remains
 under its own license.
 
+Emojibase
+---------
+Files:     public/emojibase/en/data.json
+           public/emojibase/en/messages.json
+Copyright: Copyright (c) 2017-2026 Miles Johnson
+License:   MIT — see https://github.com/milesj/emojibase/blob/master/LICENSE
+Source:    https://github.com/milesj/emojibase
+
+The emoji dataset the category picker searches (v16 format). Self-hosted rather
+than loaded from a CDN so the app makes no third-party request to render a
+picker, and so the format stays pinned — see src/components/ui/emoji-picker.tsx.
+
+The dataset incorporates emoji annotations from the Unicode CLDR project,
+distributed under the Unicode License Agreement — Data Files and Software
+(https://www.unicode.org/license.txt).
+
 Geist and Geist Mono
 --------------------
 Files:     .design-sync/fonts/geist-latin.woff2

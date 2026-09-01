@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import { isR2Configured } from "@/lib/r2";
 import { uploadVaultFiles } from "@/services/files";
-import { parseUploadForm } from "@/lib/upload-form";
+import { readUploadForm } from "@/lib/upload-form";
 import { FILE_MAX_BYTES, FILE_MAX_PER_UPLOAD } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -63,10 +63,18 @@ export async function POST(request: NextRequest) {
     }
 
     let form: FormData;
+    let prepared;
     try {
-      form = await request.formData();
-    } catch {
-      return Response.json({ error: "Invalid upload." }, { status: 400 });
+      // Size guard, body read and part parsing in one call, so a future upload
+      // route can't take the parser without the guard (see `readUploadForm`).
+      ({ form, uploads: prepared } = await readUploadForm(request, {
+        maxFiles: FILE_MAX_PER_UPLOAD,
+        maxBytes: FILE_MAX_BYTES,
+        tooManyMessage: `You can upload at most ${FILE_MAX_PER_UPLOAD} files at once`,
+        malformedMessage: "Invalid upload.",
+      }));
+    } catch (err) {
+      return fail(err);
     }
 
     const profileId = form.get("profileId");
@@ -77,12 +85,6 @@ export async function POST(request: NextRequest) {
     const folderId = typeof folderRaw === "string" && folderRaw ? folderRaw : null;
 
     try {
-      // Shape/size rejections throw; `fail()` preserves their status (400/413).
-      const prepared = await parseUploadForm(form, {
-        maxFiles: FILE_MAX_PER_UPLOAD,
-        maxBytes: FILE_MAX_BYTES,
-        tooManyMessage: `You can upload at most ${FILE_MAX_PER_UPLOAD} files at once`,
-      });
       const workspace = await getCurrentWorkspace(user.id);
       setLogContext({ workspaceId: workspace.id });
       const files = await uploadVaultFiles(

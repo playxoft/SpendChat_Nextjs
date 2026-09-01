@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseUploadForm } from "@/lib/upload-form";
+import { assertUploadBodySize, parseUploadForm } from "@/lib/upload-form";
 import { ApiError } from "@/lib/errors";
 
 const OPTS = { maxFiles: 3, maxBytes: 100, tooManyMessage: "Too many files" };
@@ -115,5 +115,46 @@ describe("parseUploadForm", () => {
     expect(parts).toHaveLength(1);
     expect(parts[0]!.fileName).toBe("real.pdf");
     expect(parts[0]!.thumbnail?.bytes.byteLength).toBe(7);
+  });
+});
+
+describe("assertUploadBodySize", () => {
+  const CAPS = { maxFiles: 10, maxBytes: 5 * 1024 * 1024 };
+  const req = (contentLength?: string) =>
+    new Request("http://localhost/api/files/upload", {
+      method: "POST",
+      headers: contentLength === undefined ? {} : { "content-length": contentLength },
+    });
+
+  it("lets a full-size legitimate batch through", () => {
+    // Ten files at the 5 MB cap, which is the largest real upload the vault
+    // accepts. It has to pass, or the guard breaks the feature it protects.
+    expect(() => assertUploadBodySize(req(String(10 * 5 * 1024 * 1024)), CAPS)).not.toThrow();
+  });
+
+  it("rejects a body past the cap with 413", () => {
+    expect(() => assertUploadBodySize(req(String(200 * 1024 * 1024)), CAPS)).toThrow(
+      expect.objectContaining({ status: 413, code: "payload_too_large" }),
+    );
+  });
+
+  it("passes a body with no Content-Length, and says so out loud", () => {
+    // Documented behaviour, not an oversight: a chunked upload is legal and the
+    // per-part checks downstream are the real limit. It is also why this guard
+    // is an early 413 for honest clients, NOT a defence against someone
+    // deliberately exhausting memory — they would simply omit the header.
+    expect(() => assertUploadBodySize(req(), CAPS)).not.toThrow();
+    expect(() => assertUploadBodySize(req("not-a-number"), CAPS)).not.toThrow();
+    expect(() => assertUploadBodySize(req("0"), CAPS)).not.toThrow();
+  });
+
+  it("scales with the caps it is given", () => {
+    // The transcribe route passes maxFiles: 1, so its ceiling is far lower than
+    // the vault's — the guard is not one global number.
+    const audio = { maxFiles: 1, maxBytes: 4 * 1024 * 1024 };
+    expect(() => assertUploadBodySize(req(String(4 * 1024 * 1024)), audio)).not.toThrow();
+    expect(() => assertUploadBodySize(req(String(50 * 1024 * 1024)), audio)).toThrow(
+      expect.objectContaining({ status: 413 }),
+    );
   });
 });

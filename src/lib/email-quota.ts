@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, eq, gte } from "drizzle-orm";
+import { and, count, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { emailSendLog } from "@/db/schema";
 import { tooManyRequests } from "@/lib/errors";
@@ -7,12 +7,23 @@ import { tooManyRequests } from "@/lib/errors";
 /** Max user-triggered emails (invites, notifications) one user may send per hour. */
 export const EMAIL_SENDS_PER_HOUR = 20;
 
+/** Advisory-lock namespace, distinct from `ai-quota.ts`'s. */
+const LOCK_NAMESPACE = 2;
+
 /**
  * Per-user hourly cap on user-triggered emails, enforced *before* the send and
  * after any permission checks (denied calls must not burn quota). Recipients can
  * be arbitrary addresses, so without this a single account could pump
  * phishing/spam through our verified sending domain. Records the send in
  * `email_send_log` (the audit trail *and* the counter) and throws 429 past the cap.
+ *
+ * Serialized per user with a namespaced `pg_try_advisory_xact_lock` for the
+ * reasons spelled out at length on `assertAiRequestAllowed`: neither a
+ * read-then-insert pair nor a single conditional `INSERT` actually stops
+ * concurrent callers under READ COMMITTED, and the blocking form of the lock
+ * would queue a burst instead of refusing it. What is at stake here is the
+ * reputation of the sending domain — the one thing a burst of parallel invites
+ * can burn that no later rejection wins back.
  *
  * `kind` labels the send in the log ("member_invite", "password_changed", …);
  * the budget is one pool per user, shared across kinds. `limitMessage` lets each
@@ -24,13 +35,22 @@ export async function assertEmailSendAllowed(
   limitMessage = "Too many emails in the last hour — try again later",
 ): Promise<void> {
   const db = getDb();
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  const [row] = await db
-    .select({ sent: count() })
-    .from(emailSendLog)
-    .where(and(eq(emailSendLog.userId, userId), gte(emailSendLog.createdAt, oneHourAgo)));
-  if ((row?.sent ?? 0) >= EMAIL_SENDS_PER_HOUR) {
-    throw tooManyRequests(limitMessage);
-  }
-  await db.insert(emailSendLog).values({ userId, kind });
+  await db.transaction(async (tx) => {
+    const [lock] = (
+      await tx.execute<{ got: boolean }>(
+        sql`select pg_try_advisory_xact_lock(${LOCK_NAMESPACE}, hashtext(${userId})) as got`,
+      )
+    ).rows;
+    if (!lock?.got) throw tooManyRequests(limitMessage);
+
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const [row] = await tx
+      .select({ sent: count() })
+      .from(emailSendLog)
+      .where(and(eq(emailSendLog.userId, userId), gte(emailSendLog.createdAt, oneHourAgo)));
+    if ((row?.sent ?? 0) >= EMAIL_SENDS_PER_HOUR) {
+      throw tooManyRequests(limitMessage);
+    }
+    await tx.insert(emailSendLog).values({ userId, kind });
+  });
 }

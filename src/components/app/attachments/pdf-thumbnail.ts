@@ -23,9 +23,25 @@ function ensureWorker() {
 export async function pdfThumbnail(file: File, size: number): Promise<Blob | null> {
   ensureWorker();
   const data = new Uint8Array(await file.arrayBuffer());
-  const loadingTask = pdfjs.getDocument({ data });
-  const doc = await loadingTask.promise;
+  // The bytes are whatever the user picked, so this parser is a trust boundary:
+  // pdf.js has shipped more than one arbitrary-execution bug reachable from a
+  // crafted document, which is why the dependency is pinned forward rather than
+  // left to float (the `isEvalSupported` escape hatch is gone from 6.3 — the
+  // eval sink it guarded was removed outright).
+  //
+  // `enableXfa` is restated rather than left to its default because the default
+  // is the only thing keeping it off: XFA is a second, far richer parser, and a
+  // thumbnail never needs it. Everything here is belt and braces over the CSP,
+  // which ships no `unsafe-eval` in production.
+  const loadingTask = pdfjs.getDocument({ data, enableXfa: false });
+  // `await loadingTask.promise` is inside the try, not above it. A hostile or
+  // merely corrupt PDF is exactly the file whose parse rejects, and with the
+  // await outside, that rejection skipped `destroy()` and leaked the task and
+  // its buffers into the shared worker — which is created once and never
+  // terminated, so they accumulate for the life of the page.
+  let doc: Awaited<typeof loadingTask.promise> | null = null;
   try {
+    doc = await loadingTask.promise;
     const page = await doc.getPage(1);
     const base = page.getViewport({ scale: 1 });
     // Scale the page so its width matches the thumbnail square.
@@ -47,7 +63,7 @@ export async function pdfThumbnail(file: File, size: number): Promise<Blob | nul
     ctx.drawImage(pageCanvas, 0, 0, size, (pageCanvas.height * size) / pageCanvas.width);
     return await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/webp", 0.72));
   } finally {
-    void doc.cleanup();
+    void doc?.cleanup();
     await loadingTask.destroy();
   }
 }
