@@ -248,12 +248,20 @@ export function ChatDemo({
                   aria-label="Title"
                   className="h-9 min-w-0 flex-1"
                 />
+                {/*
+                  `aria-disabled`, not `disabled`: sending clears the amount,
+                  which turns this button off in the same commit — and a browser
+                  blurs a focused element the moment it becomes disabled, so a
+                  keyboard visitor was dropped to `<body>` and had to tab
+                  through the nav and hero again to add a second row. `send`
+                  already no-ops when there's nothing to send.
+                */}
                 <Button
                   type="button"
                   onClick={send}
-                  disabled={!canSend}
+                  aria-disabled={!canSend}
                   aria-label="Send transaction"
-                  className="h-9 shrink-0 gap-1.5 px-3"
+                  className="h-9 shrink-0 gap-1.5 px-3 aria-disabled:pointer-events-none aria-disabled:opacity-50"
                 >
                   <ArrowUp className="size-4" />
                   <Kbd

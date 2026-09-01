@@ -347,7 +347,12 @@ export function WorkspacesDemo() {
         </div>
       }
     >
-      <div className="h-full space-y-4 overflow-y-auto px-4 py-3">
+      <div
+        tabIndex={0}
+        role="group"
+        aria-label="Workspace members"
+        className="h-full space-y-4 overflow-y-auto px-4 py-3"
+      >
         <form
           onSubmit={handleInvite}
           className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3"

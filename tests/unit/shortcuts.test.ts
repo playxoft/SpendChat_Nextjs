@@ -11,6 +11,9 @@ import {
   normalizeKey,
   splitCombo,
   spokenShortcut,
+  matchesCombo,
+  isTypingTarget,
+  type KeyChord,
 } from "@/lib/shortcuts";
 import {
   PASSTHROUGH,
@@ -355,5 +358,93 @@ describe("spokenShortcut", () => {
   it("is not fooled by a one-letter name inside a word", () => {
     const toggle = SHORTCUTS.find((s) => s.id === "tracker.toggle-mode")!;
     expect(spokenShortcut(toggle.combo, toggle.label, false)).toBe("A");
+  });
+});
+
+
+/**
+ * `matchesCombo` is the function every live binding runs through — the one the
+ * refactor extracted out of `use-shortcut.ts` — and it had no test of its own.
+ * That mattered more than a coverage gap: inverting the `otherMod` guard, or
+ * dropping the `alt` line, left the whole suite green while ⌘E hijacked "move
+ * to end of line" inside the composer.
+ */
+function chord(over: Partial<KeyChord> & { key: string }): KeyChord {
+  return { metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...over };
+}
+
+describe("matchesCombo", () => {
+  it("matches a bare key only when no modifier is held", () => {
+    expect(matchesCombo(chord({ key: "t" }), "t", false)).toBe(true);
+    expect(matchesCombo(chord({ key: "T" }), "t", false)).toBe(true);
+    expect(matchesCombo(chord({ key: "t", ctrlKey: true }), "t", false)).toBe(false);
+    expect(matchesCombo(chord({ key: "t", shiftKey: true }), "t", false)).toBe(false);
+  });
+
+  it("reads `mod` as Cmd on a Mac and Ctrl everywhere else", () => {
+    const cmd = chord({ key: "e", metaKey: true });
+    const ctrl = chord({ key: "e", ctrlKey: true });
+    expect(matchesCombo(cmd, "mod+e", true)).toBe(true);
+    expect(matchesCombo(cmd, "mod+e", false)).toBe(false);
+    expect(matchesCombo(ctrl, "mod+e", false)).toBe(true);
+    expect(matchesCombo(ctrl, "mod+e", true)).toBe(false);
+  });
+
+  it("leaves the platform's other modifier alone", () => {
+    // macOS Ctrl+E is "move to end of line". A `mod+e` binding that fired on it
+    // would take the keystroke away from the input the visitor is typing in.
+    expect(matchesCombo(chord({ key: "e", ctrlKey: true }), "mod+e", true)).toBe(false);
+    expect(matchesCombo(chord({ key: "e", metaKey: true }), "mod+e", false)).toBe(false);
+    // Both together is neither chord.
+    expect(
+      matchesCombo(chord({ key: "e", ctrlKey: true, metaKey: true }), "mod+e", true),
+    ).toBe(false);
+  });
+
+  it("requires shift and alt to match exactly, in both directions", () => {
+    expect(matchesCombo(chord({ key: "e", ctrlKey: true, shiftKey: true }), "mod+e", false)).toBe(false);
+    expect(matchesCombo(chord({ key: "e", ctrlKey: true, altKey: true }), "mod+e", false)).toBe(false);
+    expect(matchesCombo(chord({ key: "e", ctrlKey: true }), "mod+shift+e", false)).toBe(false);
+    expect(
+      matchesCombo(chord({ key: "e", ctrlKey: true, shiftKey: true }), "mod+shift+e", false),
+    ).toBe(true);
+  });
+
+  it("takes digits from `code`, so the profile shortcuts survive a layout", () => {
+    // Shift+1 prints "!" on a US keyboard and something else elsewhere; the
+    // binding is about the physical key.
+    expect(
+      matchesCombo(chord({ key: "!", code: "Digit1", shiftKey: true }), "shift+1", false),
+    ).toBe(true);
+  });
+
+  it("matches every combo in the registry against its own keystroke", () => {
+    for (const s of SHORTCUTS) {
+      const parts = splitCombo(s.combo);
+      const key = parts[parts.length - 1];
+      const e = chord({
+        key,
+        code: /^[0-9]$/.test(key) ? `Digit${key}` : undefined,
+        metaKey: parts.includes("mod"),
+        ctrlKey: parts.includes("ctrl"),
+        shiftKey: parts.includes("shift"),
+        altKey: parts.includes("alt"),
+      });
+      expect(matchesCombo(e, s.combo, true), `${s.id} (${s.combo})`).toBe(true);
+    }
+  });
+});
+
+describe("isTypingTarget", () => {
+  it("is what keeps a bare-letter shortcut from firing mid-word", () => {
+    const el = (tag: string, contentEditable = false) =>
+      ({ tagName: tag, isContentEditable: contentEditable }) as unknown as EventTarget;
+    expect(isTypingTarget(el("INPUT"))).toBe(true);
+    expect(isTypingTarget(el("TEXTAREA"))).toBe(true);
+    expect(isTypingTarget(el("SELECT"))).toBe(true);
+    expect(isTypingTarget(el("DIV", true))).toBe(true);
+    expect(isTypingTarget(el("DIV"))).toBe(false);
+    expect(isTypingTarget(el("BUTTON"))).toBe(false);
+    expect(isTypingTarget(null)).toBe(false);
   });
 });

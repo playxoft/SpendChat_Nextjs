@@ -162,9 +162,10 @@ export default function ExportAndPrintPage() {
           writes each amount to the exact number of decimals your currency uses
           — two for dollars and euros, none for yen. Amounts are signed, so
           expenses are negative and income is positive, and the currency travels
-          in its own column. Add up the amount column in any spreadsheet and
-          you&apos;ll get the same net the app shows you, to the cent, without
-          rounding anything by hand.
+          in its own column. The amount column is always written with a dot
+          decimal rather than your locale&apos;s, so add it up and you&apos;ll
+          get the same net the app shows you, to the cent — if your spreadsheet
+          expects a comma decimal, point it at that format on import.
         </p>
       </FeatureSection>
 
@@ -235,7 +236,7 @@ export default function ExportAndPrintPage() {
           <Link href={featureLink("bulk-add")} className="underline underline-offset-4">
             pasting rows in bulk
           </Link>
-          , it leaves the same way it came.
+          , every field you pasted in is a column in the file that comes out.
         </p>
       </FeatureSection>
 

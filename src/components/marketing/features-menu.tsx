@@ -69,11 +69,16 @@ type Anchor = { top: number; left: number };
 /**
  * The desktop Features menu: a three-column directory of every feature page.
  *
- * It exists for crawl depth as much as for navigation. Feature pages are the
- * spokes of a topical cluster, and a spoke reachable only from the hub sits two
- * clicks from the homepage, which is where crawling gets thin and pages start
- * showing up in Search Console as "Discovered – currently not indexed". Linking
- * every one of them from the site-wide nav puts them all one click deep.
+ * It exists for navigation, not for crawl depth — a distinction worth stating
+ * because the opposite used to be claimed here. The panel renders only once it
+ * is open, so none of these links are in the served HTML; a crawler sees the
+ * `/features` trigger and nothing else. The spokes are reachable from the hub
+ * and from `sitemap.ts`, which is what actually gets them indexed, and they sit
+ * two clicks from the homepage rather than one.
+ *
+ * If that depth ever needs closing, the fix is real markup — the links in the
+ * footer, or the panel rendered hidden rather than conditionally — not a
+ * comment asserting a benefit this component doesn't provide.
  *
  * **The trigger is a real link, not a button.** Hovering opens the panel;
  * clicking goes to `/features`. That's what people expect from a nav item that
@@ -498,8 +503,8 @@ export function FeaturesMenu() {
  * The mobile counterpart: an indented list of every feature page, under the
  * "Features" link in the sheet. Flat rather than collapsible — a sheet the user
  * already opened deliberately shouldn't ask for a second tap to reveal its
- * contents, and the links need to be in the DOM for the same crawl reason as
- * the desktop panel.
+ * contents. Like the desktop panel this is behind an interaction — a Radix
+ * portal with no `forceMount` — so it is for people, not for crawlers.
  */
 export function FeaturesMenuMobile({ onNavigate }: { onNavigate?: () => void }) {
   const spokes = publishedFeatures();

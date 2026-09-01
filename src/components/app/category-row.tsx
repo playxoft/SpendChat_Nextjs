@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { ChevronDown, Tags } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,7 @@ export function CategoryRow({
   dense?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
+  const reduced = useReducedMotion();
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const selected = value ? (categories.find((c) => c.id === value) ?? null) : null;
 
@@ -60,8 +62,13 @@ export function CategoryRow({
     // whichever ancestor happens to be positioned — not necessarily this strip.
     const left =
       box.scrollLeft + (chip.left - boxRect.left) - (boxRect.width - chip.width) / 2;
-    box.scrollTo({ left: Math.max(0, left), behavior: "smooth" });
-  }, [value]);
+    // A `behavior` passed here wins over the stylesheet's reduced-motion
+    // `scroll-behavior: auto`, so the preference has to be read in JS.
+    box.scrollTo({
+      left: Math.max(0, left),
+      behavior: reduced ? "auto" : "smooth",
+    });
+  }, [reduced, value]);
 
   // Full-list grid + "Edit categories" — shared by the "More" popover and the
   // compact tag-icon picker.

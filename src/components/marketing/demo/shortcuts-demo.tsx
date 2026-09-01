@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useRef, useState } from "react";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { LayoutGrid, Mic, MousePointerClick } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
@@ -99,6 +100,7 @@ const ALL_PROFILES = "All profiles";
 
 export function ShortcutsDemo() {
   const isMac = useIsMac();
+  const reduced = useReducedMotion();
 
   const [activeHref, setActiveHref] = useState<string>(navItems[0].href);
   const [profile, setProfile] = useState<string>(DEMO_PROFILES[0]);
@@ -129,7 +131,14 @@ export function ShortcutsDemo() {
     const row = rowRefs.current[id];
     if (!box || !row) return;
     const top = row.offsetTop - box.clientHeight / 2 + row.clientHeight / 2;
-    box.scrollTo({ top: Math.max(0, top), behavior: "smooth" });
+    // `globals.css` forces `scroll-behavior: auto` under reduced motion, but
+    // that rule can't reach a `behavior` passed to `scrollTo` — so this is the
+    // one animation on the page that would still run for someone who asked for
+    // none, on every keystroke.
+    box.scrollTo({
+      top: Math.max(0, top),
+      behavior: reduced ? "auto" : "smooth",
+    });
   }
 
   /** Run the shortcut and say what it did. */
@@ -464,7 +473,13 @@ export function ShortcutsDemo() {
           </div>
         }
       >
-        <div ref={sheetRef} className="relative h-full overflow-y-auto px-4 py-3">
+        <div
+          ref={sheetRef}
+          tabIndex={0}
+          role="group"
+          aria-label="Keyboard shortcut list"
+          className="relative h-full overflow-y-auto px-4 py-3"
+        >
           {/* Deliberately not a heading: this sits between the page's h1 and
               its first h2, so an h3 here would put a hole in the outline. The
               text is indexed either way. */}

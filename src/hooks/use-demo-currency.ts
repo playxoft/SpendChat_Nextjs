@@ -80,10 +80,19 @@ function getSnapshot(): DemoMoneyFormat {
 
   const tags = [...(navigator.languages ?? []), navigator.language].filter(Boolean);
   let code = DEFAULT_CURRENCY;
+  // The tag the currency came from, so the number format can come from the same
+  // one. Reading the currency from the list but the format from
+  // `navigator.language` let them resolve from different tags: with
+  // `["eo", "hi-IN"]`, Esperanto has no region, so the currency falls through to
+  // INR while the format stays Esperanto — rupees grouped `40 000,00` instead of
+  // `40,000.00`, and a bulk sample written with a comma decimal that no Indian
+  // visitor would type.
+  let currencyTag: string | null = null;
   for (const tag of tags) {
     const found = currencyForCountry(regionFromLocale(tag));
     if (found) {
       code = found;
+      currencyTag = tag;
       break;
     }
   }
@@ -91,7 +100,10 @@ function getSnapshot(): DemoMoneyFormat {
   clientSnapshot = {
     code,
     currency: getCurrency(code),
-    locale: usableLocale(navigator.language) ?? DEFAULT_LOCALE,
+    locale:
+      (currencyTag ? usableLocale(currencyTag) : null) ??
+      usableLocale(navigator.language) ??
+      DEFAULT_LOCALE,
   };
   return clientSnapshot;
 }

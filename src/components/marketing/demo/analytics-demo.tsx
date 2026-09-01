@@ -255,7 +255,12 @@ export function AnalyticsDemo() {
       }
       bodyClassName="overflow-hidden"
     >
-      <div className="h-full space-y-4 overflow-y-auto px-4 py-4">
+      <div
+        tabIndex={0}
+        role="group"
+        aria-label="Analytics breakdown"
+        className="h-full space-y-4 overflow-y-auto px-4 py-4"
+      >
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard
             label="Income"

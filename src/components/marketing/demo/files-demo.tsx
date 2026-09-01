@@ -141,7 +141,19 @@ export function FilesDemo() {
                 </button>
               ))}
             </div>
-            <Button variant="outline" size="sm" className="h-8 shrink-0 gap-1.5">
+            {/*
+              Part of the replica chrome, like the CSV button on the
+              transactions demo: it says what the toolbar holds without
+              offering a control that goes nowhere. `inert` takes it out of the
+              tab order too, so a keyboard visitor doesn't land on a button
+              that swallows the keystroke.
+            */}
+            <Button
+              inert
+              variant="outline"
+              size="sm"
+              className="pointer-events-none h-8 shrink-0 gap-1.5 opacity-60"
+            >
               <Upload className="size-3.5" /> Upload
             </Button>
             <StorageRing
@@ -191,7 +203,12 @@ export function FilesDemo() {
         </div>
       }
     >
-      <div className="h-full space-y-3 overflow-y-auto px-4 py-3">
+      <div
+        tabIndex={0}
+        role="group"
+        aria-label="Files and folders"
+        className="h-full space-y-3 overflow-y-auto px-4 py-3"
+      >
         {/* Folders first, tinted with their own colour — the vault's shape. */}
         {!activeTag && !query && (
           <div className="grid gap-2 sm:grid-cols-3">

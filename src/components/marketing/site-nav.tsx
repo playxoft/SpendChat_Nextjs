@@ -171,7 +171,9 @@ export function SiteNav() {
                       </Link>
                     </SheetClose>
                     {/* Feature pages listed inline under Features, so they're
-                        one tap away on mobile and in the DOM for crawlers. */}
+                        one tap away on mobile. Inside the sheet's portal, so
+                        this renders only once the menu is open — see
+                        `FeaturesMenuMobile`. */}
                     {item.href === "/features" && (
                       <FeaturesMenuMobile onNavigate={() => setOpen(false)} />
                     )}

@@ -192,6 +192,18 @@ const CARET = "▌";
 const NAV_CLEARANCE_PX = 80;
 
 /**
+ * Below this viewport height the section stops pinning and reads as a plain
+ * stack. 44rem is a phone held sideways; at that height the heading and the
+ * widget together leave no band to read the copy in, and the frame's own
+ * `clamp` floor would sit under the pinned block rather than beside it.
+ *
+ * Kept in step with the `[@media(max-height:44rem)]` rules on the pinned block
+ * and the copy column — the CSS decides the layout, this decides whether the
+ * scroll maths that assumes a pinned layout should run at all.
+ */
+const UNPIN_BELOW_PX = 704;
+
+/**
  * The fade, as fractions of the viewport height: a block is fully opaque while
  * its centre is within `FADE_FULL` of the reading line and gone by `FADE_GONE`.
  * Blocks are ~70vh apart, so at most one is legible at a time and the handover
@@ -624,6 +636,10 @@ export function EntryMethods({ header }: { header: ReactNode }) {
     const update = () => {
       frame = 0;
       const vh = window.innerHeight;
+      // Mirrors the `max-height:44rem` rules on the pinned block and the copy
+      // column. Below it nothing is pinned, so there is no reading line to fade
+      // against and no sticky last block to place.
+      const unpinned = vh <= UNPIN_BELOW_PX;
       const copyBox = copy.getBoundingClientRect();
       const widgetBox = widget.getBoundingClientRect();
 
@@ -633,6 +649,11 @@ export function EntryMethods({ header }: { header: ReactNode }) {
       // script starts again on the way back in.
       if (copyBox.bottom < 0 || copyBox.top > vh) {
         startedRef.current = false;
+        // The beats are `setTimeout` chains several seconds long, and marking
+        // the section unplayed doesn't stop them — without this, scrolling past
+        // leaves them firing state updates into a subtree nobody can see, and
+        // the script then restarts from the top on the way back in.
+        clearTimers();
         return;
       }
 
@@ -660,7 +681,14 @@ export function EntryMethods({ header }: { header: ReactNode }) {
           nearestDistance = distance;
           nearest = i;
         }
-        if (reduced) return;
+        // Clearing rather than skipping: a viewport that shrinks past the unpin
+        // breakpoint (rotating a phone) would otherwise strand whatever opacity
+        // the last pinned frame wrote, leaving blocks half-faded in a layout
+        // that no longer fades anything.
+        if (reduced || unpinned) {
+          if (el.style.opacity !== "") el.style.opacity = "";
+          return;
+        }
         // The last method fades in and then stays. A block fades out to make
         // room for the next one, and there isn't one — fading it would leave
         // the widget demonstrating a paste with nothing left saying what the
@@ -682,7 +710,11 @@ export function EntryMethods({ header }: { header: ReactNode }) {
       // is still travelling, and a sticky top that moves while you scroll makes
       // the block crawl.
       const lastEl = blocks[blocks.length - 1];
-      if (lastEl && pinTop !== null && pinnedHeight !== null) {
+      if (unpinned) {
+        // Nothing is pinned, so parking the last block on a reading line would
+        // stick it to the top of a section that is otherwise scrolling past.
+        setLastTop((current) => (current === null ? current : null));
+      } else if (lastEl && pinTop !== null && pinnedHeight !== null) {
         const settled = beside ? pinTop : NAV_CLEARANCE_PX + pinnedHeight;
         const next = Math.round((settled + vh) / 2 - lastEl.offsetHeight / 2);
         setLastTop((current) => (current === next ? current : next));
@@ -804,7 +836,13 @@ export function EntryMethods({ header }: { header: ReactNode }) {
         // once the copy has claimed column 1 — so it invents a third column and
         // parks the whole block in the right half. Both edges stated, both
         // items explicitly placed, no auto-placement involved.
-        className="pointer-events-none sticky top-20 z-10 col-start-1 col-end-2 row-start-1 self-start lg:col-end-3"
+        // Unpinned below 44rem of viewport height. Pinning costs the copy the
+        // whole height of this block, and on a short viewport there is no band
+        // left to read in — the active method's heading ends up behind the
+        // widget with its link under the fold. Static, the section is just a
+        // heading, a widget and four blocks, which is what it degrades to
+        // without JS anyway.
+        className="pointer-events-none sticky top-20 z-10 col-start-1 col-end-2 row-start-1 self-start [@media(max-height:44rem)]:static lg:col-end-3"
       >
         {/*
           Opaque, and full width rather than the width of the text, because the
@@ -841,7 +879,15 @@ export function EntryMethods({ header }: { header: ReactNode }) {
                   pressed={stage === "bulk-importing"}
                 />
               }
-              className="h-[min(20rem,calc(100svh_-_var(--pin-top,9rem)_-_15rem))] lg:h-[min(38rem,calc(100svh_-_var(--pin-top,15rem)_-_4rem))]"
+              // `clamp`, not `min`: the subtrahends are a measured heading plus
+              // a reading band, and on a short viewport — a phone held sideways
+              // is the ordinary case — they exceed `100svh` and the frame
+              // computes negative, which CSS floors at 0. The section then
+              // scrolls four viewport-heights of copy describing a widget that
+              // isn't on screen. The lower bound keeps it present; the
+              // `max-height` rules below unpin the section at the same size, so
+              // the two together degrade it to a plain stacked read.
+              className="h-[clamp(11rem,calc(100svh_-_var(--pin-top,9rem)_-_15rem),20rem)] lg:h-[clamp(20rem,calc(100svh_-_var(--pin-top,15rem)_-_4rem),38rem)]"
               header={
                 <div className="flex shrink-0 items-start justify-between gap-3 border-b px-4 py-3">
                   <DemoSummaryBar
@@ -1062,7 +1108,10 @@ export function EntryMethods({ header }: { header: ReactNode }) {
       */}
       <div
         ref={copyRef}
-        className="col-start-1 col-end-2 row-start-1 pt-[var(--pinned-h,26rem)] lg:pt-[calc(var(--pin-top,15rem)_-_5rem)]"
+        // The padding clears the pinned block. Unpinned (see the `max-height`
+        // rule above) there is nothing overhead to clear, and keeping it would
+        // open a full widget's worth of blank space above the first method.
+        className="col-start-1 col-end-2 row-start-1 pt-[var(--pinned-h,26rem)] [@media(max-height:44rem)]:pt-0 lg:pt-[calc(var(--pin-top,15rem)_-_5rem)]"
       >
           {METHODS.map((m, i) => {
             const target = getFeature(m.slug);

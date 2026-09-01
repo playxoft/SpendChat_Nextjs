@@ -145,7 +145,13 @@ export function ProfilesDemo() {
       }
       bodyClassName="overflow-hidden"
     >
-      <div ref={scrollRef} className="h-full overflow-y-auto px-4 py-3">
+      <div
+        ref={scrollRef}
+        tabIndex={0}
+        role="group"
+        aria-label="Transaction feed"
+        className="h-full overflow-y-auto px-4 py-3"
+      >
         {/* The feed grows from the bottom, as it does in the app: the newest
             transaction sits at the bottom edge of the pane — where the app
             keeps it, just above the composer — rather than leaving a gap

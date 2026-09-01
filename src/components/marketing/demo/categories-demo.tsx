@@ -174,7 +174,12 @@ export function CategoriesDemo() {
         </div>
       }
     >
-      <div className="h-full overflow-y-auto px-4 py-3">
+      <div
+        tabIndex={0}
+        role="group"
+        aria-label="Categories"
+        className="h-full overflow-y-auto px-4 py-3"
+      >
         <ul className="space-y-1.5">
           {visible.map((c) => (
             <li

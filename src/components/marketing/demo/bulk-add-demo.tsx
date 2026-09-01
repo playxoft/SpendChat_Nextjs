@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -56,6 +56,17 @@ function sampleFor(money: DemoMoneyFormat): string {
  */
 export function BulkAddDemo() {
   const feed = useDemoFeed("Personal");
+
+  /**
+   * Keep the newest row in view. The feed is bottom-anchored in its own
+   * scroller, so an import of several rows lands below the fold while the
+   * footer reports it as added above.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [feed.txns]);
   const money = useDemoMoney();
   // `null` means "untouched", so the sample can follow the detected currency
   // once it resolves after hydration. Holding it in state instead would freeze
@@ -263,11 +274,17 @@ export function BulkAddDemo() {
               {result.errors.length > 0 &&
                 ` · ${result.errors.length} ${result.errors.length === 1 ? "line needs" : "lines need"} fixing`}
             </p>
+            {/*
+              `aria-disabled` for the same reason as the chat demo's Send:
+              importing clears the textarea, `ready` empties, and a `disabled`
+              button blurs itself out from under the keyboard visitor who just
+              pressed it. `importDrafts` already returns early on an empty list.
+            */}
             <Button
               type="button"
               onClick={importDrafts}
-              disabled={ready.length === 0}
-              className="h-9 shrink-0 gap-1.5"
+              aria-disabled={ready.length === 0}
+              className="h-9 shrink-0 gap-1.5 aria-disabled:pointer-events-none aria-disabled:opacity-50"
             >
               <ArrowUp className="size-4" />
               Import {ready.length}
@@ -276,7 +293,13 @@ export function BulkAddDemo() {
         </div>
       }
     >
-      <div className="h-full overflow-y-auto px-4 py-3">
+      <div
+        ref={scrollRef}
+        tabIndex={0}
+        role="group"
+        aria-label="Transaction feed"
+        className="h-full overflow-y-auto px-4 py-3"
+      >
         <div className="flex min-h-full flex-col justify-end">
           <DemoFeed txns={feed.txns} />
         </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowUp, Loader2, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -76,6 +76,7 @@ const ROW_STAGGER_MS = 140;
  */
 export function AiDemo() {
   const feed = useDemoFeed("Personal");
+  const { reset: resetFeed } = feed;
   const money = useDemoMoney();
   const reduced = useReducedMotion();
 
@@ -104,15 +105,32 @@ export function AiDemo() {
   const [visibleOverride, setVisibleOverride] = useState<number | null>(null);
   const visibleRows = visibleOverride ?? rows.length;
 
+  /**
+   * Keep the newest row in view. The feed is bottom-anchored inside its own
+   * scroller, so once the seeds plus a day divider exceed the frame the rows a
+   * visitor just added land below the fold — the footer says "added to the feed
+   * above" while the feed still shows yesterday. Scoped to this scroller, so it
+   * never moves the page under the reader.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [feed.txns]);
+
   /** Back to the finished state immediately — the reduced-motion path, and
    * what "Replay" falls back to when motion is off. */
   const showResult = useCallback(() => {
+    // Replaying restores the feed too. Without it a second "Add" appends
+    // another copy of the same three rows, and the balance drifts to a number
+    // the demo never meant to show.
+    resetFeed();
     setMode("ai");
     setTypedOverride(null);
     setRowsOverride(null);
     setVisibleOverride(null);
     setStage("review");
-  }, []);
+  }, [resetFeed]);
 
   /** Run the whole sequence from the top: type → parse → reveal the drafts. */
   const play = useCallback(
@@ -122,6 +140,10 @@ export function AiDemo() {
         return;
       }
 
+      // Same reason as `showResult`: a replay starts the story over, so the
+      // feed goes back to its seeds rather than keeping the rows the last run
+      // added.
+      resetFeed();
       setMode("ai");
       setRowsOverride(null);
       setVisibleOverride(0);
@@ -141,7 +163,7 @@ export function AiDemo() {
         at(reviewStart + i * ROW_STAGGER_MS, () => setVisibleOverride(i + 1));
       });
     },
-    [note, parsed, reduced, showResult],
+    [resetFeed, note, parsed, reduced, showResult],
   );
 
   // Plays once when it scrolls into view: autoplaying on mount would run the
@@ -330,7 +352,13 @@ export function AiDemo() {
           </div>
         }
       >
-        <div className="h-full overflow-y-auto px-4 py-3">
+        <div
+          ref={scrollRef}
+          tabIndex={0}
+          role="group"
+          aria-label="Transaction feed"
+          className="h-full overflow-y-auto px-4 py-3"
+        >
           {/* Bottom-anchored, like the app's chat feed. */}
           <div className="flex min-h-full flex-col justify-end">
             <DemoFeed txns={feed.txns} />

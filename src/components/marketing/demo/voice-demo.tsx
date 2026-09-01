@@ -222,6 +222,18 @@ const LEVEL_TICK_MS = 90;
  */
 export function VoiceDemo() {
   const feed = useDemoFeed("Personal");
+  const { reset: resetFeed } = feed;
+
+  /**
+   * Keep the newest row in view. The feed is bottom-anchored in its own
+   * scroller, so once the seeds exceed the frame the rows a visitor just
+   * confirmed sit below the fold while the footer says they were added above.
+   */
+  const scrollRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [feed.txns]);
   const money = useDemoMoney();
   const reduced = useReducedMotion();
 
@@ -265,6 +277,10 @@ export function VoiceDemo() {
 
   /** Jump straight to the finished state — the reduced-motion path. */
   const showResult = useCallback(() => {
+    // Replaying restores the feed too: without it a second "Add" appends
+    // another copy of the same rows and the balance drifts to a number the
+    // demo never meant to show.
+    resetFeed();
     stopLevel();
     setMode("ai");
     setNoteOverride(null);
@@ -272,7 +288,7 @@ export function VoiceDemo() {
     setVisibleOverride(null);
     setLevel(0);
     setStage("review");
-  }, [stopLevel]);
+  }, [resetFeed, stopLevel]);
 
   /** Everything after the mic is released: transcribe → parse → drafts. */
   const finish = useCallback(
@@ -346,9 +362,12 @@ export function VoiceDemo() {
         showResult();
         return;
       }
+      // Same reason as `showResult`: a replay starts the dictation over, so the
+      // feed goes back to its seeds rather than keeping the last run's rows.
+      resetFeed();
       record(at, script, true);
     },
-    [record, reduced, script, showResult],
+    [resetFeed, record, reduced, script, showResult],
   );
 
   // Plays once when it scrolls into view: autoplaying on mount would run the
@@ -585,10 +604,17 @@ export function VoiceDemo() {
                     </Button>
                   </div>
                 </div>
+                {/*
+                  Says what the app does, not what this box does. The note is
+                  `readOnly` and nothing here listens for a key, so the old
+                  "Type or hold M" invited two gestures that both did nothing —
+                  the visitor presses the key, gets no response, and concludes
+                  the feature is broken.
+                */}
                 <p className="px-0.5 text-xs text-muted-foreground">
-                  Type or hold{" "}
+                  In the app you hold{" "}
                   <Kbd combo={comboFor("tracker.voice")} className="align-middle" describe />{" "}
-                  to speak — no microphone is used in this demo.
+                  to dictate. This demo plays a recorded take — no microphone is used.
                 </p>
               </div>
             ) : (
@@ -621,7 +647,13 @@ export function VoiceDemo() {
           </div>
         }
       >
-        <div className="h-full overflow-y-auto px-4 py-3">
+        <div
+          ref={scrollRef}
+          tabIndex={0}
+          role="group"
+          aria-label="Transaction feed"
+          className="h-full overflow-y-auto px-4 py-3"
+        >
           {/* Bottom-anchored, like the app's chat feed. */}
           <div className="flex min-h-full flex-col justify-end">
             <DemoFeed txns={feed.txns} />

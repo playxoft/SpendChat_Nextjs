@@ -128,7 +128,12 @@ export function FilesPreview() {
         />
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      <div
+        tabIndex={0}
+        role="group"
+        aria-label="Files"
+        className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3"
+      >
         {/* Folders first, tinted with their own colour — the vault's shape. */}
         <div className="grid gap-2 sm:grid-cols-3">
           {DEMO_FOLDERS.map((folder) => (

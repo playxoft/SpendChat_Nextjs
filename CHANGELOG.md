@@ -18,7 +18,66 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
-## [0.13.2] — 2026-08-26
+## [0.13.3] — 2026-09-01
+
+### Fixed
+
+- **The "four ways to add a transaction" section was invisible on a phone held
+  sideways.** Its demo frame is sized against the viewport minus the pinned
+  heading, and on a short screen that subtraction went negative — which CSS
+  floors at zero. You got four screens of scrolling describing a widget that
+  wasn't there. The frame now has a floor, and below 44rem of screen height the
+  section stops pinning altogether and reads as an ordinary heading, widget and
+  four blocks — which is also what it does without JavaScript.
+- **The FAQ answers could be opened blind from the keyboard.** The expander's
+  focus ring was drawn in a colour that measures 1.54:1 against the card, under
+  the 3:1 a focus indicator has to meet, so there was no visible sign of which
+  question you were about to open. It now uses the same ring the shortcut
+  playgrounds already switched to.
+- **Sending or importing in a demo dropped your place on the page.** Both
+  buttons switch off the moment they clear the box, and a browser blurs a
+  focused button that becomes disabled — so the keyboard landed back at the top
+  of the document and you had to tab through the whole page to add a second row.
+- **Demo scroll boxes can be scrolled from the keyboard.** Firefox and Safari
+  don't make a scroll container focusable on their own, so the transaction
+  feeds, the file lists, the shortcut cheat sheet, the generated CSV and the
+  comparison table all stopped at the first screenful unless you had a mouse.
+  This covers the app's tables too.
+- **Three demos left the rows you'd just added out of sight**, below the fold of
+  their own feed, while the caption said they'd been added above.
+- **Replaying the AI and voice demos stacked duplicates.** Adding, replaying and
+  adding again piled up three, six, nine copies of the same transactions and
+  drifted the balance to a number the demo never meant to show. A replay now
+  puts the feed back.
+- Two controls invited you to use them and did nothing: the voice demo said
+  "type or hold M" over a box that is read-only and listens for no key, and the
+  files demo's Upload button was fully live with nothing behind it.
+- The settings sections on a phone had no scrollbar and nothing else to say the
+  row continued past the edge — about three of the seven fit on a narrow screen.
+- The keyboard shortcut sheet and the category strip animated their scrolling
+  even when you'd asked for reduced motion. A `behavior` passed in JavaScript
+  wins over the stylesheet, so it has to read the preference itself.
+- The demos could price themselves in one country's currency while formatting
+  the numbers for another — rupees grouped the Esperanto way, and a bulk sample
+  written with separators nobody in that country types.
+- Scrolling past the homepage's entry section left its animation timers running.
+
+### Changed
+
+- **The export page no longer promises more than the exporter does.** It said
+  any spreadsheet would add up the amount column — true only where the decimal
+  separator is a dot, since that column is always written with one — and that
+  bulk-pasted rows "leave the same way they came", which they don't: the export
+  and the bulk parser order their columns differently.
+- Ctrl+Shift+E no longer flips a row between expense and income in the bulk-add
+  grid. Plain Ctrl+E (⌘E) still does, which is what the tracker has always
+  accepted and what the hint under the grid names.
+- Nine release headings in this file described seven releases: `0.7.0` and
+  `0.8.0` were written in the same commit that set the version to `0.9.0`, so no
+  build ever carried them. They are one section now, and two headings that were
+  dated a day before the work they describe have been dated to it.
+
+## [0.13.2] — 2026-08-27
 
 ### Fixed
 
@@ -59,7 +118,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   than inside the chart's lazily-loaded bundle, so it is there before the chart
   is — and for anything that reads the page without running it.
 
-## [0.13.1] — 2026-08-23
+## [0.13.1] — 2026-08-26
 
 ### Changed
 
@@ -287,58 +346,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   sizing to their content, which made them several times taller than the app's.
 - The bulk-import preview said "1 line need fixing".
 
-## [0.9.0] — 2026-08-21
-
-### Added
-
-- **The home page now shows what the app actually does.** It described the
-  product as it stood six months ago; AI entry, voice, receipts, analytics,
-  profiles and shared workspaces were nowhere on it. New sections cover all of
-  them, plus who it's for, how it compares to bank-linking apps and
-  spreadsheets, and a keyboard-shortcut list that reads from the app's own
-  registry rather than being typed out separately.
-- **"Four ways to add a transaction"** — a tabbed section covering chat, AI,
-  voice and bulk paste. The bulk tab runs the app's real parser as you type, so
-  you can edit the pasted rows and watch them re-parse.
-- A spending breakdown with the category chart from the analytics page. The
-  numbers are also written out as a plain list, so they're readable before the
-  chart loads and to anything that never loads it.
-- The FAQ gained eight entries covering bank connections, AI, voice, profiles,
-  sharing, receipts and installation.
-
-### Fixed
-
-- **The category chart could render as an empty circle.** When it loaded late —
-  as it now does on the home page — its mount-time animation could resolve
-  against a container it hadn't measured yet and draw nothing at all. The
-  animation is now optional, and off wherever the chart arrives lazily.
-
-## [0.8.0] — 2026-08-21
-
-### Added
-
-- **Four feature pages, each with a live demo you can use without an account** —
-  chat entry, AI entry, voice entry, and profiles. The demos are built from the
-  app's own components, so what you try on the marketing site is what you get
-  after signing up: the same transaction bubbles, the same category picker, the
-  same Manual/AI toggle, the same push-to-talk mic.
-- The **voice page lets you hear the multi-language case rather than read about
-  it** — switch between English, Hinglish, Tamil-with-English and Spanish and
-  watch each one come back transcribed and split into transactions. It also
-  lists all 27 languages you can pick from.
-- The AI demo runs the whole sequence — a messy sentence typing itself out, the
-  parse, the editable drafts, the confirm — and replays on demand. It scripts a
-  fixed example rather than calling a model, and says so.
-- No microphone is ever requested by the voice demo, and nothing any demo does
-  is saved.
-
-### Changed
-
-- The AI accent gradient now has one definition instead of two near-identical
-  copies, which is what makes "there is exactly one gradient in this app"
-  enforceable.
-
-## [0.7.0] — 2026-08-21
+## [0.9.0] — 2026-08-22
 
 ### Added
 
@@ -355,11 +363,52 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - Breadcrumbs on nested marketing pages, so a search result shows
   Home › Features › … instead of a bare URL.
 
+- **Four feature pages, each with a live demo you can use without an account** —
+  chat entry, AI entry, voice entry, and profiles. The demos are built from the
+  app's own components, so what you try on the marketing site is what you get
+  after signing up: the same transaction bubbles, the same category picker, the
+  same Manual/AI toggle, the same push-to-talk mic.
+- The **voice page lets you hear the multi-language case rather than read about
+  it** — switch between English, Hinglish, Tamil-with-English and Spanish and
+  watch each one come back transcribed and split into transactions. It also
+  lists all 27 languages you can pick from.
+- The AI demo runs the whole sequence — a messy sentence typing itself out, the
+  parse, the editable drafts, the confirm — and replays on demand. It scripts a
+  fixed example rather than calling a model, and says so.
+- No microphone is ever requested by the voice demo, and nothing any demo does
+  is saved.
+
+- **The home page now shows what the app actually does.** It described the
+  product as it stood six months ago; AI entry, voice, receipts, analytics,
+  profiles and shared workspaces were nowhere on it. New sections cover all of
+  them, plus who it's for, how it compares to bank-linking apps and
+  spreadsheets, and a keyboard-shortcut list that reads from the app's own
+  registry rather than being typed out separately.
+- **"Four ways to add a transaction"** — a tabbed section covering chat, AI,
+  voice and bulk paste. The bulk tab runs the app's real parser as you type, so
+  you can edit the pasted rows and watch them re-parse.
+- A spending breakdown with the category chart from the analytics page. The
+  numbers are also written out as a plain list, so they're readable before the
+  chart loads and to anything that never loads it.
+- The FAQ gained eight entries covering bank connections, AI, voice, profiles,
+  sharing, receipts and installation.
+
 ### Changed
 
 - The `keywords` meta tag is gone from every page. Google has ignored it since
   2009 and Bing reads a stuffed one as a spam signal; the terms it listed belong
   in the page copy, which is where they now live.
+
+- The AI accent gradient now has one definition instead of two near-identical
+  copies, which is what makes "there is exactly one gradient in this app"
+  enforceable.
+
+### Fixed
+
+- **The category chart could render as an empty circle.** When it loaded late —
+  as it now does on the home page — its mount-time animation could resolve
+  against a container it hadn't measured yet and draw nothing at all. The
+  animation is now optional, and off wherever the chart arrives lazily.
 
 ## [0.6.2] — 2026-08-21
 
