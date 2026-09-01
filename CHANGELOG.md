@@ -18,6 +18,69 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-09-02
+
+Open-source readiness pass: the things that would have been wrong on the day the
+repository went public.
+
+### Security
+
+- **Next.js 16.2.9 → 16.2.12.** Picks up fixes for four high-severity advisories
+  in 16.2.x, two of them Server-Side Request Forgery in Server Actions — which
+  is most of how this app writes anything.
+- **pdf.js 6.1.200 → 6.3.289**, past the versions carrying an
+  arbitrary-JavaScript-execution bug reachable from a crafted PDF. Receipt
+  thumbnails are rendered from whatever file you pick, so that parser reads
+  hostile input by design. XFA — a second, richer parser a thumbnail never needs
+  — is now switched off explicitly rather than left to its default.
+- **Deleting your account now deletes your files.** It removed every database
+  row but nothing from object storage, so uploaded receipts and vault documents
+  stayed in the bucket after the rows that referenced them were gone —
+  unreachable from any screen, and impossible for a later sweep to find, but
+  still stored. Anything the account owned is now collected before the delete
+  and removed after it. (Deleting a single *profile* already did this.)
+- **The AI and email rate limits can no longer be beaten by sending everything
+  at once.** Both counted, then wrote, as two statements: fifty simultaneous
+  requests all read a count under the limit and all passed, which is precisely
+  the caller each limit exists to stop. Counting and writing are now one
+  statement, so the caller past the limit genuinely loses. The AI cap protects
+  the operator's model bill; the email cap protects the sending domain from
+  being used to send bulk mail.
+- Upload routes reject an oversized body from its `Content-Length` before
+  reading it, instead of buffering the whole thing into a Worker isolate and
+  rejecting it afterwards.
+
+### Changed
+
+- **The privacy policy now describes the app that exists.** It had not been
+  touched since the first week of the project and had fallen behind the product:
+  it named only two processors, said nothing about AI entry, voice entry,
+  uploaded files, share links or workspaces, and stated that your records are
+  never visible to other users — which stopped being true when workspaces
+  shipped. It now lists every third party that touches your data and what each
+  one receives, explains exactly when content reaches an AI provider (only when
+  you use AI or voice entry) and that recordings are discarded, describes what
+  workspace members and share links can see, and points at the account deletion
+  that has been in Settings for months rather than telling you to email support.
+- Every signed-in screen now offers the source code from the account menu, which
+  is what the AGPL asks a hosted copy to do — the link previously existed only
+  in the marketing footer, which never renders inside the app.
+
+### Fixed
+
+- `.env.example` was missing ten variables the app actually reads — all of R2
+  file storage, all of ZeptoMail, and `APP_ENV` — while the README claimed it
+  documented them. A fresh clone got a file vault that answered 503 and invites
+  that silently never sent, with nothing anywhere to explain why. All are now
+  documented, with a note on what breaks when each is unset, and a test fails
+  the build if the file and the code ever disagree again.
+- The launch blog post described the stack as using Neon Auth (it has been
+  Firebase Authentication since June) and carried a publication date from before
+  the project's first commit.
+- `CONTRIBUTING.md` told contributors the Doppler CLI was required. It is not —
+  it is the maintainers' secret store, and the `*:local` scripts have always
+  covered the same ground from a plain `.env.local`.
+
 ## [0.13.4] — 2026-09-01
 
 ### Fixed

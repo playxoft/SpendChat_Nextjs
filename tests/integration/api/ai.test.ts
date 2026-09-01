@@ -165,6 +165,50 @@ describe("/api/v1/ai — gating before the provider", () => {
     expect(await quotaUsed("a")).toBe(AI_REQUESTS_PER_HOUR);
   });
 
+  it("never overspends the budget when a burst arrives at once", async () => {
+    const fetchSpy = noProviderCalls();
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+
+    // Leave exactly one slot, then ask for twelve.
+    //
+    // Read what this does and does not prove. The gate counts and inserts in
+    // ONE statement specifically so a burst can't slip past — the old
+    // read-then-insert pair let every request in a burst see the same
+    // under-limit count and pass. But PGlite is a single in-process Postgres
+    // connection and serializes every query, so this harness **cannot stage the
+    // true race**; it passes against the broken implementation too, which was
+    // checked rather than assumed. The atomicity guarantee lives in the SQL and
+    // is verified by reading it.
+    //
+    // What this does guard is the arithmetic either way: exactly one caller is
+    // admitted, and the ledger ends on the cap rather than past it. A rewrite
+    // that double-inserted, or that let the rejected callers spend a slot,
+    // fails here.
+    await getTestDb()
+      .insert(aiUsageLog)
+      .values(
+        Array.from({ length: AI_REQUESTS_PER_HOUR - 1 }, () => ({
+          userId: uid("a"),
+          workspaceId: W,
+          kind: "transaction_parse",
+        })),
+      );
+
+    const results = await Promise.all(
+      Array.from({ length: 12 }, () => transcribe(audioReq(SPEECH))),
+    );
+    const statuses = results.map((r) => r.status);
+
+    // The single winner is stopped by the missing provider config (503), not by
+    // the quota — it was allowed through. Everyone else is refused.
+    expect(statuses.filter((s) => s !== 429)).toHaveLength(1);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(11);
+    expect(await quotaUsed("a")).toBe(AI_REQUESTS_PER_HOUR);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it("401s an unauthenticated caller", async () => {
     const fetchSpy = noProviderCalls();
     const req = new Request("http://localhost/api/v1/ai/transcribe", {

@@ -23,7 +23,17 @@ function ensureWorker() {
 export async function pdfThumbnail(file: File, size: number): Promise<Blob | null> {
   ensureWorker();
   const data = new Uint8Array(await file.arrayBuffer());
-  const loadingTask = pdfjs.getDocument({ data });
+  // The bytes are whatever the user picked, so this parser is a trust boundary:
+  // pdf.js has shipped more than one arbitrary-execution bug reachable from a
+  // crafted document, which is why the dependency is pinned forward rather than
+  // left to float (the `isEvalSupported` escape hatch is gone from 6.3 — the
+  // eval sink it guarded was removed outright).
+  //
+  // `enableXfa` is restated rather than left to its default because the default
+  // is the only thing keeping it off: XFA is a second, far richer parser, and a
+  // thumbnail never needs it. Everything here is belt and braces over the CSP,
+  // which ships no `unsafe-eval` in production.
+  const loadingTask = pdfjs.getDocument({ data, enableXfa: false });
   const doc = await loadingTask.promise;
   try {
     const page = await doc.getPage(1);

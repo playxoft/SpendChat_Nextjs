@@ -11,6 +11,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Least privilege for the whole workflow. Without this the job inherits the
+# repository default, which on a public repo can hand a fork's pull_request run
+# a token with more than it needs. Nothing here writes anything back to GitHub —
+# it checks out, installs and runs — so read is the whole requirement. A job
+# that ever does need more should declare it on that job, not here.
+permissions:
+  contents: read
+
 jobs:
   lint-and-typecheck:
     name: Lint & typecheck

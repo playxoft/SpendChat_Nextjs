@@ -1,7 +1,6 @@
 import "server-only";
-import { and, count, eq, gte } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { aiUsageLog } from "@/db/schema";
 import { tooManyRequests } from "@/lib/errors";
 
 /**
@@ -23,6 +22,17 @@ export const AI_REQUESTS_PER_HOUR = 30;
  * of what the UI renders, so without this one account could loop the composer's
  * AI parse and spend the operator's whole API budget.
  *
+ * **The count and the insert are one statement on purpose.** Reading the count
+ * and then inserting leaves a window every concurrent request passes through:
+ * fire fifty in parallel and all fifty see a count under the limit, so a cap of
+ * 30/hour buys nothing against the one caller it exists to stop. `assertStorage
+ * Quota` accepts that same race knowingly, but there the overshoot is bounded by
+ * a 5 MB per-file cap; here it is bounded by nothing and is billed to the
+ * operator. So the gate is an `INSERT ... SELECT ... WHERE (count) < limit`:
+ * Postgres evaluates the subquery and writes the row in a single statement, and
+ * an empty result — no row inserted — *is* the rejection. Concurrent callers
+ * serialize on the table, so the (N+1)th genuinely loses.
+ *
  * Mirrors `assertEmailSendAllowed` in `email-quota.ts`: the log table is both
  * the audit trail and the counter. `kind` labels the call site; the budget is
  * one pool per user, shared across kinds.
@@ -34,13 +44,15 @@ export async function assertAiRequestAllowed(
   limitMessage = "That's a lot of AI requests in the last hour — try again later",
 ): Promise<void> {
   const db = getDb();
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  const [row] = await db
-    .select({ used: count() })
-    .from(aiUsageLog)
-    .where(and(eq(aiUsageLog.userId, userId), gte(aiUsageLog.createdAt, oneHourAgo)));
-  if ((row?.used ?? 0) >= AI_REQUESTS_PER_HOUR) {
-    throw tooManyRequests(limitMessage);
-  }
-  await db.insert(aiUsageLog).values({ userId, workspaceId, kind });
+  const inserted = await db.execute(sql`
+    insert into ai_usage_log (user_id, workspace_id, kind)
+    select ${userId}::uuid, ${workspaceId}::uuid, ${kind}
+    where (
+      select count(*) from ai_usage_log
+      where user_id = ${userId}::uuid
+        and created_at >= now() - interval '1 hour'
+    ) < ${AI_REQUESTS_PER_HOUR}
+    returning id
+  `);
+  if (inserted.rows.length === 0) throw tooManyRequests(limitMessage);
 }

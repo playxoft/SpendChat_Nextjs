@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import { isR2Configured } from "@/lib/r2";
 import { createAttachments } from "@/services/attachments";
-import { parseUploadForm } from "@/lib/upload-form";
+import { assertUploadBodySize, parseUploadForm } from "@/lib/upload-form";
 import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_PER_TRANSACTION } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -70,6 +70,15 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     }
 
     const { id } = await ctx.params;
+
+    try {
+      assertUploadBodySize(request, {
+        maxFiles: ATTACHMENT_MAX_PER_TRANSACTION,
+        maxBytes: ATTACHMENT_MAX_BYTES,
+      });
+    } catch (err) {
+      return fail(err);
+    }
 
     let form: FormData;
     try {

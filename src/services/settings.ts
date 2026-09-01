@@ -2,8 +2,10 @@ import "server-only";
 import { eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  files,
   profileAccess,
   profiles,
+  transactionAttachments,
   transactions,
   users,
   userSettings,
@@ -14,6 +16,7 @@ import { ensureBootstrap, getUserSettings } from "@/lib/auth";
 import { requireWorkspaceRole } from "@/lib/workspaces";
 import { findUserById } from "@/lib/directory";
 import { sendEmail } from "@/lib/email";
+import { deleteObjects } from "@/lib/r2";
 import { assertEmailSendAllowed } from "@/lib/email-quota";
 import { siteConfig } from "@/lib/site";
 import { badRequest, validationError } from "@/lib/errors";
@@ -198,6 +201,14 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
     .where(eq(workspaces.ownerId, userId));
   const ownedIds = owned.map((w) => w.id);
 
+  // Every R2 key this account is about to strand. Read BEFORE the deletes, for
+  // the reason `deleteProfile` spells out at length: nothing cascades in object
+  // storage, so once the rows are gone the bytes are unreachable — no screen
+  // can list them and no later sweep can find them — while still being stored
+  // and still being billed. For a vault that holds title deeds and
+  // certificates, "unreachable" is emphatically not "deleted", and an erasure
+  // request has to mean the bytes as well as the rows.
+  const doomedKeys: (string | null)[] = [];
   if (ownedIds.length > 0) {
     const ownedProfiles = await db
       .select({ id: profiles.id })
@@ -205,10 +216,41 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
       .where(inArray(profiles.workspaceId, ownedIds));
     const profileIds = ownedProfiles.map((p) => p.id);
     if (profileIds.length > 0) {
+      const doomedFiles = await db
+        .select({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey })
+        .from(files)
+        .where(inArray(files.profileId, profileIds));
+      // Joined to the parent transaction rather than filtered on the
+      // attachment's own denormalized `profile_id`, which can be stale.
+      const doomedAttachments = await db
+        .select({
+          r2Key: transactionAttachments.r2Key,
+          thumbnailKey: transactionAttachments.thumbnailKey,
+        })
+        .from(transactionAttachments)
+        .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
+        .where(inArray(transactions.profileId, profileIds));
+      doomedKeys.push(
+        ...[...doomedFiles, ...doomedAttachments].flatMap((r) => [r.r2Key, r.thumbnailKey]),
+      );
+
       await db.delete(transactions).where(inArray(transactions.profileId, profileIds));
       await db.delete(profiles).where(inArray(profiles.id, profileIds));
     }
   }
+
+  // Attachments on transactions this user authored in *other people's*
+  // workspaces. The rows cascade off the transaction delete below; the objects
+  // are this account's to take with it, since the transaction was.
+  const authoredElsewhere = await db
+    .select({
+      r2Key: transactionAttachments.r2Key,
+      thumbnailKey: transactionAttachments.thumbnailKey,
+    })
+    .from(transactionAttachments)
+    .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
+    .where(eq(transactions.userId, userId));
+  doomedKeys.push(...authoredElsewhere.flatMap((r) => [r.r2Key, r.thumbnailKey]));
 
   // Transactions the user authored in workspaces shared with them.
   await db.delete(transactions).where(eq(transactions.userId, userId));
@@ -221,11 +263,22 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
   await db.delete(userSettings).where(eq(userSettings.userId, userId));
   // The identity row last (the Firebase account itself is deleted client-side).
   await db.delete(users).where(eq(users.id, userId));
-  logger.info(`Account deleted, removing ${ownedIds.length} owned workspace(s)`, {
-    event: "account.deleted",
-    userId,
-    workspaces: ownedIds.length,
-  });
+
+  // After the rows, and deliberately not inside them: `deleteObjects` never
+  // throws, so a bucket that is unreachable at this moment can't resurrect an
+  // account the user has already been told is gone. The keys are stranded
+  // either way; a failed sweep leaves them for the operator, not the user.
+  await deleteObjects(doomedKeys);
+
+  logger.info(
+    `Account deleted, removing ${ownedIds.length} owned workspace(s) and ${doomedKeys.length} stored object(s)`,
+    {
+      event: "account.deleted",
+      userId,
+      workspaces: ownedIds.length,
+      objects: doomedKeys.length,
+    },
+  );
 }
 
 /**

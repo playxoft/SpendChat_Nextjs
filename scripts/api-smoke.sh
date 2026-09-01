@@ -6,7 +6,7 @@
 #   scripts/api-smoke.sh [BASE_URL] [JWT]
 #
 #   BASE_URL   defaults to http://localhost:3010 (the `pnpm dev` port)
-#   JWT        optional. A real Neon Auth access token. Without it, only the
+#   JWT        optional. A real Firebase ID token. Without it, only the
 #              unauthenticated checks (expecting 401) run. With it, the full
 #              authenticated happy-path runs.
 #

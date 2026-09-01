@@ -66,6 +66,11 @@ mode = "smart"
 # treats reads as always-fresh (money data). Consumed in src/db/index.ts via
 # `env.HYPERDRIVE`.
 #
+# The `id` below is a Cloudflare resource handle, not a secret: it names a
+# config inside this account and is useless without credentials for it. It is
+# committed deliberately — a fork replaces it with its own (the command is
+# right here) rather than wondering what belongs there.
+#
 # Create the config once (prod Neon URL, from the `prd` Doppler config), then
 # paste the returned id below:
 #   doppler run --config prd -- sh -c 'npx wrangler hyperdrive create spendchat-prod \

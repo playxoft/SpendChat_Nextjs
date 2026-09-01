@@ -13,6 +13,39 @@ import { ApiError, badRequest } from "@/lib/errors";
  * statuses they had (400 for shape, 413 for size).
  */
 
+/**
+ * Reject an oversized multipart body from its `Content-Length`, **before**
+ * `request.formData()` is awaited.
+ *
+ * `parseUploadForm` already refuses a part that declares too many bytes, but by
+ * the time it can look, the runtime has read the whole body into the isolate:
+ * the per-file cap is enforced on a request that has already cost us the
+ * memory. A Worker isolate gets 128 MB, so a single authenticated caller
+ * posting a body far past what any real upload needs can push it out of memory
+ * and take the request down with it. Reading `Content-Length` first turns that
+ * into a cheap 413.
+ *
+ * The bound is what the route could legitimately accept — every file at the cap,
+ * plus a same-size preview each — with `SLACK` for multipart framing and the
+ * ordinary form fields beside the files. A body with no (or an unparseable)
+ * `Content-Length` is let through: chunked uploads are legal, and the per-part
+ * checks downstream are still the real limit. This is a floor under memory use,
+ * not the size policy.
+ */
+const SLACK_BYTES = 1024 * 1024;
+
+export function assertUploadBodySize(
+  request: Request,
+  { maxFiles, maxBytes }: { maxFiles: number; maxBytes: number },
+): void {
+  const declared = Number(request.headers.get("content-length"));
+  if (!Number.isFinite(declared) || declared <= 0) return;
+  // ×2: each file may carry a client-generated preview of its own.
+  if (declared > maxFiles * maxBytes * 2 + SLACK_BYTES) {
+    throw new ApiError(413, "payload_too_large", "That upload is too large");
+  }
+}
+
 /** One parsed part, ready for the service layer (bytes already in memory). */
 export type UploadPart = {
   fileName: string;

@@ -1,0 +1,46 @@
+# Dependency updates. The point is that a security advisory reaches us as a pull
+# request rather than as a surprise in someone else's audit — this repo ships a
+# money tracker, and "we hadn't noticed" is not an answer anyone accepts.
+#
+# Weekly rather than daily, and grouped rather than one PR per package, because
+# a wall of individual bumps is how a project learns to ignore Dependabot. The
+# security updates GitHub raises for a real advisory bypass the grouping and
+# arrive on their own, which is the behaviour worth keeping.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      # Next, React and the Cloudflare toolchain move together and are the ones
+      # that actually break a build, so they land as one reviewable PR.
+      framework:
+        patterns:
+          - "next"
+          - "eslint-config-next"
+          - "react"
+          - "react-dom"
+          - "@opennextjs/*"
+          - "wrangler"
+      dev-dependencies:
+        dependency-type: development
+      production:
+        dependency-type: production
+        exclude-patterns:
+          - "next"
+          - "eslint-config-next"
+          - "react"
+          - "react-dom"
+          - "@opennextjs/*"
+    commit-message:
+      prefix: chore
+      include: scope
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: chore

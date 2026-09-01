@@ -6,7 +6,7 @@ import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import { isR2Configured } from "@/lib/r2";
 import { uploadVaultFiles } from "@/services/files";
-import { parseUploadForm } from "@/lib/upload-form";
+import { assertUploadBodySize, parseUploadForm } from "@/lib/upload-form";
 import { FILE_MAX_BYTES, FILE_MAX_PER_UPLOAD } from "@/lib/validation";
 
 export const dynamic = "force-dynamic";
@@ -60,6 +60,15 @@ export async function POST(request: NextRequest) {
         { error: "File uploads aren't configured on this server." },
         { status: 503 },
       );
+    }
+
+    try {
+      assertUploadBodySize(request, {
+        maxFiles: FILE_MAX_PER_UPLOAD,
+        maxBytes: FILE_MAX_BYTES,
+      });
+    } catch (err) {
+      return fail(err);
     }
 
     let form: FormData;

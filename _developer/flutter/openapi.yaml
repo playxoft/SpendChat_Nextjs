@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.9.3"
+  version: "5.9.4"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -559,7 +559,13 @@ paths:
         `payload_too_large`), the workspace's **1 GB storage quota** (413
         `storage_quota_exceeded` when the batch doesn't fit), and only
         these types: JPEG, PNG, WebP, GIF, PDF, Word (doc/docx), Excel
-        (xls/xlsx), CSV, plain text (422 otherwise). The created attachments
+        (xls/xlsx), CSV, plain text (422 otherwise).
+
+        A request whose `Content-Length` alone is past what those limits could
+        ever allow is refused with 413 `payload_too_large` **before the body is
+        read**, so a client that streams a huge upload sees the rejection early
+        rather than after the transfer. Same code and status as the per-file
+        check — nothing new to handle. The created attachments
         are also embedded on the transaction (`Transaction.attachments`) from
         then on.
       requestBody:
@@ -774,6 +780,12 @@ paths:
         **5 MB per file — previews included** (413 `payload_too_large`), and
         the workspace's **1 GB storage quota** — a batch whose combined size
         doesn't fit gets 413 `storage_quota_exceeded`.
+
+        A request whose `Content-Length` alone is past what those limits could
+        ever allow is refused with 413 `payload_too_large` **before the body is
+        read**, so a client that streams a huge upload sees the rejection early
+        rather than after the transfer. Same code and status as the per-file
+        check — nothing new to handle.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:

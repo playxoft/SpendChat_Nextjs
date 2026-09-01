@@ -19,6 +19,26 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 5.9.4 — 2026-09-02
+
+Oversized uploads are refused before the body is read.
+
+Both multipart upload endpoints — `POST /transactions/{id}/attachments` and
+`POST /files` — now check `Content-Length` against the most those limits could
+ever permit and return 413 `payload_too_large` immediately, instead of buffering
+the entire body into the Worker and rejecting it afterwards. A body far past the
+cap could otherwise exhaust the isolate's memory before any check ran.
+
+Same status and same error code as the existing per-file rejection; a request
+that was valid before is still valid, and one that was going to be rejected is
+still rejected — just sooner, and without the upload finishing first.
+
+**Flutter impact:** none. If the client streams large uploads it may now see the
+413 arrive mid-transfer rather than at the end, which the existing error
+handling already covers.
+
+---
+
 ## 5.9.3 — 2026-08-19
 
 `createdAt` is stored at millisecond precision.

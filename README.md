@@ -1,5 +1,9 @@
 # SpendChat
 
+[![CI](https://github.com/playxoft/SpendChat_Nextjs/actions/workflows/ci.yml/badge.svg)](https://github.com/playxoft/SpendChat_Nextjs/actions/workflows/ci.yml)
+[![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
+[![Made with Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
+
 A minimal, fast, and secure personal **money tracker** — add, view, filter, download, and print your income and expenses. Free to use.
 
 🌐 **App Link:** [spendchat.app](https://spendchat.app)
@@ -55,7 +59,7 @@ You can also browse these any time in **Settings → Keyboard shortcuts**.
 ## 🚀 Getting started
 
 ### Prerequisites
-- Node.js ≥ 20 and **pnpm**
+- Node.js ≥ 22 and **pnpm** (Wrangler requires 22; CI runs on it)
 - A **Neon** project (Postgres) — the free tier is enough
 - A **Firebase** project with Authentication enabled (Google and/or email+password)
 - **Wrangler** (installed as a dev dependency) — only needed to deploy
@@ -112,9 +116,12 @@ Copy [`.env.example`](./.env.example) → `.env.local` and fill it in. Never com
 | `NEXT_PUBLIC_FIREBASE_CONFIG` | The whole Firebase **web config** as one JSON value (Firebase console → Project settings → General → Your apps → Web). Public by design — it's inlined into the client bundle |
 | `NEXT_PUBLIC_SITE_URL` | Canonical site URL for SEO/sitemap |
 
-`.env.example` documents the rest — logging (BetterStack), analytics, email
-(ZeptoMail), R2 storage, and the AI model registries. Everything optional is
-marked as such; an unset AI pair simply disables that feature.
+[`.env.example`](./.env.example) documents **every** variable the app reads,
+grouped by feature: R2 file storage, email (ZeptoMail), logging (BetterStack),
+analytics, and the AI model registries. Each group says what happens when it is
+unset — file storage answers 503, invites record but send no email, an unset AI
+pair disables that feature — so you can run the app with only the three above
+and switch the rest on when you want them.
 
 ## 📜 Scripts
 
@@ -149,7 +156,7 @@ pnpm deploy:dev    # → beta.spendchat.app (Doppler `dev` config)
 pnpm deploy:prod   # → spendchat.app      (Doppler `prd` config)
 ```
 
-Production secrets live in the Doppler `prd` config; runtime secrets are also set on the Worker via `wrangler secret put`. See [`docs/CHECKLIST.md`](./docs/CHECKLIST.md) for the deploy steps.
+Production secrets live in the Doppler `prd` config; runtime secrets are also set **per worker** via `wrangler secret put` — the header comment in [`wrangler.toml`](./wrangler.toml) lists every one and the command to set it.
 
 > **Deploying a fork?** `wrangler.toml` hardcodes our routes (`spendchat.app`,
 > `beta.spendchat.app`) and expects a [Hyperdrive](https://developers.cloudflare.com/hyperdrive/)
@@ -177,15 +184,25 @@ src/
     app/                # chat feed, composer, bulk add, table, filters, nav…
   db/                   # Drizzle schema, client, migrations
   lib/                  # auth + firebase helpers, identity, money, queries, rbac, …
-docs/
-  CHECKLIST.md          # build checklist (source of truth)
+  services/             # shared business logic behind both actions and /api/v1
 ```
+
+Conventions live in [`AGENTS.md`](./AGENTS.md) — money as integer minor units,
+every query scoped to the authenticated user's access, Zod at every boundary.
 
 ## 🔒 Security
 
 User data is scoped per account, all input is validated with Zod, queries are parameterized via Drizzle, and secrets are never committed. Firebase ID tokens are verified statelessly against Google's JWKS and bridged to an httpOnly `__session` cookie.
 
 Found a vulnerability? Please report it privately — see [`SECURITY.md`](./SECURITY.md), not a public issue.
+
+## 🤝 Contributing
+
+Bug reports, ideas, and pull requests are welcome. Start with
+[`CONTRIBUTING.md`](./CONTRIBUTING.md) for setup and conventions; participation
+is governed by our [Code of Conduct](./CODE_OF_CONDUCT.md). Because SpendChat is
+open core (see below), first-time contributors are asked to sign a
+[CLA](./CLA.md) — a bot handles it on your first PR.
 
 ## 📄 License
 

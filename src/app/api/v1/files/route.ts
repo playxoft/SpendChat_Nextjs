@@ -5,7 +5,7 @@ import { ApiError, badRequest } from "@/lib/errors";
 import { parseActiveProfile } from "@/lib/filters";
 import { isR2Configured } from "@/lib/r2";
 import { VAULT_FILES_LIMIT } from "@/lib/queries";
-import { parseUploadForm } from "@/lib/upload-form";
+import { assertUploadBodySize, parseUploadForm } from "@/lib/upload-form";
 import { getVaultWorkingSet, uploadVaultFiles } from "@/services/files";
 import { FILE_MAX_BYTES, FILE_MAX_PER_UPLOAD, STORAGE_QUOTA_BYTES } from "@/lib/validation";
 
@@ -59,6 +59,11 @@ export async function POST(request: NextRequest) {
     if (!isR2Configured()) {
       throw new ApiError(503, "storage_unavailable", "File uploads aren't configured on this server.");
     }
+
+    assertUploadBodySize(request, {
+      maxFiles: FILE_MAX_PER_UPLOAD,
+      maxBytes: FILE_MAX_BYTES,
+    });
 
     let form: FormData;
     try {
