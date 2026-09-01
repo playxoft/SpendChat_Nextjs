@@ -28,8 +28,10 @@ jobs:
         uses: actions/checkout@v7
 
       # Version comes from package.json's `packageManager` field (pnpm@9.15.0) —
-      # the single source of truth. Passing `version:` here too makes
-      # action-setup@v4 error on the mismatch ("Multiple versions of pnpm").
+      # the single source of truth. Deliberately no `version:` here: passing one
+      # too makes the action error on a mismatch ("Multiple versions of pnpm"),
+      # and the field alone is what the action reads (v6 logs the switch from
+      # its bundled pnpm to 9.15.0). Keep it that way through version bumps.
       - name: Install pnpm
         uses: pnpm/action-setup@v6
 

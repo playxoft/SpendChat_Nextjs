@@ -13,6 +13,15 @@ updates:
     schedule:
       interval: weekly
     open-pull-requests-limit: 5
+    ignore:
+      # `@types/node` must track `engines.node`, not the newest release: it is
+      # the lib `tsc` checks against, so a major ahead of the runtime lets a
+      # newer API type-check locally and fail on the deploy. Dependabot proposed
+      # ^22 -> ^26 within a day of being switched on, which would have quietly
+      # undone that alignment. Raise both together, by hand, when the runtime
+      # moves — patch and minor updates still come through.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       # Next, React and the Cloudflare toolchain move together and are the ones
       # that actually break a build, so they land as one reviewable PR.
