@@ -42,6 +42,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
   The Date column still follows your locale, including its numerals — that's
   deliberate, and unchanged.
+- CJK numerals (〇一二三) are *not* read as an amount. They are digits in one
+  numbering system and ordinary words in every other use, so accepting them
+  would have turned a note reading "一" into the number 1.
 
 ## [0.13.3] — 2026-09-01
 

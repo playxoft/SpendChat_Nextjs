@@ -89,9 +89,20 @@ function unicodeDigits(): Map<string, string> {
       });
       for (let d = 0; d <= 9; d++) {
         const glyph = format.format(d);
-        // Algorithmic systems (roman, hebrew, …) don't render a positional
-        // digit; only keep single-character positional ones.
-        if (glyph.length === 1 && !map.has(glyph)) map.set(glyph, String(d));
+        // Must be exactly one code point *and* a Unicode decimal digit.
+        //
+        // Both halves matter. The code-point test admits the astral digits
+        // (`mathbold`'s "𝟒") that a naive `.length === 1` would drop, and
+        // matches how the loop below walks the string. The `Nd` test keeps out
+        // `hanidec`, whose glyphs are 〇一二三…: those are positional digits in
+        // principle, but they are also ordinary CJK words, so accepting them
+        // meant `parseAmountInput("一")` returned 1 where it used to return
+        // null — and "一" is a character a Chinese or Japanese speaker types in
+        // running text. `Nd` is also exactly what `stripNonAmountChars` allows
+        // through, so the filter and the parser accept the same set rather than
+        // disagreeing about one.
+        if ([...glyph].length !== 1 || !/\p{Nd}/u.test(glyph)) continue;
+        if (!map.has(glyph)) map.set(glyph, String(d));
       }
     } catch {
       // Unsupported numbering system on this runtime — skip it.
@@ -101,17 +112,31 @@ function unicodeDigits(): Map<string, string> {
   return map;
 }
 
-/** The separators a locale uses when it writes its *own* numerals. */
+const nativeCache = new Map<string, Separators | null>();
+
+/**
+ * The separators a locale uses when it writes its *own* numerals.
+ *
+ * Cached like `localeSeparators`, and for a sharper reason: both callers below
+ * sit on the typing hot path — `stripNonAmountChars` runs on every keystroke in
+ * an amount field, and `parseAmountInput` on every render that reads one — so
+ * an uncached `Intl.NumberFormat` here is a formatter constructed per character.
+ */
 function nativeSeparators(locale: string): Separators | null {
+  const cached = nativeCache.get(locale);
+  if (cached !== undefined) return cached;
+
+  let separators: Separators | null = null;
   try {
     const parts = new Intl.NumberFormat(locale).formatToParts(12345.6);
     const group = parts.find((p) => p.type === "group")?.value;
     const decimal = parts.find((p) => p.type === "decimal")?.value;
-    if (group && decimal && group !== decimal) return { group, decimal };
+    if (group && decimal && group !== decimal) separators = { group, decimal };
   } catch {
     // Unknown/malformed locale tag.
   }
-  return null;
+  nativeCache.set(locale, separators);
+  return separators;
 }
 
 const ASCII_AMOUNT = /^[\d\s.,+-]*$/;
@@ -168,14 +193,26 @@ export function normalizeNumerals(
  * keeps the digit, and `normalizeNumerals` turns it into something
  * `parseAmountInput` can read.
  */
+const stripCache = new Map<string, RegExp>();
+
 export function stripNonAmountChars(
   value: string,
   locale: string = DEFAULT_LOCALE,
 ): string {
-  const native = nativeSeparators(locale);
-  const extra = native ? native.group + native.decimal : "";
-  const allowed = new RegExp(`[^\\p{Nd}.,\\s${extra.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}]`, "gu");
-  return value.replace(allowed, "");
+  // Compiled once per locale — this runs on every keystroke.
+  let disallowed = stripCache.get(locale);
+  if (!disallowed) {
+    const native = nativeSeparators(locale);
+    const extra = native ? native.group + native.decimal : "";
+    const escaped = extra.replace(/[.*+?^${}()|[\]\\-]/g, "\\$&");
+    disallowed = new RegExp(`[^\\p{Nd}.,\\s${escaped}]`, "gu");
+    stripCache.set(locale, disallowed);
+  }
+  // `lastIndex` doesn't survive a `g` regex between calls of `replace`, which
+  // resets it — but the instance is shared, so this is stated rather than
+  // assumed.
+  disallowed.lastIndex = 0;
+  return value.replace(disallowed, "");
 }
 
 /**

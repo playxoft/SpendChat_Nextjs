@@ -171,3 +171,67 @@ describe("amounts typed in the locale's own numerals", () => {
   });
 });
 
+/**
+ * Guard rails for the numeral normaliser, all of which caught something.
+ *
+ * The digit table is generated from `Intl.supportedValuesOf("numberingSystem")`,
+ * so it is only as narrow as its filter — and the first version of that filter
+ * was "one character long", which let `hanidec` in and turned the CJK word for
+ * "one" into the number 1.
+ */
+describe("the numeral table stays a numeral table", () => {
+  const LOCALES = [
+    "en-US", "de-DE", "fr-FR", "es-ES", "pt-BR", "it-IT", "nl-NL", "pl-PL",
+    "ru-RU", "tr-TR", "ar-EG", "ar-SA", "fa-IR", "ur-PK", "bn-IN", "bn-BD",
+    "hi-IN", "mr-IN", "ne-NP", "ta-IN", "th-TH", "my-MM", "km-KH", "lo-LA",
+    "zh-CN", "ja-JP", "ko-KR", "he-IL", "el-GR", "cs-CZ", "sv-SE", "fi-FI",
+    "hu-HU", "ro-RO", "uk-UA", "vi-VN", "id-ID",
+  ];
+
+  it("parses back whatever each locale natively formats", () => {
+    const broken: string[] = [];
+    for (const locale of LOCALES) {
+      const native = new Intl.NumberFormat(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }).format(1234.5);
+      if (parseAmountInput(native, locale) !== 1234.5) {
+        broken.push(`${locale}: "${native}"`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it("never strips a character the parser would have accepted", () => {
+    const broken: string[] = [];
+    for (const locale of LOCALES) {
+      const native = new Intl.NumberFormat(locale, {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+        useGrouping: false,
+      }).format(40);
+      if (stripNonAmountChars(native, locale) !== native) {
+        broken.push(`${locale}: strip ate "${native}"`);
+      }
+    }
+    expect(broken).toEqual([]);
+  });
+
+  it("does not read a CJK word as a number", () => {
+    // `hanidec` renders 0-9 as 〇一二三…, which are also ordinary words. They
+    // are not `\p{Nd}`, and the table requires that.
+    expect(parseAmountInput("一", "zh-CN")).toBeNull();
+    expect(parseAmountInput("三", "ja-JP")).toBeNull();
+    expect(stripNonAmountChars("一二三", "zh-CN")).toBe("");
+  });
+
+  it("is stable across repeated calls", () => {
+    // The compiled filter is cached per locale and carries the `g` flag, so a
+    // stale `lastIndex` would make every other call return something different.
+    for (let i = 0; i < 3; i++) {
+      expect(stripNonAmountChars("1a2b3", "en-US")).toBe("123");
+      expect(stripNonAmountChars("٤٠٫٠٠", "ar-EG")).toBe("٤٠٫٠٠");
+    }
+  });
+});
+
