@@ -33,6 +33,7 @@ import {
 } from "@/lib/parse-amount";
 import { addBulkTransactions } from "@/actions/transactions";
 import { getCurrency } from "@/lib/currencies";
+import { comboFor, matchesCombo } from "@/lib/shortcuts";
 import { useIsMac } from "@/hooks/use-shortcut";
 import { cn } from "@/lib/utils";
 import type { Category, Profile } from "@/db/schema";
@@ -234,9 +235,12 @@ export function BulkAddDialog({
   // when we're already on the last one. Shift+Enter steps back up.
   function onGridKeyDown(e: React.KeyboardEvent<HTMLElement>) {
     // ⌘E (mac) / Ctrl+E flips the focused row between expense and income — the
-    // same shortcut the tracker uses. Gate on the platform's mod key only so it
-    // doesn't hijack macOS's Ctrl+E "move to end of line" inside the inputs.
-    if ((isMac ? e.metaKey : e.ctrlKey) && (e.key === "e" || e.key === "E")) {
+    // same shortcut the tracker uses, and now read from the same registry entry
+    // the hint below the grid names. Spelling the chord out here meant the
+    // dialog could document one key and listen for another; `matchesCombo` also
+    // rejects the platform's *other* modifier, so macOS's Ctrl+E ("move to end
+    // of line") still reaches the input it was meant for.
+    if (matchesCombo(e, comboFor("tracker.toggle-type"), isMac)) {
       const cur = rows[Number((e.target as HTMLElement).dataset.row)];
       if (!cur) return;
       e.preventDefault();
@@ -405,7 +409,7 @@ export function BulkAddDialog({
           ref={scrollRef}
           onKeyDownCapture={onGridKeyDown}
           onFocusCapture={onGridFocus}
-          className="max-h-[55vh] overflow-auto rounded-lg border"
+          className="scrollbar-slim max-h-[55vh] overflow-auto rounded-lg border"
         >
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-muted/70 backdrop-blur-sm">
@@ -586,8 +590,19 @@ export function BulkAddDialog({
         <DialogDescription className="text-xs leading-relaxed">
           Fill in a row per transaction. Each row needs an amount and a title. Tab
           moves across, Enter jumps to the next row (and adds one at the end).
-          Press <Kbd combo="mod+e" className="mx-1 align-middle" /> on a row to
-          switch it between expense and income.
+          {/* The combo comes out of the registry like every other chip in the
+              app — written as a literal here it was one rename away from
+              documenting a key that no longer does this. `describe` because the
+              chip is the subject of the sentence and its glyphs are
+              `aria-hidden`: without it the line read "Press on a row to switch
+              it between expense and income". */}
+          Press{" "}
+          <Kbd
+            combo={comboFor("tracker.toggle-type")}
+            className="mx-1 align-middle"
+            describe
+          />{" "}
+          on a row to switch it between expense and income.
         </DialogDescription>
 
         <DialogFooter>

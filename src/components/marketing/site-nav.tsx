@@ -15,6 +15,7 @@ import {
 import { GithubIcon } from "@/components/icons/github";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
+import { FeaturesMenu, FeaturesMenuMobile } from "@/components/marketing/features-menu";
 import { trackEvent } from "@/lib/analytics";
 import { marketingNav, siteConfig } from "@/lib/site";
 
@@ -26,6 +27,23 @@ import { marketingNav, siteConfig } from "@/lib/site";
  * desktop (`lg`+). Below that — phones and tablets — the links and secondary
  * actions collapse into a hamburger sheet, so the capsule never overflows; the
  * brand mark and the primary "Get started" CTA stay visible at every width.
+ *
+ * **The sheet is a three-part column, and only the middle part scrolls.**
+ * `SheetContent` is `fixed inset-y-0 h-full flex flex-col` with no overflow of
+ * its own, and Radix locks body scroll while it's open — so anything taller
+ * than the viewport is simply unreachable, with no scrollbar and no rubber
+ * band to hint that there's more. That's not hypothetical here: the link list
+ * carries all thirteen feature pages inline (`FeaturesMenuMobile`), which on a
+ * 700px-tall phone runs well past the fold and used to push the footer — Theme,
+ * Sign in, Get started free — off the bottom of the screen entirely. So the
+ * header and the footer are pinned (`shrink-0`) and the link list between them
+ * takes the free space and scrolls inside it (`min-h-0 flex-1 overflow-y-auto`,
+ * the same shape `profile-list.tsx` uses in the app shell). `min-h-0` is the
+ * load-bearing half: a flex item's default `min-height: auto` refuses to shrink
+ * below its content, so `flex-1` alone would grow the list rather than scroll
+ * it, and the footer would still be pushed off. The footer needs no `mt-auto`
+ * once the list is `flex-1` — the list absorbs the slack when the content is
+ * short.
  */
 export function SiteNav() {
   const [open, setOpen] = useState(false);
@@ -44,18 +62,24 @@ export function SiteNav() {
         {/* Desktop links — centred, absorbing the free space. */}
         <div className="flex min-w-0 flex-1 items-center justify-center">
           <div className="hidden items-center gap-1 lg:flex">
-            {marketingNav.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() =>
-                  trackEvent("nav_link_click", { label: item.label, location: "desktop" })
-                }
-                className="rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              >
-                {item.label}
-              </Link>
-            ))}
+            {marketingNav.map((item) =>
+              // Features opens the directory of feature pages instead of going
+              // straight to the hub; every other entry stays a plain link.
+              item.href === "/features" ? (
+                <FeaturesMenu key={item.href} />
+              ) : (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() =>
+                    trackEvent("nav_link_click", { label: item.label, location: "desktop" })
+                  }
+                  className="rounded-full px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  {item.label}
+                </Link>
+              ),
+            )}
           </div>
         </div>
 
@@ -119,7 +143,7 @@ export function SiteNav() {
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-72 gap-0 p-0">
-              <SheetHeader className="border-b px-5 py-4 text-left">
+              <SheetHeader className="shrink-0 border-b px-5 py-4 text-left">
                 <SheetTitle asChild>
                   <Link
                     href="/"
@@ -131,19 +155,29 @@ export function SiteNav() {
                 </SheetTitle>
               </SheetHeader>
 
-              <nav className="flex flex-col px-3 py-3">
+              {/* The only scroller in the sheet — see the header comment. */}
+              <nav className="scrollbar-slim flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-3">
                 {marketingNav.map((item) => (
-                  <SheetClose asChild key={item.href}>
-                    <Link
-                      href={item.href}
-                      onClick={() =>
-                        trackEvent("nav_link_click", { label: item.label, location: "mobile" })
-                      }
-                      className="rounded-lg px-3 py-2.5 text-base font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                    >
-                      {item.label}
-                    </Link>
-                  </SheetClose>
+                  <div key={item.href} className="contents">
+                    <SheetClose asChild>
+                      <Link
+                        href={item.href}
+                        onClick={() =>
+                          trackEvent("nav_link_click", { label: item.label, location: "mobile" })
+                        }
+                        className="rounded-lg px-3 py-2.5 text-base font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      >
+                        {item.label}
+                      </Link>
+                    </SheetClose>
+                    {/* Feature pages listed inline under Features, so they're
+                        one tap away on mobile. Inside the sheet's portal, so
+                        this renders only once the menu is open — see
+                        `FeaturesMenuMobile`. */}
+                    {item.href === "/features" && (
+                      <FeaturesMenuMobile onNavigate={() => setOpen(false)} />
+                    )}
+                  </div>
                 ))}
                 <SheetClose asChild>
                   <a
@@ -166,7 +200,7 @@ export function SiteNav() {
                 </SheetClose>
               </nav>
 
-              <div className="mt-auto flex flex-col gap-3 border-t px-5 py-5">
+              <div className="flex shrink-0 flex-col gap-3 border-t px-5 py-5">
                 <div className="flex items-center justify-between">
                   <span className="text-sm text-muted-foreground">Theme</span>
                   <ThemeToggle />

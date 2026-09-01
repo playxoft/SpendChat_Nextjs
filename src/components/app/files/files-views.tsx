@@ -1163,7 +1163,7 @@ export function FileListTable({
   return (
     <div className="space-y-6">
       {sections || folders.length > 0 || files.length > 0 ? (
-        <div className="overflow-x-auto rounded-xl border">
+        <div className="scrollbar-slim overflow-x-auto rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -1244,7 +1244,7 @@ export function FileListTable({
               Transaction files
             </h2>
           ) : null}
-          <div className="overflow-x-auto rounded-xl border">
+          <div className="scrollbar-slim overflow-x-auto rounded-xl border">
             <Table>
               <TableHeader>
                 <TableRow>

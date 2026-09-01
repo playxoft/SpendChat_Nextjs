@@ -6,9 +6,17 @@ import { cn } from "@/lib/utils"
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {
   return (
+    // `tabIndex={0}`: a table wider than its container scrolls sideways, and
+    // Firefox and Safari won't focus a scroll container on their own — only
+    // Chrome will — so the columns past the edge were mouse-only. Focusable,
+    // arrow keys reach them. `role="group"` keeps the table's own semantics
+    // intact while giving the scroller a name to announce.
     <div
       data-slot="table-container"
-      className="relative w-full overflow-x-auto"
+      tabIndex={0}
+      role="group"
+      aria-label="Table, scrollable"
+      className="scrollbar-slim relative w-full overflow-x-auto focus-visible:ring-2 focus-visible:ring-muted-foreground focus-visible:outline-none"
     >
       <table
         data-slot="table"

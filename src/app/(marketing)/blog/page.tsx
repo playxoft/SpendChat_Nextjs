@@ -3,7 +3,7 @@ import Link from "next/link";
 import { ArrowRight, Newspaper } from "lucide-react";
 import { JsonLd } from "@/components/json-ld";
 import { getPosts, formatPostDate } from "@/lib/blog";
-import { createMetadata } from "@/lib/seo";
+import { absoluteImage, createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
 const base = createMetadata({
@@ -25,6 +25,11 @@ export const metadata: Metadata = {
 
 export default function BlogPage() {
   const posts = getPosts();
+  // The LCP candidate is the first cover that actually *renders*, which isn't
+  // necessarily the first post — `image` is optional, so a coverless post at
+  // the top would otherwise spend the eager hint on nothing and leave the real
+  // one lazy.
+  const lcpSlug = posts.find((post) => post.image)?.slug;
 
   const blogJsonLd = {
     "@context": "https://schema.org",
@@ -38,6 +43,7 @@ export default function BlogPage() {
       description: post.excerpt,
       datePublished: post.date,
       dateModified: post.updated ?? post.date,
+      image: absoluteImage(post.image ?? siteConfig.ogImage),
       url: `${siteConfig.url}/blog/${post.slug}`,
     })),
   };
@@ -62,8 +68,35 @@ export default function BlogPage() {
           <Link
             key={post.slug}
             href={`/blog/${post.slug}`}
-            className="group flex flex-col rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
+            // `overflow-hidden` on the card and no padding of its own: the
+            // cover runs edge to edge and the card's own radius clips its
+            // corners, so there's no seam between the two. Padding moves to the
+            // text block below.
+            className="group flex flex-col overflow-hidden rounded-2xl border bg-card transition-all hover:-translate-y-0.5 hover:shadow-md"
           >
+            {post.image && (
+              // Plain <img>: covers are static files in `public/`, served
+              // straight off the CDN, so next/image's optimizer (a Worker
+              // invocation on OpenNext) would only add a hop. The intrinsic
+              // 1200×630 is stated so the card reserves its space before the
+              // bytes arrive and the grid doesn't jump.
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={post.image}
+                alt={post.title}
+                width={1200}
+                height={630}
+                // The topmost cover is above the fold on desktop and is this
+                // page's likely LCP element, so it loads eagerly and at high
+                // priority — deferring it would delay the very metric the
+                // rest of this card's markup is arranged around. Every cover
+                // below it stays lazy.
+                loading={post.slug === lcpSlug ? "eager" : "lazy"}
+                fetchPriority={post.slug === lcpSlug ? "high" : undefined}
+                className="h-auto w-full border-b"
+              />
+            )}
+            <div className="flex flex-1 flex-col p-6">
             <div className="flex items-center gap-3 text-xs text-muted-foreground">
               <span className="rounded-full bg-muted px-2.5 py-0.5 font-medium">
                 {post.tag}
@@ -80,6 +113,7 @@ export default function BlogPage() {
               Read post
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
             </span>
+            </div>
           </Link>
         ))}
       </div>

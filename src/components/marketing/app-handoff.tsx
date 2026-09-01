@@ -14,6 +14,7 @@ import {
   setPrefersApp,
   subscribeHandoff,
 } from "@/lib/app-redirect";
+import { cn } from "@/lib/utils";
 
 /**
  * The landing page's handoff for someone who is already signed in: a card on
@@ -30,12 +31,35 @@ import {
  * the switch that turned the behaviour on is also the one that turns it off.
  * `handoffView` decides which of the three states this is; everything here is
  * the rendering of that decision.
+ *
+ * The card also shows itself out: it fades after ten seconds unless the visitor
+ * reaches for it, or unless it's the one card holding the only way out of where
+ * they are. See `AUTO_HIDE_MS`.
  */
 
 /** How long to wait for `/app` before giving the page back. Long enough that a
  * slow cold start still lands on the app, short enough that a failed navigation
  * isn't an indefinite cover over a page the visitor can't reach. */
 const REDIRECT_TIMEOUT_MS = 6000;
+
+/**
+ * How long the card offers itself before stepping out of the way.
+ *
+ * It's an offer, not a task. Someone who came to read the landing page has
+ * already answered it by continuing to read, and a card that sits in the corner
+ * for the whole visit is just something covering the page. Long enough to
+ * notice, read, and reach for; short enough that it's gone by the second
+ * section.
+ *
+ * Deliberately **not** recorded as a dismissal. `dismissPrompt()` is for the ✕,
+ * a decision, and it lasts the session — spending that on a timeout would take
+ * the "always take me straight here" checkbox off the table for the rest of the
+ * tab, and this card is the only place it exists.
+ */
+const AUTO_HIDE_MS = 10_000;
+
+/** Matches the fade below, so the node leaves after it has finished fading. */
+const FADE_OUT_MS = 300;
 
 export function AppHandoff() {
   const router = useRouter();
@@ -68,6 +92,18 @@ export function AppHandoff() {
   const [dismissedHere, setDismissedHere] = useState(false);
   // `/app` was asked for and never arrived.
   const [stalled, setStalled] = useState(false);
+  // The auto-hide, in its two halves: fading, then gone.
+  const [fadingOut, setFadingOut] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
+  // Pointing at the card pauses the countdown and moving away restarts it —
+  // hovering isn't a decision, and a card that vanishes out from under the
+  // cursor is worse than one that overstays. Kept separate from `engaged`
+  // precisely because it *is* reversible: a cursor that happens to be resting
+  // where the card appears would otherwise pin it there for the whole visit.
+  const [hovering, setHovering] = useState(false);
+  // Focus, on the other hand, is someone tabbing into the card. That's a real
+  // interaction with a control, and it stops the timer for good.
+  const [engaged, setEngaged] = useState(false);
   const coverRef = useRef<HTMLDialogElement>(null);
 
   // Arriving on `?stay=1` is a request for this card, so it outranks a ✕ from
@@ -99,6 +135,34 @@ export function AppHandoff() {
     return () => clearTimeout(timer);
   }, [view, router]);
 
+  /**
+   * The auto-hide timer. Two cards are exempt, both for the same reason: they
+   * hold the only way out of a state the visitor is stuck in.
+   *
+   * `?stay=1` is a deliberate request for this card — its checkbox is the only
+   * switch that turns the redirect off, so timing it out would strand someone
+   * on the page they came back to change. A stalled redirect is the same: its
+   * "Try again" is the visitor's only route to the app they asked for.
+   */
+  useEffect(() => {
+    if (view !== "card" || state.stay || stalled || engaged || hovering) return;
+    const fade = window.setTimeout(() => setFadingOut(true), AUTO_HIDE_MS);
+    const remove = window.setTimeout(() => setTimedOut(true), AUTO_HIDE_MS + FADE_OUT_MS);
+    return () => {
+      window.clearTimeout(fade);
+      window.clearTimeout(remove);
+      // Everything that stops the countdown — engaging, hovering, `?stay=1`
+      // arriving on a back-navigation — stops it by cancelling these timers,
+      // so a card caught between the fade and the removal never reaches
+      // `timedOut` and never unmounts. Putting the card back is therefore part
+      // of tearing the countdown down: without it the card would sit at
+      // `opacity-0` for the rest of the visit, and the "always take me straight
+      // here" checkbox it carries is the only switch that turns the redirect
+      // off. On unmount this is a no-op, which is what we want there.
+      setFadingOut(false);
+    };
+  }, [view, state.stay, stalled, engaged, hovering]);
+
   // The cover is a real modal, opened through `showModal()`, which is what
   // makes it mean what it looks like: the browser puts it in the top layer and
   // marks the rest of the document inert, so the landing page underneath can't
@@ -125,11 +189,29 @@ export function AppHandoff() {
     );
   }
 
-  if (view === "hidden") return null;
+  if (view === "hidden" || timedOut) return null;
 
   return (
     <div
-      className="fixed top-24 right-3 z-50 w-[min(20rem,calc(100vw-1.5rem))] sm:right-5"
+      className={cn(
+        "fixed top-24 right-3 z-50 w-[min(20rem,calc(100vw-1.5rem))] sm:right-5",
+        "motion-safe:transition-all motion-safe:duration-300",
+        fadingOut && "pointer-events-none translate-y-1 opacity-0",
+      )}
+      // A card on its way out is `inert`, not merely `pointer-events-none`.
+      // The class stops the pointer; only `inert` takes "Go to app" and the
+      // checkbox out of the tab order and off the accessibility tree as well,
+      // so nobody can tab onto a control that renders as nothing. It lifts
+      // with `fadingOut` — see the countdown's cleanup above.
+      inert={fadingOut}
+      // Hover pauses; leaving starts the ten seconds over. Once the fade has
+      // begun the card can't be caught halfway and left half-visible — it
+      // finishes leaving.
+      onPointerEnter={() => setHovering(true)}
+      onPointerLeave={() => setHovering(false)}
+      // `onFocusCapture` rather than `onFocus`, to catch focus landing on the
+      // button or the checkbox inside rather than on this wrapper.
+      onFocusCapture={() => setEngaged(true)}
       // Not a modal — the landing page stays fully usable behind it.
       role="complementary"
       aria-label="Continue to the app"

@@ -18,6 +18,398 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.13.3] — 2026-09-01
+
+### Fixed
+
+- **The "four ways to add a transaction" section was invisible on a phone held
+  sideways.** Its demo frame is sized against the viewport minus the pinned
+  heading, and on a short screen that subtraction went negative — which CSS
+  floors at zero. You got four screens of scrolling describing a widget that
+  wasn't there. The frame now has a floor, and below 44rem of screen height the
+  section stops pinning altogether and reads as an ordinary heading, widget and
+  four blocks — which is also what it does without JavaScript.
+- **The FAQ answers could be opened blind from the keyboard.** The expander's
+  focus ring was drawn in a colour that measures 1.54:1 against the card, under
+  the 3:1 a focus indicator has to meet, so there was no visible sign of which
+  question you were about to open. It now uses the same ring the shortcut
+  playgrounds already switched to.
+- **Sending or importing in a demo dropped your place on the page.** Both
+  buttons switch off the moment they clear the box, and a browser blurs a
+  focused button that becomes disabled — so the keyboard landed back at the top
+  of the document and you had to tab through the whole page to add a second row.
+- **Demo scroll boxes can be scrolled from the keyboard.** Firefox and Safari
+  don't make a scroll container focusable on their own, so the transaction
+  feeds, the file lists, the shortcut cheat sheet, the generated CSV and the
+  comparison table all stopped at the first screenful unless you had a mouse.
+  This covers the app's tables too.
+- **Three demos left the rows you'd just added out of sight**, below the fold of
+  their own feed, while the caption said they'd been added above.
+- **Replaying the AI and voice demos stacked duplicates.** Adding, replaying and
+  adding again piled up three, six, nine copies of the same transactions and
+  drifted the balance to a number the demo never meant to show. A replay now
+  puts the feed back.
+- Two controls invited you to use them and did nothing: the voice demo said
+  "type or hold M" over a box that is read-only and listens for no key, and the
+  files demo's Upload button was fully live with nothing behind it.
+- The settings sections on a phone had no scrollbar and nothing else to say the
+  row continued past the edge — about three of the seven fit on a narrow screen.
+- The keyboard shortcut sheet and the category strip animated their scrolling
+  even when you'd asked for reduced motion. A `behavior` passed in JavaScript
+  wins over the stylesheet, so it has to read the preference itself.
+- The demos could price themselves in one country's currency while formatting
+  the numbers for another — rupees grouped the Esperanto way, and a bulk sample
+  written with separators nobody in that country types.
+- Scrolling past the homepage's entry section left its animation timers running.
+
+### Changed
+
+- **The export page no longer promises more than the exporter does.** It said
+  any spreadsheet would add up the amount column — true only where the decimal
+  separator is a dot, since that column is always written with one — and that
+  bulk-pasted rows "leave the same way they came", which they don't: the export
+  and the bulk parser order their columns differently.
+- Ctrl+Shift+E no longer flips a row between expense and income in the bulk-add
+  grid. Plain Ctrl+E (⌘E) still does, which is what the tracker has always
+  accepted and what the hint under the grid names.
+- Nine release headings in this file described seven releases: `0.7.0` and
+  `0.8.0` were written in the same commit that set the version to `0.9.0`, so no
+  build ever carried them. They are one section now, and two headings that were
+  dated a day before the work they describe have been dated to it.
+
+## [0.13.2] — 2026-08-27
+
+### Fixed
+
+- **Editing an amount no longer fails to save if your language uses its own
+  numerals.** The edit dialog prefilled the amount as "٤٠٫٠٠" for Arabic,
+  Bengali, Persian, Marathi, Nepali and Burmese locales — legible, but rejected
+  by the app's own parser, so Save failed on every attempt until you retyped the
+  number in ASCII. The locale is picked automatically from your browser at
+  sign-up, so nobody chose this. Amounts written back into an input now pin
+  Latin digits the way every other round-tripping formatter already did;
+  displayed amounts keep your numerals.
+- **Keyboard hints are spoken again.** A shortcut chip sitting in a sentence was
+  hidden from screen readers, so "Press ⌘↵ to send" was read as "Press to send".
+  Chips in prose now carry the combo in words, punctuation keys are named
+  ("Slash", "Hash", "Backtick") instead of being dropped at a reader's default
+  verbosity, and the shortcuts reference — in Settings, in the `/` dialog, and on
+  the marketing page — announces each row's key instead of a list of verbs.
+- **Blog previews stopped disappearing from search and chat.** Post images in the
+  page's structured data were relative on the article page, which Google drops,
+  and a post pointing at an absolute URL had the site address pasted in front of
+  it. The first cover on the index also loads eagerly now, since it is usually
+  the largest thing on the screen.
+- Several corrections to the feature pages, which had promised things the app
+  does not do: filtering to uncategorised transactions, archiving a profile, and
+  unlimited exports. Bulk import (500 rows) and export (5,000 transactions) now
+  state their real limits, and the privacy and export pages no longer contradict
+  each other about the latter.
+
+### Changed
+
+- The marketing demos follow your own currency and number format throughout —
+  the voice transcript now quotes the same figures the rows it produces show, the
+  bulk preview and the import agree to the last decimal for currencies with three
+  of them, and a demo can no longer offer to import a row it would silently drop.
+- The mobile navigation menu scrolls, so "Sign in" and "Get started free" are
+  reachable on a phone now that the menu lists every feature page.
+- The analytics page renders its ranked category list as part of the page rather
+  than inside the chart's lazily-loaded bundle, so it is there before the chart
+  is — and for anything that reads the page without running it.
+
+## [0.13.1] — 2026-08-26
+
+### Changed
+
+- **The four entry methods scroll past instead of swapping in place.** The
+  section's heading and the composer beside it stay put — they're the constants
+  — while each method's description scrolls up with the page, fading in as it
+  reaches the middle and back out as it leaves. The fade follows the scroll
+  wheel rather than playing a fixed animation once you cross a line, so it goes
+  at whatever pace you read at, forwards or back. Past the last method the
+  heading, the copy and the widget go up the page together and the next section
+  follows — previously the widget slid away on its own while the heading stayed
+  stuck to the top.
+- The demo now starts on the method you arrive at. Previously the first one sat
+  idle until you scrolled to the second, so the opening example was the one you
+  never saw run.
+- The hero's tracker is taller, and sized against the viewport rather than
+  fixed, so it fills a desktop screen without pushing its own buttons below the
+  fold on a laptop.
+- **Bulk paste opens the bulk-add dialog**, the way it does in the app,
+  instead of being a third box in the composer. It's the one entry method that
+  isn't the composer — showing it there said the wrong thing about where the
+  feature lives. The dialog opens over the widget with the grid the real one
+  has — a row per transaction, type, amount, title and category each in its own
+  field. Nothing is typed: a paste arrives as a block, so the grid fills a row
+  at a time. Importing closes it with the transactions in the feed behind.
+- **Every demo's replay control moved out of the widget and under it.** It was
+  sitting in the composer's control strip, which is a copy of the app's — and
+  the app has no Replay button in it, so the demo was editing the thing it was
+  meant to be showing, and crowding the real controls on a narrow screen.
+- The last method now parks on the reading line rather than scrolling past it.
+  The other three have somewhere to go — the next method — but the fourth has
+  nothing after it, and letting it climb away left the widget demonstrating a
+  paste with nothing beside it saying what the paste was. It holds where it was
+  read while the page keeps scrolling, then leaves with the heading and the
+  widget.
+- The last of the four entry methods no longer fades out. A method fades to
+  make room for the next one and there isn't one, so it now stays readable
+  until it leaves with everything else.
+- **The "you're signed in" card sees itself out after ten seconds.** It's an
+  offer, not a task, and it was sitting in the corner for the whole visit.
+  Pointing at it pauses the countdown; moving away restarts it. Two cards don't
+  time out, because they hold the only way out of where you are: the one you
+  reach by `?stay=1`, whose checkbox is the only switch that turns the redirect
+  off, and the one that appears when opening the app took too long.
+
+### Fixed
+
+- **No horizontal scrollbar in the interface shoves content around on Windows
+  any more.** A Mac draws scrollbars over the content and only while you
+  scroll; Windows and Linux draw a real one that takes layout space out of the
+  box it belongs to, so a bar appearing under a row of chips or a table moved
+  everything above it. Every sideways scroller in the app and on the site now
+  either has no bar (rows of chips and tabs, where 6px is a sixth of the row
+  and nothing is reachable only by dragging) or a 6px one instead of the
+  platform's 17 (tables and grids, where the bar is the only thing saying
+  there's more to the right). The page's own scrollbar is untouched.
+- **The category strip no longer carries a scrollbar on Windows.** It had a
+  4px one, which macOS draws over the content only while you scroll and
+  Windows draws permanently, taking a slice out of a row that is only as tall
+  as its chips. There's no bar on it now, on any platform — you swipe or
+  shift-scroll the strip, and every category is also one tap away in the picker
+  beside it.
+- **Shortcut hints use symbols on Windows too.** `Ctrl` `Enter` was two wide
+  boxes where a Mac had two small ones, which is the difference between fitting
+  in a compact control strip and not; it now reads ⌃ ↵ everywhere. Screen
+  readers and the shortcuts page still get the words — "Ctrl+Enter" is what
+  gets announced and what people search for.
+- **The homepage no longer jumps a thousand pixels down the page on load.**
+  Every demo composer carries the app's category strip, which centres the
+  selected chip when it mounts — through `scrollIntoView`, which is free to
+  scroll the page as well as the strip. On a phone that landed you below the
+  hero before you had touched anything. It scrolls the strip and nothing else
+  now, in the app as well as on the marketing pages.
+- **The homepage no longer scrolls sideways on a phone.** The comparison table
+  scrolls inside its own container, but the screen-reader labels in its tick
+  and dash cells are absolutely positioned, and with nothing positioned around
+  them they were being placed against the document — pushing the page 140px
+  wider than the screen. With the page wider than the viewport, the fixed
+  navigation bar no longer covered it, which is what made the whole thing look
+  broken.
+- The demo composer's controls fit on a phone. The date chip — which reads
+  "Today" and does nothing — is hidden below `sm`, where it was crowding the
+  category row out of the strip and leaving the Replay button on top of it.
+
+## [0.13.0] — 2026-08-22
+
+### Changed
+
+- **The four entry methods are now one widget you scroll through**, not tabs.
+  Keep reading and the composer works its way from typing two fields, to
+  writing a sentence, to holding the mic, to pasting rows — and each one ends
+  with what you entered sitting in the feed as ordinary transactions, which is
+  the point being made. Nothing is hidden behind a click any more, so all four
+  descriptions are on the page for anyone reading or searching.
+- The widget is taller, and the composer sits at the bottom under the history —
+  where the app puts it.
+- **The hero now shows the app's own composer** rather than a separate,
+  slightly different one built for the homepage. There was one composer too
+  many in the codebase; there is now one.
+- Blog covers run edge to edge on the cards, and are larger on the post itself,
+  which also starts closer to the top of the window.
+- The transactions type filter is a dropdown — All, + Income, − Expense —
+  rather than a three-way switch.
+- The section's heading and description now stay put while you scroll it, and
+  only the method under them changes — so the four descriptions swap in place
+  instead of travelling up the page past the heading.
+
+### Fixed
+
+- **Amounts added by a demo were converted twice.** A ₹1,000 lunch imported
+  through the bulk demo showed as ₹80,000: the seeded rows are written in
+  dollars and converted for the reader, but a row a demo had just added was
+  already in the reader's currency and got multiplied a second time on its way
+  into the feed. Conversion now happens in exactly one place.
+- Some seeded amounts were the wrong size — a $360 afternoon coffee, and a chai
+  that didn't match the ₹20 in the sentence being spoken above it.
+
+### Removed
+
+- The Reset button on the chat demo. It was housekeeping for a demo that resets
+  itself.
+
+## [0.12.0] — 2026-08-22
+
+### Added
+
+- **The homepage now shows you entering a transaction, not just the result.**
+  Each of the four tabs under "Four ways to add a transaction" animates its own
+  input as the section scrolls into view: the amount and title fields typing
+  themselves and a send that drops a bubble into the feed, a messy sentence
+  landing in the AI note box and coming back as drafts, the mic button
+  recording with the words arriving as you'd hear them, and a paste box filling
+  in row by row while the real parser previews it underneath. Each tab has a
+  Replay control, and anyone who has asked their system for reduced motion sees
+  the finished state without any of it moving.
+- **A files section on the homepage** — folders with their colour tints, files
+  with their tags and sizes, and the workspace storage gauge, with the vault's
+  specifics (share links, 1 GB per workspace, 5 MB per file) beside it.
+- **A shortcuts section you can actually use** — click the panel, press `t`,
+  and the section changes. Every key shown comes from the app's own registry,
+  and the panel listens only while it has focus, so the page's own keyboard
+  behaviour is untouched.
+
+- **Every demo now shows money in your own currency.** A page pricing lunch at
+  $12.50 asks a reader in Chennai to translate before the product feels like
+  it's for them, so the demos read a currency from your browser and scale the
+  example amounts to match — ₹3,200 for a weekly shop rather than ₹40. Nothing
+  about your own data is converted; the app still stores each workspace in its
+  own currency and does no conversion at all.
+- **Blog posts have cover images**, shown on the index, on the post itself, and
+  as the preview card when a post is shared.
+
+### Changed
+
+- The receipts card and the static list of shortcut chips have been replaced by
+  the two sections above.
+- **Answers on the feature pages are now expandable**, under a heading that says
+  FAQ rather than Questions. They stay in the page for search engines and for
+  anyone reading without JavaScript.
+- The transactions filter has an explicit **Both (−/+)** option. Clearing it
+  used to mean clicking the selected side a second time, which nothing on
+  screen told you about.
+
+### Fixed
+
+- The bulk-import demos pasted a comma-separated sample regardless of where you
+  are, so in every locale that writes decimals with a comma — much of Europe —
+  the preview reported every row as broken. The sample is now written in your
+  own format.
+
+## [0.11.0] — 2026-08-22
+
+### Added
+
+- **The last five feature pages** — shared workspaces, custom categories,
+  keyboard shortcuts, export and print, and privacy and security. Every feature
+  now has a page of its own, each with a demo you can use without an account.
+- The **workspaces** demo shows what a role actually means: change someone from
+  viewer to editor and watch which profiles they can reach change with it,
+  including the case where a per-profile grant beats their workspace role.
+- The **shortcuts** demo responds to real keystrokes — press `t` and the
+  sidebar moves — and its cheat sheet is generated from the app's own registry,
+  so it can never advertise a key the app doesn't bind.
+- The **export** demo shows the actual CSV you would download, regenerated from
+  the app's own serialiser as you change the filters, including how it quotes a
+  title containing a comma and a quotation mark.
+- The **privacy** page is a plain account of what leaves your device for each
+  action, and says outright what we don't have: no encryption at rest, no
+  audits or certifications, no two-factor authentication.
+
+### Fixed
+
+- Several claims on the newer feature pages were wrong and have been corrected
+  against the code: the CSV export carries your filters but **not** your sort
+  order (it is always newest first), it holds the title rather than the longer
+  description, and a single file covers up to 5,000 transactions. The analytics
+  page also claimed the transactions table can filter to uncategorised rows,
+  which it can't.
+
+## [0.10.0] — 2026-08-22
+
+### Added
+
+- **Four more feature pages, each with a working demo** — the transactions
+  table, analytics, the receipts vault, and bulk import. The transactions demo
+  really filters, searches your notes and sorts; the analytics demo swaps its
+  whole dataset when you change the range; the bulk-import demo runs the app's
+  actual parser on every keystroke, including on the one sample row that's
+  broken on purpose.
+- The Features menu now opens on hover, and clicking "Features" goes to the
+  overview page instead of only toggling the menu.
+
+### Changed
+
+- **Every demo now runs at the app's compact density**, so the whole control
+  strip sits on one line the way it does in the app — which also gives the feed
+  back the vertical space it was spending on a taller composer.
+- Demo feeds fill from the bottom and span two days, so they show a day divider
+  and read as a history someone has been keeping rather than three rows in an
+  empty box.
+
+### Fixed
+
+- The AI and voice note boxes were stretching to fill the composer instead of
+  sizing to their content, which made them several times taller than the app's.
+- The bulk-import preview said "1 line need fixing".
+
+## [0.9.0] — 2026-08-22
+
+### Added
+
+- **The Features page now covers everything the app actually does.** AI entry,
+  voice entry, receipts and the files vault, analytics, profiles, shared
+  workspaces and custom categories were all missing from it — the page still
+  described the product as it stood six months ago.
+- **A Features menu in the site navigation**, grouped into Capture, Understand
+  and Organise, so each feature page is one click away from anywhere on the
+  marketing site. On phones the same list appears under Features in the menu.
+- Feature pages are described once, in one place, and the hub page, the
+  navigation menu and the sitemap all read from it — so a new one can't be
+  published and then quietly forgotten by the sitemap.
+- Breadcrumbs on nested marketing pages, so a search result shows
+  Home › Features › … instead of a bare URL.
+
+- **Four feature pages, each with a live demo you can use without an account** —
+  chat entry, AI entry, voice entry, and profiles. The demos are built from the
+  app's own components, so what you try on the marketing site is what you get
+  after signing up: the same transaction bubbles, the same category picker, the
+  same Manual/AI toggle, the same push-to-talk mic.
+- The **voice page lets you hear the multi-language case rather than read about
+  it** — switch between English, Hinglish, Tamil-with-English and Spanish and
+  watch each one come back transcribed and split into transactions. It also
+  lists all 27 languages you can pick from.
+- The AI demo runs the whole sequence — a messy sentence typing itself out, the
+  parse, the editable drafts, the confirm — and replays on demand. It scripts a
+  fixed example rather than calling a model, and says so.
+- No microphone is ever requested by the voice demo, and nothing any demo does
+  is saved.
+
+- **The home page now shows what the app actually does.** It described the
+  product as it stood six months ago; AI entry, voice, receipts, analytics,
+  profiles and shared workspaces were nowhere on it. New sections cover all of
+  them, plus who it's for, how it compares to bank-linking apps and
+  spreadsheets, and a keyboard-shortcut list that reads from the app's own
+  registry rather than being typed out separately.
+- **"Four ways to add a transaction"** — a tabbed section covering chat, AI,
+  voice and bulk paste. The bulk tab runs the app's real parser as you type, so
+  you can edit the pasted rows and watch them re-parse.
+- A spending breakdown with the category chart from the analytics page. The
+  numbers are also written out as a plain list, so they're readable before the
+  chart loads and to anything that never loads it.
+- The FAQ gained eight entries covering bank connections, AI, voice, profiles,
+  sharing, receipts and installation.
+
+### Changed
+
+- The `keywords` meta tag is gone from every page. Google has ignored it since
+  2009 and Bing reads a stuffed one as a spam signal; the terms it listed belong
+  in the page copy, which is where they now live.
+
+- The AI accent gradient now has one definition instead of two near-identical
+  copies, which is what makes "there is exactly one gradient in this app"
+  enforceable.
+
+### Fixed
+
+- **The category chart could render as an empty circle.** When it loaded late —
+  as it now does on the home page — its mount-time animation could resolve
+  against a container it hadn't measured yet and draw nothing at all. The
+  animation is now optional, and off wherever the chart arrives lazily.
+
 ## [0.6.2] — 2026-08-21
 
 ### Fixed

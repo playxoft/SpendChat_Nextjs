@@ -19,6 +19,10 @@ export default function robots(): MetadataRoute.Robots {
           "/verify-email",
           // Public-but-secret share links; noIndex'd too, but keep crawlers out.
           "/share/",
+          // Development-only scratch routes (the demo gallery). They 404 in
+          // production, but listing the prefix keeps crawlers from spending
+          // budget discovering that for themselves.
+          "/dev/",
         ],
       },
     ],

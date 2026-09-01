@@ -38,6 +38,28 @@ export const ogImage = {
 };
 
 /**
+ * An image URL made absolute for **JSON-LD**, which — unlike `metadata` — has
+ * no `metadataBase` to resolve a relative path against. Schema.org consumers
+ * want a fully-qualified URL, and a bare "/blog/x.png" is simply dropped.
+ *
+ * Only what needs the prefix gets it. `BlogMeta.image` is documented as
+ * root-relative *or* absolute, so a post pointing at a CDN would otherwise come
+ * out as "https://spendchat.apphttps://cdn.example.com/cover.png" — which
+ * Google drops just as quietly as the relative URL this exists to avoid, and
+ * nothing validates either one.
+ *
+ * It lives here rather than beside one of its callers because there are two —
+ * the blog index's `Blog` markup and the post page's `BlogPosting` — and a
+ * private copy in the first is precisely how the second was left broken.
+ */
+export function absoluteImage(image: string): string {
+  // Any scheme, plus protocol-relative "//host/...".
+  return /^(?:[a-z][a-z0-9+.-]*:)?\/\//i.test(image)
+    ? image
+    : `${siteConfig.url}${image}`;
+}
+
+/**
  * Builds a page's `metadata` export.
  *
  * Use this for every new page instead of hand-writing a `Metadata` object. Two
@@ -90,5 +112,57 @@ export function createMetadata({
       images,
     },
     ...(noIndex ? { robots: { index: false, follow: false } } : {}),
+  };
+}
+
+/** One step in a breadcrumb trail. `path` is root-relative, e.g. "/features". */
+export type Crumb = { name: string; path: string };
+
+/**
+ * `BreadcrumbList` structured data for a nested page.
+ *
+ * Worth the few lines: Google renders the trail in place of the raw URL in the
+ * result snippet, which is both a click-through win and free context for a
+ * reader deciding whether `/features/voice-expense-tracker` is what they wanted.
+ * Positions are 1-based and must be contiguous, and every `item` has to be an
+ * absolute URL — a relative one is silently dropped from the rich result.
+ *
+ * Pair it with a visible trail on the page (`<Breadcrumbs>`): structured data
+ * that describes navigation the reader can't see is exactly the mismatch the
+ * spam policies target.
+ */
+export function breadcrumbJsonLd(trail: Crumb[]): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    itemListElement: trail.map((crumb, i) => ({
+      "@type": "ListItem",
+      position: i + 1,
+      name: crumb.name,
+      item: `${siteConfig.url}${crumb.path}`,
+    })),
+  };
+}
+
+/**
+ * `FAQPage` structured data.
+ *
+ * **Only call this with questions and answers that are visibly rendered on the
+ * same page.** Marking up hidden or absent content is a documented spam pattern
+ * and risks a manual action against the whole domain — which would cost far
+ * more than the rich result is worth. The answer string should match the
+ * on-page text; light HTML is permitted by the spec but plain text is safer.
+ */
+export function faqJsonLd(
+  items: { q: string; a: string }[],
+): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    mainEntity: items.map((item) => ({
+      "@type": "Question",
+      name: item.q,
+      acceptedAnswer: { "@type": "Answer", text: item.a },
+    })),
   };
 }

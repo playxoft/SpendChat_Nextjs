@@ -26,6 +26,31 @@ function permissionsPolicy(microphone: "()" | "(self)"): string {
   return `camera=(), microphone=${microphone}, geolocation=(), browsing-topics=()`;
 }
 
+/**
+ * The two directives that force a browser from http to https — HSTS and the
+ * CSP's `upgrade-insecure-requests` (spread into the lists below) — are
+ * **production-only**.
+ *
+ * `next dev` speaks plain http, and both directives break it the moment the dev
+ * server is opened at anything other than `localhost`: a phone or a second
+ * machine on the same Wi-Fi reaching `http://192.168.x.x:3010`. Browsers exempt
+ * localhost from the upgrade, which is why this stays invisible on the dev
+ * machine itself — but on a LAN address `upgrade-insecure-requests` rewrites
+ * every same-origin link to `https://`, so the page loads and the first click
+ * dead-ends on a TLS handshake nothing is listening for. HSTS would then pin
+ * that upgrade for two years per host.
+ *
+ * Nothing about the deployed Worker changes: `isDev` is false in every build.
+ */
+const transportSecurity = isDev
+  ? []
+  : [
+      {
+        key: "Strict-Transport-Security",
+        value: "max-age=63072000; includeSubDomains; preload",
+      },
+    ];
+
 const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "X-Frame-Options", value: "DENY" },
@@ -38,10 +63,7 @@ const securityHeaders = [
     key: "Permissions-Policy",
     value: permissionsPolicy("()"),
   },
-  {
-    key: "Strict-Transport-Security",
-    value: "max-age=63072000; includeSubDomains; preload",
-  },
+  ...transportSecurity,
   {
     key: "Content-Security-Policy",
     value: [
@@ -58,7 +80,9 @@ const securityHeaders = [
       "object-src 'none'",
       "base-uri 'self'",
       "form-action 'self'",
-      "upgrade-insecure-requests",
+      // Upgrades every insecure URL in the document — subresources *and*
+      // same-origin links — to https. Dev is exempt for the reason above.
+      ...(isDev ? [] : ["upgrade-insecure-requests"]),
     ].join("; "),
   },
 ];
@@ -98,16 +122,26 @@ const attachmentHeaders = [
     key: "Permissions-Policy",
     value: permissionsPolicy("()"),
   },
-  {
-    key: "Strict-Transport-Security",
-    value: "max-age=63072000; includeSubDomains; preload",
-  },
+  ...transportSecurity,
   { key: "Content-Security-Policy", value: "frame-ancestors 'self'" },
 ];
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  // `next dev` serves its dev-only endpoints — `/_next/*` chunks, the HMR
+  // websocket, the error overlay — only to the host it was started on, and
+  // answers every other Origin with a 403. Opening the dev server from another
+  // machine on the same Wi-Fi is exactly that case: the HTML renders and then
+  // every chunk fails. These are the three RFC 1918 private ranges plus mDNS
+  // `.local` names, so a LAN address keeps working when DHCP moves it. Read
+  // only by `next dev` — the deployed Worker never sees this.
+  allowedDevOrigins: [
+    "192.168.*.*",
+    "10.*.*.*",
+    ...Array.from({ length: 16 }, (_, i) => `172.${16 + i}.*.*`),
+    "*.local",
+  ],
   experimental: {
     serverActions: {
       // Voice entry posts a recording through a server action

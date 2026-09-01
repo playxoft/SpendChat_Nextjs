@@ -1,5 +1,15 @@
 export type Faq = { q: string; a: string };
 
+/**
+ * The shared FAQ, in priority order.
+ *
+ * Order matters: the homepage renders the first few and `/faq` renders all of
+ * them, so the entries most likely to be a visitor's actual question — and the
+ * ones worth surfacing as a rich result — belong at the top. Both surfaces also
+ * emit `FAQPage` structured data from this same array, which is what keeps the
+ * markup and the visible text in step; marking up an answer that isn't on the
+ * page is a spam signal, not a shortcut.
+ */
 export const faqs: Faq[] = [
   {
     q: "Is SpendChat free to use?",
@@ -32,5 +42,33 @@ export const faqs: Faq[] = [
   {
     q: "Can I filter and search my history?",
     a: "Yes. Filter by date range, type (income or expense), and category, or search your notes — then export exactly what you see.",
+  },
+  {
+    q: "Do I have to connect my bank account?",
+    a: "No — SpendChat has no bank integration at all and never asks for banking credentials. You enter transactions yourself, which is what makes it work for cash, for accounts no aggregator supports, and for anyone who would rather not hand a login to a third party.",
+  },
+  {
+    q: "Can the AI add transactions for me?",
+    a: "It can read a sentence like “coffee 4.50 and 62 on groceries” and turn it into categorised drafts, but it never saves them for you. Every parse lands in a review step where you can edit or delete any row, and nothing reaches your feed until you confirm.",
+  },
+  {
+    q: "Can I add expenses by speaking?",
+    a: "Yes. Hold M and say what you spent; the recording is transcribed and turned into drafts for you to check. You pick which languages to expect in Settings, and because several can be named at once, sentences that mix two languages are transcribed as spoken.",
+  },
+  {
+    q: "Can I keep business and personal expenses separate?",
+    a: "Yes, with profiles. Each profile has its own feed, balance and reports, and you switch between them with a click or Shift and a number. There is also an “All profiles” view when you want one combined number.",
+  },
+  {
+    q: "Can I share my expenses with my partner or accountant?",
+    a: "Yes. Invite them to a workspace and choose what they can do — view, edit, or administer. Access can be granted for a whole workspace or for a single profile, so an accountant can see your business books and nothing else.",
+  },
+  {
+    q: "Can I attach receipts to a transaction?",
+    a: "Yes. Attach receipts, bills or invoices to any transaction, or keep them in a Drive-style vault with folders, colour tags and share links. Every workspace gets 1 GB of storage.",
+  },
+  {
+    q: "Does SpendChat work offline or as an installed app?",
+    a: "It runs in any modern browser on phone, tablet and desktop, and you can add it to your home screen. There is no separate download and no app store account needed.",
   },
 ];

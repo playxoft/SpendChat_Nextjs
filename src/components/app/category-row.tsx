@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import { ChevronDown, Tags } from "lucide-react";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
@@ -36,16 +37,38 @@ export function CategoryRow({
   dense?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
+  const reduced = useReducedMotion();
   const scrollRef = React.useRef<HTMLDivElement>(null);
   const selected = value ? (categories.find((c) => c.id === value) ?? null) : null;
 
   // Keep the selected chip visible in the scroller — e.g. when it's chosen via
   // the "/" command in the title and lives off-screen in the horizontal scroll.
+  //
+  // Scrolls the strip itself rather than calling `scrollIntoView`, which is
+  // free to scroll every scrollable ancestor including the page. That's what it
+  // did: this effect runs on mount with whatever category is already selected,
+  // and on the marketing pages — where the same composer is on show halfway
+  // down a long page — landing on the homepage dragged the visitor a thousand
+  // pixels past the hero before they had touched anything. The intent here is
+  // horizontal and local; this does only that.
   React.useEffect(() => {
     if (!value) return;
-    const el = scrollRef.current?.querySelector(`[data-cat-id="${value}"]`);
-    el?.scrollIntoView({ block: "nearest", inline: "center", behavior: "smooth" });
-  }, [value]);
+    const box = scrollRef.current;
+    const el = box?.querySelector(`[data-cat-id="${value}"]`);
+    if (!box || !el) return;
+    const boxRect = box.getBoundingClientRect();
+    const chip = el.getBoundingClientRect();
+    // Measured through the rects rather than `offsetLeft`, which is relative to
+    // whichever ancestor happens to be positioned — not necessarily this strip.
+    const left =
+      box.scrollLeft + (chip.left - boxRect.left) - (boxRect.width - chip.width) / 2;
+    // A `behavior` passed here wins over the stylesheet's reduced-motion
+    // `scroll-behavior: auto`, so the preference has to be read in JS.
+    box.scrollTo({
+      left: Math.max(0, left),
+      behavior: reduced ? "auto" : "smooth",
+    });
+  }, [reduced, value]);
 
   // Full-list grid + "Edit categories" — shared by the "More" popover and the
   // compact tag-icon picker.
@@ -151,7 +174,7 @@ export function CategoryRow({
     <div className="flex items-center gap-1.5">
       <div
         ref={scrollRef}
-        className="scrollbar-thin flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto pb-1"
+        className="no-scrollbar flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto"
       >
         {categories.length === 0 ? (
           <span className="text-xs text-muted-foreground">No categories yet.</span>

@@ -17,7 +17,12 @@ export type BlogMeta = {
   author?: string;
   /** Hidden in production, shown in dev so you can preview before publishing. */
   draft?: boolean;
-  /** Root-relative or absolute social image; falls back to the site default. */
+  /**
+   * The post's cover: shown on the index card and above the article, and used
+   * as its social preview. Root-relative or absolute; falls back to the shared
+   * site card. Generate it with `scripts/blog-image.html` (1200×630, dark) —
+   * see that file's header comment for the Chrome command.
+   */
   image?: string;
 };
 

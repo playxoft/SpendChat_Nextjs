@@ -28,7 +28,7 @@ describe("siteConfig", () => {
   it("has the required metadata fields", () => {
     expect(siteConfig.name).toBe("SpendChat");
     expect(siteConfig.url).not.toMatch(/\/$/); // trailing slash stripped
-    expect(siteConfig.keywords.length).toBeGreaterThan(0);
+    expect(siteConfig.topics.length).toBeGreaterThan(0);
     expect(siteConfig.ogImage).toBeTruthy();
   });
   it("nav entries are well-formed", () => {

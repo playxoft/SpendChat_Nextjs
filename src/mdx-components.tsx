@@ -75,12 +75,12 @@ const components = {
   ),
   pre: (props: ComponentPropsWithoutRef<"pre">) => (
     <pre
-      className="mt-5 overflow-x-auto rounded-xl border bg-muted p-4 text-sm [&_code]:bg-transparent [&_code]:p-0"
+      className="scrollbar-slim mt-5 overflow-x-auto rounded-xl border bg-muted p-4 text-sm [&_code]:bg-transparent [&_code]:p-0"
       {...props}
     />
   ),
   table: (props: ComponentPropsWithoutRef<"table">) => (
-    <div className="mt-6 overflow-x-auto rounded-xl border">
+    <div className="scrollbar-slim mt-6 overflow-x-auto rounded-xl border">
       <table className="w-full text-sm" {...props} />
     </div>
   ),

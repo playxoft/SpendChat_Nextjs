@@ -212,22 +212,63 @@
   animation: mt-stamp 0.55s cubic-bezier(0.2, 1.5, 0.45, 1) both;
 }
 
-/* A very thin, unobtrusive horizontal/vertical scrollbar (used by the
-   single-row category picker). */
-@utility scrollbar-thin {
-  scrollbar-width: thin;
-  scrollbar-color: color-mix(in oklch, var(--foreground) 20%, transparent) transparent;
+/* No scrollbar at all on a strip that scrolls sideways — the single-row
+   category picker, and the tag strips in the marketing demos.
+
+   This used to be a 4px `scrollbar-thin`, which is what a Mac does with any
+   scrollbar anyway: draw it over the content, only while scrolling. Windows
+   and Linux draw a real one that takes up layout space, so the strip lost a
+   slice of its height to a permanent grey bar sitting under chips that are
+   already only as tall as the row allows. A row of chips isn't a document; you
+   swipe or shift-scroll it, and every category is also one tap away in the
+   picker beside it, so nothing here is reachable only by dragging a bar. */
+@utility no-scrollbar {
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* old Edge */
 
   &::-webkit-scrollbar {
-    height: 4px;
-    width: 4px;
+    display: none;
+  }
+}
+
+/* The other half of the same problem: a box that genuinely scrolls, where the
+   bar is worth keeping because it's the only thing saying so — a table wider
+   than its frame, a grid of editable rows. Hiding it there would leave content
+   reachable only by a gesture you can't see.
+
+   6px instead of the platform's 17. On Windows and Linux that's the difference
+   between a bar that visibly shoves the content above it and one you barely
+   register; on a Mac these are drawn over the content anyway.
+
+   Deliberately no `scrollbar-width` outside the `@supports` guard: set on its
+   own it *overrides* the webkit sizing in Chrome, and `thin` there is ~11px.
+   That's how the previous attempt at this shipped an 11px bar while its own
+   declaration asked for 4. Firefox has no `::-webkit-scrollbar` at all, so it
+   gets `thin` — the only slim it offers — through a test for that. */
+@utility scrollbar-slim {
+  &::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
   }
   &::-webkit-scrollbar-track {
     background: transparent;
   }
   &::-webkit-scrollbar-thumb {
-    background: color-mix(in oklch, var(--foreground) 20%, transparent);
+    background: color-mix(in oklch, var(--foreground) 22%, transparent);
     border-radius: 9999px;
+  }
+  &::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklch, var(--foreground) 38%, transparent);
+  }
+  /* Where a box scrolls both ways, the square where the two bars meet. */
+  &::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  @supports not selector(::-webkit-scrollbar) {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklch, var(--foreground) 22%, transparent)
+      transparent;
   }
 }
 
