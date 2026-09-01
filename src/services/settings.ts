@@ -16,7 +16,7 @@ import { requireWorkspaceRole } from "@/lib/workspaces";
 import { findUserById } from "@/lib/directory";
 import { sendEmail } from "@/lib/email";
 import { deleteObjects, keyFromPublicUrl } from "@/lib/r2";
-import { collectProfileObjectKeys, forProfiles } from "./storage-keys";
+import { collectProfileObjectKeys } from "./storage-keys";
 import { assertEmailSendAllowed } from "@/lib/email-quota";
 import { siteConfig } from "@/lib/site";
 import { badRequest, validationError } from "@/lib/errors";
@@ -230,7 +230,7 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
         .where(inArray(profiles.workspaceId, ownedIds));
       const profileIds = ownedProfiles.map((p) => p.id);
       if (profileIds.length > 0) {
-        keys.push(...(await collectProfileObjectKeys(tx, forProfiles(profileIds))));
+        keys.push(...(await collectProfileObjectKeys(tx, profileIds)));
         await tx.delete(transactions).where(inArray(transactions.profileId, profileIds));
         await tx.delete(profiles).where(inArray(profiles.id, profileIds));
       }

@@ -16,7 +16,7 @@ import { ensureBootstrap } from "@/lib/auth";
 import { conflict, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { deleteObjects } from "@/lib/r2";
-import { collectProfileObjectKeys, forProfile } from "./storage-keys";
+import { collectProfileObjectKeys } from "./storage-keys";
 import {
   accessibleProfileIds,
   requireProfileRole,
@@ -419,7 +419,7 @@ export async function deleteProfile(
       // modes — after `move` the transactions are already re-filed so nothing
       // matches, on `delete` they are still here and every key is collected,
       // and `reject` only gets this far when there were none.
-      const doomed = await collectProfileObjectKeys(tx, forProfile(id));
+      const doomed = await collectProfileObjectKeys(tx, [id]);
 
       // `transactions.profile_id` is ON DELETE restrict — the rows have to go
       // explicitly (their attachment rows cascade off them), or the delete below
