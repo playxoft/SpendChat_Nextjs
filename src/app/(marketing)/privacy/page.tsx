@@ -232,8 +232,8 @@ export default function PrivacyPage() {
             Your records are kept for as long as your account exists — a money tracker is
             only useful with its history intact — and are deleted when you delete them or
             delete your account. Server logs and the internal rate-limit records that stop
-            abuse of email and AI features are kept for about 30 days and then removed
-            automatically.
+            abuse of email and AI features are short-lived operational data, pruned by the
+            operator on a roughly 30-day window.
           </p>
         </section>
 
@@ -267,7 +267,9 @@ export default function PrivacyPage() {
               from <span className="text-foreground">Settings → Account</span>, without
               emailing anyone. That removes your transactions, the workspaces you own and
               everything inside them, your uploaded files, your memberships and your
-              settings, and it deletes your sign-in account too.
+              settings. Your sign-in credential is removed in the same step; if you have
+              been signed in a while, our authentication provider asks you to sign in once
+              more before it will do that, and the app tells you so.
             </li>
             <li>
               <span className="text-foreground">Objection and withdrawal of consent</span>{" "}

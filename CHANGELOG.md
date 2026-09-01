@@ -34,21 +34,30 @@ repository went public.
   hostile input by design. XFA — a second, richer parser a thumbnail never needs
   — is now switched off explicitly rather than left to its default.
 - **Deleting your account now deletes your files.** It removed every database
-  row but nothing from object storage, so uploaded receipts and vault documents
-  stayed in the bucket after the rows that referenced them were gone —
-  unreachable from any screen, and impossible for a later sweep to find, but
-  still stored. Anything the account owned is now collected before the delete
-  and removed after it. (Deleting a single *profile* already did this.)
+  row but nothing from object storage, so uploaded receipts, vault documents and
+  your profile picture stayed in the bucket after the rows that referenced them
+  were gone — unreachable from any screen, and impossible for a later sweep to
+  find, but still stored. Anything the account owned is now collected before the
+  delete and removed after it. The whole deletion also runs in one transaction:
+  it was eight separate statements, so a failure part-way could destroy your
+  transactions, leave the account half-alive, skip the file sweep entirely and
+  still report that the deletion had failed. (Deleting a single *profile*
+  already worked this way; the two now share one implementation.)
 - **The AI and email rate limits can no longer be beaten by sending everything
   at once.** Both counted, then wrote, as two statements: fifty simultaneous
   requests all read a count under the limit and all passed, which is precisely
-  the caller each limit exists to stop. Counting and writing are now one
-  statement, so the caller past the limit genuinely loses. The AI cap protects
-  the operator's model bill; the email cap protects the sending domain from
-  being used to send bulk mail.
-- Upload routes reject an oversized body from its `Content-Length` before
-  reading it, instead of buffering the whole thing into a Worker isolate and
+  the caller each limit exists to stop. Both now take a per-user advisory lock
+  for the length of the check, so concurrent callers queue behind one another
+  and the one past the limit genuinely loses. The AI cap protects the operator's
+  model bill; the email cap protects the sending domain from being used to send
+  bulk mail.
+- Upload routes — including voice transcription and avatars, which take the
+  largest and the most frequent bodies — turn away an oversized upload from its
+  `Content-Length` before reading it, rather than buffering the whole thing and
   rejecting it afterwards.
+- A PDF that fails to parse no longer leaks its loading task into the shared
+  pdf.js worker. A malformed or hostile file is exactly the one whose parse
+  rejects, and that was the path that skipped cleanup.
 
 ### Changed
 

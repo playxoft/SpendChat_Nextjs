@@ -5,6 +5,7 @@ import { badRequest, forbidden } from "@/lib/errors";
 import { canWriteInWorkspace } from "@/lib/workspaces";
 import { assertAiRequestAllowed } from "@/lib/ai-quota";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
+import { assertUploadBodySize } from "@/lib/upload-form";
 import { isSupportedAudioType, transcribeVoiceNote } from "@/lib/ai-transcribe";
 import { getCategories } from "@/lib/queries";
 
@@ -29,6 +30,10 @@ export async function POST(request: NextRequest) {
   return handle(async () => {
     const { user, settings, workspace } = await getApiContext(request);
 
+    // Recordings are the largest bodies the product accepts, so this is the
+    // first route that wants the early 413 — not the last one to get it.
+    assertUploadBodySize(request, { maxFiles: 1, maxBytes: MAX_AUDIO_BYTES });
+
     let form: FormData;
     try {
       form = await request.formData();
@@ -39,9 +44,10 @@ export async function POST(request: NextRequest) {
     if (!(audio instanceof Blob) || audio.size === 0) {
       throw badRequest("No recording was captured — try again.");
     }
-    // `formData()` above has already buffered the body, so this doesn't spare
-    // the read — it spares the `arrayBuffer()` copy, the quota slot and the
-    // provider call, which are the expensive parts.
+    // The header check above turns away an honestly-declared oversized body
+    // before the read; this is the authoritative check on what actually
+    // arrived, and it spares the `arrayBuffer()` copy, the quota slot and the
+    // provider call.
     if (audio.size > MAX_AUDIO_BYTES) {
       throw badRequest("That recording is too long — try a shorter one.");
     }

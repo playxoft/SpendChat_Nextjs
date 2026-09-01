@@ -16,6 +16,7 @@ import { ensureBootstrap } from "@/lib/auth";
 import { conflict, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { deleteObjects } from "@/lib/r2";
+import { collectProfileObjectKeys, forProfile } from "./storage-keys";
 import {
   accessibleProfileIds,
   requireProfileRole,
@@ -418,18 +419,7 @@ export async function deleteProfile(
       // modes — after `move` the transactions are already re-filed so nothing
       // matches, on `delete` they are still here and every key is collected,
       // and `reject` only gets this far when there were none.
-      const doomedAttachments = await tx
-        .select({
-          r2Key: transactionAttachments.r2Key,
-          thumbnailKey: transactionAttachments.thumbnailKey,
-        })
-        .from(transactionAttachments)
-        .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
-        .where(eq(transactions.profileId, id));
-      const doomedFiles = await tx
-        .select({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey })
-        .from(files)
-        .where(eq(files.profileId, id));
+      const doomed = await collectProfileObjectKeys(tx, forProfile(id));
 
       // `transactions.profile_id` is ON DELETE restrict — the rows have to go
       // explicitly (their attachment rows cascade off them), or the delete below
@@ -444,10 +434,7 @@ export async function deleteProfile(
         .returning({ id: profiles.id });
       if (deleted.length === 0) throw new ProfileGone();
 
-      return [...doomedAttachments, ...doomedFiles].flatMap((row) => [
-        row.r2Key,
-        row.thumbnailKey,
-      ]);
+      return doomed;
     });
   } catch (err) {
     if (err instanceof ProfileGone) return false;

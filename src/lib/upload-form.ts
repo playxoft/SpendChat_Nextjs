@@ -1,5 +1,8 @@
 import { ApiError, badRequest } from "@/lib/errors";
 
+/** Multipart framing plus the ordinary form fields sent beside the files. */
+const SLACK_BYTES = 1024 * 1024;
+
 /**
  * The one multipart parser for every upload route — the vault (`/api/files`,
  * `/api/v1/files`) and transaction attachments (`/api/transactions/:id/
@@ -14,34 +17,40 @@ import { ApiError, badRequest } from "@/lib/errors";
  */
 
 /**
- * Reject an oversized multipart body from its `Content-Length`, **before**
- * `request.formData()` is awaited.
+ * Reject an obviously-oversized multipart body from its `Content-Length`,
+ * **before** `request.formData()` is awaited.
  *
  * `parseUploadForm` already refuses a part that declares too many bytes, but by
- * the time it can look, the runtime has read the whole body into the isolate:
- * the per-file cap is enforced on a request that has already cost us the
- * memory. A Worker isolate gets 128 MB, so a single authenticated caller
- * posting a body far past what any real upload needs can push it out of memory
- * and take the request down with it. Reading `Content-Length` first turns that
- * into a cheap 413.
+ * the time it can look, the runtime has read the whole body into the isolate —
+ * the per-file cap is enforced on a request that has already cost us the memory.
  *
- * The bound is what the route could legitimately accept — every file at the cap,
- * plus a same-size preview each — with `SLACK` for multipart framing and the
- * ordinary form fields beside the files. A body with no (or an unparseable)
- * `Content-Length` is let through: chunked uploads are legal, and the per-part
- * checks downstream are still the real limit. This is a floor under memory use,
- * not the size policy.
+ * **Be clear about what this is.** `Content-Length` is set by the client and may
+ * be omitted entirely (a chunked upload is legal and is let through, since the
+ * per-part checks downstream are the real limit). So this is not a defence
+ * against someone deliberately exhausting memory — they simply omit the header.
+ * It is a cheap, early, honest 413 for the ordinary case: a real client
+ * uploading something far too big learns immediately instead of after the
+ * transfer. Enforcing a true ceiling would mean capping bytes as they are read
+ * off `request.body`, which the multipart parser here doesn't do.
+ *
+ * The bound is deliberately tight rather than "the most the route could ever
+ * accept": `formData()` holds the raw body and the parsed parts at the same
+ * time, so a request sized at the theoretical maximum still doesn't fit in a
+ * 128 MB isolate. Half the theoretical maximum keeps a legitimate full batch
+ * comfortably inside it, and no real client sends every slot at the cap.
  */
-const SLACK_BYTES = 1024 * 1024;
-
 export function assertUploadBodySize(
   request: Request,
   { maxFiles, maxBytes }: { maxFiles: number; maxBytes: number },
 ): void {
   const declared = Number(request.headers.get("content-length"));
   if (!Number.isFinite(declared) || declared <= 0) return;
-  // ×2: each file may carry a client-generated preview of its own.
-  if (declared > maxFiles * maxBytes * 2 + SLACK_BYTES) {
+  // Every file at the cap, plus multipart framing and the ordinary form fields
+  // beside them. Previews are not given a slot of their own: a batch that is all
+  // full-size files *and* all full-size previews is not a real upload, and
+  // counting it doubles the ceiling this exists to lower.
+  const limit = maxFiles * maxBytes + SLACK_BYTES;
+  if (declared > limit) {
     throw new ApiError(413, "payload_too_large", "That upload is too large");
   }
 }

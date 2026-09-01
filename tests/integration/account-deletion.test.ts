@@ -1,6 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 vi.mock("@/lib/r2", () => ({
+  // Mirrors the real helper: only URLs under our own base are ours to delete.
+  keyFromPublicUrl: (url: string) =>
+    url.startsWith("https://cdn.example/") ? url.slice("https://cdn.example/".length) : null,
   isR2Configured: () => true,
   uploadObject: vi.fn(async () => {}),
   deleteObject: vi.fn(async () => {}),
@@ -114,6 +117,34 @@ describe("deleteAccount", () => {
         "attachments/receipt.pdf",
       ]),
     );
+  });
+
+  it("sweeps the avatar, which no profile-keyed query reaches", async () => {
+    await bootstrapUser("a");
+    // users.image holds the public URL the avatar route minted; the row that
+    // carries the only pointer to the object is about to be deleted.
+    await getTestDb()
+      .update(users)
+      .set({ image: `https://cdn.example/avatars/${uid("a")}/face.webp` })
+      .where(eq(users.id, uid("a")));
+
+    await deleteAccount(uid("a"), "DELETE");
+
+    expect(swept()).toContain(`avatars/${uid("a")}/face.webp`);
+  });
+
+  it("does not delete a Google avatar, which lives in someone else's bucket", async () => {
+    await bootstrapUser("a");
+    await getTestDb()
+      .update(users)
+      .set({ image: "https://lh3.googleusercontent.com/a/somebody" })
+      .where(eq(users.id, uid("a")));
+
+    await deleteAccount(uid("a"), "DELETE");
+
+    // keyFromPublicUrl returns null for a foreign URL, and the sweep drops it.
+    expect(swept()).not.toContain("https://lh3.googleusercontent.com/a/somebody");
+    expect(swept().filter(Boolean)).toEqual([]);
   });
 
   it("leaves another account's workspace, rows and objects untouched", async () => {

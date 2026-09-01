@@ -23,6 +23,10 @@ next-env.d.ts
 !.env.example
 .dev.vars
 .dev.vars.*
+# A Firebase Admin service-account key. The script that used to read it is gone,
+# but the rule stays: it guards a private key with full project access, ignore
+# rules for secrets cost nothing, and this one has to outlive whatever needed it.
+.firebase-service-account.json
 
 # ---- cloudflare / opennext / wrangler ----
 /.open-next/

@@ -34,8 +34,14 @@ export async function pdfThumbnail(file: File, size: number): Promise<Blob | nul
   // thumbnail never needs it. Everything here is belt and braces over the CSP,
   // which ships no `unsafe-eval` in production.
   const loadingTask = pdfjs.getDocument({ data, enableXfa: false });
-  const doc = await loadingTask.promise;
+  // `await loadingTask.promise` is inside the try, not above it. A hostile or
+  // merely corrupt PDF is exactly the file whose parse rejects, and with the
+  // await outside, that rejection skipped `destroy()` and leaked the task and
+  // its buffers into the shared worker — which is created once and never
+  // terminated, so they accumulate for the life of the page.
+  let doc: Awaited<typeof loadingTask.promise> | null = null;
   try {
+    doc = await loadingTask.promise;
     const page = await doc.getPage(1);
     const base = page.getViewport({ scale: 1 });
     // Scale the page so its width matches the thumbnail square.
@@ -57,7 +63,7 @@ export async function pdfThumbnail(file: File, size: number): Promise<Blob | nul
     ctx.drawImage(pageCanvas, 0, 0, size, (pageCanvas.height * size) / pageCanvas.width);
     return await new Promise((resolve) => canvas.toBlob((b) => resolve(b), "image/webp", 0.72));
   } finally {
-    void doc.cleanup();
+    void doc?.cleanup();
     await loadingTask.destroy();
   }
 }

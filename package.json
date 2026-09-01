@@ -107,14 +107,9 @@
     "wrangler": "^4.101.0"
   },
   "pnpm": {
-    "//overrides": "Patched versions of transitive packages our direct dependencies still pin below a security advisory. All are build-toolchain leaves with stable APIs (a CSS parser, a bundler, an id generator) and none is reachable from the deployed Worker; together they take `pnpm audit` to zero. Re-check on every dependency bump and drop an entry once the dependency that needed it has caught up. Keep every override version-scoped where a major line is breaking: brace-expansion is the cautionary one \u2014 v1/v2 export a callable and v5 exports { expand }, so a blanket override there crashes minimatch@3 under eslint.",
+    "//overrides": "Transitive packages our dependencies still pin below a security advisory. EVERY entry here stays inside the dependent's declared major, because an override that crosses one silently breaks the dependent: an earlier version of this block forced protobufjs 8 onto @grpc/proto-loader, which declares ^7.2.5. Re-derive the list after any dependency change rather than carrying it forward \u2014 removing firebase-admin alone made five of the original nine entries unnecessary. DELIBERATELY NOT OVERRIDDEN: esbuild. Both of its advisories are esbuild's own dev server (a CORS hole, and a Windows file read); wrangler and drizzle-kit use it as a library and never start that server, and wrangler pins esbuild to an exact 0.27.3 because it drives the plugin API \u2014 so the override would risk the deploy toolchain to silence something that cannot affect us.",
     "overrides": {
-      "browserslist": ">=4.28.7",
-      "esbuild": ">=0.28.1",
-      "js-yaml@>=4.0.0": ">=4.3.1",
-      "nanoid@<3.3.18": ">=3.3.18",
       "postcss": ">=8.5.23",
-      "protobufjs": ">=7.6.5",
       "sharp": ">=0.35.0",
       "undici": ">=7.29.0",
       "ws@>=8.0.0 <8.21.0": ">=8.21.0"
