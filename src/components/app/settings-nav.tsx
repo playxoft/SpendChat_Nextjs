@@ -35,7 +35,12 @@ export function SettingsNav() {
   return (
     <nav
       aria-label="Settings sections"
-      className="no-scrollbar flex gap-1 overflow-x-auto pb-2 lg:w-44 lg:shrink-0 lg:flex-col lg:overflow-visible lg:pb-0"
+      // `scrollbar-slim`, not `no-scrollbar`: hiding the bar is right for the
+      // category strip because every chip is also one tap away in the picker
+      // beside it. There is no second way to reach a settings section — about
+      // three of the seven fit on a narrow phone — so the bar is the only thing
+      // saying the rest are there.
+      className="scrollbar-slim flex gap-1 overflow-x-auto pb-2 lg:w-44 lg:shrink-0 lg:flex-col lg:overflow-visible lg:pb-0"
     >
       {SETTINGS_SECTIONS.map((s) => {
         const active = pathname === s.href || pathname.startsWith(`${s.href}/`);

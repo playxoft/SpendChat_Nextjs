@@ -12,7 +12,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
   TableBody,
   TableCell,
   TableHead,
@@ -22,7 +21,7 @@ import {
 import { amountToneClass } from "@/components/app/transaction-bubble";
 import { COLUMN_LABELS } from "@/components/app/transaction-columns-store";
 import { DemoFrame } from "./demo-frame";
-import { DemoDateChip, DemoTypeToggle } from "./demo-controls";
+import { DemoDateChip, DemoTypeFilter, type DemoTypeFilterValue } from "./demo-controls";
 import { type DemoTxnType } from "./demo-data";
 import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
 import { transactionsToReportCsv } from "@/lib/transactions-csv";
@@ -84,6 +83,30 @@ const WORKSPACE_NAME = "Alex's Workspace";
 const PROFILE_NAME = "Personal";
 const FILENAME = `spendchat-${RANGE.to}.csv`;
 
+/**
+ * The export's date range, written the way the visitor's locale writes it:
+ * "Aug 1 – 21" in en-US, "1–21 août" in fr-FR, "1～21日" in ja-JP.
+ *
+ * The chip used to be the literal string "Aug 1 – 21", sitting directly above a
+ * table whose every date cell goes through `formatDateShort(row.date,
+ * money.locale)` — so a French visitor read an English range over French rows
+ * describing the same fortnight. `formatRange` is what collapses the shared
+ * month rather than printing it twice, and it's given the exact options
+ * `formatDateShort` uses, so the endpoints match the rows they bracket
+ * character for character.
+ *
+ * UTC, and parsed from the same `YYYY-MM-DDT00:00:00Z` form, because these are
+ * date-only values: read in the runtime's own zone, anywhere west of Greenwich
+ * would render the previous day.
+ */
+function formatRangeShort(fromISO: string, toISO: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  }).formatRange(new Date(`${fromISO}T00:00:00Z`), new Date(`${toISO}T00:00:00Z`));
+}
+
 /** Pad a seed row out to the shape the exporter takes. */
 function toReportRow(seed: Seed, i: number, amountMinor: number): ReportRow {
   return {
@@ -124,7 +147,7 @@ function toReportRow(seed: Seed, i: number, amountMinor: number): ReportRow {
  * only prove anything if the escaping is the shipped escaping.
  */
 export function ExportDemo() {
-  const [type, setType] = useState<DemoTxnType | "all">("all");
+  const [type, setType] = useState<DemoTypeFilterValue>("all");
   const [category, setCategory] = useState(CATEGORIES[0]);
   const money = useDemoMoney();
 
@@ -164,14 +187,22 @@ export function ExportDemo() {
 
   const net = rows.reduce((sum, r) => sum + signedMinor(r.type, demoAmount(r.amountMinor, money)), 0);
 
+  // The anchor is put in the document and the revoke is deferred a task, both
+  // for the same reason: a synthetic download isn't finished when `click()`
+  // returns. Firefox ignores a click on a detached anchor outright, and it and
+  // older Safari start reading the blob asynchronously — revoking in the same
+  // tick hands them a URL that no longer resolves, so the file arrives empty or
+  // not at all. A macrotask is enough of a gap, and still frees the blob.
   function downloadCsv() {
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
     link.download = FILENAME;
+    document.body.appendChild(link);
     link.click();
-    URL.revokeObjectURL(url);
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
   }
 
   return (
@@ -181,11 +212,7 @@ export function ExportDemo() {
       className="h-[38rem]"
       header={
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-3">
-          <DemoTypeToggle
-            dense
-            type={type === "all" ? "expense" : type}
-            onChange={(t) => setType(type === t ? "all" : t)}
-          />
+          <DemoTypeFilter value={type} onChange={setType} />
           <Select value={category} onValueChange={setCategory}>
             <SelectTrigger className="h-8 w-auto min-w-40 gap-1" aria-label="Category">
               <SelectValue />
@@ -198,7 +225,7 @@ export function ExportDemo() {
               ))}
             </SelectContent>
           </Select>
-          <DemoDateChip label="Aug 1 – 21" className="hidden sm:inline-flex" />
+          <DemoDateChip label={formatRangeShort(RANGE.from, RANGE.to, money.locale)} />
           <Button
             type="button"
             variant="outline"
@@ -215,15 +242,27 @@ export function ExportDemo() {
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-t bg-muted/20 px-4 py-2.5 text-xs">
           <span className="text-muted-foreground">
             {rows.length} of {SEED.length} rows ·{" "}
-            <span className={cn("tabular-nums", net >= 0 && "text-emerald-600 dark:text-emerald-400")}>
-              {formatMoney(net, money.code, money.locale, { signed: true })}
+            {/* Zero is neither income nor a sign. Keyed on `net >= 0`, filtering
+                down to nothing printed an emerald "+$0.00 net" beside "Nothing
+                matches those filters" — money in, from no rows at all. Both the
+                emerald accent and the sign are reserved for a net that has one. */}
+            <span
+              className={cn(
+                "tabular-nums",
+                net > 0 && "text-emerald-600 dark:text-emerald-400",
+              )}
+            >
+              {formatMoney(net, money.code, money.locale, { signed: net !== 0 })}
             </span>{" "}
             net
           </span>
           <span className="inline-flex items-center gap-1.5 text-muted-foreground">
             <Printer className="size-3.5" aria-hidden />
             Print the same view
-            <Kbd combo={comboFor("global.print")} className="opacity-70" />
+            {/* A chip inside a sentence, so it carries `describe`: without it
+                the line reads aloud as "Print the same view" and the key it is
+                telling you about is dropped. */}
+            <Kbd combo={comboFor("global.print")} describe className="opacity-70" />
           </span>
           <p className="basis-full text-[11px] text-muted-foreground/80">
             Commas and quotes inside a title are quoted and doubled; a cell
@@ -241,7 +280,31 @@ export function ExportDemo() {
             `min-width: auto`, so one long CSV line would stretch its column and
             squeeze the table instead of scrolling inside its own box. */}
         <div className="scrollbar-slim min-h-0 min-w-0 overflow-auto">
-          <Table className="w-full">
+          {/*
+            * A raw `<table>`, not the shared `<Table>` — because of the sticky
+            * header above it.
+            *
+            * `<Table>` wraps its table in `<div class="… overflow-x-auto">`, and
+            * per css-overflow-3 that div's `overflow-y: visible` computes to
+            * `auto`, making it a scroll container and therefore the nearest
+            * scrollport for anything sticky inside it. Nothing constrains its
+            * height, so its `scrollTop` is pinned at 0 forever: the header held
+            * still against a box that never scrolls while the rows scrolled
+            * away in the pane outside it — visible at desktop width, where this
+            * left pane is exactly the thing that overflows. Directly inside the
+            * one element that actually scrolls, `sticky` sticks. Same shape as
+            * the two sticky theads that work in this repo
+            * (`bulk-add-dialog.tsx`, `attachments/attachment-viewer.tsx`); the wrapper's own
+            * classes are covered here already, since this scroller carries
+            * `scrollbar-slim` and `overflow-auto` handles both axes.
+            */}
+          <table className="w-full caption-bottom text-sm">
+            {/* The table's accessible name — the only one a screen reader's
+                table list would have. */}
+            <caption className="sr-only">
+              The transactions being exported, as the app lists them — the same
+              rows, in the same order, as the file beside this table.
+            </caption>
             <TableHeader className="sticky top-0 z-10 bg-background">
               <TableRow>
                 <TableHead className="w-20">{COLUMN_LABELS.date}</TableHead>
@@ -287,7 +350,7 @@ export function ExportDemo() {
                 ))
               )}
             </TableBody>
-          </Table>
+          </table>
         </div>
 
         {/* The file */}

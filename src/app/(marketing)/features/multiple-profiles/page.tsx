@@ -25,7 +25,7 @@ const faqs = [
   },
   {
     q: "How many profiles can I have?",
-    a: "As many as you need. Most people settle on two or three — Personal, Home, and one for freelance or business — but nothing stops you adding a profile for a trip, a renovation, or a side project and archiving it afterwards.",
+    a: "As many as you need. Most people settle on two or three — Personal, Home, and one for freelance or business — but nothing stops you adding a profile for a trip, a renovation, or a side project. There is no archive: when one is finished you either leave it where it is, which costs nothing but a line in the sidebar, drag it to the bottom of the list, or delete it and say whether its transactions should move to another profile or go with it.",
   },
   {
     q: "What's the difference between a profile and a workspace?",

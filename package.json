@@ -1,8 +1,8 @@
 {
   "name": "spendchat",
-  "version": "0.13.1",
+  "version": "0.13.3",
   "private": true,
-  "description": "A minimal, chat-style money tracker \u2014 add, view, filter, download, and print your income and expenses.",
+  "description": "A minimal, chat-style money tracker — add, view, filter, download, and print your income and expenses.",
   "license": "AGPL-3.0-only",
   "author": "Playxoft",
   "homepage": "https://spendchat.app",
@@ -27,7 +27,7 @@
     "start": "doppler run -- next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "//typecheck:design": "Type-checks .design-sync/ (previews, provider, stubs), which `typecheck` cannot see \u2014 TypeScript's include globs skip dot-directories. Regenerates ds-entry.ts first, because the previews import the component library through it. Run before a design-system re-sync.",
+    "//typecheck:design": "Type-checks .design-sync/ (previews, provider, stubs), which `typecheck` cannot see — TypeScript's include globs skip dot-directories. Regenerates ds-entry.ts first, because the previews import the component library through it. Run before a design-system re-sync.",
     "typecheck:design": "node .design-sync/regen.mjs && tsc -p .design-sync/tsconfig.check.json",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -48,7 +48,7 @@
     "db:push:prod": "doppler run --config prd -- drizzle-kit push",
     "db:studio:dev": "doppler run --config dev -- drizzle-kit studio",
     "db:studio:prod": "doppler run --config prd -- drizzle-kit studio",
-    "//db:health": "Storage-cap check + rate-limit-log retention sweep. DELETES from ai_usage_log/email_send_log by default \u2014 pass -- --no-prune (or --dry-run) to report only. Exits 1 past --warn-at (default 80% of neon.max_cluster_size), 2 on bad usage or an unreadable cap, 3 on failure.",
+    "//db:health": "Storage-cap check + rate-limit-log retention sweep. DELETES from ai_usage_log/email_send_log by default — pass -- --no-prune (or --dry-run) to report only. Exits 1 past --warn-at (default 80% of neon.max_cluster_size), 2 on bad usage or an unreadable cap, 3 on failure.",
     "db:health:dev": "doppler run --config dev -- node scripts/db-health.mjs",
     "db:health:prod": "doppler run --config prd -- node scripts/db-health.mjs",
     "kill-port": "lsof -ti:3010 | xargs kill -9"

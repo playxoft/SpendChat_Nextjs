@@ -151,6 +151,15 @@ export function AppHandoff() {
     return () => {
       window.clearTimeout(fade);
       window.clearTimeout(remove);
+      // Everything that stops the countdown — engaging, hovering, `?stay=1`
+      // arriving on a back-navigation — stops it by cancelling these timers,
+      // so a card caught between the fade and the removal never reaches
+      // `timedOut` and never unmounts. Putting the card back is therefore part
+      // of tearing the countdown down: without it the card would sit at
+      // `opacity-0` for the rest of the visit, and the "always take me straight
+      // here" checkbox it carries is the only switch that turns the redirect
+      // off. On unmount this is a no-op, which is what we want there.
+      setFadingOut(false);
     };
   }, [view, state.stay, stalled, engaged, hovering]);
 
@@ -189,9 +198,15 @@ export function AppHandoff() {
         "motion-safe:transition-all motion-safe:duration-300",
         fadingOut && "pointer-events-none translate-y-1 opacity-0",
       )}
+      // A card on its way out is `inert`, not merely `pointer-events-none`.
+      // The class stops the pointer; only `inert` takes "Go to app" and the
+      // checkbox out of the tab order and off the accessibility tree as well,
+      // so nobody can tab onto a control that renders as nothing. It lifts
+      // with `fadingOut` — see the countdown's cleanup above.
+      inert={fadingOut}
       // Hover pauses; leaving starts the ten seconds over. Once the fade has
-      // begun the card is `pointer-events-none`, so it can't be caught halfway
-      // and left half-visible — it finishes leaving.
+      // begun the card can't be caught halfway and left half-visible — it
+      // finishes leaving.
       onPointerEnter={() => setHovering(true)}
       onPointerLeave={() => setHovering(false)}
       // `onFocusCapture` rather than `onFocus`, to catch focus landing on the

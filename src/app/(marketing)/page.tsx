@@ -491,8 +491,9 @@ export default function LandingPage() {
                 Single keys move between views and start an entry, ⌘/Ctrl combos
                 send it, and every chip in the interface tells you its shortcut —
                 so you learn them by using the app rather than by reading a
-                manual. Press <Kbd combo={comboFor("global.shortcuts")} className="align-middle" /> for
-                the full cheat sheet.
+                manual. Press{" "}
+                <Kbd combo={comboFor("global.shortcuts")} className="align-middle" describe />{" "}
+                for the full cheat sheet.
               </p>
               <p className="mt-3 leading-relaxed text-muted-foreground">
                 Click the panel and try one. The keys come from the app&apos;s own
@@ -538,7 +539,12 @@ export default function LandingPage() {
             picks up horizontal scroll on a 393px phone. Everything else looked
             right; the give-away was `documentElement.scrollWidth` exceeding
             `body.scrollWidth`, since the escapees are laid out above body. */}
-        <div className="scrollbar-slim relative mt-10 overflow-x-auto">
+        <div
+          tabIndex={0}
+          role="group"
+          aria-label="Comparison table, scrollable"
+          className="scrollbar-slim relative mt-10 overflow-x-auto focus-visible:ring-2 focus-visible:ring-muted-foreground focus-visible:outline-none"
+        >
           <table className="w-full min-w-[36rem] border-collapse text-sm">
             <thead>
               <tr className="border-b">

@@ -1,12 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { MousePointerClick, Sparkles } from "lucide-react";
 import { Kbd } from "@/components/ui/kbd";
 import { navItems } from "@/components/app/nav-items";
 import { useIsMac } from "@/hooks/use-shortcut";
-import { SHORTCUTS, comboFor, type ShortcutDef } from "@/lib/shortcuts";
+import {
+  SHORTCUTS,
+  comboFor,
+  describeShortcut,
+  normalizeKey,
+  spokenShortcut,
+  type ShortcutDef,
+} from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
+import {
+  PASSTHROUGH,
+  announceKeystroke,
+  echoCombo,
+  resolveShortcut,
+  shouldSwallow,
+} from "./shortcut-match";
 
 /**
  * The keyboard shortcuts, at homepage size: press a key, watch the app move.
@@ -29,9 +43,6 @@ import { cn } from "@/lib/utils";
  * a dialog has focus.
  */
 
-/** Keys that must always reach the browser: the ways out of a focus trap. */
-const PASSTHROUGH = new Set(["Tab", "Escape", "Shift", "Control", "Alt", "Meta"]);
-
 /** The second group: what you'd press without leaving the tracker. */
 const ACTION_IDS = [
   "action.add",
@@ -46,54 +57,6 @@ const ACTION_IDS = [
 const ACTIONS = ACTION_IDS.map((id) => SHORTCUTS.find((s) => s.id === id)).filter(
   (s): s is ShortcutDef => Boolean(s),
 );
-
-/**
- * Event → the registry's key vocabulary. Digits and the backtick are read off
- * `code` rather than `key`, for the reason the app does it: Shift + 1 emits "!"
- * on a US layout and something else elsewhere, so matching the printed
- * character would make the profile shortcuts layout-dependent.
- */
-function normalizeKey(e: React.KeyboardEvent): string {
-  const digit = /^(?:Digit|Numpad)([0-9])$/.exec(e.code ?? "");
-  if (digit) return digit[1];
-  if (e.code === "Backquote") return "`";
-  if (e.key === "Enter") return "enter";
-  if (e.key === "Escape") return "esc";
-  if (e.key === " ") return "space";
-  return e.key.toLowerCase();
-}
-
-/** The combo actually pressed, in the registry's DSL, for the echo chip. */
-function pressedCombo(e: React.KeyboardEvent, key: string, isMac: boolean): string {
-  const parts: string[] = [];
-  if (isMac ? e.metaKey : e.ctrlKey) parts.push("mod");
-  if (isMac ? e.ctrlKey : e.metaKey) parts.push("ctrl");
-  if (e.altKey) parts.push("alt");
-  if (e.shiftKey) parts.push("shift");
-  parts.push(key);
-  return parts.join("+");
-}
-
-/** First registry entry this keystroke satisfies, or nothing. */
-function resolveShortcut(
-  e: React.KeyboardEvent,
-  key: string,
-  isMac: boolean,
-): ShortcutDef | undefined {
-  const mod = isMac ? e.metaKey : e.ctrlKey;
-  // Ctrl on a Mac (or Meta on Windows) is a different chord entirely.
-  if ((isMac ? e.ctrlKey : e.metaKey) || e.altKey) return undefined;
-
-  return SHORTCUTS.find((s) => {
-    const parts = s.combo.split("+");
-    if (parts.includes("mod") !== mod) return false;
-    if (parts.includes("shift") !== e.shiftKey) return false;
-    // Shift + any digit lands on the profile switcher; the registry stores the
-    // first one as the representative combo.
-    if (s.id === "profiles.switch") return e.shiftKey && /^[0-9]$/.test(key);
-    return parts[parts.length - 1] === key;
-  });
-}
 
 export function ShortcutsPreview() {
   const isMac = useIsMac();
@@ -139,6 +102,17 @@ export function ShortcutsPreview() {
         return "Shift and a digit switches profile — separate feed, separate balance.";
       case "global.shortcuts":
         return "Opens the full cheat sheet, over whatever you were doing.";
+      // Neither of the last two is in the list beside this panel, but the
+      // matcher walks the whole registry, so both can still be pressed here —
+      // and in both cases the honest answer is that the key isn't ours. The
+      // panel lets them through rather than swallowing them.
+      case "tracker.category":
+        // Spelled "# (hash)" because the live region reads this sentence out:
+        // a bare "#" is punctuation most readers drop, taking the subject of
+        // the sentence with it.
+        return "A character, not a binding — type # (hash) in the title field and the composer offers matching categories from the text itself.";
+      case "global.print":
+        return "That one is the browser's own print dialog — we didn't bind it, we just made the pages print properly.";
       default:
         return s.label;
     }
@@ -148,31 +122,70 @@ export function ShortcutsPreview() {
     if (PASSTHROUGH.has(e.key) || e.repeat) return;
 
     const key = normalizeKey(e);
-    setPressed(pressedCombo(e, key, isMac));
-
     const match = resolveShortcut(e, key, isMac);
+    setPressed(echoCombo(e, key, isMac, match));
+
     if (!match) {
       setFired(null);
       setEffect("Nothing is bound to that, so nothing happens.");
       return;
     }
 
-    e.preventDefault();
+    // Only swallow what the app itself takes: `shouldSwallow` keeps the keys
+    // the registry documents without binding (the print dialog) working.
+    if (shouldSwallow(match)) e.preventDefault();
     setFired(match);
     setEffect(apply(match));
   }
 
+  const hintId = useId();
+  /** The same three keys the visible hint offers, in words, for the description. */
+  const tryKeys = ["nav.transactions", "action.add", "tracker.toggle-mode"].map((id) =>
+    describeShortcut(comboFor(id), isMac),
+  );
+
   return (
-    // `tabIndex` is what makes this a keyboard target at all.
+    // `tabIndex` is what makes this a keyboard target at all, and the role
+    // changes on focus for the same reason as in the full demo: NVDA and JAWS
+    // read a page in browse mode, where bare letters are quick-nav commands
+    // (`t` table, `f` form, `e` edit box, `b` button — very nearly this panel's
+    // key set) and a focusable `group` doesn't switch them out of it, so the
+    // keystrokes would never reach `onKeyDown` at all. `application` is the
+    // role that hands them over.
+    //
+    // Only while focused, because it isn't free: an application region
+    // suppresses the virtual cursor, and the two lists below are ordinary
+    // content a visitor should be able to read line by line. Unfocused it stays
+    // a group; focused, it's a widget the visitor asked for. Tab leaves.
     <div
-      role="group"
+      role={focused ? "application" : "group"}
       aria-label="Keyboard shortcut playground"
+      aria-describedby={hintId}
       tabIndex={0}
       onKeyDown={onKeyDown}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
-      className="flex h-[24rem] min-w-0 flex-col overflow-hidden rounded-2xl border bg-card shadow-sm outline-none ring-offset-2 ring-offset-background focus-within:ring-3 focus-within:ring-ring/50"
+      // `ring-ring/50` measured 1.54:1 against the card — below the 3:1 a focus
+      // indicator has to meet, on the control whose entire job is to say "keys
+      // land here now".
+      className="flex h-[24rem] min-w-0 flex-col overflow-hidden rounded-2xl border bg-card shadow-sm outline-none ring-offset-2 ring-offset-background focus-within:ring-3 focus-within:ring-muted-foreground"
     >
+      <p id={hintId} className="sr-only">
+        An interactive demo of the app&apos;s keyboard shortcuts. While this
+        panel has focus it takes single keys — press {tryKeys[0]}, {tryKeys[1]}{" "}
+        or {tryKeys[2]} and it answers above the list; Tab moves on and gives
+        every key back. If single letters still move your screen reader instead
+        of the demo, switch it to focus mode — Insert + Space in NVDA, Insert +
+        Z in JAWS.
+      </p>
+      {/* The visible answer — an `aria-hidden` echo chip and a paragraph
+          mutated in place — is announced by nothing. This is the same answer
+          as one spoken sentence. Empty on first paint, so the region is being
+          watched before the first keystroke changes it. */}
+      <div aria-live="polite" aria-atomic="true" className="sr-only">
+        {announceKeystroke(pressed, effect, isMac)}
+      </div>
+
       <div className="shrink-0 border-b px-4 py-3">
         <div className="flex items-center gap-x-3 gap-y-1">
           <span className="inline-flex min-w-0 items-center gap-2 text-sm font-medium">
@@ -203,15 +216,17 @@ export function ShortcutsPreview() {
           {focused ? (
             effect || (
               <span className="inline-flex flex-wrap items-center gap-1.5">
-                Press a key — try <Kbd combo={comboFor("nav.transactions")} />,{" "}
-                <Kbd combo={comboFor("action.add")} /> or{" "}
-                <Kbd combo={comboFor("tracker.toggle-mode")} />.
+                Press a key — try{" "}
+                <Kbd combo={comboFor("nav.transactions")} describe />,{" "}
+                <Kbd combo={comboFor("action.add")} describe /> or{" "}
+                <Kbd combo={comboFor("tracker.toggle-mode")} describe />.
               </span>
             )
           ) : (
             <span className="inline-flex items-start gap-1.5">
               <MousePointerClick className="mt-0.5 size-3.5 shrink-0" />
-              Click this panel, then press a key. Nothing outside it is touched.
+              Click this panel or Tab to it, then press a key. Nothing outside
+              it is touched.
             </span>
           )}
         </p>
@@ -223,20 +238,33 @@ export function ShortcutsPreview() {
             Navigation
           </p>
           <ul className="divide-y rounded-lg border">
-            {navItems.map((item) => (
-              <li
-                key={item.href}
-                aria-current={item.href === activeHref ? "true" : undefined}
-                className={cn(
-                  "flex items-center gap-2.5 px-3 py-2 text-sm transition-colors",
-                  item.href === activeHref && "bg-accent font-medium text-accent-foreground",
-                )}
-              >
-                <item.icon className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">{item.label}</span>
-                <Kbd combo={item.shortcut} className="ml-auto shrink-0" />
-              </li>
-            ))}
+            {navItems.map((item) => {
+              const spoken = spokenShortcut(item.shortcut, item.label, isMac);
+              return (
+                <li
+                  key={item.href}
+                  aria-current={item.href === activeHref ? "true" : undefined}
+                  className={cn(
+                    "flex items-center gap-2.5 px-3 py-2 text-sm transition-colors",
+                    item.href === activeHref && "bg-accent font-medium text-accent-foreground",
+                  )}
+                >
+                  <item.icon className="size-4 shrink-0 text-muted-foreground" />
+                  {/* The `sr-only` key is inside the truncating span on
+                      purpose: it's absolutely positioned, so it can't widen the
+                      row, and it stays part of the same sentence. This list is
+                      a cheat sheet, not links with hints beside them — it's
+                      what the line above points at when it says to try a key,
+                      and without the spoken half it reads as five bare section
+                      names, the chips being `aria-hidden` glyphs. */}
+                  <span className="min-w-0 truncate">
+                    {item.label}
+                    {spoken && <span className="sr-only">, {spoken}</span>}
+                  </span>
+                  <Kbd combo={item.shortcut} className="ml-auto shrink-0" />
+                </li>
+              );
+            })}
           </ul>
         </div>
 
@@ -245,18 +273,28 @@ export function ShortcutsPreview() {
             Entry
           </p>
           <ul className="divide-y rounded-lg border">
-            {ACTIONS.map((s) => (
-              <li
-                key={s.id}
-                className={cn(
-                  "flex items-center justify-between gap-4 px-3 py-2 text-sm transition-colors",
-                  fired?.id === s.id && "bg-accent text-accent-foreground",
-                )}
-              >
-                <span className="min-w-0">{s.label}</span>
-                <Kbd combo={s.combo} className="shrink-0" />
-              </li>
-            ))}
+            {ACTIONS.map((s) => {
+              const spoken = spokenShortcut(s.combo, s.label, isMac);
+              return (
+                <li
+                  key={s.id}
+                  className={cn(
+                    "flex items-center justify-between gap-4 px-3 py-2 text-sm transition-colors",
+                    fired?.id === s.id && "bg-accent text-accent-foreground",
+                  )}
+                >
+                  <span className="min-w-0">
+                    {s.label}
+                    {/* Spoken here as well — but `spokenShortcut` returns nothing
+                        for the profile switcher, whose label already ends
+                        "(Shift + 1…9, 0 for the 10th)" and would otherwise
+                        announce its key a second time. */}
+                    {spoken && <span className="sr-only">, {spoken}</span>}
+                  </span>
+                  <Kbd combo={s.combo} className="shrink-0" />
+                </li>
+              );
+            })}
           </ul>
         </div>
       </div>

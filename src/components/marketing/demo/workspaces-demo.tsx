@@ -15,7 +15,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { DemoFrame } from "./demo-frame";
+import { DemoReplay } from "./demo-replay";
 import { DEMO_PROFILES, DEMO_PROFILE_ICON, type DemoProfile } from "./demo-data";
+import { useDemoMoney } from "@/hooks/use-demo-currency";
 import { WORKSPACE_ROLES, maxRole } from "@/lib/rbac";
 import { comboFor } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
@@ -36,6 +38,13 @@ import type { WorkspaceRole } from "@/db/schema";
  * can't drift from the three the server enforces. Everything else is `useState`
  * — a marketing page must stay statically rendered, so no server action, no
  * `@/lib/queries`, and nothing an invite here could ever send.
+ *
+ * The currency in the header line is the visitor's own guessed one, via
+ * `useDemoMoney()` like every other amount on the site. It belongs in this
+ * demo's summary because currency is a *workspace* setting rather than a
+ * per-member one — that's the sentence the line is making — and a hard-coded
+ * "USD" would have been the one thing in the frame that didn't follow the
+ * reader.
  */
 
 const WORKSPACE_NAME = "Menon Household";
@@ -165,6 +174,7 @@ function RoleSelect({
 }
 
 export function WorkspacesDemo() {
+  const money = useDemoMoney();
   const [members, setMembers] = useState<Member[]>(SEED_MEMBERS);
   const [invites, setInvites] = useState<Invite[]>(SEED_INVITES);
   const [selectedId, setSelectedId] = useState("priya");
@@ -226,12 +236,13 @@ export function WorkspacesDemo() {
   const peopleLine = [
     `${members.length} people`,
     invites.length > 0 ? `${invites.length} pending` : null,
-    "shared categories · USD",
+    `shared categories · ${money.code}`,
   ]
     .filter(Boolean)
     .join(" · ");
 
   return (
+    <>
     <DemoFrame
       label="Interactive workspaces demo"
       active="/app/settings"
@@ -285,15 +296,6 @@ export function WorkspacesDemo() {
           <Badge variant="secondary" className="hidden shrink-0 sm:inline-flex">
             You&apos;re an admin
           </Badge>
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={reset}
-            className="h-8 shrink-0"
-          >
-            Reset
-          </Button>
         </div>
       }
       bodyClassName="overflow-hidden"
@@ -345,7 +347,12 @@ export function WorkspacesDemo() {
         </div>
       }
     >
-      <div className="h-full space-y-4 overflow-y-auto px-4 py-3">
+      <div
+        tabIndex={0}
+        role="group"
+        aria-label="Workspace members"
+        className="h-full space-y-4 overflow-y-auto px-4 py-3"
+      >
         <form
           onSubmit={handleInvite}
           className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3"
@@ -498,5 +505,12 @@ export function WorkspacesDemo() {
         )}
       </div>
     </DemoFrame>
+    {/* "Reset", not "Replay": there's no script here, it puts the roles you
+        changed back. Under the frame rather than in its header, where it used
+        to be — the header is a copy of the app's, and the app has no Reset
+        button in it. Rendered unconditionally, like every other demo's, so it
+        can't appear on the first click and shift the page as it arrives. */}
+    <DemoReplay onClick={reset} label="Reset" />
+    </>
   );
 }

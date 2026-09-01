@@ -41,7 +41,7 @@ const faqs = [
   },
   {
     q: "Is there a limit on how many rows I can paste?",
-    a: "Nothing you're likely to hit in one sitting. A year of transactions pastes and previews in one go.",
+    a: "500 rows per import. A longer paste still parses in the preview, but Import refuses the batch with \"Too many rows (max 500 at a time)\", so a bigger history goes in a few pastes rather than one. The order doesn't matter — each row carries its own date, so it lands where it belongs whenever you paste it.",
   },
 ];
 
@@ -154,6 +154,8 @@ export default function BulkAddPage() {
           is faster for a day&apos;s worth described in a sentence. Bulk add is
           what you use when you&apos;re moving in from somewhere else, or when
           you&apos;ve let a month slide and want it dealt with in one sitting.
+          One import carries up to 500 rows; a history longer than that arrives
+          in two or three pastes rather than one.
         </p>
         <p>
           It also works in the other direction: everything you import can be{" "}

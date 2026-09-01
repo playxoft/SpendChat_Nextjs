@@ -35,7 +35,13 @@ function AccordionTrigger({
       <AccordionPrimitive.Trigger
         data-slot="accordion-trigger"
         className={cn(
-          "flex flex-1 items-start justify-between gap-4 py-4 text-left font-medium transition-all outline-none hover:underline focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180",
+          // `ring-muted-foreground`, not `ring-ring/50`: the latter measures
+          // 1.54:1 against the card, under the 3:1 a focus indicator has to
+          // meet — the same reason the shortcut playgrounds don't use it. This
+          // trigger is the whole keyboard path through the FAQ, so an
+          // indicator nobody can see means pressing Enter on an unknown
+          // question.
+          "flex flex-1 items-start justify-between gap-4 rounded-sm py-4 text-left font-medium transition-all outline-none hover:underline focus-visible:ring-2 focus-visible:ring-muted-foreground focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50 [&[data-state=open]>svg]:rotate-180",
           className,
         )}
         {...props}

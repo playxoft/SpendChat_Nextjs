@@ -45,7 +45,11 @@ export default async function VoiceSettingsPage() {
         <CardContent className="space-y-3 text-sm text-muted-foreground">
           <p>
             In the tracker&rsquo;s <span className="text-foreground">AI</span> mode, hold the
-            mic button — or hold <Kbd combo={comboFor("tracker.voice")} className="align-middle" />{" "}
+            {/* `describe`: the chip *is* the instruction here, and its glyphs
+                are `aria-hidden`, so the sentence otherwise reached a screen
+                reader as "or hold — and say what you spent". */}
+            mic button — or hold{" "}
+            <Kbd combo={comboFor("tracker.voice")} className="align-middle" describe />{" "}
             — and say what you spent. Release to stop.
           </p>
           <p>

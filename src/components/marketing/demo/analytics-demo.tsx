@@ -10,16 +10,22 @@ import {
 } from "@/components/ui/card";
 import { LazyCategoryChart } from "@/components/marketing/lazy-category-chart";
 import { DemoFrame } from "./demo-frame";
-import { demoAmount, useDemoMoney } from "@/hooks/use-demo-currency";
+import { demoAmount, useDemoMoney, type DemoMoneyFormat } from "@/hooks/use-demo-currency";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 type Range = "month" | "quarter" | "year";
 type Kind = "expense" | "income";
 
+/**
+ * Short labels, matching the app's own range toggle (`AnalyticsFilters`).
+ * "Last 3 months" is two words longer than the control has room for on a phone,
+ * and the segment it sits in is a fixed-height pill — the label doesn't get to
+ * wrap, it gets clipped.
+ */
 const RANGES: { id: Range; label: string }[] = [
   { id: "month", label: "This month" },
-  { id: "quarter", label: "Last 3 months" },
+  { id: "quarter", label: "3 months" },
   { id: "year", label: "This year" },
 ];
 
@@ -92,7 +98,14 @@ function StatCard({
       <p className="text-sm text-muted-foreground">{label}</p>
       <p
         className={cn(
-          "mt-1 text-2xl font-semibold tabular-nums",
+          // `overflow-wrap: anywhere` because the number is the widest thing in
+          // the card and some currencies make it much wider: a year of IDR
+          // expenses is "Rp 144.000.000,00", and the space in it is a
+          // non-breaking one, so there is no natural break for the browser to
+          // take. Without this the value runs past the card and — the body
+          // being `overflow-y-auto`, which computes `overflow-x` to `auto` —
+          // puts a horizontal scrollbar inside the panel.
+          "mt-1 text-2xl font-semibold tabular-nums [overflow-wrap:anywhere]",
           positive ? "text-emerald-600 dark:text-emerald-400" : "text-foreground",
         )}
       >
@@ -103,10 +116,61 @@ function StatCard({
 }
 
 /**
+ * The category breakdown in plain text — the same amounts and percentages the
+ * chart's own legend carries.
+ *
+ * This is the card's server-rendered content, and it is not decoration. The
+ * ring comes from `CategoryPieChart` inside a lazily-loaded, `lazy()`-gated
+ * chunk, and the chart's ranked list is *inside that component* — so without
+ * this, the whole breakdown would exist only after JS ran, on a page whose own
+ * copy promises "a chart and a ranked list, not a chart alone". A crawler would
+ * read a grey box.
+ *
+ * It goes in as `LazyCategoryChart`'s `fallback` rather than beside the chart
+ * because the chart brings an identical list with it; side by side they'd be
+ * the same five rows printed twice in one card. Handed over as the fallback,
+ * the list is what's there until the ring arrives and what the ring's own list
+ * then continues.
+ */
+function CategoryRanking({
+  data,
+  money,
+}: {
+  data: { name: string; icon: string; value: number }[];
+  money: DemoMoneyFormat;
+}) {
+  // Guarded so an empty dataset can't divide by zero; every seeded range has
+  // rows, but the component shouldn't depend on that.
+  const total = data.reduce((sum, c) => sum + c.value, 0) || 1;
+
+  return (
+    <ol className="space-y-2 py-1">
+      {data.map((category) => (
+        <li
+          key={category.name}
+          className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm"
+        >
+          <span className="inline-flex min-w-0 items-center gap-2">
+            <span aria-hidden className="shrink-0">
+              {category.icon}
+            </span>
+            <span className="truncate">{category.name}</span>
+          </span>
+          <span className="tabular-nums text-muted-foreground">
+            {formatMoney(category.value, money.code, money.locale)} ·{" "}
+            {Math.round((category.value / total) * 100)}%
+          </span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/**
  * The analytics page: three totals, a category breakdown, and six months of
  * income against expenses.
  *
- * The stat cards and trend bars are the app's markup; the chart is the app's
+ * The stat cards and trend rows are the app's markup; the chart is the app's
  * `CategoryPieChart`, through the lazy wrapper the homepage uses. Changing the
  * range or flipping between expense and income swaps the real dataset, so the
  * chart, the totals and the breakdown all move together — the point being that
@@ -158,7 +222,18 @@ export function AnalyticsDemo() {
       className="h-[42rem]"
       header={
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-3">
-          <div className="inline-flex h-8 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
+          {/* The app's segmented range toggle, and the app's answer to a narrow
+              screen with it: `min-w-0` + `shrink` let the pill give way instead
+              of pushing the frame wider, and `overflow-x-auto` with `shrink-0`
+              segments turns the overflow into a sideways scroll rather than
+              labels wrapping inside a fixed-height capsule.
+
+              `no-scrollbar`, not `scrollbar-slim`, per the split in
+              `globals.css`: this is a row of controls, where a 6px bar is a
+              sixth of the row's height and nothing is reachable only by
+              dragging it. `scrollbar-slim` is for tables and grids, where the
+              bar is the only thing saying there's more to the right. */}
+          <div className="no-scrollbar flex h-8 min-w-0 max-w-full shrink items-center overflow-x-auto rounded-full border bg-muted/50 p-0.5 text-xs">
             {RANGES.map((r) => (
               <button
                 key={r.id}
@@ -166,7 +241,7 @@ export function AnalyticsDemo() {
                 onClick={() => setRange(r.id)}
                 aria-pressed={range === r.id}
                 className={cn(
-                  "rounded-full px-2.5 py-1 transition-colors",
+                  "shrink-0 rounded-full px-2.5 py-1 transition-colors",
                   range === r.id
                     ? "bg-background font-medium shadow-sm"
                     : "text-muted-foreground hover:text-foreground",
@@ -180,7 +255,12 @@ export function AnalyticsDemo() {
       }
       bodyClassName="overflow-hidden"
     >
-      <div className="h-full space-y-4 overflow-y-auto px-4 py-4">
+      <div
+        tabIndex={0}
+        role="group"
+        aria-label="Analytics breakdown"
+        className="h-full space-y-4 overflow-y-auto px-4 py-4"
+      >
         <div className="grid gap-3 sm:grid-cols-3">
           <StatCard
             label="Income"
@@ -228,14 +308,17 @@ export function AnalyticsDemo() {
             </div>
           </CardHeader>
           <CardContent>
-            {/* Keyed on the dataset: recharts holds its computed geometry across
-                prop changes, so swapping the slices out from under it leaves the
-                old shape on screen. A fresh mount is cheap here and always right. */}
+            {/* The ranked list is the fallback, so these numbers are in the
+                server-rendered HTML whether or not the chart's chunk ever
+                arrives; `chartKey` rebuilds the ring on a dataset change
+                without resetting the gate that decides when it loads. Both are
+                explained on `LazyCategoryChart`. */}
             <LazyCategoryChart
-              key={`${range}-${kind}`}
+              chartKey={`${range}-${kind}`}
               data={data}
               currency={money.code}
               locale={money.locale}
+              fallback={<CategoryRanking data={data} money={money} />}
             />
           </CardContent>
         </Card>
@@ -254,13 +337,35 @@ export function AnalyticsDemo() {
                 <span className="size-2.5 rounded-full bg-foreground/60" /> Expense
               </span>
             </div>
+            {/* Each month reads out in words before it's drawn.
+                The two bars used to be the only place the month's income and
+                expense existed: two empty `<div>`s whose widths were the data,
+                told apart by colour alone. Nothing could read them out, and
+                nobody who can't compare an emerald bar to a grey one could tell
+                which was which — WCAG 1.1.1 and 1.4.1 in one row. So the
+                amounts are labelled text now and the bars are `aria-hidden`
+                decoration for the shape, which is all they were ever good for.
+                The line wraps rather than truncating, because a high-multiplier
+                currency makes three amounts much wider than this card. */}
             <ul className="space-y-3">
               {trend.map((t) => (
-                <li key={t.month} className="flex items-center gap-3">
-                  <span className="w-12 shrink-0 text-xs text-muted-foreground">
-                    {t.month}
-                  </span>
-                  <div className="flex-1 space-y-1">
+                <li key={t.month} className="space-y-1.5">
+                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
+                    <span className="font-medium">{t.month}</span>
+                    <span className="tabular-nums text-emerald-600 dark:text-emerald-400">
+                      {formatMoney(t.income, money.code, money.locale)} in
+                    </span>
+                    <span className="tabular-nums text-muted-foreground">
+                      {formatMoney(t.expense, money.code, money.locale)} out
+                    </span>
+                    <span className="ml-auto tabular-nums text-muted-foreground">
+                      net{" "}
+                      {formatMoney(t.income - t.expense, money.code, money.locale, {
+                        signed: true,
+                      })}
+                    </span>
+                  </div>
+                  <div className="space-y-1" aria-hidden>
                     <div
                       className="h-2.5 rounded-full bg-emerald-500/70"
                       style={{ width: `${(t.income / maxTrend) * 100}%` }}
@@ -270,9 +375,6 @@ export function AnalyticsDemo() {
                       style={{ width: `${(t.expense / maxTrend) * 100}%` }}
                     />
                   </div>
-                  <span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {formatMoney(t.income - t.expense, money.code, money.locale)}
-                  </span>
                 </li>
               ))}
             </ul>

@@ -124,7 +124,7 @@ const FLOWS: Flow[] = [
       {
         what: "The note, in our own records",
         detail:
-          "The usage row that enforces the hourly limit holds a user id, a workspace id, a label and a timestamp. Four columns, none of them your text.",
+          "The usage row that enforces the hourly limit is five columns wide: its own id, a user id, a workspace id, a label and a timestamp. None of them is your text.",
       },
       {
         what: "Anything saved before you look",

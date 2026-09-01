@@ -28,6 +28,12 @@ export const metadata = createMetadata({
  * know whose keyboard it's about to land on — and an answer that says ⌘ to a
  * Windows reader is worse than one that says both. Everything still comes out
  * of the registry, so no key is spelled out by hand anywhere on this page.
+ *
+ * `#` is the one place both renderings appear at once — "type # (hash)". It is
+ * a character you literally type rather than a chord you press, so the glyph is
+ * the useful half for a reader who can see it and for the search query someone
+ * arrives on; the word is there because a screen reader below "all" punctuation
+ * verbosity drops a bare "#" and the sentence loses its subject.
  */
 function comboText(id: string): string {
   const combo = comboFor(id);
@@ -49,7 +55,7 @@ const faqs = [
   },
   {
     q: "How do I log an expense without the mouse?",
-    a: `The amount field already has focus when the tracker opens: type the amount, press Enter to move to the title, type ${comboFor("tracker.category")} and a few letters to pick a category from the list that filters as you go, then ${comboText("tracker.submit")} to send. From any other page, ${comboText("action.add")} opens the same entry as a dialog.`,
+    a: `The amount field already has focus when the tracker opens: type the amount, press Enter to move to the title, type ${comboFor("tracker.category")} (${comboText("tracker.category").toLowerCase()}) and a few letters to pick a category from the list that filters as you go, then ${comboText("tracker.submit")} to send. From any other page, ${comboText("action.add")} opens the same entry as a dialog.`,
   },
   {
     q: "Why does pressing a letter sometimes do nothing?",
@@ -70,7 +76,7 @@ export default function KeyboardShortcutsPage() {
     <FeaturePage
       slug={SLUG}
       demo={<ShortcutsDemo />}
-      demoAction="click the panel, then press a key and watch the app move"
+      demoAction="click the panel or tab to it, then press a key and watch the app move"
       faqs={faqs}
       intro={
         <>
@@ -108,14 +114,14 @@ export default function KeyboardShortcutsPage() {
       <FeatureSection title="One letter per section, and why letters">
         <p>
           The five sections of the app answer to five single keys:{" "}
-          <Kbd combo={comboFor("nav.tracker")} className="align-middle" /> for the
+          <Kbd combo={comboFor("nav.tracker")} className="align-middle" describe /> for the
           tracker,{" "}
-          <Kbd combo={comboFor("nav.transactions")} className="align-middle" /> for
+          <Kbd combo={comboFor("nav.transactions")} className="align-middle" describe /> for
           transactions,{" "}
-          <Kbd combo={comboFor("nav.analytics")} className="align-middle" /> for
-          analytics, <Kbd combo={comboFor("nav.files")} className="align-middle" />{" "}
+          <Kbd combo={comboFor("nav.analytics")} className="align-middle" describe /> for
+          analytics, <Kbd combo={comboFor("nav.files")} className="align-middle" describe />{" "}
           for files and{" "}
-          <Kbd combo={comboFor("nav.settings")} className="align-middle" /> for
+          <Kbd combo={comboFor("nav.settings")} className="align-middle" describe /> for
           settings. Each is printed next to its item in the sidebar, so you
           learn them by using the app rather than by studying a manual.
         </p>
@@ -168,7 +174,7 @@ export default function KeyboardShortcutsPage() {
         </p>
         <p>
           The honest edge of the design is the category tag. The cheat sheet
-          lists <Kbd combo={comboFor("tracker.category")} className="align-middle" />{" "}
+          lists <Kbd combo={comboFor("tracker.category")} className="align-middle" describe />{" "}
           for picking a category, but it isn&apos;t a bound key — it&apos;s a
           character you type into the title field, and the composer watches the
           text and filters the list as you go. It couldn&apos;t be a binding: on
@@ -201,7 +207,7 @@ export default function KeyboardShortcutsPage() {
       <FeatureSection title="One key is held rather than tapped">
         <p>
           Every shortcut is a tap except one:{" "}
-          <Kbd combo={comboFor("tracker.voice")} className="align-middle" /> is
+          <Kbd combo={comboFor("tracker.voice")} className="align-middle" describe /> is
           push-to-talk. Hold it and the microphone records; let go and it stops,
           transcribes, and drops the text into the AI note for you to check.
           A hold rather than a toggle, for the obvious reason: a toggle leaves
@@ -221,10 +227,10 @@ export default function KeyboardShortcutsPage() {
       <FeatureSection title="Profiles and workspaces without opening a menu">
         <p>
           Every profile carries its own key, printed beside it in the sidebar:{" "}
-          <Kbd combo={comboFor("profiles.switch")} className="align-middle" />{" "}
+          <Kbd combo={comboFor("profiles.switch")} className="align-middle" describe />{" "}
           for the first, and the digits carry on from there with the tenth on
           zero.{" "}
-          <Kbd combo={comboFor("profiles.all")} className="align-middle" /> shows
+          <Kbd combo={comboFor("profiles.all")} className="align-middle" describe /> shows
           every profile at once, for when you want one number instead of three.
           If you keep personal, household and business books side by side,
           that&apos;s the difference between checking a balance and navigating
@@ -232,7 +238,7 @@ export default function KeyboardShortcutsPage() {
         </p>
         <p>
           Workspaces — the shared layer, where other people are — get{" "}
-          <Kbd combo={comboFor("workspace.switch")} className="align-middle" />,
+          <Kbd combo={comboFor("workspace.switch")} className="align-middle" describe />,
           which opens a picker that then takes a digit. Two keystrokes rather
           than one, because a workspace switch changes far more than a profile
           switch does: different members, different categories, different

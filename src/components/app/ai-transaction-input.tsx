@@ -724,7 +724,11 @@ export function AiTransactionInput({
           // `text-xs`: it's a hint, and at `text-sm` it was the second-tallest
           // thing in the pane — height the card charges to Manual as well.
           <p className="px-0.5 text-xs text-muted-foreground">
-            Type or hold <Kbd combo={voiceCombo} className="align-middle" /> to speak — use{" "}
+            {/* `describe`: the chip is the subject of this sentence, and the
+                glyphs are `aria-hidden`, so without it the line read aloud as
+                "Type or hold to speak". */}
+            Type or hold{" "}
+            <Kbd combo={voiceCombo} className="align-middle" describe /> to speak — use{" "}
             <span className="font-mono text-foreground">#</span> for a category and{" "}
             <span className="font-mono text-foreground">( )</span> for a note.
           </p>
