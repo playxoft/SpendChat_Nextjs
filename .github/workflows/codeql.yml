@@ -20,6 +20,15 @@ jobs:
   analyze:
     name: Analyze
     runs-on: ubuntu-latest
+
+    # Code scanning is free on public repositories and requires the paid
+    # Advanced Security add-on on private ones. This repository is about to go
+    # public; until it does, the analysis runs to completion and then fails on
+    # the upload ("Advanced Security must be enabled"), which reads as a broken
+    # workflow rather than the billing gate it is. Skipping while private keeps
+    # the check honest, and the job starts working by itself the moment the
+    # repository is made public — no edit needed on the day.
+    if: github.event.repository.private == false
     permissions:
       # Writing the results to the Security tab is the whole point of the job.
       security-events: write
