@@ -11,6 +11,10 @@ on:
   schedule:
     # Mondays, 06:00 UTC — off the back of the weekly Dependabot run.
     - cron: "0 6 * * 1"
+  # Lets a maintainer run the scan on demand. Added when the repository went
+  # public: the job had been skipped its whole life by the guard below, so its
+  # configuration was unverified, and the first real execution would otherwise
+  # have landed on a schedule nobody was watching.
 
 concurrency:
   group: codeql-${{ github.ref }}
@@ -28,7 +32,11 @@ jobs:
     # workflow rather than the billing gate it is. Skipping while private keeps
     # the check honest, and the job starts working by itself the moment the
     # repository is made public — no edit needed on the day.
-    if: github.event.repository.private == false
+    # `github.event.repository` is absent on a workflow_dispatch payload, so the
+    # `!= true` form is what makes a manual run work — `== false` would compare
+    # against null and skip. Public repos report false; a fork that stays private
+    # still skips rather than failing on the Advanced Security requirement.
+    if: github.event.repository.private != true
     permissions:
       # Writing the results to the Security tab is the whole point of the job.
       security-events: write
