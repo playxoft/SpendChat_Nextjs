@@ -22,6 +22,16 @@ updates:
       # moves — patch and minor updates still come through.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # esbuild, deliberately, and the same call `package.json`'s `//overrides`
+      # note records. Its open advisories are all in esbuild's own DEV SERVER —
+      # a CORS hole and a Windows file read — which wrangler and drizzle-kit
+      # never start; they use esbuild as a library. Wrangler also pins it to an
+      # exact 0.27.3 because it drives the plugin API, so there is no version
+      # Dependabot can move to: it reported `patched-versions: []` for all three
+      # advisories and the security job failed rather than opening a PR, which
+      # is a red run on every retry for a risk we do not carry. Revisit if an
+      # advisory ever lands on esbuild's library path.
+      - dependency-name: "esbuild"
     groups:
       # Next, React and the Cloudflare toolchain move together and are the ones
       # that actually break a build, so they land as one reviewable PR.
