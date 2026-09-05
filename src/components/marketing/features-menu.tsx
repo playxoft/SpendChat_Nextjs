@@ -450,6 +450,10 @@ export function FeaturesMenu() {
       <Link
         ref={triggerRef}
         href="/features"
+        // The tint below says "you're here" to the eye; this says it to a
+        // screen reader. `open` is a disclosure state, not a location, so it
+        // deliberately doesn't feed this.
+        aria-current={isActive ? "page" : undefined}
         // No `aria-haspopup`: "true" means `menu`, and this is a disclosure of
         // plain links, not a menu widget. See the header comment.
         aria-expanded={hasPanel ? open : undefined}
