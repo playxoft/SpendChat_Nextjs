@@ -18,6 +18,52 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-09-05
+
+Nine feature deep-dives on the blog, and the two things the blog was missing to
+carry them: FAQs that search engines can read, and illustrations that don't
+shift the page as they load.
+
+### Added
+
+- **Nine long-form posts, one per part of the product.** Tracking expenses with
+  AI, voice entry across mixed languages, going without a bank connection,
+  spreadsheets versus an app, categorising expenses, sharing books with a
+  partner, organising receipts, exporting to CSV at tax time, and what "open
+  source expense tracker" ought to mean. Each is a comparison or a how-to rather
+  than a feature list, and each links through to the feature page it belongs to.
+  Published dates run from late June to early September, so the index reads as a
+  cadence rather than a drop.
+- **Posts can carry an FAQ.** A `faqs` array in a post's frontmatter renders as
+  an accordion at the foot of the article *and* as `FAQPage` structured data —
+  from the one array, so the visible text and the markup can't drift apart.
+  Marking up an answer that isn't on the page is the mismatch search engines
+  treat as spam, and this makes it impossible to write.
+- **In-post illustrations.** A `<Figure>` component with required alt text, a
+  visible caption, and declared dimensions so a lazily-loaded image no longer
+  pushes the paragraph you're reading down the page. The 18 new figures are
+  rendered ahead of time from `scripts/blog-figure.html` — three layouts,
+  comparison, flow and table — in the same dark palette as the covers, and
+  served straight off the CDN like every other static asset.
+
+- **Blog posts carry a breadcrumb trail**, visible and as `BreadcrumbList`
+  markup, in place of the bare "All posts" link — so a search result shows
+  Home › Blog › the post rather than a raw URL.
+
+### Fixed
+
+- **The "SpendChat is now open source" cover printed the wrong date.** Its
+  entry in `scripts/blog-image.html` said 2 June while the post itself is dated
+  2 September, so the shared preview card disagreed with the page. Corrected and
+  re-rendered.
+- **"Track your money like a conversation" documented the wrong key.** It said
+  `/` tags a category in the composer; `/` opens the keyboard-shortcut sheet and
+  `#` is the category tag. The post had been contradicting the app, and now
+  contradicts the nine new ones too if left alone.
+- **A blog cover's alt text was the post's own headline**, printed as the `<h1>`
+  directly above it — so a screen reader announced the same sentence twice.
+  Posts now set their own `imageAlt`.
+
 ## [0.15.0] — 2026-09-05
 
 A tighter marketing header: it tells you where you are, and it takes a key.
