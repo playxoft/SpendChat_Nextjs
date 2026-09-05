@@ -18,6 +18,33 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.15.0] — 2026-09-05
+
+A tighter marketing header: it tells you where you are, and it takes a key.
+
+### Added
+
+- **Press `s` anywhere on the public site to get started.** The key goes exactly
+  where the "Get started" button goes — straight into the app if you're already
+  signed in, to sign-up if you're not — and the button now carries a chip
+  showing it. It stands down wherever a keystroke already means something: while
+  the mobile menu is open, while you're typing in a field, and while you're
+  playing with the keyboard demos on the Features pages, which take the same key
+  for themselves.
+
+### Changed
+
+- **The header highlights the page you're on.** Pricing, Docs, Blog and About
+  now light up the way Features already did, in the top bar and in the mobile
+  menu, and sub-pages count — a blog post keeps "Blog" lit. Screen readers get
+  the same information as `aria-current`.
+- **One button in the header instead of two.** "Sign in" no longer sits beside
+  "Get started" on desktop, or under it in the mobile menu, so the header asks
+  for one decision rather than asking you to classify yourself first. If you
+  already have an account, the sign-up page links straight to the sign-in form,
+  and `/sign-in` itself is unchanged — a bookmark or a saved password still
+  lands where it always did.
+
 ## [0.14.0] — 2026-09-02
 
 Open-source readiness pass: the things that would have been wrong on the day the

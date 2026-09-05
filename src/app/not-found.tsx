@@ -52,7 +52,11 @@ export default function NotFound() {
           ))}
         </div>
 
-        <SiteNav />
+        {/* No active nav item: this page is prerendered once, at
+            `/_not-found`, but served for whatever URL was requested — marking
+            a section here would light up after hydration and not before it,
+            for a page that doesn't exist. See `SiteNav`. */}
+        <SiteNav markActive={false} />
 
         <main className="relative z-10 flex min-h-0 flex-1 flex-col items-center justify-center px-4 pb-8 pt-20 sm:pt-24">
           <NotFoundExperience />
