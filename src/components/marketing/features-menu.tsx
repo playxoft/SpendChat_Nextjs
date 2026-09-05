@@ -21,6 +21,7 @@ import {
   featuresInGroup,
   publishedFeatures,
 } from "@/lib/features";
+import { navCurrent } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 /** Grace period before a hover-out closes the panel, in ms. */
@@ -145,7 +146,14 @@ type Anchor = { top: number; left: number };
  * route out. So it asks whether that focus arrived by *keyboard*: either
  * ArrowDown put it there, or the focused element matches `:focus-visible`.
  */
-export function FeaturesMenu() {
+export function FeaturesMenu({
+  markActive = true,
+}: {
+  /** Highlight the trigger when the current URL is `/features` or a spoke.
+   * `false` on the 404, which is prerendered under a path it isn't served at —
+   * see `SiteNav`'s header comment. */
+  markActive?: boolean;
+} = {}) {
   const spokes = publishedFeatures();
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<Anchor | null>(null);
@@ -338,7 +346,9 @@ export function FeaturesMenu() {
   // by watching `pathname`: a `setOpen` in an effect body triggers a cascading
   // render on every route change, which the lint rule rightly objects to, and
   // there is no path to a new route that doesn't go through one of those links.
-  const isActive = pathname === "/features" || pathname.startsWith("/features/");
+  // `"page"` on the hub itself, `"true"` on a spoke — the trigger is an
+  // ancestor there, not the page. See `navCurrent`.
+  const current = markActive ? navCurrent(pathname, "/features") : undefined;
 
   const panel =
     open && anchor ? (
@@ -453,7 +463,7 @@ export function FeaturesMenu() {
         // The tint below says "you're here" to the eye; this says it to a
         // screen reader. `open` is a disclosure state, not a location, so it
         // deliberately doesn't feed this.
-        aria-current={isActive ? "page" : undefined}
+        aria-current={current}
         // No `aria-haspopup`: "true" means `menu`, and this is a disclosure of
         // plain links, not a menu widget. See the header comment.
         aria-expanded={hasPanel ? open : undefined}
@@ -484,7 +494,7 @@ export function FeaturesMenu() {
         }}
         className={cn(
           "inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-foreground",
-          open || isActive ? "bg-accent text-foreground" : "text-muted-foreground",
+          open || current ? "bg-accent text-foreground" : "text-muted-foreground",
         )}
       >
         Features

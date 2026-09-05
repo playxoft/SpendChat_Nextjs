@@ -25,7 +25,7 @@ import {
   getHandoffSnapshot,
   subscribeHandoff,
 } from "@/lib/app-redirect";
-import { marketingNav, siteConfig } from "@/lib/site";
+import { marketingNav, navCurrent, siteConfig } from "@/lib/site";
 import { cn } from "@/lib/utils";
 
 /**
@@ -44,14 +44,24 @@ import { cn } from "@/lib/utils";
 const CTA_SHORTCUT = "s";
 
 /**
- * Is `href` the section being viewed? Exact match plus its sub-pages, so a post
- * at `/blog/keyboard-first` keeps "Blog" lit and `/features/voice` keeps
- * "Features" lit. `marketingNav` holds no `/` entry, which is the one href a
- * prefix test would light up on every page.
+ * Elements that answer bare printable keys themselves, so a site-wide letter
+ * has to stand down while one holds focus.
+ *
+ * `application` is the marketing keyboard demos, which take that role while
+ * focused precisely to claim single keys — `s` among them, since it's
+ * `nav.settings` in the app they demonstrate.
+ *
+ * `combobox` is every Radix `SelectTrigger` on the site — the demo toolbars'
+ * category and profile pickers, and the draft rows on the homepage itself.
+ * Radix runs its typeahead from the trigger's `onKeyDown` on *any* unmodified
+ * single character, open or closed (`react-select`'s `if (!isModifierKey &&
+ * event.key.length === 1) handleTypeaheadSearch(event.key)`), so pressing `s`
+ * to jump to "Shopping" would pick the option and navigate off the page in the
+ * same keystroke. Neither `isTypingTarget` nor `requireNoOverlay` catches it: a
+ * trigger is a `<button role="combobox">`, not a field, and the `role="listbox"`
+ * those guards look for exists only while the menu is open.
  */
-function isActivePath(pathname: string, href: string): boolean {
-  return pathname === href || pathname.startsWith(`${href}/`);
-}
+const KEY_CLAIMING_ROLES = '[role="application"],[role="combobox"]';
 
 /**
  * Floating, capsule-style marketing navigation pinned to the top of the
@@ -90,8 +100,21 @@ function isActivePath(pathname: string, href: string): boolean {
  * **The CTA has a key.** `s` goes where the button goes — `/app` when the
  * browser carries a session hint, `/sign-up` otherwise — and the button wears a
  * chip advertising it. See `CTA_SHORTCUT`.
+ *
+ * **`markActive` exists for the 404.** `not-found.tsx` renders this nav for
+ * every unmatched URL, and that page is prerendered once, at `/_not-found`. The
+ * client then reads `usePathname()` as the URL that was actually requested — so
+ * `/blog/typo-slug` would light "Blog" up after hydration and not before it:
+ * a mismatched `className` and `aria-current` against the served HTML, claiming
+ * a section for a page that doesn't exist. The 404 passes `false` and nothing
+ * is marked, on the server and on the client alike.
  */
-export function SiteNav() {
+export function SiteNav({
+  markActive = true,
+}: {
+  /** Highlight the nav item matching the current URL. See the header comment. */
+  markActive?: boolean;
+} = {}) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -108,16 +131,14 @@ export function SiteNav() {
   );
 
   const openCta = useCallback(() => {
-    // Stand down while focus is inside a widget that has claimed the keyboard.
-    // The marketing keyboard demos take `role="application"` while focused for
-    // exactly that reason, and `s` is one of the keys they answer for (it's
-    // `nav.settings` in the app they're demonstrating) — navigating away
-    // mid-demo would be the site fighting its own page. `useShortcut` can't see
-    // this: the demos `preventDefault` rather than stopping propagation, and by
-    // the time a handler runs the hook has called `preventDefault` itself, so
+    // Stand down while focus is inside a widget that answers this key itself —
+    // navigating away would be the site fighting its own page. See
+    // `KEY_CLAIMING_ROLES`. `useShortcut` can't make this call for us: those
+    // widgets `preventDefault` rather than stopping propagation, and by the time
+    // a handler runs the hook has called `preventDefault` itself, so
     // `defaultPrevented` no longer distinguishes the two.
     const active = document.activeElement;
-    if (active instanceof Element && active.closest('[role="application"]')) return;
+    if (active instanceof Element && active.closest(KEY_CLAIMING_ROLES)) return;
 
     trackEvent("cta_click", { location: "nav_shortcut", label: "get_started" });
     // `/sign-up` already redirects a signed-in visitor to `/app`, so this only
@@ -150,21 +171,23 @@ export function SiteNav() {
               // Features opens the directory of feature pages instead of going
               // straight to the hub; every other entry stays a plain link.
               // (It also marks itself active — see `FeaturesMenu`.)
-              if (item.href === "/features") return <FeaturesMenu key={item.href} />;
-              const active = isActivePath(pathname, item.href);
+              if (item.href === "/features")
+                return <FeaturesMenu key={item.href} markActive={markActive} />;
+              const current = markActive ? navCurrent(pathname, item.href) : undefined;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   // The tint is the visible half; `aria-current` is the half a
                   // screen reader gets, and neither stands in for the other.
-                  aria-current={active ? "page" : undefined}
+                  // `navCurrent` decides which of its two values applies.
+                  aria-current={current}
                   onClick={() =>
                     trackEvent("nav_link_click", { label: item.label, location: "desktop" })
                   }
                   className={cn(
                     "rounded-full px-3 py-1.5 text-sm transition-colors hover:bg-accent hover:text-foreground",
-                    active ? "bg-accent text-foreground" : "text-muted-foreground",
+                    current ? "bg-accent text-foreground" : "text-muted-foreground",
                   )}
                 >
                   {item.label}
@@ -250,19 +273,19 @@ export function SiteNav() {
               {/* The only scroller in the sheet — see the header comment. */}
               <nav className="scrollbar-slim flex min-h-0 flex-1 flex-col overflow-y-auto px-3 py-3">
                 {marketingNav.map((item) => {
-                  const active = isActivePath(pathname, item.href);
+                  const current = markActive ? navCurrent(pathname, item.href) : undefined;
                   return (
                     <div key={item.href} className="contents">
                       <SheetClose asChild>
                         <Link
                           href={item.href}
-                          aria-current={active ? "page" : undefined}
+                          aria-current={current}
                           onClick={() =>
                             trackEvent("nav_link_click", { label: item.label, location: "mobile" })
                           }
                           className={cn(
                             "rounded-lg px-3 py-2.5 text-base font-medium transition-colors hover:bg-accent hover:text-foreground",
-                            active ? "bg-accent text-foreground" : "text-muted-foreground",
+                            current ? "bg-accent text-foreground" : "text-muted-foreground",
                           )}
                         >
                           {item.label}

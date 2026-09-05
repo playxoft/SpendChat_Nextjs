@@ -48,6 +48,29 @@ export const marketingNav = [
   { href: "/about", label: "About" },
 ] as const;
 
+/**
+ * `aria-current` for a marketing nav item, or `undefined` when the item isn't
+ * the section being viewed.
+ *
+ * The two values are not interchangeable. `"page"` is reserved for the link to
+ * the page you are actually on — telling a screen-reader user that following it
+ * is a no-op. A section link on one of its sub-pages is a different claim: on
+ * `/blog/keyboard-first` the "Blog" item is an ancestor, not this page, and
+ * activating it really does navigate somewhere. `"true"` says "you're within
+ * this" without the promise `"page"` makes. Both light the item up; only the
+ * exact match calls itself the page.
+ *
+ * `marketingNav` holds no `/` entry, which is the one href a prefix test would
+ * match on every page.
+ */
+export function navCurrent(
+  pathname: string,
+  href: string,
+): "page" | "true" | undefined {
+  if (pathname === href) return "page";
+  return pathname.startsWith(`${href}/`) ? "true" : undefined;
+}
+
 /** Authenticated app navigation. */
 export const appNav = [
   { href: "/app", label: "Tracker", icon: "MessageSquare" },
