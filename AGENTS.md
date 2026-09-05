@@ -244,6 +244,14 @@ to move when the app moves.
 1. **bump `version` in `package.json`** — **patch** for a fix or an internal
    tweak someone could notice, **minor** for a new capability, **major** for a
    break. (Pure refactors, comments, and test-only edits don't count.)
+   **Dependency bumps don't count either** — a Dependabot PR that only moves
+   `package.json` ranges and `pnpm-lock.yaml` ships no version, even when the
+   upgrade changes rendered output (Next 16.3.4 re-enabling AVIF, lucide-react
+   redrawing an icon). The line is who wrote the change: `CHANGELOG.md` is for
+   decisions we made, and padding it with upstream patch notes is how it stops
+   being read. A bump we take *deliberately* — adopting a new capability, or
+   pulling a fix we were waiting on — is a change we made, and ships a version
+   like anything else.
 2. **add that version's section to `CHANGELOG.md`** — a `## [x.y.z] — YYYY-MM-DD`
    heading directly under `## [Unreleased]`, with Keep-a-Changelog subsections
    (`Added` / `Changed` / `Fixed` / `Security`). Write for someone deciding
