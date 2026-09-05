@@ -32,6 +32,28 @@ updates:
       # is a red run on every retry for a risk we do not carry. Revisit if an
       # advisory ever lands on esbuild's library path.
       - dependency-name: "esbuild"
+      # `typescript` majors, until typescript-eslint catches up. TypeScript 7
+      # is the native rewrite, and typescript-eslint 8 refuses to load against
+      # it — `pnpm lint` dies with "typescript-eslint does not support TS 7.0"
+      # before it reads a single file, so the whole lint job is gone. We do not
+      # pick that dependency ourselves: `eslint-config-next` brings it in, and
+      # its peer range is `>=4.8.4 <6.1.0`. Nothing in `tsconfig.json` needs 7
+      # (typecheck passes on both), so the upside is a faster `tsc` and the
+      # downside is no linting at all. Minor and patch updates still come
+      # through. Raise the major by hand once typescript-eslint supports it
+      # (https://github.com/typescript-eslint/typescript-eslint/issues/10940).
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
+      # `eslint` majors, for the same reason and the same owner. We do not
+      # choose our ESLint plugins either — `eslint-config-next` pins
+      # eslint-plugin-react, -import and -jsx-a11y, and all three cap their
+      # peer range at eslint ^9. On 10 the run dies on the first React file
+      # with "contextOrFilename.getFilename is not a function", because
+      # eslint-plugin-react still calls a context method ESLint 10 removed.
+      # Raise it with `eslint-config-next`, by hand, once that config ships a
+      # plugin set that declares eslint 10.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
     groups:
       # Next, React and the Cloudflare toolchain move together and are the ones
       # that actually break a build, so they land as one reviewable PR.

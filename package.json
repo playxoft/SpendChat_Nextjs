@@ -98,11 +98,11 @@
     "@types/react-dom": "^19",
     "@vitest/coverage-v8": "^4",
     "drizzle-kit": "^0.31.10",
-    "eslint": "^10",
+    "eslint": "^9",
     "eslint-config-next": "16.3.3",
     "shadcn": "^4.11.0",
     "tailwindcss": "^4",
-    "typescript": "^7",
+    "typescript": "^5",
     "vitest": "^4",
     "wrangler": "^4.127.1"
   },
