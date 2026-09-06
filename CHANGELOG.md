@@ -18,6 +18,25 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-09-06
+
+The three posts that predate the deep-dives, brought up to the same standard.
+
+### Changed
+
+- **The two original posts are full articles now.** "Introducing SpendChat"
+  covers the six decisions the product is built on and the ones deliberately
+  left out; "Track your money like a conversation" is about why expense-tracking
+  habits die in the second week and what a chat interface changes about that.
+  Both gained FAQs, figures and their own illustrations, in the same shape as
+  the nine deep-dives — and an `updated` date, so the sitemap reports real
+  freshness rather than a 2026 stub.
+- **"SpendChat is now open source" is a release note again.** It had grown a
+  general argument for open-sourcing a money app, which the new deep-dive covers
+  properly and at length — two pages competing to answer one question helps
+  neither. It now says what shipped, what it changes for you, and points at the
+  longer piece.
+
 ## [0.17.0] — 2026-09-06
 
 Nine feature deep-dives on the blog, one per part of the product.
