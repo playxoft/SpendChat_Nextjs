@@ -1,25 +1,141 @@
+import { Figure } from "@/components/blog/figure";
+
 export const meta = {
-  title: "Introducing SpendChat",
+  title: "Introducing SpendChat: A Free, Private Money Tracker",
   date: "2026-05-12",
-  readingMinutes: 2,
+  updated: "2026-09-06",
+  readingMinutes: 7,
   tag: "Product",
   excerpt:
-    "A minimal, fast, private money tracker — add income and expenses in seconds, then filter, export, and print.",
-  // Cover — rendered from scripts/blog-image.html (see its header comment).
+    "A free money tracker with no bank connection, no ads and no paid tier. Here are the six decisions it's built on, and the ones we deliberately didn't make.",
   image: "/blog/introducing-spendchat.png",
+  imageAlt: "Cover card for the post introducing SpendChat.",
+  faqs: [
+    {
+      q: "Is SpendChat free?",
+      a: "Yes, today, with no paid tier holding features back and no ads. Pricing hasn't been settled and any change would be announced on the pricing page in advance. Whatever happens to the hosted app, it's open source under the AGPL, so running your own copy stays free.",
+    },
+    {
+      q: "Do I have to connect my bank account?",
+      a: "No, and you couldn't if you wanted to — there's no bank integration in the app at all. Transactions get in because you type them, say them, paste them from a spreadsheet, or let the AI read a sentence you wrote. That's why it works for cash.",
+    },
+    {
+      q: "Do I need to install anything?",
+      a: "No. It runs in the browser on desktop and mobile, and the layout adapts at every width — a bottom bar and a full-width send button on phones, a sidebar on desktop. There's a REST API behind it that a mobile app talks to, but nothing to install to start.",
+    },
+    {
+      q: "Can I track more than one set of books?",
+      a: "Yes. Profiles give each part of your life its own feed, balance and reports — Personal, Home, Business — and an All profiles view combines them. Workspaces sit above that and decide who has access, so a household and a company can be kept genuinely separate.",
+    },
+    {
+      q: "What happens to my data if I stop using it?",
+      a: "You take it with you. Filter the transactions table to whatever you want and download it as CSV, or print it as a PDF — no paid tier, no watermark, no limit on how often. Two mechanical caps are worth knowing: a CSV holds 5,000 rows, so a longer history goes out a year at a time, and printing captures the rows the table has loaded, so press Load more until the range is complete first. You can also delete your account and everything in it from Settings, without emailing anyone.",
+    },
+    {
+      q: "Which currency does it use?",
+      a: "One per workspace, set by an admin and seeded from where you signed up. Every member sees amounts in that currency, which is what makes a shared report add up. Amounts are stored as whole minor units rather than floats, so the arithmetic doesn't drift.",
+    },
+  ],
 };
 
-Today we're sharing SpendChat: a minimal, fast, and private way to track your income and expenses. No connected bank accounts, no dashboards full of charts you never asked for — just a clean feed and a running balance.
+Most people have tried to track their spending. Most people have stopped. Usually in the second week, usually without deciding to — the app just stopped getting opened, and by the time anyone noticed there was a gap too big to reconstruct.
 
-## What it does
+SpendChat is a **free money tracker** built around that failure rather than around a feature list. This post is what it is, what it deliberately isn't, and the six decisions everything else follows from.
 
-- Add transactions in a chat-style feed, or bulk import a whole list at once.
-- Filter by date, type, and category, or search your notes.
-- Export the current view to CSV, or print and save as PDF.
-- Switch between light, dark, and system themes.
+## The problem isn't reporting. It's the first ten seconds.
 
-## Private and free
+Every tracker can show you a pie chart. The chart is the easy part — it's arithmetic over rows you already have.
 
-Your data is scoped to your account and shown only to you. There are no ads and your information is never sold. SpendChat is free to use — and open source, so you can see exactly how it works.
+The hard part is getting the rows. Logging a coffee has to be quicker than the thought "I'll do it later", and every tracker that dies does so because it lost that race: a modal, six fields, a category dropdown that needs scrolling, a save button that navigates you somewhere you didn't ask to go.
 
-[Create an account](/sign-up) and send your first transaction; it takes less than a minute.
+So the first decision was to make entry feel like sending a message rather than filling in a form.
+
+<Figure
+  src="/blog/introducing-spendchat--four-ways-in.png"
+  alt="Three-step diagram of getting a transaction in: type an amount and a title, tag a category inline, and send with Command or Control plus Enter; or write one sentence and let the AI return editable drafts; or, with the composer in AI mode, hold M and speak it, and the transcript lands in the note you send for those drafts."
+  caption="Three of the four routes in; the fourth is pasting a spreadsheet into bulk add. All of them land in the same feed, with the same categories."
+/>
+
+## The six decisions
+
+**1. Entry is a conversation, not a form.** Transactions live in a feed. Income on one side, expenses on the other, each a bubble with its category and time, a running balance above and day dividers through it. The composer sits under the feed and is always open — no plus button, no modal to wait for; `#` tags a category from the title field; ⌘/Ctrl + Enter sends. No save dialog, no page change, nothing to dismiss. [More on the chat model.](/features/chat-expense-tracker)
+
+**2. Four ways in, because your hands aren't always free.** Type it. Or write one sentence covering a whole run of errands and let [AI entry](/blog/how-to-track-expenses-with-ai) hand back a draft per purchase, each one editable. Or switch the composer to AI mode and hold `M` to [say it out loud](/blog/voice-expense-tracking-in-any-language), in whichever languages you actually mix. Or paste rows out of a spreadsheet into [bulk add](/features/bulk-add), 500 at a time. Same feed, same categories, four routes.
+
+**3. No bank connection. At all.** There's no aggregator behind this and no screen that asks for banking credentials, so there's nothing to breach and nothing to reconnect after a bank security update. It also means cash isn't invisible: a market stall, a taxi paid in notes, the twenty you handed a neighbour all land the same way as a card payment. [The full argument.](/blog/expense-tracker-without-bank-connection)
+
+**4. The AI drafts; you decide.** Both AI and voice entry stop at a review step. The model splits your sentence into rows with an amount, a date, a type and a category chosen from *your* list — and then waits. Nothing is written until you press the button. A model that files straight into your records is a model that quietly corrupts them, and you'd never find out.
+
+**5. Your data leaves as easily as it arrives.** Filter the [transactions table](/features/transactions) to what you want, press CSV, and the file is the view you were looking at rather than a dump to trim. Or print, and the page reformats into a report your browser saves as a PDF. No paid tier and no watermark — the only ceilings are mechanical: 5,000 rows to a file, and a print carries the rows you have loaded. [What's in the file, and both caps in detail.](/blog/export-expenses-to-csv-for-taxes)
+
+**6. Open source, so the claims are checkable.** All of it is on GitHub under the AGPL-3.0 — the auth checks, the queries, the AI prompts, the exporter. "We don't sell your data" is a promise; "there is no bank integration in this repository" is something you can verify in a minute. [How to audit any of it.](/blog/open-source-expense-tracker)
+
+## What it deliberately isn't
+
+A product is as much the things it refuses as the things it ships, and these refusals are all load-bearing.
+
+<Figure
+  src="/blog/introducing-spendchat--built-in-vs-left-out.png"
+  alt="Two-column comparison. Left: what SpendChat deliberately leaves out — bank connections, budgets and goals, multi-currency per transaction, gamification, ads and data selling, and a paid tier gating export. Right: what it ships — chat, AI, voice and paste entry, profiles and workspaces with roles, receipts on the transaction, filters and analytics, CSV and print, and published source."
+  caption="Every item on the left was considered and rejected. The ones that hurt to leave out are budgets and goals."
+/>
+
+**No budgets or goals — yet.** The honest reason is sequencing. A budget is a claim about the future built on a record of the past, and the record has to be trustworthy first. Ship budgets on top of a half-kept feed and you get a number that's wrong in a way nobody can see.
+
+**No per-transaction currency.** Currency belongs to the workspace, not the row. Multi-currency sounds like a small feature and isn't: the moment two rows carry different units, every total needs an exchange rate with a date attached, and the "total" you show becomes a snapshot of a rate you didn't record. One currency per set of books means the numbers mean exactly what they say. If you genuinely run two currencies, that's two workspaces.
+
+**No streaks, badges or nudges.** Gamification works on habits with no intrinsic payoff. This one has an obvious payoff, and a notification saying you haven't logged in three days is a notification you'll mute in a week.
+
+**No ads, no data selling.** There's no version of this where the reader is the product.
+
+## The rest of it, briefly
+
+| | What you get |
+| --- | --- |
+| Feed | Running balance, day dividers, edit any bubble by tapping it |
+| Transactions | Filters by date, type and category; search across titles and notes; drag columns to reorder and resize |
+| Analytics | Income, expenses and net for any range; category breakdown as a ring *and* a ranked list; six months of trend |
+| Categories | Fifteen to start with, all renameable, any emoji as an icon, shared across the workspace |
+| Profiles | Separate books per part of your life, plus an All profiles view |
+| Workspaces | Invite by email with viewer, editor or admin — or grant one profile to an accountant |
+| Receipts | Drop a photo on the composer; it attaches to the transaction and files itself in the vault |
+| Keyboard | One letter per section, ⌘/Ctrl + Enter to send, `/` for the cheat sheet |
+| Everywhere | Browser on desktop and mobile, light and dark, nothing to install |
+
+## Under the hood, for the curious
+
+Next.js on the App Router, Tailwind and shadcn/ui, Neon Postgres through Drizzle, Firebase Authentication, deployed to Cloudflare Workers via OpenNext with files in R2.
+
+Two details that matter more than the stack does. **Money is stored as whole minor units** — 62.40 is the integer 6240, never a float — because floating-point arithmetic on money accumulates error that shows up as a balance being a cent out and nobody being able to say why. And **every read is scoped to your own access** in one place rather than checked ad hoc in each handler, which is the difference between a permission system and a collection of `if` statements that eventually disagree.
+
+The AI model is configuration rather than code: no model id appears anywhere in the source, so a self-hosted instance can point at whichever provider it prefers, or at none.
+
+## The first minute
+
+Worth describing, because "set up in under a minute" is a claim everyone makes.
+
+You sign in with Google, which puts you straight in, or with an email and password, which sends a verification link you have to click before the account opens — one trip through your inbox, and the only part of this that leaves the app. Either way it is handled by Firebase Authentication, so no password ever reaches our servers. That is the whole of setup: no onboarding wizard, no budget to define before you're allowed to type anything, and no connect-your-accounts step to skip.
+
+What happens behind that is one workspace named after you, fifteen starter categories in it, and a default profile. The currency and number format are guessed from where you are — the country your connection reports, then your browser's language — and set on that first workspace only. An admin can change both later, and any workspace you create afterwards inherits whatever you're using at the time.
+
+Then you land on the tracker: an empty feed, with the composer already open underneath it. The first thing to do is type a number.
+
+That ordering is deliberate. Most finance apps front-load configuration because configuration is how they justify the account: budgets, goals, linked institutions, notification preferences. All of it happens before the app has a single transaction to reason about, which means every one of those decisions is made blind. It also gives you five chances to close the tab.
+
+Everything here is set up *afterwards*, once you have data and a reason. Rename the categories once you've seen which ones you actually use. Add a second [profile](/features/multiple-profiles) the week you need to separate business from personal. Invite someone when there's something to share. None of it is required, and none of it stands between you and your first transaction.
+
+## Who it's for
+
+**People whose spending is partly cash.** Nothing that syncs from a bank will ever see it.
+
+**People who've bounced off the big trackers.** If the reason was that logging took too long, this is the thing that's actually different.
+
+**Freelancers and small businesses.** Separate profiles for business and personal, a per-profile grant for your accountant, and an export that carries your filters at tax time.
+
+**Households.** One workspace, roles per person, every transaction showing who entered it — rather than [one shared login and no idea who spent what](/blog/how-to-track-shared-expenses-with-your-partner).
+
+**People who'd rather read the code than a privacy policy.** It's all there.
+
+It's free, setting it up is a sign-in and nothing after it, and there's nothing to disconnect if you change your mind.
+
+[Start tracking](/sign-up) — or [read the source first](https://github.com/playxoft/SpendChat_Nextjs).

@@ -18,6 +18,66 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-09-06
+
+The three posts that predate the deep-dives, brought up to the same standard.
+
+### Changed
+
+- **The two original posts are full articles now.** "Introducing SpendChat"
+  covers the six decisions the product is built on and the ones deliberately
+  left out; "Track your money like a conversation" is about why expense-tracking
+  habits die in the second week and what a chat interface changes about that.
+  Both gained FAQs, figures and their own illustrations, in the same shape as
+  the nine deep-dives — and an `updated` date, so the sitemap reports real
+  freshness rather than a 2026 stub.
+- **"SpendChat is now open source" is a release note again.** It had grown a
+  general argument for open-sourcing a money app, which the new deep-dive covers
+  properly and at length — two pages competing to answer one question helps
+  neither. It now says what shipped, what it changes for you, and points at the
+  longer piece. It also says "open core", which `README.md` and `CONTRIBUTING.md`
+  both lead with and the announcement had left out.
+- **"Track your money like a conversation" is now "Why Expense Tracking Habits
+  Fail in Week Two".** The old title was `siteConfig.tagline` word for word, so
+  the homepage and a 1,500-word FAQ-rich article were bidding for one query with
+  the same title tag. The URL is unchanged.
+- **A post shows its "Updated" date when it has one.** `updated` already drove
+  `dateModified` and `og:modifiedTime`, but nothing rendered it — markup
+  claiming a freshness the page doesn't show is a signal Google is entitled to
+  discount. The release note gained the `updated` date its rewrite had earned.
+
+### Added
+
+- **A test behind the blog's generated images**
+  (`tests/unit/blog-assets.test.ts`). `scripts/blog-image.html` keeps a
+  hand-copied second set of every post's title, date, tag and reading time, and
+  it has already shipped a cover printing the wrong date. The test holds the two
+  files together and checks that each figure is embedded by a post and rendered
+  to a PNG.
+
+### Fixed
+
+- **Eight claims about the product that the source doesn't support.** Voice
+  entry was "hold `M`" with no mention that the composer has to be in AI mode
+  first — the exact omission the last release fixed in four other posts — and
+  was described as returning drafts by itself, when it drops the transcript into
+  the AI note and waits for you to send it. Export and print were "no cap"
+  against a 5,000-row file and a table that prints the fifty rows it has loaded.
+  Bulk add was "paste a year of rows" against a 500-row limit. Signing up was
+  "that's it for setup" on the route that mails a verification link first. The
+  composer was "an amount, a category and send" when the title is the required
+  field and the category is optional. And it was said to open with the amount
+  field focused — in fifteen places across four posts, two figures and the chat
+  and keyboard-shortcuts feature pages. It doesn't: `TransactionComposer` has no
+  mount effect and no `autoFocus`, and every `.focus()` in it is a reaction to
+  something you did. What was true, and load-bearing, is that the composer is
+  always open under the feed with nothing to launch first — so that is what the
+  copy says now.
+- **The two rewritten posts have inbound links.** They were the only posts on
+  the site nothing linked to — fifteen links out between them, none back — which
+  put the two pages this release most wants to rank at the bottom of the site's
+  own link graph.
+
 ## [0.17.0] — 2026-09-06
 
 Nine feature deep-dives on the blog, one per part of the product.
