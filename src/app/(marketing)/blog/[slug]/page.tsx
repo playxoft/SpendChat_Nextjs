@@ -2,16 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { ArrowRight } from "lucide-react";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
-import { getPost, formatPostDate } from "@/lib/blog";
+import { getPost, formatPostDate, socialCoverAlt } from "@/lib/blog";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { FaqSection } from "@/components/marketing/faq-section";
 import { absoluteImage, breadcrumbJsonLd, faqJsonLd, ogImage } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
@@ -46,13 +41,16 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
   const url = `/blog/${post.slug}`;
   // The post's own cover, falling back to the shared card. Both are 1200×630 —
-  // covers are generated at that size by `scripts/blog-image.html`, which is
-  // the only thing that should ever write `public/blog/*.png`. Declaring the
-  // dimensions lets a chat client lay the preview out before fetching the
+  // covers are generated at that size by `scripts/blog-image.html`. Declaring
+  // the dimensions lets a chat client lay the preview out before fetching the
   // bytes; if a post ever ships a differently-sized image, drop them for it.
+  //
+  // Only the cover takes the post's alt text. The fallback card keeps its own,
+  // because it depicts the product rather than this article — and `ogImage`
+  // already carries the sentence that says so.
   const image = post.image
-    ? { ...ogImage, url: post.image, alt: post.title }
-    : { ...ogImage, alt: post.title };
+    ? { ...ogImage, url: post.image, alt: socialCoverAlt(post) }
+    : ogImage;
 
   return {
     title: post.title,
@@ -85,11 +83,6 @@ export default async function BlogPostPage({ params }: Params) {
 
   const url = `${siteConfig.url}/blog/${post.slug}`;
   const faqs = post.faqs ?? [];
-  // `imageAlt ?? title` would re-introduce the duplicate this field exists to
-  // avoid, and `""` is a legitimate value meaning "decorative" — so only an
-  // absent field falls back, and it falls back to a description of the card
-  // rather than to the headline printed directly above it.
-  const coverAlt = post.imageAlt ?? `${post.title} — ${siteConfig.name} blog cover`;
   const trail = [
     { name: "Home", path: "/" },
     { name: "Blog", path: "/blog" },
@@ -152,7 +145,7 @@ export default async function BlogPostPage({ params }: Params) {
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={post.image}
-          alt={coverAlt}
+          alt={post.coverAlt}
           width={1200}
           height={630}
           className="mt-8 h-auto w-full rounded-2xl border"
@@ -164,27 +157,12 @@ export default async function BlogPostPage({ params }: Params) {
         <post.Component />
       </div>
 
-      {/* FAQ — one array drives both the visible accordion and the `FAQPage`
-          markup above, so they can't drift apart. `AccordionContent` keeps its
-          answer mounted while collapsed, which is what puts the text in the
-          server-rendered HTML that crawlers actually read. */}
-      {faqs.length > 0 && (
-        <section className="mt-14">
-          <h2 className="text-2xl font-semibold tracking-tight">
-            Frequently asked questions
-          </h2>
-          <Accordion type="multiple" className="mt-6 border-t">
-            {faqs.map((faq) => (
-              <AccordionItem key={faq.q} value={faq.q}>
-                <AccordionTrigger>{faq.q}</AccordionTrigger>
-                <AccordionContent className="leading-relaxed text-muted-foreground">
-                  {faq.a}
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </section>
-      )}
+      {/* The same array that produced the `FAQPage` markup above. */}
+      <FaqSection
+        faqs={faqs}
+        heading="Frequently asked questions"
+        className="mt-14"
+      />
 
       {/* CTA */}
       <div className="mt-14 rounded-3xl border bg-card p-7 text-center">

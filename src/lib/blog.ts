@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import type { Faq } from "@/lib/seo";
 import * as conversation from "@/content/blog/track-your-money-like-a-conversation.mdx";
 import * as openSource from "@/content/blog/spendchat-is-now-open-source.mdx";
 import * as introducing from "@/content/blog/introducing-spendchat.mdx";
@@ -31,7 +32,7 @@ export type BlogMeta = {
    * Write answers as plain prose that stands alone — a rich result shows the
    * answer without the paragraph above it.
    */
-  faqs?: { q: string; a: string }[];
+  faqs?: Faq[];
   /**
    * The post's cover: shown on the index card and above the article, and used
    * as its social preview. Root-relative or absolute; falls back to the shared
@@ -40,13 +41,14 @@ export type BlogMeta = {
    */
   image?: string;
   /**
-   * Alt text for the cover.
+   * Alt text for the cover, when the card shows something worth describing.
    *
-   * Without this the cover falls back to the post title — which is printed as
-   * the `<h1>` immediately above the image, so a screen reader hears the same
-   * sentence twice and a crawler sees the title repeated in alt. Describe what
-   * the card actually shows instead, or set it to `""` to mark a purely
-   * decorative cover as decorative, which is more honest than a duplicate.
+   * Leaving it out is the normal case and is not a gap: the covers we generate
+   * are title cards, so beside the headline they are decorative and
+   * `BlogPost.coverAlt` resolves to `""`. Set this when the cover carries
+   * content the prose doesn't — a chart, a screenshot, a before/after — and
+   * describe what it shows, not that it is an image. It is also what a chat
+   * preview announces (see `socialCoverAlt`), where the card stands alone.
    */
   imageAlt?: string;
 };
@@ -55,6 +57,20 @@ export type BlogPost = BlogMeta & {
   slug: string;
   /** The rendered MDX body (the file's default export). */
   Component: ComponentType;
+  /**
+   * Alt text for the cover **where it appears beside the headline** — the
+   * article page and the index card. Derived once here because those two and
+   * the social card each used to decide it for themselves, and they disagreed.
+   *
+   * Empty when a post declares no `imageAlt`, which marks the image decorative.
+   * That is the honest answer for the covers we generate: they are title cards
+   * whose content *is* the headline, printed again as the `<h1>` directly below
+   * on the post and as the card title on the index. Alt text repeating it makes
+   * a screen reader read the same sentence twice and tells a crawler nothing it
+   * did not already have. A cover that shows something else says so in
+   * `imageAlt`, and that wins.
+   */
+  coverAlt: string;
 };
 
 type MdxModule = { default: ComponentType; meta: BlogMeta };
@@ -76,9 +92,28 @@ const isProd = process.env.NODE_ENV === "production";
 
 /** Visible posts, newest first. Drafts are dropped in production builds. */
 const posts: BlogPost[] = registry
-  .map(({ slug, mod }) => ({ slug, Component: mod.default, ...mod.meta }))
+  .map(({ slug, mod }) => ({
+    slug,
+    Component: mod.default,
+    ...mod.meta,
+    coverAlt: mod.meta.imageAlt ?? "",
+  }))
   .filter((post) => !isProd || !post.draft)
   .sort((a, b) => (a.date < b.date ? 1 : -1));
+
+/**
+ * Alt text for the cover **as a social card** — a different question from
+ * `coverAlt`, and the reason the two are not one field.
+ *
+ * In a chat preview the image is shown on its own, with no `<h1>` beside it, so
+ * the duplication that makes `coverAlt` empty simply isn't there: an empty
+ * `og:image:alt` would drop the only description the card has. The headline is
+ * a good description of a title card, so it stands in when the post declares
+ * nothing better.
+ */
+export function socialCoverAlt(post: BlogPost): string {
+  return post.imageAlt || post.title;
+}
 
 export function getPosts(): BlogPost[] {
   return posts;
