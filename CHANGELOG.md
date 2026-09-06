@@ -18,6 +18,35 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-09-06
+
+Nine feature deep-dives on the blog, one per part of the product.
+
+### Added
+
+- **Nine long-form posts.** Tracking expenses with AI, voice entry across mixed
+  languages, going without a bank connection, spreadsheets versus an app,
+  categorising expenses, sharing books with a partner, organising receipts,
+  exporting to CSV at tax time, and what "open source expense tracker" ought to
+  mean. Each is a comparison or a how-to rather than a feature list, each
+  carries an FAQ and links through to the feature page it belongs to, and each
+  is dated to when it was written — late June to early September — so the index
+  reads as a cadence rather than a drop.
+- **Eighteen new figures**, two per post, rendered ahead of time from
+  `scripts/blog-figure.html` — three layouts, comparison, flow and table — in
+  the same dark palette as the covers, and served straight off the CDN like
+  every other static asset.
+
+### Fixed
+
+- **The "SpendChat is now open source" cover printed the wrong date.** Its
+  entry in `scripts/blog-image.html` said 2 June while the post itself is dated
+  2 September, so the shared preview card disagreed with the page. Corrected and
+  re-rendered.
+- **"Track your money like a conversation" documented the wrong key.** It said
+  `/` tags a category in the composer; `/` opens the keyboard-shortcut sheet and
+  `#` is the category tag.
+
 ## [0.16.0] — 2026-09-06
 
 The two things the blog was missing before it could carry anything longer than
