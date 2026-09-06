@@ -1,4 +1,5 @@
 import type { ComponentType } from "react";
+import { siteConfig } from "@/lib/site";
 import * as openSourceGuide from "@/content/blog/open-source-expense-tracker.mdx";
 import * as csvTaxes from "@/content/blog/export-expenses-to-csv-for-taxes.mdx";
 import * as receipts from "@/content/blog/how-to-organize-receipts-digitally.mdx";
@@ -96,7 +97,11 @@ const isProd = process.env.NODE_ENV === "production";
 const posts: BlogPost[] = registry
   .map(({ slug, mod }) => ({ slug, Component: mod.default, ...mod.meta }))
   .filter((post) => !isProd || !post.draft)
-  .sort((a, b) => (a.date < b.date ? 1 : -1));
+  // `localeCompare` rather than `a.date < b.date ? 1 : -1`: that form never
+  // returns 0, so two posts sharing a date make an inconsistent comparator and
+  // the engine may order them either way between builds — which would move the
+  // index, the RSS item order and the eager-loaded LCP cover with it.
+  .sort((a, b) => b.date.localeCompare(a.date));
 
 export function getPosts(): BlogPost[] {
   return posts;
@@ -104,6 +109,22 @@ export function getPosts(): BlogPost[] {
 
 export function getPost(slug: string): BlogPost | undefined {
   return posts.find((post) => post.slug === slug);
+}
+
+/**
+ * Alt text for a post's cover, wherever it is rendered — the index card, the
+ * article hero, and the `og:image` that chat clients read.
+ *
+ * It lives here because the three of them have to agree, and the interesting
+ * case is the one that looks like it needs no code: `imageAlt ?? title` is
+ * wrong, because the title is printed as the `<h1>` directly beside the image,
+ * so a screen reader hears the same sentence twice and a crawler sees the
+ * headline repeated in alt. `""` is also a real value — a cover marked
+ * decorative — so only an *absent* field falls back, and it falls back to a
+ * description of the card rather than to the headline.
+ */
+export function coverAltFor(post: BlogPost): string {
+  return post.imageAlt ?? `${post.title} — ${siteConfig.name} blog cover`;
 }
 
 /** Human-readable date, e.g. "June 15, 2026". */

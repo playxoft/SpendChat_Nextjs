@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
-import { getPost, formatPostDate } from "@/lib/blog";
+import { getPost, formatPostDate, coverAltFor } from "@/lib/blog";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { absoluteImage, breadcrumbJsonLd, faqJsonLd, ogImage } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
@@ -50,9 +50,14 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
   // the only thing that should ever write `public/blog/*.png`. Declaring the
   // dimensions lets a chat client lay the preview out before fetching the
   // bytes; if a post ever ships a differently-sized image, drop them for it.
+  // `coverAltFor` rather than the title: the preview card already prints the
+  // headline beside the image, so repeating it in `alt` is the duplication the
+  // `imageAlt` field exists to remove — and it has to match what the page
+  // itself renders, which is why both read the one helper.
+  const alt = coverAltFor(post);
   const image = post.image
-    ? { ...ogImage, url: post.image, alt: post.title }
-    : { ...ogImage, alt: post.title };
+    ? { ...ogImage, url: post.image, alt }
+    : { ...ogImage, alt };
 
   return {
     title: post.title,
@@ -85,11 +90,7 @@ export default async function BlogPostPage({ params }: Params) {
 
   const url = `${siteConfig.url}/blog/${post.slug}`;
   const faqs = post.faqs ?? [];
-  // `imageAlt ?? title` would re-introduce the duplicate this field exists to
-  // avoid, and `""` is a legitimate value meaning "decorative" — so only an
-  // absent field falls back, and it falls back to a description of the card
-  // rather than to the headline printed directly above it.
-  const coverAlt = post.imageAlt ?? `${post.title} — ${siteConfig.name} blog cover`;
+  const coverAlt = coverAltFor(post);
   const trail = [
     { name: "Home", path: "/" },
     { name: "Blog", path: "/blog" },
