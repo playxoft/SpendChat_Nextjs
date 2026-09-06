@@ -83,7 +83,7 @@ export default function BlogPage() {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={post.image}
-                alt={post.title}
+                alt={post.coverAlt}
                 width={1200}
                 height={630}
                 // The topmost cover is above the fold on desktop and is this

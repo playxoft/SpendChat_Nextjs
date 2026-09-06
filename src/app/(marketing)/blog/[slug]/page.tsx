@@ -1,15 +1,31 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
-import { getPost, formatPostDate } from "@/lib/blog";
-import { absoluteImage, ogImage } from "@/lib/seo";
+import { getPost, formatPostDate, socialCoverAlt } from "@/lib/blog";
+import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { FaqSection } from "@/components/marketing/faq-section";
+import { absoluteImage, breadcrumbJsonLd, faqJsonLd, ogImage } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
 type Params = { params: Promise<{ slug: string }> };
+
+/**
+ * The width of a post — text, cover and figures alike, so nothing sits wider
+ * than the column it belongs to.
+ *
+ * `4xl` (896px) is the widest the body copy tolerates. Line length is the
+ * constraint: past roughly 90 characters the eye starts losing its place on
+ * the return sweep to the next line, which is why newspapers set narrow
+ * columns on wide paper. Figures are rendered at 1200px and scale down to fit
+ * this, which is comfortably legible for the tables among them.
+ *
+ * One constant, so widening the post means changing it here and nowhere else.
+ */
+const POST_WIDTH = "max-w-4xl";
 
 // Render on demand rather than prerendering (SSG). The posts' MDX is bundled
 // at build time, so there's nothing to fetch — but on Cloudflare/OpenNext,
@@ -25,13 +41,16 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 
   const url = `/blog/${post.slug}`;
   // The post's own cover, falling back to the shared card. Both are 1200×630 —
-  // covers are generated at that size by `scripts/blog-image.html`, which is
-  // the only thing that should ever write `public/blog/*.png`. Declaring the
-  // dimensions lets a chat client lay the preview out before fetching the
+  // covers are generated at that size by `scripts/blog-image.html`. Declaring
+  // the dimensions lets a chat client lay the preview out before fetching the
   // bytes; if a post ever ships a differently-sized image, drop them for it.
+  //
+  // Only the cover takes the post's alt text. The fallback card keeps its own,
+  // because it depicts the product rather than this article — and `ogImage`
+  // already carries the sentence that says so.
   const image = post.image
-    ? { ...ogImage, url: post.image, alt: post.title }
-    : { ...ogImage, alt: post.title };
+    ? { ...ogImage, url: post.image, alt: socialCoverAlt(post) }
+    : ogImage;
 
   return {
     title: post.title,
@@ -63,6 +82,12 @@ export default async function BlogPostPage({ params }: Params) {
   if (!post) notFound();
 
   const url = `${siteConfig.url}/blog/${post.slug}`;
+  const faqs = post.faqs ?? [];
+  const trail = [
+    { name: "Home", path: "/" },
+    { name: "Blog", path: "/blog" },
+    { name: post.title, path: `/blog/${post.slug}` },
+  ];
   const articleJsonLd = {
     "@context": "https://schema.org",
     "@type": "BlogPosting",
@@ -85,17 +110,21 @@ export default async function BlogPostPage({ params }: Params) {
   };
 
   return (
-    <article className="mx-auto max-w-2xl px-4 pb-24 pt-4 sm:pt-6">
+    <article className={`mx-auto ${POST_WIDTH} px-4 pb-24 pt-4 sm:pt-6`}>
       <JsonLd data={articleJsonLd} />
-      <Link
-        href="/blog"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" /> All posts
-      </Link>
+      <JsonLd data={breadcrumbJsonLd(trail)} />
+      {/* Only ever emitted from `post.faqs`, which is also what the visible
+          block below renders — structured data describing text a reader can't
+          find on the page is the exact mismatch the spam policies target. */}
+      {faqs.length > 0 && <JsonLd data={faqJsonLd(faqs)} />}
+      {/* A visible trail, not just a "back" link: the BreadcrumbList above
+          describes navigation, and structured data for navigation the reader
+          can't see is the mismatch the spam policies target. Google also
+          renders the trail in place of the raw URL in the result snippet. */}
+      <Breadcrumbs trail={trail} />
 
       {/* Header */}
-      <div className="mt-6 flex items-center gap-3 text-xs text-muted-foreground">
+      <div className="flex items-center gap-3 text-xs text-muted-foreground">
         <span className="rounded-full bg-muted px-2.5 py-0.5 font-medium">
           {post.tag}
         </span>
@@ -116,10 +145,10 @@ export default async function BlogPostPage({ params }: Params) {
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={post.image}
-          alt={post.title}
+          alt={post.coverAlt}
           width={1200}
           height={630}
-          className="mt-8 h-auto w-full rounded-2xl border sm:-mx-8 sm:w-[calc(100%+4rem)] lg:-mx-24 lg:w-[calc(100%+12rem)] lg:max-w-none"
+          className="mt-8 h-auto w-full rounded-2xl border"
         />
       )}
 
@@ -127,6 +156,13 @@ export default async function BlogPostPage({ params }: Params) {
       <div className="mt-10 [&>:first-child]:mt-0">
         <post.Component />
       </div>
+
+      {/* The same array that produced the `FAQPage` markup above. */}
+      <FaqSection
+        faqs={faqs}
+        heading="Frequently asked questions"
+        className="mt-14"
+      />
 
       {/* CTA */}
       <div className="mt-14 rounded-3xl border bg-card p-7 text-center">

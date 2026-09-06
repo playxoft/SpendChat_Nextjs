@@ -18,6 +18,52 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-09-06
+
+The two things the blog was missing before it could carry anything longer than
+a release note: FAQs that search engines can read, and illustrations that don't
+shift the page as they load.
+
+### Added
+
+- **Posts can carry an FAQ.** A `faqs` array in a post's frontmatter renders as
+  an accordion at the foot of the article *and* as `FAQPage` structured data —
+  from the one array, so the visible text and the markup can't drift apart.
+  Marking up an answer that isn't on the page is the mismatch search engines
+  treat as spam, and this makes it impossible to write.
+- **In-post illustrations.** A `<Figure>` component with required alt text, a
+  visible caption, and declared dimensions so a lazily-loaded image no longer
+  pushes the paragraph you're reading down the page.
+- **Blog posts carry a breadcrumb trail**, visible and as `BreadcrumbList`
+  markup, in place of the bare "All posts" link — so a search result shows
+  Home › Blog › the post rather than a raw URL.
+
+### Changed
+
+- **Blog posts are wider: `max-w-2xl` → `max-w-4xl`.** 1200×675 figures were
+  being scaled to 672px, which is not a size at which a comparison table can be
+  read. Text, cover and figures all share the one width — `POST_WIDTH`, a single
+  constant on the post page — so nothing sits wider than the column around it.
+  4xl is as wide as the body copy goes before line length starts costing more
+  than the pictures gain.
+
+### Fixed
+
+- **A blog cover's alt text was the post's own headline**, printed as the `<h1>`
+  directly above it and as the card title on the index — so a screen reader
+  announced the same sentence twice, on every post and every card. The covers we
+  generate are title cards, so beside the headline they are decorative and now
+  say so; a cover that shows something else describes it in `imageAlt`. That one
+  answer is derived in `src/lib/blog.ts` and used by the post, the index card and
+  the social preview, which had each been deciding it separately — and
+  disagreeing. A chat preview, where the card stands alone with no headline
+  beside it, still gets a description rather than an empty string.
+- **Two FAQ entries asking the same question collided.** The accordion keyed its
+  items by the question text, so a repeated question opened both panels from one
+  click and left React reusing the wrong subtree. Items are keyed by position
+  now. The block itself was a second copy of the feature pages'; both render one
+  `FaqSection`, so the next fix here lands in one place.
+
 ## [0.15.0] — 2026-09-05
 
 A tighter marketing header: it tells you where you are, and it takes a key.
