@@ -32,8 +32,13 @@ export function useIsMac(): boolean {
  * unmounts these on close, so their presence in the DOM means they're open.
  * Used to suppress bare single-key shortcuts that would otherwise clash with
  * menu typeahead or steal focus while a dialog is being filled in.
+ *
+ * Exported for the handful of bindings that can't go through the hooks below —
+ * the AI review list's Enter-to-confirm reads a looser chord than `matchesCombo`
+ * can express — so they suppress themselves on the same rule rather than
+ * inventing a second definition of "an overlay is open".
  */
-function hasOpenOverlay(): boolean {
+export function hasOpenOverlay(): boolean {
   if (typeof document === "undefined") return false;
   return !!document.querySelector(
     '[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]',

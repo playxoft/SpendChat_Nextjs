@@ -24,7 +24,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { GithubIcon } from "@/components/icons/github";
 import { JsonLd } from "@/components/json-ld";
-import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { FeatureIcon } from "@/components/marketing/feature-icon";
 import {
   FEATURE_GROUPS,
@@ -32,7 +31,7 @@ import {
   featuresInGroup,
   publishedFeatures,
 } from "@/lib/features";
-import { breadcrumbJsonLd, createMetadata } from "@/lib/seo";
+import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
@@ -182,11 +181,6 @@ const groups = [
 export default function FeaturesPage() {
   const spokes = publishedFeatures();
 
-  const trail = [
-    { name: "Home", path: "/" },
-    { name: "Features", path: "/features" },
-  ];
-
   // Only describe the directory to search engines when there's a directory to
   // describe — an `ItemList` of zero items is noise, not structured data.
   const itemListJsonLd =
@@ -206,10 +200,14 @@ export default function FeaturesPage() {
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-24 pt-10 sm:pt-16">
-      <JsonLd data={breadcrumbJsonLd(trail)} />
       {itemListJsonLd && <JsonLd data={itemListJsonLd} />}
 
-      <Breadcrumbs trail={trail} />
+      {/* No breadcrumb trail here, unlike the feature spokes and blog posts. On
+          a first-level page it reads "Home > Features" — one link, to where the
+          nav's logo already goes. Its `BreadcrumbList` went with it rather than
+          staying behind, since markup for navigation the reader can't see is the
+          mismatch the spam policies target; the hierarchy signal survives in the
+          spokes' trails, which name this page as their parent. */}
 
       {/* Header */}
       <div className="mx-auto max-w-2xl text-center">
