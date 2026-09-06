@@ -12,7 +12,7 @@ export const meta = {
   faqs: [
     {
       q: "How do I track expenses by voice?",
-      a: "Hold the M key on a keyboard, or press and hold the mic button on a phone, and say what you spent — up to a minute per recording, after which it stops itself. When you let go, the recording is transcribed, the text is dropped into the AI note, and the parsed transactions appear as drafts. You check them and confirm. It runs in the browser, so there is nothing to install.",
+      a: "Put the composer in AI mode — that is the Manual/AI toggle on the composer, or the A key when you are not typing in a field — then hold the M key on a keyboard, or press and hold the mic button on a phone, and say what you spent. A recording runs up to a minute, after which it stops itself. When you let go, the recording is transcribed, the text is dropped into the AI note, and the parsed transactions appear as drafts. You check them and confirm. It runs in the browser, so there is nothing to install.",
     },
     {
       q: "Can a voice expense tracker understand mixed languages like Hinglish?",
@@ -31,7 +31,7 @@ export const meta = {
       a: "Usually not, for a single expense — typing an amount and hitting a category chip is faster than speaking and reading a draft. Voice earns its place when your hands are full, when you're logging several purchases at once, or when the spending is cash that no bank feed would ever see.",
     },
     {
-      q: "Do I need to install an app to use voice entry?",
+      q: "Does voice expense tracking need an app, or does the browser do it?",
       a: "No. Recording happens in the browser on desktop and mobile. Your browser asks for microphone permission the first time and you can revoke it whenever you like — voice entry is optional, and everything else in the app works with the microphone permanently off.",
     },
   ],
@@ -45,7 +45,7 @@ It's also where most voice expense tracking quietly falls apart, for a reason th
 
 ## What happens when you hold the key
 
-In SpendChat, [voice entry](/features/voice-expense-tracker) is one key. Hold `M` — or press and hold the mic button on a phone — and it records while you hold it, up to a minute, after which it stops itself. Let go and three things happen in sequence.
+In SpendChat, [voice entry](/features/voice-expense-tracker) is one key, once the composer is in AI mode — that's the Manual/AI toggle on the composer, or `A` when the cursor isn't in a field. Then hold `M` — or press and hold the mic button on a phone — and it records while you hold it, up to a minute, after which it stops itself. Let go and three things happen in sequence.
 
 <Figure
   src="/blog/voice-expense-tracking-in-any-language--hold-speak-confirm.png"
@@ -148,4 +148,4 @@ A few habits make transcription noticeably more accurate.
 
 Voice entry isn't about saving keystrokes. It's about being able to log something in the ten-second window while it's still true, in the words you'd actually use, without silently translating yourself into whichever language a settings dropdown decided on.
 
-[Try voice entry](/features/voice-expense-tracker) — hold `M`, say what you spent, and check what comes back.
+[Try voice entry](/features/voice-expense-tracker) — switch the composer to AI, hold `M`, say what you spent, and check what comes back.

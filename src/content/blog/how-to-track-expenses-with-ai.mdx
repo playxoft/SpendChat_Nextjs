@@ -83,7 +83,7 @@ Then notice that a wrong record isn't one error. A misfiled 400 doesn't only mak
 
 And you can't find them, which is the part that matters. A bad parse isn't corrupt data that fails a check — it's a plausible transaction of roughly the right size on roughly the right day. Nothing flags it, nothing reconciles against it, and the only audit available is re-reading 1,800 rows. Financial records fail quietly, which is the failure mode automation handles worst.
 
-Against that, two seconds an entry is about twenty minutes a year. It's the cheapest error correction anywhere in the process, applied at the one moment you still remember what the transaction was.
+Against that, two seconds an entry is about an hour a year — 1,800 entries, two seconds each, 3,600 seconds. An hour, spread across a year in two-second slices you never notice, to not have 36 wrong records you can't find. It's the cheapest error correction anywhere in the process, applied at the one moment you still remember what the transaction was.
 
 <Figure
   src="/blog/how-to-track-expenses-with-ai--autofile-vs-review.png"

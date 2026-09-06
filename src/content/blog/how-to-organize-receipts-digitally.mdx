@@ -15,7 +15,7 @@ export const meta = {
       a: "Attach each receipt to the transaction it belongs to at the moment you log the expense, rather than filing photos separately and hoping to match them up later. The amount, date and category then act as the index — you find the receipt by finding the transaction, which you can filter and search.",
     },
     {
-      q: "Can I attach a receipt to an expense?",
+      q: "How do I keep a receipt with the expense it belongs to?",
       a: "Yes. Drop a photo or PDF onto the composer, or anywhere on the tracker, and it's attached to the transaction you're writing. The same file also appears in the vault under a system folder called Transaction attachments, so you can reach it from either direction.",
     },
     {
@@ -28,7 +28,7 @@ export const meta = {
     },
     {
       q: "What file types and sizes can I upload?",
-      a: "Photos, PDFs, spreadsheets and plain documents — what a receipt or invoice actually arrives as. Each file is capped at 5 MB, comfortably more than a phone photo of a receipt, and each workspace includes 1 GB of storage with a usage ring in the toolbar that changes colour as you approach the limit.",
+      a: "JPEG, PNG, WebP and GIF images, PDFs, Word and Excel documents, CSV and plain text — what a receipt or invoice actually arrives as. HEIC is not on the list, so an iPhone set to High Efficiency needs Settings → Camera → Formats → Most Compatible before the camera roll will upload. Each file is capped at 5 MB, comfortably more than a phone photo of a receipt, and each workspace includes 1 GB of storage with a usage ring in the toolbar that changes colour as you approach the limit.",
     },
     {
       q: "Can I share one receipt without giving someone access to everything?",
@@ -45,7 +45,7 @@ That's a shoebox with worse lighting.
 
 ## Why organizing receipts digitally is a retrieval problem
 
-A receipt has almost no useful metadata of its own. A photo of a till slip is a picture of some paper. Its filename is `IMG_4032.HEIC`. Its date is when you took the photo, which is usually right but not always. There is nothing in it a computer can sort by that you'd actually search for.
+A receipt has almost no useful metadata of its own. A photo of a till slip is a picture of some paper. Its filename is `IMG_4032.HEIC` — which is also the first thing to fix, because HEIC isn't an accepted upload; set Camera → Formats to Most Compatible and your phone writes JPEG instead. Its date is when you took the photo, which is usually right but not always. There is nothing in it a computer can sort by that you'd actually search for.
 
 Meanwhile, the thing that *does* have good metadata is the transaction record: an amount, a date, a category, a merchant name you typed. You already created it. It's already searchable and filterable.
 

@@ -19,7 +19,7 @@ export const meta = {
       a: "Copy the rows and paste them into bulk add. A spreadsheet copy is tab-separated text, which the parser detects and reads without reformatting. Each line is amount, note, category, type and date, and only the amount is required. You see every row parsed — with any broken line named by number — before anything is saved.",
     },
     {
-      q: "Can I import a CSV file directly?",
+      q: "How do I move an existing spreadsheet of expenses into the app?",
       a: "There is no file upload; you paste the contents instead. In practice that's the same two keystrokes, and it means no file is uploaded anywhere just to be read. Imports are capped at 500 rows per paste, so a long history goes in a few passes.",
     },
     {
@@ -134,7 +134,7 @@ The best setup for a lot of people isn't either/or.
 
 Log in the app, because logging is the part that has to happen away from a desk. Then, when you have a real question — the savings-rate model, the "can we afford this" projection, the thing with four assumptions in it — [export the filtered view as CSV](/features/export-and-print) and answer it in a spreadsheet, which is still the best tool ever built for that job.
 
-The export carries the filters you already set, so you're not downloading everything and deleting rows. It's UTF-8 with a header row and RFC 4180 quoting, amounts are signed so expenses are negative, and one `SUM` over the amount column gives you the net.
+The export carries the filters you already set, so you're not downloading everything and deleting rows. It's UTF-8 with RFC 4180 quoting and signed amounts, so expenses are negative and arithmetic over the column works. Two things to know before you reach for `SUM`: the file opens with a report block, so the column header is row 12 and the data starts at row 13, and the table closes with a `Total:` row that repeats the net — sum to the bottom of the file and you get exactly double. The net is in the report block already; [the CSV walkthrough](/blog/export-expenses-to-csv-for-taxes) has the rest.
 
 For the everyday questions — where the money went, how this month compares to the last six — [analytics](/features/analytics) already answers them without a pivot table: three numbers at the top, a category breakdown as both a ring and a ranked list, and six months of income against expenses, for any date range you pick.
 

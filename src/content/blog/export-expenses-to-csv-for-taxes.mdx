@@ -113,6 +113,8 @@ A spreadsheet is for someone who's going to calculate. A PDF is for someone who'
 
 Press Print — or ⌘P / Ctrl+P — and the page reformats itself into a report: sidebar, filters and buttons drop out, the table gains thin gridlines, and a header appears with the workspace, profile and date range. Choose *Save as PDF* and you have something you can attach to an email without apologising for it.
 
+One thing to do first: the transactions table loads 50 rows at a time, and printing captures what's on the page. Click **Load more** until the range you filtered to is fully loaded, then print. The header still reports the full count and totals for the filter, so a PDF printed early looks complete while listing only the first 50 — the one way this document can be wrong in front of someone else.
+
 | Situation | Send | Why |
 | --- | --- | --- |
 | Accountant doing your return | CSV | They'll sort, sum and re-categorise |
@@ -124,7 +126,7 @@ Press Print — or ⌘P / Ctrl+P — and the page reformats itself into a report
 
 ## Three things that will surprise you once
 
-**5,000 rows per file.** Beyond that, export a year at a time with the date filter. Most people never meet this; heavy business users will.
+**5,000 rows per file.** Beyond that, export a year at a time with the date filter. Most people never meet this; heavy business users will — and they are the ones it matters to, because the report block's totals are computed from the rows in the file. Hit the cap and the header still looks complete while describing only the newest 5,000 transactions. If a range could be near it, narrow the range rather than trusting the totals.
 
 **Attachments don't come with it.** The CSV is the transactions. Receipts download individually from the [vault](/features/receipts-and-files), and there isn't a one-click archive of all of them yet. If your accountant needs the receipts too, a share link per file is the current route — and it's much easier if you [attached them as you went](/blog/how-to-organize-receipts-digitally).
 
