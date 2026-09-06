@@ -22,6 +22,15 @@
   picture: the alt text is what a screen reader announces and what Google reads,
   and "diagram" tells neither of them anything.
 
+  Two things to know before writing figure copy. `tests/unit/blog-assets.test.ts`
+  checks that every entry here is embedded by a post and rendered to a PNG, so an
+  orphan or a missing file fails the suite — but nothing can check the *claims* in
+  a `body` or `mono` string against the app. They are baked into a binary, so a
+  wrong one costs a re-render and a new PNG in the diff. Verify a behaviour in
+  `src/` before you assert it here, and keep entries describing the same feature
+  saying the same thing (voice, for one, is gated on the composer being in AI mode
+  and stops at the note — it does not parse on its own).
+
   To render, run from the repo root (needs Chrome). REGENERATE ALL of them after
   editing this file, since a style change here affects every figure:
 
@@ -434,7 +443,7 @@
               n: "1",
               tone: "",
               label: "Type it",
-              body: "The amount field already has focus. Tag a category from the title field, send with one keystroke.",
+              body: "The composer is already open under the feed. Tag a category from the title field, send with one keystroke.",
               mono: "62 groceries #Food\n⌘/Ctrl + ↵",
             },
             {
@@ -447,9 +456,9 @@
             {
               n: "3",
               tone: "done",
-              label: "Or hold M and say it",
-              body: "Recorded in the browser, transcribed, discarded. The text lands in the same review step.",
-              mono: "→ drafts, waiting for you",
+              label: "Or say it, in AI mode",
+              body: "Hold M. Recorded in the browser, transcribed, then discarded. The text lands in the AI note for you to send.",
+              mono: "audio → text, in the note\n⌘/Ctrl + ↵ for drafts",
             },
           ],
         },
@@ -504,7 +513,7 @@
             sub: "A few seconds",
             tone: "hi",
             items: [
-              { m: "yes", t: "The composer is already open, amount already focused" },
+              { m: "yes", t: "The composer is already open under the feed — nothing to launch" },
               { m: "yes", t: "Type # and a few letters to tag a category inline" },
               { m: "yes", t: "One keystroke sends; no page change, nothing to dismiss" },
               { m: "yes", t: "The bubble appears and the balance moves — that is the receipt" },

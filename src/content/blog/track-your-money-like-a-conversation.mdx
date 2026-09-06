@@ -1,7 +1,7 @@
 import { Figure } from "@/components/blog/figure";
 
 export const meta = {
-  title: "Track Your Money Like a Conversation",
+  title: "Why Expense Tracking Habits Fail in Week Two",
   date: "2026-06-15",
   updated: "2026-09-06",
   readingMinutes: 7,
@@ -17,7 +17,7 @@ export const meta = {
     },
     {
       q: "How long should logging a transaction take?",
-      a: "Under ten seconds, every time, or the habit is running on willpower rather than on ease. In a chat-style composer it's an amount, a category and send. Anything that adds a modal, a page change or a confirmation step is spending your goodwill on ceremony.",
+      a: "Under ten seconds, every time, or the habit is running on willpower rather than on ease. In a chat-style composer it's an amount, a title and send — a category is a # and a few letters when you want one, and optional when you don't. Anything that adds a modal, a page change or a confirmation step is spending your goodwill on ceremony.",
     },
     {
       q: "Is it better to log as I spend or catch up weekly?",
@@ -44,7 +44,7 @@ Nobody quits because the pie chart was bad. They quit because of the twenty seco
 
 ## The ten-second window
 
-There's a narrow window in which a transaction will actually get recorded. It opens when you put your card away and closes when your attention moves to whatever's next. Call it ten seconds.
+There's a narrow window in which a transaction will actually get recorded, and it is about as long as the walk back to the door. Call it ten seconds. Miss it and you are no longer logging a purchase — you are trying to remember one.
 
 Now time the traditional flow. Unlock the phone, find the app, wait for it to load, tap the plus button, tap the amount field, type, tap the category dropdown, scroll, select, tap the title, type, tap save, dismiss the confirmation. Twenty to thirty seconds even when everything goes right, and it rarely all goes right while you're holding a bag.
 
@@ -54,7 +54,7 @@ This is not a discipline problem. It's an interface losing a race against human 
 
 <Figure
   src="/blog/track-your-money-like-a-conversation--form-vs-message.png"
-  alt="Two-column comparison. Left: the form, with a modal to open, six fields, a dropdown to scroll, a save button and a confirmation to dismiss, taking twenty to thirty seconds. Right: the message, with the amount field already focused, a category tag typed inline, one keystroke to send, and no page change — a few seconds."
+  alt="Two-column comparison. Left: the form, with a modal to open, six fields, a dropdown to scroll, a save button and a confirmation to dismiss, taking twenty to thirty seconds. Right: the message, with the composer already open on the page, a category tag typed inline, one keystroke to send, and no page change — a few seconds."
   caption="Same transaction, same data captured. The difference is entirely in what the interface asks of you first."
 />
 
@@ -64,9 +64,9 @@ The design answer we landed on was to stop treating a transaction as a record to
 
 That sounds like styling. It isn't — it changes four concrete things.
 
-**The composer is always ready.** No plus button, no modal. The amount field has focus when the view opens, so the first keystroke is the amount rather than a tap that gets you somewhere you can type.
+**The composer is always ready.** No plus button, no modal, nothing that has to open first — it sits under the feed the way a message box sits under a thread. One tap lands you in the amount field, rather than a tap that gets you to a screen where you can then tap a field.
 
-**Everything happens in one place.** Typing `#` in the title tags a category from a list that filters as you type, so choosing one never costs a dropdown or a scroll. ⌘/Ctrl + Enter sends. There's no save dialog, no navigation, and nothing to dismiss afterwards — [the shortcuts are the interface](/features/keyboard-shortcuts), not a power-user extra.
+**Everything happens in one place.** Typing `#` in the title tags a category from a list that filters as you type, so choosing one never costs a dropdown or a scroll. ⌘/Ctrl + Enter sends. The view you were reading is the view you stay on — [the shortcuts are the interface](/features/keyboard-shortcuts), not a power-user extra.
 
 **The result appears where you're already looking.** The bubble drops into the feed and the balance above it moves. You get confirmation by seeing it, not by reading a toast that tells you it worked.
 
@@ -98,7 +98,7 @@ Chat is a strong metaphor, which makes it easy to over-apply. A few things were 
 | --- | --- |
 | A feed you scroll, newest at the bottom | Read receipts and typing indicators |
 | Bubbles you tap to edit | Reactions and threads |
-| A composer that's always focused | Notifications that demand a reply |
+| A composer that's always open | Notifications that demand a reply |
 | Day dividers | Anything implying someone is waiting on you |
 | Send with one keystroke | A bot that talks back |
 
@@ -108,11 +108,11 @@ That last row is the important one. It's tempting to make a money app *converse*
 
 The chat composer is the fastest route for a single expense you already know the shape of. It isn't always the fastest route.
 
-**Several purchases at once.** After a run of errands, one sentence through [AI entry](/blog/how-to-track-expenses-with-ai) — "18 lunch, 44 hardware shop, 9 parking yesterday" — comes back as three editable drafts you approve together. The drafts wait for you, so a wrong guess is a dropdown rather than a bad record.
+**Several purchases at once.** After a run of errands, one sentence through [AI entry](/blog/how-to-track-expenses-with-ai) — "26 pharmacy, 12 bus, 85 dentist yesterday" — comes back as three editable drafts you approve together. The drafts wait for you, so a wrong guess is a dropdown rather than a bad record.
 
-**Hands full.** Hold `M` and say it. [Voice entry](/blog/voice-expense-tracking-in-any-language) transcribes it, drops the text into the same review step, and discards the audio — and it handles the two languages you actually mix rather than forcing you to pick one.
+**Hands full.** Put the composer in AI mode, then hold `M` and say it. [Voice entry](/blog/voice-expense-tracking-in-any-language) transcribes it into the note, discards the audio, and leaves the sending to you — and it handles the two languages you actually mix rather than forcing you to pick one.
 
-**A backlog.** Paste rows from a spreadsheet into [bulk add](/features/bulk-add) and read the preview. Better than pretending the gap didn't happen.
+**A backlog.** Paste rows from a spreadsheet into [bulk add](/features/bulk-add), 500 at a time, and read the preview before you import. Better than pretending the gap didn't happen.
 
 **A receipt worth keeping.** Drop the photo onto the composer while you're writing the transaction and it [attaches to that record](/blog/how-to-organize-receipts-digitally), rather than joining four thousand others in your camera roll.
 
@@ -146,4 +146,4 @@ You can build every report in the world on top of a feed nobody fills in, and yo
 
 That's the bet: make logging money feel like sending a text, and the habit outlives the enthusiasm that started it.
 
-[Try it](/sign-up) — the amount field is already focused when you land.
+[Try it](/sign-up) — the composer is the first thing on the page.

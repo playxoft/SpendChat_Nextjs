@@ -5,9 +5,17 @@
   link is shared (WhatsApp, Telegram, X, Slack, ...).
 
   One file renders every post: the slug is read from the query string
-  (?post=<slug>) and looked up in the POSTS table below. Keep that table in sync
-  with `export const meta` in src/content/blog/<slug>.mdx — the title, excerpt
-  and tag here should be the same strings the page renders.
+  (?post=<slug>) and looked up in the POSTS table below. That table is a second
+  copy of each post's frontmatter, so it drifts: the open-source post once
+  printed a June date on a September article because its row was never updated.
+
+  `tests/unit/blog-assets.test.ts` now holds the two files together. Title, date,
+  tag and readingMinutes must match `export const meta` in
+  src/content/blog/<slug>.mdx exactly — change one, change both, and re-render.
+  The excerpt is the exception and is *not* the post's `excerpt`: this one is set
+  in a fixed box on the card, so it's a shorter line written for the card
+  (the test caps it; the post's own excerpt is the 125-160 char meta description
+  and will overflow).
 
   Static PNGs on purpose, for the same reason as scripts/og-image.html:
   generating them at runtime with next/og makes OpenNext bundle @vercel/og +
@@ -338,7 +346,7 @@
         },
         "track-your-money-like-a-conversation": {
           tag: "Philosophy",
-          title: "Track Your Money Like a Conversation",
+          title: "Why Expense Tracking Habits Fail in Week Two",
           excerpt:
             "Expense tracking habits fail at the twenty seconds it takes to log a coffee, not at the reporting.",
           date: "2026-06-15",

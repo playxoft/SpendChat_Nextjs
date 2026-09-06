@@ -129,6 +129,17 @@ export default async function BlogPostPage({ params }: Params) {
           {post.tag}
         </span>
         <span>{formatPostDate(post.date)}</span>
+        {/* Shown because it is claimed: `updated` is what `dateModified` and
+            `og:modifiedTime` above report, and a markup date with nothing
+            matching it on the page is a freshness signal Google is entitled to
+            discount — the same visible/markup parity the FAQ and breadcrumb
+            comments below turn on. */}
+        {post.updated && post.updated !== post.date && (
+          <>
+            <span aria-hidden>·</span>
+            <span>Updated {formatPostDate(post.updated)}</span>
+          </>
+        )}
         <span aria-hidden>·</span>
         <span>{post.readingMinutes} min read</span>
       </div>

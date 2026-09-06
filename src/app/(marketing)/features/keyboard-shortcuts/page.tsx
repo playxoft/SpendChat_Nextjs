@@ -55,7 +55,7 @@ const faqs = [
   },
   {
     q: "How do I log an expense without the mouse?",
-    a: `The amount field already has focus when the tracker opens: type the amount, press Enter to move to the title, type ${comboFor("tracker.category")} (${comboText("tracker.category").toLowerCase()}) and a few letters to pick a category from the list that filters as you go, then ${comboText("tracker.submit")} to send. From any other page, ${comboText("action.add")} opens the same entry as a dialog.`,
+    a: `The composer is already open under the feed: click the amount field once, type the amount, press Enter to move to the title, type ${comboFor("tracker.category")} (${comboText("tracker.category").toLowerCase()}) and a few letters to pick a category from the list that filters as you go, then ${comboText("tracker.submit")} to send. From any other page, ${comboText("action.add")} opens the same entry as a dialog.`,
   },
   {
     q: "Why does pressing a letter sometimes do nothing?",
@@ -102,7 +102,7 @@ export default function KeyboardShortcutsPage() {
           },
           {
             title: "Start an entry",
-            body: `${comboText("action.add")} opens the add-transaction dialog from anywhere; on the tracker the composer already has focus, so you can just start typing the amount.`,
+            body: `${comboText("action.add")} opens the add-transaction dialog from anywhere; on the tracker the composer is already open under the feed, so there is nothing to open first.`,
           },
           {
             title: "Send it",

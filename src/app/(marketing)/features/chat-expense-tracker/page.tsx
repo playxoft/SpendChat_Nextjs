@@ -25,7 +25,7 @@ const faqs = [
   },
   {
     q: "How long does it take to add a transaction?",
-    a: "A few seconds. The amount field is focused when the composer opens, the category is one click or a # tag away, and Cmd/Ctrl + Enter sends. There is no save dialog, no page change, and no confirmation step to dismiss.",
+    a: "A few seconds. The composer sits open under the feed with nothing to launch first, the category is one click or a # tag away, and Cmd/Ctrl + Enter sends. There is no save dialog, no page change, and no confirmation step to dismiss.",
   },
   {
     q: "Do I have to connect my bank account?",
@@ -71,7 +71,7 @@ export default function ChatExpenseTrackerPage() {
         steps={[
           {
             title: "Type the amount",
-            body: "The amount field has focus the moment the composer opens, so you can start typing without clicking anything first.",
+            body: "The composer is already open under the feed — no plus button and no modal — so the amount field is one click away rather than three taps deep.",
           },
           {
             title: "Pick a category",

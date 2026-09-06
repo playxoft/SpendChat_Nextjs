@@ -29,7 +29,7 @@ export const meta = {
     },
     {
       q: "What happens to my data if I stop using it?",
-      a: "You take it with you. Filter the transactions table to whatever you want and download it as CSV, or print it as a PDF — no paid tier, no watermark, no cap on how often. You can also delete your account and everything in it from Settings, without emailing anyone.",
+      a: "You take it with you. Filter the transactions table to whatever you want and download it as CSV, or print it as a PDF — no paid tier, no watermark, no limit on how often. Two mechanical caps are worth knowing: a CSV holds 5,000 rows, so a longer history goes out a year at a time, and printing captures the rows the table has loaded, so press Load more until the range is complete first. You can also delete your account and everything in it from Settings, without emailing anyone.",
     },
     {
       q: "Which currency does it use?",
@@ -52,21 +52,21 @@ So the first decision was to make entry feel like sending a message rather than 
 
 <Figure
   src="/blog/introducing-spendchat--four-ways-in.png"
-  alt="Three-step diagram of getting a transaction in: type an amount and a category and send with Command or Control plus Enter; or write one sentence and let the AI return editable drafts; or hold M and speak it, with the transcript becoming drafts you confirm."
+  alt="Three-step diagram of getting a transaction in: type an amount and a title, tag a category inline, and send with Command or Control plus Enter; or write one sentence and let the AI return editable drafts; or, with the composer in AI mode, hold M and speak it, and the transcript lands in the note you send for those drafts."
   caption="Three of the four routes in; the fourth is pasting a spreadsheet into bulk add. All of them land in the same feed, with the same categories."
 />
 
 ## The six decisions
 
-**1. Entry is a conversation, not a form.** Transactions live in a feed. Income on one side, expenses on the other, each a bubble with its category and time, a running balance above and day dividers through it. The amount field is focused when the composer opens; `#` tags a category from the title field; ⌘/Ctrl + Enter sends. No save dialog, no page change, nothing to dismiss. [More on the chat model.](/features/chat-expense-tracker)
+**1. Entry is a conversation, not a form.** Transactions live in a feed. Income on one side, expenses on the other, each a bubble with its category and time, a running balance above and day dividers through it. The composer sits under the feed and is always open — no plus button, no modal to wait for; `#` tags a category from the title field; ⌘/Ctrl + Enter sends. No save dialog, no page change, nothing to dismiss. [More on the chat model.](/features/chat-expense-tracker)
 
-**2. Four ways in, because your hands aren't always free.** Type it. Or write "18 lunch, 44 hardware shop, 9 parking yesterday" and let [AI entry](/blog/how-to-track-expenses-with-ai) return three editable drafts. Or hold `M` and [say it out loud](/blog/voice-expense-tracking-in-any-language), in whichever languages you actually mix. Or paste a year of rows out of a spreadsheet into [bulk add](/features/bulk-add). Same feed, same categories, four routes.
+**2. Four ways in, because your hands aren't always free.** Type it. Or write one sentence covering a whole run of errands and let [AI entry](/blog/how-to-track-expenses-with-ai) hand back a draft per purchase, each one editable. Or switch the composer to AI mode and hold `M` to [say it out loud](/blog/voice-expense-tracking-in-any-language), in whichever languages you actually mix. Or paste rows out of a spreadsheet into [bulk add](/features/bulk-add), 500 at a time. Same feed, same categories, four routes.
 
 **3. No bank connection. At all.** There's no aggregator behind this and no screen that asks for banking credentials, so there's nothing to breach and nothing to reconnect after a bank security update. It also means cash isn't invisible: a market stall, a taxi paid in notes, the twenty you handed a neighbour all land the same way as a card payment. [The full argument.](/blog/expense-tracker-without-bank-connection)
 
 **4. The AI drafts; you decide.** Both AI and voice entry stop at a review step. The model splits your sentence into rows with an amount, a date, a type and a category chosen from *your* list — and then waits. Nothing is written until you press the button. A model that files straight into your records is a model that quietly corrupts them, and you'd never find out.
 
-**5. Your data leaves as easily as it arrives.** Filter the [transactions table](/features/transactions) to what you want, press CSV, and the file is the view you were looking at rather than a dump to trim. Or print, and the page reformats into a report your browser saves as a PDF. No paid tier, no watermark, no cap. [What's in the file.](/blog/export-expenses-to-csv-for-taxes)
+**5. Your data leaves as easily as it arrives.** Filter the [transactions table](/features/transactions) to what you want, press CSV, and the file is the view you were looking at rather than a dump to trim. Or print, and the page reformats into a report your browser saves as a PDF. No paid tier and no watermark — the only ceilings are mechanical: 5,000 rows to a file, and a print carries the rows you have loaded. [What's in the file, and both caps in detail.](/blog/export-expenses-to-csv-for-taxes)
 
 **6. Open source, so the claims are checkable.** All of it is on GitHub under the AGPL-3.0 — the auth checks, the queries, the AI prompts, the exporter. "We don't sell your data" is a promise; "there is no bank integration in this repository" is something you can verify in a minute. [How to audit any of it.](/blog/open-source-expense-tracker)
 
@@ -114,11 +114,11 @@ The AI model is configuration rather than code: no model id appears anywhere in 
 
 Worth describing, because "set up in under a minute" is a claim everyone makes.
 
-You sign in with Google or an email and password — handled by Firebase Authentication, so no password ever reaches our servers. That's it for setup. There is no onboarding wizard, no budget to define before you're allowed to type anything, and no connect-your-accounts step to skip.
+You sign in with Google, which puts you straight in, or with an email and password, which sends a verification link you have to click before the account opens — one trip through your inbox, and the only part of this that leaves the app. Either way it is handled by Firebase Authentication, so no password ever reaches our servers. That is the whole of setup: no onboarding wizard, no budget to define before you're allowed to type anything, and no connect-your-accounts step to skip.
 
 What happens behind that is one workspace named after you, fifteen starter categories in it, and a default profile. The currency and number format are guessed from where you are — the country your connection reports, then your browser's language — and set on that first workspace only. An admin can change both later, and any workspace you create afterwards inherits whatever you're using at the time.
 
-Then you land on the tracker with the amount field already focused, and the first thing you can do is type a number.
+Then you land on the tracker: an empty feed, with the composer already open underneath it. The first thing to do is type a number.
 
 That ordering is deliberate. Most finance apps front-load configuration because configuration is how they justify the account: budgets, goals, linked institutions, notification preferences. All of it happens before the app has a single transaction to reason about, which means every one of those decisions is made blind. It also gives you five chances to close the tab.
 
@@ -136,6 +136,6 @@ Everything here is set up *afterwards*, once you have data and a reason. Rename 
 
 **People who'd rather read the code than a privacy policy.** It's all there.
 
-It's free, it takes about a minute to set up, and there's nothing to disconnect if you change your mind.
+It's free, setting it up is a sign-in and nothing after it, and there's nothing to disconnect if you change your mind.
 
 [Start tracking](/sign-up) — or [read the source first](https://github.com/playxoft/SpendChat_Nextjs).
