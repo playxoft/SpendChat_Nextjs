@@ -2,18 +2,13 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "@/components/ui/accordion";
 import { JsonLd } from "@/components/json-ld";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { FaqSection } from "@/components/marketing/faq-section";
 import { FeatureIcon } from "@/components/marketing/feature-icon";
 import { TryItCaption } from "@/components/marketing/demo/demo-caption";
 import { featurePath, getFeature, relatedFeatures } from "@/lib/features";
-import { breadcrumbJsonLd, faqJsonLd } from "@/lib/seo";
+import { breadcrumbJsonLd, faqJsonLd, type Faq } from "@/lib/seo";
 import { marketingCta } from "@/lib/marketing";
 
 /**
@@ -49,7 +44,7 @@ export function FeaturePage({
    * must stay in step, which is why they come from one array rather than being
    * written twice.
    */
-  faqs: { q: string; a: string }[];
+  faqs: Faq[];
   /** The deep-dive sections, between the demo and the FAQ. */
   children: ReactNode;
 }) {
@@ -141,25 +136,8 @@ export function FeaturePage({
         </section>
       )}
 
-      {/* FAQ — the visible text and the structured data come from one array, so
-          they can't drift. The answers stay mounted while collapsed (see
-          `AccordionContent`), which is what keeps them in the server-rendered
-          HTML that both crawlers and the `FAQPage` markup depend on. */}
-      {faqs.length > 0 && (
-        <section className="mt-16">
-          <h2 className="text-2xl font-semibold tracking-tight">FAQ</h2>
-          <Accordion type="multiple" className="mt-6 border-t">
-            {faqs.map((faq) => (
-              <AccordionItem key={faq.q} value={faq.q}>
-                <AccordionTrigger>{faq.q}</AccordionTrigger>
-                <AccordionContent className="leading-relaxed text-muted-foreground">
-                  {faq.a}
-                </AccordionContent>
-              </AccordionItem>
-            ))}
-          </Accordion>
-        </section>
-      )}
+      {/* The same array that produced the `FAQPage` markup above. */}
+      <FaqSection faqs={faqs} heading="FAQ" />
 
       {/* CTA */}
       <div className="mt-16 overflow-hidden rounded-3xl border bg-card px-6 py-14 text-center">

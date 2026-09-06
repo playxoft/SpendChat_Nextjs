@@ -145,6 +145,14 @@ export function breadcrumbJsonLd(trail: Crumb[]): Record<string, unknown> {
 }
 
 /**
+ * One question and its answer. The same shape drives the visible accordion
+ * (`FaqSection`) and the `FAQPage` markup below, which is the point: a page
+ * marking up an answer a reader can't find on it is the mismatch the spam
+ * policies target, and that only stays impossible while both read one array.
+ */
+export type Faq = { q: string; a: string };
+
+/**
  * `FAQPage` structured data.
  *
  * **Only call this with questions and answers that are visibly rendered on the
@@ -153,9 +161,7 @@ export function breadcrumbJsonLd(trail: Crumb[]): Record<string, unknown> {
  * more than the rich result is worth. The answer string should match the
  * on-page text; light HTML is permitted by the spec but plain text is safer.
  */
-export function faqJsonLd(
-  items: { q: string; a: string }[],
-): Record<string, unknown> {
+export function faqJsonLd(items: Faq[]): Record<string, unknown> {
   return {
     "@context": "https://schema.org",
     "@type": "FAQPage",

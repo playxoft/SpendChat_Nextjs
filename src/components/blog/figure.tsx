@@ -15,11 +15,13 @@
  *    picture to its explanation, and the caption is read by people who skim
  *    before they read — which, on a 1,500-word post, is most of them.
  *
- * Figures are static PNGs in `public/blog/`, rendered from
- * `scripts/blog-figure.html` at 1200×675 — the same headless-Chrome approach
- * as the covers, and for the same reason: they're served straight off
- * Cloudflare's CDN rather than through `next/image`'s optimizer, which on
- * OpenNext is a Worker invocation per image.
+ * Figures are static PNGs in `public/blog/` at 1200×675 — the same
+ * headless-Chrome approach as the covers, and for the same reason: they're
+ * served straight off Cloudflare's CDN rather than through `next/image`'s
+ * optimizer, which on OpenNext is a Worker invocation per image. Generate them
+ * with `scripts/blog-figure.html`, a sibling of `scripts/blog-image.html` — see
+ * that file's header comment for the headless-Chrome command and the three
+ * layouts it offers.
  */
 export function Figure({
   src,
@@ -38,9 +40,22 @@ export function Figure({
   alt: string;
   /** Shown under the image. Should add something the surrounding prose doesn't. */
   caption: string;
-  width?: number;
-  height?: number;
-}) {
+} & (
+  | {
+      /**
+       * Both dimensions, or neither. They are the aspect ratio, not two
+       * independent numbers: the image renders `w-full h-auto`, so the box the
+       * browser reserves comes from their ratio. Overriding one and inheriting
+       * the other would reserve a box of the wrong shape and collapse it when
+       * the bytes land — reintroducing, for the one figure that needed a
+       * different size, exactly the layout shift reason 2 above exists to
+       * prevent. Defaults to the 1200×675 the generator writes.
+       */
+      width?: undefined;
+      height?: undefined;
+    }
+  | { width: number; height: number }
+)) {
   return (
     <figure className="mt-8">
       {/* Plain <img>: a static file in `public/`, so next/image would only add

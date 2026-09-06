@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, Newspaper } from "lucide-react";
 import { JsonLd } from "@/components/json-ld";
-import { getPosts, formatPostDate, coverAltFor } from "@/lib/blog";
+import { getPosts, formatPostDate } from "@/lib/blog";
 import { absoluteImage, createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
@@ -83,7 +83,7 @@ export default function BlogPage() {
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={post.image}
-                alt={coverAltFor(post)}
+                alt={post.coverAlt}
                 width={1200}
                 height={630}
                 // The topmost cover is above the fold on desktop and is this
