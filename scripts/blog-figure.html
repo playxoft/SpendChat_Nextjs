@@ -424,6 +424,122 @@
       // the claim short — this is read at a glance, and the post's prose is
       // where the argument goes.
       const FIGURES = {
+        /* ---------- introducing-spendchat ---------- */
+        "introducing-spendchat--four-ways-in": {
+          kicker: "Getting a transaction in",
+          title: "Type it, write it, or say it — same feed either way",
+          type: "flow",
+          steps: [
+            {
+              n: "1",
+              tone: "",
+              label: "Type it",
+              body: "The amount field already has focus. Tag a category from the title field, send with one keystroke.",
+              mono: "62 groceries #Food\n⌘/Ctrl + ↵",
+            },
+            {
+              n: "2",
+              tone: "ai",
+              label: "Or write a sentence",
+              body: "Several purchases at once, in whatever order you remember them. Drafts come back editable.",
+              mono: "18 lunch, 44 hardware\nshop, 9 parking yesterday",
+            },
+            {
+              n: "3",
+              tone: "done",
+              label: "Or hold M and say it",
+              body: "Recorded in the browser, transcribed, discarded. The text lands in the same review step.",
+              mono: "→ drafts, waiting for you",
+            },
+          ],
+        },
+        "introducing-spendchat--built-in-vs-left-out": {
+          kicker: "What it is, and isn't",
+          title: "The refusals are load-bearing too",
+          type: "compare",
+          left: {
+            label: "Deliberately left out",
+            sub: "Considered, then rejected",
+            tone: "",
+            items: [
+              { m: "no", t: "Bank connections — nothing to breach, nothing to reconnect" },
+              { m: "no", t: "Budgets and goals, until the record underneath is trustworthy" },
+              { m: "no", t: "A currency per transaction, which makes every total a snapshot" },
+              { m: "no", t: "Streaks, badges and nudges you would mute in a week" },
+              { m: "no", t: "Ads, data selling, and a paid tier gating your own export" },
+            ],
+          },
+          right: {
+            label: "What ships",
+            sub: "All of it, at no cost",
+            tone: "hi",
+            items: [
+              { m: "yes", t: "Chat, AI, voice and paste entry into one feed" },
+              { m: "yes", t: "Profiles for separate books; workspaces for separate people" },
+              { m: "yes", t: "Receipts attached to the transaction they explain" },
+              { m: "yes", t: "Filters, search, analytics, CSV and a print layout" },
+              { m: "yes", t: "The whole source, AGPL-3.0, on GitHub" },
+            ],
+          },
+        },
+
+        /* ---------- track-your-money-like-a-conversation ---------- */
+        "track-your-money-like-a-conversation--form-vs-message": {
+          kicker: "Why the habit dies",
+          title: "The same transaction, filed twice",
+          type: "compare",
+          left: {
+            label: "As a form",
+            sub: "Twenty to thirty seconds",
+            tone: "",
+            items: [
+              { m: "no", t: "A plus button, then a modal that has to load" },
+              { m: "no", t: "Six fields, and a category dropdown you scroll" },
+              { m: "no", t: "A save button, then a confirmation to dismiss" },
+              { m: "no", t: "Longer than the moment lasts, so it waits for later" },
+            ],
+          },
+          right: {
+            label: "As a message",
+            sub: "A few seconds",
+            tone: "hi",
+            items: [
+              { m: "yes", t: "The composer is already open, amount already focused" },
+              { m: "yes", t: "Type # and a few letters to tag a category inline" },
+              { m: "yes", t: "One keystroke sends; no page change, nothing to dismiss" },
+              { m: "yes", t: "The bubble appears and the balance moves — that is the receipt" },
+            ],
+          },
+        },
+        "track-your-money-like-a-conversation--habit-loop": {
+          kicker: "The loop that survives a bad week",
+          title: "Seconds at the till, two minutes on Sunday",
+          type: "flow",
+          steps: [
+            {
+              n: "1",
+              tone: "",
+              label: "Log it while you're standing there",
+              body: "Inside the ten seconds before your attention moves on. This is also the pause that changes what you buy next.",
+              mono: "38 dinner out",
+            },
+            {
+              n: "2",
+              tone: "",
+              label: "Watch the balance move",
+              body: "The entry pays you back immediately instead of at the end of the month. That is what keeps you doing it.",
+              mono: "balance ↓ · 4th this week",
+            },
+            {
+              n: "3",
+              tone: "done",
+              label: "Read the week on Sunday",
+              body: "Two minutes. A category surprises you, so you filter to it, sort by amount, and read the top ten rows.",
+              mono: "→ one purchase, or a drift?",
+            },
+          ],
+        },
+
         /* ---------- how-to-track-expenses-with-ai ---------- */
         "how-to-track-expenses-with-ai--parse-review-confirm": {
           kicker: "AI expense tracking",
