@@ -349,10 +349,13 @@
       const slug = new URLSearchParams(location.search).get("post");
       const post = POSTS[slug];
       if (!post) {
-        document.body.innerHTML =
-          '<div style="padding:80px;font-size:32px">Unknown post: ' +
-          (slug || "(none)") +
-          "</div>";
+        // textContent, not innerHTML: `slug` is whatever is in the query
+        // string, and concatenating it into markup is a DOM-XSS sink
+        // (CodeQL js/xss).
+        const err = document.createElement("div");
+        err.style.cssText = "padding:80px;font-size:32px";
+        err.textContent = `Unknown post: ${slug || "(none)"}`;
+        document.body.replaceChildren(err);
       } else {
         const titleEl = document.getElementById("title");
         document.getElementById("tag").textContent = post.tag;

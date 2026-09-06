@@ -571,6 +571,8 @@
           kicker: "What the app actually holds",
           title: "The list is short because there is no feature that needs more",
           type: "table",
+          // "No" is the good news in this table; see `good` in renderTable.
+          good: "No",
           head: ["Data", "Held?", "Why"],
           rows: [
             ["Bank login", "No", "There is no bank integration to use it"],
@@ -952,9 +954,14 @@
         fig.rows.forEach((cells) => {
           const tr = document.createElement("tr");
           cells.forEach((c, i) => {
-            // First column names the thing; "Yes" reads as the accent so the
-            // shape of a comparison is legible before any of it is read.
-            const cls = i === 0 ? "key" : c === "Yes" ? "good" : null;
+            // First column names the thing. One answer per table reads as the
+            // accent, so the shape of a comparison is legible before any of it
+            // is read — but *which* answer belongs to the figure, not to this
+            // renderer. "Yes" is the reassuring word in a table of what a role
+            // can do, and the opposite one in a table of what we hold about
+            // you, where the short answer is the good news.
+            const good = fig.good ?? "Yes";
+            const cls = i === 0 ? "key" : c === good ? "good" : null;
             tr.append(el("td", cls, c));
           });
           tbody.append(tr);
@@ -965,19 +972,29 @@
       }
 
       if (!fig) {
-        document.body.innerHTML =
-          '<div style="padding:80px;font-size:32px;font-family:sans-serif">Unknown figure: ' +
-          (id || "(none)") +
-          "</div>";
+        // textContent, not innerHTML: `id` is whatever is in the query string,
+        // and concatenating it into markup is a DOM-XSS sink (CodeQL js/xss).
+        const err = el("div", null, `Unknown figure: ${id || "(none)"}`);
+        err.style.cssText = "padding:80px;font-size:32px;font-family:sans-serif";
+        document.body.replaceChildren(err);
       } else {
         const titleEl = document.getElementById("title");
         document.getElementById("kicker").textContent = fig.kicker;
         titleEl.textContent = fig.title;
         if (fig.title.length > 52) titleEl.classList.add("long");
         const stage = document.getElementById("stage");
+        // Every type is named. `table` used to be the unguarded `else`, which
+        // meant a typo in `type` fell through to renderTable, threw on
+        // `fig.rows`, and still wrote a 1200x675 PNG with a heading and an
+        // empty body — Chrome exits 0 either way, so nothing surfaced it.
         if (fig.type === "compare") renderCompare(fig, stage);
         else if (fig.type === "flow") renderFlow(fig, stage);
-        else renderTable(fig, stage);
+        else if (fig.type === "table") renderTable(fig, stage);
+        else {
+          const err = el("div", null, `Unknown figure type: ${fig.type}`);
+          err.style.cssText = "padding:80px;font-size:32px;color:#f87171";
+          document.body.replaceChildren(err);
+        }
       }
     </script>
   </body>
