@@ -18,6 +18,27 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-09-06
+
+### Added
+
+- **Enter confirms the AI review list.** After a note is parsed into drafts,
+  Enter — bare, or with ⌘/Ctrl — saves them, so an AI entry can be finished on
+  the keys that started it instead of a reach for the mouse. It stands down
+  wherever the key already means something else: on a button, inside an open
+  category select or date picker, or while a description is being edited. The
+  Add button now shows the chord, the way the manual composer's send button
+  does.
+
+### Changed
+
+- **The Features page drops its breadcrumb trail.** On a first-level page the
+  trail read "Home > Features" — one link, to where the logo already goes —
+  left-aligned above a centred header. Its `BreadcrumbList` markup went with it,
+  since structured data for navigation the reader can't see is what the spam
+  policies target. Feature and blog pages keep theirs, and the feature pages'
+  trail is now centred with the hero it sits above.
+
 ## [0.16.0] — 2026-09-05
 
 Nine feature deep-dives on the blog, and the two things the blog was missing to
@@ -49,6 +70,26 @@ shift the page as they load.
 - **Blog posts carry a breadcrumb trail**, visible and as `BreadcrumbList`
   markup, in place of the bare "All posts" link — so a search result shows
   Home › Blog › the post rather than a raw URL.
+
+### Changed
+
+- **The three original posts are full articles now.** "Introducing SpendChat"
+  covers the six decisions the product is built on and the ones deliberately
+  left out; "Track your money like a conversation" is about why expense-tracking
+  habits die in the second week and what a chat interface changes about that.
+  Both gained FAQs, figures and their own illustrations, in the same shape as
+  the nine new posts.
+- **"SpendChat is now open source" is a release note again.** It had grown a
+  general argument for open-sourcing a money app, which the new deep-dive covers
+  properly and at length — two pages competing to answer one question helps
+  neither. It now says what shipped, what it changes for you, and points at the
+  longer piece.
+- **Blog posts are wider: `max-w-2xl` → `max-w-4xl`.** The 1200×675 figures were
+  being scaled to 672px, which is not a size at which a comparison table can be
+  read. Text, cover and figures all share the one width — `POST_WIDTH`, a single
+  constant on the post page — so nothing sits wider than the column around it.
+  4xl is as wide as the body copy goes before line length starts costing more
+  than the pictures gain.
 
 ### Fixed
 
