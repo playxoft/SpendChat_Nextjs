@@ -18,6 +18,20 @@ import { marketingCta } from "@/lib/marketing";
 
 type Params = { params: Promise<{ slug: string }> };
 
+/**
+ * The width of a post — text, cover and figures alike, so nothing sits wider
+ * than the column it belongs to.
+ *
+ * `4xl` (896px) is the widest the body copy tolerates. Line length is the
+ * constraint: past roughly 90 characters the eye starts losing its place on
+ * the return sweep to the next line, which is why newspapers set narrow
+ * columns on wide paper. Figures are rendered at 1200px and scale down to fit
+ * this, which is comfortably legible for the tables among them.
+ *
+ * One constant, so widening the post means changing it here and nowhere else.
+ */
+const POST_WIDTH = "max-w-4xl";
+
 // Render on demand rather than prerendering (SSG). The posts' MDX is bundled
 // at build time, so there's nothing to fetch — but on Cloudflare/OpenNext,
 // prerendered dynamic routes need an incremental cache to be served (otherwise
@@ -103,7 +117,7 @@ export default async function BlogPostPage({ params }: Params) {
   };
 
   return (
-    <article className="mx-auto max-w-2xl px-4 pb-24 pt-4 sm:pt-6">
+    <article className={`mx-auto ${POST_WIDTH} px-4 pb-24 pt-4 sm:pt-6`}>
       <JsonLd data={articleJsonLd} />
       <JsonLd data={breadcrumbJsonLd(trail)} />
       {/* Only ever emitted from `post.faqs`, which is also what the visible
@@ -141,7 +155,7 @@ export default async function BlogPostPage({ params }: Params) {
           alt={coverAlt}
           width={1200}
           height={630}
-          className="mt-8 h-auto w-full rounded-2xl border sm:-mx-8 sm:w-[calc(100%+4rem)] lg:-mx-24 lg:w-[calc(100%+12rem)] lg:max-w-none"
+          className="mt-8 h-auto w-full rounded-2xl border"
         />
       )}
 
