@@ -46,6 +46,41 @@ Nine feature deep-dives on the blog, one per part of the product.
 - **"Track your money like a conversation" documented the wrong key.** It said
   `/` tags a category in the composer; `/` opens the keyboard-shortcut sheet and
   `#` is the category tag.
+- **Six wrong statements a review caught in the new posts.** The spreadsheet
+  comparison said one `SUM` over the exported amount column gives you the net —
+  it gives you exactly double, because the table closes with a `Total:` row (the
+  sibling CSV post says so on the same day). The AI post's central sum said two
+  seconds an entry is "about twenty minutes a year" for 1,800 entries; it is an
+  hour, which is still the argument. Voice entry was described as one key with
+  no mention that the composer has to be in AI mode first, so the instruction
+  did nothing on a fresh account. The categories post advised merging a split
+  category back, and there is no merge — deleting one leaves its transactions
+  uncategorised, which the same post warns about two sections earlier. The CSV
+  post recommended Print → Save as PDF for accountants and landlords without
+  saying the table loads 50 rows at a time, so the PDF prints the header's full
+  totals over the first 50 rows. And the receipts post opened on `IMG_4032.HEIC`
+  without mentioning that HEIC is not an accepted upload.
+- **The blog and the feature pages competed for four queries.** Four FAQ
+  questions were word-for-word identical between a new post and an existing
+  feature page, and both surfaces emit `FAQPage`, so the two were bidding
+  against each other for one rich result. Reworded on the blog side.
+- **The cover's alt text is defined once.** `imageAlt` was honoured in the
+  article body but ignored by the index card and by `og:image`, both of which
+  hard-coded the headline — the duplicate the field exists to remove. All three
+  now read `coverAltFor()`.
+- **The sitemap published `lastmod` a day early east of UTC.** Post dates were
+  parsed at local midnight and serialised as UTC, and prod is built from a
+  laptop rather than CI. They parse as UTC now, like the RSS feed's `pubDate`.
+- **A figure's accent read backwards.** The table renderer painted every "Yes"
+  in the emerald accent, so in "what the app actually holds" the only two
+  highlighted rows were the two where the answer is yes. Which answer reads as
+  the accent is now the figure's to say.
+- **`<JsonLd>` escapes `<`.** `JSON.stringify` does not, so one `</script>` in a
+  title, excerpt or FAQ answer would have closed the tag early and spilled the
+  rest of the JSON onto the page.
+- **The post order is deterministic for two posts sharing a date.** The
+  comparator never returned 0, which left the index, the feed order and the
+  eager-loaded cover up to the engine.
 
 ## [0.16.0] — 2026-09-06
 
