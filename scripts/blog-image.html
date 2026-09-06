@@ -18,11 +18,12 @@
   to a small thumbnail:
 
     mkdir -p public/blog
-    for slug in \
-      introducing-spendchat \
-      spendchat-is-now-open-source \
-      track-your-money-like-a-conversation
-    do
+    for slug in $(node -e "
+      const fs=require('fs');
+      const src=fs.readFileSync('scripts/blog-image.html','utf8');
+      const ids=[...src.matchAll(/^        \"([a-z0-9-]+)\":/gm)].map(m=>m[1]);
+      console.log(ids.join(' '));
+    "); do
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
         --headless=new --disable-gpu --hide-scrollbars \
         --force-device-scale-factor=1 --window-size=1200,630 \
@@ -247,6 +248,78 @@
       // `excerpt` may be shortened here to keep the cover to two lines — the
       // page still shows the full one.
       const POSTS = {
+        "open-source-expense-tracker": {
+          tag: "Open source",
+          title: "Open Source Expense Tracker: How to Tell If It's Real",
+          excerpt:
+            "Three licences get called open source. A 30-minute audit tells you which one you are looking at.",
+          date: "2026-09-04",
+          readingMinutes: 8,
+        },
+        "export-expenses-to-csv-for-taxes": {
+          tag: "Export",
+          title: "Export Expenses to CSV for Taxes: A Ten-Minute Workflow",
+          excerpt:
+            "Get the exact rows your accountant asked for, first time — no trimming a dump in a spreadsheet at 11pm.",
+          date: "2026-08-21",
+          readingMinutes: 8,
+        },
+        "how-to-organize-receipts-digitally": {
+          tag: "Receipts",
+          title: "How to Organize Receipts Digitally and Find Them Later",
+          excerpt:
+            "A folder of 4,000 receipt photos is a shoebox with worse lighting. Attach the receipt to the number it explains.",
+          date: "2026-08-13",
+          readingMinutes: 8,
+        },
+        "how-to-track-shared-expenses-with-your-partner": {
+          tag: "Workspaces",
+          title: "Shared Expense Tracking: Three Setups for Couples",
+          excerpt:
+            "Three arrangements that work for couples, and the roles that make each of them safe.",
+          date: "2026-08-05",
+          readingMinutes: 8,
+        },
+        "how-to-categorize-expenses": {
+          tag: "Guide",
+          title: "How to Categorize Expenses So the Numbers Mean Something",
+          excerpt:
+            "A test for whether a category earns its place, a starter set, and how to fix the Uncategorized pile.",
+          date: "2026-07-28",
+          readingMinutes: 8,
+        },
+        "spreadsheet-vs-expense-tracker-app": {
+          tag: "Comparison",
+          title: "Spreadsheet vs Expense Tracker App: An Honest Comparison",
+          excerpt:
+            "Where the spreadsheet genuinely wins, exactly where it stops working, and how to move without losing a row.",
+          date: "2026-07-18",
+          readingMinutes: 7,
+        },
+        "expense-tracker-without-bank-connection": {
+          tag: "Privacy",
+          title: "Manual vs Automatic Expense Tracking: The Real Trade-Off",
+          excerpt:
+            "What bank sync actually costs: cash it cannot see, categories it guesses, and credentials it needs.",
+          date: "2026-07-10",
+          readingMinutes: 7,
+        },
+        "voice-expense-tracking-in-any-language": {
+          tag: "Voice",
+          title: "Why Voice Expense Trackers Break on Mixed Languages",
+          excerpt:
+            "Real speech mixes two languages. Pinning one is why your transcript comes back as nonsense.",
+          date: "2026-07-02",
+          readingMinutes: 7,
+        },
+        "how-to-track-expenses-with-ai": {
+          tag: "AI",
+          title: "How to Track Expenses With AI Without Letting It Guess",
+          excerpt:
+            "How to write a sentence the parser gets right, and why auto-filing quietly ruins your records.",
+          date: "2026-06-24",
+          readingMinutes: 7,
+        },
         "introducing-spendchat": {
           tag: "Product",
           title: "Introducing SpendChat",
@@ -260,7 +333,7 @@
           title: "SpendChat is now open source",
           excerpt:
             "The entire app is public under the AGPL-3.0. Here's what that means for your data and your trust.",
-          date: "2026-06-02",
+          date: "2026-09-02",
           readingMinutes: 2,
         },
         "track-your-money-like-a-conversation": {
@@ -276,10 +349,13 @@
       const slug = new URLSearchParams(location.search).get("post");
       const post = POSTS[slug];
       if (!post) {
-        document.body.innerHTML =
-          '<div style="padding:80px;font-size:32px">Unknown post: ' +
-          (slug || "(none)") +
-          "</div>";
+        // textContent, not innerHTML: `slug` is whatever is in the query
+        // string, and concatenating it into markup is a DOM-XSS sink
+        // (CodeQL js/xss).
+        const err = document.createElement("div");
+        err.style.cssText = "padding:80px;font-size:32px";
+        err.textContent = `Unknown post: ${slug || "(none)"}`;
+        document.body.replaceChildren(err);
       } else {
         const titleEl = document.getElementById("title");
         document.getElementById("tag").textContent = post.tag;

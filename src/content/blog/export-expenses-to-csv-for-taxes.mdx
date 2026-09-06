@@ -1,0 +1,165 @@
+import { Figure } from "@/components/blog/figure";
+
+export const meta = {
+  title: "Export Expenses to CSV for Taxes: A Ten-Minute Workflow",
+  date: "2026-08-21",
+  readingMinutes: 8,
+  tag: "Export",
+  excerpt:
+    "How to export expenses to CSV for taxes in ten minutes — filter first and the file needs no trimming. What's in it, and when to send a PDF instead.",
+  image: "/blog/export-expenses-to-csv-for-taxes.png",
+  imageAlt: "Cover card for a SpendChat post about exporting expenses to CSV for taxes.",
+  faqs: [
+    {
+      q: "Which row does the data start on in the exported CSV?",
+      a: "Row 13. Rows 1 to 11 are a report block — the app name, the workspace, the profile, the date range you filtered to, and the three totals — row 12 is the column header, and the transactions run from row 13. The table then ends with a Total: row, a blank line and a two-line footer, so a script should stop reading at the Total: row rather than at the end of the file.",
+    },
+    {
+      q: "Why does my SUM of the amount column come out double?",
+      a: "Because it has swept up the Total: row under the table, which repeats the net. Either sum the data rows only, ending above that row, or skip the arithmetic entirely — the same net is already computed for you in the report block at the top of the file.",
+    },
+    {
+      q: "Should I send my accountant a CSV or a PDF?",
+      a: "A CSV if they are going to calculate — sort it, sum it, re-categorise it. A PDF if it is going to be read once, signed or filed, which covers reimbursement claims and anyone asking for proof. When in doubt send the CSV; it is the one that can still become a PDF later.",
+    },
+    {
+      q: "How do I export only my business expenses?",
+      a: "Switch to the business profile before you export, then set the date range and the type. Mixing personal and business rows in one file is the most common way an export goes wrong, and it is the one mistake that costs someone else time rather than you.",
+    },
+    {
+      q: "Do my receipts come with the CSV?",
+      a: "No — the file is the transactions. Attachments download individually from the vault, and there isn't a one-click archive of all of them yet. If your accountant needs the receipts too, a share link per file is the route today.",
+    },
+    {
+      q: "How often should I export?",
+      a: "Quarterly, in about two minutes, rather than annually in a panic. Filtering to the last three months and saving the file into a folder named for the tax year means missing transactions get caught while you still remember them, and the filing-season job is already done.",
+    },
+    {
+      q: "Can I export my data and leave?",
+      a: "Yes, and that's the point of exporting well. There is no paid tier gating it, no watermark, and no cap on how often you do it. SpendChat is open source under the AGPL, so you can read the exporter and its tests before you trust either.",
+    },
+  ],
+};
+
+There's a particular evening that happens once a year. Your accountant has asked for "your expenses for the tax year", you open your tracker, press Export, and receive a file containing every transaction you have ever entered, personal groceries included, in a column order nobody chose, which you now have to sort, filter and prune in a spreadsheet at 11pm.
+
+That step is where the wrong rows get deleted. It happens most often when the stakes are highest.
+
+Here's a workflow that skips it entirely. It takes about ten minutes, and once a quarter it takes two.
+
+*(General guidance on getting the file out, not tax advice. The rules about what's deductible and how long to keep records are your jurisdiction's, and worth checking with someone who knows them.)*
+
+## The ten-minute version
+
+<Figure
+  src="/blog/export-expenses-to-csv-for-taxes--filter-then-export.png"
+  alt="Three-step diagram: filter the transactions table by profile, date range and type; download as CSV or print to PDF with up to 5,000 rows; open the file anywhere with a SUM giving the net."
+  caption="Narrowing the view first is the whole trick. The download carries the filters, so the file needs no cleanup."
+/>
+
+**1. Switch to the right profile.** If your business records live in a separate [profile](/features/multiple-profiles), select it. This is the single biggest source of contaminated exports. A file that mixes personal and business rows is worse than no file, because someone has to decide which is which.
+
+**2. Set the date range.** Any two dates, not just whole months, so a tax year that starts on 6 April is one filter rather than an assembly job afterwards.
+
+**3. Narrow further if you need to.** Type (expenses only), a single category, or a search term across titles and descriptions.
+
+**4. Press CSV.** The download is the view you're looking at.
+
+**5. Skim it once.** Open the file, check the totals block at the top against what you expected, and check the first and last rows are inside your date range. Thirty seconds, and it catches the wrong-profile mistake before your accountant does.
+
+## Why filtering before you export expenses to CSV matters
+
+Plenty of export buttons dump the database. The pitch is generosity, here's everything, but it moves the real work downstream to the least reliable moment.
+
+Consider what you're actually doing at 11pm in a spreadsheet: sorting by date, selecting rows outside the range, deleting them, then doing the same for the personal profile, then discovering you deleted one row too many and having to re-download. Every one of those steps is a place to make an error you won't notice, in a document that will be filed with a tax authority.
+
+An export that carries the filters removes the entire category of mistake. The rows in the file are the rows you were looking at, because you already narrowed them on screen where you could see what you were doing.
+
+One thing that deliberately doesn't carry across: the sort. The file is always newest first, however you'd ordered the table. That's a small surprise the first time and the right default — a report with a stable, predictable order is easier to diff against last quarter's.
+
+## What's in the file
+
+<Figure
+  src="/blog/export-expenses-to-csv-for-taxes--file-anatomy.png"
+  alt="Table describing the exported CSV row by row: rows 1 to 6 name the app, workspace, profile and date range; rows 8 to 10 hold total income, total expense and net; row 12 is the column header; transactions run from row 13; column E is the signed amount; the last table row is a Total: line that a SUM to the bottom would double-count; the file is UTF-8 with CRLF line endings and RFC 4180 quoting."
+  caption="The report block is what makes the file self-describing six months later, when nobody remembers which filters produced it — and it is where the net already is, so the SUM most people reach for is unnecessary."
+/>
+
+Three details are worth understanding rather than just knowing, and one of them will otherwise cost you an afternoon.
+
+**The totals are already there, so don't sum anything.** Rows 1 to 11 are a report block: the workspace, the profile, the date range you filtered to, then total income, total expense and the net between them. Row 12 is the column header and the transactions start at **row 13**. Whatever figure you were about to calculate is sitting at the top of the file already.
+
+**If you do sum, sum column E and stop before the last row.** Amounts are signed — expenses negative, income positive — so arithmetic over them works, but two things trip people up. Amount is the fifth column, **E**; column F is the currency code, and summing it silently returns zero. And the table ends with a `Total:` row that repeats the net, so a range running to the bottom of the file counts it twice and hands you exactly double. `=SUM(E13:E512)` over the data rows is the honest version.
+
+**The file names itself by the day you exported it** — `spendchat-2026-08-21.csv` — not by the range inside it. Two exports on the same day overwrite each other in your downloads folder, so rename the file to the range as you save it. The report block means the file still explains itself if you don't.
+
+One more: it carries the transaction **title**, not the longer description, and anything you never categorised comes through as `Uncategorized` rather than blank. Titles are what you'd want in a report — so if the detail lives in your descriptions, that's a reason to put the important part in the title as you go.
+
+## Opening cleanly in Excel
+
+CSV is a format with a surprising number of ways to go wrong. Three choices here are deliberate:
+
+**UTF-8.** Category names and merchant names contain accents, currency symbols and non-Latin scripts. Anything else mangles them.
+
+**CRLF line endings.** What RFC 4180 specifies, and what Excel handles most predictably.
+
+**Proper quoting.** Commas and quote marks inside your own text are escaped, so a title like `Dinner, split with Sam` doesn't shift every column to its right by one. This is the failure that produces a file that looks fine until row 340.
+
+If your regional settings use a comma as the decimal separator, Excel's import dialog is the reliable route — open a blank sheet and use Data → From Text/CSV rather than double-clicking the file.
+
+## When a PDF beats a CSV
+
+A spreadsheet is for someone who's going to calculate. A PDF is for someone who's going to read, sign, or file.
+
+Press Print — or ⌘P / Ctrl+P — and the page reformats itself into a report: sidebar, filters and buttons drop out, the table gains thin gridlines, and a header appears with the workspace, profile and date range. Choose *Save as PDF* and you have something you can attach to an email without apologising for it.
+
+One thing to do first: the transactions table loads 50 rows at a time, and printing captures what's on the page. Click **Load more** until the range you filtered to is fully loaded, then print. The header still reports the full count and totals for the filter, so a PDF printed early looks complete while listing only the first 50 — the one way this document can be wrong in front of someone else.
+
+| Situation | Send | Why |
+| --- | --- | --- |
+| Accountant doing your return | CSV | They'll sort, sum and re-categorise |
+| Reimbursement claim | PDF | It's read once and filed |
+| Landlord or agency asking for proof | PDF | Fixed layout, obvious date range |
+| Moving to another app | CSV | It's the only one that imports |
+| Your own analysis | CSV | Pivot tables need rows |
+| A record you want unchanged | PDF | Nobody edits it by accident |
+
+## Three things that will surprise you once
+
+**5,000 rows per file.** Beyond that, export a year at a time with the date filter. Most people never meet this; heavy business users will — and they are the ones it matters to, because the report block's totals are computed from the rows in the file. Hit the cap and the header still looks complete while describing only the newest 5,000 transactions. If a range could be near it, narrow the range rather than trusting the totals.
+
+**Attachments don't come with it.** The CSV is the transactions. Receipts download individually from the [vault](/features/receipts-and-files), and there isn't a one-click archive of all of them yet. If your accountant needs the receipts too, a share link per file is the current route — and it's much easier if you [attached them as you went](/blog/how-to-organize-receipts-digitally).
+
+**The export respects your access, not your intent.** In a shared [workspace](/features/workspaces) you export what you can see. If a colleague's profile isn't in your view, it isn't in the file — which is correct, and occasionally not what someone expected.
+
+## What an accountant actually wants
+
+If you're self-employed and sending this to someone else, a few minutes of preparation saves a round of emails.
+
+**Two files, not one.** Income and expenses separately, each filtered by type. It's how they'll work with them anyway, and it means neither of you has to explain the signed-amount convention.
+
+**Nothing personal in either.** Filter to the business [profile](/features/multiple-profiles) before exporting. If your books aren't split by profile, this is the argument for splitting them: it turns "which of these are business?" from an annual conversation into a filter. If someone else needs to see those books, [give them the profile rather than your password](/blog/how-to-track-shared-expenses-with-your-partner).
+
+**Titles that name the counterparty.** "Invoice 114, Meridian" is a line an accountant can reconcile. "Payment received" is one they'll email you about. The title is what lands in the file, so it's worth the extra three words when you're logging.
+
+**A note about what's missing.** If some receipts aren't attached, or a category is a guess, say so in the email. Accountants price uncertainty into their time; a two-line caveat is cheaper than them discovering it.
+
+**Send the range you agreed.** Tax years don't always align to calendar years: 6 April in the UK, 1 July in Australia, 1 April in India, calendar in the US. The date filter takes any two dates precisely so you can match the one that applies to you rather than exporting twelve months and hoping.
+
+An [analytics](/features/analytics) screenshot for the same range is a useful extra: it gives them the category shape at a glance, which is often how they spot the thing you forgot to claim.
+
+## Do it quarterly
+
+The annual scramble is a scheduling problem, not a tooling one. Once a quarter, spend two minutes: filter to the business profile and the last three months, export, save it in a folder named for the tax year, and skim the totals.
+
+Three things come out of that habit. You catch missing transactions while you still remember them. You notice a mis-categorised row when fixing it takes five seconds. And come filing season the work is already done — four files, or one export over the full range as a cross-check.
+
+## What a good export button tells you about a company
+
+An export feature is a decent proxy for how a company thinks about your data, which is why it's worth checking before you commit a year of history rather than after.
+
+Behind a paid tier means your history is hostage. PDF-only means it's technically yours and practically not. A dump of everything, unfiltered, means the work is yours regardless. None of those are accidents — each is a decision someone made about how easy leaving should be.
+
+The version worth trusting is boring: as often as you like, no tier, no watermark, filtered to what you asked for, in a format every other tool reads. SpendChat is [open source under the AGPL](/features/privacy-and-security), so the exporter and its tests are readable before you decide whether to believe any of this — and if you're weighing it against the spreadsheet you're currently using, that comparison is [its own post](/blog/spreadsheet-vs-expense-tracker-app).
+
+[Export your transactions](/features/export-and-print) — filter the view, press CSV, and check the totals block at the top.

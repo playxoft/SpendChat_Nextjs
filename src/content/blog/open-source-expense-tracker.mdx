@@ -1,0 +1,140 @@
+import { Figure } from "@/components/blog/figure";
+
+export const meta = {
+  title: "Open Source Expense Tracker: How to Tell If It's Real",
+  date: "2026-09-04",
+  readingMinutes: 8,
+  tag: "Open source",
+  excerpt:
+    "\"Open source expense tracker\" is usually a badge. Here's how to tell when it's evidence: a 30-minute audit of any money app that publishes its code.",
+  image: "/blog/open-source-expense-tracker.png",
+  imageAlt: "Cover card for a SpendChat post about open source expense trackers.",
+  faqs: [
+    {
+      q: "What is an open source expense tracker?",
+      a: "One whose complete source code is published under a licence that lets you read, modify and run it yourself. The practical benefit isn't the code — it's that every privacy claim becomes checkable. \"We don't sell your data\" is a promise; \"there is no bank integration in the repository\" is something you can verify in about a minute.",
+    },
+    {
+      q: "Which parts of SpendChat are actually open source?",
+      a: "Yes — AGPL-3.0, with the whole application on GitHub. That includes the auth checks, the queries, the AI prompts and the export code, not a marketing subset. You can also run your own copy against your own database.",
+    },
+    {
+      q: "What does the AGPL licence mean for me as a user?",
+      a: "As someone using the hosted app, nothing changes. As someone running a modified copy and offering it to other people over a network, the AGPL requires you to make your modified source available to those users. It's the copyleft licence written specifically so that a hosted service can't take the code, improve it privately, and give nothing back.",
+    },
+    {
+      q: "Can I self-host an expense tracker?",
+      a: "Yes. SpendChat deploys to Cloudflare Workers via OpenNext with Neon Postgres, and the README plus .env.example document every setting. Self-hosting means your database, your file storage and your keys — and also your upgrades and your backups, which is the part worth being honest about.",
+    },
+    {
+      q: "Is open source the same as private?",
+      a: "No, and conflating the two is the most common mistake. Open source means the behaviour is inspectable. A published app can still send data somewhere you'd rather it didn't — the difference is that you'd be able to find out, rather than having to take a privacy policy at its word.",
+    },
+    {
+      q: "Is an open source expense tracker free?",
+      a: "The source is free in both senses. Whether the hosted service is free is a separate question that each project answers differently. SpendChat's hosted app is free today, with no paid tier gating features, and self-hosting is free apart from the infrastructure you run it on.",
+    },
+  ],
+};
+
+Search for an **open source expense tracker** and you'll find plenty of apps wearing the label. Some publish everything. Some publish a client and keep the server private. Some publish under a licence that forbids the thing you wanted to do with it. A few just have a GitHub link in the footer pointing at a repository of documentation.
+
+The label has become a trust signal, which means it's now worth roughly what any trust signal is worth once it's become one. This post is about the version that still means something — and a short audit you can run on any money app that publishes code, including this one.
+
+## What makes an expense tracker open source, exactly
+
+"Open source" is a claim about a licence, not a vibe, and three quite different things get filed under it.
+
+**Genuinely open source.** An OSI-approved licence — MIT, Apache-2.0, GPL, AGPL. You can read it, run it, modify it and redistribute it. The differences between these licences are about what you owe back, not about what you're allowed to see.
+
+**Source-available.** The code is published, and a bespoke licence restricts what you may do with it — typically forbidding competing commercially or running it for others. Reasonable business model, sometimes a good deal for users, and not open source. The tell is a licence file with a company name in the terms.
+
+**Open-core.** A free core is genuinely open; the features you actually wanted — sharing, export, sync — are in a proprietary edition. Check whether the thing you care about is in the repository, not on the pricing page.
+
+SpendChat is **AGPL-3.0** — [announced here](/blog/spendchat-is-now-open-source) — the strongest of the copyleft licences and the one written for exactly this situation. Regular GPL has a well-known gap for web software: you can take GPL code, modify it, run it as a service, and never distribute a binary — so you never trigger the obligation to share your changes. The AGPL closes it. If you run a modified version and offer it to others over a network, those users are entitled to your source.
+
+For you as a user of the hosted app, that changes nothing day to day. What it guarantees is that this app can't quietly become a closed product built on the open version, which is the failure mode that's ended several well-loved open-source tools.
+
+## Six claims you can check
+
+Here's the part that makes open source worth something concrete. Every privacy claim on a marketing page is a promise. In an open repository, each one maps to a place in the code.
+
+<Figure
+  src="/blog/open-source-expense-tracker--verifiable-claims.png"
+  alt="Table pairing six privacy claims with where each is decided in the source: scoped reads in the query and RBAC modules, no bank integration anywhere in the repository, the AI prompt contents, the transcription route discarding audio, the CSV builder and its tests, and the account deletion action."
+  caption="A claim you can't locate in the source is still just a claim. These are the six worth locating."
+/>
+
+The most informative one is the second, and it's an argument from absence. "[We don't connect to your bank](/blog/expense-tracker-without-bank-connection)" is unfalsifiable in a closed app. In an open one, you search the repository for an aggregator SDK and find nothing — no client library, no credential field, no endpoint. Absence is a much stronger form of evidence than a policy sentence, and it takes a minute to establish.
+
+## A 30-minute audit for any money app
+
+You don't need to read a codebase to learn a lot from one. Here's a checklist that works on any published finance app, in rough order of value per minute.
+
+**1. Read `.env.example` (2 minutes).** This is the most under-rated file in any repository. It lists every external service the app talks to. If there's an analytics key you weren't told about, an ad SDK, or a data-enrichment provider, it's here. You'll learn more from this file than from the privacy policy.
+
+**2. Find the auth check (5 minutes).** Search for where a request turns into a user id, then check whether queries filter on it. In this codebase that's `src/lib/identity.ts` and `src/lib/queries.ts`. What you're looking for is whether scoping is *structural* — every read goes through one place — or scattered across handlers, where one forgotten `WHERE` clause becomes a data leak.
+
+**3. Grep for what shouldn't be there (3 minutes).** Aggregator SDKs, ad networks, session-replay tools, third-party trackers. Absence is the answer you want.
+
+**4. Read the AI prompt, if there is one (5 minutes).** Not the marketing description — the actual string sent to the model, and the object built around it. Does it include the user's other transactions? Their email? Their balance? You can see precisely what leaves, which is the only way to check [a claim like ours](/blog/how-to-track-expenses-with-ai).
+
+**5. Find the delete-account path (5 minutes).** Does it delete rows, or set a flag? Both are defensible; only one matches "your data is removed". Follow it to the end and check that owned workspaces, files and settings go too.
+
+**6. Check the tests (5 minutes).** Which behaviours does the project consider worth defending? A codebase with tests around access control, money arithmetic and CSV escaping is telling you where it thinks the risk lives.
+
+**7. Read the commit history (5 minutes).** Is it one dump labelled "initial commit", or a real history? A repository published as a snapshot is a marketing asset. One with a history is a development practice.
+
+Run this on any app claiming to be an open source expense tracker. It's the most useful half-hour you can spend before trusting one with a year of your financial life.
+
+## Hosted or self-hosted
+
+Publishing the code creates a genuine choice, and both answers are legitimate.
+
+<Figure
+  src="/blog/open-source-expense-tracker--hosted-vs-self-hosted.png"
+  alt="Two-column comparison. Left: the hosted app at spendchat.app, free, with updates, backups and uptime handled, though rows live in our database. Right: your own AGPL-3.0 instance, with your database, storage and keys, your choice of AI provider, and your responsibility for upgrades and backups."
+  caption="Same code either way. The difference is who holds the database and who gets paged when something breaks."
+/>
+
+Self-hosting is often described as the pure choice, which undersells the ongoing cost. What it actually involves here: a Cloudflare Workers deployment via OpenNext, a Neon Postgres database, Firebase Authentication for sign-in, R2 for file storage, and your own model provider if you want [AI entry](/features/ai-expense-tracker) or [voice entry](/features/voice-expense-tracker). The README and `.env.example` document every setting.
+
+That's an afternoon to stand up and a small, permanent obligation afterwards: security updates, database backups you've actually tested, and a domain that stays renewed. If you already run infrastructure, it's marginal. If you don't, be honest that "my own server" often means "a machine nobody has patched since setup" — which is not obviously more private than a hosted app whose code you can read.
+
+A useful middle position: use the hosted app, and treat the source as your insurance policy. If the terms ever change in a way you dislike, [export your CSV](/blog/export-expenses-to-csv-for-taxes) and stand up your own copy. The exit exists whether or not you take it, and that's most of the value.
+
+## Questions to ask about any of them
+
+| Question | Good sign | Bad sign |
+| --- | --- | --- |
+| Which licence? | OSI-approved (MIT, Apache, GPL, AGPL) | A bespoke licence naming a company |
+| Is the server published, or just the client? | Whole application | "Client is open source" |
+| Are the features you want in the repo? | Yes | They're in the paid edition |
+| Does the history look real? | Ongoing commits | One "initial commit" |
+| Can outsiders contribute? | Merged external PRs | Issues disabled |
+| Is self-hosting documented? | README, `.env.example` | "Contact us" |
+| Is there a security policy? | `SECURITY.md`, private reporting | Nothing |
+
+## The one thing to check that isn't in the code
+
+Open source tells you what the software does. It says nothing about who is running it, and for a hosted service that's half the question.
+
+So alongside the repository, look at the operator. Is there a named company or person behind it, or only a product name? Is there a `SECURITY.md` with a way to report a vulnerability privately, rather than an inbox nobody reads? Does the changelog show the project responding to problems, or has it been quiet for a year while the marketing site claims active development?
+
+None of this is visible from the licence, and all of it determines whether the app you're trusting today will still be maintained in two years. A well-run closed app is a better bet than an abandoned open one — the licence only becomes valuable at the moment you need to take the code and go, and it's worth knowing in advance whether you'd actually be able to.
+
+## What open source doesn't buy you
+
+Worth saying plainly, because the label gets oversold.
+
+It isn't a security guarantee. Published code contains the same bugs as closed code; what changes is that a stranger *can* find them, not that one has.
+
+It isn't a promise of longevity. Projects are abandoned. What the licence guarantees is that if this one is, the code and your ability to run it survive — which is not nothing, and is more than a closed app offers when it shuts down.
+
+And it isn't a substitute for the ordinary questions: does the export work, is [access properly scoped](/features/privacy-and-security), can you delete your account without emailing anyone.
+
+## The point
+
+Open source on a money app is worth having for one reason: it turns claims into things you can check. Not claims you *have* checked — almost nobody reads the source, and that's fine. Claims that *could* be checked, by anyone, at any time, which is what keeps them honest.
+
+[Read the source](https://github.com/playxoft/SpendChat_Nextjs), or [start with the hosted app](/sign-up) and keep the repository as your exit.

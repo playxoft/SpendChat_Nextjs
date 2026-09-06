@@ -1,5 +1,14 @@
 import type { ComponentType } from "react";
 import type { Faq } from "@/lib/seo";
+import * as openSourceGuide from "@/content/blog/open-source-expense-tracker.mdx";
+import * as csvTaxes from "@/content/blog/export-expenses-to-csv-for-taxes.mdx";
+import * as receipts from "@/content/blog/how-to-organize-receipts-digitally.mdx";
+import * as sharedExpenses from "@/content/blog/how-to-track-shared-expenses-with-your-partner.mdx";
+import * as categorising from "@/content/blog/how-to-categorize-expenses.mdx";
+import * as spreadsheet from "@/content/blog/spreadsheet-vs-expense-tracker-app.mdx";
+import * as noBankConnection from "@/content/blog/expense-tracker-without-bank-connection.mdx";
+import * as voiceLanguages from "@/content/blog/voice-expense-tracking-in-any-language.mdx";
+import * as aiTracking from "@/content/blog/how-to-track-expenses-with-ai.mdx";
 import * as conversation from "@/content/blog/track-your-money-like-a-conversation.mdx";
 import * as openSource from "@/content/blog/spendchat-is-now-open-source.mdx";
 import * as introducing from "@/content/blog/introducing-spendchat.mdx";
@@ -83,6 +92,15 @@ type MdxModule = { default: ComponentType; meta: BlogMeta };
  * `src/content/blog` and adding one line here.
  */
 const registry: { slug: string; mod: MdxModule }[] = [
+  { slug: "open-source-expense-tracker", mod: openSourceGuide },
+  { slug: "export-expenses-to-csv-for-taxes", mod: csvTaxes },
+  { slug: "how-to-organize-receipts-digitally", mod: receipts },
+  { slug: "how-to-track-shared-expenses-with-your-partner", mod: sharedExpenses },
+  { slug: "how-to-categorize-expenses", mod: categorising },
+  { slug: "spreadsheet-vs-expense-tracker-app", mod: spreadsheet },
+  { slug: "expense-tracker-without-bank-connection", mod: noBankConnection },
+  { slug: "voice-expense-tracking-in-any-language", mod: voiceLanguages },
+  { slug: "how-to-track-expenses-with-ai", mod: aiTracking },
   { slug: "track-your-money-like-a-conversation", mod: conversation },
   { slug: "spendchat-is-now-open-source", mod: openSource },
   { slug: "introducing-spendchat", mod: introducing },
@@ -99,7 +117,11 @@ const posts: BlogPost[] = registry
     coverAlt: mod.meta.imageAlt ?? "",
   }))
   .filter((post) => !isProd || !post.draft)
-  .sort((a, b) => (a.date < b.date ? 1 : -1));
+  // `localeCompare` rather than `a.date < b.date ? 1 : -1`: that form never
+  // returns 0, so two posts sharing a date make an inconsistent comparator and
+  // the engine may order them either way between builds — which would move the
+  // index, the RSS item order and the eager-loaded LCP cover with it.
+  .sort((a, b) => b.date.localeCompare(a.date));
 
 /**
  * Alt text for the cover **as a social card** — a different question from

@@ -1,0 +1,159 @@
+import { Figure } from "@/components/blog/figure";
+
+export const meta = {
+  title: "How to Categorize Expenses So the Numbers Mean Something",
+  date: "2026-07-28",
+  readingMinutes: 8,
+  tag: "Guide",
+  excerpt:
+    "How to categorize expenses so the numbers mean something: a test for whether a category earns its place, a starter set, and a fix for Uncategorized.",
+  image: "/blog/how-to-categorize-expenses.png",
+  imageAlt: "Cover card for a SpendChat post about categorizing expenses.",
+  faqs: [
+    {
+      q: "How many expense categories should I have?",
+      a: "Eight to fifteen for personal spending. Fewer than eight and everything collapses into a bucket called Shopping; more than fifteen and picking one becomes a decision, which is when people stop logging. SpendChat ships fifteen defaults — ten for expenses, five for income — which is a deliberate starting point rather than a recommendation to use all of them.",
+    },
+    {
+      q: "What are good personal expense categories?",
+      a: "Housing, Groceries, Eating out, Transport, Bills, Health, Shopping, Subscriptions, Entertainment and a catch-all Other cover most people's spending. Add one or two that reflect your actual life — Kids, Pets, Tools, Studio — and rename anything that doesn't fit the words you'd use out loud.",
+    },
+    {
+      q: "What happens to my transactions if I delete a category?",
+      a: "They stay, and your balance doesn't move — they simply become uncategorised, and collect in the Uncategorized line of the breakdown rather than disappearing from it. One thing to know: re-creating a category with the same name won't reattach them. As far as the database is concerned that's a new category with a new id, so rename rather than delete-and-recreate if you're tidying up.",
+    },
+    {
+      q: "How do I clear the Uncategorized line in my reports?",
+      a: "Sort the transactions table by its Category column, which collects the uncategorised rows together, then open each one and pick a category. Ten minutes usually clears months. It's worth doing before you draw any conclusion from a breakdown, because Uncategorized is often larger than the category you were about to worry about.",
+    },
+    {
+      q: "When should I split a category into two?",
+      a: "When a specific total has made you curious twice and there's a decision waiting on the answer — not when a number merely looks vague. Split it, watch for two or three months, then fold it back once you've answered the question. There is no merge button, so folding back is manual: rename one split to the original name, re-file the other split's rows from the transactions table, then delete the empty one. A category is a measuring instrument, and you're allowed to put the instrument away.",
+    },
+    {
+      q: "Should I rename my categories mid-year?",
+      a: "Only if you accept the break. A chart that spans a rename is comparing two different definitions, and nothing on it will say so. If a name is genuinely wrong, change it and make a note of when; otherwise the cheapest moment is the start of a year, which is also when you'll notice which ones you never used.",
+    },
+  ],
+};
+
+Almost every guide to categorising expenses gives you a list. Here are the fifty categories, file everything into one of them, enjoy your pie chart.
+
+That's the wrong shape of answer, because the list isn't the hard part. The hard part is that a category is a **question you plan to ask later**, and most people pick categories that answer questions nobody has.
+
+This is a practical guide to how to categorize expenses in a way that survives a year: a test for whether a category earns its place, a starting set, the mistakes that quietly ruin your data, and what to do about the Uncategorized pile.
+
+## The test: would you do anything differently?
+
+Before adding a category, finish this sentence: *"If this number turned out to be twice what I expected, I would ______."*
+
+If you can complete it, keep the category. "Eating out is twice what I thought" → I'd cook more on weeknights. "Subscriptions are twice what I thought" → I'd cancel two. Those are categories doing work.
+
+If you can't, you're collecting trivia. "Stationery came to 34 this year" is a fact, not a decision. It cost you a hundred small filing choices to learn it, and you'd have done nothing differently either way.
+
+This one test does most of the work. It's why Housing belongs on every list even though the number never surprises anyone — because "could I afford to move" is a real question — and why splitting Coffee out of Eating out usually doesn't.
+
+<Figure
+  src="/blog/how-to-categorize-expenses--does-it-earn-its-place.png"
+  alt="Three-step method for deciding whether a category earns its place: finish the sentence 'if this doubled, I would…'; if you cannot finish it, don't add the category; and split a category later rather than now, once a total has made you curious twice."
+  caption="Subscriptions passes the test — you would cancel two. Stationery doesn't, which is why it costs you a hundred filing decisions and tells you nothing."
+/>
+
+## A starter set that survives contact with a real year
+
+Eight to start from, each tied to a decision you might actually make:
+
+| Category | What goes in it | The decision it informs |
+| --- | --- | --- |
+| Housing | Rent, mortgage, service charges | Can I afford to move? |
+| Groceries | Food you cook at home | Is the weekly shop creeping up? |
+| Eating out | Restaurants, takeaway, coffee | The one most people misjudge |
+| Transport | Fuel, fares, ride-hailing | Is the car worth keeping? |
+| Bills | Utilities, phone, internet | What is worth renegotiating? |
+| Health | Prescriptions, dentist, gym | Am I under-spending here? |
+| Shopping | Clothes, household, gifts | The bucket that hides impulse buys |
+| Subscriptions | Streaming, software, memberships | What am I still paying for? |
+
+Add **Entertainment** for the things you do for fun that aren't meals, and **Other** as an honest catch-all. A category you're allowed to use when you're in a hurry beats abandoning the entry entirely.
+
+On the income side, four or five is plenty: Salary, Freelance, Refunds, Gifts, Other income. The reason to split income at all is that people are frequently wrong about the mix. Freelancers in particular tend to discover that the client they think of as their main client is third by revenue.
+
+Then make it yours. Rename anything that doesn't match the words you'd use out loud. If you say "the flat", call it that. Add the one or two that reflect your actual life: Kids, Pets, Tools, Studio, Parents. In SpendChat every workspace starts with fifteen defaults and every one of them can be [renamed, re-iconed or deleted](/features/categories), with names up to 20 characters so they stay readable as a chip.
+
+Pick emoji you recognise instantly rather than emoji that are technically correct. The icon is what your eye actually scans in the feed; 🍜 beats a tasteful grey glyph every time.
+
+Getting this right pays off twice, because the categories you name are also the list [AI entry](/blog/how-to-track-expenses-with-ai) chooses from when it drafts a transaction.
+
+## Why forty categories tell you less than eight
+
+The instinct when a total looks vague is to split it. Eating out becomes Coffee, Lunch, Dinner, Snacks, Takeaway. It feels like precision. It's the single most common way a tracking habit dies.
+
+<Figure
+  src="/blog/how-to-categorize-expenses--too-many-vs-useful.png"
+  alt="Two-column comparison. Left: splitting until precise, where every entry becomes a decision, the same purchase lands in different buckets each week, and the breakdown is a long tail of one-percent slices. Right: splitting where you would act, with eight to fifteen categories, instant choices and stable month-to-month totals."
+  caption="Precision you can't act on costs you the habit that produced the data."
+/>
+
+Three things go wrong at once.
+
+**Entry slows down.** A sandwich eaten at a café at 4pm: Lunch or Snacks? Two seconds of thought, every time. Multiply by four hundred entries a year and you have a tracker you stop opening.
+
+**Consistency collapses.** You'll classify that sandwich differently in March than in July, so the trend line measures your mood rather than your spending.
+
+**Nothing is big enough to act on.** A breakdown where the top line is 9% and there are twenty-two lines below it doesn't have a story in it. Three or four lines explaining most of a month is what you actually want.
+
+## Five mistakes to avoid when you categorize expenses
+
+| Mistake | Why it hurts | Do this instead |
+| --- | --- | --- |
+| Categories named after merchants | Merchants change; the need doesn't | Name the need: Groceries, not the supermarket |
+| Using the category as a diary | You end up with fifty one-off buckets | Put the detail in the note; search finds it later |
+| Renaming mid-year | The chart compares two different definitions | Rename in January, or accept the break and note it |
+| A category for a single big purchase | One row, forever, in every report | Use Other and write what it was in the title |
+| Splitting because the total looks odd | You've hidden the total in five smaller ones | Filter the table by the category and read the rows |
+
+That last row deserves emphasis. When a category surprises you, the answer isn't more categories — it's the [transactions table](/features/transactions). Filter to that category, sort by amount, and read the top ten rows. You'll know within thirty seconds whether it was one unusual purchase or a slow drift, and no schema change was required to find out.
+
+## The distinction most lists miss: fixed versus variable
+
+There's a second cut through your spending that matters more than any individual category, and most category lists obscure it.
+
+Some of your money is **committed**: rent, insurance, the phone contract, the subscriptions you forgot. It's largely the same every month, you decided it once, and the only way to change it is a deliberate act — moving, switching provider, cancelling. Some of it is **discretionary**: groceries, eating out, taxis, shopping. It moves week to week and responds to attention.
+
+The reason this matters is that the two respond to completely different interventions. Trying to shave 10% off discretionary spending is a hundred small decisions and it partly reverts. Cutting one committed cost is a single afternoon and it holds for a year. Most people spend their willpower on the first and never audit the second.
+
+You don't need a separate category system for this. Just look at your list and mentally mark which ones are committed — typically Housing, Bills and Subscriptions, and note their combined share. If it's above roughly half of your outgoings, the useful work this month is renegotiation, not restraint. If it's low and your total still feels high, the answer is in the day-to-day.
+
+That's also the argument for keeping **Subscriptions** as its own category even though it's really a kind of Bill. Subscriptions are the one committed cost that accumulates silently — nobody ever decided to pay for six streaming services; they each arrived alone. Giving them their own line in the [breakdown](/features/analytics) makes them visible once a month instead of never, and the first time you look at that number is usually the day you cancel two.
+
+## The Uncategorized line
+
+Open [analytics](/features/analytics) after a few months and there's often a line nobody expected: **Uncategorized**.
+
+It exists because everything you didn't categorise is pooled rather than dropped. That's the right behaviour — silently excluding rows would make the breakdown add up to less than you spent, which is worse than an ugly line — but it does mean the pile has to be dealt with.
+
+The efficient way: open the transactions table and sort by the Category column. Uncategorised rows collect together, and you can work down them, opening each and picking a category. Ten minutes clears months.
+
+Two related gotchas. **Deleting a category doesn't delete its transactions** — they stay, your balance doesn't move, and they become uncategorised. And **re-creating a category with the same name won't reattach them**: to the database that's a new category with a new id. If you're tidying up, rename rather than delete-and-recreate.
+
+## Why categories belong to the workspace
+
+In SpendChat, categories live on the [workspace](/features/workspaces), not on a profile and not on a person. Every profile inside it — Personal, Home, Business — shares one list, and every member sees the same one.
+
+This annoys people for about a week and then justifies itself. Shared categories are what make a report comparable across profiles and across people. Two people filing into private taxonomies produce two sets of numbers that can never be added together, and a household budget that can't be added together isn't a budget — which is most of [why sharing a workspace beats sharing a login](/blog/how-to-track-shared-expenses-with-your-partner).
+
+If you genuinely need two unrelated vocabularies — a company and a household with nothing in common — that's a second workspace, and it gets its own set seeded from the defaults.
+
+It also has a quiet accuracy benefit for [AI entry](/features/ai-expense-tracker). The model chooses from *your* category names, so a workspace with a category called "Kids" gets school fees filed correctly, where one picking from a generic taxonomy has to approximate.
+
+## When to actually split
+
+Split a category when a specific total has made you curious twice, and you have a decision waiting on the answer.
+
+Eating out at 15% of your month is interesting; if you want to know whether it's weekday lunches or weekend dinners, split it, look for two or three months, and — this is the part people skip — **fold it back** once you've answered the question. Categories are a measuring instrument, not a filing cabinet. You're allowed to put the instrument away.
+
+Folding back is manual, and it matters which order you do it in, for the reason two sections up: there is no merge, and deleting a category leaves its transactions uncategorised. So rename one split back to the parent name, re-file the other split's rows onto it from the transactions table, and only then delete the one you emptied. Do it the other way round and you've made yourself an Uncategorized pile to clear.
+
+Start with eight to fifteen, name them the way you talk, and let the numbers earn their splits.
+
+[Set up your categories](/features/categories) — rename the defaults, add your own, and pick icons you'll actually recognise at a glance.

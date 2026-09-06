@@ -18,6 +18,70 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.17.0] — 2026-09-06
+
+Nine feature deep-dives on the blog, one per part of the product.
+
+### Added
+
+- **Nine long-form posts.** Tracking expenses with AI, voice entry across mixed
+  languages, going without a bank connection, spreadsheets versus an app,
+  categorising expenses, sharing books with a partner, organising receipts,
+  exporting to CSV at tax time, and what "open source expense tracker" ought to
+  mean. Each is a comparison or a how-to rather than a feature list, each
+  carries an FAQ and links through to the feature page it belongs to, and each
+  is dated to when it was written — late June to early September — so the index
+  reads as a cadence rather than a drop.
+- **Eighteen new figures**, two per post, rendered ahead of time from
+  `scripts/blog-figure.html` — three layouts, comparison, flow and table — in
+  the same dark palette as the covers, and served straight off the CDN like
+  every other static asset.
+
+### Fixed
+
+- **The "SpendChat is now open source" cover printed the wrong date.** Its
+  entry in `scripts/blog-image.html` said 2 June while the post itself is dated
+  2 September, so the shared preview card disagreed with the page. Corrected and
+  re-rendered.
+- **"Track your money like a conversation" documented the wrong key.** It said
+  `/` tags a category in the composer; `/` opens the keyboard-shortcut sheet and
+  `#` is the category tag.
+- **Six wrong statements a review caught in the new posts.** The spreadsheet
+  comparison said one `SUM` over the exported amount column gives you the net —
+  it gives you exactly double, because the table closes with a `Total:` row (the
+  sibling CSV post says so on the same day). The AI post's central sum said two
+  seconds an entry is "about twenty minutes a year" for 1,800 entries; it is an
+  hour, which is still the argument. Voice entry was described as one key with
+  no mention that the composer has to be in AI mode first, so the instruction
+  did nothing on a fresh account. The categories post advised merging a split
+  category back, and there is no merge — deleting one leaves its transactions
+  uncategorised, which the same post warns about two sections earlier. The CSV
+  post recommended Print → Save as PDF for accountants and landlords without
+  saying the table loads 50 rows at a time, so the PDF prints the header's full
+  totals over the first 50 rows. And the receipts post opened on `IMG_4032.HEIC`
+  without mentioning that HEIC is not an accepted upload.
+- **The blog and the feature pages competed for four queries.** Four FAQ
+  questions were word-for-word identical between a new post and an existing
+  feature page, and both surfaces emit `FAQPage`, so the two were bidding
+  against each other for one rich result. Reworded on the blog side.
+- **The cover's alt text is defined once.** `imageAlt` was honoured in the
+  article body but ignored by the index card and by `og:image`, both of which
+  hard-coded the headline — the duplicate the field exists to remove. All three
+  now read `coverAltFor()`.
+- **The sitemap published `lastmod` a day early east of UTC.** Post dates were
+  parsed at local midnight and serialised as UTC, and prod is built from a
+  laptop rather than CI. They parse as UTC now, like the RSS feed's `pubDate`.
+- **A figure's accent read backwards.** The table renderer painted every "Yes"
+  in the emerald accent, so in "what the app actually holds" the only two
+  highlighted rows were the two where the answer is yes. Which answer reads as
+  the accent is now the figure's to say.
+- **`<JsonLd>` escapes `<`.** `JSON.stringify` does not, so one `</script>` in a
+  title, excerpt or FAQ answer would have closed the tag early and spilled the
+  rest of the JSON onto the page.
+- **The post order is deterministic for two posts sharing a date.** The
+  comparator never returned 0, which left the index, the feed order and the
+  eager-loaded cover up to the engine.
+
 ## [0.16.0] — 2026-09-06
 
 The two things the blog was missing before it could carry anything longer than

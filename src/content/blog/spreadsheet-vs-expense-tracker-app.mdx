@@ -1,0 +1,153 @@
+import { Figure } from "@/components/blog/figure";
+
+export const meta = {
+  title: "Spreadsheet vs Expense Tracker App: An Honest Comparison",
+  date: "2026-07-18",
+  readingMinutes: 7,
+  tag: "Comparison",
+  excerpt:
+    "The world's most-used expense tracker is a spreadsheet, and it's good at three things. Here's where it stops working, and how to move without losing a row.",
+  image: "/blog/spreadsheet-vs-expense-tracker-app.png",
+  imageAlt: "Cover card for a SpendChat post comparing spreadsheets with an expense tracker app.",
+  faqs: [
+    {
+      q: "Is a spreadsheet good enough for tracking expenses?",
+      a: "For one person, at a desk, with a habit already in place, yes — a spreadsheet is free, private and infinitely flexible. It starts failing when you try to log from a phone, when a second person needs access, when you want reports without building them, and when receipts need to live beside the numbers.",
+    },
+    {
+      q: "How do I move my expenses from a spreadsheet to an app?",
+      a: "Copy the rows and paste them into bulk add. A spreadsheet copy is tab-separated text, which the parser detects and reads without reformatting. Each line is amount, note, category, type and date, and only the amount is required. You see every row parsed — with any broken line named by number — before anything is saved.",
+    },
+    {
+      q: "How do I move an existing spreadsheet of expenses into the app?",
+      a: "There is no file upload; you paste the contents instead. In practice that's the same two keystrokes, and it means no file is uploaded anywhere just to be read. Imports are capped at 500 rows per paste, so a long history goes in a few passes.",
+    },
+    {
+      q: "What happens to rows the importer can't read?",
+      a: "They are listed with their line number and what went wrong, and they are skipped rather than guessed at. The rows that did parse still import; you fix the rest and paste again. An importer that guesses is how five silently wrong records end up in a year of data.",
+    },
+    {
+      q: "Should I keep using my spreadsheet as well?",
+      a: "For anything that needs a formula, yes — projections, models with assumptions in them, any question an app has decided for you. Log in the app, because logging is the part that has to happen away from a desk, then export the filtered view as CSV when you have a real question. A spreadsheet is still the best tool ever built for that job.",
+    },
+    {
+      q: "Is an expense tracker app more private than a spreadsheet?",
+      a: "A local spreadsheet is hard to beat on that axis, and it's fair to say so. The nearest equivalent is an app that holds no bank credentials, sells nothing, and publishes its source — which is checkable rather than promised. SpendChat is AGPL-3.0, and you can also self-host it against your own database.",
+    },
+  ],
+};
+
+The most widely used expense tracker in the world is a spreadsheet. Not an app with a growth team and an onboarding flow — a grid, with a date column, an amount column, and a `SUM` at the bottom.
+
+It deserves more respect than app marketing usually gives it, so this comparison starts with what it does well. Then it gets specific about the five places it stops working, and how to move without losing a row.
+
+## What a spreadsheet genuinely gets right
+
+**It's free and it's yours.** No account, no subscription, no company that can change its terms. If it lives on your machine, nobody else has a copy.
+
+**It does any arithmetic you can describe.** Want to weight grocery spending by household size, project a savings rate, or model what happens if rent goes up 8%? Twenty minutes and a formula. No app will ever match that, because the whole point of an app is deciding those questions for you.
+
+**It has no opinions.** Your columns, your categories, your layout. Nothing tells you you're holding it wrong.
+
+If those three are what you value most, stop reading and keep your spreadsheet. This isn't an argument that spreadsheets are bad. It's an argument about the specific point at which one starts costing more than it saves.
+
+## Five places a budget spreadsheet stops working
+
+**Logging on a phone.** This is the big one, and it isn't a fixable UI problem. Opening a spreadsheet app, waiting for the file, finding the last empty row, tapping across four narrow cells with a keyboard covering half the screen — it's twenty to forty seconds of fiddly work in a moment where you have about ten. So you don't do it. You promise yourself you'll catch up on Sunday, and by Sunday half of Wednesday is gone.
+
+Most abandoned expense spreadsheets seem to die this way. Not from a wrong formula — from a gap that started on a Tuesday.
+
+**Reports you have to build.** A pivot table is real work, and it goes stale. Changing "this month" to "the last two quarters" means rebuilding ranges. Most people build the report once, admire it, and never update it again.
+
+**Two people at once.** Shared sheets edit-conflict, and there's no way to give someone read-only access to *some* of it. Your accountant either sees the groceries or sees nothing.
+
+**Receipts.** You can put a link in a cell. In two years that link points at a moved file, a rotated cloud share, or a phone you no longer own.
+
+**Consistency.** Nothing stops "Groceries", "groceries" and "Food" becoming three categories, or an amount landing in the notes column. By the time you notice, the totals have been quietly wrong for months.
+
+| | Spreadsheet | Expense tracker app |
+| --- | --- | --- |
+| Cost | Free | Free |
+| Logging on a phone | 20–40 seconds, fiddly | A few seconds |
+| Custom calculations | Anything you can write | The reports it ships with |
+| Reports without setup | You build the pivot table | Ready when you open it |
+| Keeping categories consistent | Nothing stops three spellings | One shared list |
+| Two people at once | Edit conflicts, no read-only | A role per person |
+| Receipts | A link in a cell that rots | The file on the row |
+| Works offline | Yes | Needs a connection |
+| Getting your data out | It *is* the file | CSV of the view you filtered |
+| Who owns the copy | You, on your machine | The host — so check the export |
+
+Read that honestly and the split is clear. The spreadsheet wins on cost, on arithmetic, and on the fact that a local file is nobody else's business. It loses on everything that happens away from a desk — which, unfortunately, is where spending happens.
+
+<Figure
+  src="/blog/spreadsheet-vs-expense-tracker-app--stay-or-move.png"
+  alt="Two-column decision guide. Stay on the spreadsheet if you log at a desk, are already consistent, value writing your own formulas, and nobody else needs access. Move if most spending happens away from a keyboard, a second person needs their own access, receipts should live beside the numbers, or you have restarted the same sheet three Januaries running."
+  caption="Four conditions on each side. If three of the right-hand four are true of you, the spreadsheet is costing more than it saves."
+/>
+
+## The budget template trap
+
+A quick word on the downloadable budget spreadsheet, since that's how most people start.
+
+Free templates are usually beautiful and usually abandoned, and the reason is a design mistake rather than a lack of discipline. A typical template is built around *planning* — a Budget column, an Actual column, a Variance column, twelve monthly tabs and a dashboard. That structure demands you fill in a plan before you have any data, and it demands you post every real transaction into the right cell of the right tab for the variance to mean anything.
+
+So the first week is filled in perfectly, the second is patchy, and by March the Actual column is empty and the dashboard is showing a plan you no longer believe.
+
+The templates that survive are the boring ones: one flat table, one row per transaction, columns for date, amount, category and a note. Nothing to maintain, nothing to break, and every question you might ask later can be answered from it with a pivot table when you actually want one.
+
+That's worth knowing even if you never leave the spreadsheet — and it's why an app worth switching to should look like the boring template rather than the dashboard. Log a flat list of transactions well; derive the reports afterwards. If a tracker asks you to set up budgets, categories, goals and rules before it will accept your first coffee, it has the same problem the pretty template has.
+
+## The phone problem, in numbers
+
+It's worth putting a figure on the thing that kills spreadsheets, because "convenience" undersells it.
+
+A [chat-style composer](/features/chat-expense-tracker) opens with the amount field already focused. You type `62`, press Enter, type `groceries`, hit a category chip, and send with ⌘/Ctrl + Enter — one of a set of [keyboard shortcuts](/features/keyboard-shortcuts) that means your hands never leave the keys between one transaction and the next. Call it five seconds. On a phone it's the same flow with a full-width send button.
+
+Several purchases in one go? One sentence through [AI entry](/blog/how-to-track-expenses-with-ai) — "18 lunch, 44 hardware shop, 9 parking yesterday" — returns three editable drafts you approve together. Hands full? [Hold a key and say it.](/blog/voice-expense-tracking-in-any-language)
+
+Five seconds versus thirty isn't a preference. It's the difference between a habit that survives a busy week and one that doesn't — and a half-kept tracker tells you almost nothing useful, because what's missing isn't a random sample. It's the days you were busiest, which are usually the days you spent most.
+
+## Moving your history across
+
+The good news: you don't have to choose between your existing data and a better input method.
+
+<Figure
+  src="/blog/spreadsheet-vs-expense-tracker-app--paste-preview-import.png"
+  alt="Three-step diagram: copying cells from a spreadsheet produces tab-separated text, a preview shows 198 rows parsed with line 87 flagged as missing an amount, and importing adds them to a chosen profile."
+  caption="A spreadsheet copy is tab-separated text, which is what the parser expects. Most pastes need no reformatting at all."
+/>
+
+Select your rows, copy, and paste them into [bulk add](/features/bulk-add). Each line is amount, note, category, type, date — and only the amount is required, so a two-column sheet imports fine.
+
+Two details make this less painful than most importers:
+
+**It reads what a spreadsheet actually pastes.** Copying cells out of Excel, Numbers or Sheets produces tab-separated text, not commas. The parser detects that. In locales that use a comma for decimals, it expects semicolons between fields instead — and when the delimiter *is* a comma, a comma sitting directly between two digits is treated as thousands grouping, so `1,250.50` doesn't quietly import as `1`.
+
+**It refuses to guess.** Any line it can't read is reported with its number and the reason, and skipped. The rest still import. Being told about five bad lines out of two hundred is a two-minute fix; discovering five silently wrong records a year later is not.
+
+Imports are capped at 500 rows per paste and land in whichever [profile](/features/multiple-profiles) you choose, so a year of business records doesn't touch your personal books.
+
+## Keep the spreadsheet for what it's good at
+
+The best setup for a lot of people isn't either/or.
+
+Log in the app, because logging is the part that has to happen away from a desk. Then, when you have a real question — the savings-rate model, the "can we afford this" projection, the thing with four assumptions in it — [export the filtered view as CSV](/features/export-and-print) and answer it in a spreadsheet, which is still the best tool ever built for that job.
+
+The export carries the filters you already set, so you're not downloading everything and deleting rows. It's UTF-8 with RFC 4180 quoting and signed amounts, so expenses are negative and arithmetic over the column works. Two things to know before you reach for `SUM`: the file opens with a report block, so the column header is row 12 and the data starts at row 13, and the table closes with a `Total:` row that repeats the net — sum to the bottom of the file and you get exactly double. The net is in the report block already; [the CSV walkthrough](/blog/export-expenses-to-csv-for-taxes) has the rest.
+
+For the everyday questions — where the money went, how this month compares to the last six — [analytics](/features/analytics) already answers them without a pivot table: three numbers at the top, a category breakdown as both a ring and a ranked list, and six months of income against expenses, for any date range you pick.
+
+## What leaving looks like
+
+Before adopting any tracker, ask what leaving looks like. With a spreadsheet the answer is trivially good: the file *is* your data, and no product decision can take that away.
+
+That's the bar, and it's a high one. SpendChat's answer is that the export carries the filters you set, costs nothing, is capped by nothing, and opens in the tool you just left — [the file itself is worth understanding before you rely on it](/blog/export-expenses-to-csv-for-taxes). The app is [open source under the AGPL](/blog/open-source-expense-tracker), so you can read the exporter rather than take that on faith.
+
+## Where to draw the line
+
+Stay on the spreadsheet if you're solo, at a desk, already consistent, and your favourite feature is a formula.
+
+Move if you're logging from a phone, if [a second person needs their own access](/blog/how-to-track-shared-expenses-with-your-partner), if [receipts should live beside the numbers](/blog/how-to-organize-receipts-digitally), or if you've restarted the same sheet three Januaries running.
+
+And if you move, [take the history with you](/features/bulk-add). It's a copy, a paste, and a preview you read before anything is saved.

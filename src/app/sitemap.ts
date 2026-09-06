@@ -40,7 +40,11 @@ export default function sitemap(): MetadataRoute.Sitemap {
   // Each post carries its own last-modified date so search engines see real freshness.
   const postEntries: MetadataRoute.Sitemap = getPosts().map((post) => ({
     url: `${siteConfig.url}/blog/${post.slug}`,
-    lastModified: new Date(`${post.updated ?? post.date}T00:00:00`),
+    // `Z`: Next serialises `lastModified` with `toISOString()`, so parsing the
+    // ISO day at *local* midnight would publish a `lastmod` a day early for
+    // every build host east of UTC — and prod is built from a laptop, not CI.
+    // `blog/rss.xml` already parses its `pubDate` this way.
+    lastModified: new Date(`${post.updated ?? post.date}T00:00:00Z`),
     changeFrequency: "monthly",
     priority: 0.6,
   }));

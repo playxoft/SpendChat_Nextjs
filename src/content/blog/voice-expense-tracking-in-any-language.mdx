@@ -1,0 +1,151 @@
+import { Figure } from "@/components/blog/figure";
+
+export const meta = {
+  title: "Why Voice Expense Trackers Break on Mixed Languages",
+  date: "2026-07-02",
+  readingMinutes: 7,
+  tag: "Voice",
+  excerpt:
+    "Real speech mixes two languages. Most voice expense trackers pin one and return confident nonsense — here's why that happens, and how to fix it.",
+  image: "/blog/voice-expense-tracking-in-any-language.png",
+  imageAlt: "Cover card for a SpendChat post about voice expense tracking in mixed languages.",
+  faqs: [
+    {
+      q: "How do I track expenses by voice?",
+      a: "Put the composer in AI mode — that is the Manual/AI toggle on the composer, or the A key when you are not typing in a field — then hold the M key on a keyboard, or press and hold the mic button on a phone, and say what you spent. A recording runs up to a minute, after which it stops itself. When you let go, the recording is transcribed, the text is dropped into the AI note, and the parsed transactions appear as drafts. You check them and confirm. It runs in the browser, so there is nothing to install.",
+    },
+    {
+      q: "Can a voice expense tracker understand mixed languages like Hinglish?",
+      a: "It can if it is told to expect more than one. SpendChat lets you name up to five languages in Settings, and the transcription prompt carries all of them at once — so \"chai 20 aur groceries 620\" comes back as spoken rather than forced into whichever language was picked first. Tools that accept a single language code cannot do this.",
+    },
+    {
+      q: "How many languages should I select?",
+      a: "Only the ones you actually speak — usually two. You can pick up to five of the twenty-seven offered, but selecting all five when you speak two makes the job harder rather than easier: it widens the space the model is searching for no benefit. Two is the sweet spot for code-mixed speech.",
+    },
+    {
+      q: "Why does my transcript get the amount right and the merchant wrong?",
+      a: "Numbers are short, high-frequency and heavily constrained, so they survive almost anything. Proper nouns aren't — an unfamiliar shop name has no context to anchor it. That's the normal failure and it's why the drafts wait for you: fixing a merchant in a draft row takes three seconds, and finding it wrong in a quarterly total takes an evening.",
+    },
+    {
+      q: "Is voice entry worth using if I'm at a desk?",
+      a: "Usually not, for a single expense — typing an amount and hitting a category chip is faster than speaking and reading a draft. Voice earns its place when your hands are full, when you're logging several purchases at once, or when the spending is cash that no bank feed would ever see.",
+    },
+    {
+      q: "Does voice expense tracking need an app, or does the browser do it?",
+      a: "No. Recording happens in the browser on desktop and mobile. Your browser asks for microphone permission the first time and you can revoke it whenever you like — voice entry is optional, and everything else in the app works with the microphone permanently off.",
+    },
+  ],
+};
+
+The window in which you will log an expense is about ten seconds wide. It opens when you put your card away and closes when you start thinking about something else. Anything that doesn't fit inside it, whether that's unlocking, finding the app or tapping through a form, means the transaction gets logged later. Which mostly means never.
+
+Voice fits inside it. You're already holding a phone, your hands are already busy with a bag or a car door, and saying "groceries sixty-two forty" takes two seconds. That's the case for a voice expense tracker, and it's a good one.
+
+It's also where most voice expense tracking quietly falls apart, for a reason that has nothing to do with speed.
+
+## What happens when you hold the key
+
+In SpendChat, [voice entry](/features/voice-expense-tracker) is one key, once the composer is in AI mode — that's the Manual/AI toggle on the composer, or `A` when the cursor isn't in a field. Then hold `M` — or press and hold the mic button on a phone — and it records while you hold it, up to a minute, after which it stops itself. Let go and three things happen in sequence.
+
+<Figure
+  src="/blog/voice-expense-tracking-in-any-language--hold-speak-confirm.png"
+  alt="Three-step diagram: holding the M key records the phrase 'chai 20 aur groceries 620', the audio is transcribed and then discarded, and two editable drafts wait for confirmation before anything is saved."
+  caption="Speech becomes text, text becomes drafts, drafts wait for you. The audio doesn't survive the middle step."
+/>
+
+The recording is transcribed server-side. The transcript is dropped into the AI note, the same box you'd have typed into, and parsed into draft transactions. The drafts sit there, editable, until you confirm them.
+
+That sequencing is deliberate, and we'll come back to it. First, the language problem.
+
+## Why Hinglish and other code-mixed speech breaks transcription
+
+If you're a monolingual English speaker, this section will read as a curiosity. If you're not, it's probably the reason you gave up on dictation years ago.
+
+Here is a sentence a great many people would actually say out loud: *"chai 20 aur groceries 620."* Two Hindi words, two English ones, two numbers. Or *"kadai 45, petrol 500 podunga"* — Tamil and English in one breath. Or *"almuerzo 12 and then the taxi 8"*.
+
+This isn't sloppiness or an accent. Code-mixing is how bilingual people normally speak, especially about small everyday amounts, where the numbers come out in one language and the nouns in another.
+
+Now look at how speech-to-text is usually configured. Almost every transcription API takes a **language** parameter: one code, `hi` or `ta` or `en`. Pinning one language does something worse than fail: it produces confident, wrong output. Set `hi` and the English words get transliterated into Devanagari. Set `en` and "aur" comes back as "or", "are", or a merchant name. The amounts usually survive. Everything around them turns to soup.
+
+<Figure
+  src="/blog/voice-expense-tracking-in-any-language--one-language-vs-many.png"
+  alt="Two-column comparison. Left: pinning a single language code, where everything is forced into the chosen language, mid-sentence switches produce nonsense, and you end up speaking a second language to your own tracker. Right: naming up to five of the twenty-seven supported languages, where the model expects all of them at once and mixed speech transcribes as spoken."
+  caption="The fix is unglamorous: stop asking which language, and name all the ones this person speaks."
+/>
+
+The fix is to stop treating language as a setting with one value. In SpendChat, the languages you expect to speak are a **list** — up to five, chosen from the twenty-seven the app offers, in Settings → Voice — and the transcription prompt names all of them at once. A model told "this speaker uses Hindi and English" transcribes the sentence as it was said, because it isn't being forced to choose.
+
+It's a per-user setting, not a per-workspace one, so a couple sharing a set of books can each speak their own languages into the same feed.
+
+One implementation note, since it explains a design constraint: Whisper-style hosts still take a single language code. On those, the same list degrades gracefully into a vocabulary hint rather than a hard pin — which is worth knowing because it's the reason there is no "language" dropdown that overrides your list. Pinning one language is the bug, not the feature.
+
+## Voice assistants, dictation, and this
+
+Three things get called voice expense tracking. They behave very differently.
+
+|  | Phone assistant | System dictation | SpendChat voice entry |
+| --- | --- | --- | --- |
+| Where it runs | Assistant app | Any text field | The composer, in the browser |
+| Mixed languages | One at a time | Usually one at a time | Up to five, together |
+| Understands amounts | Sometimes | It's just text | Parsed into a typed field |
+| Picks a category | No | No | From your own list |
+| Creates the record | Sometimes, silently | You still type | Drafts only, until you confirm |
+| Audio kept | Depends on your settings | Varies | Discarded after transcription |
+
+Dictation is the honest comparison: it turns speech into text and stops. That's genuinely useful, and if your keyboard's mic button works well for you, it will get words into the note box just fine. What it can't do is know that "620" is an amount and "groceries" is a category you already have.
+
+## Why not just tell an assistant?
+
+It's a fair question. You already have a voice assistant that can set timers without you unlocking anything, so why not say "log sixty-two for groceries" at it?
+
+Two reasons, and neither is about the speech recognition.
+
+The first is that an assistant has to hand the result somewhere. In practice that means a shortcut you configure, an integration that breaks on the next OS update, or a note you'll transcribe by hand later. The speech was never the hard part — getting a typed amount, a category and a date into a specific set of books was.
+
+The second is that assistants are built to *act*. Say a thing, it happens. That's the right behaviour for a timer and the wrong behaviour for a financial record, because when the assistant mishears you there is nothing between the mistake and your data. Every well-designed voice feature for money ends up putting a screen in the middle. Once you accept that, holding a key inside the app you'd have opened anyway stops looking like a compromise.
+
+## Who this actually helps
+
+Voice entry earns its place in a few specific situations, and it's honest to say it's unnecessary in the rest.
+
+**People who spend cash.** [No bank feed will ever see](/blog/expense-tracker-without-bank-connection) a market stall, a taxi paid in notes, or the twenty you handed a neighbour. Speech is the fastest route into a record for exactly the transactions that are otherwise invisible.
+
+**Anyone whose hands are full.** Carrying shopping, driving between jobs, holding a child. Two seconds of speech beats two-handed typing that isn't going to happen.
+
+**Bilingual households.** This is the group the language list was built for, and the difference is not marginal. It decides whether the feature gets used at all or abandoned in week one.
+
+**People logging several things at once.** Walking back from a run of errands, one sentence covering four purchases becomes four drafts. That's the case where speaking is genuinely faster than typing rather than merely more convenient.
+
+If you're at a desk with a keyboard and one expense to log, type it. `M` is there for the other times.
+
+## Speaking never creates a transaction
+
+This is the rule that makes voice safe to use quickly.
+
+Transcription is good, not perfect. Accents, background noise, an unusual merchant name, a number said fast — each is an occasional error, and a couple of them are the *expensive* kind. "Sixty-two forty" heard as "six thousand two hundred forty" is off by two orders of magnitude and still a perfectly plausible transaction.
+
+So voice never writes to your records. It produces text; the text produces drafts; you confirm. It's the same review step the [AI parser](/features/ai-expense-tracker) uses for typed notes, and it exists for [the same reason](/blog/how-to-track-expenses-with-ai): a wrong number caught in a draft row costs three seconds, and the same wrong number caught in a quarterly total costs an evening of detective work.
+
+## What happens to the audio
+
+The recording is sent to be transcribed, the text comes back, and the audio is discarded. It isn't written to storage. There's no recordings tab, no history to browse, nothing to export, and nothing to leak.
+
+The microphone is asked for once by your browser, and you can revoke it whenever you like. Voice entry is optional; every other way into the app — typing, [pasting a spreadsheet](/features/bulk-add), the plain [chat composer](/features/chat-expense-tracker) — works with the microphone permanently switched off. If you'd rather verify that than take our word for it, the transcription route is a few hundred readable lines in a [public repository](https://github.com/playxoft/SpendChat_Nextjs).
+
+## Getting good results
+
+A few habits make transcription noticeably more accurate.
+
+**Say the amount as a number, not a price.** "Sixty-two forty" is more reliably heard than "sixty-two pounds forty pence", which gives the model three numbers to sort out.
+
+**Put the amount next to the thing it paid for.** "Groceries 620, chai 20" parses cleanly. A list of nouns followed by a list of numbers does not.
+
+**Pick your languages once and leave them.** Selecting all five slots when you only ever speak two makes the job harder, not easier: you're widening the search space for no benefit.
+
+**Speak, then look.** Two seconds of glancing at the drafts is the whole safety mechanism. It's also where you'll notice you said "Tuesday" when you meant "Thursday".
+
+## Why multilingual voice expense tracking is worth the trouble
+
+Voice entry isn't about saving keystrokes. It's about being able to log something in the ten-second window while it's still true, in the words you'd actually use, without silently translating yourself into whichever language a settings dropdown decided on.
+
+[Try voice entry](/features/voice-expense-tracker) — switch the composer to AI, hold `M`, say what you spent, and check what comes back.

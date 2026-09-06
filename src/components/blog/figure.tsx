@@ -18,10 +18,10 @@
  * Figures are static PNGs in `public/blog/` at 1200×675 — the same
  * headless-Chrome approach as the covers, and for the same reason: they're
  * served straight off Cloudflare's CDN rather than through `next/image`'s
- * optimizer, which on OpenNext is a Worker invocation per image. The generator
- * (`scripts/blog-figure.html`, a sibling of `scripts/blog-image.html`) lands
- * with the first post that ships a figure — its layouts are written against
- * real content, so there is nothing to write here ahead of one.
+ * optimizer, which on OpenNext is a Worker invocation per image. Generate them
+ * with `scripts/blog-figure.html`, a sibling of `scripts/blog-image.html` — see
+ * that file's header comment for the headless-Chrome command and the three
+ * layouts it offers.
  */
 export function Figure({
   src,

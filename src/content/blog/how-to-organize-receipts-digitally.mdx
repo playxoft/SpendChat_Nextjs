@@ -1,0 +1,157 @@
+import { Figure } from "@/components/blog/figure";
+
+export const meta = {
+  title: "How to Organize Receipts Digitally and Find Them Later",
+  date: "2026-08-13",
+  readingMinutes: 8,
+  tag: "Receipts",
+  excerpt:
+    "How to organize receipts digitally so you can find them later: attach each one to the transaction it explains, instead of filing photos you'll never search.",
+  image: "/blog/how-to-organize-receipts-digitally.png",
+  imageAlt: "Cover card for a SpendChat post about organizing receipts digitally.",
+  faqs: [
+    {
+      q: "How do I organize receipts digitally?",
+      a: "Attach each receipt to the transaction it belongs to at the moment you log the expense, rather than filing photos separately and hoping to match them up later. The amount, date and category then act as the index — you find the receipt by finding the transaction, which you can filter and search.",
+    },
+    {
+      q: "How do I keep a receipt with the expense it belongs to?",
+      a: "Yes. Drop a photo or PDF onto the composer, or anywhere on the tracker, and it's attached to the transaction you're writing. The same file also appears in the vault under a system folder called Transaction attachments, so you can reach it from either direction.",
+    },
+    {
+      q: "What's the difference between folders and tags for receipts?",
+      a: "A file lives in one folder but can carry several tags. Folders answer \"where did I put it\" — 2026 tax, Car, Flat. Tags answer \"what is it\" — Receipt, Warranty, Reimbursable. A rent receipt can sit in the 2026 tax folder while being tagged both Receipts and Tax, which a folder alone can't express.",
+    },
+    {
+      q: "How long should I keep receipts?",
+      a: "It depends on your jurisdiction, so check your own tax authority's rule — commonly somewhere between three and seven years for anything supporting a tax return. Warranties last as long as the warranty, plus a little. Everyday receipts for things you'll never return or claim can go once the statement has cleared.",
+    },
+    {
+      q: "What file types and sizes can I upload?",
+      a: "JPEG, PNG, WebP and GIF images, PDFs, Word and Excel documents, CSV and plain text — what a receipt or invoice actually arrives as. HEIC is not on the list, so an iPhone set to High Efficiency needs Settings → Camera → Formats → Most Compatible before the camera roll will upload. Each file is capped at 5 MB, comfortably more than a phone photo of a receipt, and each workspace includes 1 GB of storage with a usage ring in the toolbar that changes colour as you approach the limit.",
+    },
+    {
+      q: "Can I share one receipt without giving someone access to everything?",
+      a: "Yes. Create a share link for a single file and anyone with the link can view that file and nothing else — useful for sending a landlord a receipt or an accountant one invoice. Links can be revoked when you're done.",
+    },
+  ],
+};
+
+Everyone has solved receipt storage. Almost nobody has solved receipt retrieval.
+
+The typical setup: you photograph receipts, they land in your camera roll among the holiday pictures, and there are now four thousand of them. Storage was never the problem. Your phone has plenty. The problem arrives eighteen months later when you need *the* receipt for the laptop, and the only way to find it is to scroll through a year of photographs.
+
+That's a shoebox with worse lighting.
+
+## Why organizing receipts digitally is a retrieval problem
+
+A receipt has almost no useful metadata of its own. A photo of a till slip is a picture of some paper. Its filename is `IMG_4032.HEIC` — which is also the first thing to fix, because HEIC isn't an accepted upload; set Camera → Formats to Most Compatible and your phone writes JPEG instead. Its date is when you took the photo, which is usually right but not always. There is nothing in it a computer can sort by that you'd actually search for.
+
+Meanwhile, the thing that *does* have good metadata is the transaction record: an amount, a date, a category, a merchant name you typed. You already created it. It's already searchable and filterable.
+
+So the answer is to stop treating receipts as a filing problem and start treating them as an **attribute of a transaction**. Don't file the receipt; attach it to the number it explains. Then finding it is the same operation as finding the transaction, which you can already do by amount, by date range, by category, or by searching the note you wrote.
+
+This one idea does more work than any filing scheme.
+
+## Attach it while you're already there
+
+The corollary is about timing. A receipt filed later is a receipt filed never, so the attachment has to happen while you are still logging the expense.
+
+<Figure
+  src="/blog/how-to-organize-receipts-digitally--drop-attach-find.png"
+  alt="Three-step diagram: a receipt photo is dropped onto the composer, it attaches to the transaction which then shows a paperclip in the table, and the same file also appears in the vault under a Transaction attachments folder tagged Receipts."
+  caption="One drop, two places. The file is attached to the record it explains and filed in the vault, without a second filing step."
+/>
+
+In SpendChat you drop the photo or PDF onto the composer — or anywhere on the tracker — while you're writing the transaction, and it's attached to that record. The row in the [transactions table](/features/transactions) then carries a paperclip you can see at a glance — the attachments column is on by default, so you don't have to go and enable anything.
+
+The same file also appears in the [vault](/features/receipts-and-files) under a system folder called *Transaction attachments*, so you can reach it from either direction: through the money, or through the files. Nothing had to be filed twice.
+
+## Folders and tags do different jobs
+
+Not everything is a receipt attached to a transaction. Warranties, insurance policies, contracts, statements — those belong somewhere, and this is where a folder structure earns its keep. It's also where most people over-engineer.
+
+<Figure
+  src="/blog/how-to-organize-receipts-digitally--folders-vs-tags.png"
+  alt="Two-column comparison of folders and tags. Folders answer where a file is kept, one file in one place, with colour tints for scanning. Tags answer what a file is, several per file, filterable across every folder."
+  caption="A file lives in one folder and carries as many tags as it needs. Shallow folders plus tags beats a deep tree every time."
+/>
+
+**A folder is where something lives.** One file, one folder. Good folder names are the ones you'd say out loud: *2026 tax*, *Car*, *Flat*, *Warranties*. Colour tints make the right one findable without reading.
+
+**A tag is what something is.** Several per file, and filterable across every folder you own. *Receipt*, *Invoice*, *Warranty*, *Tax*, *Reimbursable*.
+
+The reason to have both is the file that is genuinely two things at once. A receipt for new tyres is a car cost, a tax document and a warranty at once. With folders alone it has to pick one, and next year you'll look in the wrong place. With a tag it can be all three while living in *Car*.
+
+Practical rule: **keep folders shallow and tags few**. Six to ten folders, one level deep, and half a dozen tags. A three-level tree is a filing system you'll avoid using at exactly the moment you're in a hurry.
+
+## What to keep, and for how long
+
+| Document | Keep for | Where it goes |
+| --- | --- | --- |
+| Anything supporting a tax return | Your jurisdiction's retention period — often 3–7 years | Attached to the transaction, tagged Tax |
+| Business expenses and invoices | Same, per your tax authority | Business profile, tagged Invoice |
+| Warranties and big purchases | Warranty term plus a year | Warranties folder, tagged Warranty |
+| Rent, deposits, tenancy documents | Tenancy plus the deposit-dispute window | Flat folder |
+| Insurance policies | Current term, plus the last renewal | Its own folder |
+| Reimbursable work expenses | Until it's actually reimbursed | Tagged Reimbursable, cleared when paid |
+| Everyday shop receipts | Until the statement clears, or the return window closes | Attach if it was notable; otherwise skip |
+
+Retention periods genuinely vary by country, so check your own tax authority rather than trusting a table on the internet — this one included.
+
+That last row matters more than it looks. **You don't need every receipt.** Photographing a 2.40 coffee slip is filing for its own sake. Keep receipts for things you might return, claim, deduct, or argue about. Everything else is covered by the transaction record.
+
+## What to do with the backlog
+
+If you're reading this, you probably already have the camera roll. Some advice about that, because "start attaching receipts from now on" doesn't answer it.
+
+**Don't migrate the lot.** Re-filing eighteen months of receipt photos is a weekend of work whose output is mostly documents you will never open. It also isn't the job it looks like — matching a photo to a transaction from months ago means reading the slip, finding the amount in your history, and hoping the date on the photo is the date of purchase.
+
+**Do a targeted sweep instead.** Two passes, twenty minutes each:
+
+*Pass one — the money.* Scroll for anything expensive: appliances, electronics, furniture, tools, anything with a warranty. These are the receipts you'll actually need, and in most years there turn out to be startlingly few of them. Upload each to a *Warranties* folder, tag it, and name it something you'd search for — `2026-03 washing machine Hoover.jpg` rather than `IMG_4032`.
+
+*Pass two — the claimable.* Anything that supports a tax return or an expense claim. Into a folder named for the tax year, tagged *Tax*. If a matching transaction already exists in your history, attach it there instead and skip the folder entirely — and when filing season arrives, [the transactions themselves export separately](/blog/export-expenses-to-csv-for-taxes).
+
+**Then draw a line and stop.** Everything before today stays in the camera roll, where it is no worse off than it was this morning. The system starts now.
+
+That's the honest version. A filing system you adopt going forward beats a perfect archive you abandon in hour three, and the receipts worth having were never the four thousand — they were the thirty.
+
+## Sharing one file, not the vault
+
+A common moment: your landlord wants proof you paid for a repair, or your accountant needs one invoice.
+
+The bad options are emailing a photo (which then lives in an inbox forever) and adding them to your [workspace](/features/workspaces) (which shows them everything).
+
+The right-sized option is a **share link for that one file**. Anyone with the link can view it; they see nothing else, they don't need an account, and you can revoke the link when the conversation is over. If someone needs an ongoing view of a whole set of books instead, that's a [per-profile grant rather than a link](/blog/how-to-track-shared-expenses-with-your-partner) — the accountant sees the business records and not your groceries.
+
+## Limits worth knowing
+
+**Two attachments per transaction.** That's the one you'll meet first, and it's usually plenty — a receipt and an invoice, say. A purchase needing more than two documents is generally a purchase worth its own folder in the vault.
+
+Each file is capped at **5 MB**, comfortably more than a phone photo of a receipt and enough for most PDFs. Each workspace includes **1 GB**, with a ring in the toolbar showing what's used; it changes colour as you get close rather than surprising you at the limit.
+
+For context: a typical receipt photo is 200–600 KB, so 1 GB is thousands of them. If you're brushing the limit it's usually a handful of large scans or a video that shouldn't be there.
+
+## Photograph it so it's readable in three years
+
+The dullest section, and the one that decides whether any of this was worth doing.
+
+**Flat, and fill the frame.** Corner to corner, one receipt per photo. A curled slip photographed at an angle is unreadable when it matters.
+
+**Even light, no flash.** Flash blows out thermal paper. Daylight or a bright room, and make sure your own shadow isn't across it.
+
+**Get the total in shot.** Sounds obvious; the top of the receipt is what people crop when they're being tidy, and the total is at the bottom.
+
+**Do it now, not at home.** Thermal receipts fade. Some are unreadable within a year, and a warm car will do it in a month. The photo is the archival copy.
+
+**Type the merchant somewhere.** Your future search is "Currys" or "the plumber", and search covers both the title and the description — but not the image, which is never read for text. The words you type are the whole index, so type the name you'll go looking for.
+
+## The whole system, in four rules
+
+1. Attach the receipt to the transaction, at the moment of spending.
+2. Use shallow folders for what isn't a transaction; use tags for what things *are*.
+3. Keep what you might claim, return, or argue about. Skip the rest.
+4. Type a searchable title, because that's what you'll search.
+
+[Attach your first receipt](/features/receipts-and-files) — drop it onto the composer while you're logging the expense, and it's filed in both places at once.
