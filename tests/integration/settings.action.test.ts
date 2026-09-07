@@ -1,10 +1,13 @@
 import { describe, it, expect } from "vitest";
 import { eq } from "drizzle-orm";
-import { emailSendLog, users, workspaceMembers, workspaces } from "@/db/schema";
+import { emailSendLog, users, userSettings, workspaceMembers, workspaces } from "@/db/schema";
 import {
   deleteAllTransactions,
+  dismissInviteNudge,
   notifyPasswordChanged,
+  recordHeardFrom,
   updateAccountName,
+  updateComposerDensity,
 } from "@/actions/settings";
 import { updateWorkspaceCurrency } from "@/actions/workspaces";
 import { signInAs, uid } from "./helpers/session";
@@ -147,5 +150,66 @@ describe("notifyPasswordChanged", () => {
     const res = await notifyPasswordChanged();
     expect(res.ok).toBe(true); // the password already changed — never a failure
     expect(await sendLogCount("a")).toBe(20); // capped: no additional send recorded
+  });
+});
+
+describe("onboarding cards", () => {
+  const acquisitionOf = async (alias: string) =>
+    (
+      await getTestDb()
+        .select({ acquisition: users.acquisition })
+        .from(users)
+        .where(eq(users.id, uid(alias)))
+    )[0]?.acquisition;
+
+  it("recordHeardFrom merges the answer beside the browser's first touch", async () => {
+    signInAs("h");
+    await bootstrapUser("h");
+    await getTestDb()
+      .update(users)
+      .set({ acquisition: { source: "hn", landing: "/" } })
+      .where(eq(users.id, uid("h")));
+
+    expect((await recordHeardFrom("other", "  a newsletter ")).ok).toBe(true);
+    const stored = await acquisitionOf("h");
+    expect(stored).toMatchObject({
+      source: "hn",
+      landing: "/",
+      heardFrom: "other",
+      heardFromOther: "a newsletter",
+    });
+    expect(stored?.heardFromAt).toBeTruthy();
+  });
+
+  it("keeps free text only for 'other', and records a skip", async () => {
+    signInAs("h2");
+    await bootstrapUser("h2");
+    expect((await recordHeardFrom("reddit", "ignored")).ok).toBe(true);
+    expect(await acquisitionOf("h2")).toMatchObject({ heardFrom: "reddit", heardFromOther: null });
+    expect((await recordHeardFrom("skipped")).ok).toBe(true);
+    expect(await acquisitionOf("h2")).toMatchObject({ heardFrom: "skipped" });
+  });
+
+  it("rejects an answer outside the list or over the length cap", async () => {
+    signInAs("h3");
+    await bootstrapUser("h3");
+    expect((await recordHeardFrom("tiktok")).ok).toBe(false);
+    expect((await recordHeardFrom("other", "x".repeat(81))).ok).toBe(false);
+    expect(await acquisitionOf("h3")).toBeNull();
+  });
+
+  it("dismissInviteNudge flips ui_prefs.onboarding and leaves the composer alone", async () => {
+    signInAs("d");
+    await bootstrapUser("d");
+    expect((await updateComposerDensity("compact")).ok).toBe(true);
+    expect((await dismissInviteNudge()).ok).toBe(true);
+    const [row] = await getTestDb()
+      .select({ uiPrefs: userSettings.uiPrefs })
+      .from(userSettings)
+      .where(eq(userSettings.userId, uid("d")));
+    expect(row.uiPrefs).toEqual({
+      composer: { density: "compact" },
+      onboarding: { inviteNudgeDismissed: true },
+    });
   });
 });

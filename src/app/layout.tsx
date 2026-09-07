@@ -4,6 +4,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthBridge } from "@/components/auth-bridge";
+import { AttributionCapture } from "@/components/attribution-capture";
 import { ogImage } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import "./globals.css";
@@ -89,6 +90,7 @@ export default function RootLayout({
           <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
           <Toaster richColors position="top-right" />
           <AuthBridge />
+          <AttributionCapture />
         </ThemeProvider>
       </body>
     </html>

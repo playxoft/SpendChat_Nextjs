@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { users } from "@/db/schema";
 import { conflict } from "@/lib/errors";
 import type { FirebaseTokenClaims } from "@/lib/firebase-verify";
+import type { AttributionInput } from "@/lib/attribution";
 import type { SessionUser } from "@/lib/auth";
 
 /**
@@ -55,13 +56,26 @@ async function linkAccountByEmail(
  * inserted (with a concurrency-safe upsert). Email/name/image are seeded on
  * insert; they refresh via the session route rather than on every read.
  *
+ * `options.acquisition` is the browser's first-touch attribution (see
+ * `lib/attribution.ts`, already validated by the session route). It is stored
+ * on that first INSERT and nowhere else: an existing or linked account keeps
+ * the origin it was created with.
+ *
  * Account linking: when a new Firebase UID arrives with a *verified* email that
  * already has an account (e.g. Google sign-in after an email/password sign-up),
  * the UID is linked to that account instead of inserting a duplicate — the
  * `users_email_lower_uq` index would otherwise turn every such sign-in into a
  * 500. Unverified emails never claim an existing account; they get a clear 409.
  */
-export async function resolveUser(claims: FirebaseTokenClaims): Promise<SessionUser> {
+export type ResolveUserOptions = {
+  /** First-touch attribution to store if this sign-in creates the account. */
+  acquisition?: AttributionInput | null;
+};
+
+export async function resolveUser(
+  claims: FirebaseTokenClaims,
+  options: ResolveUserOptions = {},
+): Promise<SessionUser> {
   const db = getDb();
   const firebaseUid = claims.sub;
 
@@ -88,7 +102,7 @@ export async function resolveUser(claims: FirebaseTokenClaims): Promise<SessionU
   try {
     const [row] = await db
       .insert(users)
-      .values({ firebaseUid, email, name, image })
+      .values({ firebaseUid, email, name, image, acquisition: options.acquisition ?? null })
       .onConflictDoUpdate({ target: users.firebaseUid, set: { updatedAt: new Date() } })
       .returning({ id: users.id, email: users.email, name: users.name });
     return row!;

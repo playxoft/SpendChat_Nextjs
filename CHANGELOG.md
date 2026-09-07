@@ -18,6 +18,28 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-09-07
+
+### Added
+- **Signup attribution.** The public site remembers the first link that named a
+  channel — UTM tags, a directory's `?ref=`, or the referring site — for up to
+  30 days in the browser, and a new account stores it in `users.acquisition` at
+  the moment it is created, never rewritten afterwards. Hostnames and short tags
+  only: no full URLs, no query strings. Migration `0031`.
+- **"How did you hear about us?"** A one-tap card above the tracker feed for a
+  fresh account. The answer (or a skip) lands in the same column and the card
+  never returns.
+- **An invite nudge** for a workspace that is still solo after its first day:
+  shared tracking is the feature people miss, so the tracker points the admin at
+  Settings → Workspace once, dismissible (`ui_prefs.onboarding`).
+- **`pnpm growth:report:dev` / `growth:report:prod`** — a read-only report of
+  signups per day, per channel (with how many went on to add a transaction), per
+  answer, and per landing page.
+
+### Changed
+- **Privacy and cookie policies** describe the attribution record and the
+  local-storage entry that carries it.
+
 ## [0.19.0] — 2026-09-06
 
 ### Added

@@ -1115,3 +1115,21 @@ export async function listTransactionFilesForVault(
     profileIcon: r.profileIcon,
   }));
 }
+
+/**
+ * What the tracker's one-time cards need: whether the channel question has
+ * been answered (or skipped), and how old the account is. One indexed read.
+ */
+export const getOnboardingState = cache(async (userId: string) => {
+  const db = getDb();
+  const [row] = await db
+    .select({ acquisition: users.acquisition, createdAt: users.createdAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  const ageMs = row ? Date.now() - row.createdAt.getTime() : 0;
+  return {
+    heardFromAnswered: row?.acquisition?.heardFrom != null,
+    accountAgeDays: Math.floor(ageMs / 86_400_000),
+  };
+});

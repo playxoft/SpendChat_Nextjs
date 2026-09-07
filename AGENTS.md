@@ -31,6 +31,9 @@ Authentication, secrets via Doppler.
   largest tables, slowest statements. Exits 1 past `--warn-at` (default 80%), so
   it can gate a cron. **It also deletes** `ai_usage_log` / `email_send_log` rows
   past `--retention-days` (default 30) unless you pass `-- --no-prune`.
+- `pnpm growth:report:dev` / `growth:report:prod` — read-only signup report:
+  per day, per channel (`users.acquisition`, rules in `src/lib/attribution.ts`),
+  per "how did you hear about us" answer, with activation (≥1 transaction).
 - `pnpm preview` / `pnpm deploy:dev` / `pnpm deploy:prod` — Worker build / deploy
 
 ## Conventions

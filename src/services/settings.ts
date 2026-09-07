@@ -30,6 +30,7 @@ import {
   voiceLanguagesSchema,
 } from "@/lib/validation";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
+import { heardFromOtherSchema, heardFromSchema } from "@/lib/attribution";
 import type { UserSettings } from "@/db/schema";
 
 /**
@@ -392,4 +393,54 @@ export async function notifyPasswordChanged(userId: string): Promise<void> {
     event: "account.password_changed",
     userId,
   });
+}
+
+/**
+ * Answer (or skip) the tracker's "how did you hear about us?" card. Merged into
+ * `users.acquisition` with `||` so the browser-recorded first touch beside it
+ * survives; `heardFromAt` is what makes "asked once" true. Free text is only
+ * kept for `other`, capped short, and never interpolated into a log message.
+ */
+export async function recordHeardFrom(
+  userId: string,
+  choice: string,
+  other: string | null = null,
+): Promise<void> {
+  const parsedChoice = heardFromSchema.safeParse(choice);
+  if (!parsedChoice.success) throw validationError("Invalid answer");
+  const parsedOther = heardFromOtherSchema.safeParse(other ?? "");
+  if (!parsedOther.success) throw validationError("Answer is too long");
+  const heardFromOther = parsedChoice.data === "other" && parsedOther.data ? parsedOther.data : null;
+  const db = getDb();
+  await db
+    .update(users)
+    .set({
+      acquisition: sql`
+        coalesce(${users.acquisition}, '{}'::jsonb) || jsonb_build_object(
+          'heardFrom', ${parsedChoice.data}::text,
+          'heardFromOther', ${heardFromOther}::text,
+          'heardFromAt', ${new Date().toISOString()}::text
+        )`,
+      updatedAt: new Date(),
+    })
+    .where(eq(users.id, userId));
+}
+
+/** Wave away the tracker's invite nudge (`ui_prefs.onboarding.inviteNudgeDismissed`).
+ * Same nested `||` merge as `updateComposerDensity`, for the same reason. */
+export async function dismissInviteNudge(userId: string): Promise<void> {
+  await ensureBootstrap(userId);
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({
+      uiPrefs: sql`
+        ${userSettings.uiPrefs} || jsonb_build_object(
+          'onboarding',
+          coalesce(${userSettings.uiPrefs} -> 'onboarding', '{}'::jsonb)
+            || jsonb_build_object('inviteNudgeDismissed', true)
+        )`,
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userId, userId));
 }

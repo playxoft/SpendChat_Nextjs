@@ -45,3 +45,43 @@ describe("resolveUser", () => {
     ).rejects.toMatchObject({ status: 409, code: "conflict" });
   });
 });
+
+describe("resolveUser — acquisition", () => {
+  const acquisitionOf = async (id: string) =>
+    (
+      await getTestDb()
+        .select({ acquisition: users.acquisition })
+        .from(users)
+        .where(eq(users.id, id))
+    )[0]?.acquisition;
+
+  it("stores the first-touch attribution on the INSERT and never rewrites it", async () => {
+    const { resolveUser } = await import("@/lib/identity");
+    const first = await resolveUser(claims({ sub: "uid-acq", email: "acq@x.com" }), {
+      acquisition: {
+        source: "hn",
+        referrer: "news.ycombinator.com",
+        landing: "/",
+        capturedAt: "2026-09-07T00:00:00.000Z",
+      },
+    });
+    expect(await acquisitionOf(first.id)).toMatchObject({
+      source: "hn",
+      referrer: "news.ycombinator.com",
+    });
+
+    // A later sign-in — even a second provider carrying a new attribution —
+    // links to the account and leaves its origin alone.
+    const linked = await resolveUser(claims({ sub: "uid-acq-google", email: "Acq@X.com" }), {
+      acquisition: { source: "reddit" },
+    });
+    expect(linked.id).toBe(first.id);
+    expect(await acquisitionOf(first.id)).toMatchObject({ source: "hn" });
+  });
+
+  it("stores null when the browser sent nothing", async () => {
+    const { resolveUser } = await import("@/lib/identity");
+    const user = await resolveUser(claims({ sub: "uid-plain", email: "plain@x.com" }));
+    expect(await acquisitionOf(user.id)).toBeNull();
+  });
+});

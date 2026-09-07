@@ -3,6 +3,7 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
 import { firebaseConfig } from "@/lib/firebase-config";
+import { readStoredAttribution } from "@/lib/attribution";
 
 /**
  * Browser Firebase app + auth. Config comes from the single build-time env var
@@ -38,8 +39,13 @@ export async function syncSession(): Promise<void> {
     method: "POST",
     headers: { "content-type": "application/json" },
     // Include the refresh token so the server can keep the session alive for a
-    // month past the ID token's ~1h life (see `session-cookie.ts`).
-    body: JSON.stringify({ idToken, refreshToken: user.refreshToken }),
+    // month past the ID token's ~1h life (see `session-cookie.ts`), and the
+    // first-touch attribution, used only if this sign-in creates the account.
+    body: JSON.stringify({
+      idToken,
+      refreshToken: user.refreshToken,
+      attribution: readStoredAttribution(),
+    }),
   });
 }
 

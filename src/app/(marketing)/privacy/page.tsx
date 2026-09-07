@@ -8,7 +8,7 @@ export const metadata = createMetadata({
   path: "/privacy",
 });
 
-const LAST_UPDATED = "September 2, 2026";
+const LAST_UPDATED = "September 7, 2026";
 
 /**
  * Every claim on this page has to be a statement about code in the repository,
@@ -98,6 +98,15 @@ export default function PrivacyPage() {
               Google service). If you sign in with Google, your basic Google profile (name
               and picture) is shared with the app. We never see or store your password:
               the email-and-password path is handled entirely by Google.
+            </li>
+            <li>
+              <span className="text-foreground">How you found us</span> — when you create
+              an account we keep the name of the site that linked you here and any
+              campaign tag on that link (the browser holds this in local storage for up to
+              30 days before sign-up), plus your answer to the one-question &ldquo;how did
+              you hear about us?&rdquo; card if you give one. Hostnames and short tags
+              only, never full addresses; used in aggregate to see which places bring
+              people here.
             </li>
             <li>
               <span className="text-foreground">Your transactions</span> — the amounts,

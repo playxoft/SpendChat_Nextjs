@@ -30,6 +30,7 @@ import {
   TRANSACTION_TITLE_MAX,
 } from "../lib/validation";
 import type { UiPrefs } from "../lib/validation";
+import type { Acquisition } from "../lib/attribution";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -63,6 +64,12 @@ export const users = pgTable(
     email: text("email"),
     name: text("name"),
     image: text("image"),
+    // Where the account came from: the browser's first-touch channel (UTM tags,
+    // a directory's `?ref=`, the referring host), written on the INSERT only,
+    // plus the "how did you hear about us" answer merged in later. Shape and
+    // rules in `src/lib/attribution.ts`; null for accounts that predate it or
+    // whose browser sent nothing. Read back with `pnpm growth:report:prod`.
+    acquisition: jsonb("acquisition").$type<Acquisition>(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
