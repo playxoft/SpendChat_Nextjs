@@ -67,7 +67,8 @@ export function FeaturePage({
       <JsonLd data={breadcrumbJsonLd(trail)} />
       {faqs.length > 0 && <JsonLd data={faqJsonLd(faqs)} />}
 
-      <Breadcrumbs trail={trail} />
+      {/* Centred: the hero below it is. */}
+      <Breadcrumbs trail={trail} align="center" />
 
       {/* Hero */}
       <header className="mx-auto max-w-3xl text-center">

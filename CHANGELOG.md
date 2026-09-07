@@ -18,6 +18,28 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-09-06
+
+### Added
+
+- **Enter confirms the AI review list.** After a note is parsed into drafts,
+  Enter — bare, or with ⌘/Ctrl — saves them, so an AI entry can be finished on
+  the keys that started it instead of a reach for the mouse. It stands down
+  wherever the key already means something else: on a button, inside an open
+  category select or date picker, while a description is being edited, while an
+  input method is composing a character, and whenever the Add button itself
+  would be disabled. The Add button now shows the chord, the way the manual
+  composer's send button does.
+
+### Changed
+
+- **The Features page drops its breadcrumb trail.** On a first-level page the
+  trail read "Home > Features" — one link, to where the logo already goes —
+  left-aligned above a centred header. Its `BreadcrumbList` markup went with it,
+  since structured data for navigation the reader can't see is what the spam
+  policies target. Feature and blog pages keep theirs, and the feature pages'
+  trail is now centred with the hero it sits above.
+
 ## [0.18.0] — 2026-09-06
 
 The three posts that predate the deep-dives, brought up to the same standard.
