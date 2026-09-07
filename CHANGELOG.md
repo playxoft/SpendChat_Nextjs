@@ -18,6 +18,17 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-09-07
+
+### Added
+
+- **The tracker opens with the caret in the composer.** On desktop, the first
+  keystroke after the page loads is the amount — no click to find somewhere to
+  type. The composer is what the page is for, and aiming at it first was the one
+  tap the chat layout hadn't removed. It stands down on phones (focusing an
+  input there raises the keyboard over the feed you came to read), never takes
+  focus from a click that got there first, and doesn't scroll the feed to do it.
+
 ## [0.18.0] — 2026-09-06
 
 The three posts that predate the deep-dives, brought up to the same standard.

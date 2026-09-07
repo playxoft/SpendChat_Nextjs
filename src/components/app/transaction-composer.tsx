@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlignLeft, ArrowUp, Minus, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -215,6 +215,15 @@ export function TransactionComposer({
     { requireNoOverlay: true, enabled: !switching },
   );
 
+  /**
+   * The field an entry starts in: the chip in single-field mode, the title in
+   * title-first, the amount otherwise. One definition, because the composer
+   * needs it twice — after a send, and when the tracker first opens.
+   */
+  function firstField() {
+    return isCombined ? chipRef : inputMode === "title_amount" ? titleRef : amountRef;
+  }
+
   /** Move the caret to the end of one of the single field's two zones. */
   function focusEnd(ref: React.RefObject<HTMLInputElement | null>) {
     const el = ref.current;
@@ -222,6 +231,50 @@ export function TransactionComposer({
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   }
+
+  /**
+   * On desktop the tracker opens with the caret already in the composer, so the
+   * first keystroke after the page loads is the amount rather than a click to
+   * find somewhere to type. The composer is the page's purpose; making the
+   * reader aim at it first is the tap this whole design exists to remove.
+   *
+   * Four things it deliberately does not do:
+   *
+   * - **Not on a phone.** Focusing an input there raises the keyboard over the
+   *   feed the moment the page settles, hiding the thing you came to read.
+   * - **Not a steal.** If anything already holds focus — the user's own click
+   *   during load, a restored dialog — that wins, and the one shot is spent so
+   *   it can't be taken back a beat later.
+   * - **Not a scroll.** `preventScroll`, because the composer sits under a feed
+   *   that can be long and focusing it must not yank the viewport away from
+   *   wherever the browser just restored the reader to.
+   * - **Not repeatable.** Once per mount. Re-running on a mode or density
+   *   change would take the caret back from wherever the user has since put it.
+   *
+   * The `activeElement` re-check after `focus()` is what makes this safe across
+   * hydration: `useEntryMode` renders "manual" on the server and corrects to the
+   * stored mode on the client, and the inactive pane is `visibility: hidden`,
+   * which browsers refuse to focus. So the shot is only spent when the caret
+   * actually landed — an AI-mode user's settled render still gets its turn to
+   * decline.
+   */
+  const autoFocused = useRef(false);
+  useEffect(() => {
+    if (autoFocused.current || isMobile) return;
+    if (switching || mode !== "manual") return;
+    const el = firstField().current;
+    if (!el) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) {
+      autoFocused.current = true;
+      return;
+    }
+    el.focus({ preventScroll: true });
+    if (document.activeElement === el) autoFocused.current = true;
+    // Mount-once by the ref above; the deps only let it retry while it has not
+    // yet succeeded (hydration settling, a profile switch finishing).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, isMobile, switching]);
 
   function selectTagCategory(cat: Pick<Category, "id">) {
     setCategoryId(cat.id);
@@ -313,9 +366,8 @@ export function TransactionComposer({
     setCategoryId(null);
     setOccurredOn(today);
     setTagDismissed(false);
-    // Back to whichever field the next entry starts in: the chip in single-field
-    // mode, the title in title-first, the amount otherwise.
-    (isCombined ? chipRef : inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
+    // Back to whichever field the next entry starts in.
+    firstField().current?.focus();
   }
 
   // Files dropped anywhere on the tracker page: filter to the free slots and
