@@ -36,7 +36,7 @@ function table(rows) {
     return;
   }
   const cols = Object.keys(rows[0]);
-  const cell = (v) => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? ""));
+  const cell = (v) => String(v ?? "");
   const widths = cols.map((c) => Math.max(c.length, ...rows.map((r) => cell(r[c]).length)));
   const line = (vals) => "  " + vals.map((v, i) => v.padEnd(widths[i])).join("  ");
   console.log(line(cols));
@@ -44,6 +44,9 @@ function table(rows) {
   for (const r of rows) console.log(line(cols.map((c) => cell(r[c]))));
 }
 
+// Keep DATE columns as the 'YYYY-MM-DD' text Postgres sends (the default
+// parser would turn them into local-midnight JS Dates and shift the day).
+pg.types.setTypeParser(1082, (v) => v);
 const client = new pg.Client({ connectionString: url });
 await client.connect();
 try {
@@ -59,12 +62,14 @@ try {
   table([totals]);
 
   const { rows: perDay } = await client.query(
-    `select d::date as day, coalesce(s.n, 0)::int as signups
-       from generate_series((now() - make_interval(days => $1 - 1))::date, now()::date, '1 day') d
+    `with bounds as (
+       select (now() at time zone 'UTC')::date as today
+     )
+     select d::date as day, coalesce(s.n, 0)::int as signups
+       from bounds, generate_series(today - ($1::int - 1), today, interval '1 day') d
        left join (
-         select created_at::date as day, count(*)::int as n
+         select (created_at at time zone 'UTC')::date as day, count(*)::int as n
            from users
-          where created_at >= (now() - make_interval(days => $1 - 1))::date
           group by 1
        ) s on s.day = d::date
       order by 1`,
