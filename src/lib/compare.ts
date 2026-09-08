@@ -37,7 +37,7 @@ export const COMPARISONS: Comparison[] = [
       "Splitwise settles who owes whom. SpendChat records what you spent, shared or not, with no daily limit and no ads. Which one fits, and when you'd want both.",
     blurb: "Settling up with friends versus knowing where your own money went.",
     verifiedOn: "2026-09-08",
-    published: false,
+    published: true,
   },
   {
     slug: "walnut",
@@ -48,7 +48,7 @@ export const COMPARISONS: Comparison[] = [
       "Walnut read your bank SMS to log spending automatically. SpendChat asks you to type it. What each catches, what each misses, and what happened to Walnut.",
     blurb: "Automatic SMS parsing versus typing it yourself, for Indian users.",
     verifiedOn: "2026-09-08",
-    published: false,
+    published: true,
   },
   {
     slug: "monefy",
@@ -59,7 +59,7 @@ export const COMPARISONS: Comparison[] = [
       "Both are manual, both are fast. Monefy is a mobile app with a paid Pro tier; SpendChat runs in the browser, is free, open source, and shares a feed with family.",
     blurb: "Two manual trackers: a mobile app with a Pro tier versus a free web app.",
     verifiedOn: "2026-09-08",
-    published: false,
+    published: true,
   },
   {
     slug: "mint",
@@ -70,7 +70,7 @@ export const COMPARISONS: Comparison[] = [
       "Mint closed in 2024. If you want free tracking without linking a bank, SpendChat is one option; here's how it compares with Mint and its paid successors.",
     blurb: "Free tracking after Mint, without handing over a bank login.",
     verifiedOn: "2026-09-08",
-    published: false,
+    published: true,
   },
   {
     slug: "ynab",
@@ -81,7 +81,7 @@ export const COMPARISONS: Comparison[] = [
       "YNAB is a budgeting method with a subscription. SpendChat is a free record of what you spent. How the two differ, where each wins, and who should pick which.",
     blurb: "A paid budgeting system versus a free record of spending.",
     verifiedOn: "2026-09-08",
-    published: false,
+    published: true,
   },
 ];
 

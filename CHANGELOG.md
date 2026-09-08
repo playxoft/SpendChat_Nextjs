@@ -35,6 +35,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - **`pnpm growth:report:dev` / `growth:report:prod`** — a read-only report of
   signups per day, per channel (with how many went on to add a transaction), per
   answer, and per landing page.
+- **Five comparison pages under `/compare`** — SpendChat vs Splitwise, Walnut
+  (now axio), Monefy, Mint and its paid successors, and YNAB. Each has an
+  at-a-glance table, a two-sided "where each one wins" verdict, an FAQ with
+  `FAQPage` markup, and prints the date the competitor's facts were checked
+  against its own site. A `/compare` hub lists them; the footer links it.
 - **A blog post on running Next.js 16 on Cloudflare Workers** — the five things
   that broke on the way there (middleware, `firebase-admin`, a shared pool,
   React's `cache()` outside a render, and a `DESC NULLS LAST` index) and what
