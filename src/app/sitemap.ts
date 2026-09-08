@@ -1,5 +1,6 @@
 import type { MetadataRoute } from "next";
 import { getPosts } from "@/lib/blog";
+import { comparePath, publishedComparisons } from "@/lib/compare";
 import { featurePath, publishedFeatures } from "@/lib/features";
 import { siteConfig } from "@/lib/site";
 
@@ -8,6 +9,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
   const routes: { path: string; priority: number; freq: "weekly" | "monthly" }[] = [
     { path: "", priority: 1, freq: "weekly" },
     { path: "/features", priority: 0.8, freq: "monthly" },
+    { path: "/compare", priority: 0.7, freq: "monthly" },
     { path: "/pricing", priority: 0.7, freq: "monthly" },
     { path: "/blog", priority: 0.7, freq: "weekly" },
     { path: "/docs", priority: 0.7, freq: "monthly" },
@@ -37,6 +39,14 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.8,
   }));
 
+  // Comparison pages, same registry discipline as the feature pages.
+  const compareEntries: MetadataRoute.Sitemap = publishedComparisons().map((c) => ({
+    url: `${siteConfig.url}${comparePath(c.slug)}`,
+    lastModified: new Date(`${c.verifiedOn}T00:00:00Z`),
+    changeFrequency: "monthly",
+    priority: 0.7,
+  }));
+
   // Each post carries its own last-modified date so search engines see real freshness.
   const postEntries: MetadataRoute.Sitemap = getPosts().map((post) => ({
     url: `${siteConfig.url}/blog/${post.slug}`,
@@ -49,5 +59,5 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.6,
   }));
 
-  return [...staticEntries, ...featureEntries, ...postEntries];
+  return [...staticEntries, ...featureEntries, ...compareEntries, ...postEntries];
 }

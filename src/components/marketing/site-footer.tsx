@@ -13,6 +13,7 @@ const groups = [
     title: "Product",
     links: [
       { href: "/features", label: "Features" },
+      { href: "/compare", label: "Compare" },
       { href: "/pricing", label: "Pricing" },
       { href: "/docs", label: "Docs" },
       { href: "/blog", label: "Blog" },
