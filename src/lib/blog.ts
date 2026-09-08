@@ -12,6 +12,7 @@ import * as aiTracking from "@/content/blog/how-to-track-expenses-with-ai.mdx";
 import * as conversation from "@/content/blog/track-your-money-like-a-conversation.mdx";
 import * as openSource from "@/content/blog/spendchat-is-now-open-source.mdx";
 import * as introducing from "@/content/blog/introducing-spendchat.mdx";
+import * as cloudflareWorkers from "@/content/blog/running-nextjs-16-on-cloudflare-workers.mdx";
 
 /** Frontmatter exported from each post's `.mdx` file as `export const meta`. */
 export type BlogMeta = {
@@ -92,6 +93,7 @@ type MdxModule = { default: ComponentType; meta: BlogMeta };
  * `src/content/blog` and adding one line here.
  */
 const registry: { slug: string; mod: MdxModule }[] = [
+  { slug: "running-nextjs-16-on-cloudflare-workers", mod: cloudflareWorkers },
   { slug: "open-source-expense-tracker", mod: openSourceGuide },
   { slug: "export-expenses-to-csv-for-taxes", mod: csvTaxes },
   { slug: "how-to-organize-receipts-digitally", mod: receipts },

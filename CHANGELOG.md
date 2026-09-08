@@ -35,6 +35,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - **`pnpm growth:report:dev` / `growth:report:prod`** — a read-only report of
   signups per day, per channel (with how many went on to add a transaction), per
   answer, and per landing page.
+- **A blog post on running Next.js 16 on Cloudflare Workers** — the five things
+  that broke on the way there (middleware, `firebase-admin`, a shared pool,
+  React's `cache()` outside a render, and a `DESC NULLS LAST` index) and what
+  replaced each, with links to the files. Written for cross-posting to dev.to,
+  Hashnode and Medium with a canonical back here.
 
 ### Changed
 - **Privacy and cookie policies** describe the attribution record and the

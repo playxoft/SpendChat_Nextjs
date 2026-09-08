@@ -1,0 +1,81 @@
+export const meta = {
+  title: "Running Next.js 16 on Cloudflare Workers: What Broke and What We Changed",
+  date: "2026-09-08",
+  readingMinutes: 8,
+  tag: "Engineering",
+  excerpt:
+    "SpendChat runs Next.js 16 on Cloudflare Workers through OpenNext. Five things broke on the way: middleware, auth, the database pool, React's cache, and an index that fooled EXPLAIN.",
+  image: "/blog/running-nextjs-16-on-cloudflare-workers.png",
+  imageAlt: "Cover card for the post on running Next.js 16 on Cloudflare Workers.",
+  faqs: [
+    {
+      q: "Does Next.js middleware run on Cloudflare Workers?",
+      a: "Not the Node.js middleware runtime that Next 16 uses, no. OpenNext builds the app for the Workers runtime, and that middleware never executes there. SpendChat protects its routes in the (app) layout instead: the layout resolves the session before rendering anything, so every page under it is covered without opting in.",
+    },
+    {
+      q: "Can you use firebase-admin on Cloudflare Workers?",
+      a: "No, it depends on Node.js APIs the Workers runtime doesn't provide. SpendChat verifies Firebase ID tokens statelessly with jose against Google's public JWKS, pinning the RS256 algorithm, the issuer and the audience to the project. That's the whole check, with no session server.",
+    },
+    {
+      q: "How do you connect to Postgres from a Worker?",
+      a: "Through Cloudflare Hyperdrive, which keeps a warm pool of connections to Neon near the database. Inside the Worker a node-postgres pool is created per request, because the runtime doesn't allow a socket to be reused across requests. Hyperdrive's query cache is switched off so a balance you just wrote is never served stale.",
+    },
+  ],
+};
+
+SpendChat is a Next.js 16 App Router application, deployed to Cloudflare Workers with OpenNext, talking to Postgres on Neon, with Firebase for sign-in and R2 for receipts. It is [open source](https://github.com/playxoft/SpendChat_Nextjs), so everything below links to the actual file. This is the list we wish we had read before moving there: five things that broke, what each one turned out to mean, and the change that fixed it.
+
+## Why Workers in the first place
+
+One deploy, no servers to patch, and the code runs close to whoever opened the app. For a money tracker where the whole product is "type it, see the balance", the round trip on every send is the product. Cloudflare's smart placement moves the Worker next to the database region rather than next to the user, which sounds backwards until you count the database calls a page render makes: several queries at a few milliseconds each beat one HTTP hop at a hundred.
+
+The deploy itself is unremarkable, which is the point. `opennextjs-cloudflare build` produces a Worker, `wrangler` pushes it to one of two named environments, and secrets come from Doppler. One detail matters more than it looks: anything named `NEXT_PUBLIC_*` is inlined at build time from whichever config the build ran under. Build under the wrong one and you ship a production bundle that points at the beta Firebase project, with no error anywhere.
+
+## 1. Middleware does not run
+
+Next's route protection story is middleware. Next 16's middleware runs on the Node.js runtime, and on Workers it simply never executes. The first sign is not an error but a protected page that renders for a logged-out visitor.
+
+The fix was to stop wanting middleware. Every authenticated route lives under one route group, and [its layout](https://github.com/playxoft/SpendChat_Nextjs/blob/master/src/app/app/layout.tsx) calls `requireUser()` before it renders a single child. A page cannot forget to opt in, because there is nothing to opt into; being under the layout is the protection. It is less flexible than a matcher, and we have not missed the flexibility once.
+
+## 2. firebase-admin is Node-only
+
+Verifying a Firebase ID token server-side normally means `firebase-admin`, which needs Node APIs the Workers runtime does not have. What a Firebase ID token actually is, though, is an RS256 JWT signed by Google's Secure Token service, and verifying one of those needs nothing more than the public keys.
+
+So [`firebase-verify.ts`](https://github.com/playxoft/SpendChat_Nextjs/blob/master/src/lib/firebase-verify.ts) uses `jose`: fetch Google's JWKS (cached and rotated by `createRemoteJWKSet`), pin `alg` to RS256, pin the issuer and the audience to our project, and read the claims. There is no session server and no admin SDK. The browser posts each fresh token to one route that stores it in an httpOnly cookie, along with the refresh token that lets the server re-mint an ID token after the hour is up. Sign-out clears the cookies; revoking refresh tokens server-side needs admin credentials the Worker does not hold, and the code says so in a comment rather than pretending otherwise.
+
+One rule fell out of this that we now apply everywhere: the Firebase UID becomes our own internal id in exactly one function, and every table stores the internal id. Nothing downstream ever sees a provider identifier.
+
+## 3. A socket cannot outlive a request
+
+The usual Node pattern, a module-level connection pool that every request shares, breaks on Workers: the runtime forbids reusing a socket across requests. The symptom is intermittent and ugly, so it is worth knowing in advance.
+
+[`db/index.ts`](https://github.com/playxoft/SpendChat_Nextjs/blob/master/src/db/index.ts) creates a node-postgres pool per request, keyed on the request's execution context, which is unique per request and unreachable once the request ends, so the pool and its sockets go with it. That would be expensive against a database directly, which is what Hyperdrive is for: the Worker connects to Hyperdrive, and Hyperdrive keeps a warm pool to Neon. Locally, in tests and for migrations, the same module falls back to a direct connection string, so nothing else in the codebase knows which world it is in.
+
+Hyperdrive can also cache query results. We turned that off when creating the config, and the decision is recorded in `wrangler.toml` so it survives the next person. A tracker whose balance is occasionally stale for a few seconds after you add a transaction is broken in the way users notice most.
+
+## 4. React's cache() stops memoizing outside a render
+
+React's `cache()` deduplicates a call for the duration of one server render, and we leaned on it: the session lookup, the workspace, the settings, all wrapped so a layout and its page resolve them once. Then the timing logs showed server actions running the same reads two and three times.
+
+Outside an RSC render, `cache()` hands you a throwaway map per call. It does not warn. So [`request-cache.ts`](https://github.com/playxoft/SpendChat_Nextjs/blob/master/src/lib/request-cache.ts) is a per-request memo built on `AsyncLocalStorage`, established at the two entry seams the app has (the REST handler and the server-action runner), and the reads that matter go through it. The same scope carries the request's identity, so every log line gets the request id, which in production is Cloudflare's `cf-ray`, plus the user, workspace and profile ids, without anyone passing them by hand.
+
+## 5. An index that fooled EXPLAIN
+
+This one is not about Workers, and it cost the most time. The tracker feed is a keyset-paginated list ordered by date, created time and id, all descending. Drizzle's `.desc()` on an index emits `DESC NULLS LAST`. Postgres reads a plain `ORDER BY x DESC` as `DESC NULLS FIRST`, and the planner will not match an index to a sort with the other null ordering.
+
+The trap is that `EXPLAIN` still showed the index being used. It was, for the range scan; then Postgres sorted the result anyway. The migration that fixed it recreates the index with explicit `NULLS FIRST` on every column, and the read went from tens of thousands of buffers to a couple of hundred. The comment on [migration 0028](https://github.com/playxoft/SpendChat_Nextjs/blob/master/src/db/migrations/0028_optimal_thena.sql) is longer than the SQL, on purpose.
+
+A cousin of it lives in [migration 0029](https://github.com/playxoft/SpendChat_Nextjs/blob/master/src/db/migrations/0029_transactions_timestamps_ms.sql). The feed cursor round-trips through the client as a JavaScript `Date`, which holds milliseconds, while `created_at` held microseconds. The cursor therefore named an instant fractionally earlier than the row it came from, and any row tying with it was skipped on the next page. A bulk import shares its `created_at` to the microsecond across the batch, so importing a spreadsheet could quietly drop most of it from the feed. The columns are now `timestamptz(3)`, and a test pins the precision, because PGlite's millisecond `now()` meant the suite could never have caught it by accident.
+
+## What we would tell you before you start
+
+- **Build the Worker bundle before every deploy.** A passing `next build` proves nothing about the OpenNext build: Node-only imports and bundle size surface only there. Our CI runs lint and typecheck; the Worker build runs in a preflight before each deploy, and it has caught things the other two did not.
+- **Treat secrets as two surfaces.** Doppler holding a value says nothing about the deployed Worker holding it. Values set as plain Environment Variables in the dashboard also behave differently from `wrangler secret put` ones, and a deploy with `keep_vars` off will delete them.
+- **Assume nothing from Node carries over.** Middleware, `firebase-admin`, module-level pools, `cache()` outside a render. Each looked fine locally under `next dev`, which is Node.
+- **Read your migrations' EXPLAIN with `BUFFERS`.** An index being "used" is not the same as the sort being satisfied.
+
+## The short version
+
+Workers gave us one deploy and a fast round trip, and took away middleware, the admin SDK, and long-lived sockets. Each replacement ended up simpler than the thing it replaced: a layout instead of a matcher, a JWKS check instead of a session server, a per-request pool behind Hyperdrive. The two database traps were not Cloudflare's fault at all, and they are the ones we would warn anyone about first.
+
+The app is free to use at [spendchat.app](/), and the [repository](https://github.com/playxoft/SpendChat_Nextjs) has the tests, the migrations and the deploy scripts if you want to see any of this in context.
