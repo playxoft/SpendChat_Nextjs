@@ -18,7 +18,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
-## [0.20.0] — 2026-09-07
+## [0.20.0] — 2026-09-09
 
 ### Added
 - **Signup attribution.** The public site remembers the first link that named a

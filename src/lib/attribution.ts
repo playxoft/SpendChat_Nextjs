@@ -27,7 +27,16 @@ const TAG_MAX = 100;
 const LANDING_MAX = 200;
 const HOSTNAME_RE = /^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/i;
 
-const tag = z.string().trim().min(1).max(TAG_MAX).nullable();
+/**
+ * Control characters (NUL included) and lone surrogates: Postgres `jsonb`
+ * rejects both, and a tag carrying one would make the users INSERT — and so
+ * the sign-in — fail. Stripped at capture and refused by the schema, so a
+ * crafted `?utm_source=%00` link can't poison someone's sign-up.
+ */
+const UNSTORABLE = /[\p{Cc}\p{Cs}]/gu;
+const STORABLE_TAG = /^[^\p{Cc}\p{Cs}]+$/u;
+
+const tag = z.string().trim().min(1).max(TAG_MAX).regex(STORABLE_TAG).nullable();
 
 /**
  * What the browser sends and what the INSERT stores. `.strict()` so an
@@ -43,7 +52,7 @@ export const attributionInputSchema = z
     referrer: z.string().trim().regex(HOSTNAME_RE).nullable().optional(),
     landing: z
       .string()
-      .regex(/^\/[^\s?#]*$/)
+      .regex(/^\/[^\s?#\p{Cc}\p{Cs}]*$/u)
       .max(LANDING_MAX)
       .nullable()
       .optional(),
@@ -85,7 +94,11 @@ export const heardFromSchema = z.enum([...HEARD_FROM_VALUES, "skipped"]);
 export type HeardFrom = z.infer<typeof heardFromSchema>;
 
 export const HEARD_FROM_OTHER_MAX = 80;
-export const heardFromOtherSchema = z.string().trim().max(HEARD_FROM_OTHER_MAX);
+export const heardFromOtherSchema = z
+  .string()
+  .trim()
+  .max(HEARD_FROM_OTHER_MAX)
+  .regex(/^[^\p{Cc}\p{Cs}]*$/u);
 
 /** Stored shape of `users.acquisition`. */
 export type Acquisition = AttributionInput & {
@@ -111,8 +124,27 @@ function externalHost(referrer: string): string | null {
 }
 
 function param(url: URL, key: string): string | null {
-  const value = url.searchParams.get(key)?.trim();
-  return value ? value.slice(0, TAG_MAX) : null;
+  const value = url.searchParams.get(key)?.replace(UNSTORABLE, "").trim();
+  if (!value) return null;
+  // Cut on code points, never through a surrogate pair; a pair is two UTF-16
+  // units, so halve the budget when the cut would still overrun `max(TAG_MAX)`.
+  const points = Array.from(value);
+  const cut = points.slice(0, TAG_MAX).join("");
+  return cut.length <= TAG_MAX ? cut : points.slice(0, TAG_MAX / 2).join("");
+}
+
+/**
+ * Public content trees keep their full path (which page converts is the point);
+ * everything else collapses to its first segment, so a share link's secret
+ * token or an app route never lands in a column documented as non-identifying.
+ */
+const KEEP_FULL_PATH = new Set(["features", "blog", "compare", "docs"]);
+
+export function landingFor(pathname: string): string {
+  const [first, ...rest] = pathname.split("/").filter(Boolean);
+  if (!first) return "/";
+  const path = KEEP_FULL_PATH.has(first) ? [first, ...rest].join("/") : first;
+  return `/${path}`.replace(UNSTORABLE, "").slice(0, LANDING_MAX);
 }
 
 /** Pure: the record for a landing URL plus `document.referrer`. */
@@ -124,7 +156,7 @@ export function attributionFromLanding(url: URL, referrer: string, now: Date): A
     content: param(url, "utm_content"),
     ref: param(url, "ref"),
     referrer: externalHost(referrer),
-    landing: url.pathname.slice(0, LANDING_MAX),
+    landing: landingFor(url.pathname),
     capturedAt: now.toISOString(),
   };
 }
@@ -148,6 +180,20 @@ export function captureAttribution(now = new Date()): void {
     window.localStorage.setItem(ATTRIBUTION_STORAGE_KEY, JSON.stringify(fresh));
   } catch {
     // Storage blocked (private mode, disabled) — attribution is best-effort.
+  }
+}
+
+/**
+ * Browser: forget the stored touch. Called after a session POST succeeds — the
+ * server has seen it once and kept it if that sign-in created the account, so
+ * there is nothing left for it to do, and no reason to resend it every hour.
+ */
+export function clearStoredAttribution(): void {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(ATTRIBUTION_STORAGE_KEY);
+  } catch {
+    // Storage blocked — nothing was stored to begin with.
   }
 }
 

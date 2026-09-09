@@ -9,8 +9,9 @@
  *
  * "Channel" is the first value present of utm_source, ?ref=, referrer host —
  * see `src/lib/attribution.ts`. `(direct)` means the browser recorded a visit
- * with no channel; `(unknown)` means the account predates attribution or the
- * browser blocked storage. "Activated" = went on to add at least one
+ * with no channel; `(unknown)` means no visit was recorded — the account
+ * predates attribution (even if it later answered the card) or the browser
+ * blocked storage. "Activated" = went on to add at least one
  * transaction. Days are UTC.
  */
 import pg from "pg";
@@ -81,7 +82,7 @@ try {
 
   const { rows: byChannel } = await client.query(
     `select coalesce(u.acquisition->>'source', u.acquisition->>'ref', u.acquisition->>'referrer',
-                     case when u.acquisition is null then '(unknown)' else '(direct)' end) as channel,
+                     case when u.acquisition ? 'capturedAt' then '(direct)' else '(unknown)' end) as channel,
             count(*)::int as signups,
             count(*) filter (where exists (select 1 from transactions t where t.user_id = u.id))::int as activated
        from users u

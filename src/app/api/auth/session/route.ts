@@ -3,6 +3,8 @@ import { cookies } from "next/headers";
 import { hasVerifiedEmail, verifyFirebaseIdToken } from "@/lib/firebase-verify";
 import { resolveUser, syncUserProfile } from "@/lib/identity";
 import { attributionInputSchema, type AttributionInput } from "@/lib/attribution";
+import { ApiError } from "@/lib/errors";
+import { describeError, logger } from "@/lib/logger";
 import { setLogContext } from "@/lib/log-context";
 import { withRequestContext } from "@/lib/request-context";
 import {
@@ -99,7 +101,23 @@ export async function POST(request: NextRequest) {
     // attribution above lands on the INSERT — the only time `resolveUser`
     // stores it.
     let userId = await syncUserProfile(claims);
-    if (!userId) userId = (await resolveUser(claims, { acquisition: attribution })).id;
+    if (!userId) {
+      try {
+        userId = (await resolveUser(claims, { acquisition: attribution })).id;
+      } catch (err) {
+        // A deliberate refusal (an unverified email claiming an existing
+        // account) is the caller's answer, with its own status — not a 500.
+        if (err instanceof ApiError) {
+          return Response.json({ error: err.code, message: err.message }, { status: err.status });
+        }
+        // Anything else must not cost the person their session: create the
+        // row without the attribution and say so in the logs.
+        logger.warn(`Sign-in fell back to creating the account without attribution: ${describeError(err)}`, {
+          event: "auth.attribution_dropped",
+        });
+        userId = (await resolveUser(claims)).id;
+      }
+    }
     setLogContext({ userId });
     const store = await cookies();
     store.set(SESSION_COOKIE, idToken, sessionCookieOptions());

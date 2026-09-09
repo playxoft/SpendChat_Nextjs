@@ -175,8 +175,9 @@ export default function CookiePolicyPage() {
             The site also keeps one small entry in your browser&apos;s local storage,{" "}
             <span className="text-foreground">spendchat:attribution</span>: the name of the
             site that linked you here and any campaign tag on that link, with the date. It
-            never leaves your browser unless you create an account, at which point it is
-            saved with the account so we can see which places bring people here. It is not
+            is sent to our server once, the next time you sign in or create an account, and
+            kept only if that sign-in creates a new account, so we can see which places bring
+            people here; either way your browser then forgets it. It is not
             sent to any third party, expires after 30 days, and is not affected by your
             analytics choice above — it holds no identifier and can&apos;t be used to
             recognise you. Clear your site data to remove it.

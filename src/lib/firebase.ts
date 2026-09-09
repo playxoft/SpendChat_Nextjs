@@ -3,7 +3,7 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import { getAuth, GoogleAuthProvider, type Auth } from "firebase/auth";
 import { firebaseConfig } from "@/lib/firebase-config";
-import { readStoredAttribution } from "@/lib/attribution";
+import { clearStoredAttribution, readStoredAttribution } from "@/lib/attribution";
 
 /**
  * Browser Firebase app + auth. Config comes from the single build-time env var
@@ -35,7 +35,7 @@ export async function syncSession(): Promise<void> {
   const user = getFirebaseAuth().currentUser;
   if (!user) return;
   const idToken = await user.getIdToken(/* forceRefresh */ true);
-  await fetch("/api/auth/session", {
+  const res = await fetch("/api/auth/session", {
     method: "POST",
     headers: { "content-type": "application/json" },
     // Include the refresh token so the server can keep the session alive for a
@@ -47,6 +47,8 @@ export async function syncSession(): Promise<void> {
       attribution: readStoredAttribution(),
     }),
   });
+  // Sent once; the server kept it if it mattered. Don't keep resending it.
+  if (res.ok) clearStoredAttribution();
 }
 
 /** Clear the server session cookie (pair with Firebase `signOut`). */

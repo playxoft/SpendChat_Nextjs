@@ -5,7 +5,9 @@ import {
   attributionFromLanding,
   attributionInputSchema,
   captureAttribution,
+  clearStoredAttribution,
   hasChannelSignal,
+  landingFor,
   HEARD_FROM_OPTIONS,
   heardFromSchema,
   readStoredAttribution,
@@ -43,6 +45,36 @@ describe("attributionFromLanding", () => {
     const record = attributionFromLanding(url, "", NOW);
     expect(record.source).toHaveLength(100);
     expect(attributionInputSchema.safeParse(record).success).toBe(true);
+  });
+
+  it("strips characters Postgres jsonb cannot store, and never leaves a lone surrogate", () => {
+    // A crafted `?utm_source=%00` must not become a record that makes the
+    // users INSERT — and so the sign-up — fail for the next 30 days.
+    const nul = new URL("https://spendchat.app/?utm_source=%00&ref=a%00b");
+    const record = attributionFromLanding(nul, "", NOW);
+    expect(record.source).toBeNull();
+    expect(record.ref).toBe("ab");
+    expect(attributionInputSchema.safeParse(record).success).toBe(true);
+    expect(attributionInputSchema.safeParse({ source: "a\u0000b" }).success).toBe(false);
+    expect(attributionInputSchema.safeParse({ source: "\ud83d" }).success).toBe(false);
+    expect(attributionInputSchema.safeParse({ landing: "/x\u0000" }).success).toBe(false);
+
+    const emojiEdge = new URL(`https://spendchat.app/?utm_source=${"x".repeat(99)}😀`);
+    const cut = attributionFromLanding(emojiEdge, "", NOW).source!;
+    expect(cut.length).toBeLessThanOrEqual(100);
+    expect(cut).toMatch(/^[^\p{Cs}]*$/u);
+    expect(attributionInputSchema.safeParse({ source: cut }).success).toBe(true);
+  });
+
+  it("keeps public content paths and collapses everything else to its first segment", () => {
+    expect(landingFor("/")).toBe("/");
+    expect(landingFor("/features/voice-expense-tracker")).toBe("/features/voice-expense-tracker");
+    expect(landingFor("/blog/some-post")).toBe("/blog/some-post");
+    expect(landingFor("/compare/splitwise")).toBe("/compare/splitwise");
+    // A share link's secret token must never be stored.
+    expect(landingFor("/share/abc123secret")).toBe("/share");
+    expect(landingFor("/app/settings/workspace")).toBe("/app");
+    expect(landingFor("/pricing")).toBe("/pricing");
   });
 
   it("hasChannelSignal is false for a bare direct visit", () => {
@@ -121,6 +153,14 @@ describe("captureAttribution / readStoredAttribution (browser)", () => {
     store.set(ATTRIBUTION_STORAGE_KEY, "{not json");
     expect(readStoredAttribution(NOW)).toBeNull();
     store.set(ATTRIBUTION_STORAGE_KEY, JSON.stringify({ referrer: "https://evil/?x" }));
+    expect(readStoredAttribution(NOW)).toBeNull();
+  });
+
+  it("clearStoredAttribution forgets the record after a successful session POST", () => {
+    browser("https://spendchat.app/?ref=hn", "");
+    captureAttribution(NOW);
+    expect(readStoredAttribution(NOW)).not.toBeNull();
+    clearStoredAttribution();
     expect(readStoredAttribution(NOW)).toBeNull();
   });
 
