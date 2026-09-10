@@ -37,6 +37,11 @@ export function useIsMac(): boolean {
  * the AI review list's Enter-to-confirm reads a looser chord than `matchesCombo`
  * can express — so they suppress themselves on the same rule rather than
  * inventing a second definition of "an overlay is open".
+ *
+ * Ask it in the **capture** phase if the overlay in question is a Radix one the
+ * same keystroke is about to close. Radix selects on Enter off React's root
+ * listener and unmounts the listbox synchronously, so a bubble-phase caller is
+ * told "no overlay" about a list that was open when the key was pressed.
  */
 export function hasOpenOverlay(): boolean {
   if (typeof document === "undefined") return false;

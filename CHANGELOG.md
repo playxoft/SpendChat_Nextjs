@@ -26,9 +26,10 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   Enter — bare, or with ⌘/Ctrl — saves them, so an AI entry can be finished on
   the keys that started it instead of a reach for the mouse. It stands down
   wherever the key already means something else: on a button, inside an open
-  category select or date picker, while a description is being edited, while an
-  input method is composing a character, and whenever the Add button itself
-  would be disabled. The Add button now shows the chord, the way the manual
+  category select or date picker, in a row's own amount, title or description
+  field, while an input method is composing a character, and whenever the Add
+  button itself would be disabled. The ⌘/Ctrl chord is the exception — it saves
+  from wherever focus is. The Add button now shows the chord, the way the manual
   composer's send button does.
 
 ### Changed

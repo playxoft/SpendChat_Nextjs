@@ -34,7 +34,13 @@ import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
 import { primaryBcp47 } from "@/lib/voice-languages";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import { hasOpenOverlay, useHoldShortcut, useIsMac } from "@/hooks/use-shortcut";
-import { comboFor, describeShortcut, formatShortcut } from "@/lib/shortcuts";
+import {
+  comboFor,
+  describeShortcut,
+  formatShortcut,
+  isTypingTarget,
+  normalizeKey,
+} from "@/lib/shortcuts";
 import { VoiceListeningStrip, VoiceMicButton } from "./voice-mic";
 import { useLoadingOverlay } from "./loading-overlay";
 import {
@@ -517,11 +523,29 @@ export function AiTransactionInput({
   // textarea and focus falls to `<body>`: a handler on this subtree would miss
   // the keystroke that follows a ⌘↵ parse — the one that matters most.
   //
-  // `useShortcut` can't express it: its `mod` is ⌘ on macOS and *rejects* ⌃,
-  // while the note's own send above takes either, so going through the hook
-  // would leave the review step answering to a narrower chord than the compose
-  // step it follows. Hence the hand-rolled listener — which owes the guards the
-  // hook would have applied, and pays them below.
+  // `useShortcut` can't express the chord: its `mod` is ⌘ on macOS and *rejects*
+  // ⌃, while the note's own send takes either, so going through the hook would
+  // leave the review step answering to a narrower chord than the compose step
+  // it follows. Hence the hand-rolled listener — which owes the guards the hook
+  // would have applied, and pays them below out of the hook's own helpers
+  // rather than a private re-derivation of them.
+  //
+  // Registered in the **capture** phase, which is the load-bearing part. Radix
+  // runs its key handling off React's root listener on `document`, i.e. *below*
+  // `window` in the bubble path, so a bubbling listener here is too late to be
+  // right in either direction:
+  //   - Enter on an open category list: `SelectItem` selects on Enter without
+  //     `preventDefault`, and the listbox unmounts synchronously with it. By
+  //     the bubble phase `hasOpenOverlay()` is already false and the target is
+  //     a gone `[role="option"]`, so *picking a category* would save the list.
+  //   - ⌘↵ on a closed `SelectTrigger` — where focus lands the moment a
+  //     category is picked, so the likeliest place to press it. Radix
+  //     `preventDefault`s every key in its `OPEN_KEYS` (Enter included) with no
+  //     modifier check, so the chord would open a dropdown and any
+  //     `defaultPrevented` guard would then stand this handler down: the
+  //     advertised chord, dead exactly where it's most likely to be used.
+  // Capturing first, the listbox is still mounted when we ask about it, and a
+  // chord we do claim is claimed with `stopPropagation` before Radix sees it.
   const confirmRef = useRef(handleConfirm);
   useEffect(() => {
     confirmRef.current = handleConfirm;
@@ -538,7 +562,7 @@ export function AiTransactionInput({
     if (mode !== "ai" || !reviewing || saving || switching) return;
     if (validRows.length === 0) return;
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key !== "Enter" || e.repeat) return;
+      if (normalizeKey(e) !== "enter" || e.repeat) return;
       // Mid-composition Enter belongs to the IME: it commits the candidate for
       // the Japanese/Chinese/Korean text being typed into a Title or
       // description, and the keystroke never meant "save". Without this the
@@ -549,25 +573,30 @@ export function AiTransactionInput({
       if (e.isComposing || e.keyCode === 229) return;
       // A combo names the chord it names: ⇧↵ and ⌥↵ are not this one.
       if (e.shiftKey || e.altKey) return;
-      // Already spoken for — the description cell commits on Enter, and Radix
-      // preventDefaults the keys that open a select.
-      if (e.defaultPrevented) return;
-      // An open category select or date popover owns Enter while it's up.
+      // An open category select or date popover owns Enter while it's up —
+      // asked here, in the capture phase, while the answer is still true.
       if (hasOpenOverlay()) return;
-      // Bare Enter on something that already answers to it is that control's
-      // click, not a send: every button in this list (a row's ✕, "Add
-      // transaction", the note preview, the select and date triggers) would
-      // otherwise both fire and save. With ⌘/Ctrl held nothing else claims the
-      // key, so it sends from wherever focus happens to be.
       if (!e.metaKey && !e.ctrlKey) {
+        // Bare Enter belongs to whatever focus is already in. In a field it is
+        // the universal "commit this value" key, and a user fixing a mis-parsed
+        // Title or Amount presses it out of habit — the same reason every other
+        // shortcut in the app stands down on `isTypingTarget`. On a control that
+        // answers to it (a row's ✕, "Add transaction", the note preview, the
+        // select and date triggers) it is that control's click, which would
+        // otherwise both fire and save. With ⌘/Ctrl held nothing else claims the
+        // key, so it sends from wherever focus happens to be.
+        if (isTypingTarget(e.target)) return;
         const el = e.target as HTMLElement | null;
         if (el?.closest?.('button,a,[role="button"]')) return;
       }
       e.preventDefault();
+      // Claimed outright: capturing before Radix means nothing downstream gets
+      // to also act on the keystroke we just spent on a save.
+      e.stopPropagation();
       confirmRef.current();
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [mode, reviewing, saving, switching, validRows.length]);
 
   function onTextareaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
