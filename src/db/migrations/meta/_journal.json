@@ -218,6 +218,13 @@
       "when": 1787162779609,
       "tag": "0030_vault_index_realign",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1788781904127,
+      "tag": "0031_signup_acquisition",
+      "breakpoints": true
     }
   ]
 }

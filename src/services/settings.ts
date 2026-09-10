@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   profileAccess,
@@ -30,6 +30,7 @@ import {
   voiceLanguagesSchema,
 } from "@/lib/validation";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
+import { heardFromOtherSchema, heardFromSchema } from "@/lib/attribution";
 import type { UserSettings } from "@/db/schema";
 
 /**
@@ -392,4 +393,63 @@ export async function notifyPasswordChanged(userId: string): Promise<void> {
     event: "account.password_changed",
     userId,
   });
+}
+
+/**
+ * Answer (or skip) the tracker's "how did you hear about us?" card. Merged into
+ * `users.acquisition` with `||` so the browser-recorded first touch beside it
+ * survives; `heardFromAt` is what makes "asked once" true. Free text is only
+ * kept for `other`, capped short, and never interpolated into a log message.
+ *
+ * **First answer wins, and the SQL is what says so.** This is an exported
+ * server action, so "asked once" cannot live in the card that hides itself: a
+ * double-tap on a chip (the card hides optimistically while the first call is
+ * still in flight), a replayed request, or a second tab rendered before the
+ * first answer landed would all rewrite the answer and push `heardFromAt`
+ * forward. The `is null` predicate makes a second write a no-op instead —
+ * the same reason `resolveUser` puts its INSERT-only rule for the first-touch
+ * record in the statement rather than trusting the caller.
+ */
+export async function recordHeardFrom(
+  userId: string,
+  choice: string,
+  other: string | null = null,
+): Promise<void> {
+  const parsedChoice = heardFromSchema.safeParse(choice);
+  if (!parsedChoice.success) throw validationError("Invalid answer");
+  const parsedOther = heardFromOtherSchema.safeParse(other ?? "");
+  if (!parsedOther.success) throw validationError("Answer is too long");
+  const heardFromOther = parsedChoice.data === "other" && parsedOther.data ? parsedOther.data : null;
+  const db = getDb();
+  await db
+    .update(users)
+    .set({
+      acquisition: sql`
+        coalesce(${users.acquisition}, '{}'::jsonb) || jsonb_build_object(
+          'heardFrom', ${parsedChoice.data}::text,
+          'heardFromOther', ${heardFromOther}::text,
+          'heardFromAt', ${new Date().toISOString()}::text
+        )`,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(users.id, userId), sql`${users.acquisition} ->> 'heardFrom' is null`));
+}
+
+/** Wave away the tracker's invite nudge (`ui_prefs.onboarding.inviteNudgeDismissed`).
+ * Same nested `||` merge as `updateComposerDensity`, for the same reason. */
+export async function dismissInviteNudge(userId: string): Promise<void> {
+  await ensureBootstrap(userId);
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({
+      uiPrefs: sql`
+        ${userSettings.uiPrefs} || jsonb_build_object(
+          'onboarding',
+          coalesce(${userSettings.uiPrefs} -> 'onboarding', '{}'::jsonb)
+            || jsonb_build_object('inviteNudgeDismissed', true)
+        )`,
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userId, userId));
 }

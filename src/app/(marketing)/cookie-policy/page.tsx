@@ -17,7 +17,7 @@ export const metadata = createMetadata({
   path: "/cookie-policy",
 });
 
-const LAST_UPDATED = "August 21, 2026";
+const LAST_UPDATED = "September 7, 2026";
 
 // Strictly-necessary cookies first, then the consent-gated analytics ones — the
 // note under the table splits them that way.
@@ -166,6 +166,22 @@ export default function CookiePolicyPage() {
             can improve the site instead of guessing. We don&apos;t use this data for
             advertising, we don&apos;t sell it, and we don&apos;t combine it with your
             SpendChat account or transaction data.
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-xl font-medium text-foreground">Local storage (not a cookie)</h2>
+          <p>
+            The site also keeps one small entry in your browser&apos;s local storage,{" "}
+            <span className="text-foreground">spendchat:attribution</span>: the name of the
+            site that linked you here and any campaign tag on that link, with the date. It
+            is sent to our server once, the next time you sign in or create an account, and
+            kept only if that sign-in creates a new account, so we can see which places bring
+            people here; your browser drops it as soon as the server has accepted it. If you
+            never sign in, it is discarded 30 days after it was recorded, the next time you
+            open the site. It is not sent to any third party and is not affected by your
+            analytics choice above — it holds no identifier and can&apos;t be used to
+            recognise you. Clear your site data to remove it sooner.
           </p>
         </section>
 

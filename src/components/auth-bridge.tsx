@@ -4,6 +4,7 @@ import { useEffect } from "react";
 import { onIdTokenChanged } from "firebase/auth";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { notifyHandoffChange } from "@/lib/app-redirect";
+import { clearStoredAttribution, readStoredAttribution } from "@/lib/attribution";
 
 /**
  * Keeps the server's `__session` cookie in sync with Firebase's client-side
@@ -18,13 +19,20 @@ export function AuthBridge() {
       try {
         if (user) {
           const idToken = await user.getIdToken();
-          await fetch("/api/auth/session", {
+          const res = await fetch("/api/auth/session", {
             method: "POST",
             headers: { "content-type": "application/json" },
             // The refresh token lets the server re-mint ID tokens for a month,
             // so the user isn't logged out an hour after closing the app.
-            body: JSON.stringify({ idToken, refreshToken: user.refreshToken }),
+            body: JSON.stringify({
+              idToken,
+              refreshToken: user.refreshToken,
+              // Used only if this sign-in creates the account (lib/attribution.ts).
+              attribution: readStoredAttribution(),
+            }),
           });
+          // Sent once; forget it so the hourly refresh doesn't carry it again.
+          if (res.ok) clearStoredAttribution();
         } else {
           await fetch("/api/auth/session", { method: "DELETE" });
         }

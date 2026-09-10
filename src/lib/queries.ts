@@ -1115,3 +1115,24 @@ export async function listTransactionFilesForVault(
     profileIcon: r.profileIcon,
   }));
 }
+
+/**
+ * Has the tracker's "how did you hear about us?" card been answered (or
+ * skipped)? One indexed read of the caller's own row.
+ *
+ * Ask it only inside the window where the card can still appear
+ * (`HEARD_FROM_MAX_ACCOUNT_AGE_DAYS`). It is a second SELECT of a row the
+ * request has already read once via `resolveUser`, and the tracker is the app's
+ * hottest page — worth a query for the few days the answer can change, not
+ * worth one on every render for the rest of the account's life. Account age
+ * comes off `user_settings.created_at`, which the page has already loaded.
+ */
+export const getHeardFromAnswered = cache(async (userId: string) => {
+  const db = getDb();
+  const [row] = await db
+    .select({ acquisition: users.acquisition })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return row?.acquisition?.heardFrom != null;
+});

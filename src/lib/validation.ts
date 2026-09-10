@@ -559,11 +559,23 @@ export type ComposerPrefs = z.infer<typeof composerPrefsSchema>;
  * localStorage on purpose — this column is only for preferences that should
  * follow the user to another browser.
  */
+/** One-time tracker cards the user has waved away (`ui_prefs.onboarding`). */
+export const onboardingPrefsSchema = z.object({
+  inviteNudgeDismissed: z.boolean().catch(false),
+});
+export type OnboardingPrefs = z.infer<typeof onboardingPrefsSchema>;
+
+const UI_PREFS_DEFAULT = {
+  composer: { density: "normal" },
+  onboarding: { inviteNudgeDismissed: false },
+} as const;
+
 export const uiPrefsSchema = z
   .object({
     composer: composerPrefsSchema.catch({ density: "normal" }),
+    onboarding: onboardingPrefsSchema.catch({ inviteNudgeDismissed: false }),
   })
-  .catch({ composer: { density: "normal" } });
+  .catch(UI_PREFS_DEFAULT);
 export type UiPrefs = z.infer<typeof uiPrefsSchema>;
 
 /** Read-side guard for `user_settings.ui_prefs` — see `uiPrefsSchema`. */

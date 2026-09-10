@@ -1,7 +1,10 @@
 import type { NextRequest } from "next/server";
 import { cookies } from "next/headers";
 import { hasVerifiedEmail, verifyFirebaseIdToken } from "@/lib/firebase-verify";
-import { syncUserProfile } from "@/lib/identity";
+import { resolveUser, syncUserProfile } from "@/lib/identity";
+import { attributionInputSchema, type AttributionInput } from "@/lib/attribution";
+import { ApiError } from "@/lib/errors";
+import { describeError, logger } from "@/lib/logger";
 import { setLogContext } from "@/lib/log-context";
 import { withRequestContext } from "@/lib/request-context";
 import {
@@ -37,7 +40,7 @@ function isCrossSite(request: NextRequest): boolean {
 /**
  * The session bridge between Firebase (client-side) and the server.
  *
- * POST { idToken, refreshToken } — the browser sends a fresh Firebase ID token
+ * POST { idToken, refreshToken, attribution? } — the browser sends a fresh Firebase ID token
  * on sign-in and on every hourly refresh (see `AuthBridge`), plus its long-lived
  * refresh token. We verify the ID token and store both in httpOnly cookies:
  * `__session` (read/verified by `getCurrentUser`) and `__refresh` (used to
@@ -58,10 +61,20 @@ export async function POST(request: NextRequest) {
     }
     let idToken: string | undefined;
     let refreshToken: string | undefined;
+    // First-touch attribution from the browser (`lib/attribution.ts`). Only
+    // consulted if this sign-in creates the account; anything that fails the
+    // strict schema is dropped rather than stored.
+    let attribution: AttributionInput | null = null;
     try {
-      const body = (await request.json()) as { idToken?: string; refreshToken?: string };
+      const body = (await request.json()) as {
+        idToken?: string;
+        refreshToken?: string;
+        attribution?: unknown;
+      };
       idToken = body?.idToken;
       refreshToken = body?.refreshToken;
+      const parsed = attributionInputSchema.safeParse(body?.attribution);
+      if (parsed.success) attribution = parsed.data;
     } catch {
       // fall through to the missing-token response
     }
@@ -83,10 +96,29 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "email_not_verified" }, { status: 403 });
     }
 
-    // Keep email/name/picture fresh for existing users (no-op for a brand-new
-    // user — their row is created on first `getCurrentUser`/`resolveUser`).
-    const userId = await syncUserProfile(claims);
-    if (userId) setLogContext({ userId });
+    // Keep email/name/picture fresh for an existing user. A brand-new account
+    // gets its row here rather than lazily on the first page render, so the
+    // attribution above lands on the INSERT — the only time `resolveUser`
+    // stores it.
+    let userId = await syncUserProfile(claims);
+    if (!userId) {
+      try {
+        userId = (await resolveUser(claims, { acquisition: attribution })).id;
+      } catch (err) {
+        // A deliberate refusal (an unverified email claiming an existing
+        // account) is the caller's answer, with its own status — not a 500.
+        if (err instanceof ApiError) {
+          return Response.json({ error: err.code, message: err.message }, { status: err.status });
+        }
+        // Anything else must not cost the person their session: create the
+        // row without the attribution and say so in the logs.
+        logger.warn(`Sign-in fell back to creating the account without attribution: ${describeError(err)}`, {
+          event: "auth.attribution_dropped",
+        });
+        userId = (await resolveUser(claims)).id;
+      }
+    }
+    setLogContext({ userId });
     const store = await cookies();
     store.set(SESSION_COOKIE, idToken, sessionCookieOptions());
     // Readable by the statically-rendered landing page, which has no other way

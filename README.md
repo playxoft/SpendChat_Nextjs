@@ -4,9 +4,11 @@
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](./LICENSE)
 [![Made with Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org)
 
-A minimal, fast, and secure personal **money tracker** — add, view, filter, download, and print your income and expenses. Free to use.
+A minimal, fast, and private **money tracker** that works like a chat — type what you spent, paste a whole day at once, or say it, then filter, export, and print whenever you need. Free to use, AGPL-3.0.
 
-🌐 **App Link:** [spendchat.app](https://spendchat.app)
+🌐 **Try it:** [spendchat.app](https://spendchat.app) — sign in with Google or email, no bank connection, nothing to install.
+
+![Typing a sentence into SpendChat's AI entry, reviewing the four draft transactions it proposes, and confirming them into the chat-style feed](docs/demo.gif)
 
 ---
 

@@ -140,3 +140,31 @@ export async function deleteAllTransactions(
     { userId: user.id, workspaceId: workspace.id },
   );
 }
+
+/** Answer or skip the tracker's "how did you hear about us?" card. */
+export async function recordHeardFrom(choice: string, other?: string): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "recordHeardFrom",
+    async () => {
+      await settingsService.recordHeardFrom(user.id, choice, other ?? null);
+      revalidatePath("/app");
+      return {};
+    },
+    { userId: user.id },
+  );
+}
+
+/** Wave away the tracker's invite nudge. */
+export async function dismissInviteNudge(): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "dismissInviteNudge",
+    async () => {
+      await settingsService.dismissInviteNudge(user.id);
+      revalidatePath("/app");
+      return {};
+    },
+    { userId: user.id },
+  );
+}

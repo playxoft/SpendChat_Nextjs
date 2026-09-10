@@ -18,6 +18,50 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-09-09
+
+### Added
+- **Signup attribution.** The public site remembers the first link that named a
+  channel — UTM tags, a directory's `?ref=`, or the referring site — for up to
+  30 days in the browser, and a new account stores it in `users.acquisition` at
+  the moment it is created, never rewritten afterwards. Hostnames and short tags
+  only: no full URLs, no query strings. Migration `0031`.
+- **"How did you hear about us?"** A one-tap card above the tracker feed,
+  asked once of an account in its first week — the question is about a decision
+  the visitor made on their way in, and a months-old account answering it is
+  noise in a report that exists to measure a launch. The answer (or a skip)
+  lands in the same column, the first answer is the one that stands, and the
+  card never returns.
+- **An invite nudge** for a workspace that is still solo after its first day:
+  shared tracking is the feature people miss, so the tracker points the admin at
+  Settings → Workspace once, dismissible (`ui_prefs.onboarding`).
+- **`pnpm growth:report:dev` / `growth:report:prod`** — a read-only report of
+  signups per day, per channel (with how many went on to add a transaction), per
+  answer, and per landing page. `--days=<n>` narrows the window; a malformed or
+  unrecognised argument exits 2 with a usage line rather than silently printing
+  30 days of numbers under a heading the operator can't tell apart.
+- **Five comparison pages under `/compare`** — SpendChat vs Splitwise, Walnut
+  (now axio), Monefy, Mint and its paid successors, and YNAB. Each has an
+  at-a-glance table, a two-sided "where each one wins" verdict, an FAQ with
+  `FAQPage` markup, and prints the date the competitor's facts were checked
+  against its own site. A `/compare` hub lists them; the footer links it.
+- **A blog post on running Next.js 16 on Cloudflare Workers** — the five things
+  that broke on the way there (middleware, `firebase-admin`, a shared pool,
+  React's `cache()` outside a render, and a `DESC NULLS LAST` index) and what
+  replaced each, with links to the files. Written for cross-posting to dev.to,
+  Hashnode and Medium with a canonical back here.
+
+### Changed
+- **Privacy and cookie policies** describe the attribution record and the
+  local-storage entry that carries it, including when the browser drops it.
+- The stored first touch is now **deleted** once it goes stale, not merely
+  ignored — the cookie policy says it expires after 30 days, and an entry left
+  sitting in local storage did not honour that.
+- A referrer is ignored on the sign-in/sign-up/verify pages and inside the app.
+  Those are round trips, not channels: someone who arrives direct, signs up, and
+  clicks the verification link in their webmail would otherwise have been
+  attributed to their mail provider.
+
 ## [0.19.0] — 2026-09-06
 
 ### Added
