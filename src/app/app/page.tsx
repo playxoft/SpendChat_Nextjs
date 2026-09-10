@@ -5,7 +5,7 @@ import {
   FEED_PAGE_SIZE,
   getCategories,
   getMonthlyTotals,
-  getOnboardingState,
+  getHeardFromAnswered,
   getProfiles,
   listFeedPage,
   listTransactionIds,
@@ -13,9 +13,10 @@ import {
 import { resolveWebProfile } from "@/lib/filters";
 import { canWriteInWorkspace, workspaceHasMultipleUsers } from "@/lib/workspaces";
 import { normalizeUiPrefs } from "@/lib/validation";
+import { HEARD_FROM_MAX_ACCOUNT_AGE_DAYS } from "@/lib/attribution";
 import type { InputMode } from "@/lib/validation";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
-import { monthKey, monthRange, todayISO } from "@/lib/dates";
+import { daysSince, monthKey, monthRange, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { isMobileUA } from "@/lib/device.server";
 import { time, timedScope } from "@/lib/timing";
@@ -52,8 +53,17 @@ export default async function ChatPage({
   // the total, DB count/ms + slowest query, and the auth/workspace-data split
   // (the inner `time()` spans are debug, so they enrich the summary without
   // adding their own lines). The feed/summary streams log at debug too.
-  const { user, settings, workspace, categories, profiles, canWrite, showAuthor, onboarding } =
-    await timedScope(
+  const {
+    user,
+    settings,
+    workspace,
+    categories,
+    profiles,
+    canWrite,
+    showAuthor,
+    accountAgeDays,
+    heardFromAnswered,
+  } = await timedScope(
     "tracker.page render",
     "tracker.page.timing",
     async () => {
@@ -63,7 +73,11 @@ export default async function ChatPage({
         const workspace = await getCurrentWorkspace(user.id);
         return { user, settings, workspace };
       });
-      const [categories, profiles, canWrite, showAuthor, onboarding] = await time(
+      // Off the settings row already in hand — it's written at bootstrap, i.e.
+      // the account's first sign-in — so neither card costs a read for the age
+      // it's gated on.
+      const accountAgeDays = daysSince(settings.createdAt);
+      const [categories, profiles, canWrite, showAuthor, heardFromAnswered] = await time(
         "workspaceData",
         () =>
           Promise.all([
@@ -72,10 +86,23 @@ export default async function ChatPage({
             canWriteInWorkspace(user.id, workspace.id),
             // Shared workspaces label each bubble with its author (WhatsApp-group style).
             workspaceHasMultipleUsers(workspace.id),
-            getOnboardingState(user.id),
+            // Only while the answer can still change anything — see the query.
+            accountAgeDays <= HEARD_FROM_MAX_ACCOUNT_AGE_DAYS
+              ? getHeardFromAnswered(user.id)
+              : Promise.resolve(true),
           ]),
       );
-      return { user, settings, workspace, categories, profiles, canWrite, showAuthor, onboarding };
+      return {
+        user,
+        settings,
+        workspace,
+        categories,
+        profiles,
+        canWrite,
+        showAuthor,
+        accountAgeDays,
+        heardFromAnswered,
+      };
     },
   );
 
@@ -93,7 +120,7 @@ export default async function ChatPage({
     !showAuthor &&
     workspace.role === "admin" &&
     !uiPrefs.onboarding.inviteNudgeDismissed &&
-    onboarding.accountAgeDays >= 1;
+    accountAgeDays >= 1;
 
   const timeZone = await getTimeZone();
   const today = todayISO(timeZone);
@@ -158,7 +185,7 @@ export default async function ChatPage({
         <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-4">
           {canWrite && (
             <OnboardingCards
-              askHeardFrom={!onboarding.heardFromAnswered}
+              askHeardFrom={!heardFromAnswered}
               showInviteNudge={showInviteNudge}
             />
           )}

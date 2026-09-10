@@ -36,8 +36,43 @@ describe("attributionFromLanding", () => {
     const url = new URL("https://spendchat.app/");
     expect(attributionFromLanding(url, "https://beta.spendchat.app/blog", NOW).referrer).toBeNull();
     expect(attributionFromLanding(url, "http://localhost:3010/", NOW).referrer).toBeNull();
+    expect(attributionFromLanding(url, "http://127.0.0.1:3010/", NOW).referrer).toBeNull();
+    // The auth domain is ours too — the browser passes through it on
+    // password-reset and email-action links.
+    expect(
+      attributionFromLanding(url, "https://spendchat-app.firebaseapp.com/__/auth/action", NOW)
+        .referrer,
+    ).toBeNull();
     expect(attributionFromLanding(url, "not a url", NOW).referrer).toBeNull();
     expect(attributionFromLanding(url, "", NOW).referrer).toBeNull();
+  });
+
+  it("treats the host being viewed as ours, whatever it is called", () => {
+    // A preview Worker or a second production host self-refers; hard-coding
+    // only the canonical domain would record every internal click as a channel.
+    const preview = new URL("https://spendchat-preview.workers.dev/pricing");
+    expect(
+      attributionFromLanding(preview, "https://spendchat-preview.workers.dev/", NOW).referrer,
+    ).toBeNull();
+    expect(
+      attributionFromLanding(preview, "https://news.ycombinator.com/", NOW).referrer,
+    ).toBe("news.ycombinator.com");
+  });
+
+  it("ignores the referrer on the auth flow and inside the app", () => {
+    // Sign up direct, verify through the link Gmail sent: the referrer names the
+    // visitor's mail provider, which brought nobody to SpendChat. Recording it
+    // would hand a real share of email/password signups a phantom channel.
+    const verify = new URL("https://spendchat.app/verify-email");
+    expect(attributionFromLanding(verify, "https://mail.google.com/", NOW).referrer).toBeNull();
+    const back = new URL("https://spendchat.app/app");
+    expect(attributionFromLanding(back, "https://accounts.google.com/", NOW).referrer).toBeNull();
+    // A tagged link straight at /sign-up is still a real campaign, though.
+    const ad = new URL("https://spendchat.app/sign-up?utm_source=meta");
+    expect(attributionFromLanding(ad, "https://l.facebook.com/", NOW)).toMatchObject({
+      source: "meta",
+      referrer: null,
+    });
   });
 
   it("truncates oversized tags so the record always passes the schema", () => {
@@ -146,14 +181,31 @@ describe("captureAttribution / readStoredAttribution (browser)", () => {
     expect(readStoredAttribution(NOW)).toMatchObject({ source: "hn" });
   });
 
-  it("drops a stale or malformed record", () => {
+  it("drops a stale or malformed record, and removes it rather than ignoring it", () => {
     browser("https://spendchat.app/?ref=hn", "");
     captureAttribution(NOW);
     expect(readStoredAttribution(new Date(NOW.getTime() + ATTRIBUTION_MAX_AGE_MS + 1))).toBeNull();
+    // The cookie policy promises the entry expires after 30 days; a record left
+    // in storage and quietly skipped would not honour that.
+    expect(store.has(ATTRIBUTION_STORAGE_KEY)).toBe(false);
+
     store.set(ATTRIBUTION_STORAGE_KEY, "{not json");
     expect(readStoredAttribution(NOW)).toBeNull();
     store.set(ATTRIBUTION_STORAGE_KEY, JSON.stringify({ referrer: "https://evil/?x" }));
     expect(readStoredAttribution(NOW)).toBeNull();
+    expect(store.has(ATTRIBUTION_STORAGE_KEY)).toBe(false);
+  });
+
+  it("a webmail round trip never overwrites the touch that brought them here", () => {
+    browser("https://spendchat.app/?ref=producthunt", "https://www.producthunt.com/");
+    captureAttribution(NOW);
+    // Sign up, then come back through the verification link in Gmail.
+    browser("https://spendchat.app/verify-email", "https://mail.google.com/");
+    captureAttribution(new Date(NOW.getTime() + 60_000));
+    expect(readStoredAttribution(NOW)).toMatchObject({
+      ref: "producthunt",
+      landing: "/",
+    });
   });
 
   it("clearStoredAttribution forgets the record after a successful session POST", () => {

@@ -181,13 +181,29 @@ describe("onboarding cards", () => {
     expect(stored?.heardFromAt).toBeTruthy();
   });
 
-  it("keeps free text only for 'other', and records a skip", async () => {
+  it("keeps free text only for 'other'", async () => {
     signInAs("h2");
     await bootstrapUser("h2");
     expect((await recordHeardFrom("reddit", "ignored")).ok).toBe(true);
     expect(await acquisitionOf("h2")).toMatchObject({ heardFrom: "reddit", heardFromOther: null });
+  });
+
+  it("records a skip, and the first answer is the one that stands", async () => {
+    signInAs("h4");
+    await bootstrapUser("h4");
     expect((await recordHeardFrom("skipped")).ok).toBe(true);
-    expect(await acquisitionOf("h2")).toMatchObject({ heardFrom: "skipped" });
+    const first = await acquisitionOf("h4");
+    expect(first).toMatchObject({ heardFrom: "skipped" });
+
+    // The card hides optimistically while the write is still in flight, so a
+    // double-tap (or a replay, or a second tab) reaches the action twice. The
+    // second call succeeds and changes nothing rather than rewriting the answer
+    // and pushing `heardFromAt` forward.
+    expect((await recordHeardFrom("reddit")).ok).toBe(true);
+    expect(await acquisitionOf("h4")).toMatchObject({
+      heardFrom: "skipped",
+      heardFromAt: first?.heardFromAt,
+    });
   });
 
   it("rejects an answer outside the list or over the length cap", async () => {

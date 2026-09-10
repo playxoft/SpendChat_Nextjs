@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { UserPlus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -14,8 +14,10 @@ import {
 
 /**
  * The tracker's two one-time cards, shown one at a time above the feed:
- * 1. "How did you hear about us?" — a single tap. Answered or skipped, it's
- *    stored on `users.acquisition` and never asked again.
+ * 1. "How did you hear about us?" — a single tap, asked only of an account
+ *    still inside `HEARD_FROM_MAX_ACCOUNT_AGE_DAYS` (the page decides).
+ *    Answered or skipped, it's stored on `users.acquisition` and never asked
+ *    again.
  * 2. An invite nudge for a workspace that's still solo after its first day —
  *    shared tracking is the feature people miss. Dismissal lives in
  *    `ui_prefs.onboarding`.
@@ -42,13 +44,16 @@ const closeButton =
 function HeardFromCard({ onDone }: { onDone: () => void }) {
   // null until "Other" is picked; then the free-text draft.
   const [other, setOther] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
 
+  // Fired and forgotten, deliberately: `onDone()` has already unmounted this
+  // card, so there is no pending state to show and nothing to render from the
+  // result. (A `useTransition` here bought nothing — the callback was
+  // synchronous and the promise discarded, so React marked the transition
+  // complete before the action's fetch had even resolved.) A failed write only
+  // means the card comes back next visit, which is the intended fallback.
   function submit(choice: HeardFromChoice | "skipped", detail?: string) {
     onDone();
-    startTransition(() => {
-      void recordHeardFrom(choice, detail);
-    });
+    void recordHeardFrom(choice, detail).catch(() => {});
   }
 
   return (
@@ -109,13 +114,10 @@ function HeardFromCard({ onDone }: { onDone: () => void }) {
 }
 
 function InviteNudge({ onDone }: { onDone: () => void }) {
-  const [, startTransition] = useTransition();
-
+  // Same fire-and-forget as `HeardFromCard.submit` above, for the same reason.
   function dismiss() {
     onDone();
-    startTransition(() => {
-      void dismissInviteNudge();
-    });
+    void dismissInviteNudge().catch(() => {});
   }
 
   return (

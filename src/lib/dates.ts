@@ -14,6 +14,15 @@ export function todayISO(timeZone?: string): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+/**
+ * Whole days between `from` and now, floored. Zone-independent (it's an elapsed
+ * duration, not a calendar difference), so it answers "how old is this account"
+ * rather than "how many date boundaries have passed".
+ */
+export function daysSince(from: Date, now: Date = new Date()): number {
+  return Math.floor((now.getTime() - from.getTime()) / 86_400_000);
+}
+
 /** Parse a YYYY-MM-DD string into a local-time Date (no timezone drift). */
 export function parseISODate(iso: string): Date {
   const [y, m, d] = iso.split("-").map(Number);

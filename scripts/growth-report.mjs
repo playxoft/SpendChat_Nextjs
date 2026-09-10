@@ -5,7 +5,15 @@
  * Read-only. Run via `pnpm growth:report:dev` / `pnpm growth:report:prod`
  * (each wraps its own `doppler run --config <env>`; don't prefix another).
  *
- *   --days N   window for the per-day and per-channel tables (default 30)
+ * Usage (each script already wraps its own `doppler run --config <env>`):
+ *   pnpm growth:report:dev
+ *   pnpm growth:report:prod -- --days=90     # window for the per-day and
+ *                                            # per-channel tables (default 30)
+ *
+ * `--days` is written with an `=`, and anything else is a hard error, matching
+ * `db-health.mjs` — a report is read for its numbers, so quietly falling back to
+ * 30 for `--days=90` or `--days abc` would print a header saying "last 30 days"
+ * over figures the operator believes are 90 and has no way to tell apart.
  *
  * "Channel" is the first value present of utm_source, ?ref=, referrer host —
  * see `src/lib/attribution.ts`. `(direct)` means the browser recorded a visit
@@ -16,19 +24,39 @@
  */
 import pg from "pg";
 
-const args = process.argv.slice(2);
-function number(flag) {
-  const i = args.indexOf(`--${flag}`);
-  if (i === -1) return null;
-  const n = Number(args[i + 1]);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : null;
+/** `pnpm run x -- --flag` forwards a bare `--` too; it isn't an argument. */
+const args = process.argv.slice(2).filter((a) => a !== "--");
+
+const USAGE = "usage: pnpm growth:report:dev|prod [-- --days=<n>]";
+
+function usageError(message) {
+  console.error(`${message}\n${USAGE}`);
+  process.exit(2);
 }
-const DAYS = number("days") ?? 30;
+
+const DAYS_RANGE = { min: 1, max: 3650 };
+for (const arg of args) {
+  const [name] = arg.split("=");
+  if (name !== "--days") usageError(`Unrecognised argument "${arg}".`);
+  if (!arg.includes("=")) usageError("--days needs --days=<n>, not a space.");
+}
+const daysArg = args.find((a) => a.startsWith("--days="));
+let DAYS = 30;
+if (daysArg) {
+  const raw = daysArg.slice("--days=".length);
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < DAYS_RANGE.min || value > DAYS_RANGE.max) {
+    usageError(
+      `--days: expected a whole number in [${DAYS_RANGE.min}, ${DAYS_RANGE.max}], got "${raw}".`,
+    );
+  }
+  DAYS = value;
+}
 
 const url = process.env.NEON_POSTGRES_DATABASE_URL;
 if (!url) {
   console.error("NEON_POSTGRES_DATABASE_URL is not set — run via pnpm growth:report:dev|prod");
-  process.exit(1);
+  process.exit(2);
 }
 
 function table(rows) {

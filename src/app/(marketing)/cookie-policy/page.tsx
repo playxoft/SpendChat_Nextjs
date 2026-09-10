@@ -177,10 +177,11 @@ export default function CookiePolicyPage() {
             site that linked you here and any campaign tag on that link, with the date. It
             is sent to our server once, the next time you sign in or create an account, and
             kept only if that sign-in creates a new account, so we can see which places bring
-            people here; either way your browser then forgets it. It is not
-            sent to any third party, expires after 30 days, and is not affected by your
+            people here; your browser drops it as soon as the server has accepted it. If you
+            never sign in, it is discarded 30 days after it was recorded, the next time you
+            open the site. It is not sent to any third party and is not affected by your
             analytics choice above — it holds no identifier and can&apos;t be used to
-            recognise you. Clear your site data to remove it.
+            recognise you. Clear your site data to remove it sooner.
           </p>
         </section>
 

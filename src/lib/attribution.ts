@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { siteConfig } from "@/lib/site";
 
 /**
  * Signup attribution — where a new account came from.
@@ -20,6 +21,16 @@ import { z } from "zod";
  */
 
 export const ATTRIBUTION_STORAGE_KEY = "spendchat:attribution";
+/**
+ * How old an account may be and still be asked "how did you hear about us?".
+ *
+ * The question is about a decision the visitor made on their way in, so it wants
+ * asking while they still remember it — and a months-old account answering it is
+ * noise in a report that exists to measure a launch. A week rather than a day so
+ * someone who signs up and comes back the following weekend still gets asked
+ * once.
+ */
+export const HEARD_FROM_MAX_ACCOUNT_AGE_DAYS = 7;
 /** A first touch older than this is stale — the sign-up isn't its doing. */
 export const ATTRIBUTION_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -107,10 +118,23 @@ export type Acquisition = AttributionInput & {
   heardFromAt?: string | null;
 };
 
-/** Our own hosts never count as a referrer — that's just navigation. */
-const INTERNAL_HOSTS = ["spendchat.app", "localhost"];
+/**
+ * Our own hosts never count as a referrer — that's just navigation.
+ *
+ * Read from `siteConfig` rather than spelled again here, so the canonical
+ * domain has one home; a second copy would go stale the day we move and quietly
+ * record every internal navigation on the new domain as an external channel.
+ *
+ * The rest of the list is the hosts that are also us but aren't that name: a dev
+ * box on `127.0.0.1` as well as `localhost`, and the Firebase auth domain, which
+ * the browser passes through on password-reset and email-action links. The host
+ * actually being viewed is added per call (see `externalHost`), which covers a
+ * preview Worker on `*.workers.dev` and any future second production host
+ * without naming either.
+ */
+const INTERNAL_HOSTS = [siteConfig.domain, "localhost", "127.0.0.1", "firebaseapp.com"];
 
-function externalHost(referrer: string): string | null {
+function externalHost(referrer: string, selfHost: string): string | null {
   if (!referrer) return null;
   let host: string;
   try {
@@ -119,7 +143,8 @@ function externalHost(referrer: string): string | null {
     return null;
   }
   if (!host || !HOSTNAME_RE.test(host)) return null;
-  const internal = INTERNAL_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+  const ours = selfHost ? [...INTERNAL_HOSTS, selfHost.toLowerCase()] : INTERNAL_HOSTS;
+  const internal = ours.some((h) => host === h || host.endsWith(`.${h}`));
   return internal ? null : host;
 }
 
@@ -147,16 +172,43 @@ export function landingFor(pathname: string): string {
   return `/${path}`.replace(UNSTORABLE, "").slice(0, LANDING_MAX);
 }
 
+/**
+ * Landings where `document.referrer` is a round trip rather than a channel.
+ *
+ * The auth flow is reached from a verification link in the visitor's own webmail
+ * or from an identity provider's redirect, so the referrer there names
+ * `mail.google.com` or `accounts.google.com` — neither of which brought anyone
+ * to SpendChat. Someone who arrives direct, signs up, then clicks the
+ * verification link in Gmail would otherwise have their channel overwritten with
+ * their mail provider, and `growth:report` would show a phantom channel for a
+ * good share of email/password signups. Inside the app the same is true of any
+ * external redirect back in.
+ *
+ * Only the referrer is blinded: a UTM-tagged ad pointing straight at `/sign-up`
+ * is a real campaign and still counts.
+ */
+const REFERRER_BLIND_LANDINGS = new Set([
+  "/sign-in",
+  "/sign-up",
+  "/verify-email",
+  "/forgot-password",
+  "/auth",
+  "/app",
+]);
+
 /** Pure: the record for a landing URL plus `document.referrer`. */
 export function attributionFromLanding(url: URL, referrer: string, now: Date): AttributionInput {
+  const landing = landingFor(url.pathname);
   return {
     source: param(url, "utm_source"),
     medium: param(url, "utm_medium"),
     campaign: param(url, "utm_campaign"),
     content: param(url, "utm_content"),
     ref: param(url, "ref"),
-    referrer: externalHost(referrer),
-    landing: landingFor(url.pathname),
+    referrer: REFERRER_BLIND_LANDINGS.has(landing)
+      ? null
+      : externalHost(referrer, url.hostname),
+    landing,
     capturedAt: now.toISOString(),
   };
 }
@@ -197,16 +249,29 @@ export function clearStoredAttribution(): void {
   }
 }
 
-/** Browser: the stored first touch, or null when absent, malformed or stale. */
+/**
+ * Browser: the stored first touch, or null when absent, malformed or stale.
+ *
+ * A record it refuses is also *removed*, not merely ignored. "Expires after 30
+ * days" is what the cookie policy promises the reader, and an entry that sits in
+ * local storage forever while being quietly skipped does not honour that — the
+ * visitor inspecting their own storage sees a record we said would be gone.
+ */
 export function readStoredAttribution(now = new Date()): AttributionInput | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = window.localStorage.getItem(ATTRIBUTION_STORAGE_KEY);
     if (!raw) return null;
     const parsed = attributionInputSchema.safeParse(JSON.parse(raw));
-    if (!parsed.success) return null;
+    if (!parsed.success) {
+      clearStoredAttribution();
+      return null;
+    }
     const at = parsed.data.capturedAt ? Date.parse(parsed.data.capturedAt) : NaN;
-    if (!Number.isFinite(at) || now.getTime() - at > ATTRIBUTION_MAX_AGE_MS) return null;
+    if (!Number.isFinite(at) || now.getTime() - at > ATTRIBUTION_MAX_AGE_MS) {
+      clearStoredAttribution();
+      return null;
+    }
     return parsed.data;
   } catch {
     return null;
