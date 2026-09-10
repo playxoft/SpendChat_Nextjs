@@ -98,14 +98,14 @@
     "@types/pg": "^8.23.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
-    "@vitest/coverage-v8": "^4",
+    "@vitest/coverage-v8": "^5",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",
     "eslint-config-next": "16.3.4",
-    "shadcn": "^4.20.0",
+    "shadcn": "^4.21.0",
     "tailwindcss": "^4",
     "typescript": "^5",
-    "vitest": "^4",
+    "vitest": "^5",
     "wrangler": "^4.129.0"
   },
   "pnpm": {
