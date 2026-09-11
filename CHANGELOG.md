@@ -28,6 +28,10 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - **"Request a comparison" on `/compare`.** The app somebody looked for and
   didn't find is the most useful thing that page can learn, so it now asks,
   linking to GitHub issues.
+- **An RSS link and a "suggest a topic" card on `/blog`.** The feed had no link
+  on the page it belongs to — only a `<link rel="alternate">` no reader ever
+  sees — and what people want written about is worth asking for. The two also
+  carry the remainder that thirteen posts leave in a three-column grid.
 
 ### Changed
 - **Card grids fill whole rows at every width.** Thirteen feature pages in a
@@ -38,7 +42,13 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   flagship entry the emphasis it had anyway — and a widened card lays itself out
   side-on rather than stretched. The counts come from registries that grow, so
   this is computed per breakpoint (`src/lib/grid-fill.ts`) rather than tuned by
-  hand: the gap can't come back the next time a feature or post is added.
+  hand: the gap can't come back the next time a feature is added.
+
+  The blog index is the exception, and deliberately: every post card there is
+  the same width at every breakpoint. A chronological list reads as a list, and
+  widening the newest posts made the first two rows look like a different,
+  two-column layout — worse than the gap it closed. The two cards after the
+  posts carry the remainder instead.
 - **Related features are two by two** on feature and comparison pages, instead
   of three across with a fourth stranded underneath. Those pages are `max-w-4xl`,
   where a fourth column would leave each card about 200px to say its piece in.

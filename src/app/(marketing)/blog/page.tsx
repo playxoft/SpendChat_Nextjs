@@ -1,10 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Newspaper } from "lucide-react";
+import { ArrowRight, MessageSquarePlus, Newspaper, Rss } from "lucide-react";
 import { JsonLd } from "@/components/json-ld";
 import { getPosts, formatPostDate } from "@/lib/blog";
-import { bento, bentoRow, bentoVariant } from "@/lib/grid-fill";
-import { cn } from "@/lib/utils";
 import { absoluteImage, createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
@@ -32,8 +30,6 @@ export default function BlogPage() {
   // the top would otherwise spend the eager hint on nothing and leave the real
   // one lazy.
   const lcpSlug = posts.find((post) => post.image)?.slug;
-  // Capped at two columns: a full-bleed cover would be taller than the fold.
-  const postCells = bento(posts.length, { sm: 2, lg: 3 }, 2);
 
   const blogJsonLd = {
     "@context": "https://schema.org",
@@ -66,12 +62,13 @@ export default function BlogPage() {
         Updates and ideas from the team building {siteConfig.name}.
       </p>
 
-      {/* Post grid — 3 across on large screens. The post count is whatever has
-          been written, so it almost never divides by three: the bento widens
-          the newest posts until the spans do, which turns the remainder into a
-          featured row instead of a card stranded at the bottom. */}
+      {/* Post grid — every card the same width, 3 across on large screens. A
+          chronological list reads as a list: widening the newest posts to
+          square the rows off made the first two rows look like a different,
+          two-column layout, which is worse than the gap it was closing. The
+          two cards after the posts fill the remainder instead. */}
       <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {posts.map((post, i) => (
+        {posts.map((post) => (
           <Link
             key={post.slug}
             href={`/blog/${post.slug}`}
@@ -79,14 +76,7 @@ export default function BlogPage() {
             // cover runs edge to edge and the card's own radius clips its
             // corners, so there's no seam between the two. Padding moves to the
             // text block below.
-            // A widened card turns side-on: a cover stretched over two columns
-            // would tower over the row it is meant to head. It flips at the
-            // breakpoint the card actually widens at, not before.
-            className={cn(
-              "group flex flex-col overflow-hidden rounded-2xl border bg-card transition-all hover:-translate-y-0.5 hover:shadow-md",
-              bentoRow(postCells[i]),
-              postCells[i].span,
-            )}
+            className="group flex flex-col overflow-hidden rounded-2xl border bg-card transition-all hover:-translate-y-0.5 hover:shadow-md"
           >
             {post.image && (
               // Plain <img>: covers are static files in `public/`, served
@@ -107,20 +97,7 @@ export default function BlogPage() {
                 // below it stays lazy.
                 loading={post.slug === lcpSlug ? "eager" : "lazy"}
                 fetchPriority={post.slug === lcpSlug ? "high" : undefined}
-                className={cn(
-                  "h-auto w-full border-b object-cover",
-                  bentoVariant(
-                    postCells[i],
-                    {
-                      sm: "sm:w-2/5 sm:shrink-0 sm:self-stretch sm:border-b-0 sm:border-r",
-                      lg: "lg:w-2/5 lg:shrink-0 lg:self-stretch lg:border-b-0 lg:border-r",
-                    },
-                    {
-                      sm: "sm:w-full sm:self-auto sm:border-b sm:border-r-0",
-                      lg: "lg:w-full lg:self-auto lg:border-b lg:border-r-0",
-                    },
-                  ),
-                )}
+                className="h-auto w-full border-b"
               />
             )}
             <div className="flex flex-1 flex-col p-6">
@@ -143,6 +120,66 @@ export default function BlogPage() {
             </div>
           </Link>
         ))}
+
+        {/* Two cards, not filler: the feed had no link anywhere on the page it
+            belongs to — only a <link rel="alternate"> no reader ever sees — and
+            what somebody wants written about is worth asking for. They sit
+            after the posts and carry the remainder, which with thirteen posts
+            is what squares the last row off. Muted and dashed, so neither is
+            mistaken for a post. */}
+        <a
+          href="/blog/rss.xml"
+          data-track-event="nav_link_click"
+          data-track-params={JSON.stringify({ location: "blog_index", label: "rss" })}
+          className="group flex flex-col justify-center gap-3 rounded-2xl border border-dashed bg-muted/20 p-6 transition-all hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-md"
+        >
+          <span className="flex size-10 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
+            <Rss className="size-5" />
+          </span>
+          <span className="text-xl font-semibold tracking-tight">Follow by RSS</span>
+          <span className="text-muted-foreground">
+            New posts in your own reader, with nothing to sign up for and no
+            email address to hand over.
+          </span>
+          <span className="inline-flex items-center gap-1 text-sm font-medium text-foreground">
+            Grab the feed
+            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </a>
+
+        {/* The only card on this page that isn't one column wide, and only in
+            the two-column band: thirteen posts plus these two cards is fifteen,
+            which three columns divide and two don't. Widening the last one —
+            a call to action, at the very end, after every post — closes the
+            tablet grid without making any row of posts look like a different
+            layout. Adding a fourteenth post reopens it; the fix then is another
+            card here, not a wider post. */}
+        <a
+          href={siteConfig.links.githubIssues}
+          target="_blank"
+          rel="noreferrer"
+          data-track-event="outbound_click"
+          data-track-params={JSON.stringify({
+            destination: "github_issues",
+            location: "blog_index",
+          })}
+          className="group flex flex-col justify-center gap-3 rounded-2xl border border-dashed bg-muted/20 p-6 transition-all hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-md sm:col-span-2 lg:col-span-1"
+        >
+          <span className="flex size-10 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
+            <MessageSquarePlus className="size-5" />
+          </span>
+          <span className="text-xl font-semibold tracking-tight">
+            Something you want covered?
+          </span>
+          <span className="text-muted-foreground">
+            Tell us what you&apos;re trying to work out about tracking money and
+            we&apos;ll write it up properly.
+          </span>
+          <span className="inline-flex items-center gap-1 text-sm font-medium text-foreground">
+            Suggest a topic
+            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </a>
       </div>
     </div>
   );
