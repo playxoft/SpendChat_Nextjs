@@ -13,9 +13,9 @@ import {
 import { JsonLd } from "@/components/json-ld";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { FaqSection } from "@/components/marketing/faq-section";
-import { FeatureIcon } from "@/components/marketing/feature-icon";
+import { FeatureCardGrid } from "@/components/marketing/feature-card";
 import { comparePath, getComparison } from "@/lib/compare";
-import { featurePath, getFeature } from "@/lib/features";
+import { getFeature } from "@/lib/features";
 import { breadcrumbJsonLd, faqJsonLd, type Faq } from "@/lib/seo";
 import { marketingCta } from "@/lib/marketing";
 import { siteConfig } from "@/lib/site";
@@ -155,7 +155,7 @@ export function ComparePage({
           {comparison.competitor} facts checked against its own site and store listings on{" "}
           {verified}. Spotted a change?{" "}
           <a
-            href={`${siteConfig.links.github}/issues`}
+            href={siteConfig.links.githubIssues}
             className="underline underline-offset-4 hover:text-foreground"
             target="_blank"
             rel="noopener noreferrer"
@@ -173,26 +173,14 @@ export function ComparePage({
       {related.length > 0 && (
         <section className="mt-16">
           <h2 className="text-2xl font-semibold tracking-tight">Mentioned above</h2>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {related.map((item) => (
-              <Link
-                key={item.slug}
-                href={featurePath(item.slug)}
-                data-track-event="nav_link_click"
-                data-track-params={JSON.stringify({
-                  location: `compare_${slug}_related`,
-                  label: item.slug,
-                })}
-                className="group rounded-2xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <div className="flex size-10 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
-                  <FeatureIcon name={item.icon} className="size-5" />
-                </div>
-                <h3 className="mt-4 font-medium">{item.label}</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground">{item.blurb}</p>
-              </Link>
-            ))}
-          </div>
+          {/* Two by two, matching the feature pages — each comparison names four
+              features, which a three-column row can't square off. */}
+          <FeatureCardGrid
+            items={related}
+            location={`compare_${slug}_related`}
+            columns={2}
+            className="mt-6"
+          />
         </section>
       )}
 

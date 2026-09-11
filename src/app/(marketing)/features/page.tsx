@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Building2,
   ChartColumn,
+  Coins,
   Download,
   Gauge,
   Keyboard,
@@ -24,7 +25,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { GithubIcon } from "@/components/icons/github";
 import { JsonLd } from "@/components/json-ld";
-import { FeatureIcon } from "@/components/marketing/feature-icon";
+import { FeatureCardGrid } from "@/components/marketing/feature-card";
 import {
   FEATURE_GROUPS,
   featurePath,
@@ -131,6 +132,11 @@ const groups = [
         icon: Tags,
         title: "Your categories",
         body: "Start from a sensible default set, then rename them, change their icons, or add your own. Categories belong to the workspace, so a shared household is always reporting on the same buckets.",
+      },
+      {
+        icon: Coins,
+        title: "One currency, everyone's screen",
+        body: "A workspace has a single currency and number format, set once by an admin and picked for you from where you sign up. Every member reads the same figures the same way, so a shared total never has to be mentally converted before it means anything.",
       },
     ],
   },
@@ -276,32 +282,13 @@ export default function FeaturesPage() {
                       {group.blurb}
                     </p>
                   </div>
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {items.map((feature) => (
-                      <Link
-                        key={feature.slug}
-                        href={featurePath(feature.slug)}
-                        data-track-event="nav_link_click"
-                        data-track-params={JSON.stringify({
-                          location: "features_hub",
-                          label: feature.slug,
-                        })}
-                        className="group flex flex-col rounded-2xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-                      >
-                        <div className="flex size-10 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
-                          <FeatureIcon name={feature.icon} className="size-5" />
-                        </div>
-                        <h4 className="mt-4 font-medium">{feature.label}</h4>
-                        <p className="mt-1.5 text-sm text-muted-foreground">
-                          {feature.blurb}
-                        </p>
-                        <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
-                          Learn more
-                          <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
-                        </span>
-                      </Link>
-                    ))}
-                  </div>
+                  <FeatureCardGrid
+                    items={items}
+                    location="features_hub"
+                    heading="h4"
+                    cta
+                    className="mt-5"
+                  />
                 </section>
               );
             })}

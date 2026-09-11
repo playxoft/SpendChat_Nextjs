@@ -18,6 +18,37 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-09-12
+
+### Added
+- **A workspace-currency card on `/features`.** The Organise section described
+  profiles, sharing and categories but never the thing that makes a shared
+  total readable — one currency and number format per workspace, chosen for you
+  at sign-up and editable by an admin.
+- **"Request a comparison" on `/compare`.** The app somebody looked for and
+  didn't find is the most useful thing that page can learn, so it now asks,
+  linking to GitHub issues.
+
+### Changed
+- **Card grids fill whole rows at every width.** Thirteen feature pages in a
+  three-column grid left one card stranded on a row of its own; the same held
+  for the blog index, the `/features` directory and the four related features at
+  the foot of every feature and comparison page. Each grid now widens its
+  leading card(s) until the spans divide evenly — a bento that gives the
+  flagship entry the emphasis it had anyway — and a widened card lays itself out
+  side-on rather than stretched. The counts come from registries that grow, so
+  this is computed per breakpoint (`src/lib/grid-fill.ts`) rather than tuned by
+  hand: the gap can't come back the next time a feature or post is added.
+- **Related features are two by two** on feature and comparison pages, instead
+  of three across with a fourth stranded underneath. Those pages are `max-w-4xl`,
+  where a fourth column would leave each card about 200px to say its piece in.
+
+### Fixed
+- The `/features` directory, the homepage feature index and the "Related
+  features" blocks were three copies of one card. They're one component now
+  (`src/components/marketing/feature-card.tsx`), which is how two of them had
+  quietly lost the "Learn more" affordance the third kept.
+
 ## [0.21.0] — 2026-09-11
 
 ### Added

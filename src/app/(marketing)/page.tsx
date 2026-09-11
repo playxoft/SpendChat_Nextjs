@@ -27,6 +27,8 @@ import { faqs } from "@/lib/faq";
 import { featureLink, featurePath, publishedFeatures } from "@/lib/features";
 import { faqJsonLd } from "@/lib/seo";
 import { comboFor } from "@/lib/shortcuts";
+import { bento, bentoRow } from "@/lib/grid-fill";
+import { cn } from "@/lib/utils";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
@@ -163,6 +165,9 @@ function ComparisonCell({ value }: { value: Cell }) {
 
 export default function LandingPage() {
   const features = publishedFeatures();
+  // Capped at two columns: these cards are an icon and a line, and a
+  // full-bleed one would read as a banner rather than as a directory entry.
+  const featureCells = bento(features.length, { sm: 2, lg: 3 }, 2);
   const homeFaqs = faqs.slice(0, HOME_FAQ_COUNT);
 
   const jsonLd = {
@@ -622,25 +627,38 @@ export default function LandingPage() {
               signing up.
             </p>
           </div>
+          {/* Thirteen features don't divide by three, so the bento widens two
+              of the leading cards until the spans do — see `src/lib/grid-fill.ts`.
+              The alternative is a card stranded on the last row, and it would
+              come back every time the registry grows by one. */}
           <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map((feature) => (
-              <Link
-                key={feature.slug}
-                href={featurePath(feature.slug)}
-                data-track-event="nav_link_click"
-                data-track-params={JSON.stringify({
-                  location: "home_feature_index",
-                  label: feature.slug,
-                })}
-                className="group rounded-xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
-                  <FeatureIcon name={feature.icon} className="size-5" />
-                </div>
-                <h3 className="mt-4 font-medium">{feature.label}</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground">{feature.blurb}</p>
-              </Link>
-            ))}
+            {features.map((feature, i) => {
+              const cell = featureCells[i];
+              return (
+                <Link
+                  key={feature.slug}
+                  href={featurePath(feature.slug)}
+                  data-track-event="nav_link_click"
+                  data-track-params={JSON.stringify({
+                    location: "home_feature_index",
+                    label: feature.slug,
+                  })}
+                  className={cn(
+                    "group flex flex-col gap-4 rounded-xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md",
+                    bentoRow(cell),
+                    cell.span,
+                  )}
+                >
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
+                    <FeatureIcon name={feature.icon} className="size-5" />
+                  </div>
+                  <div className="flex flex-1 flex-col">
+                    <h3 className="font-medium">{feature.label}</h3>
+                    <p className="mt-1.5 text-sm text-muted-foreground">{feature.blurb}</p>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
           <div className="mt-8 text-center">
             <Button asChild variant="outline" className={marketingCta}>

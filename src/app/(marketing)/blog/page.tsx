@@ -3,6 +3,8 @@ import Link from "next/link";
 import { ArrowRight, Newspaper } from "lucide-react";
 import { JsonLd } from "@/components/json-ld";
 import { getPosts, formatPostDate } from "@/lib/blog";
+import { bento, bentoRow, bentoVariant } from "@/lib/grid-fill";
+import { cn } from "@/lib/utils";
 import { absoluteImage, createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
@@ -30,6 +32,8 @@ export default function BlogPage() {
   // the top would otherwise spend the eager hint on nothing and leave the real
   // one lazy.
   const lcpSlug = posts.find((post) => post.image)?.slug;
+  // Capped at two columns: a full-bleed cover would be taller than the fold.
+  const postCells = bento(posts.length, { sm: 2, lg: 3 }, 2);
 
   const blogJsonLd = {
     "@context": "https://schema.org",
@@ -62,9 +66,12 @@ export default function BlogPage() {
         Updates and ideas from the team building {siteConfig.name}.
       </p>
 
-      {/* Post grid — 3 across on large screens (3x3 once there are 9 posts) */}
+      {/* Post grid — 3 across on large screens. The post count is whatever has
+          been written, so it almost never divides by three: the bento widens
+          the newest posts until the spans do, which turns the remainder into a
+          featured row instead of a card stranded at the bottom. */}
       <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {posts.map((post) => (
+        {posts.map((post, i) => (
           <Link
             key={post.slug}
             href={`/blog/${post.slug}`}
@@ -72,7 +79,14 @@ export default function BlogPage() {
             // cover runs edge to edge and the card's own radius clips its
             // corners, so there's no seam between the two. Padding moves to the
             // text block below.
-            className="group flex flex-col overflow-hidden rounded-2xl border bg-card transition-all hover:-translate-y-0.5 hover:shadow-md"
+            // A widened card turns side-on: a cover stretched over two columns
+            // would tower over the row it is meant to head. It flips at the
+            // breakpoint the card actually widens at, not before.
+            className={cn(
+              "group flex flex-col overflow-hidden rounded-2xl border bg-card transition-all hover:-translate-y-0.5 hover:shadow-md",
+              bentoRow(postCells[i]),
+              postCells[i].span,
+            )}
           >
             {post.image && (
               // Plain <img>: covers are static files in `public/`, served
@@ -93,7 +107,20 @@ export default function BlogPage() {
                 // below it stays lazy.
                 loading={post.slug === lcpSlug ? "eager" : "lazy"}
                 fetchPriority={post.slug === lcpSlug ? "high" : undefined}
-                className="h-auto w-full border-b"
+                className={cn(
+                  "h-auto w-full border-b object-cover",
+                  bentoVariant(
+                    postCells[i],
+                    {
+                      sm: "sm:w-2/5 sm:shrink-0 sm:self-stretch sm:border-b-0 sm:border-r",
+                      lg: "lg:w-2/5 lg:shrink-0 lg:self-stretch lg:border-b-0 lg:border-r",
+                    },
+                    {
+                      sm: "sm:w-full sm:self-auto sm:border-b sm:border-r-0",
+                      lg: "lg:w-full lg:self-auto lg:border-b lg:border-r-0",
+                    },
+                  ),
+                )}
               />
             )}
             <div className="flex flex-1 flex-col p-6">

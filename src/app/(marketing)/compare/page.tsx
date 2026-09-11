@@ -91,6 +91,36 @@ export default function ComparePage() {
               </span>
             </Link>
           ))}
+
+          {/* The request card. It earns its place twice over: the app someone
+              wanted to read about and didn't find is the most useful thing this
+              page can learn, and it squares off a row that five comparisons
+              leave open. Dashed, so it reads as an invitation rather than as a
+              sixth comparison that exists. */}
+          <a
+            href={siteConfig.links.githubIssues}
+            target="_blank"
+            rel="noreferrer"
+            data-track-event="outbound_click"
+            data-track-params={JSON.stringify({
+              destination: "github_issues",
+              location: "compare_hub",
+            })}
+            className="group flex flex-col rounded-2xl border border-dashed bg-muted/20 p-5 transition-all hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-md"
+          >
+            {/* Deliberately not an `h2` like the comparison cards beside it:
+                this is a call to action, not a section of the page, and a
+                heading here would put it in the outline as though it were. */}
+            <p className="font-medium">Not the app you use?</p>
+            <p className="mt-1.5 flex-1 text-sm text-muted-foreground">
+              Tell us which tracker to write up next and we&apos;ll put it through
+              the same treatment — including the parts it does better.
+            </p>
+            <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
+              Request a comparison{" "}
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </a>
         </div>
       )}
 
