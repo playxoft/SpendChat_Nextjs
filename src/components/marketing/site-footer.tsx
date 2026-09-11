@@ -107,7 +107,16 @@ export function SiteFooter() {
       <div className="border-t">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 px-4 py-6 text-sm text-muted-foreground sm:flex-row">
           <p>
-            © {year} {siteConfig.name}. Open source under {siteConfig.license}.
+            © {year} {siteConfig.name}. Open source under {siteConfig.license}.{" "}
+            <span aria-hidden>·</span>{" "}
+            {/* Plain anchor, not <Link>: it's a text file, not a page to prefetch. */}
+            <a
+              href="/llms.txt"
+              onClick={() => trackEvent("footer_link_click", { label: "llms.txt", group: "Meta" })}
+              className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
+            >
+              llms.txt
+            </a>
           </p>
           <p className="inline-flex items-center gap-1.5">
             Made with <Heart className="size-3.5 fill-current text-foreground" /> for the

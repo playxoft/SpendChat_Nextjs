@@ -61,7 +61,12 @@ Authentication, secrets via Doppler.
   `categories.workspace_id`, seeded from `DEFAULT_CATEGORIES` when a workspace is created);
   reads need workspace access, writes need the editor role. Member invites go through ZeptoMail
   (`src/lib/email.ts`, `ZEPTOMAIL_TOKEN`/`MAIL_FROM_ADDRESS` in Doppler); unknown emails become
-  `workspace_invites` rows accepted at the invitee's first bootstrap.
+  `workspace_invites` rows — carrying a shared secret `token` — accepted at the invitee's first
+  bootstrap *or* from the `/invite/<token>` join page (`acceptInviteByToken`), which binds
+  acceptance to the invited email. Email bodies are built only in `src/lib/email-templates.ts`
+  (pure, unit-tested, one shared layout: neutral, no images, plain-text twin); the one-time
+  welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. ZeptoMail is
+  transactional-only — don't add newsletters or drip campaigns to this pipe.
 - **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,
   mutations in `src/actions/*` (server actions), both validated with Zod (`src/lib/validation.ts`).
 - **Auth: Firebase Authentication** (Google + email/password). Sign-in happens in the browser

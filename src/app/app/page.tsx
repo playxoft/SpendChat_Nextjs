@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import { redirect } from "next/navigation";
 import { requireUser, getUserSettings, getCurrentWorkspace } from "@/lib/auth";
+import { OPEN_WORKSPACE_PARAM } from "@/lib/invite-links";
+import { openWorkspaceIfAccessible } from "@/services/workspaces";
 import {
   FEED_PAGE_SIZE,
   getCategories,
@@ -47,6 +50,17 @@ export default async function ChatPage({
 }) {
   const sp = await searchParams;
   const profileParam = Array.isArray(sp.profile) ? sp.profile[0] : sp.profile;
+
+  // `/app?workspace=<id>` — the link in an "access granted" email. Switch to
+  // that workspace (if the user can open it) and drop the parameter, so a
+  // reload or a bookmark doesn't keep forcing the switch.
+  const openParam = sp[OPEN_WORKSPACE_PARAM];
+  const openWorkspaceId = Array.isArray(openParam) ? openParam[0] : openParam;
+  if (openWorkspaceId) {
+    const user = await requireUser();
+    await openWorkspaceIfAccessible(user.id, openWorkspaceId);
+    redirect("/app");
+  }
 
   // A send's `revalidatePath("/app")` re-renders this page, so its data load is a
   // big slice of the perceived send latency. One summary line per render carries

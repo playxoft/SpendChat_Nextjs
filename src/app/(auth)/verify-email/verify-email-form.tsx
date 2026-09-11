@@ -9,10 +9,14 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getFirebaseAuth, syncSession } from "@/lib/firebase";
 import { firebaseAuthErrorMessage } from "@/lib/auth-errors";
+import { safeNextPath, withNext } from "@/lib/next-path";
 
 export function VerifyEmailForm() {
   const router = useRouter();
-  const emailParam = useSearchParams().get("email") ?? "";
+  const searchParams = useSearchParams();
+  const emailParam = searchParams.get("email") ?? "";
+  // Carried from sign-up so an invitee still lands on the invite they came for.
+  const next = safeNextPath(searchParams.get("next"));
   const [user, setUser] = useState<User | null>(null);
   const [ready, setReady] = useState(false);
   const [resending, setResending] = useState(false);
@@ -57,7 +61,7 @@ export function VerifyEmailForm() {
         }
         await syncSession();
         toast.success("Email verified");
-        router.push("/app");
+        router.push(next ?? "/app");
         router.refresh();
       } catch (err) {
         toast.error(firebaseAuthErrorMessage(err, "Couldn't confirm verification."));
@@ -93,7 +97,7 @@ export function VerifyEmailForm() {
         <p className="text-center text-sm text-muted-foreground">
           Not signed in?{" "}
           <Link
-            href={`/sign-in${email ? `?email=${encodeURIComponent(email)}` : ""}`}
+            href={withNext("/sign-in", next, { email })}
             className="font-medium text-foreground underline-offset-4 hover:underline"
           >
             Sign in again
@@ -104,7 +108,7 @@ export function VerifyEmailForm() {
 
       <div className="text-center">
         <Link
-          href="/sign-in"
+          href={withNext("/sign-in", next)}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
         >
           <ArrowLeft className="size-3.5" /> Back to sign in

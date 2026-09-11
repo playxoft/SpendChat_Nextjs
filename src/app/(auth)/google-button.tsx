@@ -31,8 +31,11 @@ function GoogleIcon() {
   );
 }
 
-/** One-click "Continue with Google" — Firebase popup OAuth. */
-export function GoogleSignInButton() {
+/**
+ * One-click "Continue with Google" — Firebase popup OAuth. `next` is where to
+ * land afterwards (already validated by the form via `safeNextPath`).
+ */
+export function GoogleSignInButton({ next = null }: { next?: string | null }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +48,7 @@ export function GoogleSignInButton() {
       // Google accounts are email-verified; establish the session cookie
       // before entering the gated app.
       await syncSession();
-      router.push("/app");
+      router.push(next ?? "/app");
       router.refresh();
     } catch (err) {
       const code =

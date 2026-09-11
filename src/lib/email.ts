@@ -18,14 +18,28 @@ import { getLogContext, runWithLogContext } from "@/lib/log-context";
  * and failures are logged, never thrown — inviting a member must not fail
  * because the notification couldn't be sent.
  *
+ * What we send (all built in `email-templates.ts`): a one-time welcome note on
+ * an account's first bootstrap (`welcome-email.ts`), and the workspace invite /
+ * access-granted notices (`services/workspaces.ts`). ZeptoMail is a
+ * transactional service — every message here is triggered by something the
+ * recipient or an admin just did, sent once, and none is a newsletter.
+ *
  * Thin I/O wiring, excluded from the coverage gate (see vitest.config.ts).
  */
 
 export type EmailMessage = {
   to: string;
   subject: string;
-  /** HTML body; a plain-text fallback is derived by stripping tags. */
+  /** HTML body. */
   html: string;
+  /**
+   * Plain-text alternative. Templates from `email-templates.ts` always supply
+   * one; when absent it's derived by stripping tags, which is good enough for a
+   * one-paragraph notice and unreadable for a table layout.
+   */
+  text?: string;
+  /** Where a reply lands (e.g. support) when it shouldn't be the no-reply sender. */
+  replyTo?: string;
 };
 
 /**
@@ -81,9 +95,11 @@ async function deliver(message: EmailMessage): Promise<void> {
       body: JSON.stringify({
         from: { address: from, name: process.env.MAIL_FROM_NAME ?? "SpendChat" },
         to: [{ email_address: { address: message.to } }],
+        ...(message.replyTo ? { reply_to: [{ address: message.replyTo }] } : {}),
         subject: message.subject,
         htmlbody: message.html,
-        textbody: message.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
+        textbody:
+          message.text ?? message.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),
       }),
     });
     if (!res.ok) {

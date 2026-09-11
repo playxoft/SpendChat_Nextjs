@@ -762,3 +762,9 @@ export const updateMemberRoleSchema = z.object({
   userId: z.string().uuid(),
   role: workspaceRoleSchema,
 });
+
+/** The secret in an invite's join link (`lib/invite-links.ts` mints them). */
+export const inviteTokenSchema = z
+  .string()
+  .regex(/^[A-Za-z0-9_-]{16,128}$/, "That invite link isn't valid");
+

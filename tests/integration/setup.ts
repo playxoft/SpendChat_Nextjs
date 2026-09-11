@@ -25,6 +25,16 @@ vi.mock("next/cache", () => ({
   revalidateTag: vi.fn(),
 }));
 
+// Outbound email is the one edge that would otherwise reach a third party.
+// The transport is replaced with a spy; the pure helpers (`escapeHtml`,
+// `redactEmail`) stay real. Tests assert on `vi.mocked(sendEmail).mock.calls`
+// to check who was written to and with what — call history is cleared between
+// tests by the `vi.clearAllMocks()` below.
+vi.mock("@/lib/email", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/email")>();
+  return { ...actual, sendEmail: vi.fn() };
+});
+
 // Bootstrap geo-detects default currency/locale from request headers. Tests run
 // outside a request scope, so serve an empty header bag — detection falls back
 // to the global defaults (USD / en-US). The `__session` cookie is present only

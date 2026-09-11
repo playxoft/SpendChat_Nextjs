@@ -11,14 +11,17 @@ import {
   type WorkspaceInvite,
   type WorkspaceRole,
 } from "@/db/schema";
-import { ensureBootstrap, getCurrentWorkspace } from "@/lib/auth";
-import { findUserByEmail, findUsersByIds } from "@/lib/directory";
-import { escapeHtml, redactEmail, sendEmail } from "@/lib/email";
+import { ensureBootstrap, getCurrentWorkspace, type SessionUser } from "@/lib/auth";
+import { findUserByEmail, findUserById, findUsersByIds } from "@/lib/directory";
+import { redactEmail, sendEmail } from "@/lib/email";
+import { inviteEmail, siteUrl, type InviteScope } from "@/lib/email-templates";
 import { assertEmailSendAllowed } from "@/lib/email-quota";
 import { badRequest, conflict, forbidden, notFound } from "@/lib/errors";
+import { generateInviteToken, invitePath, openWorkspacePath } from "@/lib/invite-links";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
 import {
+  convertInvites,
   createWorkspaceWithDefaults,
   getWorkspaceRole,
   listUserWorkspaces,
@@ -29,6 +32,7 @@ import {
 import {
   addMemberSchema,
   createWorkspaceSchema,
+  inviteTokenSchema,
   setInviteAccessSchema,
   setMemberAccessSchema,
   updateMemberRoleSchema,
@@ -36,7 +40,6 @@ import {
   workspaceCurrencySchema,
   type AccessGrant,
 } from "@/lib/validation";
-import { siteConfig } from "@/lib/site";
 
 /**
  * Workspace management: create/rename/switch, members, per-profile grants,
@@ -319,20 +322,17 @@ export async function listPendingInvites(
   return [...byEmail.values()];
 }
 
-/** What an access grant covers — resolved to profile names for the email copy. */
-type AccessScopeDescription = { kind: "all" } | { kind: "profiles"; names: string[] };
-
 /**
  * Validate that every profile in the grant belongs to the workspace and gather
- * their names (for the notification email). Throws before any email/quota is
+ * their names + roles for the email copy. Throws before any email/quota is
  * burned so an invalid profile can't cost a send.
  */
 async function describeAccessScope(
   db: ReturnType<typeof getDb>,
   workspaceId: string,
   access: AccessGrant,
-): Promise<AccessScopeDescription> {
-  if (access.mode === "all") return { kind: "all" };
+): Promise<InviteScope> {
+  if (access.mode === "all") return { kind: "all", role: access.role };
   const ids = access.entries.map((e) => e.profileId);
   const rows = await db
     .select({ id: profiles.id, name: profiles.name })
@@ -340,43 +340,19 @@ async function describeAccessScope(
     .where(and(eq(profiles.workspaceId, workspaceId), inArray(profiles.id, ids)));
   if (rows.length !== new Set(ids).size) throw badRequest("Profile is not in this workspace");
   const byId = new Map(rows.map((r) => [r.id, r.name]));
-  return { kind: "profiles", names: ids.map((id) => byId.get(id) ?? "a profile") };
-}
-
-// Workspace/profile names are user-controlled — always `escapeHtml` them
-// before interpolating into an HTML body (subjects are plain text, not HTML).
-function scopeText(workspaceName: string, scope: AccessScopeDescription): string {
-  const ws = escapeHtml(workspaceName);
-  if (scope.kind === "all") return `the workspace "${ws}"`;
-  if (scope.names.length === 1) return `the "${escapeHtml(scope.names[0]!)}" profile in "${ws}"`;
-  const list = scope.names.map((n) => `"${escapeHtml(n)}"`).join(", ");
-  return `${scope.names.length} profiles (${list}) in "${ws}"`;
+  return {
+    kind: "profiles",
+    entries: access.entries.map((e) => ({
+      name: byId.get(e.profileId) ?? "a profile",
+      role: e.role,
+    })),
+  };
 }
 
 /** Count-only summary safe for log messages (no profile names — user data). */
 function accessLogSummary(access: AccessGrant): string {
   if (access.mode === "all") return "all profiles";
   return access.entries.length === 1 ? "1 profile" : `${access.entries.length} profiles`;
-}
-
-function invitationEmail(workspaceName: string, scope: AccessScopeDescription) {
-  return {
-    subject: `You've been invited to ${workspaceName} on ${siteConfig.name}`,
-    html:
-      `<p>You've been invited to ${scopeText(workspaceName, scope)} on <b>${siteConfig.name}</b>.</p>` +
-      `<p><a href="${siteConfig.url}/sign-up">Create your account</a> with this email ` +
-      `address and the workspace will be waiting for you.</p>`,
-  };
-}
-
-function addedEmail(workspaceName: string, scope: AccessScopeDescription) {
-  return {
-    subject: `You now have access to ${workspaceName} on ${siteConfig.name}`,
-    html:
-      `<p>You've been given access to ${scopeText(workspaceName, scope)} on <b>${siteConfig.name}</b>.</p>` +
-      `<p><a href="${siteConfig.url}/app">Open ${siteConfig.name}</a> and switch ` +
-      `workspaces from the sidebar.</p>`,
-  };
 }
 
 /**
@@ -453,6 +429,10 @@ async function applyMemberAccess(
  * Reconcile the pending-invite rows for `email` to match `access`: one
  * workspace-wide row (`all`) or one row per profile (`profiles`). Replaces the
  * whole set for that email so editing an invite never leaves stale rows.
+ *
+ * Returns the group's join-link token. An existing token is carried over to the
+ * new rows, so re-scoping an invite doesn't break the link already sitting in
+ * the invitee's inbox; a first invite mints one.
  */
 async function applyInviteAccess(
   db: ReturnType<typeof getDb>,
@@ -460,16 +440,18 @@ async function applyInviteAccess(
   email: string,
   access: AccessGrant,
   invitedBy: string,
-): Promise<void> {
-  await db
+): Promise<string> {
+  const existing = await db
     .delete(workspaceInvites)
-    .where(and(eq(workspaceInvites.workspaceId, workspaceId), eq(workspaceInvites.email, email)));
+    .where(and(eq(workspaceInvites.workspaceId, workspaceId), eq(workspaceInvites.email, email)))
+    .returning({ token: workspaceInvites.token });
+  const token = existing.find((r) => r.token)?.token ?? generateInviteToken();
 
   if (access.mode === "all") {
     await db
       .insert(workspaceInvites)
-      .values({ workspaceId, email, role: access.role, profileId: null, invitedBy });
-    return;
+      .values({ workspaceId, email, role: access.role, profileId: null, invitedBy, token });
+    return token;
   }
 
   const wsProfiles = await db
@@ -487,8 +469,10 @@ async function applyInviteAccess(
       role: entry.role,
       profileId: entry.profileId,
       invitedBy,
+      token,
     })),
   );
+  return token;
 }
 
 /** Cap invite emails at the shared per-user hourly budget (`email-quota.ts`). */
@@ -529,14 +513,33 @@ export async function addMember(
   // Both branches below send an email to a caller-chosen address.
   await assertInviteEmailAllowed(userId);
 
-  const existing = await findUserByEmail(data.email);
+  const [existing, inviter] = await Promise.all([
+    findUserByEmail(data.email),
+    findUserById(userId),
+  ]);
+  const emailBase = {
+    workspaceName: workspace.name,
+    workspaceIcon: workspace.icon,
+    inviterName: inviter?.name ?? null,
+    scope,
+    recipientEmail: data.email,
+    money: { currency: workspace.currency, locale: workspace.locale },
+  };
+
   if (existing) {
     if (existing.id === userId) throw badRequest("That's you — you already have access");
     if (existing.id === workspace.ownerId) {
       throw badRequest("The workspace owner already has full access");
     }
     await applyMemberAccess(db, workspaceId, existing.id, data.access);
-    sendEmail({ to: data.email, ...addedEmail(workspace.name, scope) });
+    sendEmail({
+      to: data.email,
+      ...inviteEmail({
+        ...emailBase,
+        joinUrl: siteUrl(openWorkspacePath(workspaceId)),
+        recipientHasAccount: true,
+      }),
+    });
     logger.info(`Workspace member added (${accessLogSummary(data.access)})`, {
       event: "workspace.member_added",
       workspaceId,
@@ -547,8 +550,11 @@ export async function addMember(
     return { status: "added", email: data.email };
   }
 
-  await applyInviteAccess(db, workspaceId, data.email, data.access, userId);
-  sendEmail({ to: data.email, ...invitationEmail(workspace.name, scope) });
+  const token = await applyInviteAccess(db, workspaceId, data.email, data.access, userId);
+  sendEmail({
+    to: data.email,
+    ...inviteEmail({ ...emailBase, joinUrl: siteUrl(invitePath(token)), recipientHasAccount: false }),
+  });
   logger.info(`Workspace invite sent to ${redactEmail(data.email)} (${accessLogSummary(data.access)})`, {
     event: "workspace.invite_sent",
     workspaceId,
@@ -557,6 +563,125 @@ export async function addMember(
     mode: data.access.mode,
   });
   return { status: "invited", email: data.email };
+}
+
+/** What the join page shows before anyone signs in: who, which workspace, what access. */
+export type InvitePreview = {
+  workspaceId: string;
+  workspaceName: string;
+  workspaceIcon: string | null;
+  /** The invited address (lowercased) — the account that can accept. */
+  email: string;
+  inviterName: string | null;
+  scope: InviteScope;
+};
+
+/** Every row of the invite group behind a token, with what the acceptance needs. */
+async function loadInviteGroup(token: string) {
+  const db = getDb();
+  return db
+    .select({
+      id: workspaceInvites.id,
+      workspaceId: workspaceInvites.workspaceId,
+      email: workspaceInvites.email,
+      role: workspaceInvites.role,
+      profileId: workspaceInvites.profileId,
+      invitedBy: workspaceInvites.invitedBy,
+      profileName: profiles.name,
+      workspaceName: workspaces.name,
+      workspaceIcon: workspaces.icon,
+    })
+    .from(workspaceInvites)
+    .innerJoin(workspaces, eq(workspaceInvites.workspaceId, workspaces.id))
+    .leftJoin(profiles, eq(workspaceInvites.profileId, profiles.id))
+    .where(eq(workspaceInvites.token, token))
+    .orderBy(asc(profiles.sortOrder), asc(workspaceInvites.createdAt));
+}
+
+/**
+ * Resolve a join link to what it offers, or null when the token is unknown —
+ * accepted already, withdrawn by an admin, or never real. No auth: the page
+ * renders this to a signed-out visitor so they know what they're signing up
+ * for. The token is the secret; nothing here is reachable without it.
+ */
+export async function getInviteByToken(rawToken: unknown): Promise<InvitePreview | null> {
+  const parsed = inviteTokenSchema.safeParse(rawToken);
+  if (!parsed.success) return null;
+  const rows = await loadInviteGroup(parsed.data);
+  const first = rows[0];
+  if (!first) return null;
+  const inviter = await findUserById(first.invitedBy);
+  const wide = rows.find((r) => r.profileId === null);
+  const scope: InviteScope = wide
+    ? { kind: "all", role: wide.role }
+    : {
+        kind: "profiles",
+        entries: rows.map((r) => ({ name: r.profileName ?? "a profile", role: r.role })),
+      };
+  return {
+    workspaceId: first.workspaceId,
+    workspaceName: first.workspaceName,
+    workspaceIcon: first.workspaceIcon,
+    email: first.email,
+    inviterName: inviter?.name ?? null,
+    scope,
+  };
+}
+
+/**
+ * Accept an invite from its join link, as the signed-in user.
+ *
+ * The invite stays bound to the address it was sent to: a different account
+ * holding the link is refused, so a forwarded email can't hand the workspace
+ * to whoever opens it. For a brand-new account this is also where bootstrap
+ * runs — and bootstrap's own by-email acceptance already covers these rows, so
+ * the explicit conversion after it is a no-op there and does the work for an
+ * existing account. Either way the invited workspace becomes the current one,
+ * so `/app` opens on it rather than on the person's own default.
+ */
+export async function acceptInviteByToken(
+  user: SessionUser,
+  rawToken: unknown,
+): Promise<{ workspaceId: string }> {
+  const token = parseOrThrow(inviteTokenSchema, rawToken);
+  const rows = await loadInviteGroup(token);
+  const first = rows[0];
+  if (!first) throw notFound("This invite has already been accepted or was withdrawn");
+  if (!user.email || user.email.trim().toLowerCase() !== first.email) {
+    throw forbidden("This invite was sent to a different email address");
+  }
+
+  await ensureBootstrap(user.id);
+  await convertInvites(user.id, rows);
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({ lastWorkspaceId: first.workspaceId, updatedAt: new Date() })
+    .where(eq(userSettings.userId, user.id));
+  logger.info("Workspace invite accepted from its join link", {
+    event: "workspace.invite_accepted",
+    workspaceId: first.workspaceId,
+    userId: user.id,
+    invitedBy: first.invitedBy,
+  });
+  return { workspaceId: first.workspaceId };
+}
+
+/**
+ * Open a workspace the user already has access to — the landing behaviour of
+ * an "access granted" email's link (`/app?workspace=<id>`). Anything the user
+ * can't open is ignored rather than surfaced: the link is a convenience, and
+ * the tracker falls back to their current workspace.
+ */
+export async function openWorkspaceIfAccessible(userId: string, workspaceId: string): Promise<void> {
+  await ensureBootstrap(userId);
+  const list = await listUserWorkspaces(userId);
+  if (!list.some((w) => w.id === workspaceId)) return;
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({ lastWorkspaceId: workspaceId, updatedAt: new Date() })
+    .where(eq(userSettings.userId, userId));
 }
 
 /** Re-scope a registered member's access (admin). The owner can't be re-scoped. */

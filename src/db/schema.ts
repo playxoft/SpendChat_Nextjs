@@ -70,6 +70,11 @@ export const users = pgTable(
     // rules in `src/lib/attribution.ts`; null for accounts that predate it or
     // whose browser sent nothing. Read back with `pnpm growth:report:prod`.
     acquisition: jsonb("acquisition").$type<Acquisition>(),
+    // When the one-time welcome email was claimed for this account. Claimed
+    // with `UPDATE … WHERE welcomed_at IS NULL RETURNING`, so two concurrent
+    // first requests can't both send it (see `lib/welcome-email.ts`). Null for
+    // accounts that predate it — they never receive one retroactively.
+    welcomedAt: timestamp("welcomed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -148,7 +153,15 @@ export const profileAccess = pgTable(
 /**
  * Pending invite for an email that has no account yet. Accepted
  * (converted to a membership / profile grant) automatically at the invitee's
- * first bootstrap. `profileId` null means a workspace-wide invite.
+ * first bootstrap, or explicitly from the `/invite/<token>` page.
+ * `profileId` null means a workspace-wide invite.
+ *
+ * `token` is the secret in the emailed join link. One token is shared by every
+ * row of a (workspace, email) group — the UI treats that group as a single
+ * invite, and the email carries a single link — and it survives a re-scope, so
+ * the link an admin already sent keeps working after they adjust the role.
+ * Nullable only for rows that predate the column; those still convert by
+ * email at bootstrap, they just have no link.
  */
 export const workspaceInvites = pgTable(
   "workspace_invites",
@@ -161,6 +174,7 @@ export const workspaceInvites = pgTable(
     role: workspaceRoleEnum("role").notNull().default("viewer"),
     profileId: uuid("profile_id").references(() => profiles.id, { onDelete: "cascade" }),
     invitedBy: uuid("invited_by").notNull(),
+    token: text("token"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -171,6 +185,8 @@ export const workspaceInvites = pgTable(
       sql`coalesce(${t.profileId}, '00000000-0000-0000-0000-000000000000'::uuid)`,
     ),
     index("workspace_invites_email_idx").on(t.email),
+    // The join page's lookup: every row of the invite group by its token.
+    index("workspace_invites_token_idx").on(t.token),
     // FK maintenance: cascade when the referenced profile is deleted.
     index("workspace_invites_profile_idx").on(t.profileId),
   ],
