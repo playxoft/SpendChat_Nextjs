@@ -121,8 +121,9 @@ Copy [`.env.example`](./.env.example) → `.env.local` and fill it in. Never com
 [`.env.example`](./.env.example) documents **every** variable the app reads,
 grouped by feature: R2 file storage, email (ZeptoMail), logging (BetterStack),
 analytics, and the AI model registries. Each group says what happens when it is
-unset — file storage answers 503, invites record but send no email, an unset AI
-pair disables that feature — so you can run the app with only the three above
+unset — file storage answers 503, the welcome and invite emails are skipped
+(invites still record), an unset AI pair disables that feature — so you can run
+the app with only the three above
 and switch the rest on when you want them.
 
 ## 📜 Scripts

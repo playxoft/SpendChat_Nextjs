@@ -225,6 +225,13 @@
       "when": 1788781904127,
       "tag": "0031_signup_acquisition",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1789118548367,
+      "tag": "0032_welcome_invite_links",
+      "breakpoints": true
     }
   ]
 }

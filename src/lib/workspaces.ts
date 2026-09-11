@@ -328,18 +328,28 @@ export async function createWorkspaceWithDefaults(
   };
 }
 
-/**
- * Convert any pending email invites for this (new) user into memberships /
- * profile grants, then clear them. Called once from first bootstrap.
- */
-export async function acceptPendingInvites(userId: string, email: string): Promise<number> {
-  const db = getDb();
-  const pending = await db
-    .select()
-    .from(workspaceInvites)
-    .where(eq(workspaceInvites.email, email.trim().toLowerCase()));
-  if (pending.length === 0) return 0;
+/** The columns `convertInvites` needs from a `workspace_invites` row. */
+export type ConvertibleInvite = {
+  id: string;
+  workspaceId: string;
+  profileId: string | null;
+  role: WorkspaceRole;
+};
 
+/**
+ * Turn invite rows into what they promise — a workspace membership for a
+ * workspace-wide row, a profile grant for a profile-scoped one — then delete
+ * them. Shared by the two acceptance paths: by email at first bootstrap
+ * (`acceptPendingInvites`) and by token from the join page
+ * (`services/workspaces.ts#acceptInviteByToken`). Idempotent against access the
+ * user already holds (`onConflictDoNothing`), so accepting twice is harmless.
+ */
+export async function convertInvites(
+  userId: string,
+  pending: ConvertibleInvite[],
+): Promise<number> {
+  if (pending.length === 0) return 0;
+  const db = getDb();
   for (const invite of pending) {
     if (invite.profileId) {
       await db
@@ -360,4 +370,22 @@ export async function acceptPendingInvites(userId: string, email: string): Promi
     ),
   );
   return pending.length;
+}
+
+/**
+ * Convert any pending email invites for this (new) user into memberships /
+ * profile grants, then clear them. Called once from first bootstrap.
+ */
+export async function acceptPendingInvites(userId: string, email: string): Promise<number> {
+  const db = getDb();
+  const pending = await db
+    .select({
+      id: workspaceInvites.id,
+      workspaceId: workspaceInvites.workspaceId,
+      profileId: workspaceInvites.profileId,
+      role: workspaceInvites.role,
+    })
+    .from(workspaceInvites)
+    .where(eq(workspaceInvites.email, email.trim().toLowerCase()));
+  return convertInvites(userId, pending);
 }

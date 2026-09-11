@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { escapeHtml, redactEmail } from "@/lib/email";
+import { escapeHtml, redactEmail, sanitizeHeaderValue } from "@/lib/email";
 
 describe("escapeHtml", () => {
   it("escapes markup so user-named entities can't inject into email bodies", () => {
@@ -28,5 +28,18 @@ describe("redactEmail", () => {
   it("degrades to a full mask for non-address strings", () => {
     expect(redactEmail("not-an-email")).toBe("***");
     expect(redactEmail("@lead-at")).toBe("***");
+  });
+});
+
+describe("sanitizeHeaderValue", () => {
+  it("collapses line breaks so a workspace name can't split the Subject header", () => {
+    expect(sanitizeHeaderValue("Join Team\r\nBcc: evil@example.com")).toBe(
+      "Join Team Bcc: evil@example.com",
+    );
+    expect(sanitizeHeaderValue("  spaced   out \n name ")).toBe("spaced out name");
+  });
+
+  it("leaves an ordinary subject alone", () => {
+    expect(sanitizeHeaderValue("Welcome to SpendChat, Ana")).toBe("Welcome to SpendChat, Ana");
   });
 });

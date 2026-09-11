@@ -149,6 +149,26 @@ export async function removeCollaborator(
   );
 }
 
+/**
+ * Accept an invite from its `/invite/<token>` page. The service binds it to the
+ * signed-in account's email and makes the workspace current, so the caller
+ * only has to navigate to `/app`.
+ */
+export async function acceptWorkspaceInvite(
+  token: string,
+): Promise<ActionResult<{ workspaceId?: string }>> {
+  const user = await requireUser();
+  return runAction(
+    "acceptWorkspaceInvite",
+    async () => {
+      const { workspaceId } = await ws.acceptInviteByToken(user, token);
+      revalidateApp();
+      return { workspaceId };
+    },
+    { userId: user.id },
+  );
+}
+
 export async function cancelWorkspaceInvite(
   workspaceId: string,
   email: string,

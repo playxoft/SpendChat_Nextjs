@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   createUserWithEmailAndPassword,
   sendEmailVerification,
@@ -14,10 +14,15 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { getFirebaseAuth } from "@/lib/firebase";
 import { firebaseAuthErrorMessage } from "@/lib/auth-errors";
+import { safeNextPath, withNext } from "@/lib/next-path";
 import { GoogleSignInButton } from "../google-button";
 
 export function SignUpForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // An invite link pre-fills the address it was sent to and returns there after.
+  const initialEmail = searchParams.get("email") ?? "";
+  const next = safeNextPath(searchParams.get("next"));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -46,7 +51,7 @@ export function SignUpForm() {
         } catch {
           // ignore transient errors sending the verification email
         }
-        router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+        router.push(withNext("/verify-email", next, { email }));
       } catch (err) {
         setError(
           firebaseAuthErrorMessage(err, "Couldn't create your account. Please try again."),
@@ -64,7 +69,7 @@ export function SignUpForm() {
         </p>
       </div>
 
-      <GoogleSignInButton />
+      <GoogleSignInButton next={next} />
 
       <div className="relative">
         <div className="absolute inset-0 flex items-center">
@@ -97,6 +102,7 @@ export function SignUpForm() {
             type="email"
             autoComplete="email"
             required
+            defaultValue={initialEmail}
             placeholder="you@example.com"
             className="h-10"
           />
@@ -124,7 +130,7 @@ export function SignUpForm() {
       <p className="text-center text-sm text-muted-foreground">
         Already have an account?{" "}
         <Link
-          href="/sign-in"
+          href={withNext("/sign-in", next, { email: initialEmail })}
           className="font-medium text-foreground underline-offset-4 hover:underline"
         >
           Sign in

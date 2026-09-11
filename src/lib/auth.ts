@@ -14,6 +14,7 @@ import { resolveUser } from "@/lib/identity";
 import { REFRESH_COOKIE, SESSION_COOKIE } from "@/lib/session-cookie";
 import { detectSettingsDefaults } from "./geo.server";
 import { findUserById } from "./directory";
+import { sendWelcomeEmailOnce } from "./welcome-email";
 import {
   acceptPendingInvites,
   createWorkspaceWithDefaults,
@@ -104,7 +105,9 @@ export function defaultWorkspaceName(name?: string | null, email?: string | null
  * `users` row) with an admin membership and a "Personal" profile.
  * On that first bootstrap, pending email invites are converted into
  * memberships/profile grants — invites only ever exist for emails that had no
- * account when they were invited (known accounts are added directly).
+ * account when they were invited (known accounts are added directly) — and the
+ * one-time welcome email is queued (`sendWelcomeEmailOnce` guarantees the
+ * "one-time" even if two first requests race into this branch).
  */
 export async function ensureBootstrap(userId: string) {
   const db = getDb();
@@ -129,6 +132,7 @@ export async function ensureBootstrap(userId: string) {
       locale: defaults.locale,
     });
     if (identity?.email) await acceptPendingInvites(userId, identity.email);
+    await sendWelcomeEmailOnce(userId, { currency: defaults.currency, locale: defaults.locale });
   }
 }
 

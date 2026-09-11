@@ -18,6 +18,64 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-09-11
+
+### Added
+- **A welcome email on the first sign-in.** New accounts get one message,
+  from the same ZeptoMail sender the invites use: how to log a first
+  transaction three ways (type, write a sentence for the AI, speak), five
+  day-one tips (the `/` cheat sheet, bulk paste, profiles, inviting someone,
+  export), a short "worth knowing" on free / open source / no bank login, and a
+  reply-to that reaches support. The footer says plainly it is a one-off, not a
+  newsletter. Sent exactly once per account — the send is claimed with a
+  conditional update on a new `users.welcomed_at` column, so two first requests
+  racing through bootstrap can't both send. Existing accounts never receive it.
+- **Invite emails carry a link that joins the workspace.** A new
+  `/invite/<token>` page shows who invited you, to which workspace, with what
+  access, and offers *Create a free account* / *I already have an account*
+  (both return to the invite afterwards, address pre-filled) or, when signed in
+  with the invited address, a one-click *Join workspace* that makes it the
+  current workspace. A different signed-in account is refused and offered a
+  switch. The token is a 192-bit secret stored on the invite rows
+  (`workspace_invites.token`), shared by a workspace + email group so one email
+  carries one link, and kept across a re-scope so the link in the inbox keeps
+  working. Someone who already has an account gets an *Open workspace* link
+  (`/app?workspace=<id>`) that switches them there.
+- **Branded, plain-text-friendly email layout** shared by every message: a
+  600px table, inline styles, the neutral palette and single dark button from
+  the app, and a text alternative rendered from the same content. The
+  app's own pieces appear as tables and borders so they render with images
+  blocked: the welcome email opens on a two-message tracker feed (day pill,
+  an expense bubble on the right, an income bubble on the left with the
+  emerald amount) above the composer strip, in the recipient's own currency;
+  shortcut keys are drawn as key caps; the invite leads with the workspace
+  tile — emoji, name, role pills — and a two-bubble preview showing who added
+  what. The only image is the chat-bubble mark beside the wordmark
+  (`public/email/logo.png`, regenerated from `scripts/email-logo.html`).
+- **`/llms.txt`**, linked from the site footer — an llmstxt.org file for language models: what SpendChat is
+  and deliberately isn't (manual entry, no bank sync, no paid tier, no native
+  app), how to refer to it, then generated link sections for every published
+  feature, docs section, comparison, blog post and FAQ, plus developer links.
+  Built from the same registries as the sitemap, so it can't list a page that
+  doesn't exist.
+- Migration `0032` (`users.welcomed_at`, `workspace_invites.token`).
+
+### Changed
+- The sign-in, sign-up and verify-email pages honour a `?next=` destination
+  (same-origin paths only) so an invitee lands back on the invite they came
+  from; Google sign-in respects it too.
+- The docs page's content moved to `src/lib/docs.ts` so `/llms.txt` can list
+  its sections; the page itself is unchanged.
+
+### Security
+- The `?next=` redirect accepts only a single-slash same-origin path — no
+  protocol-relative URLs, schemes, backslashes or control characters — so the
+  auth pages can't be used as an open redirect.
+- Invite acceptance stays bound to the invited email address even with the
+  link in hand; a forwarded invite can't hand the workspace to another account.
+- Line breaks are stripped from every outgoing email subject, so a workspace
+  name can't split the `Subject:` header.
+
 ## [0.20.0] — 2026-09-09
 
 ### Added

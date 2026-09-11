@@ -1,0 +1,42 @@
+<!doctype html>
+<!--
+  Source for public/email/logo.png — the 64×64 (2x) mark shown beside the
+  wordmark in every email (`src/lib/email-templates.ts`). It's the nav Logo's
+  chat bubble + "$" on a light tile with the app's 1px border, so it stays
+  visible when a dark-mode mail client recolours the card behind it (clients
+  leave images alone). A static PNG because most clients strip inline SVG.
+
+  Regenerate from the repo root after editing (needs Chrome):
+
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+      --headless=new --disable-gpu --hide-scrollbars \
+      --force-device-scale-factor=1 --window-size=64,64 \
+      --default-background-color=00000000 --virtual-time-budget=1000 \
+      --screenshot=public/email/logo.png \
+      "file://$PWD/scripts/email-logo.html"
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; }
+      .tile {
+        box-sizing: border-box;
+        width: 64px; height: 64px;
+        border-radius: 16px;
+        background: #ffffff;
+        border: 2px solid #e5e5e5;
+        display: flex; align-items: center; justify-content: center;
+      }
+      svg { width: 40px; height: 40px; display: block; }
+    </style>
+  </head>
+  <body>
+    <div class="tile">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        <text x="12" y="10.4" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="600" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" fill="#0a0a0a" stroke="none">$</text>
+      </svg>
+    </div>
+  </body>
+</html>

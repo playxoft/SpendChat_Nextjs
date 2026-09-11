@@ -10,11 +10,15 @@ import { PasswordInput } from "@/components/ui/password-input";
 import { Label } from "@/components/ui/label";
 import { getFirebaseAuth, syncSession } from "@/lib/firebase";
 import { firebaseAuthErrorMessage } from "@/lib/auth-errors";
+import { safeNextPath, withNext } from "@/lib/next-path";
 import { GoogleSignInButton } from "../google-button";
 
 export function SignInForm() {
   const router = useRouter();
-  const initialEmail = useSearchParams().get("email") ?? "";
+  const searchParams = useSearchParams();
+  const initialEmail = searchParams.get("email") ?? "";
+  // Where to land afterwards (an invite's join page) — same-origin paths only.
+  const next = safeNextPath(searchParams.get("next"));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -40,11 +44,11 @@ export function SignInForm() {
           } catch {
             // ignore rate-limit / transient errors on the resend
           }
-          router.push(`/verify-email?email=${encodeURIComponent(email)}`);
+          router.push(withNext("/verify-email", next, { email }));
           return;
         }
         await syncSession();
-        router.push("/app");
+        router.push(next ?? "/app");
         router.refresh();
       } catch (err) {
         setError(
@@ -63,7 +67,7 @@ export function SignInForm() {
         </p>
       </div>
 
-      <GoogleSignInButton />
+      <GoogleSignInButton next={next} />
 
       <div className="relative">
         <div className="absolute inset-0 flex items-center">
@@ -120,7 +124,7 @@ export function SignInForm() {
       <p className="text-center text-sm text-muted-foreground">
         Don&apos;t have an account?{" "}
         <Link
-          href="/sign-up"
+          href={withNext("/sign-up", next, { email: initialEmail })}
           className="font-medium text-foreground underline-offset-4 hover:underline"
         >
           Create one
