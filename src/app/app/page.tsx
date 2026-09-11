@@ -52,14 +52,21 @@ export default async function ChatPage({
   const profileParam = Array.isArray(sp.profile) ? sp.profile[0] : sp.profile;
 
   // `/app?workspace=<id>` — the link in an "access granted" email. Switch to
-  // that workspace (if the user can open it) and drop the parameter, so a
-  // reload or a bookmark doesn't keep forcing the switch.
+  // that workspace (if the user can open it) and drop just that parameter, so
+  // a reload or a bookmark doesn't keep forcing the switch while any other
+  // query (a `?profile=`) survives the round trip.
   const openParam = sp[OPEN_WORKSPACE_PARAM];
   const openWorkspaceId = Array.isArray(openParam) ? openParam[0] : openParam;
   if (openWorkspaceId) {
     const user = await requireUser();
     await openWorkspaceIfAccessible(user.id, openWorkspaceId);
-    redirect("/app");
+    const rest = new URLSearchParams();
+    for (const [key, value] of Object.entries(sp)) {
+      if (key === OPEN_WORKSPACE_PARAM || value === undefined) continue;
+      for (const v of Array.isArray(value) ? value : [value]) rest.append(key, v);
+    }
+    const query = rest.toString();
+    redirect(query ? `/app?${query}` : "/app");
   }
 
   // A send's `revalidatePath("/app")` re-renders this page, so its data load is a

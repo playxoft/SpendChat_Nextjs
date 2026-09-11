@@ -89,6 +89,7 @@ function inline(text: string): Block {
 /* Building blocks                                                            */
 /* ------------------------------------------------------------------------- */
 
+/** Our own copy (may use `` `key` `` caps). Never pass user-controlled text here. */
 function paragraph(text: string, opts: { muted?: boolean } = {}): Block {
   const color = opts.muted ? COLOR_MUTED : COLOR_BODY;
   const size = opts.muted ? 13 : 15;
@@ -99,10 +100,16 @@ function paragraph(text: string, opts: { muted?: boolean } = {}): Block {
   };
 }
 
-/** A paragraph whose HTML is already assembled (contains its own links). */
-function richParagraph(html: string, text: string): Block {
+/**
+ * A paragraph whose HTML is already assembled (contains its own links, or
+ * user-controlled text that has been escaped and must NOT go through the
+ * key-cap markup — a name with backticks in it is a name, not a shortcut).
+ */
+function richParagraph(html: string, text: string, opts: { muted?: boolean } = {}): Block {
+  const color = opts.muted ? COLOR_MUTED : COLOR_BODY;
+  const size = opts.muted ? 13 : 15;
   return {
-    html: `<p style="margin:0 0 16px;font-size:15px;line-height:1.6;color:${COLOR_BODY};">${html}</p>`,
+    html: `<p style="margin:0 0 16px;font-size:${size}px;line-height:1.6;color:${color};">${html}</p>`,
     text,
   };
 }
@@ -183,7 +190,7 @@ function bubbleRow(b: Bubble, money: MoneyFormat): Block {
     : formatMoney(b.amountMinor, money.currency, money.locale);
   const avatar =
     `<td style="vertical-align:top;${income ? "padding-right:8px;" : "padding-left:8px;"}">` +
-    `<span style="display:inline-block;width:32px;height:32px;line-height:32px;text-align:center;border-radius:999px;background:${COLOR_PAGE};font-size:15px;">${b.category.icon}</span></td>`;
+    `<span style="display:inline-block;width:32px;height:32px;line-height:32px;text-align:center;border-radius:999px;background:${COLOR_PAGE};font-size:15px;">${escapeHtml(b.category.icon)}</span></td>`;
   const bubble =
     `<td style="vertical-align:top;">` +
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="background:${COLOR_CARD};border:1px solid ${COLOR_BORDER};border-radius:16px;${income ? "border-top-left-radius:4px;" : "border-top-right-radius:4px;"}min-width:200px;">` +
@@ -195,7 +202,7 @@ function bubbleRow(b: Bubble, money: MoneyFormat): Block {
     `<td style="padding:${b.author ? "2px" : "8px"} 12px 2px 16px;text-align:right;font-size:15px;font-weight:600;white-space:nowrap;color:${income ? COLOR_INCOME : COLOR_TEXT};">${escapeHtml(amount)}</td>` +
     `</tr>` +
     `<tr>` +
-    `<td style="padding:0 12px 8px;font-size:11px;color:${COLOR_MUTED};white-space:nowrap;">${b.category.icon} ${escapeHtml(b.category.name)}</td>` +
+    `<td style="padding:0 12px 8px;font-size:11px;color:${COLOR_MUTED};white-space:nowrap;">${escapeHtml(b.category.icon)} ${escapeHtml(b.category.name)}</td>` +
     `<td style="padding:0 12px 8px;text-align:right;font-size:11px;color:${COLOR_MUTED};">${escapeHtml(b.time)}</td>` +
     `</tr></table></td>`;
   const html =
@@ -461,7 +468,7 @@ export function welcomeEmail(input: {
     items([
       {
         title: "Press / for the cheat sheet",
-        body: "Every screen and action has a key. `T` `R` `A` `S` jump between views; `E` starts an entry.",
+        body: "Every screen and action has a key. `Q` `T` `E` `S` jump between views; `R` starts an entry.",
         href: siteUrl(featureLink("keyboard-shortcuts")),
       },
       {
@@ -488,8 +495,8 @@ export function welcomeEmail(input: {
 
     heading("Worth knowing"),
     richParagraph(
-      `${escapeHtml(siteConfig.name)} is free and ${link("open source", siteConfig.links.github)} under AGPL-3.0. It never asks for a bank login, shows no ads, and doesn't sell data. If you like it, a star on GitHub or a word to a friend genuinely helps a small project.`,
-      `${siteConfig.name} is free and open source under AGPL-3.0 (${siteConfig.links.github}). It never asks for a bank login, shows no ads, and doesn't sell data. If you like it, a star on GitHub or a word to a friend genuinely helps a small project.`,
+      `${escapeHtml(siteConfig.name)} is free and ${link("open source", siteConfig.links.github)} under ${escapeHtml(siteConfig.license)}. It never asks for a bank login, shows no ads, and doesn't sell data. If you like it, a star on GitHub or a word to a friend genuinely helps a small project.`,
+      `${siteConfig.name} is free and open source under ${siteConfig.license} (${siteConfig.links.github}). It never asks for a bank login, shows no ads, and doesn't sell data. If you like it, a star on GitHub or a word to a friend genuinely helps a small project.`,
     ),
     richParagraph(
       `Stuck, or have an idea? Reply to this email — a person reads every one. The ${link("docs", siteUrl("/docs"))} and ${link("blog", siteUrl("/blog"))} cover the rest.`,
@@ -502,7 +509,7 @@ export function welcomeEmail(input: {
     preheader: "Your first expense takes about five seconds. Here's how, plus a few tips.",
     title: `Welcome to ${siteConfig.name}`,
     blocks,
-    footer: `You're receiving this one-time note because a ${siteConfig.name} account was just created with this address. It isn't a newsletter, and we won't email you again unless something in your account needs your attention.`,
+    footer: `You're receiving this one-time note because a ${siteConfig.name} account was just created with this address. It isn't a newsletter — the only other mail we send is when someone invites you to a workspace, or when something in your account needs your attention.`,
   });
 }
 
@@ -623,12 +630,13 @@ export function inviteEmail(input: InviteEmailInput): RenderedEmail {
           `You'll need a free ${escapeHtml(name)} account with <b>${escapeHtml(recipientEmail)}</b> — the link takes you through creating one (Google, or email and a password) and drops you straight into the workspace. No bank connection, nothing to install.`,
           `You'll need a free ${name} account with ${recipientEmail} — the link takes you through creating one (Google, or email and a password) and drops you straight into the workspace. No bank connection, nothing to install.`,
         ),
-    paragraph(
-      recipientHasAccount
+    // User-controlled values (inviter name, address): escaped, never key-capped.
+    ...(() => {
+      const text = recipientHasAccount
         ? `If you don't recognise ${who ?? "the sender"} or the workspace, you can leave it from Settings → Workspace at any time.`
-        : `If you weren't expecting this, you can ignore it — nothing happens until you accept, and the invite only works for ${recipientEmail}.`,
-      { muted: true },
-    ),
+        : `If you weren't expecting this, you can ignore it — nothing happens until you accept, and the invite only works for ${recipientEmail}.`;
+      return [richParagraph(escapeHtml(text), text, { muted: true })];
+    })(),
   ];
 
   return render({

@@ -48,7 +48,10 @@ describe("welcome email", () => {
     expect(row!.at).toBeInstanceOf(Date);
   });
 
-  it("is claimed by exactly one of several concurrent first requests", async () => {
+  // PGlite is a single connection, so these five calls serialize — this proves
+  // the conditional UPDATE only fires once, not the row-lock behaviour under
+  // real concurrency (documented in welcome-email.ts).
+  it("is sent by only the first of several calls", async () => {
     await registerUser("race");
     const results = await Promise.all(
       Array.from({ length: 5 }, () => sendWelcomeEmailOnce(uid("race"))),
@@ -171,6 +174,27 @@ describe("invite join links", () => {
       kind: "profiles",
       entries: [{ name: "Personal", role: "admin" }],
     });
+  });
+
+  it("refuses a re-scope to a profile outside the workspace without touching the invite", async () => {
+    const W = await setup();
+    await bootstrapUser("b");
+    const foreign = await firstProfileId("b"); // b's Personal — not in a's workspace
+    await ws.addMember(uid("a"), W, { email: "e2@example.com", access: { mode: "all", role: "viewer" } });
+    const [{ token }] = await inviteRows("e2@example.com");
+
+    await expect(
+      ws.setInviteAccess(uid("a"), W, {
+        email: "e2@example.com",
+        access: { mode: "profiles", entries: [{ profileId: foreign, role: "editor" }] },
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+
+    // The invite — and the link already in the inbox — survive the bad edit.
+    const rows = await inviteRows("e2@example.com");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.token).toBe(token);
+    expect((await ws.getInviteByToken(token!))?.scope).toEqual({ kind: "all", role: "viewer" });
   });
 
   it("is withdrawn along with the invite", async () => {

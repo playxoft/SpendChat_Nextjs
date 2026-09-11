@@ -218,7 +218,7 @@ describe("invites", () => {
       access: { mode: "all", role: "editor" },
     });
     expect(res.status).toBe("invited");
-    expect(await ws.listInvites(uid("a"), W)).toHaveLength(1);
+    expect(await ws.listPendingInvites(uid("a"), W)).toHaveLength(1);
 
     // c signs up later — the invite converts into a membership.
     await bootstrapUser("c");
@@ -229,7 +229,7 @@ describe("invites", () => {
         and(eq(workspaceMembers.workspaceId, W), eq(workspaceMembers.userId, uid("c"))),
       );
     expect(member.role).toBe("editor");
-    expect(await ws.listInvites(uid("a"), W)).toHaveLength(0);
+    expect(await ws.listPendingInvites(uid("a"), W)).toHaveLength(0);
   });
 
   it("profile-scoped invites convert into profile grants", async () => {
@@ -259,7 +259,7 @@ describe("invites", () => {
     const W = await workspaceIdOf("a");
     await ws.addMember(uid("a"), W, { email: "e@example.com", access: { mode: "all", role: "viewer" } });
     await ws.cancelInviteByEmail(uid("a"), W, "e@example.com");
-    expect(await ws.listInvites(uid("a"), W)).toHaveLength(0);
+    expect(await ws.listPendingInvites(uid("a"), W)).toHaveLength(0);
   });
 });
 

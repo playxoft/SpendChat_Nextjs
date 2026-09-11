@@ -58,6 +58,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   feature, docs section, comparison, blog post and FAQ, plus developer links.
   Built from the same registries as the sitemap, so it can't list a page that
   doesn't exist.
+- Migration `0032` (`users.welcomed_at`, `workspace_invites.token`).
 
 ### Changed
 - The sign-in, sign-up and verify-email pages honour a `?next=` destination
@@ -72,7 +73,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   auth pages can't be used as an open redirect.
 - Invite acceptance stays bound to the invited email address even with the
   link in hand; a forwarded invite can't hand the workspace to another account.
-- Migration `0032` (`users.welcomed_at`, `workspace_invites.token`).
+- Line breaks are stripped from every outgoing email subject, so a workspace
+  name can't split the `Subject:` header.
 
 ## [0.20.0] — 2026-09-09
 

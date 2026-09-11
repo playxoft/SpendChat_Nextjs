@@ -9,6 +9,9 @@ describe("safeNextPath", () => {
 
   it("rejects anything that could leave the origin", () => {
     expect(safeNextPath("//evil.example/app")).toBeNull();
+    expect(safeNextPath("/\u2028//evil.example")).toBeNull(); // line separator counts as \s
+    // Percent-encoded slashes stay a same-origin path after URL resolution.
+    expect(safeNextPath("/%2F%2Fevil.example")).toBe("/%2F%2Fevil.example");
     expect(safeNextPath("/\\evil.example")).toBeNull(); // browsers read "\" as "/"
     expect(safeNextPath("https://evil.example")).toBeNull();
     expect(safeNextPath("javascript:alert(1)")).toBeNull();

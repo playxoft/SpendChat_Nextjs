@@ -8,18 +8,42 @@ import {
   welcomeEmail,
   type InviteEmailInput,
 } from "@/lib/email-templates";
+import { formatMoney } from "@/lib/money";
 import { siteConfig } from "@/lib/site";
 
-/** Everything between tags, entities decoded, so we can assert on what a reader sees. */
-const visibleText = (html: string) =>
-  html
-    .replace(/<style[\s\S]*?<\/style>/g, "")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"')
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&amp;/g, "&");
+/**
+ * Everything a reader sees: the `<style>` block dropped, tags removed, the five
+ * entities `escapeHtml` emits decoded. A small character walk rather than a
+ * regex chain — this is a test oracle, not a sanitizer, but CodeQL can't tell
+ * the difference and flags `replace(/<style…/)` as incomplete sanitization.
+ */
+function visibleText(html: string): string {
+  const lower = html.toLowerCase();
+  let out = "";
+  let inTag = false;
+  for (let i = 0; i < html.length; i++) {
+    if (!inTag && lower.startsWith("<style", i)) {
+      const end = lower.indexOf("</style>", i);
+      i = end === -1 ? html.length : end + "</style>".length - 1;
+      continue;
+    }
+    const ch = html[i]!;
+    if (ch === "<") {
+      inTag = true;
+      out += " ";
+    } else if (ch === ">" && inTag) {
+      inTag = false;
+    } else if (!inTag) {
+      out += ch;
+    }
+  }
+  return out
+    .replaceAll("&#39;", "'")
+    .replaceAll("&quot;", '"')
+    .replaceAll("&lt;", "<")
+    .replaceAll("&gt;", ">")
+    .replaceAll("&amp;", "&");
+}
 
 describe("firstName", () => {
   it("takes the first word of a display name", () => {
@@ -116,8 +140,10 @@ describe("welcomeEmail", () => {
 
   it("draws shortcut keys as key caps in HTML and plain keys in text", () => {
     const { html, text } = welcomeEmail({ name: "Ana" });
-    expect(html).toMatch(/border-radius:5px;[^>]*>M<\/span>/);
+    expect(html).toMatch(/>M<\/span>/);
     expect(html).toMatch(/>Shift<\/span>/);
+    expect(html).toMatch(/>R<\/span> starts an entry/);
+    expect(text).toContain("Q T E S jump between views; R starts an entry");
     expect(text).toContain("Hold M and speak");
     expect(text).toContain("Shift + a number switches");
     expect(text).not.toContain("`");
@@ -186,7 +212,9 @@ describe("inviteEmail", () => {
 
   it("previews a shared feed with author labels, in the workspace's currency", () => {
     const mail = inviteEmail({ ...base, money: { currency: "EUR", locale: "de-DE" } });
-    expect(mail.text).toContain("→ Ana: Groceries · Groceries · 62,00\u00a0€ · Mon");
+    // Built with the same formatter, so an ICU change to de-DE spacing can't break it.
+    const sixtyTwo = formatMoney(6200, "EUR", "de-DE");
+    expect(mail.text).toContain(`→ Ana: Groceries · Groceries · ${sixtyTwo} · Mon`);
     expect(mail.text).toContain("← You: Split from last week");
     expect(visibleText(mail.html)).toContain("Ana");
     expect(visibleText(mail.html)).toContain("You");
@@ -222,6 +250,14 @@ describe("inviteEmail", () => {
     expect(visibleText(mail.html)).toContain("Someone invited you");
     const added = inviteEmail({ ...base, inviterName: "   ", recipientHasAccount: true });
     expect(visibleText(added.html)).toContain("don't recognise the sender");
+  });
+
+  it("never turns backticks in a person's name or address into key caps", () => {
+    const mail = inviteEmail({ ...base, inviterName: "Bob `X` Smith", recipientEmail: "a`b`c@example.com" });
+    expect(mail.html).not.toMatch(/border-bottom-width:2px;[^>]*>X<\/span>/);
+    expect(visibleText(mail.html)).toContain("Bob `X` Smith");
+    expect(visibleText(mail.html)).toContain("a`b`c@example.com");
+    expect(mail.text).toContain("Bob `X` Smith");
   });
 
   it("escapes a hostile workspace name everywhere it appears in the HTML", () => {

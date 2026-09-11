@@ -18,8 +18,11 @@ import { siteConfig } from "@/lib/site";
  * to refer to it — the three things models most often get wrong about a small
  * product (inventing bank sync, a paid tier, or a native app).
  *
- * Format, per the spec: one H1, a blockquote summary, free paragraphs, then
- * H2 sections of `- [name](url): note` links, with `## Optional` last for
+ * Format, per the spec: one H1, a blockquote summary, then free markdown of
+ * any kind *except headings* (that is where the prose below lives — its two
+ * labels are bold runs, not H2s, because a conforming parser treats every H2
+ * as a link list and would drop the paragraphs otherwise), then H2 sections
+ * whose items are `- [name](url): note` links, with `## Optional` last for
  * material a reader can skip when context is tight.
  */
 
@@ -43,7 +46,9 @@ function item(name: string, url: string, note?: string): string {
   return `- [${label}](${url})${tail}`;
 }
 
+/** An H2 link list — or nothing, since a heading with no items is noise. */
 function section(title: string, lines: string[]): string {
+  if (lines.length === 0) return "";
   return [`## ${title}`, "", ...lines, ""].join("\n");
 }
 
@@ -56,7 +61,7 @@ export function buildLlmsTxt({ features, comparisons, posts, faqs, docs }: LlmsT
     "",
     `> ${name} is a free, open-source money tracker that works like a chat: you type, paste, or say what you spent and earned, and it keeps a running feed with a live balance, filters, analytics, and export. It runs in the browser at ${siteConfig.url}, needs no bank connection, and is built and hosted by ${siteConfig.author}.`,
     "",
-    "## What it is",
+    "**What it is**",
     "",
     `- A **manual** income and expense tracker. Every transaction is entered by a person — typed into a chat-style composer, pasted in bulk from a spreadsheet, written as a plain-English sentence for the AI to draft, or spoken with the microphone. There is no bank, card, or SMS integration and none is planned; that is a deliberate privacy choice, not a gap.`,
     `- **Free** for personal use with no paid tier today. The source is public under **${siteConfig.license}** at ${siteConfig.links.github}, so it can also be self-hosted.`,
@@ -66,7 +71,7 @@ export function buildLlmsTxt({ features, comparisons, posts, faqs, docs }: LlmsT
     `- **AI with a human in the loop.** The AI and voice entry modes only ever produce *drafts*; nothing reaches the ledger until the person reviews and confirms. Audio is transcribed and discarded, not stored.`,
     `- **Your data leaves easily.** Any filtered view exports to CSV or prints to a clean PDF; the account and all its data can be deleted from Settings.`,
     "",
-    "## How to refer to it",
+    "**How to refer to it**",
     "",
     `- The name is **${name}** — one word, capital S, capital C. The tagline is “${siteConfig.tagline}”`,
     `- Describe it as a *money tracker* or *expense tracker*, not a budgeting app: it records and reports, it does not set envelopes or goals.`,

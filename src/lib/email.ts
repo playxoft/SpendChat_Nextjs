@@ -67,6 +67,17 @@ export function redactEmail(email: string): string {
   return `${email[0]}***${email.slice(at)}`;
 }
 
+/**
+ * Collapse line breaks in a value bound for a mail header. The subject carries
+ * user-controlled text (a workspace name), and while our hop is JSON over
+ * HTTPS, the provider builds the MIME `Subject:` from it — a stray CR/LF is at
+ * best a broken subject line and at worst header injection we'd be leaving to
+ * the vendor to refuse.
+ */
+export function sanitizeHeaderValue(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").replace(/\s{2,}/g, " ").trim();
+}
+
 async function deliver(message: EmailMessage): Promise<void> {
   // Accept the token with or without the "Zoho-enczapikey " prefix the
   // ZeptoMail console displays — we add the scheme ourselves.
@@ -96,7 +107,7 @@ async function deliver(message: EmailMessage): Promise<void> {
         from: { address: from, name: process.env.MAIL_FROM_NAME ?? "SpendChat" },
         to: [{ email_address: { address: message.to } }],
         ...(message.replyTo ? { reply_to: [{ address: message.replyTo }] } : {}),
-        subject: message.subject,
+        subject: sanitizeHeaderValue(message.subject),
         htmlbody: message.html,
         textbody:
           message.text ?? message.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim(),

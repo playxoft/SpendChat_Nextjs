@@ -64,7 +64,7 @@ describe("buildLlmsTxt", () => {
   const out = buildLlmsTxt(input);
   const lines = out.split("\n");
 
-  it("follows the llms.txt shape: one H1, a blockquote, H2 sections, Optional last", () => {
+  it("follows the llms.txt shape: one H1, a blockquote, prose, H2 link lists, Optional last", () => {
     expect(lines[0]).toBe(`# ${siteConfig.name}`);
     expect(lines.filter((l) => l.startsWith("# "))).toHaveLength(1);
     expect(lines[2]).toMatch(/^> /);
@@ -72,6 +72,27 @@ describe("buildLlmsTxt", () => {
     expect(h2s[h2s.length - 1]).toBe("## Optional");
     expect(out).not.toMatch(/\n{3,}/);
     expect(out.endsWith("\n")).toBe(true);
+  });
+
+  it("keeps the hand-written prose out of H2 sections, which the spec reserves for link lists", () => {
+    // The two prose labels are bold runs in the details area, not headings.
+    expect(out).toContain("\n**What it is**\n");
+    expect(out).toContain("\n**How to refer to it**\n");
+    expect(out).not.toContain("## What it is");
+    // From the first H2 on, every non-blank, non-heading line is a link item.
+    const firstH2 = lines.findIndex((l) => l.startsWith("## "));
+    expect(firstH2).toBeGreaterThan(0);
+    for (const line of lines.slice(firstH2)) {
+      if (line === "" || line.startsWith("## ")) continue;
+      expect(line).toMatch(/^- \[[^\]]+\]\(https?:\/\/[^)]+\)/);
+    }
+  });
+
+  it("omits a section entirely when nothing is published for it", () => {
+    const none = buildLlmsTxt({ ...input, comparisons: [], posts: [] });
+    expect(none).not.toContain("## Comparisons");
+    expect(none).not.toContain("## Blog");
+    expect(none).toContain("## Features");
   });
 
   it("lists only published features and comparisons, as absolute links with notes", () => {

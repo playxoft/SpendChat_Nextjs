@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   profileAccess,
@@ -8,7 +8,6 @@ import {
   workspaceInvites,
   workspaceMembers,
   workspaces,
-  type WorkspaceInvite,
   type WorkspaceRole,
 } from "@/db/schema";
 import { ensureBootstrap, getCurrentWorkspace, type SessionUser } from "@/lib/auth";
@@ -161,20 +160,6 @@ export async function listMembers(userId: string, workspaceId: string): Promise<
     email: directory.get(m.userId)?.email ?? null,
     isOwner: m.userId === workspace?.ownerId,
   }));
-}
-
-/** Pending email invites (admin only). */
-export async function listInvites(
-  userId: string,
-  workspaceId: string,
-): Promise<WorkspaceInvite[]> {
-  await requireWorkspaceRole(userId, workspaceId, "admin");
-  const db = getDb();
-  return db
-    .select()
-    .from(workspaceInvites)
-    .where(eq(workspaceInvites.workspaceId, workspaceId))
-    .orderBy(asc(workspaceInvites.createdAt));
 }
 
 /** A person's resolved access — workspace-wide, or a set of profiles with roles. */
@@ -425,6 +410,9 @@ async function applyMemberAccess(
   }
 }
 
+/** Advisory-lock namespace for invite-group rewrites; 1 and 2 are the quotas'. */
+const INVITE_LOCK_NAMESPACE = 3;
+
 /**
  * Reconcile the pending-invite rows for `email` to match `access`: one
  * workspace-wide row (`all`) or one row per profile (`profiles`). Replaces the
@@ -433,6 +421,14 @@ async function applyMemberAccess(
  * Returns the group's join-link token. An existing token is carried over to the
  * new rows, so re-scoping an invite doesn't break the link already sitting in
  * the invitee's inbox; a first invite mints one.
+ *
+ * Validation happens *before* anything is deleted — a stale profile id (removed
+ * in another tab, or from another workspace) must cost the admin an error
+ * message, not the invite and its emailed link. The delete + insert then run
+ * in one transaction behind a per-(workspace, email) advisory lock, so two
+ * concurrent rewrites of the same group queue up instead of interleaving —
+ * without it the second could delete nothing, mint a fresh token, and collide
+ * with the first's rows on the unique index.
  */
 async function applyInviteAccess(
   db: ReturnType<typeof getDb>,
@@ -441,38 +437,45 @@ async function applyInviteAccess(
   access: AccessGrant,
   invitedBy: string,
 ): Promise<string> {
-  const existing = await db
-    .delete(workspaceInvites)
-    .where(and(eq(workspaceInvites.workspaceId, workspaceId), eq(workspaceInvites.email, email)))
-    .returning({ token: workspaceInvites.token });
-  const token = existing.find((r) => r.token)?.token ?? generateInviteToken();
+  if (access.mode === "profiles") {
+    const wsProfiles = await db
+      .select({ id: profiles.id })
+      .from(profiles)
+      .where(eq(profiles.workspaceId, workspaceId));
+    const allowed = new Set(wsProfiles.map((p) => p.id));
+    for (const entry of access.entries) {
+      if (!allowed.has(entry.profileId)) throw badRequest("Profile is not in this workspace");
+    }
+  }
 
-  if (access.mode === "all") {
-    await db
-      .insert(workspaceInvites)
-      .values({ workspaceId, email, role: access.role, profileId: null, invitedBy, token });
+  return db.transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(${INVITE_LOCK_NAMESPACE}, hashtext(${`${workspaceId}:${email}`}))`,
+    );
+    const existing = await tx
+      .delete(workspaceInvites)
+      .where(and(eq(workspaceInvites.workspaceId, workspaceId), eq(workspaceInvites.email, email)))
+      .returning({ token: workspaceInvites.token });
+    const token = existing.find((r) => r.token)?.token ?? generateInviteToken();
+
+    if (access.mode === "all") {
+      await tx
+        .insert(workspaceInvites)
+        .values({ workspaceId, email, role: access.role, profileId: null, invitedBy, token });
+      return token;
+    }
+    await tx.insert(workspaceInvites).values(
+      access.entries.map((entry) => ({
+        workspaceId,
+        email,
+        role: entry.role,
+        profileId: entry.profileId,
+        invitedBy,
+        token,
+      })),
+    );
     return token;
-  }
-
-  const wsProfiles = await db
-    .select({ id: profiles.id })
-    .from(profiles)
-    .where(eq(profiles.workspaceId, workspaceId));
-  const allowed = new Set(wsProfiles.map((p) => p.id));
-  for (const entry of access.entries) {
-    if (!allowed.has(entry.profileId)) throw badRequest("Profile is not in this workspace");
-  }
-  await db.insert(workspaceInvites).values(
-    access.entries.map((entry) => ({
-      workspaceId,
-      email,
-      role: entry.role,
-      profileId: entry.profileId,
-      invitedBy,
-      token,
-    })),
-  );
-  return token;
+  });
 }
 
 /** Cap invite emails at the shared per-user hourly budget (`email-quota.ts`). */
@@ -652,7 +655,15 @@ export async function acceptInviteByToken(
   }
 
   await ensureBootstrap(user.id);
-  await convertInvites(user.id, rows);
+  // Re-read rather than trust the rows above: bootstrap's own by-email pass
+  // may have consumed them (fine), or an admin may have withdrawn the invite in
+  // the meantime (then there's nothing to grant). Either way the end state —
+  // can this user open the workspace? — is what gets checked, not the read.
+  await convertInvites(user.id, await loadInviteGroup(token));
+  const list = await listUserWorkspaces(user.id);
+  if (!list.some((w) => w.id === first.workspaceId)) {
+    throw notFound("This invite has already been accepted or was withdrawn");
+  }
   const db = getDb();
   await db
     .update(userSettings)
