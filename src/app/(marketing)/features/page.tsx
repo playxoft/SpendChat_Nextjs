@@ -307,35 +307,35 @@ export default function FeaturesPage() {
           // counted on. See `src/lib/grid-fill.ts`.
           const cells = bento(group.items.length, { md: 2 });
           return (
-          <section key={group.eyebrow}>
-            <div className="flex flex-col gap-1 border-b pb-5">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {group.eyebrow}
-              </span>
-              <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                {group.title}
-              </h2>
-            </div>
-            <div className="mt-6 grid gap-5 md:grid-cols-2">
-              {group.items.map((item, i) => (
-                <div
-                  key={item.title}
-                  className={cn(
-                    "group rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md",
-                    cells[i].span,
-                  )}
-                >
-                  <div className="flex size-11 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
-                    <item.icon className="size-5" />
+            <section key={group.eyebrow}>
+              <div className="flex flex-col gap-1 border-b pb-5">
+                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  {group.eyebrow}
+                </span>
+                <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                  {group.title}
+                </h2>
+              </div>
+              <div className="mt-6 grid gap-5 md:grid-cols-2">
+                {group.items.map((item, i) => (
+                  <div
+                    key={item.title}
+                    className={cn(
+                      "group rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md",
+                      cells[i].span,
+                    )}
+                  >
+                    <div className="flex size-11 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
+                      <item.icon className="size-5" />
+                    </div>
+                    <h3 className="mt-4 text-lg font-medium">{item.title}</h3>
+                    <p className="mt-2 leading-relaxed text-muted-foreground">
+                      {item.body}
+                    </p>
                   </div>
-                  <h3 className="mt-4 text-lg font-medium">{item.title}</h3>
-                  <p className="mt-2 leading-relaxed text-muted-foreground">
-                    {item.body}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
+                ))}
+              </div>
+            </section>
           );
         })}
       </div>
