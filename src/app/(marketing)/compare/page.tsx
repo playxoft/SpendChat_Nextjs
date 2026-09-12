@@ -3,10 +3,13 @@ import { ArrowRight, Scale } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { InvitationCard } from "@/components/marketing/invitation-card";
 import { comparePath, publishedComparisons } from "@/lib/compare";
+import { bento } from "@/lib/grid-fill";
 import { marketingCta } from "@/lib/marketing";
 import { breadcrumbJsonLd, createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
+import { cn } from "@/lib/utils";
 
 export const metadata = createMetadata({
   title: "Compare SpendChat With Other Expense Trackers",
@@ -22,6 +25,11 @@ const trail = [
 
 export default function ComparePage() {
   const comparisons = publishedComparisons();
+  // The request card is one of the cells, and is always there — so the grid is
+  // laid out for `comparisons.length + 1`, and the leading comparison widens
+  // when that doesn't divide. Capped at two columns: these cards are a line of
+  // prose, and a full-bleed one would read as a banner.
+  const cells = bento(comparisons.length + 1, { sm: 2, lg: 3 }, 2);
   const itemListJsonLd =
     comparisons.length > 0
       ? {
@@ -71,28 +79,52 @@ export default function ComparePage() {
         </div>
       </div>
 
-      {comparisons.length > 0 && (
-        <div className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {comparisons.map((c) => (
-            <Link
-              key={c.slug}
-              href={comparePath(c.slug)}
-              data-track-event="nav_link_click"
-              data-track-params={JSON.stringify({ location: "compare_hub", label: c.slug })}
-              className="group flex flex-col rounded-2xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <h2 className="font-medium">
-                {siteConfig.name} vs {c.competitor}
-              </h2>
-              <p className="mt-1.5 flex-1 text-sm text-muted-foreground">{c.blurb}</p>
-              <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
-                Read the comparison{" "}
-                <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
+      {/* Not guarded on `comparisons.length`: with an empty registry the request
+          card is the one thing on this page worth showing. */}
+      <div className="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {comparisons.map((c, i) => (
+          <Link
+            key={c.slug}
+            href={comparePath(c.slug)}
+            data-track-event="nav_link_click"
+            data-track-params={JSON.stringify({ location: "compare_hub", label: c.slug })}
+            className={cn(
+              "group flex flex-col rounded-2xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md",
+              cells[i].span,
+            )}
+          >
+            <h2 className="font-medium">
+              {siteConfig.name} vs {c.competitor}
+            </h2>
+            <p className="mt-1.5 flex-1 text-sm text-muted-foreground">{c.blurb}</p>
+            <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
+              Read the comparison{" "}
+              <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+            </span>
+          </Link>
+        ))}
+
+        {/* The request card. It earns its place twice over: the app someone
+            wanted to read about and didn't find is the most useful thing this
+            page can learn, and it squares off the row the comparisons leave
+            open. Dashed, so it reads as an invitation rather than as a
+            comparison that exists. */}
+        <InvitationCard
+          title="Not the app you use?"
+          body={
+            <>
+              Tell us which tracker to write up next and we&apos;ll put it
+              through the same treatment — including the parts it does better.
+            </>
+          }
+          cta="Request a comparison"
+          href={siteConfig.links.githubIssues}
+          external
+          event="outbound_click"
+          params={{ destination: "github_issues", location: "compare_hub" }}
+          className={cells[comparisons.length].span}
+        />
+      </div>
 
       <section className="mx-auto mt-20 max-w-2xl">
         <h2 className="text-2xl font-semibold tracking-tight">How these pages are written</h2>

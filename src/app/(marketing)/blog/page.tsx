@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import Link from "next/link";
-import { ArrowRight, Newspaper } from "lucide-react";
+import { ArrowRight, MessageSquarePlus, Newspaper, Rss } from "lucide-react";
 import { JsonLd } from "@/components/json-ld";
+import { InvitationCard } from "@/components/marketing/invitation-card";
 import { getPosts, formatPostDate } from "@/lib/blog";
+import { bentoTail } from "@/lib/grid-fill";
 import { absoluteImage, createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
@@ -30,6 +32,12 @@ export default function BlogPage() {
   // the top would otherwise spend the eager hint on nothing and leave the real
   // one lazy.
   const lcpSlug = posts.find((post) => post.image)?.slug;
+  // Every post card stays one column wide (see the grid comment below), so the
+  // remainder falls to the last of the two cards after them. Computed from the
+  // post count rather than written out, because the count differs between dev
+  // and production — `getPosts` drops drafts only in production — and a span
+  // tuned by hand to what renders locally is a hole on the live site.
+  const tail = bentoTail(posts.length + 2, { sm: 2, lg: 3 });
 
   const blogJsonLd = {
     "@context": "https://schema.org",
@@ -62,7 +70,11 @@ export default function BlogPage() {
         Updates and ideas from the team building {siteConfig.name}.
       </p>
 
-      {/* Post grid — 3 across on large screens (3x3 once there are 9 posts) */}
+      {/* Post grid — every card the same width, 3 across on large screens. A
+          chronological list reads as a list: widening the newest posts to
+          square the rows off made the first two rows look like a different,
+          two-column layout, which is worse than the gap it was closing. The
+          two cards after the posts fill the remainder instead. */}
       <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {posts.map((post) => (
           <Link
@@ -116,6 +128,46 @@ export default function BlogPage() {
             </div>
           </Link>
         ))}
+
+        {/* Two cards, not filler: the feed had no link anywhere on the page it
+            belongs to — only a <link rel="alternate"> no reader ever sees — and
+            what somebody wants written about is worth asking for. They sit
+            after the posts and carry the remainder the post count leaves.
+            Muted and dashed, so neither is mistaken for a post. */}
+        <InvitationCard
+          icon={Rss}
+          size="lg"
+          title="Follow by RSS"
+          body="New posts in your own reader, with nothing to sign up for and no email address to hand over."
+          cta="Grab the feed"
+          href="/blog/rss.xml"
+          event="nav_link_click"
+          params={{ location: "blog_index", label: "rss" }}
+        />
+
+        {/* The only card on this page that isn't one column wide: the posts
+            plus these two cards rarely divide by both two and three, and
+            widening the last one — a call to action, at the very end, after
+            every post — closes the row without making any row of posts look
+            like a different layout. `bentoTail` works the span out from the
+            post count, so a fourteenth post doesn't reopen the gap. */}
+        <InvitationCard
+          icon={MessageSquarePlus}
+          size="lg"
+          title="Something you want covered?"
+          body={
+            <>
+              Tell us what you&apos;re trying to work out about tracking money
+              and we&apos;ll write it up properly.
+            </>
+          }
+          cta="Suggest a topic"
+          href={siteConfig.links.githubIssues}
+          external
+          event="outbound_click"
+          params={{ destination: "github_issues", location: "blog_index" }}
+          className={tail.span}
+        />
       </div>
     </div>
   );

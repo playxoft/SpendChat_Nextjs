@@ -17,14 +17,14 @@ import { Kbd } from "@/components/ui/kbd";
 import { GithubIcon } from "@/components/icons/github";
 import { ChatDemo } from "@/components/marketing/demo/chat-demo";
 import { EntryMethods } from "@/components/marketing/entry-methods";
-import { FeatureIcon } from "@/components/marketing/feature-icon";
+import { FeatureCardGrid } from "@/components/marketing/feature-card";
 import { SpendBreakdown, SpendChart } from "@/components/marketing/spend-breakdown";
 import { FilesPreview } from "@/components/marketing/demo/files-preview";
 import { ShortcutsPreview } from "@/components/marketing/demo/shortcuts-preview";
 import { JsonLd } from "@/components/json-ld";
 import { AppHandoff } from "@/components/marketing/app-handoff";
 import { faqs } from "@/lib/faq";
-import { featureLink, featurePath, publishedFeatures } from "@/lib/features";
+import { featureLink, publishedFeatures } from "@/lib/features";
 import { faqJsonLd } from "@/lib/seo";
 import { comboFor } from "@/lib/shortcuts";
 import { siteConfig } from "@/lib/site";
@@ -622,26 +622,15 @@ export default function LandingPage() {
               signing up.
             </p>
           </div>
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map((feature) => (
-              <Link
-                key={feature.slug}
-                href={featurePath(feature.slug)}
-                data-track-event="nav_link_click"
-                data-track-params={JSON.stringify({
-                  location: "home_feature_index",
-                  label: feature.slug,
-                })}
-                className="group rounded-xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <div className="flex size-10 items-center justify-center rounded-lg bg-muted">
-                  <FeatureIcon name={feature.icon} className="size-5" />
-                </div>
-                <h3 className="mt-4 font-medium">{feature.label}</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground">{feature.blurb}</p>
-              </Link>
-            ))}
-          </div>
+          {/* The same card the `/features` hub and the "Related features"
+              blocks render, bento maths included: thirteen features don't
+              divide by three, so the grid widens its leading cards until the
+              spans do. See `src/components/marketing/feature-card.tsx`. */}
+          <FeatureCardGrid
+            items={features}
+            location="home_feature_index"
+            className="mt-12"
+          />
           <div className="mt-8 text-center">
             <Button asChild variant="outline" className={marketingCta}>
               <Link href="/features">All features</Link>

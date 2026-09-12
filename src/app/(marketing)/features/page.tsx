@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Building2,
   ChartColumn,
+  Coins,
   Download,
   Gauge,
   Keyboard,
@@ -24,16 +25,18 @@ import {
 import { Button } from "@/components/ui/button";
 import { GithubIcon } from "@/components/icons/github";
 import { JsonLd } from "@/components/json-ld";
-import { FeatureIcon } from "@/components/marketing/feature-icon";
+import { FeatureCardGrid } from "@/components/marketing/feature-card";
 import {
   FEATURE_GROUPS,
   featurePath,
   featuresInGroup,
   publishedFeatures,
 } from "@/lib/features";
+import { bento } from "@/lib/grid-fill";
 import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
+import { cn } from "@/lib/utils";
 
 export const metadata = createMetadata({
   title: "Features",
@@ -131,6 +134,11 @@ const groups = [
         icon: Tags,
         title: "Your categories",
         body: "Start from a sensible default set, then rename them, change their icons, or add your own. Categories belong to the workspace, so a shared household is always reporting on the same buckets.",
+      },
+      {
+        icon: Coins,
+        title: "One currency, everyone's screen",
+        body: "A workspace has a single currency and number format, set once by an admin and picked for you from where you sign up. Every member reads the same figures the same way, so a shared total never has to be mentally converted before it means anything.",
       },
     ],
   },
@@ -276,32 +284,12 @@ export default function FeaturesPage() {
                       {group.blurb}
                     </p>
                   </div>
-                  <div className="mt-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                    {items.map((feature) => (
-                      <Link
-                        key={feature.slug}
-                        href={featurePath(feature.slug)}
-                        data-track-event="nav_link_click"
-                        data-track-params={JSON.stringify({
-                          location: "features_hub",
-                          label: feature.slug,
-                        })}
-                        className="group flex flex-col rounded-2xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-                      >
-                        <div className="flex size-10 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
-                          <FeatureIcon name={feature.icon} className="size-5" />
-                        </div>
-                        <h4 className="mt-4 font-medium">{feature.label}</h4>
-                        <p className="mt-1.5 text-sm text-muted-foreground">
-                          {feature.blurb}
-                        </p>
-                        <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
-                          Learn more
-                          <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
-                        </span>
-                      </Link>
-                    ))}
-                  </div>
+                  <FeatureCardGrid
+                    items={items}
+                    location="features_hub"
+                    heading="h4"
+                    className="mt-5"
+                  />
                 </section>
               );
             })}
@@ -311,34 +299,45 @@ export default function FeaturesPage() {
 
       {/* Grouped feature sections */}
       <div className="mt-20 space-y-16">
-        {groups.map((group) => (
-          <section key={group.eyebrow}>
-            <div className="flex flex-col gap-1 border-b pb-5">
-              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {group.eyebrow}
-              </span>
-              <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                {group.title}
-              </h2>
-            </div>
-            <div className="mt-6 grid gap-5 md:grid-cols-2">
-              {group.items.map((item) => (
-                <div
-                  key={item.title}
-                  className="group rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
-                >
-                  <div className="flex size-11 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
-                    <item.icon className="size-5" />
+        {groups.map((group) => {
+          // These groups hold an even number of cards today, which is the only
+          // reason the two-column grid squares off. That is not a property a
+          // literal array keeps on its own — the next prose card added to a
+          // group would strand one — so the remainder is computed rather than
+          // counted on. See `src/lib/grid-fill.ts`.
+          const cells = bento(group.items.length, { md: 2 });
+          return (
+            <section key={group.eyebrow}>
+              <div className="flex flex-col gap-1 border-b pb-5">
+                <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
+                  {group.eyebrow}
+                </span>
+                <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                  {group.title}
+                </h2>
+              </div>
+              <div className="mt-6 grid gap-5 md:grid-cols-2">
+                {group.items.map((item, i) => (
+                  <div
+                    key={item.title}
+                    className={cn(
+                      "group rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md",
+                      cells[i].span,
+                    )}
+                  >
+                    <div className="flex size-11 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
+                      <item.icon className="size-5" />
+                    </div>
+                    <h3 className="mt-4 text-lg font-medium">{item.title}</h3>
+                    <p className="mt-2 leading-relaxed text-muted-foreground">
+                      {item.body}
+                    </p>
                   </div>
-                  <h3 className="mt-4 text-lg font-medium">{item.title}</h3>
-                  <p className="mt-2 leading-relaxed text-muted-foreground">
-                    {item.body}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </section>
-        ))}
+                ))}
+              </div>
+            </section>
+          );
+        })}
       </div>
 
       {/* CTA */}

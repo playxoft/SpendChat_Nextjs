@@ -35,6 +35,8 @@ export const siteConfig = {
   license: "AGPL-3.0",
   links: {
     github: "https://github.com/playxoft/SpendChat_Nextjs",
+    /** Where "request a comparison" and "correct this row" both land. */
+    githubIssues: "https://github.com/playxoft/SpendChat_Nextjs/issues",
     playxoft: "https://playxoft.com",
   },
 } as const;

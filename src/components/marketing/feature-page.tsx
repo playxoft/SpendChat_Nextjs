@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { FaqSection } from "@/components/marketing/faq-section";
+import { FeatureCardGrid } from "@/components/marketing/feature-card";
 import { FeatureIcon } from "@/components/marketing/feature-icon";
 import { TryItCaption } from "@/components/marketing/demo/demo-caption";
 import { featurePath, getFeature, relatedFeatures } from "@/lib/features";
@@ -114,26 +115,14 @@ export function FeaturePage({
       {related.length > 0 && (
         <section className="mt-16">
           <h2 className="text-2xl font-semibold tracking-tight">Related features</h2>
-          <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {related.map((item) => (
-              <Link
-                key={item.slug}
-                href={featurePath(item.slug)}
-                data-track-event="nav_link_click"
-                data-track-params={JSON.stringify({
-                  location: `${slug}_related`,
-                  label: item.slug,
-                })}
-                className="group rounded-2xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
-              >
-                <div className="flex size-10 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
-                  <FeatureIcon name={item.icon} className="size-5" />
-                </div>
-                <h3 className="mt-4 font-medium">{item.label}</h3>
-                <p className="mt-1.5 text-sm text-muted-foreground">{item.blurb}</p>
-              </Link>
-            ))}
-          </div>
+          {/* Two by two: every feature names four siblings, and a three-column
+              row would strand the fourth on a line of its own. */}
+          <FeatureCardGrid
+            items={related}
+            location={`${slug}_related`}
+            columns={2}
+            className="mt-6"
+          />
         </section>
       )}
 
