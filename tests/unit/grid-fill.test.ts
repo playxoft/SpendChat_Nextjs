@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 
-import { bento, bentoRow, bentoVariant, fillSpans } from "@/lib/grid-fill";
+import { bento, bentoRow, bentoTail, bentoVariant, fillSpans } from "@/lib/grid-fill";
 
 /**
  * Replays CSS grid auto-placement over a set of spans and reports the cells
@@ -98,7 +98,7 @@ describe("bento", () => {
     // Only the three-column layout needs this one — it is a plain card on a
     // tablet, and must not be laid out as though it weren't.
     expect(cells[2].wideAt).toEqual({ sm: false, md: false, lg: true });
-    expect(cells[1].wide).toBe(false);
+    expect(cells[1].wideAt).toEqual({ sm: false, md: false, lg: false });
   });
 
   it("walks a widened card back down where the wider grid doesn't need it", () => {
@@ -111,7 +111,14 @@ describe("bento", () => {
   });
 
   it("says nothing when every breakpoint already divides evenly", () => {
-    expect(bento(6, { sm: 2, lg: 3 }).every((c) => c.span === "" && !c.wide)).toBe(true);
+    expect(bento(6, { sm: 2, lg: 3 }).every((c) => c.span === "")).toBe(true);
+  });
+
+  it("refuses a grid wider than the utilities written out for it", () => {
+    // The failure this replaces was silent: the span table stopped at four, a
+    // fifth column looked up `undefined`, `join` dropped it, and the card
+    // rendered one column wide — the exact hole the module exists to close.
+    expect(() => bento(1, { lg: 5 })).toThrow(/col-span-5/);
   });
 
   it("ignores breakpoints that aren't multi-column", () => {
@@ -144,8 +151,59 @@ describe("bentoVariant", () => {
     expect(bentoRow(bento(9, { sm: 2, lg: 3 })[0])).toBe("sm:flex-row lg:flex-col");
   });
 
-  it("skips a breakpoint the caller left out of the map", () => {
-    expect(bentoVariant(cells[0], { lg: "lg:flex-row" })).toBe("");
+  it("states the class at the first breakpoint the caller gave one for", () => {
+    // Card one is wide from `sm`, but a map with only an `lg` entry leaves it
+    // in the narrow layout until `lg` — so `lg` still has to state the flip.
+    // Tracking the card's width instead of the layout it is actually in is
+    // what used to swallow this.
+    expect(bentoVariant(cells[0], { lg: "lg:flex-row" })).toBe("lg:flex-row");
     expect(bentoVariant(cells[2], { lg: "lg:flex-row" })).toBe("lg:flex-row");
+  });
+
+  it("doesn't undo a form the element never took", () => {
+    // Wide at `sm`/`md`, narrow again at `lg`. With no `sm` entry the element
+    // never turned side-on, so there is nothing for `lg` to walk back.
+    const cell = bento(9, { sm: 2, lg: 3 })[0];
+    expect(bentoVariant(cell, { lg: "lg:flex-row" }, { lg: "lg:flex-col" })).toBe("");
+  });
+});
+
+describe("bentoTail", () => {
+  /** What the blog index does: every card one wide, the last one widened. */
+  function tailSpans(count: number, columns: number): number[] {
+    const cell = bentoTail(count, { sm: columns });
+    const match = /sm:col-span-(\d+)/.exec(cell.span);
+    return [...Array(Math.max(count - 1, 0)).fill(1), match ? Number(match[1]) : 1];
+  }
+
+  it("leaves the last card alone when the count already divides", () => {
+    expect(bentoTail(6, { sm: 2, lg: 3 }).span).toBe("");
+    expect(bentoTail(4, { sm: 2 }).span).toBe("");
+  });
+
+  it("widens the last card by exactly the cells its row has left", () => {
+    // Thirteen posts plus the two cards after them: fifteen cells, which three
+    // columns divide and two don't.
+    expect(bentoTail(15, { sm: 2, lg: 3 }).span).toBe("sm:col-span-2 lg:col-span-1");
+    // A fourteenth post moves the remainder to the other breakpoint — the last
+    // card takes the whole three-column row it would otherwise sit alone in —
+    // with no hand-written class to go stale.
+    expect(bentoTail(16, { sm: 2, lg: 3 }).span).toBe("lg:col-span-3");
+  });
+
+  it("fills whole rows, with no gaps, for every count a registry can reach", () => {
+    for (let columns = 2; columns <= 4; columns++) {
+      for (let count = 1; count <= 40; count++) {
+        const spans = tailSpans(count, columns);
+        expect(
+          emptyCells(spans, columns),
+          `count=${count} columns=${columns} → ${spans}`,
+        ).toBe(0);
+      }
+    }
+  });
+
+  it("has nothing to say for an empty grid", () => {
+    expect(bentoTail(0, { sm: 2, lg: 3 }).span).toBe("");
   });
 });

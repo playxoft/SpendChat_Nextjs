@@ -7,12 +7,14 @@ import { bento, bentoRow, type BentoCell } from "@/lib/grid-fill";
 import { cn } from "@/lib/utils";
 
 /**
- * One entry in a feature directory — the `/features` hub, and the "Related
- * features" / "Mentioned above" blocks on the feature and comparison pages.
+ * One entry in a feature directory — the `/features` hub, the homepage feature
+ * index, and the "Related features" / "Mentioned above" blocks on the feature
+ * and comparison pages.
  *
- * The three used to carry their own copy of this markup, identical except for
- * the heading level, which is how the hub ended up with a `Learn more` affordance
- * the other two never grew. One component, three call sites.
+ * Those used to carry their own copy of this markup, near enough identical,
+ * which is how the hub ended up with a `Learn more` affordance the others never
+ * grew. One component, one card: every directory shows the affordance, because
+ * a card that is a link to a page should say so wherever it appears.
  *
  * `cell` comes from the bento maths in `src/lib/grid-fill.ts`, and carries both
  * the card's width and where it got it. A card given two columns and left in
@@ -24,7 +26,6 @@ export function FeatureCard({
   feature,
   location,
   heading: Heading = "h3",
-  cta = false,
   cell,
 }: {
   feature: Feature;
@@ -32,8 +33,6 @@ export function FeatureCard({
   location: string;
   /** Pick the level that keeps the page's outline in order. */
   heading?: "h3" | "h4";
-  /** Show the "Learn more" affordance under the blurb. */
-  cta?: boolean;
   /** This card's place in the bento — its width, and where it turns side-on. */
   cell: BentoCell;
 }) {
@@ -54,12 +53,10 @@ export function FeatureCard({
       <div className="flex flex-1 flex-col">
         <Heading className="font-medium">{feature.label}</Heading>
         <p className="mt-1.5 text-sm text-muted-foreground">{feature.blurb}</p>
-        {cta && (
-          <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
-            Learn more
-            <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
-          </span>
-        )}
+        <span className="mt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
+          Learn more
+          <ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5" />
+        </span>
       </div>
     </Link>
   );
@@ -93,14 +90,12 @@ export function FeatureCardGrid({
   items,
   location,
   heading,
-  cta,
   columns = 3,
   className,
 }: {
   items: Feature[];
   location: string;
   heading?: "h3" | "h4";
-  cta?: boolean;
   /** Columns at `lg`; `sm` is always two. */
   columns?: keyof typeof GRID_CLASS;
   className?: string;
@@ -119,7 +114,6 @@ export function FeatureCardGrid({
           feature={feature}
           location={location}
           heading={heading}
-          cta={cta}
           cell={cells[i]}
         />
       ))}

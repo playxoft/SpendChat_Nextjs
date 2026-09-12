@@ -17,18 +17,16 @@ import { Kbd } from "@/components/ui/kbd";
 import { GithubIcon } from "@/components/icons/github";
 import { ChatDemo } from "@/components/marketing/demo/chat-demo";
 import { EntryMethods } from "@/components/marketing/entry-methods";
-import { FeatureIcon } from "@/components/marketing/feature-icon";
+import { FeatureCardGrid } from "@/components/marketing/feature-card";
 import { SpendBreakdown, SpendChart } from "@/components/marketing/spend-breakdown";
 import { FilesPreview } from "@/components/marketing/demo/files-preview";
 import { ShortcutsPreview } from "@/components/marketing/demo/shortcuts-preview";
 import { JsonLd } from "@/components/json-ld";
 import { AppHandoff } from "@/components/marketing/app-handoff";
 import { faqs } from "@/lib/faq";
-import { featureLink, featurePath, publishedFeatures } from "@/lib/features";
+import { featureLink, publishedFeatures } from "@/lib/features";
 import { faqJsonLd } from "@/lib/seo";
 import { comboFor } from "@/lib/shortcuts";
-import { bento, bentoRow } from "@/lib/grid-fill";
-import { cn } from "@/lib/utils";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
 
@@ -165,9 +163,6 @@ function ComparisonCell({ value }: { value: Cell }) {
 
 export default function LandingPage() {
   const features = publishedFeatures();
-  // Capped at two columns: these cards are an icon and a line, and a
-  // full-bleed one would read as a banner rather than as a directory entry.
-  const featureCells = bento(features.length, { sm: 2, lg: 3 }, 2);
   const homeFaqs = faqs.slice(0, HOME_FAQ_COUNT);
 
   const jsonLd = {
@@ -627,39 +622,15 @@ export default function LandingPage() {
               signing up.
             </p>
           </div>
-          {/* Thirteen features don't divide by three, so the bento widens two
-              of the leading cards until the spans do — see `src/lib/grid-fill.ts`.
-              The alternative is a card stranded on the last row, and it would
-              come back every time the registry grows by one. */}
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map((feature, i) => {
-              const cell = featureCells[i];
-              return (
-                <Link
-                  key={feature.slug}
-                  href={featurePath(feature.slug)}
-                  data-track-event="nav_link_click"
-                  data-track-params={JSON.stringify({
-                    location: "home_feature_index",
-                    label: feature.slug,
-                  })}
-                  className={cn(
-                    "group flex flex-col gap-4 rounded-xl border bg-card p-5 transition-all hover:-translate-y-0.5 hover:shadow-md",
-                    bentoRow(cell),
-                    cell.span,
-                  )}
-                >
-                  <div className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted">
-                    <FeatureIcon name={feature.icon} className="size-5" />
-                  </div>
-                  <div className="flex flex-1 flex-col">
-                    <h3 className="font-medium">{feature.label}</h3>
-                    <p className="mt-1.5 text-sm text-muted-foreground">{feature.blurb}</p>
-                  </div>
-                </Link>
-              );
-            })}
-          </div>
+          {/* The same card the `/features` hub and the "Related features"
+              blocks render, bento maths included: thirteen features don't
+              divide by three, so the grid widens its leading cards until the
+              spans do. See `src/components/marketing/feature-card.tsx`. */}
+          <FeatureCardGrid
+            items={features}
+            location="home_feature_index"
+            className="mt-12"
+          />
           <div className="mt-8 text-center">
             <Button asChild variant="outline" className={marketingCta}>
               <Link href="/features">All features</Link>

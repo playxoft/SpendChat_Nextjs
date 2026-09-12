@@ -27,11 +27,12 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   at sign-up and editable by an admin.
 - **"Request a comparison" on `/compare`.** The app somebody looked for and
   didn't find is the most useful thing that page can learn, so it now asks,
-  linking to GitHub issues.
+  linking to GitHub issues. It shows whether or not any comparisons are
+  published — an empty hub is exactly when the question is worth asking.
 - **An RSS link and a "suggest a topic" card on `/blog`.** The feed had no link
   on the page it belongs to — only a `<link rel="alternate">` no reader ever
   sees — and what people want written about is worth asking for. The two also
-  carry the remainder that thirteen posts leave in a three-column grid.
+  carry whatever remainder the post count leaves in the grid.
 
 ### Changed
 - **Card grids fill whole rows at every width.** Thirteen feature pages in a
@@ -42,13 +43,18 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   flagship entry the emphasis it had anyway — and a widened card lays itself out
   side-on rather than stretched. The counts come from registries that grow, so
   this is computed per breakpoint (`src/lib/grid-fill.ts`) rather than tuned by
-  hand: the gap can't come back the next time a feature is added.
+  hand: the gap can't come back the next time a feature is added. The comparison
+  hub and the prose groups on `/features` go through the same maths, so neither
+  depends any longer on its registry happening to hold an even number today.
 
   The blog index is the exception, and deliberately: every post card there is
   the same width at every breakpoint. A chronological list reads as a list, and
   widening the newest posts made the first two rows look like a different,
-  two-column layout — worse than the gap it closed. The two cards after the
-  posts carry the remainder instead.
+  two-column layout — worse than the gap it closed. The last of the two cards
+  after the posts carries the remainder instead, widened by exactly the cells
+  its row has left. That span is computed too: drafts are hidden in production
+  and shown in development, so the post count differs between the two, and a
+  class tuned to what renders locally is a hole on the live site.
 - **Related features are two by two** on feature and comparison pages, instead
   of three across with a fourth stranded underneath. Those pages are `max-w-4xl`,
   where a fourth column would leave each card about 200px to say its piece in.
@@ -57,7 +63,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - The `/features` directory, the homepage feature index and the "Related
   features" blocks were three copies of one card. They're one component now
   (`src/components/marketing/feature-card.tsx`), which is how two of them had
-  quietly lost the "Learn more" affordance the third kept.
+  quietly lost the "Learn more" affordance the third kept — every feature card
+  states it again, on all four directories.
+- The dashed "ask us for something" cards — follow the feed and suggest a topic
+  on `/blog`, request a comparison on `/compare` — were three copies of one
+  card too, and are now `src/components/marketing/invitation-card.tsx`.
 
 ## [0.21.0] — 2026-09-11
 

@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowRight, MessageSquarePlus, Newspaper, Rss } from "lucide-react";
 import { JsonLd } from "@/components/json-ld";
+import { InvitationCard } from "@/components/marketing/invitation-card";
 import { getPosts, formatPostDate } from "@/lib/blog";
+import { bentoTail } from "@/lib/grid-fill";
 import { absoluteImage, createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
@@ -30,6 +32,12 @@ export default function BlogPage() {
   // the top would otherwise spend the eager hint on nothing and leave the real
   // one lazy.
   const lcpSlug = posts.find((post) => post.image)?.slug;
+  // Every post card stays one column wide (see the grid comment below), so the
+  // remainder falls to the last of the two cards after them. Computed from the
+  // post count rather than written out, because the count differs between dev
+  // and production — `getPosts` drops drafts only in production — and a span
+  // tuned by hand to what renders locally is a hole on the live site.
+  const tail = bentoTail(posts.length + 2, { sm: 2, lg: 3 });
 
   const blogJsonLd = {
     "@context": "https://schema.org",
@@ -124,62 +132,42 @@ export default function BlogPage() {
         {/* Two cards, not filler: the feed had no link anywhere on the page it
             belongs to — only a <link rel="alternate"> no reader ever sees — and
             what somebody wants written about is worth asking for. They sit
-            after the posts and carry the remainder, which with thirteen posts
-            is what squares the last row off. Muted and dashed, so neither is
-            mistaken for a post. */}
-        <a
+            after the posts and carry the remainder the post count leaves.
+            Muted and dashed, so neither is mistaken for a post. */}
+        <InvitationCard
+          icon={Rss}
+          size="lg"
+          title="Follow by RSS"
+          body="New posts in your own reader, with nothing to sign up for and no email address to hand over."
+          cta="Grab the feed"
           href="/blog/rss.xml"
-          data-track-event="nav_link_click"
-          data-track-params={JSON.stringify({ location: "blog_index", label: "rss" })}
-          className="group flex flex-col justify-center gap-3 rounded-2xl border border-dashed bg-muted/20 p-6 transition-all hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-md"
-        >
-          <span className="flex size-10 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
-            <Rss className="size-5" />
-          </span>
-          <span className="text-xl font-semibold tracking-tight">Follow by RSS</span>
-          <span className="text-muted-foreground">
-            New posts in your own reader, with nothing to sign up for and no
-            email address to hand over.
-          </span>
-          <span className="inline-flex items-center gap-1 text-sm font-medium text-foreground">
-            Grab the feed
-            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-          </span>
-        </a>
+          event="nav_link_click"
+          params={{ location: "blog_index", label: "rss" }}
+        />
 
-        {/* The only card on this page that isn't one column wide, and only in
-            the two-column band: thirteen posts plus these two cards is fifteen,
-            which three columns divide and two don't. Widening the last one —
-            a call to action, at the very end, after every post — closes the
-            tablet grid without making any row of posts look like a different
-            layout. Adding a fourteenth post reopens it; the fix then is another
-            card here, not a wider post. */}
-        <a
+        {/* The only card on this page that isn't one column wide: the posts
+            plus these two cards rarely divide by both two and three, and
+            widening the last one — a call to action, at the very end, after
+            every post — closes the row without making any row of posts look
+            like a different layout. `bentoTail` works the span out from the
+            post count, so a fourteenth post doesn't reopen the gap. */}
+        <InvitationCard
+          icon={MessageSquarePlus}
+          size="lg"
+          title="Something you want covered?"
+          body={
+            <>
+              Tell us what you&apos;re trying to work out about tracking money
+              and we&apos;ll write it up properly.
+            </>
+          }
+          cta="Suggest a topic"
           href={siteConfig.links.githubIssues}
-          target="_blank"
-          rel="noreferrer"
-          data-track-event="outbound_click"
-          data-track-params={JSON.stringify({
-            destination: "github_issues",
-            location: "blog_index",
-          })}
-          className="group flex flex-col justify-center gap-3 rounded-2xl border border-dashed bg-muted/20 p-6 transition-all hover:-translate-y-0.5 hover:bg-muted/40 hover:shadow-md sm:col-span-2 lg:col-span-1"
-        >
-          <span className="flex size-10 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
-            <MessageSquarePlus className="size-5" />
-          </span>
-          <span className="text-xl font-semibold tracking-tight">
-            Something you want covered?
-          </span>
-          <span className="text-muted-foreground">
-            Tell us what you&apos;re trying to work out about tracking money and
-            we&apos;ll write it up properly.
-          </span>
-          <span className="inline-flex items-center gap-1 text-sm font-medium text-foreground">
-            Suggest a topic
-            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-          </span>
-        </a>
+          external
+          event="outbound_click"
+          params={{ destination: "github_issues", location: "blog_index" }}
+          className={tail.span}
+        />
       </div>
     </div>
   );

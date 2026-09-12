@@ -32,9 +32,11 @@ import {
   featuresInGroup,
   publishedFeatures,
 } from "@/lib/features";
+import { bento } from "@/lib/grid-fill";
 import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
+import { cn } from "@/lib/utils";
 
 export const metadata = createMetadata({
   title: "Features",
@@ -286,7 +288,6 @@ export default function FeaturesPage() {
                     items={items}
                     location="features_hub"
                     heading="h4"
-                    cta
                     className="mt-5"
                   />
                 </section>
@@ -298,7 +299,14 @@ export default function FeaturesPage() {
 
       {/* Grouped feature sections */}
       <div className="mt-20 space-y-16">
-        {groups.map((group) => (
+        {groups.map((group) => {
+          // These groups hold an even number of cards today, which is the only
+          // reason the two-column grid squares off. That is not a property a
+          // literal array keeps on its own — the next prose card added to a
+          // group would strand one — so the remainder is computed rather than
+          // counted on. See `src/lib/grid-fill.ts`.
+          const cells = bento(group.items.length, { md: 2 });
+          return (
           <section key={group.eyebrow}>
             <div className="flex flex-col gap-1 border-b pb-5">
               <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
@@ -309,10 +317,13 @@ export default function FeaturesPage() {
               </h2>
             </div>
             <div className="mt-6 grid gap-5 md:grid-cols-2">
-              {group.items.map((item) => (
+              {group.items.map((item, i) => (
                 <div
                   key={item.title}
-                  className="group rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md"
+                  className={cn(
+                    "group rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md",
+                    cells[i].span,
+                  )}
                 >
                   <div className="flex size-11 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">
                     <item.icon className="size-5" />
@@ -325,7 +336,8 @@ export default function FeaturesPage() {
               ))}
             </div>
           </section>
-        ))}
+          );
+        })}
       </div>
 
       {/* CTA */}
