@@ -117,10 +117,19 @@ export default function BlogPage() {
               <span aria-hidden>·</span>
               <span>{post.readingMinutes} min read</span>
             </div>
-            <h2 className="mt-3 text-xl font-semibold tracking-tight">
+            {/* Both lines are clamped rather than shortened at the source.
+                `meta.excerpt` is the post's SEO meta description — it feeds
+                `description`, `openGraph`, `twitter` and the `BlogPosting`
+                JSON-LD on the post page, plus the RSS `<description>` and
+                llms.txt — and ours run 125–181 characters, which is the length
+                Google wants for a snippet. Trimming the prose to shrink a card
+                would pay for card height with search results. The clamp costs
+                nothing but the tail of a line, and it applies to posts written
+                later without anyone remembering a character budget. */}
+            <h2 className="mt-3 line-clamp-2 text-xl font-semibold tracking-tight">
               {post.title}
             </h2>
-            <p className="mt-2 text-muted-foreground">{post.excerpt}</p>
+            <p className="mt-2 line-clamp-3 text-muted-foreground">{post.excerpt}</p>
             <span className="mt-auto pt-4 inline-flex items-center gap-1 text-sm font-medium text-foreground">
               Read post
               <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />

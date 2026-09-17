@@ -18,6 +18,22 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.22.1] — 2026-09-17
+
+### Changed
+- **Shorter, even cards on the blog index.** Titles now stop at two lines and
+  excerpts at three, with an ellipsis, so every card in the grid is the same
+  height instead of varying by the length of the post it links to. The tallest
+  card lost 23% of its text block and the grid as a whole is 172px shorter, so
+  more of the thirteen posts are reachable without scrolling.
+
+  The clamp is a display rule, not an edit to the posts. `meta.excerpt` is each
+  post's SEO meta description — it feeds `description`, `openGraph`, `twitter`
+  and the `BlogPosting` JSON-LD, plus the RSS `<description>` and `llms.txt` —
+  and ours run 125–181 characters, which is the length a search snippet wants.
+  Shortening the prose to shrink a card would have paid for card height with
+  search results, and would have needed redoing for every post written later.
+
 ## [0.22.0] — 2026-09-12
 
 ### Added
