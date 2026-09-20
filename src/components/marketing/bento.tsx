@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { lgSpanClass, rowSizes } from "@/lib/bento-rhythm";
 
 /**
  * Two four-cell bento layouts, for blocks where four things deserve more room
@@ -50,48 +51,45 @@ export type BentoItem = {
  * a column share an edge with a cell the same width, so the eye crosses the
  * block diagonally rather than scanning it as two rows of two.
  */
-const LG_SPAN: Record<number, string> = {
-  2: "lg:col-span-2",
-  3: "lg:col-span-3",
-  4: "lg:col-span-4",
-  6: "lg:col-span-6",
-};
-
 /**
  * Cell widths, in columns out of six, for `count` cells.
  *
  * Four is the reference layout and is written out: `[2,4]` then `[4,2]`, so no
  * cell shares an edge with one the same width and the eye crosses the block
- * diagonally. Other counts are decomposed into rows of two and three that each
- * add to six, because a directory group is not guaranteed to hold four — the
- * `organise` group holds five today, and entries are added over time.
+ * diagonally. Other counts go through the shared row-splitter in
+ * `bento-rhythm.ts`, because a directory group is not guaranteed to hold four —
+ * the `organise` group holds five today, and entries are added over time. That
+ * splitter is the tested one; this file used to carry a second copy of the
+ * same maths, which is a guard the live directory silently did without.
  */
-function showcaseSpans(count: number): number[] {
+export function showcaseSpans(count: number): number[] {
   if (count === 4) return [2, 4, 4, 2];
   const spans: number[] = [];
-  let left = count;
-  // Rows of three (as `[2,2,2]`) and rows of two (as `[3,3]`), preferring
-  // threes so a long group stays dense, with one pair of twos absorbing a
-  // remainder of one.
-  let threes = Math.floor(left / 3);
-  const rest = left % 3;
-  if (rest === 1 && threes > 0) threes -= 1;
-  left -= threes * 3;
-  for (let i = 0; i < threes; i++) spans.push(2, 2, 2);
-  while (left >= 2) {
-    spans.push(3, 3);
-    left -= 2;
+  for (const size of rowSizes(count, "three")) {
+    // A three-card row is `[2,2,2]`, a two-card row `[3,3]`, and a lone
+    // leftover takes the full width rather than sitting in a part row.
+    if (size === 3) spans.push(2, 2, 2);
+    else if (size === 2) spans.push(3, 3);
+    else spans.push(6);
   }
-  if (left === 1) spans.push(6);
   return spans;
 }
 
 export function BentoShowcase({
   items,
   className,
+  heading: Heading = "h3",
 }: {
   items: BentoItem[];
   className?: string;
+  /**
+   * The level for each cell's title. It has to be settable: on `/features` the
+   * block sits under a group's own `<h3>`, so hard-coding `h3` here makes the
+   * feature names siblings of the heading they belong to — the outline goes
+   * h1 → h2 → h3 (Capture) → h3 (Chat expense tracker). AGENTS.md § SEO asks
+   * for real heading levels, and the grid this replaced was passed `h4`.
+   */
+  heading?: "h3" | "h4";
 }) {
   const spans = showcaseSpans(items.length);
   return (
@@ -111,7 +109,16 @@ export function BentoShowcase({
                 caption means the panels share a floor and the buttons share a
                 baseline, which is what makes a row of cells look set rather
                 than assembled. */}
-            <div className="flex min-h-44 items-center justify-center border-b bg-muted/40 p-5">
+            {/* `aria-hidden`: the panels are impressions of a surface, and
+                their filler text is not content. Inside a cell that is one
+                big <a>, every string in here joins the link's accessible name
+                — the export cell announced as "CSV transactions-2026.csv
+                Date,Type,Category… Data export, <blurb>, Learn more". The
+                heading and blurb below still name the link. */}
+            <div
+              aria-hidden
+              className="flex min-h-44 items-center justify-center border-b bg-muted/40 p-5"
+            >
               {item.visual}
             </div>
             {/* `mt-auto` on the action row, so the button sits in the corner of
@@ -119,7 +126,9 @@ export function BentoShowcase({
                 Cells in a row are the same height but their captions are not,
                 and buttons that don't line up across a row read as sloppy. */}
             <div className="flex flex-1 flex-col p-5">
-              <h3 className="text-lg font-semibold tracking-tight">{item.label}</h3>
+              <Heading className="text-lg font-semibold tracking-tight">
+                {item.label}
+              </Heading>
               <p className="mt-1.5 text-pretty leading-relaxed text-muted-foreground">
                 {item.body}
               </p>
@@ -144,7 +153,7 @@ export function BentoShowcase({
         );
         const shell = cn(
           "flex flex-col overflow-hidden rounded-2xl border bg-card",
-          LG_SPAN[spans[i] ?? 3],
+          lgSpanClass(spans[i] ?? 3),
         );
         // A cell that links to a page has to say so, and has to *be* a link —
         // the directory it replaced was a grid of anchors, and turning it into
@@ -633,7 +642,14 @@ export function ExportMock() {
         <span className="text-muted-foreground">transactions-2026.csv</span>
       </div>
       <div className="overflow-hidden rounded-lg border bg-background font-mono text-[10px]">
-        {["date,note,amount", "2026-09-02,Rent,-18000", "2026-09-04,Salary,82000"].map(
+        {/* The real header, from `src/lib/transactions-csv.ts`. A mock of an
+            export is a claim about the file someone will hand their
+            accountant, so a three-column invention is worse than no mock. */}
+        {[
+          "Date,Type,Category,Note,Amount,Currency",
+          "2026-09-02,expense,Rent,September,-18000.00,INR",
+          "2026-09-04,income,Salary,,82000.00,INR",
+        ].map(
           (row, i) => (
             <div
               key={row}
@@ -653,10 +669,23 @@ export function ExportMock() {
 }
 
 export function KeysMock() {
+  // The keys and the caption have to agree with `src/lib/shortcuts.ts`, which
+  // is one click away in the app's own cheat sheet. These five are the
+  // Navigation scope, in its order; `r` adds a transaction and is shown last
+  // because it belongs to a different scope. An earlier caption read
+  // "Add · Filter · Export" over these keys, and none of the three was true:
+  // q/t/e/f/s all navigate, and there is no filter or export shortcut at all.
+  const keys: [string, string][] = [
+    ["Q", "Tracker"],
+    ["T", "Transactions"],
+    ["E", "Analytics"],
+    ["F", "Files"],
+    ["R", "Add"],
+  ];
   return (
     <div className="flex w-full max-w-xs flex-col items-center gap-2">
       <div className="flex gap-1.5">
-        {["Q", "T", "E", "F", "S"].map((k) => (
+        {keys.map(([k]) => (
           <kbd
             key={k}
             className="flex size-8 items-center justify-center rounded-md border bg-background text-xs font-medium shadow-sm"
@@ -665,7 +694,9 @@ export function KeysMock() {
           </kbd>
         ))}
       </div>
-      <span className="text-[11px] text-muted-foreground">Add · Filter · Export</span>
+      <span className="text-center text-[11px] text-muted-foreground">
+        {keys.map(([, label]) => label).join(" · ")}
+      </span>
     </div>
   );
 }

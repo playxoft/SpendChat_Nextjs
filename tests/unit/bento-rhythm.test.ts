@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { balanceColumns, rhythmCells } from "@/lib/bento-rhythm";
+import { balanceColumns, rhythmCells, rowSizes } from "@/lib/bento-rhythm";
 
 /** The `lg` width a cell claims, in columns out of six. */
 function lgSpan(span: string): number {
@@ -78,6 +78,45 @@ describe("rhythmCells", () => {
   });
 });
 
+describe("rowSizes", () => {
+  // `BentoShowcase` on /features maps each row size to spans out of six:
+  // 3 → [2,2,2], 2 → [3,3], 1 → [6]. So "every row is whole" is exactly the
+  // claim that no size outside {1,2,3} is ever returned and they sum to n.
+  // The directory bento used to carry its own copy of this split, untested —
+  // which is the copy that lays out the live thirteen-card hub.
+  for (const prefer of ["two", "three"] as const) {
+    it(`accounts for every card and fills whole rows (prefer: ${prefer})`, () => {
+      for (let n = 0; n <= 40; n++) {
+        const sizes = rowSizes(n, prefer);
+        expect(sizes.reduce((a, b) => a + b, 0), `count ${n}`).toBe(n);
+        for (const size of sizes) expect([1, 2, 3]).toContain(size);
+      }
+    });
+  }
+
+  it("only ever strands a single card when there is only one", () => {
+    // A row of one is a card stretched across the full width. Fine for n=1,
+    // a hole anywhere else.
+    for (let n = 2; n <= 40; n++) {
+      for (const prefer of ["two", "three"] as const) {
+        expect(rowSizes(n, prefer), `count ${n} (${prefer})`).not.toContain(1);
+      }
+    }
+    expect(rowSizes(1, "three")).toEqual([1]);
+  });
+
+  it("leans on threes when asked, and on twos otherwise", () => {
+    // Thirteen is today's feature count: three dense rows, then two halves —
+    // the `organise` group's five lays out as thirds over halves rather than
+    // stranding a card.
+    expect(rowSizes(13, "three")).toEqual([3, 3, 3, 2, 2]);
+    expect(rowSizes(5, "three")).toEqual([3, 2]);
+    expect(rowSizes(13, "two").filter((s) => s === 2).length).toBeGreaterThan(
+      rowSizes(13, "two").filter((s) => s === 3).length,
+    );
+  });
+});
+
 describe("balanceColumns", () => {
   it("keeps every item exactly once", () => {
     const items = Array.from({ length: 16 }, (_, i) => i);
@@ -109,6 +148,20 @@ describe("balanceColumns", () => {
     const items = Array.from({ length: 16 }, (_, i) => i);
     for (const col of balanceColumns(items, 3, () => 10)) {
       expect(col).toEqual([...col].sort((a, b) => a - b));
+    }
+  });
+
+  it("gives each column a contiguous run, so the stacked order is the authored one", () => {
+    // Below `sm` the columns stack, and the wall is then read column by
+    // column. Only contiguous runs concatenate back into the written
+    // sequence — round-robin assignment has a phone reading 1, 4, 7, 10, …
+    const items = Array.from({ length: 16 }, (_, i) => i);
+    const cols = balanceColumns(items, 3, () => 10);
+    expect(cols.flat()).toEqual(items);
+    for (const col of cols) {
+      if (col.length > 1) {
+        expect(col[col.length - 1]! - col[0]!).toBe(col.length - 1);
+      }
     }
   });
 

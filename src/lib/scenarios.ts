@@ -19,7 +19,8 @@
  * written consent — not here.
  *
  * Deliberately dependency-free, matching `src/lib/features.ts`: icons are named
- * as strings and resolved in `scenario-icon.tsx`, so this file stays importable
+ * as strings and resolved by the `ICONS` map in
+ * `src/components/marketing/scenario-wall.tsx`, so this file stays importable
  * from anywhere without pulling in React or `lucide-react`.
  */
 
@@ -40,11 +41,15 @@ export type Scenario = {
  * The home-page wall.
  *
  * Lengths are deliberately uneven. A masonry column of identical blocks reads
- * as a table of contents; the ragged bottom edge is what makes it read as a
- * wall of distinct situations, and it's why these are laid out in CSS columns
- * rather than a grid with fixed rows. Ordering matters too — the flow is
- * column-major, so a long entry early in the list pushes its neighbours down
- * and stops the three columns from lining up like a 3×3.
+ * as a table of contents; cards of different heights are what make it read as a
+ * wall of distinct situations, and it's why these are packed into owned columns
+ * rather than a grid with fixed rows, where every card in a row stretches to
+ * its tallest sibling. (CSS multi-column was the other candidate and was ruled
+ * out — it balances by content and leaves three ragged ends.)
+ *
+ * **This order is the reading order**, on a phone as much as on a desk: the
+ * columns are contiguous runs of this list, so stacked they concatenate back
+ * into it. Moving an entry moves where it is read.
  */
 export const SCENARIOS: Scenario[] = [
   {

@@ -50,6 +50,17 @@ const LG_SPAN: Record<number, string> = {
   6: "lg:col-span-6",
 };
 
+/**
+ * The `lg` width class for a span, for the other bento on the site.
+ *
+ * `BentoShowcase` dresses a six-column grid too, and kept its own copy of this
+ * map and of the row-splitting below. Two copies of the same maths, one of them
+ * tested, is how the untested one drifts.
+ */
+export function lgSpanClass(span: number): string {
+  return LG_SPAN[span] ?? LG_SPAN[2]!;
+}
+
 /** The grid this module dresses. `sm:col-span-3` of six is a half-width card. */
 export const RHYTHM_GRID = "grid grid-cols-1 gap-4 sm:grid-cols-6";
 
@@ -64,23 +75,39 @@ const ROWS_OF_TWO = [
 const ROWS_OF_THREE = [[2, 2, 2]];
 
 /**
- * Split `n` cards into rows of two or three.
+ * Split `n` cards into rows of two or three, as how many cards each row holds.
  *
  * Every integer above one is some sum of twos and threes, so this only fails
- * for n = 1 — which gets a single full-width row instead. Threes are preferred
- * (a denser, more interesting page), and a remainder of one is absorbed by
- * trading a three for two twos rather than leaving a single card to stretch
- * across the width.
+ * for n = 1 — which gets a single full-width row instead.
+ *
+ * `prefer` picks which size to lean on, because the two bentos on the site want
+ * opposite answers and both are right for their own content:
+ *
+ * - **`"two"`** (the home index). On a six-column grid a three-card row can
+ *   only ever be `[2,2,2]` — there is no second way to split six into three
+ *   usable widths — so a layout built from threes repeats one shape and reads
+ *   as a plain grid. Two-card rows have three shapes (`[3,3]`, `[4,2]`,
+ *   `[2,4]`), so leaning on them is what makes the block look composed.
+ * - **`"three"`** (the `/features` directory). Its cells carry a panel, a name
+ *   and a blurb, so a half-width cell is a lot of card for one feature; thirds
+ *   keep a thirteen-entry directory dense. A remainder of one is absorbed by
+ *   trading a three for two twos rather than leaving a card to stretch across
+ *   the full width.
  */
-function rowSizes(n: number): number[] {
+export function rowSizes(n: number, prefer: "two" | "three" = "two"): number[] {
   if (n <= 0) return [];
   if (n === 1) return [1];
-  // Two-card rows are preferred, which is the opposite of what you'd guess.
-  // On a six-column grid a three-card row can only ever be `[2,2,2]` — there
-  // is no second way to split six into three usable widths — so a layout built
-  // from threes repeats one shape and reads as a plain grid. Two-card rows have
-  // three shapes (`[3,3]`, `[4,2]`, `[2,4]`), so leaning on them is what makes
-  // the block look composed rather than tiled.
+  if (prefer === "three") {
+    // Threes first, then whatever is left as two-card rows, so the dense rows
+    // lead and the layout doesn't open on its widest cells.
+    let threes = Math.floor(n / 3);
+    if (n % 3 === 1 && threes > 0) threes -= 1;
+    const left = n - threes * 3;
+    const sizes = new Array<number>(threes).fill(3);
+    for (let i = 0; i < Math.floor(left / 2); i++) sizes.push(2);
+    if (left % 2 === 1) sizes.push(1);
+    return sizes;
+  }
   const sizes: number[] = new Array(Math.floor((n - (n % 2 === 0 ? 0 : 3)) / 2)).fill(2);
   // An odd count needs exactly one three-card row to come out even.
   if (n % 2 === 1) sizes.splice(1, 0, 3);
@@ -143,8 +170,8 @@ export function rhythmCells(count: number): BentoCell[] {
 }
 
 /**
- * Split `items` into `columns` lists of roughly equal *rendered* height,
- * preserving nothing about the original order beyond a stable assignment.
+ * Split `items` into `columns` lists of roughly equal *rendered* height, each
+ * column a **contiguous run** of the original list.
  *
  * Used by the "Who it's for" wall, which has to end flush along the bottom.
  * CSS multi-column balances by content and leaves three ragged ends; a grid
@@ -157,6 +184,25 @@ export function rhythmCells(count: number): BentoCell[] {
  * to the point, available at build time. The alternative is measuring in the
  * browser, which costs a client component and a layout pass on every resize for
  * a wall of static prose.
+ *
+ * **Contiguity is the part that isn't obvious, and it is about the phone.**
+ * Sorting longest-first was tried and rejected: it stacks the three longest
+ * entries into the first row, which comes out level and reads as the grid this
+ * replaced, and it throws away a written sequence. But assigning in authored
+ * order to whichever column is currently shortest — the obvious fix — has its
+ * own fault, and it only shows below `sm`, where the three column elements
+ * stack. The wall is then read column-major: every card of column one, then
+ * every card of column two. With round-robin assignment a phone reads the
+ * scenarios 1, 4, 7, 10, …, which is the same discarded order by another route.
+ *
+ * Giving each column a contiguous run makes the two layouts agree: stacked, the
+ * runs concatenate back into the authored order; side by side, each column
+ * reads top to bottom as written. The cost is looser packing, since a run can't
+ * skip a heavy entry — and that cost is already absorbed by the last card in
+ * each column growing into the slack.
+ *
+ * The split minimises the tallest column (binary search on the height cap,
+ * which is exact for contiguous runs), so "looser" is only ever by one entry.
  */
 export function balanceColumns<T>(
   items: T[],
@@ -164,22 +210,55 @@ export function balanceColumns<T>(
   weigh: (item: T) => number,
 ): T[][] {
   const cols: T[][] = Array.from({ length: columns }, () => []);
-  const totals = new Array<number>(columns).fill(0);
-  // **In authored order**, each item going to whichever column is shortest so
-  // far. Sorting longest-first packs marginally tighter and was tried first,
-  // but it is wrong here for two reasons that only showed up on screen: it puts
-  // the three longest entries at the top of the three columns, so the first row
-  // comes out the same height and reads as the grid this replaced; and it
-  // discards the order the entries were written in, which is a deliberate
-  // sequence, not an arbitrary list.
-  //
-  // The looser packing it costs is absorbed by the cards growing into the
-  // slack, so the only thing lost is a few pixels of padding nobody can see.
-  for (const item of items) {
-    let target = 0;
-    for (let i = 1; i < columns; i++) if (totals[i]! < totals[target]!) target = i;
-    cols[target]!.push(item);
-    totals[target]! += weigh(item);
+  if (columns <= 0) return [];
+  if (items.length === 0) return cols;
+
+  const weights = items.map(weigh);
+
+  /** Greedy fill under a height cap; returns the run lengths it needed. */
+  function runsUnder(cap: number): number[] {
+    const runs: number[] = [];
+    let run = 0;
+    let total = 0;
+    for (const w of weights) {
+      if (run > 0 && total + w > cap) {
+        runs.push(run);
+        run = 0;
+        total = 0;
+      }
+      run += 1;
+      total += w;
+    }
+    if (run > 0) runs.push(run);
+    return runs;
   }
+
+  // The cap is between the tallest single card (a run always holds at least
+  // one) and the whole wall in one column.
+  let lo = Math.max(...weights);
+  let hi = weights.reduce((a, b) => a + b, 0);
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (runsUnder(mid).length <= columns) hi = mid;
+    else lo = mid + 1;
+  }
+
+  const runs = runsUnder(lo);
+  // Fewer runs than columns means the cap packed them tighter than it had to
+  // (or there are simply fewer items than columns). Split the longest run so
+  // no column is left empty while another holds several cards.
+  while (runs.length < columns && runs.some((r) => r > 1)) {
+    let widest = 0;
+    for (let i = 1; i < runs.length; i++) if (runs[i]! > runs[widest]!) widest = i;
+    const half = Math.floor(runs[widest]! / 2);
+    runs.splice(widest, 1, half, runs[widest]! - half);
+  }
+
+  let at = 0;
+  runs.forEach((length, i) => {
+    if (i < columns) cols[i] = items.slice(at, at + length);
+    else cols[columns - 1] = [...cols[columns - 1]!, ...items.slice(at, at + length)];
+    at += length;
+  });
   return cols;
 }

@@ -65,14 +65,21 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   slack; once both cells shared that slack evenly there was none worth
   anchoring, and a card that opens with its icon is the more obvious read.
 
-  **Every cell holds a mock of the surface it describes**, built from the same
-  borders, muted fills and tabular numerals as the app. The first attempt put a
-  single outlined icon in each cell and read as plain cards despite the grid
-  being right: a mark floating in a 180px panel is a cell with a hole in it, and
-  no arrangement of holes looks composed. The panels fill their cell rather than
-  sit in the middle of it, and are capped at two fifths of the width where they
-  sit beside copy. Still CSS and type only — no images, so nothing costs a
-  request, repo weight, or a second asset for dark mode.
+  **What fills these cells is copy, not a panel** — the two long claims carry a
+  short list of specifics under the prose, and the mark stays a glyph. A surface
+  mock belongs where it shows something ("this is what the export looks like");
+  a claim like "no bank login, ever" has no surface, and inventing one would be
+  decoration standing in for the argument. The cells were sized to the mark
+  rather than reserving a share of the width for it, so the gap between mark and
+  text isn't a hole where a panel used to be planned.
+
+  The surface mocks are in the directory bento below, where each panel is the
+  thing its feature actually is, built from the same borders, muted fills and
+  tabular numerals as the app. Still CSS and type only — no images, so nothing
+  costs a request, repo weight, or a second asset for dark mode. Each one is
+  checked against the code it depicts: the CSV panel prints the real six-column
+  header from `transactions-csv.ts`, and the shortcut panel shows keys that are
+  actually bound in `shortcuts.ts`.
 
   The long-form Capture/Understand/Organise sections further down keep their
   plain two-column cards, deliberately. They repeat the directory's three

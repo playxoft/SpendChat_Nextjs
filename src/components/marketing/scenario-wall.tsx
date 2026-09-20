@@ -74,15 +74,25 @@ function ScenarioCard({ scenario }: { scenario: Scenario }) {
     <figure
       className="grow basis-auto rounded-2xl border bg-card p-5 transition-colors hover:border-foreground/20 sm:p-6"
     >
-      <div className="flex items-center gap-3">
+      {/* `figcaption` is a direct child of the `figure`, not wrapped in the
+          flex row: the content model requires it, and the accessible name of a
+          figure comes from a figcaption *child* — nested one level down, all
+          sixteen figures are exposed unnamed. The row is inside the caption
+          instead, which costs nothing.
+
+          No `truncate` on the label: at sm the card is ~296px, which leaves the
+          label ~208px, and "The receipt, eighteen months later" clipped to an
+          ellipsis — while the same string rendered in full in the spotlight on
+          the feature page. A situation that can't be read isn't one. */}
+      <figcaption className="flex items-center gap-3">
         <ScenarioMark name={scenario.icon} />
-        <figcaption className="min-w-0">
-          <span className="block truncate font-medium leading-tight">
+        <span className="min-w-0">
+          <span className="block text-pretty font-medium leading-tight">
             {scenario.label}
           </span>
           <span className="block text-xs text-muted-foreground">{scenario.place}</span>
-        </figcaption>
-      </div>
+        </span>
+      </figcaption>
       <p className="mt-4 text-pretty text-sm leading-relaxed text-muted-foreground">
         {scenario.body}
       </p>
@@ -102,12 +112,16 @@ function ScenarioCard({ scenario }: { scenario: Scenario }) {
  *   but balances by content: the three columns end at three different heights
  *   and the bottom edge comes out ragged.
  *
- * So the distribution is owned instead. `balanceColumns` packs the sixteen
- * entries into three columns of near-equal estimated height (longest first,
- * always into the shortest column), each column is a flex stack, and the last
- * card in each is allowed to grow. The columns therefore finish on exactly the
- * same line while every card keeps a height set by its own content. Still a
- * server component, still no JavaScript.
+ * So the distribution is owned instead. `balanceColumns` cuts the sixteen
+ * entries into three **contiguous** runs of near-equal estimated height, each
+ * column is a flex stack, and the last card in each is allowed to grow. The
+ * columns therefore finish on exactly the same line while every card keeps a
+ * height set by its own content. Still a server component, still no JavaScript.
+ *
+ * Contiguous, not longest-first and not round-robin: below `sm` the three
+ * columns stack, and a reader then meets the cards in column order. Only
+ * contiguous runs concatenate back into the sequence the entries were written
+ * in. The reasoning is in `bento-rhythm.ts`, where the packing lives.
  *
  * Weighting by text length is crude but monotonic and available at build time;
  * measuring properly would mean a client component and a layout pass on every
@@ -190,17 +204,19 @@ export function ScenarioSpotlight({ items }: { items: Scenario[] }) {
             key={scenario.id}
             className="rounded-2xl border bg-card p-6 sm:p-7"
           >
-            <div className="flex items-center gap-3">
+            {/* Same shape as the wall's card — figcaption directly under the
+                figure, so the figure has an accessible name. */}
+            <figcaption className="flex items-center gap-3">
               <ScenarioMark name={scenario.icon} />
-              <figcaption className="min-w-0">
-                <span className="block font-medium leading-tight">
+              <span className="min-w-0">
+                <span className="block text-pretty font-medium leading-tight">
                   {scenario.label}
                 </span>
                 <span className="block text-xs text-muted-foreground">
                   {scenario.place}
                 </span>
-              </figcaption>
-            </div>
+              </span>
+            </figcaption>
             <p className="mt-4 text-pretty leading-relaxed text-muted-foreground">
               {scenario.body}
             </p>

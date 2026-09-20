@@ -13,7 +13,7 @@ prefix.
 Local dev server on port 3010:
 
 ```sh
-doppler run -- pnpm dev
+pnpm dev
 ```
 
 Free port 3010 when a previous dev server is still holding it:

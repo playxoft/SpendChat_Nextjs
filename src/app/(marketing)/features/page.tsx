@@ -5,7 +5,6 @@ import {
   ChartColumn,
   Coins,
   Download,
-  Gauge,
   Keyboard,
   ListPlus,
   Lock,
@@ -146,7 +145,7 @@ const principlesBento: BentoItem[] = [
         <li>· Leaving is a download, not a support ticket</li>
       </ul>
     ),
-    visual: <GlyphMock icon={Gauge} />,
+    visual: <GlyphMock icon={Download} />,
   },
 ];
 
@@ -336,7 +335,7 @@ export default function FeaturesPage() {
           replacing the three-stat strip that used to sit here. The claims are
           the reason someone picks this over a bank app, and three short stats
           in equal boxes gave them no room to be convincing. */}
-      <section className="mt-6">
+      <section className="mt-16">
         <h2 className="sr-only">Why SpendChat works this way</h2>
         <BentoStack items={principlesBento} />
       </section>
@@ -386,6 +385,9 @@ export default function FeaturesPage() {
                       ),
                     }))}
                     className="mt-5"
+                    // Under the group's own <h3>, so the feature names are h4s
+                    // — the grid this replaced was passed the same.
+                    heading="h4"
                   />
                 </section>
               );
