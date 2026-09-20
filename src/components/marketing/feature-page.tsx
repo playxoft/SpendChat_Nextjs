@@ -8,7 +8,9 @@ import { FaqSection } from "@/components/marketing/faq-section";
 import { FeatureCardGrid } from "@/components/marketing/feature-card";
 import { FeatureIcon } from "@/components/marketing/feature-icon";
 import { TryItCaption } from "@/components/marketing/demo/demo-caption";
+import { ScenarioSpotlight } from "@/components/marketing/scenario-wall";
 import { featurePath, getFeature, relatedFeatures } from "@/lib/features";
+import { scenariosForFeature } from "@/lib/scenarios";
 import { breadcrumbJsonLd, faqJsonLd, type Faq } from "@/lib/seo";
 import { marketingCta } from "@/lib/marketing";
 
@@ -110,6 +112,12 @@ export function FeaturePage({
 
       {/* Deep dives */}
       <div className="mt-16 space-y-14">{children}</div>
+
+      {/* Situations this feature is for. Sits after the prose and before the
+          cluster links: by here the reader knows what the feature does, and
+          what's left to settle is whether it applies to them. Renders nothing
+          for a slug with no entries in `src/lib/scenarios.ts`. */}
+      <ScenarioSpotlight items={scenariosForFeature(slug)} />
 
       {/* Related features — the cluster wiring. */}
       {related.length > 0 && (

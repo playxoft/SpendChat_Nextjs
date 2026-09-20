@@ -105,20 +105,24 @@ export function SiteFooter() {
         ))}
       </div>
       <div className="border-t">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 px-4 py-6 text-sm text-muted-foreground sm:flex-row">
-          <p>
-            © {year} {siteConfig.name}. Open source under {siteConfig.license}.{" "}
-            <span aria-hidden>·</span>{" "}
-            {/* Plain anchor, not <Link>: it's a text file, not a page to prefetch. */}
-            <a
-              href="/llms.txt"
-              onClick={() => trackEvent("footer_link_click", { label: "llms.txt", group: "Meta" })}
-              className="underline-offset-4 transition-colors hover:text-foreground hover:underline"
-            >
-              llms.txt
-            </a>
+        {/* Three columns rather than `justify-between`, so the middle item is
+            centred on the *page* rather than on whatever gap the two sentences
+            either side happen to leave — those are different lengths, and with
+            `justify-between` the link drifts left. Still a single centred
+            column on mobile, where the three stack. */}
+        <div className="mx-auto flex max-w-6xl flex-col items-center gap-2 px-4 py-6 text-sm text-muted-foreground sm:grid sm:grid-cols-3">
+          <p className="sm:justify-self-start">
+            © {year} {siteConfig.name}. Open source under {siteConfig.license}.
           </p>
-          <p className="inline-flex items-center gap-1.5">
+          {/* Plain anchor, not <Link>: it's a text file, not a page to prefetch. */}
+          <a
+            href="/llms.txt"
+            onClick={() => trackEvent("footer_link_click", { label: "llms.txt", group: "Meta" })}
+            className="underline-offset-4 transition-colors hover:text-foreground hover:underline sm:justify-self-center"
+          >
+            llms.txt
+          </a>
+          <p className="inline-flex items-center gap-1.5 sm:justify-self-end">
             Made with <Heart className="size-3.5 fill-current text-foreground" /> for the
             modern web
           </p>

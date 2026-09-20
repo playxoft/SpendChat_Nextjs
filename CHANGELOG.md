@@ -18,6 +18,99 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.23.0] — 2026-09-17
+
+### Added
+- **A wall of situations on the home page, and one at the foot of every feature
+  page.** Sixteen concrete scenarios — splitting rent three ways in Bengaluru,
+  a filing-season CSV in Melbourne, cash-only days in Lagos — laid out as a
+  staggered masonry wall, plus one to three feature-specific ones at the bottom
+  of all thirteen `/features/*` pages.
+
+  **These are scenarios, not testimonials, and that was a deliberate choice.**
+  The section says so in as many words. We have no customer quotes yet, and
+  manufacturing them — a name, a stock-photo face, a grateful sentence — is the
+  same mistake as inventing an `aggregateRating`, which the home page's JSON-LD
+  has always refused to emit. The FTC's 2024 Rule on Consumer Reviews and
+  Testimonials makes fabricated endorsements directly actionable; stock-photo
+  licences carve out implied endorsement regardless of commercial rights; and a
+  product that sells itself on being private, open source and unwilling to guess
+  at your data cannot be caught having guessed at its own customers. The repo is
+  public — the commit would have been too. Real quotes, when they exist, get
+  their own module with a name, a date and written consent.
+
+- **The feature directory on `/features` is a bento.** Each of the Capture,
+  Understand and Organise groups under "Every feature, explained" now shows a
+  panel of the surface the feature actually is — the composer's bubbles, a
+  filter and its results, a role list, a CSV — with the name and blurb beneath
+  it, in an asymmetric 2×2. Thirteen panels, one per feature page.
+
+  The cells are still links, and still carry "Learn more" — now as a button in
+  the bottom-right corner, pinned to the cell rather than to the end of its
+  copy, so the buttons share a baseline across a row instead of stepping up and
+  down with the length of each blurb. A bento must not cost the crawlable href
+  or the affordance the grid it replaced had; the button is a styled span, since
+  the whole cell is already a link and nesting interactive elements is invalid.
+
+  The widths are computed, not written out, because a group is not guaranteed
+  to hold four — `organise` holds five today, which lays out as a row of thirds
+  above a row of halves rather than stranding one card.
+
+- **A mirrored two-column block for the four claims** that decide whether
+  someone picks this over a bank app, replacing the three-stat strip that gave
+  them no room to be convincing.
+
+  In the text-led cells the mark leads — above the title in a tall cell, beside
+  it in a short one. It began pinned to the bottom of the tall cells to soak up
+  slack; once both cells shared that slack evenly there was none worth
+  anchoring, and a card that opens with its icon is the more obvious read.
+
+  **What fills these cells is copy, not a panel** — the two long claims carry a
+  short list of specifics under the prose, and the mark stays a glyph. A surface
+  mock belongs where it shows something ("this is what the export looks like");
+  a claim like "no bank login, ever" has no surface, and inventing one would be
+  decoration standing in for the argument. The cells were sized to the mark
+  rather than reserving a share of the width for it, so the gap between mark and
+  text isn't a hole where a panel used to be planned.
+
+  The surface mocks are in the directory bento below, where each panel is the
+  thing its feature actually is, built from the same borders, muted fills and
+  tabular numerals as the app. Still CSS and type only — no images, so nothing
+  costs a request, repo weight, or a second asset for dark mode. Each one is
+  checked against the code it depicts: the CSV panel prints the real six-column
+  header from `transactions-csv.ts`, and the shortcut panel shows keys that are
+  actually bound in `shortcuts.ts`.
+
+  The long-form Capture/Understand/Organise sections further down keep their
+  plain two-column cards, deliberately. They repeat the directory's three
+  headings, so a bento there would show the same chat bubbles and the same role
+  list twice on one page; a quiet grid underneath is what lets the bento above
+  stay the thing you look at.
+
+### Changed
+- **The old "Who it's for" grid is gone**, replaced by the wall above. Six
+  evenly-sized tiles in a fixed three-column grid read as a table of contents;
+  sixteen uneven ones read as a wall of distinct situations. The three columns
+  are packed to end level, and every card grows a little into the leftover
+  rather than the last one absorbing all of it.
+- **The home page's feature index is a composed bento, not a directory.**
+  Thirteen equal tiles three across gave the eye no entry point; the rows now
+  change shape — `[4,2]`, `[3,3]`, `[2,2,2]`, `[2,4]` — while still filling
+  whole rows for any feature count, which matters because `published: false`
+  entries drop out in production and the count that ships isn't the one anyone
+  laid out by hand. The `/features` hub keeps its even columns: it's a directory
+  people read down, where this is a showcase they scroll past once.
+
+  Three things in it were wrong on screen and right on paper, all the same
+  fault — **space a card had no content to fill**. A two-row-tall lead card left
+  220px of empty card, because a feature entry is an icon, a label and one line;
+  width is emphasis that content can actually fill, so the lead is wide and
+  nothing spans rows. Wide cards turning side-on made them *shorter* than the
+  narrow ones beside them, leaving ~100px of dead space in the row, so every
+  card stays stacked here. And packing the wall's columns longest-first put the
+  three longest entries in the top row, which read as the grid it replaced and
+  threw away the order the entries were written in.
+
 ## [0.22.1] — 2026-09-17
 
 ### Changed

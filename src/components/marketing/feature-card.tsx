@@ -3,6 +3,7 @@ import { ArrowRight } from "lucide-react";
 
 import { FeatureIcon } from "@/components/marketing/feature-icon";
 import { featurePath, type Feature } from "@/lib/features";
+import { RHYTHM_GRID, rhythmCells } from "@/lib/bento-rhythm";
 import { bento, bentoRow, type BentoCell } from "@/lib/grid-fill";
 import { cn } from "@/lib/utils";
 
@@ -115,6 +116,50 @@ export function FeatureCardGrid({
           location={location}
           heading={heading}
           cell={cells[i]}
+        />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The same cards, laid out as an editorial bento rather than a directory.
+ *
+ * For the home page's feature index, where the job is different from the
+ * `/features` hub's: the hub is a directory someone is *reading down*, so even
+ * columns are right there. The home index is a showcase a visitor scrolls past
+ * once, and thirteen equal tiles three across read as a table of contents —
+ * the eye finds no entry point and moves on. The rhythm in
+ * `src/lib/bento-rhythm.ts` opens on a tall lead card and then varies the row
+ * density, which gives the block a shape without costing it a single row hole.
+ *
+ * Deliberately the same `FeatureCard` as everywhere else. The card grew a
+ * `Learn more` affordance once because the hub had its own copy of the markup;
+ * a second copy here to make the bento work would be the same mistake with a
+ * nicer grid.
+ */
+export function FeatureRhythmGrid({
+  items,
+  location,
+  heading,
+  className,
+}: {
+  items: Feature[];
+  location: string;
+  heading?: "h3" | "h4";
+  className?: string;
+}) {
+  if (items.length === 0) return null;
+  const cells = rhythmCells(items.length);
+  return (
+    <div className={cn(RHYTHM_GRID, className)}>
+      {items.map((feature, i) => (
+        <FeatureCard
+          key={feature.slug}
+          feature={feature}
+          location={location}
+          heading={heading}
+          cell={cells[i]!}
         />
       ))}
     </div>
