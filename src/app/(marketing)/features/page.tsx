@@ -25,7 +25,26 @@ import {
 import { Button } from "@/components/ui/button";
 import { GithubIcon } from "@/components/icons/github";
 import { JsonLd } from "@/components/json-ld";
-import { FeatureCardGrid } from "@/components/marketing/feature-card";
+import { FeatureIcon } from "@/components/marketing/feature-icon";
+import {
+  AnalyticsMock,
+  BentoShowcase,
+  BentoStack,
+  BulkMock,
+  CategoriesMock,
+  ExportMock,
+  ChatMock,
+  DraftMock,
+  FilesMock,
+  FilterMock,
+  GlyphMock,
+  KeysMock,
+  MembersMock,
+  PrivacyMock,
+  ProfilesMock,
+  VoiceMock,
+  type BentoItem,
+} from "@/components/marketing/bento";
 import {
   FEATURE_GROUPS,
   featurePath,
@@ -45,21 +64,89 @@ export const metadata = createMetadata({
   path: "/features",
 });
 
-const highlights = [
+/**
+ * The panel for each feature page, by slug — used by the directory groups under
+ * "Every feature, explained".
+ *
+ * Keyed on slug rather than held in `src/lib/features.ts`, which is
+ * deliberately free of React and `lucide-react` so `sitemap.ts` can read it
+ * inside a Worker route. Same split the icons already use.
+ */
+const FEATURE_PANELS: Record<string, React.ReactNode> = {
+  "chat-expense-tracker": <ChatMock />,
+  "ai-expense-tracker": <DraftMock />,
+  "voice-expense-tracker": <VoiceMock />,
+  "bulk-add": <BulkMock />,
+  transactions: <FilterMock />,
+  analytics: <AnalyticsMock />,
+  "receipts-and-files": <FilesMock />,
+  "export-and-print": <ExportMock />,
+  "multiple-profiles": <ProfilesMock />,
+  workspaces: <MembersMock />,
+  categories: <CategoriesMock />,
+  "keyboard-shortcuts": <KeysMock />,
+  "privacy-and-security": <PrivacyMock />,
+};
+
+/**
+ * A second line for the directory cells whose blurb is too short to sit under
+ * a panel without looking unfinished.
+ *
+ * Kept separate from `blurb` in `src/lib/features.ts` on purpose: that string
+ * is also the hub card, the "Related features" block and the home index, where
+ * one tight line is exactly right. Only the bento has the room, so only the
+ * bento pays for the extra sentence. A slug with no entry simply renders none.
+ */
+const FEATURE_EXTRAS: Record<string, string> = {
+  "ai-expense-tracker":
+    "Nothing saves until you confirm the rows, so a misread merchant never quietly becomes a number you trust six months later.",
+  "voice-expense-tracker":
+    "The languages you speak are a list rather than one setting — which is what stops a code-mixed sentence coming back transliterated into nonsense.",
+  analytics:
+    "No dashboard to build and nothing to configure: open it and the answer is there, usually with something mildly embarrassing at the top.",
+  "keyboard-shortcuts":
+    "Everything the mouse can do, without reaching for it. Logging a coffee shouldn't cost more attention than drinking it.",
+};
+
+/** Design B: why it works this way — the claims that decide the choice. */
+const principlesBento: BentoItem[] = [
   {
-    icon: Gauge,
-    stat: "Seconds",
-    label: "to log a transaction — type it, say it, or paste a list.",
+    label: "No bank login, ever",
+    body:
+      "Handing a third party read access to your account is a permanent risk taken for a convenience you may not need.",
+    extra: (
+      <ul className="space-y-1.5">
+        <li>· Nothing here asks for banking credentials</li>
+        <li>· Cash, transfers and IOUs are recorded the same way</li>
+        <li>· Nothing to revoke later, because nothing was granted</li>
+      </ul>
+    ),
+    visual: <GlyphMock icon={Lock} />,
   },
   {
-    icon: Wallet,
-    stat: "Always free",
-    label: "open source and free to use, with no ads.",
+    label: "Open source",
+    body:
+      "AGPL-3.0, and the whole application — so \"we don't sell your data\" is checkable against the source rather than taken on trust.",
+    visual: <GlyphMock icon={GithubIcon} />,
   },
   {
-    icon: Lock,
-    stat: "No bank login",
-    label: "we never ask for your banking credentials.",
+    label: "Free, with no locked tier",
+    body:
+      "No ads, and no feature held back behind a plan. What you see on this page is what you get.",
+    visual: <GlyphMock icon={Wallet} />,
+  },
+  {
+    label: "Yours to take",
+    body:
+      "Export everything as CSV whenever you like, filtered however you like, and print the same view.",
+    extra: (
+      <ul className="space-y-1.5">
+        <li>· Filter first, so the file needs no trimming afterwards</li>
+        <li>· Attachments stay on the transactions they belong to</li>
+        <li>· Leaving is a download, not a support ticket</li>
+      </ul>
+    ),
+    visual: <GlyphMock icon={Gauge} />,
   },
 ];
 
@@ -245,18 +332,14 @@ export default function FeaturesPage() {
         </div>
       </div>
 
-      {/* Highlights */}
-      <div className="mt-16 grid gap-4 sm:grid-cols-3">
-        {highlights.map((h) => (
-          <div key={h.stat} className="rounded-2xl border bg-card p-6">
-            <div className="flex size-10 items-center justify-center rounded-xl bg-muted">
-              <h.icon className="size-5" />
-            </div>
-            <p className="mt-4 text-2xl font-semibold tracking-tight">{h.stat}</p>
-            <p className="mt-1 text-sm text-muted-foreground">{h.label}</p>
-          </div>
-        ))}
-      </div>
+      {/* Why it works this way — Design B: two mirrored columns, text-led,
+          replacing the three-stat strip that used to sit here. The claims are
+          the reason someone picks this over a bank app, and three short stats
+          in equal boxes gave them no room to be convincing. */}
+      <section className="mt-6">
+        <h2 className="sr-only">Why SpendChat works this way</h2>
+        <BentoStack items={principlesBento} />
+      </section>
 
       {/* Feature directory — the hub half of the hub-and-spoke. Renders only
           once there are pages to point at, so this section never ships empty. */}
@@ -284,10 +367,24 @@ export default function FeaturesPage() {
                       {group.blurb}
                     </p>
                   </div>
-                  <FeatureCardGrid
-                    items={items}
-                    location="features_hub"
-                    heading="h4"
+                  {/* The directory group as a bento: a panel of the surface
+                      each feature actually is, with the name and blurb beneath
+                      it. Still links — a bento must not cost the crawlable
+                      href or the "Learn more" affordance the grid had. */}
+                  <BentoShowcase
+                    items={items.map((f) => ({
+                      label: f.label,
+                      body: f.blurb,
+                      extra: FEATURE_EXTRAS[f.slug],
+                      href: featurePath(f.slug),
+                      trackLocation: "features_hub",
+                      trackLabel: f.slug,
+                      visual: FEATURE_PANELS[f.slug] ?? (
+                        <span className="flex size-24 items-center justify-center rounded-2xl border bg-muted/40 text-muted-foreground">
+                          <FeatureIcon name={f.icon} className="size-10" />
+                        </span>
+                      ),
+                    }))}
                     className="mt-5"
                   />
                 </section>
@@ -300,11 +397,17 @@ export default function FeaturesPage() {
       {/* Grouped feature sections */}
       <div className="mt-20 space-y-16">
         {groups.map((group) => {
-          // These groups hold an even number of cards today, which is the only
-          // reason the two-column grid squares off. That is not a property a
-          // literal array keeps on its own — the next prose card added to a
-          // group would strand one — so the remainder is computed rather than
-          // counted on. See `src/lib/grid-fill.ts`.
+          // Prose cards, not a bento — deliberately. The directory above uses
+          // the same three headings (Capture / Understand / Organise) and now
+          // carries the mock panels; running a second bento here would show the
+          // reader the same chat bubbles and the same member list twice on one
+          // page. These sections are the long-form explanation underneath, and
+          // a quiet two-column grid is what lets the bento above stay the thing
+          // you look at.
+          //
+          // The groups hold an even number of cards today, which is the only
+          // reason the grid squares off — not a property a literal array keeps,
+          // so the remainder is computed. See `src/lib/grid-fill.ts`.
           const cells = bento(group.items.length, { md: 2 });
           return (
             <section key={group.eyebrow}>
@@ -322,7 +425,7 @@ export default function FeaturesPage() {
                     key={item.title}
                     className={cn(
                       "group rounded-2xl border bg-card p-6 transition-all hover:-translate-y-0.5 hover:shadow-md",
-                      cells[i].span,
+                      cells[i]!.span,
                     )}
                   >
                     <div className="flex size-11 items-center justify-center rounded-xl border bg-background transition-colors group-hover:bg-muted">

@@ -17,10 +17,11 @@ import { Kbd } from "@/components/ui/kbd";
 import { GithubIcon } from "@/components/icons/github";
 import { ChatDemo } from "@/components/marketing/demo/chat-demo";
 import { EntryMethods } from "@/components/marketing/entry-methods";
-import { FeatureCardGrid } from "@/components/marketing/feature-card";
+import { FeatureRhythmGrid } from "@/components/marketing/feature-card";
 import { SpendBreakdown, SpendChart } from "@/components/marketing/spend-breakdown";
 import { FilesPreview } from "@/components/marketing/demo/files-preview";
 import { ShortcutsPreview } from "@/components/marketing/demo/shortcuts-preview";
+import { ScenarioWall } from "@/components/marketing/scenario-wall";
 import { JsonLd } from "@/components/json-ld";
 import { AppHandoff } from "@/components/marketing/app-handoff";
 import { faqs } from "@/lib/faq";
@@ -97,33 +98,6 @@ const comparison: {
   { label: "Share with roles", spendchat: "Viewer / editor / admin", bankApps: "Sometimes", spreadsheet: "File sharing" },
   { label: "Unlimited export", spendchat: "CSV + print", bankApps: "Often paid", spreadsheet: true },
   { label: "Source code you can read", spendchat: "AGPL-3.0", bankApps: false, spreadsheet: false },
-];
-
-const useCases = [
-  {
-    title: "Freelancers",
-    body: "Keep business books separate from personal all year, then export just those at filing time.",
-  },
-  {
-    title: "Families & couples",
-    body: "A shared workspace for the household, private profiles for everything else.",
-  },
-  {
-    title: "Students",
-    body: "Free, no bank connection, and fast enough to log a ₹40 chai without thinking about it.",
-  },
-  {
-    title: "Small businesses",
-    body: "Invoices in, costs out, receipts attached — and an accountant who sees only what you grant.",
-  },
-  {
-    title: "Cash-heavy days",
-    body: "Market stalls, autos, tips. The spending no bank-linked app can see at all.",
-  },
-  {
-    title: "Travel",
-    body: "A profile per trip, so the total is clean when you get home instead of smeared across two months.",
-  },
 ];
 
 const steps = [
@@ -591,24 +565,10 @@ export default function LandingPage() {
         </p>
       </section>
 
-      {/* Use cases */}
-      <section className="border-t bg-muted/30">
-        <div className="mx-auto max-w-6xl px-4 py-20">
-          <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-semibold tracking-tight">Who it&apos;s for</h2>
-          </div>
-          <div className="mt-12 grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {useCases.map((useCase) => (
-              <div key={useCase.title} className="rounded-xl border bg-card p-5">
-                <h3 className="font-medium">{useCase.title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                  {useCase.body}
-                </p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      {/* Use cases — a wall of concrete situations rather than the six-tile
+          grid this replaced. See `src/lib/scenarios.ts` for why they're
+          scenarios and not testimonials. */}
+      <ScenarioWall />
 
       {/* Feature index — a plain, crawlable path to every feature page. */}
       {features.length > 0 && (
@@ -622,11 +582,13 @@ export default function LandingPage() {
               signing up.
             </p>
           </div>
-          {/* The same card the `/features` hub and the "Related features"
-              blocks render, bento maths included: thirteen features don't
-              divide by three, so the grid widens its leading cards until the
-              spans do. See `src/components/marketing/feature-card.tsx`. */}
-          <FeatureCardGrid
+          {/* The same card the `/features` hub renders, but on the editorial
+              rhythm rather than the directory grid — a tall lead with the next
+              two stacked beside it, then rows that change density instead of
+              thirteen equal tiles three across. The hub keeps the even columns:
+              it's a directory people read down, where this is a showcase they
+              scroll past once. See `src/lib/bento-rhythm.ts`. */}
+          <FeatureRhythmGrid
             items={features}
             location="home_feature_index"
             className="mt-12"
