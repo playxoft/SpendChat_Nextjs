@@ -29,7 +29,7 @@ const faqs = [
   },
   {
     q: "Can I choose which columns to show?",
-    a: "Yes — date, category, title, description, amount, attachments and, in a shared workspace, who added it. You choose which appear, drag them into the order you want, and drag their edges to set widths. The layout is remembered per device.",
+    a: "Yes — date, category, title, tags, description, amount, attachments and, in a shared workspace, who added it. You choose which appear, drag them into the order you want, and drag their edges to set widths. The layout is remembered per device.",
   },
   {
     q: "Does the export match what I'm looking at?",
@@ -38,6 +38,10 @@ const faqs = [
   {
     q: "Can I sort by amount to find my biggest expenses?",
     a: "Yes. Click the amount header to sort, and click again to reverse it. Combined with a category filter, that answers \"what were my five biggest grocery shops this year\" in two clicks.",
+  },
+  {
+    q: "Can I filter by tag?",
+    a: "Yes. Pick one tag or several — several widens rather than narrows, so \"travel or client work\" is one view. It combines with every other filter, and the record count, the totals, the CSV and the printed report all narrow with it.",
   },
   {
     q: "Is there a limit on how many transactions I can store?",
@@ -50,6 +54,10 @@ export default function TransactionsPage() {
     <FeaturePage
       slug={SLUG}
       demo={<TransactionsDemo />}
+      // Only what the demo below can actually do — it has a type filter, a
+      // category select, a search box and sortable headers, and no tag
+      // control. The prose and FAQs around it describe the real app, which
+      // does filter by tag; this caption sits directly under the demo.
       demoAction="filter by type or category, search the notes, or sort by amount"
       faqs={faqs}
       intro={
@@ -57,8 +65,8 @@ export default function TransactionsPage() {
           <p>
             The chat feed is for putting money in. The transactions table is for
             getting answers out: every entry in one sortable list, with filters
-            for date range, type and category, and a search that reads your notes
-            as well as your titles.
+            for date range, type, category and tag, and a search that reads your
+            notes as well as your titles.
           </p>
           <p>
             The demo below is filtering and sorting real rows. Try searching for
@@ -71,7 +79,7 @@ export default function TransactionsPage() {
         steps={[
           {
             title: "Narrow it down",
-            body: "Any date range, income or expense, one category or all of them. Filters combine, so \"groceries, last quarter\" is one view rather than three steps.",
+            body: "Any date range, income or expense, one category or all of them, and any tags you've put on things. Filters combine, so \"groceries, last quarter\" is one view rather than three steps.",
           },
           {
             title: "Sort it",
@@ -103,7 +111,7 @@ export default function TransactionsPage() {
 
       <FeatureSection title="Columns you choose, in the order you want them">
         <p>
-          Seven columns are available — date, category, title, description,
+          Eight columns are available — date, category, title, tags, description,
           amount, attachments, and (in a shared workspace) who added the entry.
           You pick which of them show, drag the headers to reorder, and drag
           their edges to set widths.

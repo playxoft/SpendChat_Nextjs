@@ -131,7 +131,7 @@ export default function AiExpenseTrackerPage() {
         </p>
         <p>
           <strong>Explicit hints when you want them.</strong> A{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-sm">#</code> tag
+          <code className="rounded bg-muted px-1 py-0.5 text-sm">/name</code>{" "}
           pins a category outright, and text in{" "}
           <code className="rounded bg-muted px-1 py-0.5 text-sm">( )</code>{" "}
           becomes the description rather than the title. Neither is required —

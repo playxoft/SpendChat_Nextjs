@@ -12,7 +12,7 @@ import { createTransactionId, setTransactionTags } from "@/services/transactions
 import { createProfile } from "@/services/profiles";
 import { countTransactions, listTransactions } from "@/lib/queries";
 import { signInAs, uid } from "./helpers/session";
-import { getTestDb } from "./helpers/test-db";
+import { captureSql, getTestDb } from "./helpers/test-db";
 import { bootstrapUser, firstProfileId, workspaceIdOf } from "./helpers/seed";
 
 /**
@@ -235,9 +235,19 @@ describe("the tag filter on the read path", () => {
     expect(await ids({ tagIds: [travel.id, work.id], search: "hotel" })).toEqual([both.id]);
   });
 
-  // The page is assembled per profile and merged (`pageOf`'s merge-append),
-  // which is the shape the `uuid[]` column was chosen to preserve. A filter
-  // that only worked on the single-scan path would pass every other test here.
+  /**
+   * The page is assembled per profile and merged (`pageOf`'s merge-append),
+   * which is the shape the `uuid[]` column was chosen to preserve — 35ms
+   * against 2.7s on a large workspace, and it only holds while every filter is
+   * a predicate on `transactions` alone.
+   *
+   * Asserting the rows is not enough, and this test used to do only that:
+   * `pageOf`'s single-scan fallback uses `profile_id in (...)` and returns
+   * exactly the same rows in the same order, so deleting the merge outright
+   * left this — and the whole suite — green. `union all` in the emitted SQL is
+   * the part only the merge produces, and a join table could not produce it
+   * without putting a join inside every branch.
+   */
   it("survives the multi-profile merge-append path", async () => {
     const { userId, workspaceId, profileId } = await seedUser("a");
     const second = await createProfile(userId, workspaceId, { name: "Company", icon: "🏢" });
@@ -249,6 +259,17 @@ describe("the tag filter on the read path", () => {
     await createTransactionId(userId, workspaceId, txn(second.id));
 
     // No `profileId` filter = every accessible profile = the merged path.
+    const statements = await captureSql(() =>
+      listTransactions(userId, workspaceId, { tagIds: [tag.id] }),
+    );
+    const listing = statements.find(
+      (st) => st.text.includes("tag_ids") && st.text.includes("limit"),
+    );
+    expect(listing, "no tag-filtered listing statement captured").toBeTruthy();
+    expect(listing!.text, `the merge is gone:\n${listing!.text}`).toContain("union all");
+    // The filter is a predicate on `transactions`, not a join to a link table.
+    expect(listing!.text).not.toMatch(/join\s+"?transaction_tags"?/i);
+
     const rows = await listTransactions(userId, workspaceId, { tagIds: [tag.id] });
     expect(rows.map((r) => r.id).sort()).toEqual([inFirst.id, inSecond.id].sort());
     // And the count query, which shares `buildConditions`, agrees with it.
@@ -266,7 +287,9 @@ describe("the tag filter on the read path", () => {
     );
 
     const [row] = await listTransactions(userId, workspaceId, {});
-    // Ordered by name, not by the order they were applied.
+    // Ordered by name, not by the order they were applied. "apple" before
+    // "Zebra" is the pair that discriminates: under PGlite's C collation a
+    // plain `order by name` puts every capital first and returns the reverse.
     expect(row!.tags.map((t) => t.name)).toEqual(["apple", "Zebra"]);
 
     // A tag deleted out from under a row simply stops appearing — the column
@@ -275,5 +298,12 @@ describe("the tag filter on the read path", () => {
     const [after] = await listTransactions(userId, workspaceId, {});
     expect(after!.id).toBe(id);
     expect(after!.tags.map((t) => t.name)).toEqual(["apple"]);
+
+    // An untagged row carries an empty array, never null — the embed
+    // coalesces, so no client has to guard it. Added last, because it is the
+    // newest row and would otherwise displace the one above.
+    const untagged = await createTransactionId(userId, workspaceId, txn(profileId));
+    const fresh = await listTransactions(userId, workspaceId, {});
+    expect(fresh.find((r) => r.id === untagged.id)!.tags).toEqual([]);
   });
 });

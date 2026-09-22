@@ -123,7 +123,7 @@ export const FEATURES: Feature[] = [
     title: "Transaction History — Filter, Search, Sort",
     h1: "Every transaction, exactly how you want to see it",
     description:
-      "A sortable table of everything you've logged. Filter by date range, type and category, search your notes, and choose which columns you see.",
+      "A sortable table of everything you've logged. Filter by date range, type, category and tag, search your notes, and choose which columns you see.",
     blurb: "A table view with filters, note search and custom columns.",
     icon: "Table2",
     group: "understand",

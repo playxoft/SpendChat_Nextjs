@@ -21,7 +21,7 @@ export const metadata = createMetadata({
 const faqs = [
   {
     q: "How do I export my expenses to CSV?",
-    a: "Filter the transactions table to what you want — date range, type, category, profile, a search term — and press CSV. The download carries the same filters as the screen, so the file is the view you were reading rather than a dump you have to trim afterwards. It is always ordered newest first, whichever way you had the table sorted.",
+    a: "Filter the transactions table to what you want — date range, type, category, tag, profile, a search term — and press CSV. The download carries the same filters as the screen, so the file is the view you were reading rather than a dump you have to trim afterwards. It is always ordered newest first, whichever way you had the table sorted.",
   },
   {
     q: "Can I print an expense report as a PDF?",
@@ -37,7 +37,7 @@ const faqs = [
   },
   {
     q: "What's actually in the file?",
-    a: "A short header naming the workspace, profile and date range, then total income, total expense and net, then the table itself: date, type, category, title, amount and currency. Amounts are signed, so expenses are negative and a SUM over the column gives you the net without any further work.",
+    a: "A short header naming the workspace, profile and date range, then total income, total expense and net, then the table itself: date, type, category, title, amount, currency and tags. Amounts are signed, so expenses are negative and a SUM over the column gives you the net without any further work.",
   },
   {
     q: "Can I move my data to another app later?",
@@ -198,8 +198,9 @@ export default function ExportAndPrintPage() {
           </Link>{" "}
           and download individually or through share links; there isn&apos;t a
           single button that packages the entire vault yet. Everything that is a
-          transaction — every amount, date, category, title and profile — comes
-          out in full, today, in a format that will still open in thirty years.
+          transaction — every amount, date, category, title, tag and profile —
+          comes out in full, today, in a format that will still open in thirty
+          years.
         </p>
       </FeatureSection>
 

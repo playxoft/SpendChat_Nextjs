@@ -18,6 +18,25 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.26.1] — 2026-09-22
+
+### Fixed
+- **Two pages still told you to press the wrong key.** The AI and analytics
+  feature pages said a `#` pins a category. It hasn't since 0.24.0 — `#` is
+  the tag marker and `/` is the category one, so anyone following that copy got
+  a tag named after the category they wanted. This is a leftover from the
+  trigger swap, not from tags.
+- Copy that tags themselves made wrong: the transactions page said seven
+  columns and listed the filters without tags; the export page named the CSV's
+  columns without the one just added to it; the site FAQ (which is also the
+  homepage FAQ, the `FAQPage` structured data and `/llms.txt`), `/docs` and the
+  README all listed the filters without tags, and neither `/docs` nor the
+  README mentioned `#` at all.
+- The README's shortcut table listed keys the app stopped using: navigation is
+  `Q`/`T`/`E`/`F`/`S` and add is `R`, not `T`/`R`/`A`/`S` and `E`.
+- The keyboard-shortcuts page explains the `#` tag marker beside the `/`
+  category one. Both are in the cheat sheet; only one was in the prose.
+
 ## [0.26.0] — 2026-09-22
 
 ### Added

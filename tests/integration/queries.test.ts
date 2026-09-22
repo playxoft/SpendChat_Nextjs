@@ -412,11 +412,14 @@ describe("getTags / getTagsWithUsage", () => {
   }
 
   it("orders by lower(name), so case doesn't decide the order", async () => {
-    await tag("zebra", []);
-    await tag("Apple", []);
-    // A C-collation database (PGlite) would otherwise put every capital first,
-    // and Neon's en_US.UTF-8 wouldn't — the picker must read the same in both.
-    expect((await getTags(W)).map((t) => t.name)).toEqual(["Apple", "zebra"]);
+    // Lowercase first, capital second — the pair that tells the two orderings
+    // apart. A C-collation database (PGlite) sorts every capital ahead of every
+    // lowercase, so a plain `order by name` returns ["Zebra", "apple"] here;
+    // Neon's en_US.UTF-8 returns ["apple", "Zebra"] either way. The picker has
+    // to read the same in both, and only this pair proves it does.
+    await tag("Zebra", []);
+    await tag("apple", []);
+    expect((await getTags(W)).map((t) => t.name)).toEqual(["apple", "Zebra"]);
   });
 
   it("counts the transactions carrying each tag", async () => {

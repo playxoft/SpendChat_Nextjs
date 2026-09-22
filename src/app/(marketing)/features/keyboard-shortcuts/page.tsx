@@ -186,6 +186,19 @@ export default function KeyboardShortcutsPage() {
           because a cheat sheet that omits the fastest way to categorise
           isn&apos;t much of a cheat sheet.
         </p>
+        <p>
+          <Kbd combo={comboFor("tracker.tag")} className="align-middle" describe /> is
+          the same idea for tags, with the same split. Type it in the
+          composer&apos;s title field and the tag picker opens on the
+          workspace&apos;s tags, filtering as you go — and if what you typed
+          matches nothing yet, the last row offers to create it, so a tag can be
+          made without leaving the sentence you were writing. On a US keyboard
+          that character is Shift and 3, and outside a field that combination
+          switches profile; inside the field it types, and the picker opens. On
+          a UK or German layout it has a key of its own and behaves the same
+          way. The one difference from the category marker: the category one
+          also works in the AI note, and this one is the manual composer only.
+        </p>
       </FeatureSection>
 
       <FeatureSection title="⌘ or Ctrl, decided by your keyboard">

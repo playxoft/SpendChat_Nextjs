@@ -141,8 +141,8 @@ export default function AnalyticsPage() {
         <p>
           That&apos;s why entry is built to make the category cheap — one click
           in the composer, or a{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-sm">#</code> tag
-          while you type, or a guess from the{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-sm">/</code> while
+          you type, or a guess from the{" "}
           <Link href={featureLink("ai-expense-tracker")} className="underline underline-offset-4">
             AI
           </Link>{" "}
