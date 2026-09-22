@@ -30,21 +30,35 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   instead of typing the marker.
 - **Create a category from the `/` picker.** If what you typed doesn't match
   one, the last row offers to make it — the same step the `#` picker has had.
-  It works in manual entry, in AI entry and in the single-field layout.
+  With nothing typed it reads **New category** and does the same thing. It
+  works in manual entry, in AI entry and in the single-field layout.
+- **Manage either list without leaving what you're typing.** The `/` picker
+  opens with **Edit categories** at the top, the `#` picker with **Edit tags**,
+  which opens a compact manager — rename, recolour, delete, add — rather than
+  navigating to Settings and losing an unsent transaction.
+- **Settings → About**, with what the app is, the versions it's running, and
+  what the AGPL actually grants you.
 
 ### Changed
 - **Picked tags now sit at the end of the title field** instead of on a row of
   their own above it. The composer no longer jumps a line the moment you apply
   one. Two show inline; the rest become a `+N` that names them on hover and
   opens the picker when clicked.
-- The `/` category list says **income** or **expense** at the end of each row,
+- The `/` category list says **Income** or **Expense** at the end of each row,
   instead of `in` / `out` — two letters that differ by one glyph.
+- **The Input settings page shows the composer, not a drawing of it.** Both
+  cards' previews render the real control strip and field row, and each follows
+  the *other* card's current selection — so picking a layout updates the
+  density previews, and vice versa. The old mocks had drifted: they predated
+  the `#` button and showed controls the composer no longer has.
 - **Settings has left the sidebar.** It is in the profile menu, which is on
   every screen in both layouts, and listing it twice spent a nav slot on the
   destination people visit least. The `s` shortcut still goes there.
 - Tags use a **`#` icon** everywhere instead of the tag glyph, which was a
   near-twin of the one Categories uses.
-- The profile menu's source link drops the licence name; the link itself stays.
+- **The profile menu drops the source link.** The offer the AGPL's section 13
+  asks for moved to Settings → About, which is reachable from the same menu and
+  has room to say what the licence means instead of being a bare link.
 - The mobile API's `/ai/parse` reads the `#` marker and returns `tagIds` /
   `tagNames` per draft — spec **6.3.0**, additive. See
   [the API changelog](./_developer/flutter/_changelog.md).

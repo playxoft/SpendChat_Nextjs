@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { AlignLeft, ArrowUp, Minus, Plus } from "lucide-react";
+import { AlignLeft, ArrowUp, Minus, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +18,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { TagChip } from "./tags/tag-chip";
 import { TagFormDialog } from "./tags/tag-form-dialog";
 import { TagSelect } from "./tags/tag-select";
+import { TagEditorDialog } from "./tags/tag-editor-dialog";
 import { useCreatedTags } from "./tags/use-created-tags";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { ControlHint } from "./control-hint";
@@ -143,6 +144,7 @@ export function TransactionComposer({
   const [tagFormName, setTagFormName] = useState<string | null>(null);
   // The "#" button's menu, also opened by the "+N" overflow inside the field.
   const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [tagEditorOpen, setTagEditorOpen] = useState(false);
   // Open the category editor with the text typed after the "/", so
   // "Create /trav" pre-fills — the tag form's `initialName`, for categories.
   const [categoryFormName, setCategoryFormName] = useState("");
@@ -1328,6 +1330,20 @@ export function TransactionComposer({
                     {tagActive && (
                       <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
                         <ul className="max-h-56 overflow-y-auto">
+                          <li>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                clearTagToken();
+                                setTagEditorOpen(true);
+                              }}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                            >
+                              <Pencil className="size-3.5 shrink-0" aria-hidden />
+                              Edit tags
+                            </button>
+                          </li>
                           {tagResults.map((t, i) => (
                             <li key={t.id}>
                               <button
@@ -1399,6 +1415,27 @@ export function TransactionComposer({
                     {categoryActive && (
                       <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
                         <ul className="max-h-56 overflow-y-auto">
+                          {/* Pinned at the top, and deliberately outside the
+                              arrow-key list: these manage the list rather than
+                              complete what you typed, and putting them in the
+                              option model would land the highlight on "Edit"
+                              when you meant the first match. Mouse affordances,
+                              like the "More" grid on the slider. */}
+                          <li>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                clearCategoryToken();
+                                setCategoryFormName("");
+                                setEditorOpen(true);
+                              }}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                            >
+                              <Pencil className="size-3.5 shrink-0" aria-hidden />
+                              Edit categories
+                            </button>
+                          </li>
                           {categoryResults.map((c, i) => (
                             <li key={c.id}>
                               <button
@@ -1425,42 +1462,49 @@ export function TransactionComposer({
                                     differ by one glyph are a worse label than
                                     the thing they abbreviate, and there is room
                                     at the end of the row for it. */}
-                                <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                                <span className="ml-auto shrink-0 text-xs text-muted-foreground capitalize">
                                   {c.kind}
                                 </span>
                               </button>
                             </li>
                           ))}
-                          {categoryCreatable && (
-                            <li>
-                              <button
-                                type="button"
-                                ref={(el) => {
-                                  if (categoryOnCreateRow) el?.scrollIntoView({ block: "nearest" });
-                                }}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  openCategoryCreate();
-                                }}
-                                className={cn(
-                                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                                  categoryOnCreateRow ? "bg-accent" : "hover:bg-muted",
-                                )}
-                              >
-                                <Plus className="size-3.5 shrink-0" aria-hidden />
-                                <span className="truncate text-muted-foreground">Create</span>
-                                <span className="truncate font-medium">
-                                  {categoryQuery.trim()}
-                                </span>
-                              </button>
-                            </li>
-                          )}
-                          {categoryOptionCount === 0 && (
+                          {/* Always offered. With something typed it is the
+                              last option and Enter reaches it; with nothing to
+                              create from it is a plain "New category" button,
+                              outside the arrow-key list for the same reason the
+                              manage row above is. */}
+                          <li>
+                            <button
+                              type="button"
+                              ref={(el) => {
+                                if (categoryOnCreateRow) el?.scrollIntoView({ block: "nearest" });
+                              }}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                openCategoryCreate();
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                                categoryOnCreateRow ? "bg-accent" : "hover:bg-muted",
+                              )}
+                            >
+                              <Plus className="size-3.5 shrink-0" aria-hidden />
+                              {categoryCreatable ? (
+                                <>
+                                  <span className="truncate text-muted-foreground">Create</span>
+                                  <span className="truncate font-medium">
+                                    {categoryQuery.trim()}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="truncate text-muted-foreground">New category</span>
+                              )}
+                            </button>
+                          </li>
+                          {categoryResults.length === 0 && (
                             <li className="px-2 py-1.5 text-sm text-muted-foreground">
-                              {/* Only reachable on a bare "/" — a typed query
-                                  always offers the create row. */}
                               {cats.length === 0
-                                ? "No categories yet — type a name to create one"
+                                ? `No ${type} categories yet`
                                 : `No ${type} category matches`}
                             </li>
                           )}
@@ -1509,6 +1553,12 @@ export function TransactionComposer({
           setTagIds((prev) => (prev.includes(tag.id) ? prev : [...prev, tag.id]));
           setTagFormName(null);
         }}
+      />
+      <TagEditorDialog
+        open={tagEditorOpen}
+        onOpenChange={setTagEditorOpen}
+        tags={knownTags}
+        onCreated={createdTags.add}
       />
       <CategoryEditorDialog
         open={editorOpen}

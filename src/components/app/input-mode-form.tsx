@@ -6,78 +6,47 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { updateInputMode } from "@/actions/settings";
-import type { InputMode } from "@/lib/validation";
+import { ComposerPreview } from "./composer-preview";
+import type { ComposerDensity, InputMode } from "@/lib/validation";
 
 type Option = {
   value: InputMode;
   label: string;
   description: string;
-  /** A small visual mock of the composer layout for this option. */
-  example: React.ReactNode;
 };
-
-/** A faux input pill used purely to illustrate each layout. */
-function Pill({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex h-7 items-center rounded-md border bg-background px-2 text-xs text-muted-foreground",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
 
 const OPTIONS: Option[] = [
   {
     value: "amount_title",
     label: "Amount, then title",
     description: "The original layout. Type the amount first, then a title beside it.",
-    example: (
-      <div className="flex items-center gap-1.5">
-        <Pill className="w-16 justify-start">$ 100</Pill>
-        <Pill className="flex-1 justify-start">fruits</Pill>
-      </div>
-    ),
   },
   {
     value: "title_amount",
     label: "Title, then amount",
     description: "Flip it around — type the title first, with the amount beside it.",
-    example: (
-      <div className="flex items-center gap-1.5">
-        <Pill className="flex-1 justify-start">fruits</Pill>
-        <Pill className="w-16 justify-start">$ 100</Pill>
-      </div>
-    ),
   },
   {
     value: "combined",
     label: "One field (amount + title)",
     description:
       "One field, two zones: a currency chip for the amount and the title beside it. Space jumps from the chip to the title — fastest for quick entries.",
-    example: (
-      <div className="flex flex-wrap items-center gap-1.5">
-        <Pill className="justify-start gap-1.5">
-          <span className="rounded bg-muted px-1 text-[11px] font-medium tabular-nums text-foreground">
-            $ 100
-          </span>
-          fruits
-        </Pill>
-      </div>
-    ),
   },
 ];
 
-export function InputModeForm({ inputMode }: { inputMode: string }) {
+export function InputModeForm({
+  inputMode,
+  density,
+  onSelectedChange,
+}: {
+  inputMode: string;
+  /** The density the previews below should render at — so the two cards on
+   *  this page agree about what the composer currently looks like. */
+  density: ComposerDensity;
+  /** Reports the *selected* (not yet saved) layout, so the density card's
+   *  preview follows it as you click through the options. */
+  onSelectedChange?: (mode: InputMode) => void;
+}) {
   const initial = (OPTIONS.some((o) => o.value === inputMode)
     ? inputMode
     : "amount_title") as InputMode;
@@ -117,7 +86,10 @@ export function InputModeForm({ inputMode }: { inputMode: string }) {
               type="button"
               role="radio"
               aria-checked={active}
-              onClick={() => setSelected(opt.value)}
+              onClick={() => {
+                setSelected(opt.value);
+                onSelectedChange?.(opt.value);
+              }}
               className={cn(
                 "flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors",
                 active
@@ -141,7 +113,13 @@ export function InputModeForm({ inputMode }: { inputMode: string }) {
               <p className="text-xs leading-relaxed text-muted-foreground">
                 {opt.description}
               </p>
-              <div className="mt-auto rounded-md bg-muted/50 p-2">{opt.example}</div>
+              {/* The composer as it would actually look, at the density
+                  currently in force — not a drawing of it. */}
+              <ComposerPreview
+                density={density}
+                inputMode={opt.value}
+                className="mt-auto"
+              />
             </button>
           );
         })}
@@ -151,7 +129,10 @@ export function InputModeForm({ inputMode }: { inputMode: string }) {
         <Button
           type="button"
           variant="ghost"
-          onClick={() => setSelected(baseline)}
+          onClick={() => {
+            setSelected(baseline);
+            onSelectedChange?.(baseline);
+          }}
           disabled={!dirty || pending}
         >
           Cancel

@@ -62,6 +62,7 @@ import {
 } from "@/lib/tags";
 import { TagChip } from "./tags/tag-chip";
 import { TagFormDialog } from "./tags/tag-form-dialog";
+import { TagEditorDialog } from "./tags/tag-editor-dialog";
 import { useCreatedTags } from "./tags/use-created-tags";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { CATEGORY_NAME_MAX, TAG_NAME_MAX } from "@/lib/validation";
@@ -292,6 +293,7 @@ export function AiTransactionInput({
   const [tagDismissed, setTagDismissed] = useState(false);
   const [tagIndex, setTagIndex] = useState(0);
   const [tagFormName, setTagFormName] = useState<string | null>(null);
+  const [tagEditorOpen, setTagEditorOpen] = useState(false);
   const createdTags = useCreatedTags(tags);
   // Categories created from the "/" picker's Create row.
   const [categoryFormName, setCategoryFormName] = useState("");
@@ -759,6 +761,23 @@ export function AiTransactionInput({
   const categoryMenu = categoryActive ? (
     <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
       <ul className="max-h-56 overflow-y-auto">
+        {/* Manage rows sit outside the arrow-key list — see the composer's
+            copy of this picker for why. */}
+        <li>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setCategoryDismissed(true);
+              setCategoryFormName("");
+              setEditorOpen(true);
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="size-3.5 shrink-0" aria-hidden />
+            Edit categories
+          </button>
+        </li>
         {categoryResults.map((c, i) => (
           <li key={c.id}>
             <button
@@ -789,37 +808,39 @@ export function AiTransactionInput({
               {/* The word, not "in"/"out" — see the composer's copy of this
                   list. Two letters differing by one glyph are a worse label
                   than the thing they stand for. */}
-              <span className="ml-auto shrink-0 text-xs text-muted-foreground">{c.kind}</span>
+              <span className="ml-auto shrink-0 text-xs text-muted-foreground capitalize">{c.kind}</span>
             </button>
           </li>
         ))}
-        {categoryCreatable && (
-          <li>
-            <button
-              type="button"
-              ref={(el) => {
-                if (categoryOnCreateRow) el?.scrollIntoView({ block: "nearest" });
-              }}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                openCategoryCreate();
-              }}
-              className={cn(
-                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                categoryOnCreateRow ? "bg-accent" : "hover:bg-muted",
-              )}
-            >
-              <Plus className="size-3.5 shrink-0" aria-hidden />
-              <span className="truncate text-muted-foreground">Create</span>
-              <span className="truncate font-medium">{categoryQuery.trim()}</span>
-            </button>
-          </li>
-        )}
-        {categoryOptionCount === 0 && (
+        <li>
+          <button
+            type="button"
+            ref={(el) => {
+              if (categoryOnCreateRow) el?.scrollIntoView({ block: "nearest" });
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              openCategoryCreate();
+            }}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+              categoryOnCreateRow ? "bg-accent" : "hover:bg-muted",
+            )}
+          >
+            <Plus className="size-3.5 shrink-0" aria-hidden />
+            {categoryCreatable ? (
+              <>
+                <span className="truncate text-muted-foreground">Create</span>
+                <span className="truncate font-medium">{categoryQuery.trim()}</span>
+              </>
+            ) : (
+              <span className="truncate text-muted-foreground">New category</span>
+            )}
+          </button>
+        </li>
+        {categoryResults.length === 0 && (
           <li className="px-2 py-1.5 text-sm text-muted-foreground">
-            {categories.length === 0
-              ? "No categories yet — type a name to create one"
-              : "No category matches"}
+            {categories.length === 0 ? "No categories yet" : "No category matches"}
           </li>
         )}
       </ul>
@@ -829,6 +850,20 @@ export function AiTransactionInput({
   const tagMenu = tagActive ? (
     <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
       <ul className="max-h-56 overflow-y-auto">
+        <li>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setTagDismissed(true);
+              setTagEditorOpen(true);
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="size-3.5 shrink-0" aria-hidden />
+            Edit tags
+          </button>
+        </li>
         {tagResults.map((t, i) => (
           <li key={t.id}>
             <button
@@ -1051,6 +1086,12 @@ export function AiTransactionInput({
             createdTags.add(tag);
             setTagFormName(null);
           }}
+        />
+        <TagEditorDialog
+          open={tagEditorOpen}
+          onOpenChange={setTagEditorOpen}
+          tags={knownTags}
+          onCreated={createdTags.add}
         />
         <CategoryEditorDialog
           open={editorOpen}
