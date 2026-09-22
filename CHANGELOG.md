@@ -14,7 +14,7 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.0.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.1.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
 
@@ -39,6 +39,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - The transactions list can now be filtered by tag (`?tags=`), matching **any**
   of the tags you select rather than all of them. The filter UI itself lands
   with the Tags column in the next release.
+- **The mobile API contract is now 6.1.0** (was 6.0.0). The same `?tags=` filter
+  works on the API's transaction list, CSV export and analytics totals — an
+  additive, optional query parameter, so nothing an existing client sends
+  changes meaning. Details in
+  [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md).
 
 ## [0.24.0] — 2026-09-22
 

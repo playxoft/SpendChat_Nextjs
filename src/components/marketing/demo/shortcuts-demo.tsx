@@ -82,7 +82,7 @@ function firesWhileTyping(s: ShortcutDef | undefined): boolean {
  * you type into the title field (the composer watches the text), and ⌘/Ctrl + P
  * is the browser's own print dialog. The registry says *that* they're unbound and why
  * (`unbound`); the wording is here, because it's marketing copy rather than app
- * data. A cheat sheet that listed them like the rest would be claiming two keys
+ * data. A cheat sheet that listed them like the rest would be claiming three keys
  * we never took — and the panel doesn't swallow them either (`shouldSwallow`).
  */
 const UNBOUND_NOTE: Record<NonNullable<ShortcutDef["unbound"]>, string> = {

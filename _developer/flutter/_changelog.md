@@ -19,6 +19,30 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.1.0 — 2026-09-22
+
+Transactions, the CSV export and the analytics totals can be filtered by tag.
+
+`GET /transactions`, `GET /transactions/export`, `GET /analytics/summary` and
+`GET /analytics/categories` all accept **`?tags=`**: a comma-separated list of
+tag ids, matching transactions that carry **any** of them (an overlap, not
+"all of them"). It composes with every existing filter, and the record count and
+totals narrow with the list rather than reporting the unfiltered set.
+
+Deliberately forgiving, because a filter is a view and a mangled URL should
+narrow oddly rather than 500: ids are deduped, segments that aren't UUIDs are
+dropped rather than rejected, and the list is capped at 10. An empty or absent
+value means no tag filter. Note that `?q=` still searches `title` and
+`description` only — it does not match tag names.
+
+The tag ids come from the `tags` array already embedded on every transaction
+(added in 6.0.0); there is still no endpoint to create or manage tags.
+
+**Flutter impact:** optional. Nothing an existing client sends changes meaning.
+If the app shows tag chips, this is what makes them tappable as a filter.
+
+---
+
 ## 6.0.0 — 2026-09-22
 
 The category marker in an AI note is `/`, not `#`. Transactions carry tags.

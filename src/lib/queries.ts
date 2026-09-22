@@ -769,7 +769,6 @@ export async function getCategories(workspaceId: string) {
     .orderBy(asc(categories.kind), asc(categories.name));
 }
 
-/** Profiles in the workspace the user can at least view, in sidebar order. */
 /** The workspace's tags, by name — the list the picker, the filter and the
  *  settings manager all render. Mirrors `getCategories`. */
 export async function getTags(workspaceId: string) {
@@ -785,6 +784,7 @@ export async function getTags(workspaceId: string) {
     .orderBy(asc(sql`lower(${tags.name})`));
 }
 
+/** Profiles in the workspace the user can at least view, in sidebar order. */
 export async function getProfiles(userId: string, workspaceId: string) {
   const db = getDb();
   return db

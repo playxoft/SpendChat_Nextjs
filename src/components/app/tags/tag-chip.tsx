@@ -67,45 +67,14 @@ export function TagChip({
           // The label names the tag: a row of chips otherwise reads as
           // "Remove, Remove, Remove" to a screen reader.
           aria-label={removeLabel ?? `Remove tag ${tag.name}`}
-          className="-mr-0.5 shrink-0 rounded-full opacity-70 hover:opacity-100"
+          // Focus ring and hit area match the staged-attachment remove button
+          // (`attachments/attachment-tile.tsx`), which sits in the same stack —
+          // without it a keyboard user tabbing through chips got no visible
+          // focus while tabbing through staged files did.
+          className="-mr-0.5 inline-flex shrink-0 items-center justify-center rounded-full p-0.5 opacity-70 hover:opacity-100 focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
         >
           <X className="size-3" aria-hidden />
         </button>
-      ) : null}
-    </span>
-  );
-}
-
-/**
- * A row of chips, clipped to `max` with a "+N" counter for the rest.
- *
- * The counter carries the hidden names in its `title`, because the place this
- * renders (a fixed-width table cell) is exactly the place you can't see them.
- */
-export function TagList({
-  tags,
-  max = 3,
-  className,
-}: {
-  tags: ChipTag[];
-  max?: number;
-  className?: string;
-}) {
-  if (tags.length === 0) return null;
-  const shown = tags.slice(0, max);
-  const hidden = tags.slice(max);
-  return (
-    <span className={cn("flex min-w-0 items-center gap-1", className)}>
-      {shown.map((tag) => (
-        <TagChip key={tag.name} tag={tag} />
-      ))}
-      {hidden.length > 0 ? (
-        <span
-          className="shrink-0 text-xs text-muted-foreground"
-          title={hidden.map((t) => t.name).join(", ")}
-        >
-          +{hidden.length}
-        </span>
       ) : null}
     </span>
   );

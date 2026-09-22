@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Loader2, Trash2 } from "lucide-react";
 import {
@@ -52,6 +52,11 @@ export function TagFormDialog({
   const [usage, setUsage] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
 
+  // The color follows the name only while the user hasn't chosen one, and only
+  // in create mode: typing further into "trav" → "travel" should keep moving
+  // the suggested swatch, but a deliberate pick must survive the next keystroke.
+  const [colorPicked, setColorPicked] = useState(false);
+
   // Re-seed each time the dialog opens: it is mounted once and reused, so
   // without this the second "Create #travel" would still show the first name.
   const [wasOpen, setWasOpen] = useState(open);
@@ -61,21 +66,30 @@ export function TagFormDialog({
       setName(tag?.name ?? initialName);
       setColor(tag?.color ?? defaultTagColor(initialName));
       setUsage(null);
-      // How many transactions the tag is on — read when the dialog opens so the
-      // delete button can say what it will actually detach, rather than asking
-      // the user to accept an unknown.
-      if (tag) {
-        void countTransactionsForTag(tag.id).then((res) => {
-          if (res.ok) setUsage(res.count);
-        });
-      }
+      // Reset with the rest. Left set from a previous open, the swatch would
+      // stop following the name — so the first create of a session behaved one
+      // way and every later one another, with nothing on screen to explain it.
+      setColorPicked(false);
     }
   }
 
-  // The color only follows the name while the user hasn't chosen one, and only
-  // in create mode: typing further into "trav" → "travel" should keep moving
-  // the suggested swatch, but a deliberate pick must survive the next keystroke.
-  const [colorPicked, setColorPicked] = useState(false);
+  // How many transactions carry the tag, so the delete button can name what it
+  // will detach instead of asking the user to accept an unknown.
+  //
+  // In an effect, not in the re-seed block above: that block runs during
+  // render, and a server action fired from there is a side effect in render —
+  // React 19 double-invokes the render function under StrictMode, so it fired
+  // twice per open in development.
+  useEffect(() => {
+    if (!open || !tag) return;
+    let live = true;
+    void countTransactionsForTag(tag.id).then((res) => {
+      if (live && res.ok) setUsage(res.count);
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, tag]);
   function changeName(value: string) {
     setName(value);
     if (!editing && !colorPicked) setColor(defaultTagColor(value));

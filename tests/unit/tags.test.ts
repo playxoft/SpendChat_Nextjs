@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { TAG_COLORS, defaultTagColor, serializeTxnTag } from "@/lib/tags";
+import {
+  TAG_COLORS,
+  defaultTagColor,
+  serializeTxnTag,
+  stepPickerIndex,
+  tagPickerModel,
+} from "@/lib/tags";
 import { VAULT_COLORS } from "@/lib/files";
 import {
   TAG_NAME_MAX,
@@ -188,5 +194,89 @@ describe("setTransactionTagsSchema", () => {
     expect(setTransactionTagsSchema.safeParse({ id: uuid(1), tagIds: [] }).success).toBe(true);
     expect(setTransactionTagsSchema.safeParse({ id: uuid(1) }).success).toBe(false);
     expect(setTransactionTagsSchema.safeParse({ tagIds: [] }).success).toBe(false);
+  });
+});
+
+describe("tagPickerModel", () => {
+  const tags = [
+    { id: "1", name: "food" },
+    { id: "2", name: "fuel" },
+    { id: "3", name: "furniture" },
+  ];
+  const model = (query: string, rawIndex = 0, applied: string[] = []) =>
+    tagPickerModel({ tags, query, applied, rawIndex });
+
+  it("filters case-insensitively and hides tags already applied", () => {
+    expect(model("fu").results.map((t) => t.name)).toEqual(["fuel", "furniture"]);
+    expect(model("FU").results.map((t) => t.name)).toEqual(["fuel", "furniture"]);
+    expect(model("fu", 0, ["2"]).results.map((t) => t.name)).toEqual(["furniture"]);
+  });
+
+  // A bare "#" means "show me the list", so it must not offer to create "".
+  it("offers Create only for a new, non-empty name", () => {
+    expect(model("").creatable).toBe(false);
+    expect(model("   ").creatable).toBe(false);
+    expect(model("trav").creatable).toBe(true);
+    // Case-insensitive, matching the DB's lower(name) unique index — offering
+    // "Create food" beside an existing "food" promises what the server rejects.
+    expect(model("food").creatable).toBe(false);
+    expect(model("FOOD").creatable).toBe(false);
+  });
+
+  it("counts the Create row as the last option", () => {
+    const m = model("fu");
+    expect(m.optionCount).toBe(3); // fuel, furniture, Create
+    expect(tagPickerModel({ tags, query: "fu", applied: [], rawIndex: 2 }).onCreateRow).toBe(true);
+    expect(tagPickerModel({ tags, query: "fu", applied: [], rawIndex: 1 }).onCreateRow).toBe(false);
+    // No create row when the name exists: only the matches are options.
+    expect(model("food").optionCount).toBe(1);
+  });
+
+  // The bug this function exists for. The raw index survives the list shrinking
+  // as the query narrows; read directly it highlights a row that isn't there.
+  it("clamps an index left over from a longer list", () => {
+    // "#fu" → [fuel, furniture] + Create = 3 options, highlight the last.
+    expect(model("fu", 2).activeIndex).toBe(2);
+    // Type "e" → "#fue" → [fuel] + Create = 2. The stale 2 must clamp to 1.
+    const narrowed = model("fue", 2);
+    expect(narrowed.optionCount).toBe(2);
+    expect(narrowed.activeIndex).toBe(1);
+  });
+
+  it("is safe on an empty list and on a negative index", () => {
+    expect(tagPickerModel({ tags: [], query: "", applied: [], rawIndex: 5 })).toMatchObject({
+      optionCount: 0,
+      activeIndex: 0,
+      onCreateRow: false,
+    });
+    expect(model("fu", -3).activeIndex).toBe(0);
+  });
+});
+
+describe("stepPickerIndex", () => {
+  it("wraps in both directions", () => {
+    expect(stepPickerIndex(0, 3, 1)).toBe(1);
+    expect(stepPickerIndex(2, 3, 1)).toBe(0);
+    expect(stepPickerIndex(0, 3, -1)).toBe(2);
+    expect(stepPickerIndex(1, 3, -1)).toBe(0);
+  });
+
+  // Stepping from the *clamped* index is what makes the first arrow press move
+  // after the list shrank. From a raw 2 with 2 options, both directions compute
+  // 1 — which is where the highlight already was, so the press looked ignored.
+  it("moves on the first press after the list shrank", () => {
+    const { activeIndex, optionCount } = tagPickerModel({
+      tags: [{ id: "1", name: "fuel" }],
+      query: "fue",
+      applied: [],
+      rawIndex: 2,
+    });
+    expect(activeIndex).toBe(1);
+    expect(stepPickerIndex(activeIndex, optionCount, 1)).toBe(0);
+    expect(stepPickerIndex(activeIndex, optionCount, -1)).toBe(0);
+  });
+
+  it("returns 0 when there is nothing to step through", () => {
+    expect(stepPickerIndex(0, 0, 1)).toBe(0);
   });
 });

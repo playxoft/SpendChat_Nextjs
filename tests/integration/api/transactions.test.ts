@@ -189,3 +189,86 @@ describe("workspace scoping on /api/v1/transactions/{id}", () => {
     expect(data.amountMinor).toBe(500);
   });
 });
+
+describe("?tags= on /api/v1/transactions", () => {
+  /** Create a tag through the service and return its id. */
+  async function makeTag(alias: string, name: string) {
+    const { createTxnTag } = await import("@/services/tags");
+    const { workspaceIdOf } = await import("../helpers/seed");
+    return (await createTxnTag(uid(alias), await workspaceIdOf(alias), { name, color: "#ef4444" }))
+      .id;
+  }
+
+  const titles = async (qs: string) => {
+    const res = await listTxns(apiReq(`/api/v1/transactions${qs}`));
+    expect(res.status).toBe(200);
+    const { data } = await res.json();
+    return (data as { title: string }[]).map((r) => r.title).sort();
+  };
+
+  it("filters by tag, matching ANY of them, and embeds the tags on each row", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const travel = await makeTag("a", "Travel");
+    const work = await makeTag("a", "Work");
+
+    const mk = (title: string, tagIds: string[]) =>
+      createTxn(
+        apiReq("/api/v1/transactions", {
+          method: "POST",
+          body: jsonBody({ ...base, title, tagIds }),
+        }),
+      );
+    await mk("flight", [travel]);
+    await mk("laptop", [work]);
+    await mk("hotel", [travel, work]);
+    await mk("plain", []);
+
+    expect(await titles(`?tags=${travel}`)).toEqual(["flight", "hotel"]);
+    // Two tags widen rather than narrow, and a row carrying both appears once.
+    expect(await titles(`?tags=${travel},${work}`)).toEqual(["flight", "hotel", "laptop"]);
+    expect(await titles("")).toHaveLength(4);
+
+    const res = await listTxns(apiReq(`/api/v1/transactions?tags=${travel}`));
+    const { data } = await res.json();
+    const hotel = (data as { title: string; tags: { name: string }[] }[]).find(
+      (r) => r.title === "hotel",
+    );
+    expect(hotel!.tags.map((t) => t.name)).toEqual(["Travel", "Work"]);
+  });
+
+  // A filter is a view: a mangled URL should narrow oddly, not 500. This is the
+  // behaviour the spec now documents, so it is worth pinning at the API edge and
+  // not only at the parser.
+  it("is forgiving about junk rather than erroring", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const travel = await makeTag("a", "Travel");
+    await createTxn(
+      apiReq("/api/v1/transactions", {
+        method: "POST",
+        body: jsonBody({ ...base, title: "flight", tagIds: [travel] }),
+      }),
+    );
+
+    // Junk alongside a real id keeps the real one.
+    expect(await titles(`?tags=${travel},not-a-uuid,`)).toEqual(["flight"]);
+    // All junk, or empty, is the same as no filter at all.
+    expect(await titles("?tags=nope,also-nope")).toEqual(["flight"]);
+    expect(await titles("?tags=")).toEqual(["flight"]);
+  });
+
+  it("does not leak another workspace's tag as a filter", async () => {
+    signInAs("b");
+    await bootstrapUser("b");
+    const theirs = await makeTag("b", "Theirs");
+
+    signInAs("a");
+    await bootstrapUser("a");
+    await createTxn(
+      apiReq("/api/v1/transactions", { method: "POST", body: jsonBody({ ...base, title: "mine" }) }),
+    );
+    // A well-formed id from elsewhere simply matches nothing here.
+    expect(await titles(`?tags=${theirs}`)).toEqual([]);
+  });
+});

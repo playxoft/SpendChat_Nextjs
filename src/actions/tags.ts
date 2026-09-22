@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as tagService from "@/services/tags";
-import { setTransactionTags as setTags } from "@/services/transactions";
 import { serializeTxnTag, type TxnTagDTO } from "@/lib/tags";
 import type { CreateTxnTagInput, UpdateTxnTagInput } from "@/lib/validation";
 
@@ -16,9 +15,9 @@ import type { CreateTxnTagInput, UpdateTxnTagInput } from "@/lib/validation";
 
 function revalidateApp() {
   // Transactions resolve their tags by id at read time, so a rename or a
-  // recolor changes what every route that lists one renders — not just the
-  // settings page. "/app/settings" is a layout revalidation to reach the
-  // nested tag manager at "/app/settings/tags".
+  // recolor changes what every route that lists one renders. "/app/settings" is
+  // a layout revalidation so the settings tree picks it up too — the tag
+  // manager that lives there arrives with the next change.
   revalidatePath("/app");
   revalidatePath("/app/transactions");
   revalidatePath("/app/settings", "layout");
@@ -88,31 +87,5 @@ export async function countTransactionsForTag(
     "countTransactionsForTag",
     async () => ({ count: await tagService.countTransactionsForTxnTag(workspace.id, id) }),
     { userId: user.id, workspaceId: workspace.id, tagId: id },
-  );
-}
-
-/**
- * Set one transaction's tags, touching nothing else.
- *
- * Narrow on purpose: the composer's chips and the table cell's picker both hold
- * the tags and nothing else, and routing them through the full update action
- * would make them re-send an amount and a date they never touched — writing any
- * staleness in those back over a concurrent edit.
- */
-export async function setTransactionTags(
-  id: string,
-  tagIds: string[],
-): Promise<ActionResult> {
-  const user = await requireUser();
-  const workspace = await getCurrentWorkspace(user.id);
-  return runAction(
-    "setTransactionTags",
-    async () => {
-      await setTags(user.id, workspace.id, id, { id, tagIds });
-      revalidatePath("/app");
-      revalidatePath("/app/transactions");
-      return {};
-    },
-    { userId: user.id, workspaceId: workspace.id, transactionId: id },
   );
 }

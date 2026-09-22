@@ -40,10 +40,16 @@ import {
   ATTACHMENT_MAX_PER_TRANSACTION,
   TRANSACTION_AMOUNT_MAX as AMOUNT_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
+  TAG_NAME_MAX,
   TRANSACTION_TITLE_MAX as TITLE_MAX,
 } from "@/lib/validation";
 import type { ComposerDensity, InputMode, TransactionInput } from "@/lib/validation";
-import { defaultTagColor, type TxnTagDTO } from "@/lib/tags";
+import {
+  defaultTagColor,
+  stepPickerIndex,
+  tagPickerModel,
+  type TxnTagDTO,
+} from "@/lib/tags";
 import type { Category, Profile } from "@/db/schema";
 
 // Matches a trailing "/query" token typed into the title field — "/" is the
@@ -238,20 +244,21 @@ export function TransactionComposer({
   const tagMatch = titleSource.match(TAG_RE);
   const tagQuery = tagMatch?.[1] ?? "";
   const tagActive = !!tagMatch && !tagDismissed;
-  const applied = new Set(tagIds);
-  const tagResults = tagActive
-    ? knownTags.filter(
-        (t) => !applied.has(t.id) && t.name.toLowerCase().includes(tagQuery.toLowerCase()),
-      )
-    : [];
-  const tagCreatable =
-    tagActive &&
-    tagQuery.trim().length > 0 &&
-    !knownTags.some((t) => t.name.toLowerCase() === tagQuery.trim().toLowerCase());
-  // The create row is the last entry, so arrowing past the matches lands on it.
-  const tagOptionCount = tagResults.length + (tagCreatable ? 1 : 0);
-  const tagIdx = tagOptionCount ? Math.min(tagIndex, tagOptionCount - 1) : 0;
-  const tagOnCreateRow = tagCreatable && tagIdx === tagResults.length;
+  // The option model is a pure function (`lib/tags.ts`) so the index clamping
+  // and the trailing Create row can be tested — this component can't be, since
+  // both vitest projects run in `node` with no DOM.
+  const {
+    results: tagResults,
+    creatable: tagCreatable,
+    optionCount: tagOptionCount,
+    activeIndex: tagIdx,
+    onCreateRow: tagOnCreateRow,
+  } = tagPickerModel({
+    tags: tagActive ? knownTags : [],
+    query: tagQuery,
+    applied: tagIds,
+    rawIndex: tagIndex,
+  });
   // The chips shown under the row, in pick order — `tags` is name-ordered, so
   // this maps through `tagIds` rather than filtering `tags`.
   const pickedTags = tagIds
@@ -296,6 +303,27 @@ export function TransactionComposer({
     el.setSelectionRange(el.value.length, el.value.length);
   }
 
+  /**
+   * Re-arm both inline pickers after the title text changes.
+   *
+   * One function rather than four lines repeated at each call site: the tag
+   * picker shipped broken because three of those sites re-armed the category
+   * picker and silently forgot the tag one, which made `#` work exactly once
+   * per transaction — dismissed on the first pick and never reset, so the
+   * many-to-many feature could only ever apply a single tag. A single helper
+   * makes "forget one of them" impossible rather than merely unlikely.
+   */
+  function rearmPickers() {
+    setCategoryDismissed(false);
+    setCategoryIndex(0);
+    setTagDismissed(false);
+    // The index has to go too: it is the *raw* index, and the results list
+    // shrinks as the query narrows. Left at 2 while the list drops to one match
+    // plus a Create row, Enter fires Create instead of the match the user is
+    // looking at.
+    setTagIndex(0);
+  }
+
   /** Strip the trailing "#query" token the picker was driven by. */
   function clearTagToken() {
     setTitleSource((t) => t.replace(TAG_RE, "").replace(/\s+$/, ""));
@@ -316,7 +344,11 @@ export function TransactionComposer({
    *  cleared now rather than on save, so the picker closes with the dialog
    *  rather than reopening behind it. */
   function openTagCreate() {
-    setTagFormName(tagQuery.trim());
+    // Truncated to the column width here, not left to the dialog: `maxLength`
+    // caps typing but not a programmatic value, so a longer "#..." token would
+    // open the form showing more characters than the field accepts and the only
+    // feedback would be a server round-trip rejecting it.
+    setTagFormName(tagQuery.trim().slice(0, TAG_NAME_MAX));
     clearTagToken();
   }
 
@@ -445,26 +477,44 @@ export function TransactionComposer({
     // Both pickers are driven off a token anchored to the end of the field, so
     // at most one can be open at a time — but check the tag one first anyway,
     // rather than relying on that as an invariant nothing enforces.
-    if (tagActive && tagOptionCount > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setTagIndex((i) => (i + 1) % tagOptionCount);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setTagIndex((i) => (i - 1 + tagOptionCount) % tagOptionCount);
-        return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        if (tagOnCreateRow) openTagCreate();
-        else selectTag(tagResults[tagIdx]!.id);
-        return;
-      }
+    //
+    // Gated on `tagActive` alone, not on `tagOptionCount > 0`: the popover is
+    // on screen whenever `tagActive`, including its empty state, and a visible
+    // popover has to answer for Enter and Escape. Gating on the option count
+    // let both fall through — Escape did nothing (the popover would not close)
+    // and Enter reached `submit()`, saving a transaction titled "lunch #".
+    if (tagActive) {
+      // Escape closes it whatever is (or isn't) in the list.
       if (e.key === "Escape") {
         e.preventDefault();
         setTagDismissed(true);
+        return;
+      }
+      if (tagOptionCount > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          // Off `tagIdx`, the *clamped* index, not the raw `tagIndex`: the raw
+          // one can sit past the end of a list that shrank as the query
+          // narrowed, and stepping from there swallows the first arrow press.
+          setTagIndex(stepPickerIndex(tagIdx, tagOptionCount, 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setTagIndex(stepPickerIndex(tagIdx, tagOptionCount, -1));
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          if (tagOnCreateRow) openTagCreate();
+          else selectTag(tagResults[tagIdx]!.id);
+          return;
+        }
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        // Nothing to pick, but the popover is open and the title still ends in
+        // a bare "#". Swallow the key rather than sending: the user is mid-tag,
+        // and the alternative is a saved transaction with "#" in its title.
+        e.preventDefault();
         return;
       }
     }
@@ -538,8 +588,7 @@ export function TransactionComposer({
     // the field can't show — and the send would save a title nobody saw.
     const flat = text.replace(/\s+/g, " ").trim();
     setCombined((t) => (t ? `${flat} ${t}` : flat).slice(0, TITLE_MAX));
-    setCategoryDismissed(false);
-    setCategoryIndex(0);
+    rearmPickers();
   }
 
   /**
@@ -672,8 +721,7 @@ export function TransactionComposer({
         maxLength={TITLE_MAX}
         onChange={(e) => {
           setTitle(e.target.value);
-          setCategoryDismissed(false);
-          setCategoryIndex(0);
+          rearmPickers();
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Title"
@@ -771,8 +819,7 @@ export function TransactionComposer({
         maxLength={TITLE_MAX}
         onChange={(e) => {
           setCombined(e.target.value);
-          setCategoryDismissed(false);
-          setCategoryIndex(0);
+          rearmPickers();
         }}
         onKeyDown={onCombinedTitleKeyDown}
         // Clicking an untouched field starts in the chip, wherever the click
