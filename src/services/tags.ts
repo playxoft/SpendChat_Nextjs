@@ -41,15 +41,18 @@ import type { Tag } from "@/db/schema";
 
 const DUPLICATE = "A tag with that name already exists";
 
-/** List the workspace's tags, by name. The order the picker and the settings
- *  manager both render in, so neither has to sort. */
+/** List the workspace's tags, by name (case-insensitively). The order the
+ *  picker and the settings manager both render in, so neither has to sort. */
 export async function listTxnTags(workspaceId: string): Promise<Tag[]> {
   const db = getDb();
   return db
     .select()
     .from(tags)
     .where(eq(tags.workspaceId, workspaceId))
-    .orderBy(asc(tags.name));
+    // `lower(name)` so the order doesn't depend on the database's collation —
+    // C sorts "Zebra" before "apple", en_US.UTF-8 the other way, and the picker
+    // should read the same in tests and in production.
+    .orderBy(asc(sql`lower(${tags.name})`));
 }
 
 /**

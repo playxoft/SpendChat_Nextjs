@@ -1,4 +1,5 @@
 import type { SortColumn, SortDir, TxnFilters } from "./queries";
+import { TAGS_PER_TRANSACTION_MAX } from "./validation";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SORT_COLUMNS: SortColumn[] = ["date", "category", "title", "description", "amount"];
@@ -24,6 +25,33 @@ export function resolveWebProfile(
   return parseActiveProfile(value) ?? firstProfileId;
 }
 
+/**
+ * The `?tags=` filter: a comma-separated list of tag ids.
+ *
+ * One comma-joined parameter rather than a repeatable `?tag=`, because several
+ * things downstream read a query value as a single string — the transactions
+ * page rebuilds its export and print links from `Object.entries(searchParams)`
+ * and takes `v[0]` for an array — and a repeatable key would silently collapse
+ * to its first value there. One key, one string, no collapse.
+ *
+ * Unknown-shaped ids are dropped rather than failing the whole parse: a filter
+ * is a view, and a mangled URL should narrow oddly, not 500. Deduped, and
+ * capped at the same ceiling a transaction can carry, so a hand-written URL
+ * can't turn the filter into an unbounded `IN` list.
+ */
+function parseTagIds(value: string | null): string[] | undefined {
+  if (!value) return undefined;
+  const ids = [
+    ...new Set(
+      value
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => UUID_RE.test(s)),
+    ),
+  ].slice(0, TAGS_PER_TRANSACTION_MAX);
+  return ids.length ? ids : undefined;
+}
+
 /** Parse transaction filters from a query getter (URLSearchParams or searchParams). */
 export function parseTxnFilters(get: (key: string) => string | null): TxnFilters {
   const type = get("type");
@@ -36,6 +64,7 @@ export function parseTxnFilters(get: (key: string) => string | null): TxnFilters
     type: type === "income" || type === "expense" ? type : undefined,
     categoryId: category && category !== "all" ? category : undefined,
     profileId: parseActiveProfile(get("profile")),
+    tagIds: parseTagIds(get("tags")),
     from: from && DATE_RE.test(from) ? from : undefined,
     to: to && DATE_RE.test(to) ? to : undefined,
     search: q?.trim() ? q.trim() : undefined,

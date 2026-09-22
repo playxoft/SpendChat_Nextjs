@@ -78,9 +78,9 @@ function firesWhileTyping(s: ShortcutDef | undefined): boolean {
 }
 
 /**
- * Two entries are documented without being bound — `/` is a character you type
- * into the title field (the composer watches the text), and ⌘/Ctrl + P is the
- * browser's own print dialog. The registry says *that* they're unbound and why
+ * Three entries are documented without being bound — `/` and `#` are characters
+ * you type into the title field (the composer watches the text), and ⌘/Ctrl + P
+ * is the browser's own print dialog. The registry says *that* they're unbound and why
  * (`unbound`); the wording is here, because it's marketing copy rather than app
  * data. A cheat sheet that listed them like the rest would be claiming two keys
  * we never took — and the panel doesn't swallow them either (`shouldSwallow`).
@@ -177,6 +177,12 @@ export function ShortcutsDemo() {
         return typing
           ? "Typed, not fired — the / (slash) lands in the field, and the composer offers matching categories from the text as you go."
           : "A character, not a binding. Type / (slash) in the note field below and the category picker opens from the text itself.";
+      case "tracker.tag":
+        // Same shape as the category marker above, and the same reason for
+        // spelling the character out.
+        return typing
+          ? "Typed, not fired — the # (hash) lands in the field, and the composer offers matching tags from the text as you go."
+          : "A character, not a binding. Type # (hash) in the note field below and the tag picker opens from the text itself.";
       case "tracker.toggle-type": {
         const next = type === "expense" ? "income" : "expense";
         setType(next);

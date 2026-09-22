@@ -73,6 +73,7 @@ describe("parseTxnFilters", () => {
       type: undefined,
       categoryId: undefined,
       profileId: undefined,
+      tagIds: undefined,
       from: undefined,
       to: undefined,
       search: undefined,
@@ -88,5 +89,35 @@ describe("parseTxnFilters", () => {
   it("returns all-undefined for an empty query", () => {
     const filters = parseTxnFilters(getter({}));
     expect(Object.values(filters).every((v) => v === undefined)).toBe(true);
+  });
+});
+
+describe("parseTxnFilters — ?tags=", () => {
+  const A = "0199a000-0000-7000-8000-00000000000a";
+  const B = "0199a000-0000-7000-8000-00000000000b";
+
+  it("parses a comma-separated list", () => {
+    expect(parseTxnFilters(getter({ tags: `${A},${B}` })).tagIds).toEqual([A, B]);
+  });
+
+  it("tolerates spacing and dedupes", () => {
+    expect(parseTxnFilters(getter({ tags: ` ${A} , ${B}, ${A} ` })).tagIds).toEqual([A, B]);
+  });
+
+  // A filter is a view: a mangled URL should narrow oddly, not 500. Unknown
+  // shapes drop out, and a list of nothing but junk is the same as no filter.
+  it("drops non-uuid entries, and yields undefined when none survive", () => {
+    expect(parseTxnFilters(getter({ tags: `${A},nope,` })).tagIds).toEqual([A]);
+    expect(parseTxnFilters(getter({ tags: "nope,also-nope" })).tagIds).toBeUndefined();
+    expect(parseTxnFilters(getter({ tags: "" })).tagIds).toBeUndefined();
+  });
+
+  // A hand-written URL must not turn the filter into an unbounded IN list.
+  it("caps the list", () => {
+    const many = Array.from(
+      { length: 40 },
+      (_, i) => `0199a000-0000-7000-8000-0000000${String(i).padStart(5, "0")}`,
+    );
+    expect(parseTxnFilters(getter({ tags: many.join(",") })).tagIds).toHaveLength(10);
   });
 });

@@ -7,6 +7,7 @@ import { openWorkspaceIfAccessible } from "@/services/workspaces";
 import {
   FEED_PAGE_SIZE,
   getCategories,
+  getTags,
   getMonthlyTotals,
   getHeardFromAnswered,
   getProfiles,
@@ -79,6 +80,7 @@ export default async function ChatPage({
     settings,
     workspace,
     categories,
+    tags,
     profiles,
     canWrite,
     showAuthor,
@@ -98,11 +100,14 @@ export default async function ChatPage({
       // the account's first sign-in — so neither card costs a read for the age
       // it's gated on.
       const accountAgeDays = daysSince(settings.createdAt);
-      const [categories, profiles, canWrite, showAuthor, heardFromAnswered] = await time(
+      const [categories, tags, profiles, canWrite, showAuthor, heardFromAnswered] = await time(
         "workspaceData",
         () =>
           Promise.all([
             getCategories(workspace.id),
+            // Workspace-scoped like categories, so it rides the same round-trip
+            // rather than adding one to the tracker's first paint.
+            getTags(workspace.id),
             getProfiles(user.id, workspace.id),
             canWriteInWorkspace(user.id, workspace.id),
             // Shared workspaces label each bubble with its author (WhatsApp-group style).
@@ -118,6 +123,7 @@ export default async function ChatPage({
         settings,
         workspace,
         categories,
+        tags,
         profiles,
         canWrite,
         showAuthor,
@@ -230,6 +236,7 @@ export default async function ChatPage({
         {canWrite ? (
           <TransactionComposer
             categories={categories}
+            tags={tags}
             currency={currency}
             locale={locale}
             today={today}

@@ -14,6 +14,8 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { CategoryRow } from "./category-row";
+import { TagChip } from "./tags/tag-chip";
+import { TagFormDialog } from "./tags/tag-form-dialog";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { ControlHint } from "./control-hint";
 import { AiTransactionInput } from "./ai-transaction-input";
@@ -41,11 +43,18 @@ import {
   TRANSACTION_TITLE_MAX as TITLE_MAX,
 } from "@/lib/validation";
 import type { ComposerDensity, InputMode, TransactionInput } from "@/lib/validation";
+import { defaultTagColor, type TxnTagDTO } from "@/lib/tags";
 import type { Category, Profile } from "@/db/schema";
 
 // Matches a trailing "/query" token typed into the title field — "/" is the
 // app-wide category trigger (in the AI note too).
 const CATEGORY_RE = /(?:^|\s)\/([^\s/]*)$/;
+
+// Matches a trailing "#query" token typed into the title field — "#" is the
+// app-wide tag trigger, the sibling of "/" above. Separate regexes rather than
+// one alternation, because the two pickers hold different state and a match has
+// to say which one opened.
+const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
 
 // How much text the amount chip holds. Nine whole digits is the real cap
 // (`AMOUNT_INTEGER_DIGITS_MAX`, enforced per keystroke below); this only stops a
@@ -54,6 +63,7 @@ const CHIP_AMOUNT_MAX = 20;
 
 export function TransactionComposer({
   categories,
+  tags,
   currency,
   locale = "en-US",
   today,
@@ -66,6 +76,9 @@ export function TransactionComposer({
   voiceLanguages,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  /** The workspace's tags, for the "#" picker. Shared by every member, so this
+   *  list doesn't depend on the active profile. */
+  tags: Pick<TxnTagDTO, "id" | "name" | "color">[];
   currency: string;
   /** Drives how a typed amount is read ("1,50" is 1.50 for a de-DE user). */
   locale?: string;
@@ -107,6 +120,19 @@ export function TransactionComposer({
   const [showDescription, setShowDescription] = useState(false);
   const [categoryDismissed, setCategoryDismissed] = useState(false);
   const [categoryIndex, setCategoryIndex] = useState(0);
+  // Tags picked for the next send, in the order they were chosen.
+  const [tagIds, setTagIds] = useState<string[]>([]);
+  const [tagDismissed, setTagDismissed] = useState(false);
+  const [tagIndex, setTagIndex] = useState(0);
+  // Open with the text typed after the "#", so "Create #trav" pre-fills.
+  const [tagFormName, setTagFormName] = useState<string | null>(null);
+  // Tags created from inside this composer, held until the server list catches
+  // up. `tags` is a server prop refreshed by the action's `revalidatePath`, so
+  // without this the chip for a tag you just created can't be resolved and
+  // doesn't render until that round-trip lands — a visible beat during which
+  // the tag is applied but invisible. Cleared whenever the server list arrives
+  // carrying them.
+  const [createdTags, setCreatedTags] = useState<TxnTagDTO[]>([]);
   const { send } = usePendingMessages();
   // Files staged for the next send; uploaded to the row once it's created.
   const staged = useStagedAttachments();
@@ -185,6 +211,53 @@ export function TransactionComposer({
     : [];
   const categoryIdx = categoryResults.length ? Math.min(categoryIndex, categoryResults.length - 1) : 0;
 
+  // "#" in the title opens the tag picker — the same shape as the category one
+  // above, with two differences. Tags already applied are filtered out (picking
+  // one twice is a no-op the list shouldn't offer), and the list always ends
+  // with a "Create" row, because a tag you don't have yet is the common case
+  // when you're mid-sentence. `tagCreatable` is false for a bare "#", which is
+  // "show me the list", and for a name that already exists.
+  // The server's list plus anything created here that it hasn't caught up with.
+  const knownTags = useMemo(() => {
+    const seen = new Set(tags.map((t) => t.id));
+    const extra = createdTags.filter((t) => !seen.has(t.id));
+    return extra.length ? [...tags, ...extra] : tags;
+  }, [tags, createdTags]);
+
+  // Retire the local copies the server list now carries. Done during render
+  // rather than in an effect: `tags` arriving with them *is* the signal, and an
+  // effect would paint one frame with both. React re-renders immediately on a
+  // set during render, so nothing downstream sees the stale list.
+  if (createdTags.length > 0) {
+    const serverIds = new Set(tags.map((t) => t.id));
+    if (createdTags.some((t) => serverIds.has(t.id))) {
+      setCreatedTags((prev) => prev.filter((t) => !serverIds.has(t.id)));
+    }
+  }
+
+  const tagMatch = titleSource.match(TAG_RE);
+  const tagQuery = tagMatch?.[1] ?? "";
+  const tagActive = !!tagMatch && !tagDismissed;
+  const applied = new Set(tagIds);
+  const tagResults = tagActive
+    ? knownTags.filter(
+        (t) => !applied.has(t.id) && t.name.toLowerCase().includes(tagQuery.toLowerCase()),
+      )
+    : [];
+  const tagCreatable =
+    tagActive &&
+    tagQuery.trim().length > 0 &&
+    !knownTags.some((t) => t.name.toLowerCase() === tagQuery.trim().toLowerCase());
+  // The create row is the last entry, so arrowing past the matches lands on it.
+  const tagOptionCount = tagResults.length + (tagCreatable ? 1 : 0);
+  const tagIdx = tagOptionCount ? Math.min(tagIndex, tagOptionCount - 1) : 0;
+  const tagOnCreateRow = tagCreatable && tagIdx === tagResults.length;
+  // The chips shown under the row, in pick order — `tags` is name-ordered, so
+  // this maps through `tagIds` rather than filtering `tags`.
+  const pickedTags = tagIds
+    .map((id) => knownTags.find((t) => t.id === id))
+    .filter((t): t is (typeof knownTags)[number] => !!t);
+
   function switchType(t?: "expense" | "income") {
     setType((prev) => t ?? (prev === "expense" ? "income" : "expense"));
     setCategoryId(null);
@@ -221,6 +294,30 @@ export function TransactionComposer({
     if (!el) return;
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
+  }
+
+  /** Strip the trailing "#query" token the picker was driven by. */
+  function clearTagToken() {
+    setTitleSource((t) => t.replace(TAG_RE, "").replace(/\s+$/, ""));
+    setTagDismissed(true);
+    setTagIndex(0);
+  }
+
+  function selectTag(id: string) {
+    setTagIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    clearTagToken();
+  }
+
+  function removeTag(id: string) {
+    setTagIds((prev) => prev.filter((t) => t !== id));
+  }
+
+  /** Open the create dialog with what was typed after the "#". The token is
+   *  cleared now rather than on save, so the picker closes with the dialog
+   *  rather than reopening behind it. */
+  function openTagCreate() {
+    setTagFormName(tagQuery.trim());
+    clearTagToken();
   }
 
   function selectCategory(cat: Pick<Category, "id">) {
@@ -281,6 +378,10 @@ export function TransactionComposer({
       title: finalTitle,
       description: description.trim() || undefined,
       occurredOn,
+      // Omitted when empty rather than sent as `[]`: the service reads absent
+      // as "no tags" on a create either way, and it keeps the payload honest
+      // about what the user actually chose.
+      tagIds: tagIds.length ? tagIds : undefined,
     };
     // categoryId is always from the current type's list (switching type clears it).
     const cat = categoryId ? cats.find((c) => c.id === categoryId) ?? null : null;
@@ -313,6 +414,9 @@ export function TransactionComposer({
     setCategoryId(null);
     setOccurredOn(today);
     setCategoryDismissed(false);
+    setTagIds([]);
+    setTagDismissed(false);
+    setTagIndex(0);
     // Back to whichever field the next entry starts in: the chip in single-field
     // mode, the title in title-first, the amount otherwise.
     (isCombined ? chipRef : inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
@@ -338,6 +442,33 @@ export function TransactionComposer({
   }
 
   function onTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Both pickers are driven off a token anchored to the end of the field, so
+    // at most one can be open at a time — but check the tag one first anyway,
+    // rather than relying on that as an invariant nothing enforces.
+    if (tagActive && tagOptionCount > 0) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setTagIndex((i) => (i + 1) % tagOptionCount);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setTagIndex((i) => (i - 1 + tagOptionCount) % tagOptionCount);
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        e.preventDefault();
+        if (tagOnCreateRow) openTagCreate();
+        else selectTag(tagResults[tagIdx]!.id);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setTagDismissed(true);
+        return;
+      }
+    }
+
     if (categoryActive && categoryResults.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -536,7 +667,7 @@ export function TransactionComposer({
       {titleLeadsRow && attachButton}
       <Input
         ref={titleRef}
-        placeholder="Add a title — type / to pick a category"
+        placeholder="Add a title — / for category, # for tags"
         value={title}
         maxLength={TITLE_MAX}
         onChange={(e) => {
@@ -635,7 +766,7 @@ export function TransactionComposer({
       </div>
       <input
         ref={titleRef}
-        placeholder="Add a title — type / to pick a category"
+        placeholder="Add a title — / for category, # for tags"
         value={combined}
         maxLength={TITLE_MAX}
         onChange={(e) => {
@@ -984,6 +1115,16 @@ export function TransactionComposer({
                     </div>
                   ) : null}
 
+                  {/* Picked tags, above the input row like the staged files —
+                      a pending part of the next send, removable until it goes. */}
+                  {pickedTags.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {pickedTags.map((t) => (
+                        <TagChip key={t.id} tag={t} onRemove={() => removeTag(t.id)} />
+                      ))}
+                    </div>
+                  ) : null}
+
                   <div className="relative flex flex-wrap items-end gap-2">
                     {/* Field order follows the user's chosen input mode. */}
                     {isCombined ? (
@@ -1017,6 +1158,78 @@ export function TransactionComposer({
                     {/* Send sits inline on desktop; on mobile it moves to a full-width
                         button at the bottom (see below) for an easier thumb reach. */}
                     <div className="hidden md:block">{sendButton}</div>
+
+                    {/* The "#" tag picker. Same anchoring as the category one below —
+                        the input row, clamped to the viewport — so it can't run
+                        off-screen on a phone. */}
+                    {tagActive && (
+                      <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
+                        <ul className="max-h-56 overflow-y-auto">
+                          {tagResults.map((t, i) => (
+                            <li key={t.id}>
+                              <button
+                                type="button"
+                                ref={(el) => {
+                                  if (i === tagIdx) el?.scrollIntoView({ block: "nearest" });
+                                }}
+                                // `onMouseDown` + preventDefault, not onClick:
+                                // a click would blur the title first, and the
+                                // blur closes the picker before the pick lands.
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  selectTag(t.id);
+                                }}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                                  i === tagIdx ? "bg-accent" : "hover:bg-muted",
+                                )}
+                              >
+                                <TagChip tag={t} />
+                              </button>
+                            </li>
+                          ))}
+                          {tagCreatable && (
+                            <li>
+                              <button
+                                type="button"
+                                ref={(el) => {
+                                  if (tagOnCreateRow) el?.scrollIntoView({ block: "nearest" });
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  openTagCreate();
+                                }}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                                  tagOnCreateRow ? "bg-accent" : "hover:bg-muted",
+                                )}
+                              >
+                                <Plus className="size-3.5 shrink-0" aria-hidden />
+                                <span className="truncate text-muted-foreground">Create</span>
+                                <TagChip
+                                  tag={{
+                                    name: tagQuery.trim(),
+                                    color: defaultTagColor(tagQuery.trim()),
+                                  }}
+                                />
+                              </button>
+                            </li>
+                          )}
+                          {tagOptionCount === 0 && (
+                            <li className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {/* Only reachable on a bare "#" — a typed query
+                                  always offers the create row. Which of the two
+                                  empty states it is matters: "every tag is
+                                  applied" reads as a bug in a workspace that
+                                  has no tags at all. */}
+                              {knownTags.length === 0
+                                ? "No tags yet — type a name to create one"
+                                : "Every tag is already on this transaction"}
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
 
                     {/* Anchored to the input row (not the narrow title) and clamped to the
                         viewport, so it never runs off-screen on a phone. */}
@@ -1086,6 +1299,19 @@ export function TransactionComposer({
         </div>
       </div>
 
+      <TagFormDialog
+        open={tagFormName !== null}
+        onOpenChange={(v) => !v && setTagFormName(null)}
+        initialName={tagFormName ?? ""}
+        // Apply the tag the moment it exists — the user asked for it from
+        // inside a half-typed transaction, so making them pick it again would
+        // be asking twice for one decision.
+        onSaved={(tag) => {
+          setCreatedTags((prev) => [...prev, tag]);
+          setTagIds((prev) => (prev.includes(tag.id) ? prev : [...prev, tag.id]));
+          setTagFormName(null);
+        }}
+      />
       <CategoryEditorDialog
         open={editorOpen}
         onOpenChange={setEditorOpen}
