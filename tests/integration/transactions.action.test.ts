@@ -490,6 +490,13 @@ describe("tagIds on the transaction actions", () => {
       title: "keep",
     });
     expect(res.ok).toBe(true);
+    // Prove the update actually ran: without this, an `updateTransaction` that
+    // returned ok and wrote nothing would pass the tag assertion below.
+    const [after] = await getTestDb()
+      .select({ amountMinor: transactions.amountMinor })
+      .from(transactions)
+      .where(eq(transactions.title, "keep"));
+    expect(after!.amountMinor).toBe(1200);
     expect(await storedTagIds("keep")).toEqual([travel]);
   });
 

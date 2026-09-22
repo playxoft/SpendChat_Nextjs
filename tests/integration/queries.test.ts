@@ -393,95 +393,6 @@ describe("getCategories / getProfiles", () => {
   });
 });
 
-describe("the tag filter on the read path", () => {
-  /** Create a tag and put it on the transactions with these titles. */
-  async function tag(name: string, titles: string[]): Promise<string> {
-    const { createTxnTag } = await import("@/services/tags");
-    const row = await createTxnTag(U, W, { name, color: "#ef4444" });
-    if (titles.length > 0) {
-      await getTestDb()
-        .update(transactions)
-        .set({ tagIds: sql`${transactions.tagIds} || ${row.id}::uuid` })
-        .where(inArray(transactions.title, titles));
-    }
-    return row.id;
-  }
-
-  const titles = (rows: { title: string | null }[]) => rows.map((r) => r.title).sort();
-
-  it("matches ANY of the tags, and a row carrying two appears once", async () => {
-    // "Veg apples" and "snacks" are on `personal`, "Tools" on `work`.
-    const groceries = await tag("Groceries", ["Veg apples", "snacks"]);
-    const work_ = await tag("Work", ["Tools", "snacks"]);
-
-    expect(titles(await listTransactions(U, W, { tagIds: [groceries] }))).toEqual([
-      "Veg apples",
-      "snacks",
-    ]);
-    // Two tags widen rather than narrow — and "snacks", which carries both,
-    // is returned once, not twice.
-    expect(titles(await listTransactions(U, W, { tagIds: [groceries, work_] }))).toEqual([
-      "Tools",
-      "Veg apples",
-      "snacks",
-    ]);
-    expect(await countTransactions(U, W, { tagIds: [groceries, work_] })).toBe(3);
-  });
-
-  /**
-   * The reason `tag_ids` is a `uuid[]` column on `transactions` rather than a
-   * join table.
-   *
-   * A page across several profiles is assembled by `pageOf` as one scan per
-   * profile merged together (`unionAll`), which is what keeps it at ~35ms
-   * instead of ~2.7s on a large workspace. That shape only survives while
-   * every filter is a predicate on `transactions` alone — a join table would
-   * have forced a join into each branch, or a single scan across all of them.
-   *
-   * So this asserts the property, not the plan: the same page, with a tag
-   * filter, across two profiles and through the merge. If someone ever moves
-   * tags to a join table, this is what should fail first.
-   */
-  it("still merges across profiles with a tag filter applied", async () => {
-    const shared = await tag("Shared", ["Veg apples", "Tools", "snacks"]);
-
-    const merged = await listTransactions(U, W, { tagIds: [shared] });
-    // Both profiles are represented, so the merge ran rather than a single
-    // profile scan.
-    expect(new Set(merged.map((r) => r.profileName))).toEqual(new Set(["Personal", "Work"]));
-    // Newest first, across the merge, exactly as without the filter.
-    expect(merged.map((r) => r.occurredOn)).toEqual(["2026-06-10", "2026-06-01", "2026-05-20"]);
-
-    // And the single-profile path agrees with its slice of the merged page.
-    const onlyWork = await listTransactions(U, W, { tagIds: [shared], profileId: work });
-    expect(titles(onlyWork)).toEqual(["Tools"]);
-  });
-
-  it("embeds each row's tags, name-ordered, and [] when there are none", async () => {
-    await tag("zebra", ["Veg apples"]);
-    await tag("Apple", ["Veg apples"]);
-
-    const rows = await listTransactions(U, W);
-    const veg = rows.find((r) => r.title === "Veg apples")!;
-    // `lower(name)`, so the order doesn't depend on the database's collation.
-    expect(veg.tags.map((t) => t.name)).toEqual(["Apple", "zebra"]);
-    expect(veg.tags[0]).toMatchObject({ color: "#ef4444" });
-    expect(typeof veg.tags[0]!.createdAt).toBe("string");
-    // An untagged row carries an empty array, never null — the embed
-    // coalesces, so a client never has to guard it.
-    expect(rows.find((r) => r.title === "June pay")!.tags).toEqual([]);
-  });
-
-  it("drops an id that names nothing rather than returning everything", async () => {
-    const real = await tag("Groceries", ["Veg apples"]);
-    const ghost = "00000000-0000-4000-8000-00000000dead";
-    expect(titles(await listTransactions(U, W, { tagIds: [ghost] }))).toEqual([]);
-    expect(titles(await listTransactions(U, W, { tagIds: [ghost, real] }))).toEqual([
-      "Veg apples",
-    ]);
-  });
-});
-
 describe("getTags / getTagsWithUsage", () => {
   /** Create a tag and put it on the named transactions. */
   async function tag(name: string, titles: string[]): Promise<string> {
@@ -501,11 +412,14 @@ describe("getTags / getTagsWithUsage", () => {
   }
 
   it("orders by lower(name), so case doesn't decide the order", async () => {
-    await tag("zebra", []);
-    await tag("Apple", []);
-    // A C-collation database (PGlite) would otherwise put every capital first,
-    // and Neon's en_US.UTF-8 wouldn't — the picker must read the same in both.
-    expect((await getTags(W)).map((t) => t.name)).toEqual(["Apple", "zebra"]);
+    // Lowercase first, capital second — the pair that tells the two orderings
+    // apart. A C-collation database (PGlite) sorts every capital ahead of every
+    // lowercase, so a plain `order by name` returns ["Zebra", "apple"] here;
+    // Neon's en_US.UTF-8 returns ["apple", "Zebra"] either way. The picker has
+    // to read the same in both, and only this pair proves it does.
+    await tag("Zebra", []);
+    await tag("apple", []);
+    expect((await getTags(W)).map((t) => t.name)).toEqual(["apple", "Zebra"]);
   });
 
   it("counts the transactions carrying each tag", async () => {

@@ -16,8 +16,8 @@ A minimal, fast, and private **money tracker** that works like a chat — type w
 
 - **Effortless tracking** — add a transaction in seconds, see your balance instantly.
 - **Profiles** — keep separate spaces (Personal, Company, Home…) and switch in one keystroke.
-- **Keyboard-first** — jump anywhere (`T` `R` `A` `S`), add with `E`, search with `/`, send with `⌘/Ctrl + ↵`.
-- **Powerful views** — filter by date, type, and category; search; sort.
+- **Keyboard-first** — jump anywhere (`Q` `T` `E` `F` `S`), add with `R`, send with `⌘/Ctrl + ↵`.
+- **Powerful views** — filter by date, type, category and tag; search; sort.
 - **Download & print** — export the current view to CSV or print/save as PDF.
 - **Minimal & clean** — neutral palette, no noisy gradients, subtle motion.
 - **Works everywhere** — responsive for mobile, tablet, and desktop, with light & dark mode.
@@ -31,16 +31,20 @@ You can also browse these any time in **Settings → Keyboard shortcuts**.
 
 | Context | Shortcut | Action |
 |---------|----------|--------|
-| Navigation | `T` / `R` / `A` / `S` | Tracker / Transactions / Analytics / Settings |
-| Actions | `E` | Add a transaction |
+| Navigation | `Q` / `T` / `E` / `F` / `S` | Tracker / Transactions / Analytics / Files / Settings |
+| Actions | `R` | Add a transaction |
 | Actions | `B` | Bulk add transactions |
-| Actions | `/` | Focus search (where a search bar exists) |
 | Tracker | `⌘/Ctrl + ↵` | Send the transaction |
 | Tracker | `⇧ + ↵` | Jump to the description field |
-| Tracker | `/` | Tag a category from the title field |
+| Tracker | `/` | Pick a category from the title field |
+| Tracker | `#` | Tag a transaction from the title field |
+| Tracker | `A` | Switch between Manual and AI entry |
+| Tracker | `M` (held) | Record a voice note (AI entry) |
 | Tracker | `⌘/Ctrl + E` | Switch between expense and income |
 | Profiles | `` ⇧ + ` `` | Show all profiles |
 | Profiles | `⇧ + 1…9`, `⇧ + 0` | Switch to a profile by position (0 = the 10th) |
+| Workspaces | `G` | Switch workspace (then `1…9`) |
+| Global | `/` | Show the shortcut list (outside a field) |
 | Global | `⌘/Ctrl + P` | Print the current page |
 
 ## 🧱 Tech stack

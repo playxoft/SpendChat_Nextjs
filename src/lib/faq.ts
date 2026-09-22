@@ -41,7 +41,7 @@ export const faqs: Faq[] = [
   },
   {
     q: "Can I filter and search my history?",
-    a: "Yes. Filter by date range, type (income or expense), and category, or search your notes — then export exactly what you see.",
+    a: "Yes. Filter by date range, type (income or expense), category and tag, or search your notes — then export exactly what you see.",
   },
   {
     q: "Do I have to connect my bank account?",

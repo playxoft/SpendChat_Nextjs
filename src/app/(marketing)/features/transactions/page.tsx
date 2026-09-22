@@ -54,7 +54,11 @@ export default function TransactionsPage() {
     <FeaturePage
       slug={SLUG}
       demo={<TransactionsDemo />}
-      demoAction="filter by type, category or tag, search the notes, or sort by amount"
+      // Only what the demo below can actually do — it has a type filter, a
+      // category select, a search box and sortable headers, and no tag
+      // control. The prose and FAQs around it describe the real app, which
+      // does filter by tag; this caption sits directly under the demo.
+      demoAction="filter by type or category, search the notes, or sort by amount"
       faqs={faqs}
       intro={
         <>

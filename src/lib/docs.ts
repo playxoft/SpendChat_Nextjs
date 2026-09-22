@@ -84,7 +84,7 @@ export const docsSections: DocsSection[] = [
     blocks: [
       {
         kind: "p",
-        text: "Find anything fast. Filter by a custom date range, by income or expense, and by category — or search across your notes. Whatever you've filtered to is exactly what gets exported or printed.",
+        text: "Find anything fast. Filter by a custom date range, by income or expense, by category and by tag — or search across your notes. Whatever you've filtered to is exactly what gets exported or printed.",
       },
     ],
   },
@@ -115,6 +115,7 @@ export const docsSections: DocsSection[] = [
           "Q / T / E / F / S — jump to Tracker, Transactions, Analytics, Files or Settings",
           "R — add a transaction; B — bulk add",
           "/ — pick a category from the title field, or show the shortcut list from anywhere else",
+          "# — tag a transaction from the title field",
           "⌘/Ctrl + ↵ — send the transaction",
           "⇧ + ↵ — jump to the description field",
           "⌘/Ctrl + E — switch between expense and income",
