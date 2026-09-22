@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 
 /**
- * The "i" help for AI entry — a dialog explaining the free-text syntax (#category,
+ * The "i" help for AI entry — a dialog explaining the free-text syntax (/category,
  * (description), income words, dates) with worked examples and their output. Pure
  * instructional content; the `symbol` just makes the example amounts feel local.
  */
@@ -21,7 +21,7 @@ export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
     { k: "200 fruits", d: "Amount first, then what it was for." },
     { k: "a, b, c", d: "Commas separate items — each becomes its own transaction." },
     { k: "salary, got", d: "Income words (salary, got, refund, sold) mark money in." },
-    { k: "#Food", d: "Tag a category. Matched to your existing ones — never creates new." },
+    { k: "/Food", d: "Pick a category. Matched to your existing ones — never creates new." },
     { k: "(June bill)", d: "Text in parentheses becomes the description." },
     { k: "yesterday", d: "Plain dates set the day; otherwise today is used." },
   ];
@@ -31,15 +31,15 @@ export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
       out: [`Fruits — ${symbol}200`, `Veg — ${symbol}100`, `Electricity — ${symbol}1,000`],
     },
     {
-      in: "got 50000 salary, 1200 electricity (June bill) #Bills",
+      in: "got 50000 salary, 1200 electricity (June bill) /Bills",
       out: [
         `Salary — +${symbol}50,000 · income`,
-        `Electricity — ${symbol}1,200 · #Bills · “June bill”`,
+        `Electricity — ${symbol}1,200 · /Bills · “June bill”`,
       ],
     },
     {
-      in: "500 groceries #Food yesterday",
-      out: [`Groceries — ${symbol}500 · #Food · dated yesterday`],
+      in: "500 groceries /Food yesterday",
+      out: [`Groceries — ${symbol}500 · /Food · dated yesterday`],
     },
   ];
 

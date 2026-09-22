@@ -231,7 +231,7 @@ function composerStrip(money: MoneyFormat): string {
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${COLOR_CARD};border:1px solid ${COLOR_BORDER};border-radius:10px;">` +
     `<tr>` +
     `<td style="padding:8px 12px;font-size:13px;font-weight:500;color:${COLOR_TEXT};border-right:1px solid ${COLOR_BORDER};white-space:nowrap;">${escapeHtml(amount)}</td>` +
-    `<td style="padding:8px 12px;font-size:13px;color:${COLOR_MUTED};">Add a title — type # to tag a category</td>` +
+    `<td style="padding:8px 12px;font-size:13px;color:${COLOR_MUTED};">Add a title — type / to pick a category</td>` +
     `<td style="padding:5px 6px;width:30px;text-align:right;">` +
     `<span style="display:inline-block;width:28px;height:28px;line-height:28px;text-align:center;border-radius:8px;background:${COLOR_ACCENT};color:#ffffff;font-size:15px;font-weight:600;">&uarr;</span>` +
     `</td></tr></table></td></tr>`

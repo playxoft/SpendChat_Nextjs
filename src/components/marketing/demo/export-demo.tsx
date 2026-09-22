@@ -128,6 +128,7 @@ function toReportRow(seed: Seed, i: number, amountMinor: number): ReportRow {
     userName: null,
     userEmail: null,
     attachments: [],
+    tags: [],
   };
 }
 

@@ -68,8 +68,9 @@ const ALLOWED_WHILE_TYPING = new Set([
 
 /**
  * Whether a match is one the panel may answer for while the note field has
- * focus — the chords above, plus the opposite case: `#` is not a binding at
- * all, so a field having focus is the *only* moment it does anything.
+ * focus — the chords above, plus the opposite case: `/` is not a binding at
+ * all here, so a field having focus is the *only* moment it means the category
+ * picker rather than the cheat sheet.
  */
 function firesWhileTyping(s: ShortcutDef | undefined): boolean {
   if (!s) return false;
@@ -77,7 +78,7 @@ function firesWhileTyping(s: ShortcutDef | undefined): boolean {
 }
 
 /**
- * Two entries are documented without being bound — `#` is a character you type
+ * Two entries are documented without being bound — `/` is a character you type
  * into the title field (the composer watches the text), and ⌘/Ctrl + P is the
  * browser's own print dialog. The registry says *that* they're unbound and why
  * (`unbound`); the wording is here, because it's marketing copy rather than app
@@ -169,13 +170,13 @@ export function ShortcutsDemo() {
         // the same physical key is Shift + 3 and belongs to the profile
         // switcher, in the demo exactly as in the app.
         //
-        // "# (hash)" rather than a bare "#", the way the page's own prose
+        // "/ (slash)" rather than a bare "/", the way the page's own prose
         // writes it: this sentence is read aloud by the live region, and a
-        // lone "#" is punctuation a reader drops at its default verbosity —
+        // lone "/" is punctuation a reader drops at its default verbosity —
         // the sentence would lose the very character it's about.
         return typing
-          ? "Typed, not fired — the # (hash) lands in the field, and the composer offers matching categories from the text as you go."
-          : "A character, not a binding. Type # (hash) in the note field below and the category picker opens from the text itself.";
+          ? "Typed, not fired — the / (slash) lands in the field, and the composer offers matching categories from the text as you go."
+          : "A character, not a binding. Type / (slash) in the note field below and the category picker opens from the text itself.";
       case "tracker.toggle-type": {
         const next = type === "expense" ? "income" : "expense";
         setType(next);

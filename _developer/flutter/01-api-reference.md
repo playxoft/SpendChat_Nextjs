@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 5.9.5.** Every API change bumps this version and is logged
+**API spec version: 6.0.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -216,12 +216,29 @@ accept these query params:
   "category": { "id": "uuid", "name": "Food" | null, "icon": "🍽️" | null } | null,
   "profile":  { "id": "uuid", "name": "Personal" | null, "icon": "👤" | null },  // never null
   "user":     { "id": "uuid", "name": "Ada" | null, "email": "a@b.com" | null }, // author; never null
-  "attachments": [ …Attachment ]   // oldest first; [] when none
+  "attachments": [ …Attachment ],  // oldest first; [] when none
+  "tags": [ …Tag ]                 // workspace tags on this row, by name; [] when none
 }
 ```
 No `color` on the category/profile sub-objects; no `sortOrder` on the sub-object.
 `user` is author attribution — show it in shared workspaces (more than one user),
 hide it in solo ones. `attachments.length` drives the 📎 indicator.
+
+### Tag
+A workspace-scoped label. Any number of transactions can carry a tag, and a
+transaction can carry up to 10 — `tags` above is the resolved list, and
+`tagIds` on create/update is how you set it. Shared by every member of the
+workspace, like categories. There is no endpoint to create or manage tags in
+this version; read the ones a workspace already has off a transaction.
+```jsonc
+{
+  "id": "uuid",
+  "name": "Travel",          // ≤ 20 chars, unique per workspace (case-insensitive)
+  "color": "#ef4444",        // 6-digit hex from a fixed 20-swatch palette
+  "createdAt": "2026-09-22T10:00:00.000Z",
+  "updatedAt": "2026-09-22T10:00:00.000Z"
+}
+```
 
 ### Attachment
 Metadata only — the bytes live in object storage; fetch them via
@@ -524,7 +541,7 @@ that feature's model isn't configured (treat as feature-off, like the web);
 `502 ai_failed` = provider hiccup, offer retry. Neither writes anything.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `POST /ai/parse` | `{ text, timezone? }` — text ≤ 2000 chars; timezone = IANA device zone (omitted → UTC) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `#Category` tags a category, `(parens)` → description, relative dates resolve against `timezone`. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…") |
+| `POST /ai/parse` | `{ text, timezone? }` — text ≤ 2000 chars; timezone = IANA device zone (omitted → UTC) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `/Category` picks a category (slash + a letter; a slash between digits is a date), `(parens)` → description, relative dates resolve against `timezone`. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…") |
 | `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) | 200 `data: { text }` | Voice note → transcript (≤ 1200 chars) for the composer; user fixes it, then it goes through `/ai/parse` like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB (~1 min — cap recording at 60 s). Languages guided by `settings.voiceLanguages`; amounts come back as digits. **413** when the request's `Content-Length` alone exceeds 4 MB (refused before the body is read); 400 bad/empty/oversized audio or no speech — a 400 on format/size/emptiness costs **no quota slot** (those checks precede the role + quota gates), so retrying is free. 413 and 400 mean the same thing here (recording too long) and differ only in whether the client declared its size |
 
 ### Categories (scoped to the current workspace via `X-Workspace-Id`)

@@ -25,7 +25,7 @@ const faqs = [
   },
   {
     q: "How long does it take to add a transaction?",
-    a: "A few seconds. The composer sits open under the feed with nothing to launch first, the category is one click or a # tag away, and Cmd/Ctrl + Enter sends. There is no save dialog, no page change, and no confirmation step to dismiss.",
+    a: "A few seconds. The composer sits open under the feed with nothing to launch first, the category is one click or a / away, and Cmd/Ctrl + Enter sends. There is no save dialog, no page change, and no confirmation step to dismiss.",
   },
   {
     q: "Do I have to connect my bank account?",
@@ -75,7 +75,7 @@ export default function ChatExpenseTrackerPage() {
           },
           {
             title: "Pick a category",
-            body: "Click a chip, or type # in the title field and keep typing to filter — the category is chosen without your hands leaving the keyboard.",
+            body: "Click a chip, or type / in the title field and keep typing to filter — the category is chosen without your hands leaving the keyboard.",
           },
           {
             title: "Send",
@@ -113,14 +113,14 @@ export default function ChatExpenseTrackerPage() {
         </p>
       </FeatureSection>
 
-      <FeatureSection title="Tag a category without reaching for the mouse">
+      <FeatureSection title="Pick a category without reaching for the mouse">
         <p>
           Categories sit in a scrollable row above the composer, so the ones you
           use constantly are one click away. But the faster path is the{" "}
-          <code className="rounded bg-muted px-1 py-0.5 text-sm">#</code> tag:
-          start typing <code className="rounded bg-muted px-1 py-0.5 text-sm">#gro</code>{" "}
+          <code className="rounded bg-muted px-1 py-0.5 text-sm">/</code> marker:
+          start typing <code className="rounded bg-muted px-1 py-0.5 text-sm">/gro</code>{" "}
           in the title field and the category list filters as you go, arrow keys
-          move through it, Enter picks one. The tag disappears from the title
+          move through it, Enter picks one. The marker disappears from the title
           once it&apos;s applied, so the note stays clean.
         </p>
         <p>

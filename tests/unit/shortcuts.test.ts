@@ -33,13 +33,31 @@ describe("registry", () => {
     }
   });
 
-  // Two entries on the same combo means one of them silently never fires, or
-  // both fire at once. Remapping keys is exactly when that slips in, so guard
-  // the invariant rather than the specific bindings.
+  // Two *bound* entries on the same combo means one of them silently never
+  // fires, or both fire at once. Remapping keys is exactly when that slips in,
+  // so guard the invariant rather than the specific bindings.
+  //
+  // `unbound` entries are excluded because they have no binding to collide
+  // with: a `typed` entry is a character a field reads out of its own text, and
+  // a `browser` entry is the browser's. The one overlap this permits is asserted
+  // explicitly below, so it can't widen unnoticed.
   it("binds each combo to at most one shortcut", () => {
-    const combos = SHORTCUTS.map((s) => s.combo);
+    const combos = SHORTCUTS.filter((s) => !s.unbound).map((s) => s.combo);
     const duplicated = combos.filter((c, i) => combos.indexOf(c) !== i);
     expect(duplicated).toEqual([]);
+  });
+
+  // "/" is deliberately two things: the character that opens the category
+  // picker inside the title field, and the bare key that opens the cheat sheet
+  // outside one. That is safe *only* because a bare-key binding stands down
+  // while a field has focus — the two can never both be live at the same
+  // moment. Pin the pair so a future remap can't quietly make it three, or turn
+  // the typed half into a real binding that would then fight the other.
+  it("allows exactly one typed/bound combo overlap, on /", () => {
+    const bound = new Set(SHORTCUTS.filter((s) => !s.unbound).map((s) => s.combo));
+    const overlapping = SHORTCUTS.filter((s) => s.unbound === "typed" && bound.has(s.combo));
+    expect(overlapping.map((s) => [s.id, s.combo])).toEqual([["tracker.category", "/"]]);
+    expect(getShortcut("global.shortcuts")?.unbound).toBeUndefined();
   });
 
   // Two entries are documented without being bound, and anything that echoes
@@ -60,10 +78,10 @@ describe("getShortcut / comboFor", () => {
     expect(getShortcut("action.add")?.combo).toBe("r");
     expect(comboFor("action.add")).toBe("r");
     // The remapped bindings: analytics moved to `e`, the Manual/AI toggle took
-    // `a`, and category tagging moved from `/` to `#`.
+    // `a`, and the typed category marker moved from "#" to "/".
     expect(comboFor("nav.analytics")).toBe("e");
     expect(comboFor("tracker.toggle-mode")).toBe("a");
-    expect(comboFor("tracker.category")).toBe("#");
+    expect(comboFor("tracker.category")).toBe("/");
     expect(comboFor("workspace.switch")).toBe("g");
   });
   it("handles an unknown id", () => {
@@ -252,62 +270,54 @@ describe("resolveShortcut", () => {
     expect(resolve(press({ key: "z", code: "KeyZ" }))).toBeUndefined();
   });
 
-  // "#" is where the layouts disagree, and the cheat-sheet row beside the panel
-  // makes one promise for both: a character you type into the title field, not
-  // a bound key. On a US keyboard it's Shift+3 — the physical digit the profile
-  // switcher owns — and on UK/DE/IT/ES it's an unshifted key of its own.
-  describe("#, on both layout shapes", () => {
+  // "#" used to be the typed category marker. With the marker moved to "/" and
+  // no tag picker shipped yet, "#" is an ordinary character the registry says
+  // nothing about — so the panel must fall back to whatever the *physical* key
+  // is bound to, which is where the layouts disagree. Pinned because "#" is
+  // spoken for: the tag picker takes it, and these expectations change then.
+  describe("#, now that nothing claims it", () => {
     const us = { key: "#", code: "Digit3", shiftKey: true };
     const uk = { key: "#", code: "Backslash" };
 
-    it("is the typed category key while a field has focus, on either layout", () => {
-      for (const layout of [us, uk]) {
-        const match = resolve(press({ ...layout, tagName: "INPUT" }));
-        expect(match?.id).toBe("tracker.category");
-        // …and therefore never swallowed: the character has to reach the field
-        // it is documented as being typed into.
-        expect(shouldSwallow(match!)).toBe(false);
+    // On a US layout the physical key is Shift + a digit, which is the profile
+    // switcher — in a field and out of one, since no typed entry intercepts it.
+    it("is the profile switcher on a US layout", () => {
+      for (const target of [{}, { tagName: "INPUT" }]) {
+        expect(resolve(press({ ...us, ...target }))?.id).toBe("profiles.switch");
       }
     });
 
-    // The collision, resolved the way the app resolves it: outside a field the
-    // physical key is Shift + a digit and belongs to the profile switcher, which
-    // is what the app does there too — a bare-key shortcut only stands down
-    // while a field has focus.
-    it("is the profile switcher outside a field on a US layout", () => {
-      const match = resolve(press(us));
-      expect(match?.id).toBe("profiles.switch");
-      expect(shouldSwallow(match!)).toBe(true);
+    // Where "#" is its own unshifted key there is nothing bound to it at all.
+    it("resolves to nothing where # is its own key", () => {
+      for (const target of [{}, { tagName: "INPUT" }]) {
+        expect(resolve(press({ ...uk, ...target }))).toBeUndefined();
+      }
     });
+  });
 
-    // Where "#" is its own key there is no collision to resolve, and nothing in
-    // the app is listening for it either — so the panel names the row and lets
-    // the key through.
-    it("still names the category row outside a field where # is unshifted", () => {
-      const match = resolve(press(uk));
+  // "/" is the same character on every layout we care about, so there is no
+  // layout split to resolve here — but there *is* a collision, because the
+  // cheat-sheet key is also "/". Which one a keystroke means is decided by one
+  // thing only: whether a field has focus.
+  describe("/, the typed marker that shares a key with the cheat sheet", () => {
+    const slash = { key: "/", code: "Slash" };
+
+    it("is the category marker while a field has focus", () => {
+      const match = resolve(press({ ...slash, tagName: "INPUT" }));
       expect(match?.id).toBe("tracker.category");
+      // Never swallowed — the character has to reach the field it types into.
       expect(shouldSwallow(match!)).toBe(false);
     });
 
-    // The chip and the spoken sentence show the character on both layouts: ⇧3
-    // beside a highlighted row about "#" reads as a different key entirely.
-    it("echoes the character rather than the chord that produced it", () => {
-      for (const layout of [us, uk]) {
-        const e = press({ ...layout, tagName: "INPUT" });
-        const key = normalizeKey(e);
-        expect(echoCombo(e, key, false, resolve(e))).toBe("#");
-      }
-      // Anything else still echoes what was actually pressed.
-      const e = press({ key: "1", code: "Digit1", shiftKey: true });
-      expect(echoCombo(e, normalizeKey(e), false, resolve(e))).toBe("shift+1");
+    it("is the cheat sheet outside a field", () => {
+      const match = resolve(press(slash));
+      expect(match?.id).toBe("global.shortcuts");
+      expect(shouldSwallow(match!)).toBe(true);
     });
 
-    // AltGr (AZERTY) arrives as Ctrl+Alt, which is a different chord and no
-    // business of ours — the character just types.
-    it("stays out of the way when # needs AltGr", () => {
-      expect(
-        resolve(press({ key: "#", code: "Digit3", ctrlKey: true, altKey: true, tagName: "INPUT" })),
-      ).toBeUndefined();
+    it("echoes the character, not the chord, when it is the typed marker", () => {
+      const e = press({ ...slash, tagName: "INPUT" });
+      expect(echoCombo(e, normalizeKey(e), false, resolve(e))).toBe("/");
     });
   });
 

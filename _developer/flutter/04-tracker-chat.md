@@ -179,8 +179,8 @@ The order/shape of the amount+title inputs is driven by the user's
 keyboard (`decimal`), placeholder `"0.00"`, tabular. Sanitize input to digits +
 `.`/`,` only.
 
-**Title field:** placeholder `"Add a title — type # to tag a category"`, max
-**40** chars (the server cap). Typing **`#query`** at the end opens an **inline
+**Title field:** placeholder `"Add a title — / for category, # for tags"`, max
+**40** chars (the server cap). Typing **`/query`** at the end opens an **inline
 category picker** (see §4.6).
 
 **Combined field:** *not* one string that gets parsed. It's a shell styled like
@@ -191,9 +191,8 @@ inputs side by side:
   numeric input sized to its content (`decimal` keyboard, placeholder `"0.00"`,
   digits + `.`/`,` only, max **20** chars). It tints with the type: muted for
   expense, a faint emerald for income.
-- the **title** beside it — placeholder `"Add a title — type # to tag a
-  category"`, max **40** chars (the server cap), with the same `#` picker as
-  §4.6.
+- the **title** beside it — placeholder `"Add a title — / for category, # for
+  tags"`, max **40** chars (the server cap), with the same `/` picker as §4.6.
 
 Hand-over rules, so "100 fruits" is still typed in one burst:
 - **Space** (or **Enter**) in the chip moves the caret to the title, once the
@@ -214,11 +213,11 @@ Enter on the amount (last field) submits; otherwise Enter advances to the next
 field; Shift+Enter reveals/focuses the description. On mobile, rely on the Send
 button + keyboard "done"/"next" actions.
 
-### 4.6 The `#` inline category picker
-When the title (or combined) field ends with `#query`:
+### 4.6 The `/` inline category picker
+When the title (or combined) field ends with `/query`:
 - Show a small anchored popover of matching categories (name contains `query`,
   max 8). Highlight one; up/down to move, enter/tab to select, escape to dismiss.
-- Selecting sets the category **and strips the `#query` token** from the field.
+- Selecting sets the category **and strips the `/query` token** from the field.
 - Empty: `No category matches "{query}"`.
 - On mobile this is a nice-to-have; at minimum keep the "More" grid popover.
 
@@ -287,11 +286,12 @@ explains the note syntax.
 **Compose → parse → review → save.** Nothing is written until the final step:
 
 1. **Note field.** Placeholder: `"Describe your spending — e.g. 200 fruits,
-   1000 electricity (June bill) #Bills, got 5000 salary"`. Max **2000** chars
+   1000 electricity (June bill) /Bills, got 5000 salary"`. Max **2000** chars
    (cap the field client-side; the server 400s past it). Syntax the parser
    honours — surface these in a help sheet:
    - one transaction per item/amount ("200 fruits, 100 veg" = two rows);
-   - `#CategoryName` tags a category;
+   - `/CategoryName` picks a category (a slash followed by a letter; a slash
+     between digits is a date, not a category);
    - `(parentheses)` become the description;
    - income words ("got 5000 salary", "refund") flip the type;
    - relative dates ("yesterday", "last Friday") resolve against the device

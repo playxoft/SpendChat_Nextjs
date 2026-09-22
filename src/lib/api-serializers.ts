@@ -1,10 +1,11 @@
 import { fromMinorUnits } from "@/lib/money";
 import { getCurrency } from "@/lib/currencies";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
+import { serializeTxnTag, type TxnTagDTO } from "@/lib/tags";
 import type { AttachmentDTO } from "@/lib/attachments";
 import type { TransactionRow } from "@/lib/queries";
 import type { WorkspaceSummary } from "@/lib/workspaces";
-import type { Category, Profile, UserSettings } from "@/db/schema";
+import type { Category, Profile, Tag, UserSettings } from "@/db/schema";
 
 /**
  * Row → API DTO mappers. Routes serialize through these so the wire shape
@@ -39,6 +40,10 @@ export type ApiTransaction = {
   /** Files attached to the transaction (receipts/bills/invoices), oldest-first.
    * Fetch bytes via `GET /attachments/{id}/url`. Empty array when none. */
   attachments: AttachmentDTO[];
+  /** The tags on this transaction, by name. Workspace-scoped entities, embedded
+   * here (not just as ids) so a client can render the chips without a second
+   * request. Empty array when none. */
+  tags: TxnTagDTO[];
 };
 
 export function serializeTransaction(row: TransactionRow, currency: string): ApiTransaction {
@@ -58,7 +63,14 @@ export function serializeTransaction(row: TransactionRow, currency: string): Api
     profile: { id: row.profileId, name: row.profileName, icon: row.profileIcon },
     user: { id: row.userId, name: row.userName, email: row.userEmail },
     attachments: row.attachments,
+    tags: row.tags,
   };
+}
+
+export type ApiTag = TxnTagDTO;
+
+export function serializeApiTag(row: Tag): ApiTag {
+  return serializeTxnTag(row);
 }
 
 export type ApiCategory = {

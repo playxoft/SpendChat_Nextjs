@@ -1,3 +1,4 @@
+import { TAG_COLORS } from "@/lib/tags";
 import {
   BROWSER_PLAYABLE_MEDIA_TYPES,
   FILE_INLINE_TYPES,
@@ -16,31 +17,16 @@ import { attachmentTypeLabel } from "@/lib/attachments";
  */
 
 /**
- * The 20-swatch palette for folder accents and tags. Values are plain hex so
- * the DB accepts any color — a future custom picker just mints another hex.
+ * The 20-swatch palette for folder accents and vault tags.
+ *
+ * One palette, defined once in `lib/tags.ts` and re-exported here under the name
+ * the vault has always used. Two copies would drift the first time a swatch was
+ * adjusted, and a folder tint sitting beside a transaction tag in the same theme
+ * has to be the same color.
  */
-export const VAULT_COLORS = [
-  "#ef4444", // red
-  "#f97316", // orange
-  "#f59e0b", // amber
-  "#eab308", // yellow
-  "#84cc16", // lime
-  "#22c55e", // green
-  "#10b981", // emerald
-  "#14b8a6", // teal
-  "#06b6d4", // cyan
-  "#0ea5e9", // sky
-  "#3b82f6", // blue
-  "#6366f1", // indigo
-  "#8b5cf6", // violet
-  "#a855f7", // purple
-  "#d946ef", // fuchsia
-  "#ec4899", // pink
-  "#f43f5e", // rose
-  "#64748b", // slate
-  "#78716c", // stone
-  "#737373", // neutral
-] as const;
+// Imported as well as re-exported: `profileAccentColor` below indexes into it,
+// and a bare `export … from` re-exports without binding the name locally.
+export const VAULT_COLORS = TAG_COLORS;
 
 /**
  * The folder color when none was picked — one of the 20 swatches (slate), so

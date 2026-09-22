@@ -26,6 +26,7 @@ import {
   FILE_NAME_MAX,
   FILE_TAG_MAX,
   FOLDER_NAME_MAX,
+  TAG_NAME_MAX,
   TRANSACTION_DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX,
 } from "../lib/validation";
@@ -343,6 +344,52 @@ export const categories = pgTable(
   ],
 );
 
+/**
+ * A transaction tag: a workspace-scoped named + colored label, applied to
+ * transactions through `transactions.tag_ids`.
+ *
+ * Workspace-scoped, like `categories` and unlike the vault's per-profile
+ * `file_tags`, because the transactions list routinely shows every profile at
+ * once ("All profiles") — per-profile tags would put two different "travel"
+ * chips in the same column and leave the filter with nothing sane to list.
+ * `userId` is created-by attribution, never the access key; access is the
+ * workspace, reads need viewer and writes need editor.
+ *
+ * `color` is hex text (`#rrggbb`); today's UI picks from a fixed 20-swatch
+ * palette but the column accepts any hex, so a custom picker needs no
+ * migration. Same call as `file_tags.color`, for the same reason.
+ */
+export const tags = pgTable(
+  "tags",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    // Creator attribution — access is the workspace, never this column.
+    userId: uuid("user_id").notNull(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: TAG_NAME_MAX }).notNull(),
+    color: varchar("color", { length: 16 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One name per workspace, case-insensitive ("Travel" == "travel").
+    uniqueIndex("tags_workspace_name_uq").on(t.workspaceId, sql`lower(${t.name})`),
+    // Listing a workspace's tags in name order (`listTags`). Not redundant with
+    // the unique index above, which orders by `lower(name)` — a sort by `name`
+    // can't be read off it, since the two disagree on mixed case ("Zebra" vs
+    // "apple"). It is *not* here for the workspace FK cascade: the unique index
+    // already leads with `workspace_id` and serves that as a prefix.
+    //
+    // Honestly marginal at `TAGS_PER_WORKSPACE_MAX` = 100 — the planner will
+    // likely scan and sort a list that short anyway. Kept because the cost is a
+    // write on the rare tag mutation, and the alternative is a sort that grows
+    // if that ceiling is ever raised.
+    index("tags_workspace_name_idx").on(t.workspaceId, t.name),
+  ],
+);
+
 export const transactions = pgTable(
   "transactions",
   {
@@ -364,6 +411,24 @@ export const transactions = pgTable(
     // Longer free-text body shown on expand / in the detail dialog. Length is
     // the shared `TRANSACTION_DESCRIPTION_MAX`, in lockstep with validation.
     description: varchar("description", { length: TRANSACTION_DESCRIPTION_MAX }),
+    // The tags on this transaction, as ids into `tags` — the many-to-many edge
+    // list, stored on the owning row rather than in a join table.
+    //
+    // That shape is chosen for the read path, not for storage. `tag_ids && $1`
+    // is a predicate on `transactions` alone, so it composes into
+    // `buildConditions` and every query built from it, and — the reason that
+    // matters — it leaves `pageOf`'s per-profile merge-append intact. A join
+    // table would put an `EXISTS` semi-join inside each of up to 24 `UNION ALL`
+    // branches of the hottest query in the app.
+    //
+    // The cost is that there is no foreign key here, so deleting a tag has to
+    // sweep the column by hand (`array_remove`, in `services/tags.ts`), exactly
+    // as the vault does for `files.tag_ids`. Ids are uuidv7 like every other id
+    // we mint; nothing puts a v4 in here.
+    tagIds: uuid("tag_ids")
+      .array()
+      .notNull()
+      .default(sql`'{}'::uuid[]`),
     occurredOn: date("occurred_on").notNull(),
     // Millisecond precision, deliberately — this is the only timestamp in the
     // schema that a client sends back to us. It is the middle term of the
@@ -420,6 +485,17 @@ export const transactions = pgTable(
     // The account-deletion sweep (`deleteAccount` in services/settings.ts) is the
     // one query that filters on `user_id` alone; this serves it as a prefix.
     index("transactions_user_profile_idx").on(t.userId, t.profileId),
+    // Tag filtering (`tag_ids && array[…]`), the tag-delete sweep and the
+    // per-tag count (both `tag_ids @> array[…]`). GIN is the only index type
+    // that serves an array overlap/containment predicate; a btree on a uuid[]
+    // would be dead weight.
+    //
+    // The operator matters as much as the index. GIN's `array_ops` implements
+    // `&&`, `@>` and `<@` — and nothing rewrites a `scalar = ANY(column)` into
+    // any of them. Measured on Postgres 18.6 with `enable_seqscan = off`, the
+    // `= any` form has no index path at all; `@>` takes a Bitmap Index Scan.
+    // Write the predicate the wrong way round and this index is never used.
+    index("transactions_tag_ids_idx").using("gin", t.tagIds),
   ],
 );
 
@@ -699,6 +775,9 @@ export type TransactionAttachment = typeof transactionAttachments.$inferSelect;
 export type NewTransactionAttachment = typeof transactionAttachments.$inferInsert;
 export type Folder = typeof folders.$inferSelect;
 export type NewFolder = typeof folders.$inferInsert;
+export type Tag = typeof tags.$inferSelect;
+export type NewTag = typeof tags.$inferInsert;
+
 export type FileTag = typeof fileTags.$inferSelect;
 export type NewFileTag = typeof fileTags.$inferInsert;
 // "StoredFile", not "File" — the DOM's global `File` type is live in this app

@@ -58,8 +58,11 @@ import type { Category, Profile } from "@/db/schema";
 
 const NONE = "none";
 
-// A trailing "#query" immediately before the caret opens the category picker.
-const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
+// A trailing "/query" immediately before the caret opens the category picker.
+// "/" is the app-wide category trigger; the note keeps the picked category as a
+// "/Name" token because that is the marker `buildParsePrompt` teaches the model
+// to read (see `src/lib/ai-parse.ts` — the two must agree).
+const CATEGORY_RE = /(?:^|\s)\/([^\s/]*)$/;
 
 /** One reviewable draft, edited as strings (amount parsed on save). */
 type Row = {
@@ -199,7 +202,7 @@ function SwitchLock({
  * (`addBulkTransactions` → `createBulkFromDrafts`, which resolves categories by
  * name), so nothing new touches the DB — the AI only produces drafts.
  *
- * The note supports light markers, mirrored by the composer: `#Category` tags a
+ * The note supports light markers, mirrored by the composer: `/Category` picks a
  * category (matched to an existing one, never invented) and shows a live picker
  * as you type; `(text)` is a description. The Manual/AI toggle rides at the
  * top-left of the first row (mirroring Manual, where it sits left of the type
@@ -259,11 +262,11 @@ export function AiTransactionInput({
     onReviewingChange?.(reviewing);
   }, [reviewing, onReviewingChange]);
 
-  // "#" category autocomplete over the note textarea.
+  // "/" category autocomplete over the note textarea.
   const taRef = useRef<HTMLTextAreaElement>(null);
   const [caret, setCaret] = useState(0);
-  const [tagDismissed, setTagDismissed] = useState(false);
-  const [tagIndex, setTagIndex] = useState(0);
+  const [categoryDismissed, setCategoryDismissed] = useState(false);
+  const [categoryIndex, setCategoryIndex] = useState(0);
 
   const symbol = getCurrency(currency).symbol;
   const isMac = useIsMac();
@@ -273,18 +276,18 @@ export function AiTransactionInput({
     : (activeProfileId ?? profiles[0]?.id ?? "");
   const currentProfile = profiles.find((p) => p.id === profileId) ?? profiles[0] ?? null;
 
-  const tagMatch = text.slice(0, caret).match(TAG_RE);
-  const tagQuery = tagMatch?.[1] ?? "";
-  const tagActive = !!tagMatch && !tagDismissed && !parsing;
+  const categoryMatch = text.slice(0, caret).match(CATEGORY_RE);
+  const categoryQuery = categoryMatch?.[1] ?? "";
+  const categoryActive = !!categoryMatch && !categoryDismissed && !parsing;
   // Both kinds are offered (the item's type isn't known yet at typing time) and
   // colored — emerald income / red expense — like the transactions dropdown. The
   // model resolves the tag to the category of the matching kind on parse.
-  const tagResults = tagActive
+  const categoryResults = categoryActive
     ? categories
-        .filter((c) => c.name.toLowerCase().includes(tagQuery.toLowerCase()))
+        .filter((c) => c.name.toLowerCase().includes(categoryQuery.toLowerCase()))
         .slice(0, 10)
     : [];
-  const tagIdx = tagResults.length ? Math.min(tagIndex, tagResults.length - 1) : 0;
+  const categoryIdx = categoryResults.length ? Math.min(categoryIndex, categoryResults.length - 1) : 0;
 
   const parseAmount = (s: string) => parseAmountInput(s, locale);
   const isPositive = (s: string) => {
@@ -325,23 +328,23 @@ export function AiTransactionInput({
     setText("");
     setRows(null);
     setCaret(0);
-    setTagDismissed(false);
+    setCategoryDismissed(false);
   }
 
-  // Replace the "#query" before the caret with the picked category name.
-  function insertTag(name: string) {
+  // Replace the "/query" before the caret with the picked category name.
+  function insertCategory(name: string) {
     const el = taRef.current;
     const c = el ? (el.selectionStart ?? caret) : caret;
     const before = text.slice(0, c);
     const after = text.slice(c);
-    const m = before.match(TAG_RE);
+    const m = before.match(CATEGORY_RE);
     if (!m) return;
-    const hashStart = before.length - m[0].length + (m[0].length - m[0].trimStart().length);
-    const insert = `#${name} `;
-    const next = before.slice(0, hashStart) + insert + after;
-    const pos = hashStart + insert.length;
+    const slashStart = before.length - m[0].length + (m[0].length - m[0].trimStart().length);
+    const insert = `/${name} `;
+    const next = before.slice(0, slashStart) + insert + after;
+    const pos = slashStart + insert.length;
     setText(next);
-    setTagDismissed(true);
+    setCategoryDismissed(true);
     requestAnimationFrame(() => {
       const node = taRef.current;
       if (node) {
@@ -448,7 +451,7 @@ export function AiTransactionInput({
         toast.warning("Your note is full — the end of that recording was cut off.");
       }
       setText(joined.slice(0, MAX_INPUT_CHARS));
-      setTagDismissed(true);
+      setCategoryDismissed(true);
       requestAnimationFrame(() => {
         const node = taRef.current;
         if (!node) return;
@@ -600,25 +603,25 @@ export function AiTransactionInput({
   }, [mode, reviewing, saving, switching, validRows.length]);
 
   function onTextareaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (tagActive && tagResults.length > 0) {
+    if (categoryActive && categoryResults.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setTagIndex((i) => (i + 1) % tagResults.length);
+        setCategoryIndex((i) => (i + 1) % categoryResults.length);
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setTagIndex((i) => (i - 1 + tagResults.length) % tagResults.length);
+        setCategoryIndex((i) => (i - 1 + categoryResults.length) % categoryResults.length);
         return;
       }
       if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
-        insertTag(tagResults[tagIdx].name);
+        insertCategory(categoryResults[categoryIdx].name);
         return;
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        setTagDismissed(true);
+        setCategoryDismissed(true);
         return;
       }
     }
@@ -629,21 +632,21 @@ export function AiTransactionInput({
     }
   }
 
-  const tagMenu = tagActive ? (
+  const categoryMenu = categoryActive ? (
     <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
-      {tagResults.length > 0 ? (
+      {categoryResults.length > 0 ? (
         <ul className="max-h-56 overflow-y-auto">
-          {tagResults.map((c, i) => (
+          {categoryResults.map((c, i) => (
             <li key={c.id}>
               <button
                 type="button"
                 onMouseDown={(e) => {
                   e.preventDefault();
-                  insertTag(c.name);
+                  insertCategory(c.name);
                 }}
                 className={cn(
                   "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                  i === tagIdx ? "bg-accent" : "hover:bg-muted",
+                  i === categoryIdx ? "bg-accent" : "hover:bg-muted",
                 )}
               >
                 <span aria-hidden>{c.icon ?? "🏷️"}</span>
@@ -669,7 +672,7 @@ export function AiTransactionInput({
         </ul>
       ) : (
         <p className="px-2 py-1.5 text-sm text-muted-foreground">
-          No category matches “{tagQuery}”
+          No category matches “{categoryQuery}”
         </p>
       )}
     </div>
@@ -713,15 +716,15 @@ export function AiTransactionInput({
             densities: they reserve the same vertical padding for the buttons
             (`pb-10`), so the same max-height is the same number of lines. */}
         <div className="relative flex min-h-0 max-h-84 flex-1 flex-col">
-          {tagMenu}
+          {categoryMenu}
           <Textarea
             ref={taRef}
             value={text}
             onChange={(e) => {
               setText(e.target.value);
               setCaret(e.target.selectionStart ?? e.target.value.length);
-              setTagDismissed(false);
-              setTagIndex(0);
+              setCategoryDismissed(false);
+              setCategoryIndex(0);
             }}
             onKeyDown={onTextareaKeyDown}
             onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
@@ -733,7 +736,7 @@ export function AiTransactionInput({
             // The server rejects anything longer; stop it here so a big paste
             // doesn't cost a round-trip (and a quota slot) just to be refused.
             maxLength={MAX_INPUT_CHARS}
-            placeholder="Describe your spending — e.g. 200 fruits, 1000 electricity (June bill) #Bills, got 5000 salary"
+            placeholder="Describe your spending — e.g. 200 fruits, 1000 electricity (June bill) /Bills, got 5000 salary"
             aria-label="Describe your transactions"
             // Content-sized *while this is the visible pane*, so the box grows a
             // line at a time with the note — an AI note is usually several
@@ -808,7 +811,7 @@ export function AiTransactionInput({
         {/* Compact drops this line entirely — it's the tallest thing here that
             isn't the note box. What it taught doesn't vanish: the mic carries
             "Hold to talk" on hover, and the ⓘ dialog above still documents the
-            `#` and `( )` markers in full. */}
+            `/` and `( )` markers in full. */}
         {!dense && (
           // `text-xs`: it's a hint, and at `text-sm` it was the second-tallest
           // thing in the pane — height the card charges to Manual as well.
@@ -818,7 +821,7 @@ export function AiTransactionInput({
                 "Type or hold to speak". */}
             Type or hold{" "}
             <Kbd combo={voiceCombo} className="align-middle" describe /> to speak — use{" "}
-            <span className="font-mono text-foreground">#</span> for a category and{" "}
+            <span className="font-mono text-foreground">/</span> for a category and{" "}
             <span className="font-mono text-foreground">( )</span> for a note.
           </p>
         )}

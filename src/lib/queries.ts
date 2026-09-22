@@ -9,6 +9,7 @@ import {
   fileTags,
   folders,
   profiles,
+  tags,
   transactionAttachments,
   transactions,
   users,
@@ -25,6 +26,7 @@ import {
   type TagDTO,
   type TxnFileDTO,
 } from "@/lib/files";
+import type { TxnTagDTO } from "@/lib/tags";
 
 /** The page size shared by the transactions list, its infinite-scroll loader,
  * and the load-more server action. */
@@ -75,6 +77,11 @@ export type TransactionRow = {
    * and the feed/table render clickable chips — no extra round-trip. `[]` when
    * none; `attachments.length` is the count for the 📎 indicators. */
   attachments: AttachmentDTO[];
+  /** The tags on this row, resolved from `transactions.tag_ids` and embedded the
+   * same way the attachments are, ordered by name. `[]` when none. Resolving
+   * them here (rather than handing the caller ids) is what lets the Tags column
+   * and the feed bubbles render straight from one query. */
+  tags: TxnTagDTO[];
 };
 
 const profileIdsKey = (userId: string, workspaceId: string) =>
@@ -193,6 +200,7 @@ const pageColumns = {
   categoryId: transactions.categoryId,
   profileId: transactions.profileId,
   userId: transactions.userId,
+  tagIds: transactions.tagIds,
 };
 
 /** A page of `transactions` rows, already filtered, ordered and limited, as a
@@ -395,6 +403,32 @@ function selectionFor(page: Page) {
       )
       from ${transactionAttachments}
       where ${transactionAttachments.transactionId} = ${page.id}
+    )`,
+    // The row's tags, resolved from its `tag_ids`. Same technique as the
+    // attachments above and for the same reason: it runs once per *returned*
+    // row, because the page is already limited by the time it is projected.
+    //
+    // `= any(tag_ids)` rather than a join through the array, so a tag that was
+    // deleted between the write and this read simply doesn't come back — the
+    // column carries no foreign key, so a stale id is possible and must not
+    // produce a null-filled chip. Ordered by name so the chips are stable
+    // between renders instead of following insertion order.
+    tags: sql<TxnTagDTO[]>`(
+      select coalesce(
+        jsonb_agg(
+          jsonb_build_object(
+            'id', ${tags.id},
+            'name', ${tags.name},
+            'color', ${tags.color},
+            'createdAt', ${tags.createdAt},
+            'updatedAt', ${tags.updatedAt}
+          )
+          order by ${tags.name}
+        ),
+        '[]'::jsonb
+      )
+      from ${tags}
+      where ${tags.id} = any(${page.tagIds})
     )`,
   };
 }

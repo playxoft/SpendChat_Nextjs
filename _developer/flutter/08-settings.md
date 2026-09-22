@@ -199,7 +199,7 @@ The behaviours that matter on mobile map to gestures/buttons:
 | `r` add / `b` bulk add | tracker/topbar buttons |
 | `⌘/Ctrl+Enter` send | Send button |
 | `Shift+Enter` description | description toggle |
-| `#` tag category | inline `#` picker in the title field |
+| `/` pick category | inline `/` picker in the title field |
 | `a` Manual/AI entry | the composer's Manual/AI toggle ([04](./04-tracker-chat.md) §4.11) |
 | `m` (held) voice note | hold-to-talk mic button in AI mode |
 | `g` workspace picker, then `1…9` | workspace dropdown in the nav drawer |

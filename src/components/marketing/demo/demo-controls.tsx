@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
  * Copied class-for-class from `transaction-composer.tsx`'s `typeToggle`, down
  * to the `h-8` control height the whole strip shares and the rose/emerald icon
  * tints. The real one is defined inline inside a 1,100-line component that also
- * owns attachments, profile selection, date handling and the `#`-tag picker —
+ * owns attachments, profile selection, date handling and the `/` category picker —
  * lifting it out would mean refactoring the app's busiest surface to serve a
  * marketing page, which is the wrong trade. The shortcut chip comes from
  * `comboFor()`, so at least the key it advertises can never go stale.
