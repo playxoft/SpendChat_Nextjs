@@ -186,6 +186,15 @@ export default function KeyboardShortcutsPage() {
           because a cheat sheet that omits the fastest way to categorise
           isn&apos;t much of a cheat sheet.
         </p>
+        <p>
+          <Kbd combo={comboFor("tracker.tag")} className="align-middle" describe /> works
+          the same way for tags, and has the easier job of the two: it means one
+          thing wherever you type it, because nothing else is bound to it. Type
+          it in the title field and the tag picker opens on the workspace&apos;s
+          tags, filtering as you go — and if what you typed doesn&apos;t match
+          anything yet, the last row offers to create it, so a tag can be made
+          without leaving the sentence you were writing.
+        </p>
       </FeatureSection>
 
       <FeatureSection title="⌘ or Ctrl, decided by your keyboard">

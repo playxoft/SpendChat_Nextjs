@@ -384,6 +384,144 @@ describe("tenant isolation (bulk)", () => {
   });
 });
 
+/**
+ * `tag_ids` is a plain `uuid[]` with no foreign key — nothing in the database
+ * stops a bad id being written, so `workspaceTagIds` narrows the list to tags
+ * that exist in this workspace before the insert. These pin that it narrows
+ * rather than rejects: a filter is a view, and a stale id in a payload should
+ * quietly not apply rather than fail somebody's transaction.
+ */
+describe("tagIds on the transaction actions", () => {
+  /** Create a tag in the signed-in user's workspace and return its id. */
+  async function makeTag(alias: string, name: string): Promise<string> {
+    const { createTxnTag } = await import("@/services/tags");
+    const { workspaceIdOf } = await import("./helpers/seed");
+    const row = await createTxnTag(uid(alias), await workspaceIdOf(alias), {
+      name,
+      color: "#ef4444",
+    });
+    return row.id;
+  }
+
+  const storedTagIds = async (title: string): Promise<string[]> => {
+    const [row] = await getTestDb()
+      .select({ tagIds: transactions.tagIds })
+      .from(transactions)
+      .where(eq(transactions.title, title));
+    return row!.tagIds;
+  };
+
+  it("stores the tags it was given, in pick order", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const travel = await makeTag("a", "Travel");
+    const work = await makeTag("a", "Work");
+
+    const res = await addTransaction({
+      type: "expense",
+      amount: 10,
+      occurredOn: "2026-06-01",
+      title: "flight",
+      tagIds: [work, travel],
+    });
+    expect(res.ok).toBe(true);
+    // The column keeps the order it was handed; every read re-sorts by name.
+    expect(await storedTagIds("flight")).toEqual([work, travel]);
+  });
+
+  it("drops an id that names no tag in this workspace", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const mine = await makeTag("a", "Travel");
+    const ghost = "00000000-0000-4000-8000-00000000dead";
+
+    await addTransaction({
+      type: "expense",
+      amount: 10,
+      occurredOn: "2026-06-01",
+      title: "partly tagged",
+      tagIds: [mine, ghost],
+    });
+    // Narrowed, not rejected — the real tag still applied.
+    expect(await storedTagIds("partly tagged")).toEqual([mine]);
+  });
+
+  it("drops another workspace's tag id", async () => {
+    signInAs("b");
+    await bootstrapUser("b");
+    const theirs = await makeTag("b", "Theirs");
+
+    signInAs("a");
+    await bootstrapUser("a");
+    await addTransaction({
+      type: "expense",
+      amount: 10,
+      occurredOn: "2026-06-01",
+      title: "borrowed",
+      tagIds: [theirs],
+    });
+    // Nothing in the database would have stopped this being written.
+    expect(await storedTagIds("borrowed")).toEqual([]);
+  });
+
+  it("leaves tags alone on an update that doesn't mention them", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const travel = await makeTag("a", "Travel");
+    await addTransaction({
+      type: "expense",
+      amount: 10,
+      occurredOn: "2026-06-01",
+      title: "keep",
+      tagIds: [travel],
+    });
+    const [row] = await getTestDb()
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(eq(transactions.title, "keep"));
+
+    // `tagIds` is optional and deliberately not defaulted, so absent means
+    // "leave them" — an editor that doesn't know about tags can't wipe them.
+    const res = await updateTransaction({
+      id: row!.id,
+      type: "expense",
+      amount: 12,
+      occurredOn: "2026-06-01",
+      title: "keep",
+    });
+    expect(res.ok).toBe(true);
+    expect(await storedTagIds("keep")).toEqual([travel]);
+  });
+
+  it("clears them on an explicit empty list", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const travel = await makeTag("a", "Travel");
+    await addTransaction({
+      type: "expense",
+      amount: 10,
+      occurredOn: "2026-06-01",
+      title: "clear me",
+      tagIds: [travel],
+    });
+    const [row] = await getTestDb()
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(eq(transactions.title, "clear me"));
+
+    const res = await updateTransaction({
+      id: row!.id,
+      type: "expense",
+      amount: 10,
+      occurredOn: "2026-06-01",
+      title: "clear me",
+      tagIds: [],
+    });
+    expect(res.ok).toBe(true);
+    expect(await storedTagIds("clear me")).toEqual([]);
+  });
+});
+
 describe("parseTransactionsWithAI — gates before the model is ever called", () => {
   // The provider is never reached in any of these: each case must be rejected
   // by a gate first. A stubbed fetch that throws proves it — if a gate leaks,

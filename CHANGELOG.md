@@ -18,6 +18,16 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.26.1] — 2026-09-22
+
+### Fixed
+- Marketing copy that tags had made wrong: the transactions page still said
+  seven columns and listed the filters without tags, and the export page named
+  the CSV's columns without the one that had just been added to it. All of it
+  is a claim about what the product does, so it now matches.
+- The keyboard-shortcuts page explains the `#` tag marker beside the `/`
+  category one. Both are in the cheat sheet; only one was in the prose.
+
 ## [0.26.0] — 2026-09-22
 
 ### Added
