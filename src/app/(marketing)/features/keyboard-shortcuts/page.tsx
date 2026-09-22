@@ -29,12 +29,12 @@ export const metadata = createMetadata({
  * Windows reader is worse than one that says both. Everything still comes out
  * of the registry, so no key is spelled out by hand anywhere on this page.
  *
- * The two typed markers — `/` for a category, `#` for a tag — are the one place
- * both renderings appear at once ("type / (slash)"). They are characters you
- * literally type rather than chords you press, so the glyph is the useful half
- * for a reader who can see it and for the search query someone arrives on; the
- * word is there because a screen reader below "all" punctuation verbosity drops
- * a bare "/" or "#" and the sentence loses its subject.
+ * The typed category marker `/` is the one place both renderings appear at once
+ * ("type / (slash)"). It is a character you literally type rather than a chord
+ * you press, so the glyph is the useful half for a reader who can see it and
+ * for the search query someone arrives on; the word is there because a screen
+ * reader below "all" punctuation verbosity drops a bare "/" and the sentence
+ * loses its subject.
  */
 function comboText(id: string): string {
   const combo = comboFor(id);
@@ -174,15 +174,17 @@ export default function KeyboardShortcutsPage() {
           your hands are when you want it.
         </p>
         <p>
-          The honest edge of the design is the category tag. The cheat sheet
+          The honest edge of the design is the category marker. The cheat sheet
           lists <Kbd combo={comboFor("tracker.category")} className="align-middle" describe />{" "}
           for picking a category, but it isn&apos;t a bound key — it&apos;s a
           character you type into the title field, and the composer watches the
-          text and filters the list as you go. It couldn&apos;t be a binding: on
-          a US layout that character <em>is</em> Shift and a digit, which is how
-          you switch profiles. It&apos;s listed anyway, because a cheat sheet
-          that omits the fastest way to categorise isn&apos;t much of a cheat
-          sheet.
+          text and filters the list as you go. The same character opens this
+          cheat sheet when no field has focus, and both are true at once for the
+          reason every bare key here works: a single-key shortcut stands down
+          while you&apos;re typing. Inside the title field it&apos;s a category;
+          anywhere else it&apos;s the shortcut list. It&apos;s listed anyway,
+          because a cheat sheet that omits the fastest way to categorise
+          isn&apos;t much of a cheat sheet.
         </p>
       </FeatureSection>
 

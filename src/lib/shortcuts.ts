@@ -63,23 +63,10 @@ export const SHORTCUTS: ShortcutDef[] = [
     scope: "Tracker",
     unbound: "typed",
   },
-  // "#" is the tag trigger. Which physical key that is depends on the layout,
-  // and both shapes matter to anything matching against this entry. On a US
-  // keyboard "#" is Shift+3, and `normalizeKey` deliberately reports the
-  // *physical* key there ("3"), so this combo can never match and Shift+3
-  // outside a field belongs to `profiles.switch` — which is exactly what the
-  // app does, because a bare-key shortcut stands down while a field has focus
-  // and the character types instead. On UK/DE/IT/ES layouts "#" is its own
-  // unshifted key and arrives as "#". Match it on the character (`e.key`)
-  // while a field has focus and both layouts land where the label says they
-  // do; see `resolveShortcut` in `components/marketing/demo/shortcut-match.ts`.
-  {
-    id: "tracker.tag",
-    combo: "#",
-    label: "Tag a transaction from the title field",
-    scope: "Tracker",
-    unbound: "typed",
-  },
+  // "#" is reserved for the tag picker and is deliberately **not** listed here
+  // yet: this registry is rendered verbatim into the in-app cheat sheet and the
+  // public shortcuts page, and a row promising a picker that does not exist is
+  // a row a user acts on and nothing happens. It arrives with the picker.
   { id: "tracker.toggle-type", combo: "mod+e", label: "Switch between expense and income", scope: "Tracker" },
   { id: "profiles.all", combo: "shift+`", label: "Show all profiles", scope: "Profiles" },
   { id: "profiles.switch", combo: "shift+1", label: "Switch to a profile (Shift + 1…9, 0 for the 10th)", scope: "Profiles" },

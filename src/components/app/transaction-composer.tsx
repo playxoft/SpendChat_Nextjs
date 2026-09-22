@@ -44,8 +44,7 @@ import type { ComposerDensity, InputMode, TransactionInput } from "@/lib/validat
 import type { Category, Profile } from "@/db/schema";
 
 // Matches a trailing "/query" token typed into the title field — "/" is the
-// app-wide category trigger (in the AI note too). "#" is the *tag* trigger and
-// is handled separately; the two never share a regex.
+// app-wide category trigger (in the AI note too).
 const CATEGORY_RE = /(?:^|\s)\/([^\s/]*)$/;
 
 // How much text the amount chip holds. Nine whole digits is the real cap
@@ -537,7 +536,7 @@ export function TransactionComposer({
       {titleLeadsRow && attachButton}
       <Input
         ref={titleRef}
-        placeholder="Add a title — / for category, # for tags"
+        placeholder="Add a title — type / to pick a category"
         value={title}
         maxLength={TITLE_MAX}
         onChange={(e) => {
@@ -636,7 +635,7 @@ export function TransactionComposer({
       </div>
       <input
         ref={titleRef}
-        placeholder="Add a title — / for category, # for tags"
+        placeholder="Add a title — type / to pick a category"
         value={combined}
         maxLength={TITLE_MAX}
         onChange={(e) => {

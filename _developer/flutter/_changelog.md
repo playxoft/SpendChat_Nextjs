@@ -19,6 +19,48 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.0.0 — 2026-09-22
+
+The category marker in an AI note is `/`, not `#`. Transactions carry tags.
+
+**The breaking half.** `POST /ai/parse` reads a category marker out of the free
+text the user typed, and that marker moved from `#Food` to `/Food`. The request
+and response shapes are untouched — this is a change in how the note is
+interpreted. A note still saying `500 groceries #Food` now parses as the title
+"groceries #Food" with the category guessed rather than pinned, because the
+model is explicitly told `#` is not a marker. A slash between digits is still a
+date, never a category, so `paid 12/05` is unaffected.
+
+This is a major bump for one reason: the app implements the marker. The inline
+picker in §4.6 of `04-tracker-chat.md` inserts the character, and the composer
+placeholder names it. Both must move to `/` or the picker writes text the server
+no longer honours — the app keeps running, but its category picker stops
+picking categories.
+
+**The additive half.** Every transaction now carries `tags`, an array of the
+workspace's tag entities (`{id, name, color, createdAt, updatedAt}`), empty when
+none. `POST /transactions`, `PATCH /transactions/{id}` and
+`POST /transactions/bulk` accept an optional `tagIds` array of tag ids; ids that
+don't belong to the caller's workspace are dropped rather than rejected, exactly
+as `categoryId` already behaves. On `PATCH`, omitting `tagIds` leaves the row's
+tags alone — send `[]` to clear them.
+
+Tags are workspace-scoped and shared by every member, like categories. The
+endpoints to create and manage them (`/tags`) are not in this version; the app
+can read and apply the tags a workspace already has, and the web app is where
+they are created for now.
+
+**Flutter impact:** two required changes and one optional.
+1. **Required** — change the AI note's category marker and its picker from `#`
+   to `/`, and update the composer placeholder (see `04-tracker-chat.md` §4.6).
+2. **Required** — if the app round-trips a decoded transaction back into a
+   `POST`/`PATCH` body, it will now carry `tagIds`; make sure decoding an
+   unknown `tags` field doesn't throw on strict decoders.
+3. **Optional** — render `tags` as colored chips on a transaction, and let the
+   user apply existing tags by sending `tagIds`.
+
+---
+
 ## 5.9.5 — 2026-09-02
 
 `POST /ai/transcribe` can now answer 413.

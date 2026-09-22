@@ -119,8 +119,11 @@ describe("txnTagIdsSchema", () => {
     expect(txnTagIdsSchema.safeParse(ids.slice(0, -1)).success).toBe(true);
   });
 
-  // Dedupe runs after the cap, so eleven ids that are really three must not be
-  // rejected... and must not sneak past it either. Pin the order of operations.
+  // The cap is applied to the raw array, before the dedupe transform runs — so
+  // eleven ids that are really one are still rejected. Pinned because the
+  // ordering is invisible in the schema and a reader could reasonably assume
+  // the opposite; if the product ever wants "dedupe, then count", this is the
+  // test that says it was a decision.
   it("rejects on the raw count, before dedupe", () => {
     const ids = Array.from({ length: TAGS_PER_TRANSACTION_MAX + 1 }, () => uuid(1));
     expect(txnTagIdsSchema.safeParse(ids).success).toBe(false);

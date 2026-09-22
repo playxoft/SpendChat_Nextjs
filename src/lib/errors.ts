@@ -73,3 +73,22 @@ export function isForeignKeyViolation(err: unknown): boolean {
   }
   return false;
 }
+
+/**
+ * A Postgres unique-constraint violation (SQLSTATE 23505), unwrapped the same
+ * way.
+ *
+ * For the writes whose *only* expected failure is "that name is taken", and
+ * which want to report it as a 409 rather than a 500. Catching the violation
+ * rather than catching everything matters: a dropped Hyperdrive connection, a
+ * statement timeout or a value the column can't hold would otherwise be
+ * reported to the user as a duplicate name, and would never reach the logs as
+ * the error it actually was.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e != null && depth < 5; depth++) {
+    if (typeof e === "object" && (e as { code?: unknown }).code === "23505") return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}

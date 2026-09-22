@@ -376,8 +376,16 @@ export const tags = pgTable(
   (t) => [
     // One name per workspace, case-insensitive ("Travel" == "travel").
     uniqueIndex("tags_workspace_name_uq").on(t.workspaceId, sql`lower(${t.name})`),
-    // Listing a workspace's tags (ordered by name in `getTags`), and the
-    // workspace FK cascade.
+    // Listing a workspace's tags in name order (`listTags`). Not redundant with
+    // the unique index above, which orders by `lower(name)` — a sort by `name`
+    // can't be read off it, since the two disagree on mixed case ("Zebra" vs
+    // "apple"). It is *not* here for the workspace FK cascade: the unique index
+    // already leads with `workspace_id` and serves that as a prefix.
+    //
+    // Honestly marginal at `TAGS_PER_WORKSPACE_MAX` = 100 — the planner will
+    // likely scan and sort a list that short anyway. Kept because the cost is a
+    // write on the rare tag mutation, and the alternative is a sort that grows
+    // if that ceiling is ever raised.
     index("tags_workspace_name_idx").on(t.workspaceId, t.name),
   ],
 );
@@ -477,9 +485,16 @@ export const transactions = pgTable(
     // The account-deletion sweep (`deleteAccount` in services/settings.ts) is the
     // one query that filters on `user_id` alone; this serves it as a prefix.
     index("transactions_user_profile_idx").on(t.userId, t.profileId),
-    // Tag filtering (`tag_ids && array[…]`) and the tag-delete sweep
-    // (`$1 = any(tag_ids)`). GIN is the only index type that serves an array
-    // overlap/containment predicate; a btree on a uuid[] would be dead weight.
+    // Tag filtering (`tag_ids && array[…]`), the tag-delete sweep and the
+    // per-tag count (both `tag_ids @> array[…]`). GIN is the only index type
+    // that serves an array overlap/containment predicate; a btree on a uuid[]
+    // would be dead weight.
+    //
+    // The operator matters as much as the index. GIN's `array_ops` implements
+    // `&&`, `@>` and `<@` — and nothing rewrites a `scalar = ANY(column)` into
+    // any of them. Measured on Postgres 18.6 with `enable_seqscan = off`, the
+    // `= any` form has no index path at all; `@>` takes a Bitmap Index Scan.
+    // Write the predicate the wrong way round and this index is never used.
     index("transactions_tag_ids_idx").using("gin", t.tagIds),
   ],
 );

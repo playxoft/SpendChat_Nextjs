@@ -14,7 +14,7 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **5.9.5**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.0.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
 
@@ -29,6 +29,19 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   Nothing about how categories work changed, only the key that opens the list.
   The AI note understands the new marker too: `500 groceries /Food`. A slash
   between digits is still a date, never a category.
+- **The mobile API contract is now 6.0.0** (was 5.9.5). Transactions carry a
+  `tags` array and accept `tagIds` on create/update — both additive — but the
+  `/ai/parse` marker change is breaking for the Flutter app, whose own inline
+  picker inserts the old character. The details and the two required client
+  changes are in
+  [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md).
+
+### Added
+- **Groundwork for transaction tags.** A workspace-scoped `tags` table and the
+  `tag_ids` column that links them to transactions, with the service layer and
+  validation behind them. Nothing is user-facing yet — the `#` picker, the Tags
+  column on the transactions page and the tag manager in Settings arrive in the
+  next release. Existing transactions are untouched.
 
 ## [0.23.0] — 2026-09-17
 

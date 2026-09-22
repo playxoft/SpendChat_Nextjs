@@ -3,7 +3,7 @@ import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { profiles, tags, transactions } from "@/db/schema";
-import { conflict, validationError } from "@/lib/errors";
+import { conflict, isUniqueViolation, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import {
   TAGS_PER_WORKSPACE_MAX,
@@ -14,8 +14,19 @@ import { requireWorkspaceRole } from "@/lib/workspaces";
 import type { Tag } from "@/db/schema";
 
 /**
- * Transaction-tag business logic, shared by the web actions (`src/actions/tags`)
- * and the REST API (`src/app/api/v1/tags`).
+ * Transaction-tag business logic.
+ *
+ * The exports carry a `TxnTag` prefix rather than the bare `createTag` /
+ * `updateTag` / `deleteTag` the entity would suggest, because `services/files.ts`
+ * already owns those three names for the vault's per-profile tags. Same reason
+ * `lib/tags.ts` exports `TxnTagDTO` instead of `TagDTO`: two different entities
+ * in two different tables, and the file that ends up importing both shouldn't
+ * have to alias one.
+ *
+ * Nothing calls it yet — the server actions and
+ * the `/api/v1/tags` routes land with the tag UI in the next change; this is the
+ * layer they will both sit on, written first so the schema and the access rules
+ * are settled before anything depends on them.
  *
  * Tags are workspace-scoped, exactly like categories: everyone in a workspace
  * shares one list, reads need workspace access (already checked upstream when
@@ -32,7 +43,7 @@ const DUPLICATE = "A tag with that name already exists";
 
 /** List the workspace's tags, by name. The order the picker and the settings
  *  manager both render in, so neither has to sort. */
-export async function listTags(workspaceId: string): Promise<Tag[]> {
+export async function listTxnTags(workspaceId: string): Promise<Tag[]> {
   const db = getDb();
   return db
     .select()
@@ -59,7 +70,7 @@ async function assertRoomForAnotherTag(workspaceId: string): Promise<void> {
   }
 }
 
-export async function createTag(
+export async function createTxnTag(
   userId: string,
   workspaceId: string,
   input: unknown,
@@ -81,9 +92,13 @@ export async function createTag(
       })
       .returning();
     return row!;
-  } catch {
-    // The only constraint on this insert is `tags_workspace_name_uq`.
-    throw conflict(DUPLICATE);
+  } catch (err) {
+    // Only a unique violation means "that name is taken" — anything else (a
+    // dropped connection, a statement timeout, a value the column can't hold)
+    // has to keep its identity, or the user is told their tag name is a
+    // duplicate while the real failure never reaches the logs.
+    if (isUniqueViolation(err)) throw conflict(DUPLICATE);
+    throw err;
   }
 }
 
@@ -93,7 +108,7 @@ export async function createTag(
  *
  * Returns the row, or null when none matched in this workspace.
  */
-export async function updateTag(
+export async function updateTxnTag(
   userId: string,
   workspaceId: string,
   id: string,
@@ -118,8 +133,9 @@ export async function updateTag(
       .where(and(eq(tags.id, data.id), eq(tags.workspaceId, workspaceId)))
       .returning();
     return rows[0] ?? null;
-  } catch {
-    throw conflict(DUPLICATE);
+  } catch (err) {
+    if (isUniqueViolation(err)) throw conflict(DUPLICATE);
+    throw err;
   }
 }
 
@@ -134,9 +150,16 @@ export async function updateTag(
  * deletion — two destructive statements outside a transaction — so they are
  * written as one here.
  *
+ * What the transaction does *not* buy, under READ COMMITTED: a concurrent
+ * create that resolved this tag id through `workspaceTagIds` before the delete
+ * committed can still insert it after the sweep has passed, leaving an id that
+ * resolves to nothing. That is harmless — the read path drops unresolvable ids
+ * — and it self-heals the next time the row's tags are set. Locking the whole
+ * workspace's transactions to close it would cost far more than it is worth.
+ *
  * Returns whether a row was removed. Throws for a non-UUID id.
  */
-export async function deleteTag(
+export async function deleteTxnTag(
   userId: string,
   workspaceId: string,
   id: string,
@@ -155,8 +178,12 @@ export async function deleteTag(
     if (deleted.length === 0) return false;
 
     // Scoped to this workspace's profiles, and to rows that actually carry the
-    // id — the GIN index on `tag_ids` serves the `= any(...)` test, so this
-    // touches only the transactions that need rewriting rather than the table.
+    // id. The predicate is `@> array[id]`, not `id = any(tag_ids)`: GIN's
+    // `array_ops` implements `&&`, `@>` and `<@`, and nothing transforms a
+    // `scalar = ANY(column)` into one of them — measured on Postgres 18.6 with
+    // `enable_seqscan = off`, the `= any` form has no index path at all (the
+    // planner keeps the sequential scan and marks it disabled) while `@>` takes
+    // a Bitmap Index Scan. The two read the same; only one uses the index.
     await tx
       .update(transactions)
       .set({ tagIds: sql`array_remove(${transactions.tagIds}, ${id}::uuid)` })
@@ -166,7 +193,7 @@ export async function deleteTag(
             transactions.profileId,
             tx.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
           ),
-          sql`${id}::uuid = any(${transactions.tagIds})`,
+          sql`${transactions.tagIds} @> array[${id}::uuid]`,
         ),
       );
     return true;
@@ -178,7 +205,7 @@ export async function deleteTag(
  * transactions" line the settings manager and the delete confirmation show, so
  * deleting a tag is never a guess about what it will detach.
  */
-export async function countTransactionsForTag(
+export async function countTransactionsForTxnTag(
   workspaceId: string,
   tagId: string,
 ): Promise<number> {
@@ -191,7 +218,10 @@ export async function countTransactionsForTag(
     .where(
       and(
         eq(profiles.workspaceId, workspaceId),
-        sql`${tagId}::uuid = any(${transactions.tagIds})`,
+        // `@>`, not `= any(...)` — see the sweep in `deleteTxnTag`. This one backs
+        // an interactive read (the "used on N transactions" line), so a
+        // sequential scan of the workspace would be felt directly.
+        sql`${transactions.tagIds} @> array[${tagId}::uuid]`,
       ),
     );
   return row?.count ?? 0;

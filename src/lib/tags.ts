@@ -7,6 +7,10 @@ import type { Tag } from "@/db/schema";
  * Deliberately free of `server-only` and of any DB import beyond the row type —
  * the composer, the table cell and the settings manager are all client
  * components and import from here.
+ *
+ * That `import type` on the line above is load-bearing: drop the `type` keyword
+ * and the whole Drizzle schema (and `drizzle-orm` with it) follows this module
+ * into the client bundle.
  */
 
 /**
@@ -47,6 +51,13 @@ export const TAG_COLORS = [
 /**
  * The wire/UI shape for a transaction tag. Dates are ISO strings, because this
  * crosses the server/client boundary and a `Date` does not survive it.
+ *
+ * Two producers, and they don't agree on the spelling: `serializeTxnTag` below
+ * emits `…Z`, while the embed in `queries.ts` comes straight out of
+ * `jsonb_build_object` and renders `…+00:00`. Both are valid ISO 8601 and both
+ * parse in Dart and JS. The attachments embed beside it has the same split, so
+ * this is the house behaviour rather than a new one — but don't write a client
+ * that compares these strings byte-for-byte.
  *
  * Named `TxnTagDTO`, not `TagDTO`, because the files vault already exports a
  * `TagDTO` for its own per-profile tags. The two are different entities in

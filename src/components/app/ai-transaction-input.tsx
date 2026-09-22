@@ -821,7 +821,7 @@ export function AiTransactionInput({
                 "Type or hold to speak". */}
             Type or hold{" "}
             <Kbd combo={voiceCombo} className="align-middle" describe /> to speak — use{" "}
-            <span className="font-mono text-foreground">#</span> for a category and{" "}
+            <span className="font-mono text-foreground">/</span> for a category and{" "}
             <span className="font-mono text-foreground">( )</span> for a note.
           </p>
         )}

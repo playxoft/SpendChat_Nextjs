@@ -1,4 +1,4 @@
-import { TAG_COLORS } from "./tags";
+import { TAG_COLORS } from "@/lib/tags";
 import {
   BROWSER_PLAYABLE_MEDIA_TYPES,
   FILE_INLINE_TYPES,

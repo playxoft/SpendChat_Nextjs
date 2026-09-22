@@ -131,7 +131,7 @@ describe("welcomeEmail", () => {
     expect(html).toContain("+₹2,400.00");
     expect(html).toContain("#059669");
     expect(visibleText(html)).toContain("Today");
-    expect(visibleText(html)).toContain("Add a title — type / to pick a category, # to tag");
+    expect(visibleText(html)).toContain("Add a title — type / to pick a category");
     expect(text).toContain("→ Coffee · Food & Dining · ₹4.50 · 9:12");
     expect(text).toContain("← Salary · Salary · +₹2,400.00 · 18:02");
     // Default money format when none is given.

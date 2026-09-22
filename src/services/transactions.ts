@@ -408,6 +408,15 @@ export async function createManyTransactions(
   const writableSet = new Set(writable);
   const defaultProfileId = writable[0]!;
 
+  // Resolve every tag the batch mentions in one query, then filter each row
+  // against the result. `bulkTransactionsSchema` is built from
+  // `transactionInputSchema`, so these rows carry `tagIds` like any other
+  // create — validating them and then not writing them would accept a client's
+  // tags, answer 201, and silently drop them.
+  const allowedTags = new Set(
+    await workspaceTagIds(workspaceId, [...new Set(items.flatMap((d) => d.tagIds ?? []))]),
+  );
+
   const values = items.map((d) => ({
     userId,
     type: d.type,
@@ -417,6 +426,7 @@ export async function createManyTransactions(
     title: pickTitle(d),
     description: d.description?.trim() ? d.description.trim() : null,
     occurredOn: d.occurredOn,
+    tagIds: (d.tagIds ?? []).filter((id) => allowedTags.has(id)),
   }));
 
   await db.insert(transactions).values(values);

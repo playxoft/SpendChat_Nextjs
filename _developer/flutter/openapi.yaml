@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "5.9.5"
+  version: "6.0.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -1688,7 +1688,8 @@ paths:
         `type`, `amount`, `title`, `description`, `categoryId`, `occurredOn`).
 
         Hints the model honours (worth surfacing in the app's UI help):
-        `#CategoryName` tags a category, `(parentheses)` become the
+        `/CategoryName` picks a category (a slash followed by a letter; a slash
+        between digits is a date), `(parentheses)` become the
         description, relative dates ("yesterday", "last Friday") resolve
         against `timezone`.
 
@@ -2200,8 +2201,16 @@ components:
             none; `attachments.length` drives the 📎 indicator. Fetch bytes via
             GET /attachments/{id}/url.
           items: { $ref: "#/components/schemas/Attachment" }
+        tags:
+          type: array
+          description: >
+            The tags on this transaction, resolved to the workspace's tag
+            entities and ordered by name. Empty array when none. Tags are
+            workspace-scoped and shared by every member, like categories; apply
+            them by sending `tagIds` on create/update.
+          items: { $ref: "#/components/schemas/Tag" }
       required: [id, type, amountMinor, amount, title, description, occurredOn,
-                 createdAt, category, profile, user, attachments]
+                 createdAt, category, profile, user, attachments, tags]
 
     TransactionInput:
       type: object
@@ -2228,7 +2237,31 @@ components:
           deprecated: true
           description: Deprecated alias for `title`. Use `title`.
         occurredOn: { type: string, format: date, example: "2026-06-01" }
+        tagIds:
+          type: array
+          maxItems: 10
+          description: >
+            Tag ids to put on the transaction. Duplicates are collapsed, and ids
+            that don't belong to the caller's workspace are dropped rather than
+            rejected (same rule as `categoryId`). On PATCH, **omitting this
+            field leaves the row's tags unchanged** — send an empty array to
+            clear them.
+          items: { type: string, format: uuid }
       required: [type, amount, occurredOn]
+
+    Tag:
+      type: object
+      description: >
+        A workspace-scoped label that can be put on any number of transactions,
+        and which any number of transactions can carry. `color` is a 6-digit hex
+        (`#rrggbb`) drawn from a fixed 20-swatch palette.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 20 }
+        color: { type: string, example: "#ef4444" }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, name, color, createdAt, updatedAt]
 
     Category:
       type: object

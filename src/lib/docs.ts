@@ -64,7 +64,7 @@ export const docsSections: DocsSection[] = [
       },
       {
         kind: "p",
-        text: "In the tracker you can type \"/\" in the title field to quickly tag a category without leaving the keyboard.",
+        text: "In the tracker you can type \"/\" in the title field to quickly pick a category without leaving the keyboard.",
       },
     ],
   },
@@ -112,9 +112,9 @@ export const docsSections: DocsSection[] = [
       {
         kind: "ul",
         items: [
-          "T / R / A / S — jump to Tracker, Transactions, Analytics or Settings",
-          "E — add a transaction; B — bulk add",
-          "/ — focus search, or tag a category from the title field",
+          "Q / T / E / F / S — jump to Tracker, Transactions, Analytics, Files or Settings",
+          "R — add a transaction; B — bulk add",
+          "/ — pick a category from the title field, or show the shortcut list from anywhere else",
           "⌘/Ctrl + ↵ — send the transaction",
           "⇧ + ↵ — jump to the description field",
           "⌘/Ctrl + E — switch between expense and income",
