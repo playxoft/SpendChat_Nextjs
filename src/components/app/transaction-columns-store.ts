@@ -6,6 +6,7 @@ export type ColumnId =
   | "date"
   | "category"
   | "title"
+  | "tags"
   | "attachments"
   | "description"
   | "amount"
@@ -15,6 +16,7 @@ export const COLUMN_IDS: ColumnId[] = [
   "date",
   "category",
   "title",
+  "tags",
   "attachments",
   "description",
   "amount",
@@ -25,6 +27,7 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
   date: "Date",
   category: "Category",
   title: "Title",
+  tags: "Tags",
   attachments: "Attachments",
   description: "Description",
   amount: "Amount",
@@ -36,6 +39,7 @@ export const DEFAULT_WIDTHS: Record<ColumnId, number> = {
   date: 128,
   category: 176,
   title: 220,
+  tags: 200,
   attachments: 200,
   description: 256,
   amount: 132,
@@ -68,13 +72,54 @@ function isColumnId(value: unknown): value is ColumnId {
 
 /**
  * Normalize a stored order without discarding it: keep the known ids in their
- * saved order, drop any that no longer exist, and append columns added since the
- * layout was saved (so a new column lands at the end, not a full reset).
+ * saved order, drop any that no longer exist, and slot in columns added since
+ * the layout was saved.
+ *
+ * A new column goes **next to its default-order neighbour**, not at the end:
+ * straight after the nearest column that precedes it in `COLUMN_IDS` and that
+ * the user still has. Appending was the obvious thing and it was wrong —
+ * "tags" landed to the right of Amount and User, off the edge of the table, so
+ * the people most likely to have a saved layout were the ones who couldn't see
+ * the new column at all. Slotting it in preserves every relative order the
+ * user chose (nothing else moves) and still isn't a reset.
+ *
+ * It follows the user's arrangement, not the default one, so it is a heuristic
+ * rather than a guarantee: someone who dragged Title to the far right gets
+ * Tags at the far right too, because Title is what Tags follows. That is the
+ * right answer — their layout says those belong together — but it does mean
+ * "where it belongs" is relative to them, and a column can still land off the
+ * visible edge.
+ *
+ * Exported for its tests: this is the only pure part of the store, and it is
+ * the part that decides whether a new column is visible to an existing user.
  */
-function normalizeOrder(value: unknown): ColumnId[] {
-  const stored = Array.isArray(value) ? value.filter(isColumnId) : [];
-  const seen = new Set(stored);
-  return [...stored, ...COLUMN_IDS.filter((id) => !seen.has(id))];
+export function normalizeOrder(value: unknown): ColumnId[] {
+  // Deduped: nothing writes a repeat, but a tampered or half-written
+  // localStorage entry would, and a repeated id means two <col> elements and
+  // two cells sharing a React key.
+  const stored = [...new Set(Array.isArray(value) ? value.filter(isColumnId) : [])];
+  // A copy, not `COLUMN_IDS` itself — it is also `DEFAULT_LAYOUT.order`, and
+  // handing out the module constant invites an in-place sort somewhere
+  // downstream to rewrite the default layout for the whole session.
+  if (stored.length === 0) return [...COLUMN_IDS];
+  const out = [...stored];
+  const have = new Set(stored);
+  COLUMN_IDS.forEach((id, i) => {
+    if (have.has(id)) return;
+    // The nearest default-order predecessor the user still has; the new column
+    // goes directly after it, or first when there is none.
+    let at = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      const idx = out.indexOf(COLUMN_IDS[j]!);
+      if (idx >= 0) {
+        at = idx + 1;
+        break;
+      }
+    }
+    out.splice(at, 0, id);
+    have.add(id);
+  });
+  return out;
 }
 
 /**

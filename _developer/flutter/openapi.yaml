@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.1.0"
+  version: "6.2.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -133,6 +133,7 @@ tags:
   - name: Attachments
   - name: Files
   - name: Categories
+  - name: Tags
   - name: Profiles
   - name: Settings
   - name: Analytics
@@ -463,8 +464,17 @@ paths:
       summary: Export transactions as CSV
       description: >
         Returns text/csv (not the JSON envelope). Columns:
-        Date,Type,Category,Note,Amount,Currency. Honours the same filters,
+        Date,Type,Category,Note,Amount,Currency,Tags. Honours the same filters,
         no paging, up to 5000 rows. Amount is signed (expenses negative).
+
+        `Tags` is the row's tag names joined by `"; "` (empty when it has
+        none). It was appended in 6.2.0 rather than inserted, so every earlier
+        column kept its position.
+
+        Treat the cell as text to display, not a list to parse: a tag name is
+        only trimmed and length-capped, so it may itself contain `;` or `,`.
+        The file stays well-formed either way — a cell containing a comma is
+        quoted, and the formula guard applies as it does to every text cell.
 
         Text cells that would otherwise be executed as a formula by
         Excel/Sheets (those starting with `=`, `+`, `-`, `@`, tab or CR) are
@@ -1304,6 +1314,124 @@ paths:
       description: |
         Deletes a category from the current workspace (`X-Workspace-Id`).
         Requires the **editor** role or higher.
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/tags:
+    get:
+      tags: [Tags]
+      summary: List transaction tags (by name, case-insensitively)
+      description: |
+        The current workspace's shared tag list (scoped by `X-Workspace-Id`).
+        Every member sees the same tags, and a transaction references them by
+        id — so a rename here changes every transaction carrying the tag.
+
+        Unlike categories, a new workspace is seeded with **no** tags: the list
+        starts empty.
+
+        These are transaction tags. The vault's per-profile file tags are a
+        different entity with its own endpoints (`/api/v1/file-tags`).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: The current workspace's tags.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Tag" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Tags]
+      summary: Create a tag
+      description: |
+        Creates a tag in the current workspace (`X-Workspace-Id`). Requires the
+        **editor** role or higher — a viewer gets 403.
+
+        Names are unique per workspace, case-insensitively: creating "travel"
+        where "Travel" exists is a 409. `color` is stored lowercased. A
+        workspace is capped at 100 tags (409 past that).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TagInput" }
+      responses:
+        "201":
+          description: The created tag.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Tag" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/tags/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    patch:
+      tags: [Tags]
+      summary: Rename or recolor a tag (partial)
+      description: |
+        Requires the **editor** role or higher. The change is visible on every
+        transaction carrying the tag, since transactions reference it by id and
+        resolve it at read time.
+
+        A body that changes nothing is a 422, not a silent no-op.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TagUpdate" }
+      responses:
+        "200":
+          description: The updated tag.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Tag" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Tags]
+      summary: Delete a tag (and detach it from every transaction)
+      description: |
+        Requires the **editor** role or higher. The tag row and its id in every
+        `transaction.tagIds` in the workspace go in one database transaction —
+        the transactions themselves are untouched apart from losing the tag.
       responses:
         "200":
           description: Deletion acknowledged.
@@ -2278,6 +2406,27 @@ components:
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
       required: [id, name, color, createdAt, updatedAt]
+
+    TagInput:
+      type: object
+      description: >
+        A new tag. `color` must be a 6-digit hex (`#rrggbb`); the 20-swatch
+        palette the apps offer is a UI convention, not a server constraint, so
+        any hex is accepted and stored lowercased.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 20 }
+        color: { type: string, pattern: "^#[0-9a-fA-F]{6}$", example: "#ef4444" }
+      required: [name, color]
+
+    TagUpdate:
+      type: object
+      description: >
+        A partial update — send only what changes. An empty body is a 422
+        rather than a no-op that bumps `updatedAt`.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 20 }
+        color: { type: string, pattern: "^#[0-9a-fA-F]{6}$", example: "#ef4444" }
+      minProperties: 1
 
     Category:
       type: object

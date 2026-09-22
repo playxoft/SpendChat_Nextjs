@@ -235,6 +235,10 @@ When it ends with `#query`:
   as removable coloured chips above the input row, like staged files.
 - Tags ride along in `tagIds` on the create call; they are not a separate
   request. See `Transaction.tags` / `TransactionInput.tagIds` in the spec.
+- The create sheet posts to **`POST /tags`** and applies the id it gets back —
+  don't re-list and match on name, which guesses wrong when two people create
+  the same name at once. The full manager lives in settings
+  ([08](./08-settings.md) §5a).
 
 ### 4.7 Pasting into the amount chip
 Typing fills the two zones directly (§4.5), so parsing is only needed for a

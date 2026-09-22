@@ -39,7 +39,7 @@ import {
   type TagDTO,
   type TxnFileDTO,
 } from "@/lib/files";
-import type { TxnTagDTO } from "@/lib/tags";
+import { serializeTxnTag, type TxnTagDTO } from "@/lib/tags";
 
 /** The page size shared by the transactions list, its infinite-scroll loader,
  * and the load-more server action. */
@@ -771,17 +771,90 @@ export async function getCategories(workspaceId: string) {
 
 /** The workspace's tags, by name — the list the picker, the filter and the
  *  settings manager all render. Mirrors `getCategories`. */
-export async function getTags(workspaceId: string) {
+/**
+ * Memoized per request: the app layout and both the tracker and transactions
+ * pages ask for this list, and layout and page render in the same RSC pass —
+ * without `cache()` that is two identical round trips on every load of the two
+ * busiest routes. (`getCategories`/`getProfiles` beside it have the same shape
+ * and are not yet memoized; that is worth doing, but not from this change.)
+ */
+export const getTags = cache(getTagsUncached);
+
+async function getTagsUncached(workspaceId: string): Promise<TxnTagDTO[]> {
   const db = getDb();
-  return db
+  const rows = await db
+    .select()
+    .from(tags)
+    .where(eq(tags.workspaceId, workspaceId))
+    .orderBy(asc(sql`lower(${tags.name})`));
+  // Through the serializer rather than as raw rows: this list crosses into
+  // client components (the picker, the filter, the edit dialog) and a `Date`
+  // does not survive that boundary. It also makes one tag shape — `TxnTagDTO`
+  // — serve the whole UI, so the edit dialog can build a row patch out of it
+  // without inventing the timestamps.
+  return rows.map(serializeTxnTag);
+}
+
+/**
+ * The workspace's tags with how many transactions carry each — the settings
+ * manager's list, where "used on 34 transactions" is what tells you whether a
+ * tag is worth keeping.
+ *
+ * One query with a correlated count per tag, rather than the list plus a count
+ * call per row: at `TAGS_PER_WORKSPACE_MAX` that would be a hundred round
+ * trips. Each count uses the same `@> array[id]` predicate as
+ * `countTransactionsForTxnTag`, which is the form the GIN index on `tag_ids`
+ * can actually serve (`id = any(tag_ids)` has no index path at all).
+ *
+ * Scoped through `profiles` to the workspace — a tag id shouldn't be able to
+ * appear on another workspace's rows, and this doesn't rely on that being true.
+ *
+ * Note that this is the *workspace*, not the caller's accessible profiles,
+ * which is what every transaction read scopes to. That is deliberate: the
+ * number's job is to say what deleting the tag would detach, and a delete
+ * sweeps the whole workspace whoever presses it — a count of the caller's own
+ * profiles would understate the blast radius of a destructive action. The cost
+ * is that a user who reaches this workspace through a single profile grant
+ * sees a total covering rows they can't open. It is an aggregate over a shared
+ * workspace entity, and `countTransactionsForTxnTag` behind the delete
+ * confirmation has counted the same way since it was written.
+ *
+ * If it ever gets slow: the work here is `sum(usage)` across tags, so a
+ * heavily-tagged large workspace pays for every tagged row once per tag it
+ * carries. The one-pass alternative is `unnest(tx.tag_ids)` grouped and
+ * left-joined onto `tags`, trading the GIN probes for a single scan.
+ */
+export async function getTagsWithUsage(
+  workspaceId: string,
+): Promise<(TxnTagDTO & { usage: number })[]> {
+  const db = getDb();
+  const rows = await db
     .select({
       id: tags.id,
+      userId: tags.userId,
+      workspaceId: tags.workspaceId,
       name: tags.name,
       color: tags.color,
+      createdAt: tags.createdAt,
+      updatedAt: tags.updatedAt,
+      // Written with explicit aliases and raw column names, not Drizzle
+      // column references: inside a `sql` template in a *select field*
+      // position Drizzle renders a column unqualified ("id", not
+      // "profiles"."id"), which makes every join column here ambiguous and
+      // Postgres refuses the query outright (42702). The table names still
+      // come from the schema.
+      usage: sql<number>`(
+        select count(*)::int
+        from ${transactions} tx
+        inner join ${profiles} p on p.id = tx.profile_id
+        where p.workspace_id = ${workspaceId}
+          and tx.tag_ids @> array[${tags}.id]
+      )`,
     })
     .from(tags)
     .where(eq(tags.workspaceId, workspaceId))
     .orderBy(asc(sql`lower(${tags.name})`));
+  return rows.map((r) => ({ ...serializeTxnTag(r), usage: r.usage }));
 }
 
 /** Profiles in the workspace the user can at least view, in sidebar order. */

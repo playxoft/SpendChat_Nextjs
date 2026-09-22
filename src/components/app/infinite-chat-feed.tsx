@@ -7,6 +7,7 @@ import { ChatFeed } from "./chat-feed";
 import { MonthScrollSpy } from "./month-scroll-spy";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
+import type { TxnTagDTO } from "@/lib/tags";
 
 /** True when `a` sorts strictly older than `cutoff` in the feed's
  * (occurredOn, createdAt, id) order. */
@@ -49,6 +50,7 @@ export function InfiniteChatFeed({
   today,
   categories,
   profiles = [],
+  tags,
   showAuthor = false,
 }: {
   initialRows: TransactionRow[];
@@ -61,6 +63,8 @@ export function InfiniteChatFeed({
   today: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles?: Pick<Profile, "id" | "name" | "icon">[];
+  /** The workspace's tags, for the edit dialog's picker. */
+  tags: TxnTagDTO[];
   /** Shared workspaces only: label each bubble with its author. */
   showAuthor?: boolean;
 }) {
@@ -183,6 +187,7 @@ export function InfiniteChatFeed({
         today={today}
         categories={categories}
         profiles={profiles}
+        tags={tags}
         showAuthor={showAuthor}
       />
     </>

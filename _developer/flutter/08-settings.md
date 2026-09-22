@@ -162,6 +162,34 @@ Settings › Categories embeds the **category manager** — see
 
 ---
 
+## 5a. Tags
+
+Settings › Tags is the **tag manager**: the workspace's transaction tags, the
+second place one can be created (the first is the composer's `#` picker,
+[04](./04-tracker-chat.md) §4.6).
+
+- List every tag as its coloured chip, ordered by `lower(name)`, each with what
+  it would cost to remove — "on 34 transactions", or "unused" at zero. Web
+  reads both from one call; on mobile, `GET /tags` has no count, so either show
+  the chips alone or count client-side from a list you already hold.
+- Tapping a tag opens the same create/edit sheet the composer uses: name
+  (≤ 20), the 20-swatch palette, and **Delete** in edit mode. Deleting detaches
+  the tag from every transaction carrying it, so say that plainly before
+  asking. `GET /tags` carries no count, so unless you can count from a list you
+  already hold, name the consequence rather than a number — "removes it from
+  every transaction that has it", not "untags 34". (The web app has a count
+  because it reads one server-side; there is no endpoint for it.)
+- **Editor+ only.** A viewer sees the list read-only: no add button, no edit
+  affordance. The server enforces it (403), so this is presentation.
+- A workspace starts with **no** tags and is capped at **100**; past that
+  `POST /tags` is a 409 and the add button should be disabled rather than
+  opening a form that can't succeed.
+
+Endpoints: `GET/POST /tags`, `PATCH/DELETE /tags/{id}` (spec 6.2.0) —
+[01](./01-api-reference.md) § Tags.
+
+---
+
 ## 6. Danger zone
 
 A **confirm-by-typing-DELETE** pattern: each destructive action opens a dialog

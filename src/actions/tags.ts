@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
+import { notFound } from "@/lib/errors";
 import * as tagService from "@/services/tags";
 import { serializeTxnTag, type TxnTagDTO } from "@/lib/tags";
 import type { CreateTxnTagInput, UpdateTxnTagInput } from "@/lib/validation";
@@ -46,13 +47,24 @@ export async function addTag(input: CreateTxnTagInput): Promise<ActionResult<{ t
   );
 }
 
+/**
+ * Rename or recolor a tag.
+ *
+ * The service returns null when nothing matched in this workspace, and that
+ * has to become an error rather than a shrug: the tag manager toasts on `ok`,
+ * so swallowing it means two people with the settings page open both see "Tag
+ * updated" while one of them wrote nothing. `/api/v1/tags/{id}` 404s on the
+ * same condition — the two paths answer for the same service and should not
+ * disagree about whether the write happened.
+ */
 export async function updateTag(input: UpdateTxnTagInput): Promise<ActionResult> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "updateTag",
     async () => {
-      await tagService.updateTxnTag(user.id, workspace.id, input.id, input);
+      const updated = await tagService.updateTxnTag(user.id, workspace.id, input.id, input);
+      if (!updated) throw notFound("Tag not found");
       revalidateApp();
       return {};
     },
@@ -60,13 +72,17 @@ export async function updateTag(input: UpdateTxnTagInput): Promise<ActionResult>
   );
 }
 
+/** Delete a tag and detach it everywhere. Same reasoning as `updateTag` for
+ *  the "nothing matched" case: a stale page must not report a delete it
+ *  didn't do. */
 export async function deleteTag(id: string): Promise<ActionResult> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "deleteTag",
     async () => {
-      await tagService.deleteTxnTag(user.id, workspace.id, id);
+      const deleted = await tagService.deleteTxnTag(user.id, workspace.id, id);
+      if (!deleted) throw notFound("Tag not found");
       revalidateApp();
       return {};
     },

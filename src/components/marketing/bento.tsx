@@ -646,9 +646,9 @@ export function ExportMock() {
             export is a claim about the file someone will hand their
             accountant, so a three-column invention is worse than no mock. */}
         {[
-          "Date,Type,Category,Note,Amount,Currency",
-          "2026-09-02,expense,Rent,September,-18000.00,INR",
-          "2026-09-04,income,Salary,,82000.00,INR",
+          "Date,Type,Category,Note,Amount,Currency,Tags",
+          "2026-09-02,expense,Rent,September,-18000.00,INR,Home",
+          "2026-09-04,income,Salary,,82000.00,INR,",
         ].map(
           (row, i) => (
             <div

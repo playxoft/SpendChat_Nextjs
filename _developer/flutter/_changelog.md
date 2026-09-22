@@ -19,6 +19,32 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.2.0 — 2026-09-22
+
+Tags can be created and managed from the app, and the CSV export names them.
+
+**New endpoints** (`Tags` group), mirroring `/categories`:
+
+| Method & path | Notes |
+|---|---|
+| `GET /tags` | The workspace's tags, ordered by `lower(name)`. A new workspace has none. |
+| `POST /tags` | `{ name, color }`. Editor+. 409 on a duplicate name (case-insensitive) or past the 100-tag ceiling. |
+| `PATCH /tags/{id}` | `{ name?, color? }`. Editor+. An empty body is a 422. |
+| `DELETE /tags/{id}` | Editor+. Removes the tag **and** its id from every transaction in the workspace, in one database transaction. |
+
+`GET /transactions/export` gains a **`Tags`** column, appended after
+`Currency`: the row's tag names joined by `"; "`, empty when it has none.
+
+**Flutter impact:** additive. The new endpoints are opt-in — nothing that works
+today stops working, and transactions already carried their `tags` (6.0.0), so
+a client can show tags without calling `/tags` at all and only needs it to let
+someone *create* or *edit* one. The one thing to check is the CSV: a parser
+reading it by column **index** is unaffected (the column was appended, not
+inserted), but one asserting the exact header row, or the column *count*, needs
+the extra field.
+
+---
+
 ## 6.1.0 — 2026-09-22
 
 Transactions, the CSV export and the analytics totals can be filtered by tag.

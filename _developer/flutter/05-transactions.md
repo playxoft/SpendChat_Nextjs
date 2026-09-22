@@ -98,8 +98,11 @@ controls, plus a visible chip summary of active filters.
 
 - The **CSV** button hits `GET /api/v1/transactions/export?<current filters incl.
   profile>` → `text/csv` (see [01](./01-api-reference.md) §9). Columns:
-  `Date,Type,Category,Note,Amount,Currency`; amount is **signed** (expenses
+  `Date,Type,Category,Note,Amount,Currency,Tags`; amount is **signed** (expenses
   negative); up to 5000 rows; filename `spendchat-YYYY-MM-DD.csv`.
+  **`Tags` was appended in 6.2.0** — after `Currency`, so every earlier column
+  kept its index; it holds the row's tag names for reading, not for parsing
+  (see [01](./01-api-reference.md) §9).
 - On mobile: fetch the bytes with the bearer + `X-Workspace-Id` headers, write to
   a temp file (`path_provider`), then present the OS share sheet (`share_plus`).
 - **Print** (web) is N/A on mobile — omit.

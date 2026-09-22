@@ -11,6 +11,7 @@ import { BulkAddDialog } from "./bulk-add-dialog";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 import { hrefWithProfile } from "./nav-items";
 import type { Category, Profile } from "@/db/schema";
+import type { TxnTagDTO } from "@/lib/tags";
 
 /**
  * App-wide keyboard shortcuts that work from any page: jump between sections
@@ -25,6 +26,7 @@ import type { Category, Profile } from "@/db/schema";
 export function GlobalShortcuts({
   categories,
   profiles,
+  tags,
   currency,
   locale,
   today,
@@ -32,6 +34,8 @@ export function GlobalShortcuts({
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
+  /** The workspace's tags, for the add dialog's picker. */
+  tags: TxnTagDTO[];
   currency: string;
   locale: string;
   today: string;
@@ -76,6 +80,7 @@ export function GlobalShortcuts({
             mode="add"
             categories={categories}
             profiles={profiles}
+            tags={tags}
             activeProfileId={activeProfileId}
             currency={currency}
             locale={locale}

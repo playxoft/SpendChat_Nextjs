@@ -183,6 +183,7 @@ export default async function ChatPage({
                     <TrackerActions
                       categories={categories}
                       profiles={profiles}
+                      tags={tags}
                       activeProfileId={composerProfileId}
                       currency={currency}
                       locale={locale}
@@ -227,6 +228,7 @@ export default async function ChatPage({
               today={today}
               categories={categories}
               profiles={profiles}
+              tags={tags}
               showAuthor={showAuthor}
               currentUser={{ id: user.id, name: user.name, email: user.email }}
             />
@@ -339,6 +341,7 @@ async function FeedStream({
   today,
   categories,
   profiles,
+  tags,
   showAuthor,
   currentUser,
 }: {
@@ -351,6 +354,7 @@ async function FeedStream({
   today: string;
   categories: Awaited<ReturnType<typeof getCategories>>;
   profiles: Awaited<ReturnType<typeof getProfiles>>;
+  tags: Awaited<ReturnType<typeof getTags>>;
   showAuthor: boolean;
   currentUser: { id: string; name: string | null; email: string | null };
 }) {
@@ -384,6 +388,7 @@ async function FeedStream({
         today={today}
         categories={categories}
         profiles={profiles}
+        tags={tags}
         showAuthor={showAuthor}
       />
     </FeedRegion>

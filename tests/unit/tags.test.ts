@@ -2,10 +2,13 @@ import { describe, it, expect } from "vitest";
 import {
   TAG_COLORS,
   defaultTagColor,
+  sameTagSet,
   serializeTxnTag,
+  sortTagsByName,
   stepPickerIndex,
   tagPickerModel,
 } from "@/lib/tags";
+import { mergeCreatedTags } from "@/components/app/tags/use-created-tags";
 import { VAULT_COLORS } from "@/lib/files";
 import {
   TAG_NAME_MAX,
@@ -278,5 +281,69 @@ describe("stepPickerIndex", () => {
 
   it("returns 0 when there is nothing to step through", () => {
     expect(stepPickerIndex(0, 0, 1)).toBe(0);
+  });
+});
+
+describe("sortTagsByName", () => {
+  const t = (name: string) => ({ id: name, name, color: "#ef4444" });
+
+  it("orders by lower(name), matching the SQL the read uses", () => {
+    // A C-collation database sorts every capital before every lowercase and
+    // en_US.UTF-8 doesn't; the embed in `queries.ts` uses `lower(name)`, so
+    // this has to as well or the optimistic patch disagrees with the refetch.
+    expect(sortTagsByName([t("zebra"), t("Apple"), t("mango")]).map((x) => x.name)).toEqual([
+      "Apple",
+      "mango",
+      "zebra",
+    ]);
+  });
+
+  it("does not mutate its input", () => {
+    const input = [t("b"), t("a")];
+    sortTagsByName(input);
+    expect(input.map((x) => x.name)).toEqual(["b", "a"]);
+  });
+});
+
+describe("sameTagSet", () => {
+  it("ignores order", () => {
+    // The stored array's order is real in the column and invisible everywhere
+    // else, so a reorder must not make a form dirty: untick a tag and tick it
+    // again and the saved row is identical.
+    expect(sameTagSet(["a", "b"], ["b", "a"])).toBe(true);
+  });
+
+  it("notices an added, removed or swapped id", () => {
+    expect(sameTagSet(["a"], ["a", "b"])).toBe(false);
+    expect(sameTagSet(["a", "b"], ["a"])).toBe(false);
+    expect(sameTagSet(["a", "b"], ["a", "c"])).toBe(false);
+    expect(sameTagSet([], [])).toBe(true);
+  });
+});
+
+describe("mergeCreatedTags", () => {
+  const tag = (id: string, name: string) => ({
+    id,
+    name,
+    color: "#ef4444",
+    createdAt: "",
+    updatedAt: "",
+  });
+
+  it("appends a locally created tag the server hasn't caught up with", () => {
+    const merged = mergeCreatedTags([tag("1", "Apple")], [tag("2", "New")]);
+    expect(merged.map((t) => t.id)).toEqual(["1", "2"]);
+  });
+
+  it("lets the server copy win once it arrives", () => {
+    // A rename made in another tab must not be masked by the stale local copy.
+    const merged = mergeCreatedTags([tag("1", "Renamed")], [tag("1", "Original")]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0]!.name).toBe("Renamed");
+  });
+
+  it("returns the server array untouched when there is nothing local", () => {
+    const server = [tag("1", "Apple")];
+    expect(mergeCreatedTags(server, [])).toBe(server);
   });
 });

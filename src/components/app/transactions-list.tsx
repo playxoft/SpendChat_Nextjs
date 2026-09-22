@@ -8,6 +8,7 @@ import { TransactionsTable } from "./transactions-table";
 import { cn } from "@/lib/utils";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
+import type { TxnTagDTO } from "@/lib/tags";
 
 /** The serializable filters the load-more action re-runs the query with. */
 export type TxnQueryFilters = {
@@ -27,6 +28,8 @@ type SharedProps = {
   locale: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
+  /** The workspace's tags, for the edit dialog's picker. */
+  tags: TxnTagDTO[];
   today: string;
 };
 

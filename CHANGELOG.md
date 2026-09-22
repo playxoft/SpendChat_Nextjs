@@ -14,9 +14,55 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.1.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.2.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.26.0] — 2026-09-22
+
+### Added
+- **A Tags column on the transactions page.** Visible by default, and draggable,
+  resizable and hideable like every other column. A row shows its first three
+  tags and a `+N` for the rest, which names them on hover.
+- **Filter the transactions list by tag.** A multi-select beside the category
+  filter; picking several matches transactions carrying **any** of them, and the
+  record count, the totals, the CSV export and the print view all narrow with
+  it. It survives scrolling — loading more rows keeps the filter.
+- **Settings → Tags**: the full list with what each tag costs to remove ("on 34
+  transactions"), rename, recolour and delete. The second place a tag can be
+  created — the first is the composer's `#` picker. Viewers see it read-only.
+- **Tags in the edit dialog**, for adding or removing them on a transaction that
+  already exists, with the same create-a-tag step the composer has.
+- **Tags on the tracker's chat bubbles**, under the description.
+- **A `Tags` column in both CSV exports** — the tag names joined by `"; "`.
+
+### Changed
+- A column added by a release now appears **where it belongs** in a saved
+  column layout, not tacked onto the end. Anyone who had ever reordered their
+  transactions table would have found the new Tags column parked to the right
+  of Amount and User, off the edge of the table.
+- The mobile API gains `/api/v1/tags` (list, create, rename, recolour, delete)
+  and its CSV export gains the `Tags` column — spec **6.2.0**, additive. See
+  [the API changelog](./_developer/flutter/_changelog.md).
+
+### Fixed
+- **Picking two tags in the filter kept only the second.** The control read its
+  selection back from the URL, which lags a round-trip behind on this page, so
+  the second tick was computed against a selection that hadn't updated yet.
+- **A filter on a deleted tag was a dead end** — an empty list with every
+  control looking unset and no Clear button, escapable only by editing the URL.
+- **Renaming or deleting a tag that someone else had already deleted reported
+  success.** The settings page now says it couldn't find the tag, which is what
+  the mobile API has always answered.
+- **"Create new tag" at the 10-tag limit** created the tag and silently didn't
+  attach it. The option is disabled at the limit.
+- Tags on a row no longer visibly reshuffle a moment after saving: the row is
+  painted in the order the server will return it.
+- **The edit dialog could refuse to save.** Once its content was taller than
+  the window, the attachment dropzone stopped being clipped and covered the
+  footer, swallowing every click on Save — the button looked fine and did
+  nothing. The dialog body now scrolls properly and the footer always sits on
+  top. Adding the tag field is what made the dialog tall enough to show it.
 
 ## [0.25.0] — 2026-09-22
 

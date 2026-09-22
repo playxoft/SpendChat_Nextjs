@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { AttachmentList, type ListAttachment } from "./attachments/attachment-list";
+import { TagList } from "./tags/tag-list";
+import type { ChipTag } from "./tags/tag-chip";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -41,6 +43,7 @@ export function TransactionBubble({
   description,
   categoryName,
   categoryIcon,
+  tags,
   timeLabel,
   attachments,
   onOpenAttachment,
@@ -56,6 +59,8 @@ export function TransactionBubble({
   description?: string | null;
   categoryName?: string | null;
   categoryIcon?: string | null;
+  /** The transaction's tags, rendered as chips under the description. */
+  tags?: ChipTag[];
   timeLabel?: string;
   /** Files attached to this transaction; rendered as a vertical list of rows. */
   attachments?: ListAttachment[];
@@ -131,6 +136,12 @@ export function TransactionBubble({
             {description}
           </p>
         ) : null}
+
+        {/* Under the text, above the files: a tag is a property of what the
+            transaction *was*, so it reads with the title and description rather
+            than with the receipts. `wrap` because a bubble grows to fit — only
+            the table needs its chips clipped to one line. */}
+        {tags && tags.length > 0 ? <TagList tags={tags} wrap className="mt-1.5" /> : null}
 
         {attachments && attachments.length > 0 ? (
           <AttachmentList

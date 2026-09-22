@@ -16,6 +16,7 @@ import {
 import { CategoryRow } from "./category-row";
 import { TagChip } from "./tags/tag-chip";
 import { TagFormDialog } from "./tags/tag-form-dialog";
+import { useCreatedTags } from "./tags/use-created-tags";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { ControlHint } from "./control-hint";
 import { AiTransactionInput } from "./ai-transaction-input";
@@ -84,7 +85,7 @@ export function TransactionComposer({
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   /** The workspace's tags, for the "#" picker. Shared by every member, so this
    *  list doesn't depend on the active profile. */
-  tags: Pick<TxnTagDTO, "id" | "name" | "color">[];
+  tags: TxnTagDTO[];
   currency: string;
   /** Drives how a typed amount is read ("1,50" is 1.50 for a de-DE user). */
   locale?: string;
@@ -133,12 +134,9 @@ export function TransactionComposer({
   // Open with the text typed after the "#", so "Create #trav" pre-fills.
   const [tagFormName, setTagFormName] = useState<string | null>(null);
   // Tags created from inside this composer, held until the server list catches
-  // up. `tags` is a server prop refreshed by the action's `revalidatePath`, so
-  // without this the chip for a tag you just created can't be resolved and
-  // doesn't render until that round-trip lands — a visible beat during which
-  // the tag is applied but invisible. Cleared whenever the server list arrives
-  // carrying them.
-  const [createdTags, setCreatedTags] = useState<TxnTagDTO[]>([]);
+  // up (see the hook — it also retires them, which is what stops a tag deleted
+  // elsewhere reappearing as a pickable option).
+  const createdTags = useCreatedTags(tags);
   const { send } = usePendingMessages();
   // Files staged for the next send; uploaded to the row once it's created.
   const staged = useStagedAttachments();
@@ -224,22 +222,7 @@ export function TransactionComposer({
   // when you're mid-sentence. `tagCreatable` is false for a bare "#", which is
   // "show me the list", and for a name that already exists.
   // The server's list plus anything created here that it hasn't caught up with.
-  const knownTags = useMemo(() => {
-    const seen = new Set(tags.map((t) => t.id));
-    const extra = createdTags.filter((t) => !seen.has(t.id));
-    return extra.length ? [...tags, ...extra] : tags;
-  }, [tags, createdTags]);
-
-  // Retire the local copies the server list now carries. Done during render
-  // rather than in an effect: `tags` arriving with them *is* the signal, and an
-  // effect would paint one frame with both. React re-renders immediately on a
-  // set during render, so nothing downstream sees the stale list.
-  if (createdTags.length > 0) {
-    const serverIds = new Set(tags.map((t) => t.id));
-    if (createdTags.some((t) => serverIds.has(t.id))) {
-      setCreatedTags((prev) => prev.filter((t) => !serverIds.has(t.id)));
-    }
-  }
+  const knownTags = createdTags.known;
 
   const tagMatch = titleSource.match(TAG_RE);
   const tagQuery = tagMatch?.[1] ?? "";
@@ -1354,7 +1337,7 @@ export function TransactionComposer({
         // inside a half-typed transaction, so making them pick it again would
         // be asking twice for one decision.
         onSaved={(tag) => {
-          setCreatedTags((prev) => [...prev, tag]);
+          createdTags.add(tag);
           setTagIds((prev) => (prev.includes(tag.id) ? prev : [...prev, tag.id]));
           setTagFormName(null);
         }}

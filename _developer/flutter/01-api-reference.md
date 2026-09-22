@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.1.0.** Every API change bumps this version and is logged
+**API spec version: 6.2.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -229,8 +229,9 @@ hide it in solo ones. `attachments.length` drives the 📎 indicator.
 A workspace-scoped label. Any number of transactions can carry a tag, and a
 transaction can carry up to 10 — `tags` above is the resolved list, and
 `tagIds` on create/update is how you set it. Shared by every member of the
-workspace, like categories. There is no endpoint to create or manage tags in
-this version; read the ones a workspace already has off a transaction.
+workspace, like categories, and managed through **`/tags`** (6.2.0). Distinct
+from the vault's per-profile file tags (`/file-tags`), which are a different
+entity in a different table.
 ```jsonc
 {
   "id": "uuid",
@@ -556,6 +557,21 @@ the list.
 | `PATCH /categories/{id}` | `{ name?, icon? }` | 200 `data: Category` | Editor+ (403). 422; 404 "Category not found"; 409 duplicate name |
 | `DELETE /categories/{id}` | — | 200 `data: { id, deleted: true }` | Editor+ (403). Referencing transactions get `categoryId = null`. 422; 404 |
 
+### Tags (scoped to the current workspace via `X-Workspace-Id`)
+Transaction tags: shared by every member of the workspace. Reads need workspace
+access; writes require the **editor** role (viewer → 403). A new workspace
+starts with **no** tags (unlike categories, which are seeded).
+
+Transactions reference tags by id, so a rename or recolor here shows on every
+transaction carrying it without touching a transaction.
+
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `GET /tags` | — | 200 `data: Tag[]` | The current workspace's list, ordered by `lower(name)`. |
+| `POST /tags` | `TagInput` `{ name, color }` | 201 `data: Tag` | Editor+ (403 for viewer). 422; 409 "A tag with that name already exists" (unique per workspace, case-insensitive); 409 "This workspace already has 100 tags" |
+| `PATCH /tags/{id}` | `{ name?, color? }` | 200 `data: Tag` | Editor+ (403). 422 (including an empty body — "Nothing to update"); 404 "Tag not found"; 409 duplicate name |
+| `DELETE /tags/{id}` | — | 200 `data: { id, deleted: true }` | Editor+ (403). Deletes the tag **and** removes its id from every transaction in the workspace, in one database transaction. 422 (non-uuid id); 404 |
+
 ### Profiles (RBAC: 404 = no access, 403 = role too low)
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
@@ -595,6 +611,15 @@ the list.
 - `description` — string, trimmed, `≤ 150`, optional (default `""`; empty → `null`).
 - `occurredOn` — `^\d{4}-\d{2}-\d{2}$`, **required** ("Date must be YYYY-MM-DD").
 - *(deprecated)* `note` — alias for `title`, `≤ 40`; use `title` instead.
+
+`TagInput` / `TagUpdate`:
+- `name` — string, trimmed, 1–20, **required** on create. Unique per workspace,
+  case-insensitively.
+- `color` — `^#[0-9a-fA-F]{6}$`, **required** on create; stored lowercased. The
+  20-swatch palette the apps offer is a UI convention — the server takes any
+  6-digit hex.
+- On `PATCH`, both are optional but **at least one must be present** (an empty
+  body is a 422, not a no-op).
 
 `WorkspaceInput` — `name` (1–30, trimmed; "Workspace name is required" /
 "…too long (max 30 characters)"), `icon?` (≤16 emoji; omitted/empty → default 🏢).
@@ -644,10 +669,17 @@ filename extension).
 date) and `Cache-Control: no-store`. Up to 5000 rows, honouring the same filters
 (no paging).
 
-- Header row: `Date,Type,Category,Note,Amount,Currency`
+- Header row: `Date,Type,Category,Note,Amount,Currency,Tags`
 - Each row: `occurredOn` (raw `YYYY-MM-DD`), `type` (`income`/`expense`),
   `categoryName ?? "Uncategorized"`, `note` (= title) `?? ""`, **signed** major
-  amount (`.toFixed(decimals)`, expenses negative), currency code.
+  amount (`.toFixed(decimals)`, expenses negative), currency code, and the
+  row's tag names joined by `"; "` (empty when it has none).
+- **`Tags` was appended in 6.2.0**, after `Currency` rather than beside
+  `Category`, so every earlier column kept its index.
+- The `Tags` cell is **for display, not for parsing**: a tag name is only
+  trimmed and length-capped, so it may itself contain `;` or `,`. Splitting on
+  `"; "` is a guess. (The file is still well-formed — a cell with a comma is
+  quoted, and the formula guard applies to it like any text cell.)
 - Cells are quoted when they contain `"`, `,`, `\n`, or `\r`; lines joined
   with **CRLF**.
 - **Formula-injection guard (2.1.0):** a *text* cell starting with `=`, `+`,

@@ -38,8 +38,13 @@ export function resolveWebProfile(
  * is a view, and a mangled URL should narrow oddly, not 500. Deduped, and
  * capped at the same ceiling a transaction can carry, so a hand-written URL
  * can't turn the filter into an unbounded `IN` list.
+ *
+ * Exported because the filter control reads the same parameter back to decide
+ * what to tick. It had its own `split(",")` for a while, which trimmed nothing,
+ * deduped nothing and capped nothing — so a hand-made URL could show fifteen
+ * tags ticked while ten were filtering. One parser, one answer.
  */
-function parseTagIds(value: string | null): string[] | undefined {
+export function parseTagIds(value: string | null): string[] | undefined {
   if (!value) return undefined;
   const ids = [
     ...new Set(

@@ -7,6 +7,7 @@ import {
   Keyboard,
   Mic,
   Palette,
+  Tag,
   Tags,
   TextCursorInput,
   UserRound,
@@ -21,6 +22,7 @@ export const SETTINGS_SECTIONS = [
   { href: "/app/settings/input", label: "Input", icon: TextCursorInput },
   { href: "/app/settings/voice", label: "Voice", icon: Mic },
   { href: "/app/settings/categories", label: "Categories", icon: Tags },
+  { href: "/app/settings/tags", label: "Tags", icon: Tag },
   { href: "/app/settings/shortcuts", label: "Shortcuts", icon: Keyboard },
 ] as const;
 
@@ -38,7 +40,7 @@ export function SettingsNav() {
       // `scrollbar-slim`, not `no-scrollbar`: hiding the bar is right for the
       // category strip because every chip is also one tap away in the picker
       // beside it. There is no second way to reach a settings section — about
-      // three of the seven fit on a narrow phone — so the bar is the only thing
+      // three of the eight fit on a narrow phone — so the bar is the only thing
       // saying the rest are there.
       className="scrollbar-slim flex gap-1 overflow-x-auto pb-2 lg:w-44 lg:shrink-0 lg:flex-col lg:overflow-visible lg:pb-0"
     >
