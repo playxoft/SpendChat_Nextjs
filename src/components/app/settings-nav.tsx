@@ -6,8 +6,8 @@ import {
   Building2,
   Keyboard,
   Mic,
+  Hash,
   Palette,
-  Tag,
   Tags,
   TextCursorInput,
   UserRound,
@@ -22,7 +22,9 @@ export const SETTINGS_SECTIONS = [
   { href: "/app/settings/input", label: "Input", icon: TextCursorInput },
   { href: "/app/settings/voice", label: "Voice", icon: Mic },
   { href: "/app/settings/categories", label: "Categories", icon: Tags },
-  { href: "/app/settings/tags", label: "Tags", icon: Tag },
+  // "#", not the lucide tag glyph: that one is a near-twin of the `Tags` icon
+  // on the Categories row directly above, and the two rows read as one.
+  { href: "/app/settings/tags", label: "Tags", icon: Hash },
   { href: "/app/settings/shortcuts", label: "Shortcuts", icon: Keyboard },
 ] as const;
 

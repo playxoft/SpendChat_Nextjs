@@ -23,6 +23,7 @@ import {
   requireProfileRole,
 } from "@/lib/workspaces";
 import {
+  TAGS_PER_TRANSACTION_MAX,
   transactionInputSchema,
   updateTransactionSchema,
   bulkTransactionsSchema,
@@ -460,6 +461,18 @@ export async function createBulkFromDrafts(
   const catMap = new Map<string, string>();
   for (const c of workspaceCats) catMap.set(`${c.kind}:${c.name.toLowerCase()}`, c.id);
 
+  // Tag names → ids, resolved once for the batch. Only fetched when a draft
+  // actually carries tags: the text-paste path never does, and this runs on
+  // every bulk import.
+  const tagMap = new Map<string, string>();
+  if (drafts.some((d) => d.tagNames?.length)) {
+    const workspaceTags = await db
+      .select({ id: tags.id, name: tags.name })
+      .from(tags)
+      .where(eq(tags.workspaceId, workspaceId));
+    for (const t of workspaceTags) tagMap.set(t.name.toLowerCase(), t.id);
+  }
+
   const writable = await writableProfileIds(userId, workspaceId);
   if (writable.length === 0) {
     throw forbidden("You don't have permission to add transactions in this workspace");
@@ -486,6 +499,15 @@ export async function createBulkFromDrafts(
       profileId,
       title: pickTitle({ title: d.title, note: d.note }),
       description: d.description?.trim() ? d.description.trim() : null,
+      // Deduped and capped here as well as upstream: this path is also reached
+      // by `/api/v1/transactions/bulk`, where the names come from a client.
+      tagIds: [
+        ...new Set(
+          (d.tagNames ?? [])
+            .map((n) => tagMap.get(n.trim().toLowerCase()))
+            .filter((id): id is string => !!id),
+        ),
+      ].slice(0, TAGS_PER_TRANSACTION_MAX),
       occurredOn: d.occurredOn,
     });
   }

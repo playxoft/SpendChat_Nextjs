@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as cats from "@/services/categories";
+import { serializeCategory, type ApiCategory } from "@/lib/api-serializers";
 import { type CategoryInput, type UpdateCategoryInput } from "@/lib/validation";
 
 function revalidateApp() {
@@ -17,15 +18,26 @@ function revalidateApp() {
   revalidatePath("/app/settings", "layout");
 }
 
-export async function addCategory(input: CategoryInput): Promise<ActionResult> {
+/**
+ * Create a category and hand the row back.
+ *
+ * Returns the created category rather than `{}` because the "/" picker offers
+ * to create one from what you typed and then has to *apply* it to the
+ * transaction being written. Without the id it would have to re-fetch the list
+ * and match on name — a round-trip, and a guess if two people create the same
+ * name at once. `addTag` returns its row for the same reason.
+ */
+export async function addCategory(
+  input: CategoryInput,
+): Promise<ActionResult<{ category: ApiCategory }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "addCategory",
     async () => {
-      await cats.createCategory(user.id, workspace.id, input);
+      const row = await cats.createCategory(user.id, workspace.id, input);
       revalidateApp();
-      return {};
+      return { category: serializeCategory(row) };
     },
     { userId: user.id, workspaceId: workspace.id },
   );

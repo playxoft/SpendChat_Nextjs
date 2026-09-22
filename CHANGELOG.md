@@ -14,9 +14,40 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.2.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.3.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.27.0] — 2026-09-23
+
+### Added
+- **Tags work in AI entry.** Type `#travel` in the note the way you type
+  `/Food`, with the same picker and the same Create-it-from-here row. The
+  marker stays in the note — it is the instruction the model reads — and the
+  review list shows which tags each draft picked up. Unlike the category, a tag
+  is **never guessed**: you get the ones you asked for and nothing else.
+- **A `#` button on the tracker composer**, for picking tags with the pointer
+  instead of typing the marker.
+- **Create a category from the `/` picker.** If what you typed doesn't match
+  one, the last row offers to make it — the same step the `#` picker has had.
+  It works in manual entry, in AI entry and in the single-field layout.
+
+### Changed
+- **Picked tags now sit at the end of the title field** instead of on a row of
+  their own above it. The composer no longer jumps a line the moment you apply
+  one. Two show inline; the rest become a `+N` that names them on hover and
+  opens the picker when clicked.
+- The `/` category list says **income** or **expense** at the end of each row,
+  instead of `in` / `out` — two letters that differ by one glyph.
+- **Settings has left the sidebar.** It is in the profile menu, which is on
+  every screen in both layouts, and listing it twice spent a nav slot on the
+  destination people visit least. The `s` shortcut still goes there.
+- Tags use a **`#` icon** everywhere instead of the tag glyph, which was a
+  near-twin of the one Categories uses.
+- The profile menu's source link drops the licence name; the link itself stays.
+- The mobile API's `/ai/parse` reads the `#` marker and returns `tagIds` /
+  `tagNames` per draft — spec **6.3.0**, additive. See
+  [the API changelog](./_developer/flutter/_changelog.md).
 
 ## [0.26.1] — 2026-09-22
 

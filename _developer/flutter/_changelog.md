@@ -19,6 +19,32 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.3.0 — 2026-09-23
+
+`POST /ai/parse` reads a `#tag` marker, and each draft says which tags it found.
+
+The note syntax gains **`#TagName`** beside `/CategoryName`: a hash followed by
+a letter, repeatable, matched to the workspace's existing tags. `#1` is not a
+tag. Unlike the category — which the model picks when the note doesn't say —
+tags are **never guessed**: you get exactly the ones the note asked for, and a
+name that isn't in the workspace is dropped rather than created.
+
+Each `AiDraft` therefore gains two fields:
+
+| Field | Notes |
+|---|---|
+| `tagIds` | Resolved workspace tag ids, in mention order, at most 10. Pass straight through as `tagIds` on `POST /transactions/bulk`. |
+| `tagNames` | The same tags by their stored names, for display beside the draft. |
+
+**Flutter impact:** additive. Both fields are always present (empty arrays when
+the note carried no marker), so a client that ignores them is unaffected —
+except that a draft it commits will silently drop the tags the user asked for,
+which is worth wiring up. Nothing else changed; `/transactions/bulk` already
+took `tagIds` (6.0.0), so committing them needs no new endpoint. Surface the
+`#` hint in the app's AI help alongside the `/` one.
+
+---
+
 ## 6.2.0 — 2026-09-22
 
 Tags can be created and managed from the app, and the CSV export names them.

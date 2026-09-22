@@ -6,7 +6,7 @@ import { badRequest, forbidden } from "@/lib/errors";
 import { canWriteInWorkspace } from "@/lib/workspaces";
 import { assertAiRequestAllowed } from "@/lib/ai-quota";
 import { MAX_INPUT_CHARS, parseTransactionsText } from "@/lib/ai-parse";
-import { getCategories } from "@/lib/queries";
+import { getCategories, getTags } from "@/lib/queries";
 import { DEFAULT_TIME_ZONE, isValidTimeZone } from "@/lib/timezone";
 import { todayISO } from "@/lib/dates";
 
@@ -47,10 +47,14 @@ export async function POST(request: NextRequest) {
     await assertAiRequestAllowed(user.id, workspace.id, "transaction_parse");
 
     const today = todayISO(body.timezone ?? DEFAULT_TIME_ZONE);
-    const categories = await getCategories(workspace.id);
+    const [categories, tags] = await Promise.all([
+      getCategories(workspace.id),
+      getTags(workspace.id),
+    ]);
     const drafts = await parseTransactionsText({
       text: note,
       categories: categories.map((c) => ({ name: c.name, kind: c.kind })),
+      tags: tags.map((t) => t.name),
       currency: workspace.currency,
       locale: workspace.locale,
       today,
@@ -59,6 +63,10 @@ export async function POST(request: NextRequest) {
     // The model resolves category *names*; hand the client the matching ids so
     // committing via /transactions/bulk needs no client-side name lookup.
     const idByKindAndName = new Map(categories.map((c) => [`${c.kind}:${c.name}`, c.id]));
+    // Tag ids too, for the same reason: the model answers in names and
+    // `/transactions/bulk` takes ids, so the lookup belongs here rather than in
+    // every client.
+    const tagIdByName = new Map(tags.map((t) => [t.name, t.id]));
     return apiOk({
       drafts: drafts.map((d) => ({
         type: d.type,
@@ -67,6 +75,8 @@ export async function POST(request: NextRequest) {
         description: d.description ?? null,
         categoryId: d.categoryName ? (idByKindAndName.get(`${d.type}:${d.categoryName}`) ?? null) : null,
         categoryName: d.categoryName,
+        tagIds: d.tagNames.map((n) => tagIdByName.get(n)).filter((id): id is string => !!id),
+        tagNames: d.tagNames,
         occurredOn: d.occurredOn,
       })),
       today,

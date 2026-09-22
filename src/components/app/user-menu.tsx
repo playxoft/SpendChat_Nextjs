@@ -97,7 +97,10 @@ export function UserMenu({
             className="cursor-pointer"
           >
             <GithubIcon className="size-4" />
-            <span className="truncate">Source code · {siteConfig.license}</span>
+            {/* The link stays (see the note above — section 13 is why this is
+                here); only the licence name is dropped, which nobody needed to
+                read in a menu. It is still on the repo and in the footer. */}
+            <span className="truncate">Source code</span>
           </a>
         </DropdownMenuItem>
       </DropdownMenuContent>

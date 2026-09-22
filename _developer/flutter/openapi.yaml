@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.2.0"
+  version: "6.3.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -1821,14 +1821,17 @@ paths:
 
         Hints the model honours (worth surfacing in the app's UI help):
         `/CategoryName` picks a category (a slash followed by a letter; a slash
-        between digits is a date), `(parentheses)` become the
-        description, relative dates ("yesterday", "last Friday") resolve
-        against `timezone`.
+        between digits is a date), `#TagName` tags the transaction (a hash
+        followed by a letter; `#1` is not a tag) and may repeat,
+        `(parentheses)` become the description, relative dates ("yesterday",
+        "last Friday") resolve against `timezone`.
 
         `timezone` (IANA, e.g. `Asia/Kolkata`) anchors "today" for those
         relative dates; omitted → UTC. Send the device zone. Drafts never get
         a future date; `categoryId`/`categoryName` are guaranteed to be an
-        existing workspace category of the draft's type, or null.
+        existing workspace category of the draft's type, or null. `tagIds` are
+        existing workspace tags, and unlike the category they are **never
+        guessed** — only what the note's "#" markers asked for.
 
         Gates, in order: 400 (empty or > 2000-char note, bad timezone),
         403 (viewer in this workspace), 429 (shared 30/hour AI quota),
@@ -2837,8 +2840,9 @@ components:
       type: object
       description: >
         One parsed transaction, for user review. Maps 1:1 onto a
-        TransactionInput for POST /transactions/bulk (drop categoryName; add
-        profileId if the user picked a profile).
+        TransactionInput for POST /transactions/bulk (drop categoryName and
+        tagNames, which are display conveniences; add profileId if the user
+        picked a profile).
       properties:
         type: { type: string, enum: [income, expense] }
         amount:
@@ -2864,11 +2868,26 @@ components:
         categoryName:
           type: [string, "null"]
           description: The matched category's exact stored name (display convenience; same match as categoryId).
+        tagIds:
+          type: array
+          description: >
+            Resolved ids of the workspace tags the note asked for, in mention
+            order — pass straight through as `tagIds` on POST /transactions/bulk.
+            Empty when the note carried no "#" marker. Added in 6.3.0.
+          items: { type: string, format: uuid }
+          maxItems: 10
+        tagNames:
+          type: array
+          description: >
+            The same tags by their exact stored names (display convenience; same
+            match as tagIds). Added in 6.3.0.
+          items: { type: string }
+          maxItems: 10
         occurredOn:
           type: string
           format: date
           description: Defaults to "today" in the supplied timezone; never a future date.
-      required: [type, amount, title, description, categoryId, categoryName, occurredOn]
+      required: [type, amount, title, description, categoryId, categoryName, tagIds, tagNames, occurredOn]
 
     VoiceLanguageCode:
       type: string

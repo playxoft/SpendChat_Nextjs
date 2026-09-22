@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/errors";
+import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 import {
   draftsFromRawJson,
   parseTransactionsText,
@@ -453,5 +454,65 @@ describe("parseTransactionsText — provider wiring", () => {
       vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => "boom" })),
     );
     await expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({ status: 502 });
+  });
+});
+
+describe("tag markers", () => {
+  const opts = {
+    categories: [{ name: "Food", kind: "expense" as const }],
+    tags: ["Travel", "Weekly"],
+    today: "2026-06-01",
+  };
+
+  it("resolves tag names to the workspace's stored casing", () => {
+    const [d] = draftsFromRawJson(
+      JSON.stringify({
+        transactions: [
+          { type: "expense", amount: 500, title: "Groceries", tagNames: ["weekly", "TRAVEL"] },
+        ],
+      }),
+      opts,
+    );
+    // Matched case-insensitively, returned in the casing the workspace stores —
+    // the save path looks tags up by name.
+    expect(d!.tagNames).toEqual(["Weekly", "Travel"]);
+  });
+
+  it("drops a tag the workspace doesn't have, rather than inventing one", () => {
+    const [d] = draftsFromRawJson(
+      JSON.stringify({
+        transactions: [
+          { type: "expense", amount: 500, title: "Groceries", tagNames: ["Travel", "Invented"] },
+        ],
+      }),
+      opts,
+    );
+    // The model is told which names exist; anything else is a hallucination and
+    // must not become a tag on the user's transaction.
+    expect(d!.tagNames).toEqual(["Travel"]);
+  });
+
+  it("dedupes, and caps at the per-transaction limit", () => {
+    const many = Array.from({ length: TAGS_PER_TRANSACTION_MAX + 3 }, (_, i) => `t${i}`);
+    const [d] = draftsFromRawJson(
+      JSON.stringify({
+        transactions: [
+          { type: "expense", amount: 5, title: "X", tagNames: [...many, ...many] },
+        ],
+      }),
+      { ...opts, tags: many },
+    );
+    expect(d!.tagNames).toHaveLength(TAGS_PER_TRANSACTION_MAX);
+    expect(new Set(d!.tagNames).size).toBe(TAGS_PER_TRANSACTION_MAX);
+  });
+
+  it("is an empty array when the note carried no marker", () => {
+    const [d] = draftsFromRawJson(
+      JSON.stringify({ transactions: [{ type: "expense", amount: 5, title: "X" }] }),
+      opts,
+    );
+    // Never null: every consumer treats it as a list, and a tag is only ever
+    // what the user asked for — the model is told not to guess one.
+    expect(d!.tagNames).toEqual([]);
   });
 });

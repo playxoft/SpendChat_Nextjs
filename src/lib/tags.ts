@@ -136,8 +136,15 @@ export function sameTagSet(a: string[], b: string[]): boolean {
 }
 
 /**
- * The tag picker's option model, as a pure function of what the user has typed
+ * A marker picker's option model, as a pure function of what the user has typed
  * and what already exists.
+ *
+ * Shared by both inline pickers: "#" over the workspace's tags and "/" over its
+ * categories. They are the same control — a token at the end of the field, a
+ * filtered list, a trailing "Create" row — and the arithmetic below is the part
+ * that was wrong twice, so it should exist once. `applied` is what makes them
+ * differ: a transaction carries many tags, so the ones already on it are
+ * filtered out, while a category is single-valued and passes an empty set.
  *
  * Extracted from the composer because it is the part that was wrong twice, and
  * the part nothing could test: the composer runs in a React tree and this repo's
@@ -163,7 +170,7 @@ export function sameTagSet(a: string[], b: string[]): boolean {
  * `lower(name)` unique index — offering "Create travel" next to an existing
  * "Travel" would promise something the server rejects.
  */
-export type TagPickerModel<T extends { id: string; name: string }> = {
+export type MarkerPickerModel<T extends { id: string; name: string }> = {
   results: T[];
   creatable: boolean;
   optionCount: number;
@@ -173,26 +180,27 @@ export type TagPickerModel<T extends { id: string; name: string }> = {
   onCreateRow: boolean;
 };
 
-export function tagPickerModel<T extends { id: string; name: string }>({
-  tags,
+export function markerPickerModel<T extends { id: string; name: string }>({
+  options,
   query,
   applied,
   rawIndex,
 }: {
-  tags: T[];
+  options: T[];
   query: string;
-  /** Ids already on the transaction — offering them again is a no-op. */
-  applied: Iterable<string>;
+  /** Ids already on the transaction — offering them again is a no-op. Empty
+   *  for a single-valued marker like the category one. */
+  applied?: Iterable<string>;
   rawIndex: number;
-}): TagPickerModel<T> {
-  const appliedSet = applied instanceof Set ? applied : new Set(applied);
+}): MarkerPickerModel<T> {
+  const appliedSet = applied instanceof Set ? applied : new Set(applied ?? []);
   const needle = query.toLowerCase();
   const trimmed = query.trim();
-  const results = tags.filter(
+  const results = options.filter(
     (t) => !appliedSet.has(t.id) && t.name.toLowerCase().includes(needle),
   );
   const creatable =
-    trimmed.length > 0 && !tags.some((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+    trimmed.length > 0 && !options.some((t) => t.name.toLowerCase() === trimmed.toLowerCase());
   const optionCount = results.length + (creatable ? 1 : 0);
   const activeIndex = optionCount ? Math.min(Math.max(rawIndex, 0), optionCount - 1) : 0;
   return { results, creatable, optionCount, activeIndex, onCreateRow: creatable && activeIndex === results.length };

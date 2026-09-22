@@ -8,6 +8,10 @@ export type BulkDraft = {
   description?: string;
   note: string;
   categoryName: string | null;
+  /** Workspace tag names (not ids) — the AI path speaks names, and the text
+   *  parser produces none. Resolved against the workspace on save; an unknown
+   *  name is dropped, never created. */
+  tagNames?: string[];
   profileId?: string;
   occurredOn: string; // YYYY-MM-DD
 };
