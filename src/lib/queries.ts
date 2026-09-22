@@ -1,6 +1,19 @@
 import "server-only";
 import { cache } from "react";
-import { and, asc, desc, eq, gte, ilike, inArray, lte, or, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  arrayOverlaps,
+  asc,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  lte,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import { unionAll } from "drizzle-orm/pg-core";
 import { getDb } from "@/db";
 import {
@@ -41,6 +54,9 @@ export type TxnFilters = {
   type?: "income" | "expense";
   categoryId?: string;
   profileId?: string;
+  /** Match transactions carrying **any** of these tags (OR, not AND). Empty or
+   *  absent means "don't filter by tag". */
+  tagIds?: string[];
   search?: string;
   /** Web-only column sort. The mobile API never sets these, so its ordering
    * (newest first) is unchanged. */
@@ -140,6 +156,24 @@ function buildConditions(profileIds: string[], f: TxnFilters) {
   if (f.type) conds.push(eq(transactions.type, f.type));
   if (f.categoryId) conds.push(eq(transactions.categoryId, f.categoryId));
   if (f.profileId) conds.push(eq(transactions.profileId, f.profileId));
+  if (f.tagIds?.length) {
+    // Overlap, so several selected tags widen the result the way a filter chip
+    // row implies: "tagged travel **or** reimbursable". `@>` would narrow it to
+    // rows carrying all of them — a different feature, and one the same GIN
+    // index would serve if it is ever wanted.
+    //
+    // This is the whole reason the edges live in a `uuid[]` on `transactions`
+    // rather than a join table: it is a predicate on `transactions` alone, so
+    // it composes into every query built from this function *and* survives
+    // being pushed into each branch of `pageOf`'s per-profile merge-append. A
+    // join table would need an `EXISTS` semi-join inside all of them.
+    // `arrayOverlaps`, not a hand-written `sql` template: interpolating a JS
+    // array into one there binds it as a *single scalar* parameter, so
+    // `tag_ids && ($1)::uuid[]` arrives with a bare uuid string and Postgres
+    // rejects it ("malformed array literal"). The helper emits the array
+    // literal properly.
+    conds.push(arrayOverlaps(transactions.tagIds, f.tagIds));
+  }
   if (f.search) {
     const like = `%${f.search}%`;
     conds.push(
@@ -411,8 +445,16 @@ function selectionFor(page: Page) {
     // `= any(tag_ids)` rather than a join through the array, so a tag that was
     // deleted between the write and this read simply doesn't come back — the
     // column carries no foreign key, so a stale id is possible and must not
-    // produce a null-filled chip. Ordered by name so the chips are stable
-    // between renders instead of following insertion order.
+    // produce a null-filled chip.
+    //
+    // Ordered by `lower(name)`, not `name`, so the chips are stable between
+    // renders *and* between databases: plain `name` sorts by the collation's
+    // byte order, and the collations disagree — C puts "Zebra" before "apple",
+    // en_US.UTF-8 the other way — so the chips would order differently in tests
+    // (PGlite) than in production (Neon). Note that no SQL `--` comment may go
+    // inside the template below: a backtick in one ends the template literal,
+    // and the query is built as a single line, so the comment would swallow the
+    // rest of it.
     tags: sql<TxnTagDTO[]>`(
       select coalesce(
         jsonb_agg(
@@ -423,7 +465,7 @@ function selectionFor(page: Page) {
             'createdAt', ${tags.createdAt},
             'updatedAt', ${tags.updatedAt}
           )
-          order by ${tags.name}
+          order by lower(${tags.name})
         ),
         '[]'::jsonb
       )
@@ -725,6 +767,21 @@ export async function getCategories(workspaceId: string) {
     .from(categories)
     .where(eq(categories.workspaceId, workspaceId))
     .orderBy(asc(categories.kind), asc(categories.name));
+}
+
+/** The workspace's tags, by name — the list the picker, the filter and the
+ *  settings manager all render. Mirrors `getCategories`. */
+export async function getTags(workspaceId: string) {
+  const db = getDb();
+  return db
+    .select({
+      id: tags.id,
+      name: tags.name,
+      color: tags.color,
+    })
+    .from(tags)
+    .where(eq(tags.workspaceId, workspaceId))
+    .orderBy(asc(sql`lower(${tags.name})`));
 }
 
 /** Profiles in the workspace the user can at least view, in sidebar order. */

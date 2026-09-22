@@ -100,3 +100,73 @@ export function defaultTagColor(name: string): string {
   for (const ch of key) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   return TAG_COLORS[hash % TAG_COLORS.length]!;
 }
+
+/**
+ * The tag picker's option model, as a pure function of what the user has typed
+ * and what already exists.
+ *
+ * Extracted from the composer because it is the part that was wrong twice, and
+ * the part nothing could test: the composer runs in a React tree and this repo's
+ * vitest projects are both `environment: "node"` with no DOM harness, so the
+ * component itself is only exercised by review and by running the app. This much
+ * is arithmetic, and arithmetic can be pinned.
+ *
+ * The two mistakes it now encodes, both of which shipped and were caught in
+ * review:
+ *
+ *  - **`activeIndex` is clamped, and stepping must start from the clamped
+ *    value.** The raw index survives the list shrinking as the query narrows —
+ *    highlight the third of three options, type another character until only two
+ *    remain, and the raw index still says 2. Reading it directly highlights the
+ *    wrong row (Enter then fires "Create" instead of the single visible match);
+ *    stepping from it makes the first arrow press in either direction a no-op,
+ *    because `(2+1) % 2` and `(2-1+2) % 2` are both 1.
+ *  - **The create row is the last option**, so arrowing past the matches lands
+ *    on it — which means it has to be counted in `optionCount`, not bolted on.
+ *
+ * `creatable` is false for an empty query (a bare "#" means "show me the list")
+ * and for a name that already exists, case-insensitively, matching the database's
+ * `lower(name)` unique index — offering "Create travel" next to an existing
+ * "Travel" would promise something the server rejects.
+ */
+export type TagPickerModel<T extends { id: string; name: string }> = {
+  results: T[];
+  creatable: boolean;
+  optionCount: number;
+  /** The highlighted option, always within `[0, optionCount)` (0 when empty). */
+  activeIndex: number;
+  /** Whether `activeIndex` is the trailing "Create" row. */
+  onCreateRow: boolean;
+};
+
+export function tagPickerModel<T extends { id: string; name: string }>({
+  tags,
+  query,
+  applied,
+  rawIndex,
+}: {
+  tags: T[];
+  query: string;
+  /** Ids already on the transaction — offering them again is a no-op. */
+  applied: Iterable<string>;
+  rawIndex: number;
+}): TagPickerModel<T> {
+  const appliedSet = applied instanceof Set ? applied : new Set(applied);
+  const needle = query.toLowerCase();
+  const trimmed = query.trim();
+  const results = tags.filter(
+    (t) => !appliedSet.has(t.id) && t.name.toLowerCase().includes(needle),
+  );
+  const creatable =
+    trimmed.length > 0 && !tags.some((t) => t.name.toLowerCase() === trimmed.toLowerCase());
+  const optionCount = results.length + (creatable ? 1 : 0);
+  const activeIndex = optionCount ? Math.min(Math.max(rawIndex, 0), optionCount - 1) : 0;
+  return { results, creatable, optionCount, activeIndex, onCreateRow: creatable && activeIndex === results.length };
+}
+
+/** Step the picker's highlight, wrapping. Always called with the *clamped*
+ *  index, which is what makes the first press after a shrinking list move. */
+export function stepPickerIndex(activeIndex: number, optionCount: number, delta: 1 | -1): number {
+  if (optionCount <= 0) return 0;
+  return (activeIndex + delta + optionCount) % optionCount;
+}

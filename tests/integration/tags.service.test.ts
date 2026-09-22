@@ -9,6 +9,8 @@ import {
   countTransactionsForTxnTag,
 } from "@/services/tags";
 import { createTransactionId, setTransactionTags } from "@/services/transactions";
+import { createProfile } from "@/services/profiles";
+import { countTransactions, listTransactions } from "@/lib/queries";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import { bootstrapUser, firstProfileId, workspaceIdOf } from "./helpers/seed";
@@ -194,5 +196,84 @@ describe("deleteTxnTag", () => {
       await deleteTxnTag(userId, workspaceId, "0199a000-0000-7000-8000-000000000999"),
     ).toBe(false);
     await expect(deleteTxnTag(userId, workspaceId, "nope")).rejects.toThrow(/invalid tag/i);
+  });
+});
+
+describe("the tag filter on the read path", () => {
+  it("matches ANY of the selected tags, and composes with the other filters", async () => {
+    const { userId, workspaceId, profileId } = await seedUser("a");
+    const travel = await createTxnTag(userId, workspaceId, { name: "Travel", color: "#ef4444" });
+    const work = await createTxnTag(userId, workspaceId, { name: "Work", color: "#22c55e" });
+    const other = await createTxnTag(userId, workspaceId, { name: "Other", color: "#3b82f6" });
+
+    const t = await createTransactionId(userId, workspaceId, {
+      ...txn(profileId, [travel.id]),
+      title: "flight",
+    });
+    const w = await createTransactionId(userId, workspaceId, {
+      ...txn(profileId, [work.id]),
+      title: "laptop",
+    });
+    const both = await createTransactionId(userId, workspaceId, {
+      ...txn(profileId, [travel.id, work.id]),
+      title: "hotel",
+    });
+    await createTransactionId(userId, workspaceId, { ...txn(profileId), title: "untagged" });
+
+    const ids = async (f: Parameters<typeof listTransactions>[2]) =>
+      (await listTransactions(userId, workspaceId, f)).map((r) => r.id).sort();
+
+    // One tag.
+    expect(await ids({ tagIds: [travel.id] })).toEqual([t.id, both.id].sort());
+    // Two tags widen (OR), and a row carrying both appears once, not twice.
+    expect(await ids({ tagIds: [travel.id, work.id] })).toEqual([t.id, w.id, both.id].sort());
+    // A tag nobody used matches nothing.
+    expect(await ids({ tagIds: [other.id] })).toEqual([]);
+    // Absent and empty both mean "don't filter".
+    expect(await ids({ tagIds: [] })).toHaveLength(4);
+    // Composes with another predicate rather than replacing it.
+    expect(await ids({ tagIds: [travel.id, work.id], search: "hotel" })).toEqual([both.id]);
+  });
+
+  // The page is assembled per profile and merged (`pageOf`'s merge-append),
+  // which is the shape the `uuid[]` column was chosen to preserve. A filter
+  // that only worked on the single-scan path would pass every other test here.
+  it("survives the multi-profile merge-append path", async () => {
+    const { userId, workspaceId, profileId } = await seedUser("a");
+    const second = await createProfile(userId, workspaceId, { name: "Company", icon: "🏢" });
+    const tag = await createTxnTag(userId, workspaceId, { name: "Shared", color: "#ef4444" });
+
+    const inFirst = await createTransactionId(userId, workspaceId, txn(profileId, [tag.id]));
+    const inSecond = await createTransactionId(userId, workspaceId, txn(second.id, [tag.id]));
+    await createTransactionId(userId, workspaceId, txn(profileId));
+    await createTransactionId(userId, workspaceId, txn(second.id));
+
+    // No `profileId` filter = every accessible profile = the merged path.
+    const rows = await listTransactions(userId, workspaceId, { tagIds: [tag.id] });
+    expect(rows.map((r) => r.id).sort()).toEqual([inFirst.id, inSecond.id].sort());
+    // And the count query, which shares `buildConditions`, agrees with it.
+    expect(await countTransactions(userId, workspaceId, { tagIds: [tag.id] })).toBe(2);
+  });
+
+  it("embeds each row's tags, name-ordered, and drops ids that no longer resolve", async () => {
+    const { userId, workspaceId, profileId } = await seedUser("a");
+    const zebra = await createTxnTag(userId, workspaceId, { name: "Zebra", color: "#ef4444" });
+    const apple = await createTxnTag(userId, workspaceId, { name: "apple", color: "#22c55e" });
+    const { id } = await createTransactionId(
+      userId,
+      workspaceId,
+      txn(profileId, [zebra.id, apple.id]),
+    );
+
+    const [row] = await listTransactions(userId, workspaceId, {});
+    // Ordered by name, not by the order they were applied.
+    expect(row!.tags.map((t) => t.name)).toEqual(["apple", "Zebra"]);
+
+    // A tag deleted out from under a row simply stops appearing — the column
+    // carries no FK, so an unresolvable id must not produce an empty chip.
+    await deleteTxnTag(userId, workspaceId, zebra.id);
+    const [after] = await listTransactions(userId, workspaceId, {});
+    expect(after!.id).toBe(id);
+    expect(after!.tags.map((t) => t.name)).toEqual(["apple"]);
   });
 });

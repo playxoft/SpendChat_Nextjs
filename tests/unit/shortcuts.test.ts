@@ -68,6 +68,7 @@ describe("registry", () => {
   it("marks the documented-but-unbound keys, and only those", () => {
     expect(SHORTCUTS.filter((s) => s.unbound).map((s) => [s.id, s.unbound])).toEqual([
       ["tracker.category", "typed"],
+      ["tracker.tag", "typed"],
       ["global.print", "browser"],
     ]);
   });
@@ -78,10 +79,11 @@ describe("getShortcut / comboFor", () => {
     expect(getShortcut("action.add")?.combo).toBe("r");
     expect(comboFor("action.add")).toBe("r");
     // The remapped bindings: analytics moved to `e`, the Manual/AI toggle took
-    // `a`, and the typed category marker moved from "#" to "/".
+    // `a`, and the two typed markers split — "/" picks a category, "#" tags.
     expect(comboFor("nav.analytics")).toBe("e");
     expect(comboFor("tracker.toggle-mode")).toBe("a");
     expect(comboFor("tracker.category")).toBe("/");
+    expect(comboFor("tracker.tag")).toBe("#");
     expect(comboFor("workspace.switch")).toBe("g");
   });
   it("handles an unknown id", () => {
@@ -270,28 +272,56 @@ describe("resolveShortcut", () => {
     expect(resolve(press({ key: "z", code: "KeyZ" }))).toBeUndefined();
   });
 
-  // "#" used to be the typed category marker. With the marker moved to "/" and
-  // no tag picker shipped yet, "#" is an ordinary character the registry says
-  // nothing about — so the panel must fall back to whatever the *physical* key
-  // is bound to, which is where the layouts disagree. Pinned because "#" is
-  // spoken for: the tag picker takes it, and these expectations change then.
-  describe("#, now that nothing claims it", () => {
+  // "#" is the tag marker, and it is where the layouts disagree: on a US
+  // keyboard it is Shift+3 — the physical digit the profile switcher owns —
+  // and on UK/DE/IT/ES it is an unshifted key of its own. The cheat-sheet row
+  // beside the panel makes one promise for both.
+  describe("#, on both layout shapes", () => {
     const us = { key: "#", code: "Digit3", shiftKey: true };
     const uk = { key: "#", code: "Backslash" };
 
-    // On a US layout the physical key is Shift + a digit, which is the profile
-    // switcher — in a field and out of one, since no typed entry intercepts it.
-    it("is the profile switcher on a US layout", () => {
-      for (const target of [{}, { tagName: "INPUT" }]) {
-        expect(resolve(press({ ...us, ...target }))?.id).toBe("profiles.switch");
+    it("is the typed tag key while a field has focus, on either layout", () => {
+      for (const layout of [us, uk]) {
+        const match = resolve(press({ ...layout, tagName: "INPUT" }));
+        expect(match?.id).toBe("tracker.tag");
+        // …and therefore never swallowed: the character has to reach the field
+        // it is documented as being typed into.
+        expect(shouldSwallow(match!)).toBe(false);
       }
     });
 
-    // Where "#" is its own unshifted key there is nothing bound to it at all.
-    it("resolves to nothing where # is its own key", () => {
-      for (const target of [{}, { tagName: "INPUT" }]) {
-        expect(resolve(press({ ...uk, ...target }))).toBeUndefined();
+    // The collision, resolved the way the app resolves it: outside a field the
+    // physical key is Shift + a digit and belongs to the profile switcher,
+    // which is what the app does there too.
+    it("is the profile switcher outside a field on a US layout", () => {
+      const match = resolve(press(us));
+      expect(match?.id).toBe("profiles.switch");
+      expect(shouldSwallow(match!)).toBe(true);
+    });
+
+    // Where "#" is its own key there is no collision, and nothing in the app is
+    // listening for it either — so the panel names the row and lets it through.
+    it("still names the tag row outside a field where # is unshifted", () => {
+      const match = resolve(press(uk));
+      expect(match?.id).toBe("tracker.tag");
+      expect(shouldSwallow(match!)).toBe(false);
+    });
+
+    // The chip and the spoken sentence show the character on both layouts: ⇧3
+    // beside a highlighted row about "#" reads as a different key entirely.
+    it("echoes the character rather than the chord that produced it", () => {
+      for (const layout of [us, uk]) {
+        const e = press({ ...layout, tagName: "INPUT" });
+        expect(echoCombo(e, normalizeKey(e), false, resolve(e))).toBe("#");
       }
+    });
+
+    // AltGr (AZERTY) arrives as Ctrl+Alt, a different chord and no business of
+    // ours — the character just types.
+    it("stays out of the way when # needs AltGr", () => {
+      expect(
+        resolve(press({ key: "#", code: "Digit3", ctrlKey: true, altKey: true, tagName: "INPUT" })),
+      ).toBeUndefined();
     });
   });
 

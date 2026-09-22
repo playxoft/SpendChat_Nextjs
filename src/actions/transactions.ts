@@ -17,7 +17,11 @@ import {
   TRANSACTIONS_PAGE_SIZE,
   type TransactionRow,
 } from "@/lib/queries";
-import { updateTransactionSchema, type TransactionInput } from "@/lib/validation";
+import {
+  TAGS_PER_TRANSACTION_MAX,
+  updateTransactionSchema,
+  type TransactionInput,
+} from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { MAX_INPUT_CHARS, parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
@@ -36,6 +40,10 @@ const loadMoreSchema = z.object({
     type: z.enum(["income", "expense"]).optional(),
     categoryId: z.string().optional(),
     profileId: z.string().optional(),
+    // Bounded like the rest: a tampered list can only ever narrow what the
+    // caller could already see, but an unbounded array here would be an
+    // unbounded `IN` list in the query.
+    tagIds: z.array(z.string().uuid()).max(TAGS_PER_TRANSACTION_MAX).optional(),
     search: z.string().optional(),
     sort: z.enum(["date", "category", "title", "description", "amount"]).optional(),
     dir: z.enum(["asc", "desc"]).optional(),

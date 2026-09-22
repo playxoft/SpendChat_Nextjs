@@ -25,72 +25,19 @@ import { Label } from "@/components/ui/label";
 import { createTag, deleteTag, updateTag } from "@/actions/files";
 import { VAULT_COLORS, type TagDTO } from "@/lib/files";
 import { FILE_TAG_MAX, FILE_TAGS_MAX } from "@/lib/validation";
+import { TagChip } from "../tags/tag-chip";
+import { ColorSwatch } from "../tags/color-swatch";
 import { cn } from "@/lib/utils";
 
-/** A colored tag label ("show the text as label"). */
-export function TagChip({
-  tag,
-  className,
-}: {
-  tag: Pick<TagDTO, "name" | "color">;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex max-w-28 items-center gap-1 truncate rounded-full border px-1.5 py-px text-sm font-medium",
-        className,
-      )}
-      style={{
-        color: tag.color,
-        borderColor: `${tag.color}55`,
-        backgroundColor: `${tag.color}1a`,
-      }}
-    >
-      <span
-        className="size-1.5 shrink-0 rounded-full"
-        style={{ backgroundColor: tag.color }}
-        aria-hidden
-      />
-      <span className="truncate">{tag.name}</span>
-    </span>
-  );
-}
-
-/** Exactly the 20-swatch palette — no "no color" cell; callers pass their
- * default swatch as the initial value instead. */
-export function ColorSwatch({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (color: string) => void;
-}) {
-  return (
-    <div className="grid grid-cols-10 gap-1.5">
-      {VAULT_COLORS.map((color) => {
-        const selected = value.toLowerCase() === color;
-        return (
-          <button
-            key={color}
-            type="button"
-            onClick={() => onChange(color)}
-            aria-label={`Color ${color}`}
-            aria-pressed={selected}
-            title={color}
-            className={cn(
-              "flex size-6 items-center justify-center rounded-full",
-              selected && "ring-2 ring-ring ring-offset-1 ring-offset-background",
-            )}
-            style={{ backgroundColor: color }}
-          >
-            {selected ? <Check className="size-3.5 text-white" aria-hidden /> : null}
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+/**
+ * The chip and the palette live in `components/app/tags/` now — one copy,
+ * shared with transaction tags, which look identical on screen and would have
+ * drifted the first time either was adjusted. Re-exported here under the names
+ * the vault has always imported, so nothing else in `files/` changes.
+ */
+// Imported as well as re-exported: this file renders both below, and a bare
+// `export … from` re-exports without binding the name locally.
+export { TagChip, ColorSwatch };
 
 /**
  * Create or edit a tag (name + palette color; delete lives here in edit mode).

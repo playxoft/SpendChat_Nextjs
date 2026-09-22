@@ -222,6 +222,10 @@ async function TransactionsData({
     type: filters.type,
     categoryId: filters.categoryId,
     profileId: filters.profileId,
+    // Load-more re-runs the query from these alone. A filter listed on the page
+    // but missing here doesn't narrow the next page, so scrolling a filtered
+    // list appends rows that contradict the count above it.
+    tagIds: filters.tagIds,
     search: filters.search,
     sort: filters.sort,
     dir: filters.dir,

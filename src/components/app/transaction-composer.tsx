@@ -14,6 +14,8 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { CategoryRow } from "./category-row";
+import { TagChip } from "./tags/tag-chip";
+import { TagFormDialog } from "./tags/tag-form-dialog";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { ControlHint } from "./control-hint";
 import { AiTransactionInput } from "./ai-transaction-input";
@@ -38,14 +40,27 @@ import {
   ATTACHMENT_MAX_PER_TRANSACTION,
   TRANSACTION_AMOUNT_MAX as AMOUNT_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
+  TAG_NAME_MAX,
   TRANSACTION_TITLE_MAX as TITLE_MAX,
 } from "@/lib/validation";
 import type { ComposerDensity, InputMode, TransactionInput } from "@/lib/validation";
+import {
+  defaultTagColor,
+  stepPickerIndex,
+  tagPickerModel,
+  type TxnTagDTO,
+} from "@/lib/tags";
 import type { Category, Profile } from "@/db/schema";
 
 // Matches a trailing "/query" token typed into the title field — "/" is the
 // app-wide category trigger (in the AI note too).
 const CATEGORY_RE = /(?:^|\s)\/([^\s/]*)$/;
+
+// Matches a trailing "#query" token typed into the title field — "#" is the
+// app-wide tag trigger, the sibling of "/" above. Separate regexes rather than
+// one alternation, because the two pickers hold different state and a match has
+// to say which one opened.
+const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
 
 // How much text the amount chip holds. Nine whole digits is the real cap
 // (`AMOUNT_INTEGER_DIGITS_MAX`, enforced per keystroke below); this only stops a
@@ -54,6 +69,7 @@ const CHIP_AMOUNT_MAX = 20;
 
 export function TransactionComposer({
   categories,
+  tags,
   currency,
   locale = "en-US",
   today,
@@ -66,6 +82,9 @@ export function TransactionComposer({
   voiceLanguages,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  /** The workspace's tags, for the "#" picker. Shared by every member, so this
+   *  list doesn't depend on the active profile. */
+  tags: Pick<TxnTagDTO, "id" | "name" | "color">[];
   currency: string;
   /** Drives how a typed amount is read ("1,50" is 1.50 for a de-DE user). */
   locale?: string;
@@ -107,6 +126,19 @@ export function TransactionComposer({
   const [showDescription, setShowDescription] = useState(false);
   const [categoryDismissed, setCategoryDismissed] = useState(false);
   const [categoryIndex, setCategoryIndex] = useState(0);
+  // Tags picked for the next send, in the order they were chosen.
+  const [tagIds, setTagIds] = useState<string[]>([]);
+  const [tagDismissed, setTagDismissed] = useState(false);
+  const [tagIndex, setTagIndex] = useState(0);
+  // Open with the text typed after the "#", so "Create #trav" pre-fills.
+  const [tagFormName, setTagFormName] = useState<string | null>(null);
+  // Tags created from inside this composer, held until the server list catches
+  // up. `tags` is a server prop refreshed by the action's `revalidatePath`, so
+  // without this the chip for a tag you just created can't be resolved and
+  // doesn't render until that round-trip lands — a visible beat during which
+  // the tag is applied but invisible. Cleared whenever the server list arrives
+  // carrying them.
+  const [createdTags, setCreatedTags] = useState<TxnTagDTO[]>([]);
   const { send } = usePendingMessages();
   // Files staged for the next send; uploaded to the row once it's created.
   const staged = useStagedAttachments();
@@ -185,6 +217,54 @@ export function TransactionComposer({
     : [];
   const categoryIdx = categoryResults.length ? Math.min(categoryIndex, categoryResults.length - 1) : 0;
 
+  // "#" in the title opens the tag picker — the same shape as the category one
+  // above, with two differences. Tags already applied are filtered out (picking
+  // one twice is a no-op the list shouldn't offer), and the list always ends
+  // with a "Create" row, because a tag you don't have yet is the common case
+  // when you're mid-sentence. `tagCreatable` is false for a bare "#", which is
+  // "show me the list", and for a name that already exists.
+  // The server's list plus anything created here that it hasn't caught up with.
+  const knownTags = useMemo(() => {
+    const seen = new Set(tags.map((t) => t.id));
+    const extra = createdTags.filter((t) => !seen.has(t.id));
+    return extra.length ? [...tags, ...extra] : tags;
+  }, [tags, createdTags]);
+
+  // Retire the local copies the server list now carries. Done during render
+  // rather than in an effect: `tags` arriving with them *is* the signal, and an
+  // effect would paint one frame with both. React re-renders immediately on a
+  // set during render, so nothing downstream sees the stale list.
+  if (createdTags.length > 0) {
+    const serverIds = new Set(tags.map((t) => t.id));
+    if (createdTags.some((t) => serverIds.has(t.id))) {
+      setCreatedTags((prev) => prev.filter((t) => !serverIds.has(t.id)));
+    }
+  }
+
+  const tagMatch = titleSource.match(TAG_RE);
+  const tagQuery = tagMatch?.[1] ?? "";
+  const tagActive = !!tagMatch && !tagDismissed;
+  // The option model is a pure function (`lib/tags.ts`) so the index clamping
+  // and the trailing Create row can be tested — this component can't be, since
+  // both vitest projects run in `node` with no DOM.
+  const {
+    results: tagResults,
+    creatable: tagCreatable,
+    optionCount: tagOptionCount,
+    activeIndex: tagIdx,
+    onCreateRow: tagOnCreateRow,
+  } = tagPickerModel({
+    tags: tagActive ? knownTags : [],
+    query: tagQuery,
+    applied: tagIds,
+    rawIndex: tagIndex,
+  });
+  // The chips shown under the row, in pick order — `tags` is name-ordered, so
+  // this maps through `tagIds` rather than filtering `tags`.
+  const pickedTags = tagIds
+    .map((id) => knownTags.find((t) => t.id === id))
+    .filter((t): t is (typeof knownTags)[number] => !!t);
+
   function switchType(t?: "expense" | "income") {
     setType((prev) => t ?? (prev === "expense" ? "income" : "expense"));
     setCategoryId(null);
@@ -221,6 +301,55 @@ export function TransactionComposer({
     if (!el) return;
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
+  }
+
+  /**
+   * Re-arm both inline pickers after the title text changes.
+   *
+   * One function rather than four lines repeated at each call site: the tag
+   * picker shipped broken because three of those sites re-armed the category
+   * picker and silently forgot the tag one, which made `#` work exactly once
+   * per transaction — dismissed on the first pick and never reset, so the
+   * many-to-many feature could only ever apply a single tag. A single helper
+   * makes "forget one of them" impossible rather than merely unlikely.
+   */
+  function rearmPickers() {
+    setCategoryDismissed(false);
+    setCategoryIndex(0);
+    setTagDismissed(false);
+    // The index has to go too: it is the *raw* index, and the results list
+    // shrinks as the query narrows. Left at 2 while the list drops to one match
+    // plus a Create row, Enter fires Create instead of the match the user is
+    // looking at.
+    setTagIndex(0);
+  }
+
+  /** Strip the trailing "#query" token the picker was driven by. */
+  function clearTagToken() {
+    setTitleSource((t) => t.replace(TAG_RE, "").replace(/\s+$/, ""));
+    setTagDismissed(true);
+    setTagIndex(0);
+  }
+
+  function selectTag(id: string) {
+    setTagIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    clearTagToken();
+  }
+
+  function removeTag(id: string) {
+    setTagIds((prev) => prev.filter((t) => t !== id));
+  }
+
+  /** Open the create dialog with what was typed after the "#". The token is
+   *  cleared now rather than on save, so the picker closes with the dialog
+   *  rather than reopening behind it. */
+  function openTagCreate() {
+    // Truncated to the column width here, not left to the dialog: `maxLength`
+    // caps typing but not a programmatic value, so a longer "#..." token would
+    // open the form showing more characters than the field accepts and the only
+    // feedback would be a server round-trip rejecting it.
+    setTagFormName(tagQuery.trim().slice(0, TAG_NAME_MAX));
+    clearTagToken();
   }
 
   function selectCategory(cat: Pick<Category, "id">) {
@@ -281,6 +410,10 @@ export function TransactionComposer({
       title: finalTitle,
       description: description.trim() || undefined,
       occurredOn,
+      // Omitted when empty rather than sent as `[]`: the service reads absent
+      // as "no tags" on a create either way, and it keeps the payload honest
+      // about what the user actually chose.
+      tagIds: tagIds.length ? tagIds : undefined,
     };
     // categoryId is always from the current type's list (switching type clears it).
     const cat = categoryId ? cats.find((c) => c.id === categoryId) ?? null : null;
@@ -313,6 +446,9 @@ export function TransactionComposer({
     setCategoryId(null);
     setOccurredOn(today);
     setCategoryDismissed(false);
+    setTagIds([]);
+    setTagDismissed(false);
+    setTagIndex(0);
     // Back to whichever field the next entry starts in: the chip in single-field
     // mode, the title in title-first, the amount otherwise.
     (isCombined ? chipRef : inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
@@ -338,6 +474,51 @@ export function TransactionComposer({
   }
 
   function onTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // Both pickers are driven off a token anchored to the end of the field, so
+    // at most one can be open at a time — but check the tag one first anyway,
+    // rather than relying on that as an invariant nothing enforces.
+    //
+    // Gated on `tagActive` alone, not on `tagOptionCount > 0`: the popover is
+    // on screen whenever `tagActive`, including its empty state, and a visible
+    // popover has to answer for Enter and Escape. Gating on the option count
+    // let both fall through — Escape did nothing (the popover would not close)
+    // and Enter reached `submit()`, saving a transaction titled "lunch #".
+    if (tagActive) {
+      // Escape closes it whatever is (or isn't) in the list.
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setTagDismissed(true);
+        return;
+      }
+      if (tagOptionCount > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          // Off `tagIdx`, the *clamped* index, not the raw `tagIndex`: the raw
+          // one can sit past the end of a list that shrank as the query
+          // narrowed, and stepping from there swallows the first arrow press.
+          setTagIndex(stepPickerIndex(tagIdx, tagOptionCount, 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setTagIndex(stepPickerIndex(tagIdx, tagOptionCount, -1));
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          if (tagOnCreateRow) openTagCreate();
+          else selectTag(tagResults[tagIdx]!.id);
+          return;
+        }
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        // Nothing to pick, but the popover is open and the title still ends in
+        // a bare "#". Swallow the key rather than sending: the user is mid-tag,
+        // and the alternative is a saved transaction with "#" in its title.
+        e.preventDefault();
+        return;
+      }
+    }
+
     if (categoryActive && categoryResults.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -407,8 +588,7 @@ export function TransactionComposer({
     // the field can't show — and the send would save a title nobody saw.
     const flat = text.replace(/\s+/g, " ").trim();
     setCombined((t) => (t ? `${flat} ${t}` : flat).slice(0, TITLE_MAX));
-    setCategoryDismissed(false);
-    setCategoryIndex(0);
+    rearmPickers();
   }
 
   /**
@@ -536,13 +716,12 @@ export function TransactionComposer({
       {titleLeadsRow && attachButton}
       <Input
         ref={titleRef}
-        placeholder="Add a title — type / to pick a category"
+        placeholder="Add a title — / for category, # for tags"
         value={title}
         maxLength={TITLE_MAX}
         onChange={(e) => {
           setTitle(e.target.value);
-          setCategoryDismissed(false);
-          setCategoryIndex(0);
+          rearmPickers();
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Title"
@@ -635,13 +814,12 @@ export function TransactionComposer({
       </div>
       <input
         ref={titleRef}
-        placeholder="Add a title — type / to pick a category"
+        placeholder="Add a title — / for category, # for tags"
         value={combined}
         maxLength={TITLE_MAX}
         onChange={(e) => {
           setCombined(e.target.value);
-          setCategoryDismissed(false);
-          setCategoryIndex(0);
+          rearmPickers();
         }}
         onKeyDown={onCombinedTitleKeyDown}
         // Clicking an untouched field starts in the chip, wherever the click
@@ -984,6 +1162,16 @@ export function TransactionComposer({
                     </div>
                   ) : null}
 
+                  {/* Picked tags, above the input row like the staged files —
+                      a pending part of the next send, removable until it goes. */}
+                  {pickedTags.length > 0 ? (
+                    <div className="flex flex-wrap items-center gap-1">
+                      {pickedTags.map((t) => (
+                        <TagChip key={t.id} tag={t} onRemove={() => removeTag(t.id)} />
+                      ))}
+                    </div>
+                  ) : null}
+
                   <div className="relative flex flex-wrap items-end gap-2">
                     {/* Field order follows the user's chosen input mode. */}
                     {isCombined ? (
@@ -1017,6 +1205,78 @@ export function TransactionComposer({
                     {/* Send sits inline on desktop; on mobile it moves to a full-width
                         button at the bottom (see below) for an easier thumb reach. */}
                     <div className="hidden md:block">{sendButton}</div>
+
+                    {/* The "#" tag picker. Same anchoring as the category one below —
+                        the input row, clamped to the viewport — so it can't run
+                        off-screen on a phone. */}
+                    {tagActive && (
+                      <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
+                        <ul className="max-h-56 overflow-y-auto">
+                          {tagResults.map((t, i) => (
+                            <li key={t.id}>
+                              <button
+                                type="button"
+                                ref={(el) => {
+                                  if (i === tagIdx) el?.scrollIntoView({ block: "nearest" });
+                                }}
+                                // `onMouseDown` + preventDefault, not onClick:
+                                // a click would blur the title first, and the
+                                // blur closes the picker before the pick lands.
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  selectTag(t.id);
+                                }}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                                  i === tagIdx ? "bg-accent" : "hover:bg-muted",
+                                )}
+                              >
+                                <TagChip tag={t} />
+                              </button>
+                            </li>
+                          ))}
+                          {tagCreatable && (
+                            <li>
+                              <button
+                                type="button"
+                                ref={(el) => {
+                                  if (tagOnCreateRow) el?.scrollIntoView({ block: "nearest" });
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  openTagCreate();
+                                }}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                                  tagOnCreateRow ? "bg-accent" : "hover:bg-muted",
+                                )}
+                              >
+                                <Plus className="size-3.5 shrink-0" aria-hidden />
+                                <span className="truncate text-muted-foreground">Create</span>
+                                <TagChip
+                                  tag={{
+                                    name: tagQuery.trim(),
+                                    color: defaultTagColor(tagQuery.trim()),
+                                  }}
+                                />
+                              </button>
+                            </li>
+                          )}
+                          {tagOptionCount === 0 && (
+                            <li className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {/* Only reachable on a bare "#" — a typed query
+                                  always offers the create row. Which of the two
+                                  empty states it is matters: "every tag is
+                                  applied" reads as a bug in a workspace that
+                                  has no tags at all. */}
+                              {knownTags.length === 0
+                                ? "No tags yet — type a name to create one"
+                                : "Every tag is already on this transaction"}
+                            </li>
+                          )}
+                        </ul>
+                      </div>
+                    )}
 
                     {/* Anchored to the input row (not the narrow title) and clamped to the
                         viewport, so it never runs off-screen on a phone. */}
@@ -1086,6 +1346,19 @@ export function TransactionComposer({
         </div>
       </div>
 
+      <TagFormDialog
+        open={tagFormName !== null}
+        onOpenChange={(v) => !v && setTagFormName(null)}
+        initialName={tagFormName ?? ""}
+        // Apply the tag the moment it exists — the user asked for it from
+        // inside a half-typed transaction, so making them pick it again would
+        // be asking twice for one decision.
+        onSaved={(tag) => {
+          setCreatedTags((prev) => [...prev, tag]);
+          setTagIds((prev) => (prev.includes(tag.id) ? prev : [...prev, tag.id]));
+          setTagFormName(null);
+        }}
+      />
       <CategoryEditorDialog
         open={editorOpen}
         onOpenChange={setEditorOpen}

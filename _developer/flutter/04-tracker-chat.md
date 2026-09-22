@@ -181,7 +181,7 @@ keyboard (`decimal`), placeholder `"0.00"`, tabular. Sanitize input to digits +
 
 **Title field:** placeholder `"Add a title — / for category, # for tags"`, max
 **40** chars (the server cap). Typing **`/query`** at the end opens an **inline
-category picker** (see §4.6).
+category picker**; `#query` opens the **tag picker** (see §4.6).
 
 **Combined field:** *not* one string that gets parsed. It's a shell styled like
 an input (same border/ring, focus moved to focus-within) holding two real
@@ -213,13 +213,28 @@ Enter on the amount (last field) submits; otherwise Enter advances to the next
 field; Shift+Enter reveals/focuses the description. On mobile, rely on the Send
 button + keyboard "done"/"next" actions.
 
-### 4.6 The `/` inline category picker
+### 4.6 The `/` category and `#` tag inline pickers
+Two markers, same shape, both driven off a token anchored to the **end** of the
+field — so at most one is ever open.
+
 When the title (or combined) field ends with `/query`:
 - Show a small anchored popover of matching categories (name contains `query`,
   max 8). Highlight one; up/down to move, enter/tab to select, escape to dismiss.
 - Selecting sets the category **and strips the `/query` token** from the field.
 - Empty: `No category matches "{query}"`.
 - On mobile this is a nice-to-have; at minimum keep the "More" grid popover.
+
+When it ends with `#query`:
+- Show the same popover shape, listing the **workspace's** tags (they are not
+  per-profile) whose name contains `query`, **excluding ones already applied**.
+- The last row is always **"Create `<query>`"** when `query` is non-empty and
+  no tag has that exact name — opening the create sheet with the name pre-filled
+  and a colour pre-selected from the 20-swatch palette. A bare `#` is "show me
+  the list" and offers no create row.
+- Selecting applies the tag **and strips the `#query` token**. Applied tags show
+  as removable coloured chips above the input row, like staged files.
+- Tags ride along in `tagIds` on the create call; they are not a separate
+  request. See `Transaction.tags` / `TransactionInput.tagIds` in the spec.
 
 ### 4.7 Pasting into the amount chip
 Typing fills the two zones directly (§4.5), so parsing is only needed for a

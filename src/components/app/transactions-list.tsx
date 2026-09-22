@@ -16,6 +16,7 @@ export type TxnQueryFilters = {
   type?: "income" | "expense";
   categoryId?: string;
   profileId?: string;
+  tagIds?: string[];
   search?: string;
   sort?: "date" | "category" | "title" | "description" | "amount";
   dir?: "asc" | "desc";

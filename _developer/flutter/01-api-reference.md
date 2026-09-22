@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.0.0.** Every API change bumps this version and is logged
+**API spec version: 6.1.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -185,7 +185,8 @@ accept these query params:
 | `category` | category id, or `all` | `all` (or empty) → no filter. Not UUID-validated. |
 | `profile` | profile id, or `all` | **A UUID scopes to that profile; anything else (incl. `all` or omitted) → all accessible profiles.** |
 | `from`, `to` | inclusive date range, `YYYY-MM-DD` | Must match `^\d{4}-\d{2}-\d{2}$`, else ignored |
-| `q` | free-text search over `title` **OR** `description` | `ILIKE %q%`, trimmed |
+| `q` | free-text search over `title` **OR** `description` | `ILIKE %q%`, trimmed. Does **not** match tag names. |
+| `tags` | comma-separated tag ids | Matches **any** of them (overlap), not all. Deduped; non-UUID segments dropped rather than rejected; capped at 10. Empty/absent → no filter. |
 | `limit` | page size (list only) | default **100**, clamped `[1, 500]` |
 | `offset` | pagination offset (list only) | default 0, `≥ 0` |
 

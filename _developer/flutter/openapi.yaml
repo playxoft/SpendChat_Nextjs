@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.0.0"
+  version: "6.1.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -301,6 +301,7 @@ paths:
         - $ref: "#/components/parameters/from"
         - $ref: "#/components/parameters/to"
         - $ref: "#/components/parameters/q"
+        - $ref: "#/components/parameters/tags"
         - $ref: "#/components/parameters/limit"
         - $ref: "#/components/parameters/offset"
       responses:
@@ -478,6 +479,7 @@ paths:
         - $ref: "#/components/parameters/from"
         - $ref: "#/components/parameters/to"
         - $ref: "#/components/parameters/q"
+        - $ref: "#/components/parameters/tags"
       responses:
         "200":
           description: CSV file.
@@ -1592,6 +1594,7 @@ paths:
         - $ref: "#/components/parameters/from"
         - $ref: "#/components/parameters/to"
         - $ref: "#/components/parameters/q"
+        - $ref: "#/components/parameters/tags"
       responses:
         "200":
           description: Totals in minor units.
@@ -1623,6 +1626,7 @@ paths:
         - $ref: "#/components/parameters/from"
         - $ref: "#/components/parameters/to"
         - $ref: "#/components/parameters/q"
+        - $ref: "#/components/parameters/tags"
       responses:
         "200":
           description: Category totals in minor units, largest first.
@@ -1872,7 +1876,19 @@ components:
       name: q
       in: query
       required: false
-      description: Free-text search over title + description (ILIKE).
+      description: Free-text search over title + description (ILIKE). Does not match tag names.
+      schema: { type: string }
+    tags:
+      name: tags
+      in: query
+      required: false
+      description: >
+        Comma-separated tag ids. Matches transactions carrying **any** of them
+        (overlap, not "all of them"). Ids are deduped, segments that are not
+        UUIDs are dropped rather than rejected, and the list is capped at 10 —
+        so a malformed value narrows oddly rather than erroring. Omit, or pass
+        an empty value, for no tag filter.
+      example: "0199a0d1-0000-7000-8000-000000000001,0199a0d1-0000-7000-8000-000000000002"
       schema: { type: string }
     limit:
       name: limit

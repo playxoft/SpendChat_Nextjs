@@ -14,9 +14,36 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.0.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.1.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.25.0] — 2026-09-22
+
+### Added
+- **Tag a transaction while you type it.** Press `#` in the title field and a
+  picker opens on the workspace's tags, filtering as you go — arrow keys move,
+  Enter picks, Escape dismisses, and the `#travel` token disappears from the
+  title once it is applied. Picked tags sit as removable chips above the
+  composer until the transaction is sent.
+- **Create a tag without leaving the composer.** If nothing matches what you
+  typed, the last row of the picker is **Create**, which opens a small form with
+  the name already filled in and one of twenty colours already chosen from it —
+  so "Travel" lands on the same colour for everyone, and you can change it
+  before saving. The new tag is applied to the transaction you were in the
+  middle of writing.
+- **Tags are shared across the workspace**, like categories. Renaming or
+  recolouring one updates every transaction carrying it.
+
+### Changed
+- The transactions list can now be filtered by tag (`?tags=`), matching **any**
+  of the tags you select rather than all of them. The filter UI itself lands
+  with the Tags column in the next release.
+- **The mobile API contract is now 6.1.0** (was 6.0.0). The same `?tags=` filter
+  works on the API's transaction list, CSV export and analytics totals — an
+  additive, optional query parameter, so nothing an existing client sends
+  changes meaning. Details in
+  [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md).
 
 ## [0.24.0] — 2026-09-22
 
