@@ -340,7 +340,23 @@ export function TransactionDialog({
             attachment tiles' `truncate` actually engage — without it a long
             unbreakable filename forces the whole dialog wider. */}
         <form onSubmit={handleSubmit} className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <fieldset disabled={readOnly} className="m-0 min-h-0 min-w-0 flex-1 space-y-4 overflow-y-auto border-0 p-0 pr-1">
+          {/* The <fieldset> is out of the sizing chain on purpose: it is here
+              only to disable every control at once for a viewer, and a plain
+              div does the scrolling.
+
+              Chrome renders a fieldset through an anonymous content box, and
+              neither `overflow` nor `flex` reaches it. With `overflow-y-auto`
+              on the fieldset the element reported itself as a scroll container
+              (scrollHeight > clientHeight) while its content kept painting —
+              and hit-testing — outside its box: the attachment dropzone landed
+              across the pinned footer and swallowed every click on Save, so an
+              edit could not be saved at all once the body grew past the fold.
+              Making the fieldset a flex column instead just moved the problem,
+              its child overflowing the fieldset the same way. Neither shows up
+              until the content is tall enough, which is why a new field is
+              what surfaced it. */}
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto pr-1">
+          <fieldset disabled={readOnly} className="m-0 min-w-0 space-y-4 border-0 p-0">
           <div className="flex w-full items-center rounded-lg border bg-muted/50 p-0.5 text-sm">
             {(["expense", "income"] as const).map((t) => (
               <button
@@ -546,6 +562,7 @@ export function TransactionDialog({
           </div>
 
           </fieldset>
+          </div>
 
           {/* Viewers see a read-only record — no Save/Delete, just Close. */}
           {readOnly ? (

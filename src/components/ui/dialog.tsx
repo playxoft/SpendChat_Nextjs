@@ -176,7 +176,15 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
+        // `relative z-10` so a pinned footer is always the thing you click.
+        // A footer under a scrolling body is statically positioned, so a
+        // `position: relative` child of that body — a dropzone, a preview card
+        // — paints in the positioned layer above it. While the body clips
+        // properly that only matters if the two overlap, but when something
+        // upstream stops clipping (see the fieldset note in
+        // `transaction-dialog.tsx`, where exactly this ate every click on
+        // Save) the footer is the one thing that must still be reachable.
+        "relative z-10 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end",
         className
       )}
       {...props}

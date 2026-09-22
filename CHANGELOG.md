@@ -37,9 +37,20 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - **A `Tags` column in both CSV exports** — the tag names joined by `"; "`.
 
 ### Changed
+- A column added by a release now appears **where it belongs** in a saved
+  column layout, not tacked onto the end. Anyone who had ever reordered their
+  transactions table would have found the new Tags column parked to the right
+  of Amount and User, off the edge of the table.
 - The mobile API gains `/api/v1/tags` (list, create, rename, recolour, delete)
   and its CSV export gains the `Tags` column — spec **6.2.0**, additive. See
   [the API changelog](./_developer/flutter/_changelog.md).
+
+### Fixed
+- **The edit dialog could refuse to save.** Once its content was taller than
+  the window, the attachment dropzone stopped being clipped and covered the
+  footer, swallowing every click on Save — the button looked fine and did
+  nothing. The dialog body now scrolls properly and the footer always sits on
+  top. Adding the tag field is what made the dialog tall enough to show it.
 
 ## [0.25.0] — 2026-09-22
 

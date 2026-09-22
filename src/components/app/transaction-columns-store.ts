@@ -72,13 +72,41 @@ function isColumnId(value: unknown): value is ColumnId {
 
 /**
  * Normalize a stored order without discarding it: keep the known ids in their
- * saved order, drop any that no longer exist, and append columns added since the
- * layout was saved (so a new column lands at the end, not a full reset).
+ * saved order, drop any that no longer exist, and slot in columns added since
+ * the layout was saved.
+ *
+ * A new column goes **where it belongs in the default order**, not at the end:
+ * straight after the nearest column that precedes it in `COLUMN_IDS` and that
+ * the user still has. Appending was the obvious thing and it was wrong —
+ * "tags" landed to the right of Amount and User, off the edge of the table, so
+ * the people most likely to have a saved layout were the ones who couldn't see
+ * the new column at all. Slotting it in preserves every relative order the
+ * user chose (nothing else moves) and still isn't a reset.
+ *
+ * Exported for its tests: this is the only pure part of the store, and it is
+ * the part that decides whether a new column is visible to an existing user.
  */
-function normalizeOrder(value: unknown): ColumnId[] {
+export function normalizeOrder(value: unknown): ColumnId[] {
   const stored = Array.isArray(value) ? value.filter(isColumnId) : [];
-  const seen = new Set(stored);
-  return [...stored, ...COLUMN_IDS.filter((id) => !seen.has(id))];
+  if (stored.length === 0) return COLUMN_IDS;
+  const out = [...stored];
+  const have = new Set(stored);
+  COLUMN_IDS.forEach((id, i) => {
+    if (have.has(id)) return;
+    // The nearest default-order predecessor the user still has; the new column
+    // goes directly after it, or first when there is none.
+    let at = 0;
+    for (let j = i - 1; j >= 0; j--) {
+      const idx = out.indexOf(COLUMN_IDS[j]!);
+      if (idx >= 0) {
+        at = idx + 1;
+        break;
+      }
+    }
+    out.splice(at, 0, id);
+    have.add(id);
+  });
+  return out;
 }
 
 /**
