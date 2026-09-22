@@ -19,6 +19,7 @@ function row(over: Partial<TransactionRow>): TransactionRow {
     profileId: "p1",
     profileName: "Personal",
     profileIcon: null,
+    tags: [],
     ...over,
   };
 }
@@ -61,10 +62,46 @@ describe("transactionsToReportCsv", () => {
   it("puts the totals above the table", () => {
     const lines = csv.split("\r\n");
     const totalsIdx = lines.indexOf("Total income,5000.00,USD");
-    const tableIdx = lines.indexOf("Date,Type,Category,Title,Amount,Currency");
+    const tableIdx = lines.indexOf("Date,Type,Category,Title,Amount,Currency,Tags");
     expect(totalsIdx).toBeGreaterThan(-1);
     expect(tableIdx).toBeGreaterThan(-1);
     expect(totalsIdx).toBeLessThan(tableIdx);
+  });
+
+  it("writes each row's tags as one semicolon-joined cell", () => {
+    const tagged = [
+      row({
+        type: "expense",
+        amountMinor: 4000,
+        title: "Flights",
+        occurredOn: "2026-01-01",
+        tags: [
+          { id: "t1", name: "Travel", color: "#ef4444", createdAt: "", updatedAt: "" },
+          { id: "t2", name: "Work", color: "#3b82f6", createdAt: "", updatedAt: "" },
+        ],
+      }),
+    ];
+    // Semicolons, so the cell needs no quoting and a reader splitting it back
+    // apart doesn't have to parse quotes a second time.
+    expect(transactionsToCsv(tagged, "USD")).toContain("Travel; Work");
+    expect(
+      transactionsToReportCsv({
+        rows: tagged,
+        currency: "USD",
+        locale: "en-US",
+        workspaceName: "Acme Inc.",
+        profileName: "Personal",
+      }),
+    ).toContain("Travel; Work");
+  });
+
+  it("leaves the Tags cell empty for an untagged row", () => {
+    // Trailing empty cell, not a missing column — a row without tags still has
+    // to line up with the header.
+    const line = transactionsToCsv([row({ amountMinor: 100, occurredOn: "2026-01-01" })], "USD")
+      .split("\r\n")
+      .find((l) => l.startsWith("2026-01-01"));
+    expect(line?.endsWith(",USD,")).toBe(true);
   });
 
   it("adds a Total: column footer under Title/Amount", () => {

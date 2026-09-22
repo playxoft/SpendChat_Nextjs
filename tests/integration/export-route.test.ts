@@ -43,11 +43,11 @@ describe("GET /api/transactions/export", () => {
     expect(lines[0]).toBe("SpendChat");
     expect(body).toContain("a's Workspace");
     // The data table: this header row, then signed rows in the workspace currency (USD).
-    expect(lines).toContain("Date,Type,Category,Title,Amount,Currency");
+    expect(lines).toContain("Date,Type,Category,Title,Amount,Currency,Tags");
     // income row (no category → Uncategorized, blank title, +50.00)
-    expect(lines.some((l) => /,Income,Uncategorized,,50\.00,USD$/.test(l))).toBe(true);
+    expect(lines.some((l) => /,Income,Uncategorized,,50\.00,USD,$/.test(l))).toBe(true);
     // expense row is signed negative
-    expect(lines.some((l) => /,Expense,Groceries,Veg,-10\.00,USD$/.test(l))).toBe(true);
+    expect(lines.some((l) => /,Expense,Groceries,Veg,-10\.00,USD,$/.test(l))).toBe(true);
   });
 
   it("applies query-string filters", async () => {

@@ -13,6 +13,7 @@ import { PageAttachmentDrop } from "./attachments/page-attachment-drop";
 import { pickAcceptedFiles } from "./attachments/upload-client";
 import { ATTACHMENT_MAX_PER_TRANSACTION } from "@/lib/validation";
 import type { Category, Profile } from "@/db/schema";
+import type { TxnTagDTO } from "@/lib/tags";
 
 /**
  * Add / bulk-add actions for the transactions page. A client component so the
@@ -23,6 +24,7 @@ import type { Category, Profile } from "@/db/schema";
 export function TransactionsActions({
   categories,
   profiles,
+  tags,
   activeProfileId,
   currency,
   locale,
@@ -31,6 +33,8 @@ export function TransactionsActions({
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
+  /** The workspace's tags, for the add dialog's picker. */
+  tags: TxnTagDTO[];
   activeProfileId?: string;
   currency: string;
   locale: string;
@@ -57,6 +61,7 @@ export function TransactionsActions({
         mode="add"
         categories={categories}
         profiles={profiles}
+        tags={tags}
         activeProfileId={activeProfileId}
         currency={currency}
         locale={locale}

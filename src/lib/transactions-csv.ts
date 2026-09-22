@@ -5,13 +5,23 @@ import { formatDateLabel } from "@/lib/dates";
 import { siteConfig } from "@/lib/site";
 import type { TransactionRow } from "@/lib/queries";
 
+/** A row's tags as one cell. Semicolons, not commas: a comma would need
+ *  quoting in a CSV, and a reader splitting the cell back apart would then
+ *  have to parse quotes a second time. Tag names can't contain either. */
+function tagCell(row: TransactionRow): string {
+  return row.tags.map((t) => t.name).join("; ");
+}
+
 /**
  * Render transactions as plain CSV (used by the mobile `/api/v1/transactions/export`).
  * Amounts are signed (expenses negative) and formatted to the currency's decimals.
  */
 export function transactionsToCsv(rows: TransactionRow[], currency: string): string {
   const decimals = getCurrency(currency).decimals;
-  const header = ["Date", "Type", "Category", "Note", "Amount", "Currency"];
+  // Tags go last, not beside Category: appending a column leaves every
+  // existing position where it was, so a client reading this file by index
+  // keeps working and simply ignores the new one.
+  const header = ["Date", "Type", "Category", "Note", "Amount", "Currency", "Tags"];
   const data = rows.map((r) => [
     r.occurredOn,
     r.type,
@@ -19,6 +29,7 @@ export function transactionsToCsv(rows: TransactionRow[], currency: string): str
     r.note ?? "",
     fromMinorUnits(signedMinor(r.type, r.amountMinor), currency).toFixed(decimals),
     currency,
+    tagCell(r),
   ]);
   return toCsv(header, data);
 }
@@ -95,7 +106,7 @@ export function transactionsToReportCsv({
     ["Total expense", fromMinorUnits(expenseMinor, currency).toFixed(decimals), currency],
     ["Net (income − expense)", fromMinorUnits(netMinor, currency).toFixed(decimals), currency],
     [],
-    ["Date", "Type", "Category", "Title", "Amount", "Currency"],
+    ["Date", "Type", "Category", "Title", "Amount", "Currency", "Tags"],
     ...rows.map((r) => [
       formatDateLabel(r.occurredOn, locale),
       r.type === "income" ? "Income" : "Expense",
@@ -103,6 +114,7 @@ export function transactionsToReportCsv({
       r.title ?? "",
       fromMinorUnits(signedMinor(r.type, r.amountMinor), currency).toFixed(decimals),
       currency,
+      tagCell(r),
     ]),
     // Column total under Title/Amount at the foot of the table.
     ["", "", "", "Total:", netAmount, currency],

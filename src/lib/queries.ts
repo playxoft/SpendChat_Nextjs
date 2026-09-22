@@ -39,7 +39,7 @@ import {
   type TagDTO,
   type TxnFileDTO,
 } from "@/lib/files";
-import type { TxnTagDTO } from "@/lib/tags";
+import { serializeTxnTag, type TxnTagDTO } from "@/lib/tags";
 
 /** The page size shared by the transactions list, its infinite-scroll loader,
  * and the load-more server action. */
@@ -771,17 +771,67 @@ export async function getCategories(workspaceId: string) {
 
 /** The workspace's tags, by name — the list the picker, the filter and the
  *  settings manager all render. Mirrors `getCategories`. */
-export async function getTags(workspaceId: string) {
+export async function getTags(workspaceId: string): Promise<TxnTagDTO[]> {
   const db = getDb();
-  return db
+  const rows = await db
+    .select()
+    .from(tags)
+    .where(eq(tags.workspaceId, workspaceId))
+    .orderBy(asc(sql`lower(${tags.name})`));
+  // Through the serializer rather than as raw rows: this list crosses into
+  // client components (the picker, the filter, the edit dialog) and a `Date`
+  // does not survive that boundary. It also makes one tag shape — `TxnTagDTO`
+  // — serve the whole UI, so the edit dialog can build a row patch out of it
+  // without inventing the timestamps.
+  return rows.map(serializeTxnTag);
+}
+
+/**
+ * The workspace's tags with how many transactions carry each — the settings
+ * manager's list, where "used on 34 transactions" is what tells you whether a
+ * tag is worth keeping.
+ *
+ * One query with a correlated count per tag, rather than the list plus a count
+ * call per row: at `TAGS_PER_WORKSPACE_MAX` that would be a hundred round
+ * trips. Each count uses the same `@> array[id]` predicate as
+ * `countTransactionsForTxnTag`, which is the form the GIN index on `tag_ids`
+ * can actually serve (`id = any(tag_ids)` has no index path at all).
+ *
+ * Scoped through `profiles` to this workspace, like every other transaction
+ * read — a tag id shouldn't be able to appear on another workspace's rows, and
+ * this doesn't rely on that being true.
+ */
+export async function getTagsWithUsage(
+  workspaceId: string,
+): Promise<(TxnTagDTO & { usage: number })[]> {
+  const db = getDb();
+  const rows = await db
     .select({
       id: tags.id,
+      userId: tags.userId,
+      workspaceId: tags.workspaceId,
       name: tags.name,
       color: tags.color,
+      createdAt: tags.createdAt,
+      updatedAt: tags.updatedAt,
+      // Written with explicit aliases and raw column names, not Drizzle
+      // column references: inside a `sql` template in a *select field*
+      // position Drizzle renders a column unqualified ("id", not
+      // "profiles"."id"), which makes every join column here ambiguous and
+      // Postgres refuses the query outright (42702). The table names still
+      // come from the schema.
+      usage: sql<number>`(
+        select count(*)::int
+        from ${transactions} tx
+        inner join ${profiles} p on p.id = tx.profile_id
+        where p.workspace_id = ${workspaceId}
+          and tx.tag_ids @> array[${tags}.id]
+      )`,
     })
     .from(tags)
     .where(eq(tags.workspaceId, workspaceId))
     .orderBy(asc(sql`lower(${tags.name})`));
+  return rows.map((r) => ({ ...serializeTxnTag(r), usage: r.usage }));
 }
 
 /** Profiles in the workspace the user can at least view, in sidebar order. */

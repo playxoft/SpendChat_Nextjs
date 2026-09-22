@@ -14,6 +14,7 @@ import {
   getCategories,
   getProfiles,
   getSummary,
+  getTags,
   listTransactions,
   TRANSACTIONS_PAGE_SIZE,
   type TxnFilters,
@@ -71,9 +72,12 @@ export default async function TransactionsPage({
 
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
-  const [categories, profiles, canWrite] = await Promise.all([
+  const [categories, profiles, tags, canWrite] = await Promise.all([
     getCategories(workspace.id),
     getProfiles(user.id, workspace.id),
+    // Workspace-scoped like categories: the filter, the Tags column and the
+    // edit dialog all read the same list, so it rides the same round-trip.
+    getTags(workspace.id),
     canWriteInWorkspace(user.id, workspace.id),
   ]);
   const today = todayISO(await getTimeZone());
@@ -139,6 +143,7 @@ export default async function TransactionsPage({
             <TransactionsActions
               categories={categories}
               profiles={profiles}
+              tags={tags}
               activeProfileId={composerProfileId}
               currency={currency}
               locale={locale}
@@ -161,7 +166,12 @@ export default async function TransactionsPage({
 
       <div className="mt-4">
         <Suspense fallback={null}>
-          <TransactionFilters categories={categories} today={today} locale={locale} />
+          <TransactionFilters
+            categories={categories}
+            tags={tags}
+            today={today}
+            locale={locale}
+          />
         </Suspense>
       </div>
 
@@ -175,6 +185,7 @@ export default async function TransactionsPage({
             locale={locale}
             categories={categories}
             profiles={profiles}
+            tags={tags}
             today={today}
           />
         </Suspense>
@@ -197,6 +208,7 @@ async function TransactionsData({
   locale,
   categories,
   profiles,
+  tags,
   today,
 }: {
   userId: string;
@@ -206,6 +218,7 @@ async function TransactionsData({
   locale: string;
   categories: Awaited<ReturnType<typeof getCategories>>;
   profiles: Awaited<ReturnType<typeof getProfiles>>;
+  tags: Awaited<ReturnType<typeof getTags>>;
   today: string;
 }) {
   const [rows, total, summary] = await Promise.all([
@@ -267,6 +280,7 @@ async function TransactionsData({
           locale={locale}
           categories={categories}
           profiles={profiles}
+          tags={tags}
           today={today}
         />
       </div>

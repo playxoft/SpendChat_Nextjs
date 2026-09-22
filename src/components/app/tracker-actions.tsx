@@ -7,6 +7,7 @@ import { comboFor } from "@/lib/shortcuts";
 import { TransactionDialog } from "./transaction-dialog";
 import { BulkAddDialog } from "./bulk-add-dialog";
 import type { Category, Profile } from "@/db/schema";
+import type { TxnTagDTO } from "@/lib/tags";
 
 /**
  * Tracker header actions (add / bulk add). Kept as a client component so the
@@ -17,6 +18,7 @@ import type { Category, Profile } from "@/db/schema";
 export function TrackerActions({
   categories,
   profiles,
+  tags,
   activeProfileId,
   currency,
   locale,
@@ -25,6 +27,8 @@ export function TrackerActions({
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
+  /** The workspace's tags, for the add dialog's picker. */
+  tags: TxnTagDTO[];
   activeProfileId?: string;
   currency: string;
   locale: string;
@@ -37,6 +41,7 @@ export function TrackerActions({
         mode="add"
         categories={categories}
         profiles={profiles}
+        tags={tags}
         activeProfileId={activeProfileId}
         currency={currency}
         locale={locale}

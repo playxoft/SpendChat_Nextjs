@@ -30,6 +30,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { TransactionDialog } from "./transaction-dialog";
 import { amountToneClass } from "./transaction-bubble";
 import { AttachmentSquares } from "./attachments/attachment-squares";
+import { TagList } from "./tags/tag-list";
 import { useAttachmentViewer } from "./attachments/attachment-viewer";
 import {
   COLUMN_LABELS,
@@ -48,12 +49,16 @@ import { formatDateLabel } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
+import type { TxnTagDTO } from "@/lib/tags";
 
 type SharedProps = {
   currency: string;
   locale: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles: Pick<Profile, "id" | "name" | "icon">[];
+  /** The workspace's tags — for the edit dialog's picker, not the cells (a
+   * row carries its own resolved tags). */
+  tags: TxnTagDTO[];
   today: string;
 };
 
@@ -103,6 +108,12 @@ const COLUMNS: Record<ColumnId, ColumnDef> = {
       ) : (
         (row.title ?? "")
       ),
+  },
+  tags: {
+    // Not sortable: the server sorts the five documented columns, and "sort by
+    // tags" has no obvious meaning for a row carrying several of them.
+    sortable: false,
+    render: (row) => <TagList tags={row.tags} />,
   },
   attachments: {
     sortable: false,
@@ -417,6 +428,7 @@ function Row({
   locale,
   categories,
   profiles,
+  tags,
   today,
 }: SharedProps & { row: TransactionRow; columns: ColumnId[] }) {
   const [editing, setEditing] = useState(false);
@@ -459,6 +471,7 @@ function Row({
         onDeleted={remove}
         categories={categories}
         profiles={profiles}
+        tags={tags}
         currency={currency}
         locale={locale}
         today={today}
@@ -472,6 +485,7 @@ function Row({
           title: row.title ?? "",
           description: row.description ?? "",
           occurredOn: row.occurredOn,
+          tagIds: row.tags.map((t) => t.id),
         }}
       />
     </>

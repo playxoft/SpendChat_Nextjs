@@ -5,6 +5,7 @@ import { TransactionItem } from "./transaction-item";
 import { dayDividerLabel, monthDividerLabel, monthKey } from "@/lib/dates";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
+import type { TxnTagDTO } from "@/lib/tags";
 
 function timeLabel(value: Date | string, locale: string, timeZone: string): string {
   const d = value instanceof Date ? value : new Date(value);
@@ -23,6 +24,7 @@ export function ChatFeed({
   today,
   categories,
   profiles = [],
+  tags,
   showAuthor = false,
 }: {
   rows: TransactionRow[];
@@ -32,6 +34,8 @@ export function ChatFeed({
   today: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles?: Pick<Profile, "id" | "name" | "icon">[];
+  /** The workspace's tags, for the edit dialog's picker. */
+  tags: TxnTagDTO[];
   /** Shared workspaces only: label each bubble with its author. */
   showAuthor?: boolean;
 }) {
@@ -83,6 +87,7 @@ export function ChatFeed({
                     locale={locale}
                     categories={categories}
                     profiles={profiles}
+                    tags={tags}
                     today={today}
                     timeLabel={timeLabel(r.createdAt, locale, timeZone)}
                     showAuthor={showAuthor}

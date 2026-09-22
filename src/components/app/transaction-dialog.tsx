@@ -50,10 +50,13 @@ import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
 import { usePermissions } from "./permissions";
 import { AttachmentBox } from "./attachments/attachment-box";
+import { TagChip } from "./tags/tag-chip";
+import { TagSelect } from "./tags/tag-select";
 import { StagedAttachmentList, useStagedAttachments } from "./attachments/staged-attachments";
 import { TransactionAttachments } from "./attachments/transaction-attachments";
 import { uploadStagedAttachments } from "./attachments/upload-client";
 import type { AttachmentDTO } from "@/lib/attachments";
+import type { TxnTagDTO } from "@/lib/tags";
 import type { TransactionRow } from "@/lib/queries";
 import type { Category, Profile } from "@/db/schema";
 
@@ -68,12 +71,21 @@ export type TransactionValues = {
   title: string;
   description: string;
   occurredOn: string;
+  /** Tag ids, in pick order — the order they're stored and rendered in. */
+  tagIds: string[];
 };
+
+/** Order-sensitive id comparison for the dirty check: `tag_ids` is an array
+ *  column, so a reorder is a real change to what would be written. */
+function sameIds(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i]);
+}
 
 export function TransactionDialog({
   mode,
   categories,
   profiles = [],
+  tags,
   currency,
   locale = "en-US",
   today,
@@ -90,6 +102,8 @@ export function TransactionDialog({
   mode: "add" | "edit";
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles?: Pick<Profile, "id" | "name" | "icon">[];
+  /** The workspace's tags, for the picker. */
+  tags: TxnTagDTO[];
   currency: string;
   /** Drives how a typed amount is read ("1,50" is 1.50 for a de-DE user). */
   locale?: string;
@@ -129,10 +143,15 @@ export function TransactionDialog({
     title: "",
     description: "",
     occurredOn: today,
+    tagIds: [],
   };
   const [values, setValues] = useState<TransactionValues>(defaultValues ?? emptyValues);
   const [pending, startTransition] = useTransition();
   const [deletePending, startDeleteTransition] = useTransition();
+  // Tags created from the picker inside this dialog, until the server prop
+  // catches up — without them the chip for a tag you just made can't be
+  // resolved, so it would be applied but invisible.
+  const [createdTags, setCreatedTags] = useState<TxnTagDTO[]>([]);
   // (add) Files chosen before the transaction exists; uploaded once it's created.
   const staged = useStagedAttachments();
   const [uploading, setUploading] = useState(false);
@@ -152,7 +171,8 @@ export function TransactionDialog({
     values.profileId !== baseline.profileId ||
     values.title !== baseline.title ||
     values.description !== baseline.description ||
-    values.occurredOn !== baseline.occurredOn;
+    values.occurredOn !== baseline.occurredOn ||
+    !sameIds(values.tagIds, baseline.tagIds);
 
   // Reset the form to the row being edited each time the dialog opens, and (add
   // mode) seed any files dropped onto the page as staged attachments.
@@ -160,12 +180,25 @@ export function TransactionDialog({
     if (!isOpen) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setValues(defaultValues ?? emptyValues);
+    setCreatedTags([]);
     if (mode === "add") {
       staged.clear();
       if (initialFiles?.length) staged.add(initialFiles);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
+
+  // The server list plus anything created from the picker while this dialog has
+  // been open; the server copy wins on id, so a rename made elsewhere isn't
+  // masked by a stale local one.
+  const knownTags = createdTags.length
+    ? [...tags, ...createdTags.filter((c) => !tags.some((t) => t.id === c.id))]
+    : tags;
+  // In pick order (`knownTags` is name-ordered), and an id that no longer
+  // resolves — a tag deleted in another tab — simply drops out.
+  const pickedTags = values.tagIds
+    .map((id) => knownTags.find((t) => t.id === id))
+    .filter((t): t is TxnTagDTO => !!t);
 
   const cats = categories.filter((c) => c.kind === values.type);
   const symbol = getCurrency(currency).symbol;
@@ -209,6 +242,9 @@ export function TransactionDialog({
         title: values.title.trim() || undefined,
         description: values.description.trim() || undefined,
         occurredOn: values.occurredOn,
+        // Always sent, including empty: on a PATCH an absent `tagIds` means
+        // "leave them alone", so clearing every tag has to be an explicit [].
+        tagIds: values.tagIds,
       };
       const res =
         mode === "edit" && values.id
@@ -249,6 +285,7 @@ export function TransactionDialog({
             categoryId: values.categoryId,
             categoryName: cat?.name ?? null,
             categoryIcon: cat?.icon ?? null,
+            tags: pickedTags,
           };
           if (prof) {
             patch.profileId = prof.id;
@@ -420,6 +457,43 @@ export function TransactionDialog({
               maxLength={TRANSACTION_TITLE_MAX}
               onChange={(e) => setValues((v) => ({ ...v, title: e.target.value }))}
             />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Tags</Label>
+            {/* The trigger stays a plain "Add tags" button and the selection
+                lives in the chip row under it — with more than two tags the
+                trigger would otherwise collapse them to "+3", and this is the
+                surface where you go to see (and remove) all of them. Same
+                shape as the composer, where chips sit above the input. */}
+            <TagSelect
+              tags={knownTags}
+              value={values.tagIds}
+              onChange={(ids) => setValues((v) => ({ ...v, tagIds: ids }))}
+              onCreated={(tag) => setCreatedTags((prev) => [...prev, tag])}
+              canCreate
+              triggerLabel="Add tags"
+              className="w-full"
+            />
+            {pickedTags.length > 0 ? (
+              <div className="flex flex-wrap items-center gap-1 pt-0.5">
+                {pickedTags.map((t) => (
+                  <TagChip
+                    key={t.id}
+                    tag={t}
+                    onRemove={
+                      readOnly
+                        ? undefined
+                        : () =>
+                            setValues((v) => ({
+                              ...v,
+                              tagIds: v.tagIds.filter((id) => id !== t.id),
+                            }))
+                    }
+                  />
+                ))}
+              </div>
+            ) : null}
           </div>
 
           <div className="space-y-1.5">

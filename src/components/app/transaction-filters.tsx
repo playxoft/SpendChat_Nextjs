@@ -14,14 +14,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { TagSelect } from "@/components/app/tags/tag-select";
 import type { Category } from "@/db/schema";
+import type { TxnTagDTO } from "@/lib/tags";
 
 export function TransactionFilters({
   categories,
+  tags,
   today,
   locale,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  /** The workspace's tags, for the tag filter. */
+  tags: TxnTagDTO[];
   today: string;
   locale: string;
 }) {
@@ -34,6 +39,12 @@ export function TransactionFilters({
   const from = sp.get("from") ?? "";
   const to = sp.get("to") ?? "";
   const qParam = sp.get("q") ?? "";
+  // `?tags=` is one comma-joined value, not a repeatable key — see `parseTagIds`
+  // in `lib/filters.ts` for why. Ids are kept only while they name a tag that
+  // still exists, so a deleted tag drops out of the control instead of sitting
+  // there as a chip nothing can render; the next change writes the URL clean.
+  const knownTagIds = new Set(tags.map((t) => t.id));
+  const tagIds = (sp.get("tags") ?? "").split(",").filter((id) => knownTagIds.has(id));
 
   const [q, setQ] = useState(qParam);
 
@@ -58,7 +69,12 @@ export function TransactionFilters({
   }, [q]);
 
   const hasFilters =
-    type !== "all" || category !== "all" || !!from || !!to || !!qParam;
+    type !== "all" ||
+    category !== "all" ||
+    !!from ||
+    !!to ||
+    !!qParam ||
+    tagIds.length > 0;
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
@@ -116,6 +132,17 @@ export function TransactionFilters({
           ))}
         </SelectContent>
       </Select>
+      {/* Multi-value, so a popover of chips rather than a `Select`. Matching
+          ANY of the picked tags is the filter's meaning — see the plan's
+          decision; "all of them" would need a second control to choose between
+          the two, and nobody asked for it. */}
+      <TagSelect
+        tags={tags}
+        value={tagIds}
+        onChange={(ids) => update({ tags: ids.length ? ids.join(",") : undefined })}
+        placeholder="All tags"
+        className="w-44"
+      />
       {hasFilters && (
         <Button
           variant="ghost"

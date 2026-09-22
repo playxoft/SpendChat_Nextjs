@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import {
   listTransactions,
   listTransactionsAsc,
@@ -13,6 +13,8 @@ import {
   getMonthlyTrend,
   getCategories,
   getProfiles,
+  getTags,
+  getTagsWithUsage,
   getWorkspaceStorageUsage,
 } from "@/lib/queries";
 import { addProfile } from "@/actions/profiles";
@@ -388,6 +390,60 @@ describe("getCategories / getProfiles", () => {
   it("returns profiles in sidebar order", async () => {
     const profs = await getProfiles(U, W);
     expect(profs.map((p) => p.name)).toEqual(["Personal", "Work"]);
+  });
+});
+
+describe("getTags / getTagsWithUsage", () => {
+  /** Create a tag and put it on the named transactions. */
+  async function tag(name: string, titles: string[]): Promise<string> {
+    const { createTxnTag } = await import("@/services/tags");
+    const row = await createTxnTag(U, W, { name, color: "#ef4444" });
+    if (titles.length > 0) {
+      await getTestDb()
+        .update(transactions)
+        .set({ tagIds: sql`${transactions.tagIds} || ${row.id}::uuid` })
+        // `inArray`, not a `sql` template with the array interpolated: Drizzle
+        // flattens a JS array inside a template into a single scalar param, so
+        // `= any(${titles})` binds one string and Postgres rejects it as a
+        // malformed array literal.
+        .where(inArray(transactions.title, titles));
+    }
+    return row.id;
+  }
+
+  it("orders by lower(name), so case doesn't decide the order", async () => {
+    await tag("zebra", []);
+    await tag("Apple", []);
+    // A C-collation database (PGlite) would otherwise put every capital first,
+    // and Neon's en_US.UTF-8 wouldn't — the picker must read the same in both.
+    expect((await getTags(W)).map((t) => t.name)).toEqual(["Apple", "zebra"]);
+  });
+
+  it("counts the transactions carrying each tag", async () => {
+    await tag("Groceries", ["Veg apples", "snacks"]);
+    await tag("Unused", []);
+    const rows = await getTagsWithUsage(W);
+    expect(rows.map((t) => [t.name, t.usage])).toEqual([
+      ["Groceries", 2],
+      ["Unused", 0],
+    ]);
+    // Serialized, not raw rows — this list crosses into client components.
+    expect(typeof rows[0].createdAt).toBe("string");
+  });
+
+  it("counts only this workspace's transactions", async () => {
+    const id = await tag("Shared", ["Veg apples"]);
+    // The same tag id parked on an outsider's row must not be counted: the
+    // query scopes through `profiles`, it doesn't trust `tag_ids` alone.
+    const other = uid("qq");
+    await bootstrapUser(other);
+    await insertTxn(other, { type: "expense", amountMinor: 100, occurredOn: "2026-06-01", title: "theirs" });
+    await getTestDb()
+      .update(transactions)
+      .set({ tagIds: sql`array[${id}::uuid]` })
+      .where(eq(transactions.title, "theirs"));
+
+    expect((await getTagsWithUsage(W)).find((t) => t.name === "Shared")!.usage).toBe(1);
   });
 });
 

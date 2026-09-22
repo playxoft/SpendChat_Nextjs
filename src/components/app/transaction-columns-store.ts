@@ -6,6 +6,7 @@ export type ColumnId =
   | "date"
   | "category"
   | "title"
+  | "tags"
   | "attachments"
   | "description"
   | "amount"
@@ -15,6 +16,7 @@ export const COLUMN_IDS: ColumnId[] = [
   "date",
   "category",
   "title",
+  "tags",
   "attachments",
   "description",
   "amount",
@@ -25,6 +27,7 @@ export const COLUMN_LABELS: Record<ColumnId, string> = {
   date: "Date",
   category: "Category",
   title: "Title",
+  tags: "Tags",
   attachments: "Attachments",
   description: "Description",
   amount: "Amount",
@@ -36,6 +39,7 @@ export const DEFAULT_WIDTHS: Record<ColumnId, number> = {
   date: 128,
   category: 176,
   title: 220,
+  tags: 200,
   attachments: 200,
   description: 256,
   amount: 132,

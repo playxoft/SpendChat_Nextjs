@@ -14,9 +14,32 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.1.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.2.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.26.0] — 2026-09-22
+
+### Added
+- **A Tags column on the transactions page.** Visible by default, and draggable,
+  resizable and hideable like every other column. A row shows its first three
+  tags and a `+N` for the rest, which names them on hover.
+- **Filter the transactions list by tag.** A multi-select beside the category
+  filter; picking several matches transactions carrying **any** of them, and the
+  record count, the totals, the CSV export and the print view all narrow with
+  it. It survives scrolling — loading more rows keeps the filter.
+- **Settings → Tags**: the full list with what each tag costs to remove ("on 34
+  transactions"), rename, recolour and delete. The second place a tag can be
+  created — the first is the composer's `#` picker. Viewers see it read-only.
+- **Tags in the edit dialog**, for adding or removing them on a transaction that
+  already exists, with the same create-a-tag step the composer has.
+- **Tags on the tracker's chat bubbles**, under the description.
+- **A `Tags` column in both CSV exports** — the tag names joined by `"; "`.
+
+### Changed
+- The mobile API gains `/api/v1/tags` (list, create, rename, recolour, delete)
+  and its CSV export gains the `Tags` column — spec **6.2.0**, additive. See
+  [the API changelog](./_developer/flutter/_changelog.md).
 
 ## [0.25.0] — 2026-09-22
 

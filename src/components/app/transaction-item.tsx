@@ -9,6 +9,7 @@ import { authorColorClass, authorDisplayName } from "@/lib/author-color";
 import { minorToInputString } from "@/lib/money";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
+import type { TxnTagDTO } from "@/lib/tags";
 
 export function TransactionItem({
   row: serverRow,
@@ -16,6 +17,7 @@ export function TransactionItem({
   locale,
   categories,
   profiles = [],
+  tags,
   today,
   timeLabel,
   showAuthor = false,
@@ -25,6 +27,8 @@ export function TransactionItem({
   locale: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   profiles?: Pick<Profile, "id" | "name" | "icon">[];
+  /** The workspace's tags, for the edit dialog's picker. */
+  tags: TxnTagDTO[];
   today: string;
   timeLabel: string;
   /** Shared workspaces only: label each bubble with its author. */
@@ -58,6 +62,7 @@ export function TransactionItem({
         description={row.description}
         categoryName={row.categoryName}
         categoryIcon={row.categoryIcon}
+        tags={row.tags}
         timeLabel={timeLabel}
         attachments={files}
         onOpenAttachment={(a) =>
@@ -76,6 +81,7 @@ export function TransactionItem({
         onDeleted={remove}
         categories={categories}
         profiles={profiles}
+        tags={tags}
         currency={currency}
         locale={locale}
         today={today}
@@ -89,6 +95,7 @@ export function TransactionItem({
           title: row.title ?? "",
           description: row.description ?? "",
           occurredOn: row.occurredOn,
+          tagIds: row.tags.map((t) => t.id),
         }}
       />
     </>

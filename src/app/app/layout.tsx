@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { getAppContext, getUserWorkspaces } from "@/lib/auth";
 import { canWriteInWorkspace } from "@/lib/workspaces";
-import { getCategories, getProfiles } from "@/lib/queries";
+import { getCategories, getProfiles, getTags } from "@/lib/queries";
 import { todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
 import { AppSidebar } from "@/components/app/app-sidebar";
@@ -23,9 +23,12 @@ export default async function AppLayout({
   const { user, workspace } = await getAppContext();
   const email = user.email;
   const timeZone = await getTimeZone();
-  const [profiles, categories, workspaces, canWrite] = await Promise.all([
+  const [profiles, categories, tags, workspaces, canWrite] = await Promise.all([
     getProfiles(user.id, workspace.id),
     getCategories(workspace.id),
+    // For the add dialog the shortcuts mount app-wide. Workspace-scoped like
+    // the categories beside it, so it rides the same round-trip.
+    getTags(workspace.id),
     getUserWorkspaces(user.id),
     canWriteInWorkspace(user.id, workspace.id),
   ]);
@@ -67,6 +70,7 @@ export default async function AppLayout({
         <GlobalShortcuts
           categories={categories}
           profiles={profiles}
+          tags={tags}
           currency={workspace.currency}
           locale={workspace.locale}
           today={todayISO(timeZone)}
