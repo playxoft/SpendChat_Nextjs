@@ -44,24 +44,39 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "tracker.toggle-mode", combo: "a", label: "Switch between Manual and AI entry", scope: "Tracker" },
   // Push-to-talk, bound via `useHoldShortcut` — held, not tapped.
   { id: "tracker.voice", combo: "m", label: "Hold to record a voice note (AI entry)", scope: "Tracker" },
-  // Display-only: "#" is a character you type into the field, not a bound key.
-  // The composer drives the picker off the field's text; this entry exists so
-  // the cheat sheet documents it.
+  // Display-only: these two are characters you type into the title field, not
+  // bound keys. The composer drives each picker off the field's own text; these
+  // entries exist so the cheat sheet documents them.
   //
-  // Which physical key that is depends on the layout, and both shapes matter to
-  // anything matching against this entry. On a US keyboard "#" is Shift+3, and
-  // `normalizeKey` deliberately reports the *physical* key there ("3"), so this
-  // combo can never match and Shift+3 outside a field belongs to
-  // `profiles.switch` — which is exactly what the app does, because a bare-key
-  // shortcut stands down while a field has focus and the character types
-  // instead. On UK/DE/IT/ES layouts "#" is its own unshifted key and arrives as
-  // "#". Match it on the character (`e.key`) while a field has focus and both
-  // layouts land where the label says they do; see `resolveShortcut` in
-  // `components/marketing/demo/shortcut-match.ts`.
+  // "/" is unshifted on every layout we care about, so unlike the "#" this
+  // replaced there is no US-vs-UK physical-key split to reason about — the
+  // character and the key agree everywhere. It does collide *by name* with
+  // `global.shortcuts` below, which is also "/", and that is fine and
+  // deliberate: `global.shortcuts` is a bare-key binding and bare-key bindings
+  // stand down while a field has focus, so inside the title field the "/"
+  // simply types and opens this picker. Outside a field it opens the cheat
+  // sheet. Nothing needs to arbitrate between them.
   {
     id: "tracker.category",
+    combo: "/",
+    label: "Pick a category from the title field",
+    scope: "Tracker",
+    unbound: "typed",
+  },
+  // "#" is the tag trigger. Which physical key that is depends on the layout,
+  // and both shapes matter to anything matching against this entry. On a US
+  // keyboard "#" is Shift+3, and `normalizeKey` deliberately reports the
+  // *physical* key there ("3"), so this combo can never match and Shift+3
+  // outside a field belongs to `profiles.switch` — which is exactly what the
+  // app does, because a bare-key shortcut stands down while a field has focus
+  // and the character types instead. On UK/DE/IT/ES layouts "#" is its own
+  // unshifted key and arrives as "#". Match it on the character (`e.key`)
+  // while a field has focus and both layouts land where the label says they
+  // do; see `resolveShortcut` in `components/marketing/demo/shortcut-match.ts`.
+  {
+    id: "tracker.tag",
     combo: "#",
-    label: "Tag a category from the title field",
+    label: "Tag a transaction from the title field",
     scope: "Tracker",
     unbound: "typed",
   },
@@ -69,6 +84,8 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: "profiles.all", combo: "shift+`", label: "Show all profiles", scope: "Profiles" },
   { id: "profiles.switch", combo: "shift+1", label: "Switch to a profile (Shift + 1…9, 0 for the 10th)", scope: "Profiles" },
   { id: "workspace.switch", combo: "g", label: "Switch workspace (then 1…9)", scope: "Workspaces" },
+  // Bare-key, so it stands down while a field has focus — which is what lets
+  // `tracker.category` use the same "/" as a typed character. See there.
   { id: "global.shortcuts", combo: "/", label: "Show keyboard shortcuts", scope: "Global" },
   // The browser's, not ours: we style the pages for print and document the key
   // people already know. Marked so nothing built on this list swallows it.

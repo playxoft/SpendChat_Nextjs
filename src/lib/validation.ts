@@ -29,6 +29,81 @@ const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be YYYY-MM-DD");
 
+/* -------------------------------------------------------------------------- */
+/* Transaction tags                                                            */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Tag limits — the single source of truth, the way the transaction field caps
+ * above are. `TAG_NAME_MAX` is also the `tags.name` column width, so the DB
+ * rejects exactly what the app does.
+ *
+ * These deliberately match the vault's tag caps (`FILE_TAG_MAX` /
+ * `FILE_TAGS_MAX`): the two systems are separate, but a user who has learned
+ * "tags are short, about ten of them" in one place should not be corrected by
+ * the other. `TAGS_PER_WORKSPACE_MAX` has no vault equivalent — it exists so a
+ * runaway client (or an import) can't turn the picker into an unusable list.
+ */
+export const TAG_NAME_MAX = 20;
+export const TAGS_PER_TRANSACTION_MAX = 10;
+export const TAGS_PER_WORKSPACE_MAX = 100;
+
+/**
+ * An accent color (transaction tags, vault tags, folders): a hex `#rrggbb`.
+ * Stored as text so a future custom-color picker needs no schema change — any
+ * hex the UI mints is already valid here. Today's UI offers a fixed 20-swatch
+ * palette (`TAG_COLORS` in `lib/tags.ts`, re-exported as `VAULT_COLORS` from
+ * `lib/files.ts`).
+ */
+export const accentColorSchema = z
+  .string()
+  .trim()
+  .regex(/^#[0-9a-f]{6}$/i, "Pick a color");
+
+/**
+ * The tags on a transaction, as ids. Tags are entities (workspace-scoped, named
+ * + colored) and transactions reference them by id — there are no free-text
+ * tags, so a rename or recolor updates every tagged transaction at once.
+ *
+ * Deduped on the way in, because the same tag arriving twice is a client bug,
+ * not a request to store it twice — and `tag_ids` has no unique constraint to
+ * catch it. Ids the caller isn't entitled to are *not* rejected here: the
+ * service filters them against the workspace (`workspaceTagIds`), the same way
+ * `categoryId` is resolved, so a stale or forged id is dropped rather than
+ * failing an otherwise valid write.
+ */
+export const txnTagIdsSchema = z
+  .array(z.string().uuid())
+  .max(TAGS_PER_TRANSACTION_MAX, `Too many tags (max ${TAGS_PER_TRANSACTION_MAX})`)
+  .transform((ids) => [...new Set(ids)]);
+
+const txnTagNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Tag name is required")
+  .max(TAG_NAME_MAX, `Tag name is too long (max ${TAG_NAME_MAX} characters)`);
+
+export const createTxnTagSchema = z.object({
+  name: txnTagNameSchema,
+  color: accentColorSchema,
+});
+export type CreateTxnTagInput = z.input<typeof createTxnTagSchema>;
+
+export const updateTxnTagSchema = z.object({
+  id: z.string().uuid(),
+  name: txnTagNameSchema.optional(),
+  color: accentColorSchema.optional(),
+});
+export type UpdateTxnTagInput = z.input<typeof updateTxnTagSchema>;
+
+/** Setting a transaction's tags on its own, without touching any other field
+ *  (the table cell's picker and the composer's chips both use this). */
+export const setTransactionTagsSchema = z.object({
+  id: z.string().uuid(),
+  tagIds: txnTagIdsSchema,
+});
+export type SetTransactionTagsInput = z.input<typeof setTransactionTagsSchema>;
+
 export const transactionInputSchema = z.object({
   type: txnTypeSchema,
   amount: amountSchema,
@@ -52,6 +127,11 @@ export const transactionInputSchema = z.object({
   // Deprecated alias for `title`; accepted until every caller passes `title`.
   note: z.string().trim().max(TRANSACTION_TITLE_MAX).optional(),
   occurredOn: dateSchema,
+  // Optional everywhere, and deliberately *not* defaulted to `[]`: on an update
+  // "absent" has to stay distinguishable from "empty", or a PATCH that only
+  // moves the date would silently strip the row's tags. `updateTransaction`
+  // reads it as "leave the tags alone" when undefined.
+  tagIds: txnTagIdsSchema.optional(),
 });
 // `input` type accounts for fields with defaults being optional for callers.
 export type TransactionInput = z.input<typeof transactionInputSchema>;
@@ -218,16 +298,9 @@ export const FILE_CATEGORIES = [
 export type FileCategory = (typeof FILE_CATEGORIES)[number];
 export const fileCategorySchema = z.enum(FILE_CATEGORIES);
 
-/**
- * A vault accent color (tags, folders): a hex `#rrggbb`. Stored as text so a
- * future custom-color picker needs no schema change — any hex the UI mints is
- * already valid here. Today's UI offers a fixed 20-swatch palette
- * (`VAULT_COLORS` in `lib/files.ts`).
- */
-export const vaultColorSchema = z
-  .string()
-  .trim()
-  .regex(/^#[0-9a-f]{6}$/i, "Pick a color");
+/** The vault's name for `accentColorSchema` — kept so the vault's call sites,
+ *  its docs and its tests read as they always have. One schema, two names. */
+export const vaultColorSchema = accentColorSchema;
 
 /**
  * Tags are entities (per-profile, named + colored), and items reference them

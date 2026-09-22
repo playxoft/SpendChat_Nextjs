@@ -18,6 +18,18 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-09-22
+
+### Changed
+- **The category trigger in the composer is now `/`, not `#`.** Type `/` in the
+  title field (or in an AI note) and the category picker opens exactly as it
+  did before; `#` no longer picks a category. The change frees `#` for
+  transaction tags, which land in the next releases, and it lines the app up
+  with the convention most chat tools use — `/` for a command, `#` for a label.
+  Nothing about how categories work changed, only the key that opens the list.
+  The AI note understands the new marker too: `500 groceries /Food`. A slash
+  between digits is still a date, never a category.
+
 ## [0.23.0] — 2026-09-17
 
 ### Added

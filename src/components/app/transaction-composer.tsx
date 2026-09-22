@@ -43,9 +43,10 @@ import {
 import type { ComposerDensity, InputMode, TransactionInput } from "@/lib/validation";
 import type { Category, Profile } from "@/db/schema";
 
-// Matches a trailing "#query" token typed into the title field — "#" is the
-// app-wide category trigger (in the AI note too).
-const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
+// Matches a trailing "/query" token typed into the title field — "/" is the
+// app-wide category trigger (in the AI note too). "#" is the *tag* trigger and
+// is handled separately; the two never share a regex.
+const CATEGORY_RE = /(?:^|\s)\/([^\s/]*)$/;
 
 // How much text the amount chip holds. Nine whole digits is the real cap
 // (`AMOUNT_INTEGER_DIGITS_MAX`, enforced per keystroke below); this only stops a
@@ -105,8 +106,8 @@ export function TransactionComposer({
   const [editorOpen, setEditorOpen] = useState(false);
   // Description is off by default; a toggle on the amount/title row reveals it.
   const [showDescription, setShowDescription] = useState(false);
-  const [tagDismissed, setTagDismissed] = useState(false);
-  const [tagIndex, setTagIndex] = useState(0);
+  const [categoryDismissed, setCategoryDismissed] = useState(false);
+  const [categoryIndex, setCategoryIndex] = useState(0);
   const { send } = usePendingMessages();
   // Files staged for the next send; uploaded to the row once it's created.
   const staged = useStagedAttachments();
@@ -173,17 +174,17 @@ export function TransactionComposer({
   // mobile (name appears on desktop).
   const currentProfile = profiles.find((p) => p.id === profileId) ?? profiles[0] ?? null;
 
-  // "#" in the title opens an inline category picker. Every category of the
-  // current type is offered — a bare "#" is "show me the list", so truncating it
+  // "/" in the title opens an inline category picker. Every category of the
+  // current type is offered — a bare "/" is "show me the list", so truncating it
   // hid categories the user had no other way to reach from the keyboard. The
   // popover scrolls instead of capping.
-  const tagMatch = titleSource.match(TAG_RE);
-  const tagQuery = tagMatch?.[1] ?? "";
-  const tagActive = !!tagMatch && !tagDismissed;
-  const tagResults = tagActive
-    ? cats.filter((c) => c.name.toLowerCase().includes(tagQuery.toLowerCase()))
+  const categoryMatch = titleSource.match(CATEGORY_RE);
+  const categoryQuery = categoryMatch?.[1] ?? "";
+  const categoryActive = !!categoryMatch && !categoryDismissed;
+  const categoryResults = categoryActive
+    ? cats.filter((c) => c.name.toLowerCase().includes(categoryQuery.toLowerCase()))
     : [];
-  const tagIdx = tagResults.length ? Math.min(tagIndex, tagResults.length - 1) : 0;
+  const categoryIdx = categoryResults.length ? Math.min(categoryIndex, categoryResults.length - 1) : 0;
 
   function switchType(t?: "expense" | "income") {
     setType((prev) => t ?? (prev === "expense" ? "income" : "expense"));
@@ -223,11 +224,11 @@ export function TransactionComposer({
     el.setSelectionRange(el.value.length, el.value.length);
   }
 
-  function selectTagCategory(cat: Pick<Category, "id">) {
+  function selectCategory(cat: Pick<Category, "id">) {
     setCategoryId(cat.id);
-    setTitleSource((t) => t.replace(TAG_RE, "").replace(/\s+$/, ""));
-    setTagDismissed(true);
-    setTagIndex(0);
+    setTitleSource((t) => t.replace(CATEGORY_RE, "").replace(/\s+$/, ""));
+    setCategoryDismissed(true);
+    setCategoryIndex(0);
   }
 
   function submit() {
@@ -312,7 +313,7 @@ export function TransactionComposer({
     setShowDescription(false);
     setCategoryId(null);
     setOccurredOn(today);
-    setTagDismissed(false);
+    setCategoryDismissed(false);
     // Back to whichever field the next entry starts in: the chip in single-field
     // mode, the title in title-first, the amount otherwise.
     (isCombined ? chipRef : inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
@@ -338,25 +339,25 @@ export function TransactionComposer({
   }
 
   function onTitleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (tagActive && tagResults.length > 0) {
+    if (categoryActive && categoryResults.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setTagIndex((i) => (i + 1) % tagResults.length);
+        setCategoryIndex((i) => (i + 1) % categoryResults.length);
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setTagIndex((i) => (i - 1 + tagResults.length) % tagResults.length);
+        setCategoryIndex((i) => (i - 1 + categoryResults.length) % categoryResults.length);
         return;
       }
       if (e.key === "Enter" || e.key === "Tab") {
         e.preventDefault();
-        selectTagCategory(tagResults[tagIdx]);
+        selectCategory(categoryResults[categoryIdx]);
         return;
       }
       if (e.key === "Escape") {
         e.preventDefault();
-        setTagDismissed(true);
+        setCategoryDismissed(true);
         return;
       }
     }
@@ -399,7 +400,7 @@ export function TransactionComposer({
    * Merge text into the single field's title half. Goes through here rather
    * than `setCombined` directly so a programmatic write keeps the two things a
    * keystroke in that field guarantees: the stored 40-char cap (`maxLength`
-   * only ever constrains typing) and a re-armed "#" picker.
+   * only ever constrains typing) and a re-armed "/" picker.
    */
   function addToTitle(text: string) {
     // Collapse whitespace first: an `<input>` strips newlines out of a value it
@@ -407,8 +408,8 @@ export function TransactionComposer({
     // the field can't show — and the send would save a title nobody saw.
     const flat = text.replace(/\s+/g, " ").trim();
     setCombined((t) => (t ? `${flat} ${t}` : flat).slice(0, TITLE_MAX));
-    setTagDismissed(false);
-    setTagIndex(0);
+    setCategoryDismissed(false);
+    setCategoryIndex(0);
   }
 
   /**
@@ -536,13 +537,13 @@ export function TransactionComposer({
       {titleLeadsRow && attachButton}
       <Input
         ref={titleRef}
-        placeholder="Add a title — type # to tag a category"
+        placeholder="Add a title — / for category, # for tags"
         value={title}
         maxLength={TITLE_MAX}
         onChange={(e) => {
           setTitle(e.target.value);
-          setTagDismissed(false);
-          setTagIndex(0);
+          setCategoryDismissed(false);
+          setCategoryIndex(0);
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Title"
@@ -560,7 +561,7 @@ export function TransactionComposer({
   // Not an `<Input>`: the chip, the paperclip and the title are siblings inside
   // a shell that looks like an input (same border/ring tokens, with focus moved
   // to `focus-within`). `titleRef` stays on the title half, so the shortcuts and
-  // the "#" picker that target it keep working.
+  // the "/" picker that target it keep working.
   const combinedField = (
     <div
       className={cn(
@@ -635,13 +636,13 @@ export function TransactionComposer({
       </div>
       <input
         ref={titleRef}
-        placeholder="Add a title — type # to tag a category"
+        placeholder="Add a title — / for category, # for tags"
         value={combined}
         maxLength={TITLE_MAX}
         onChange={(e) => {
           setCombined(e.target.value);
-          setTagDismissed(false);
-          setTagIndex(0);
+          setCategoryDismissed(false);
+          setCategoryIndex(0);
         }}
         onKeyDown={onCombinedTitleKeyDown}
         // Clicking an untouched field starts in the chip, wherever the click
@@ -1020,11 +1021,11 @@ export function TransactionComposer({
 
                     {/* Anchored to the input row (not the narrow title) and clamped to the
                         viewport, so it never runs off-screen on a phone. */}
-                    {tagActive && (
+                    {categoryActive && (
                       <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
-                        {tagResults.length > 0 ? (
+                        {categoryResults.length > 0 ? (
                           <ul className="max-h-56 overflow-y-auto">
-                            {tagResults.map((c, i) => (
+                            {categoryResults.map((c, i) => (
                               <li key={c.id}>
                                 <button
                                   type="button"
@@ -1032,15 +1033,15 @@ export function TransactionComposer({
                                   // down can walk past the scroll window.
                                   // "nearest" is a no-op when already visible.
                                   ref={(el) => {
-                                    if (i === tagIdx) el?.scrollIntoView({ block: "nearest" });
+                                    if (i === categoryIdx) el?.scrollIntoView({ block: "nearest" });
                                   }}
                                   onMouseDown={(e) => {
                                     e.preventDefault();
-                                    selectTagCategory(c);
+                                    selectCategory(c);
                                   }}
                                   className={cn(
                                     "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                                    i === tagIdx ? "bg-accent" : "hover:bg-muted",
+                                    i === categoryIdx ? "bg-accent" : "hover:bg-muted",
                                   )}
                                 >
                                   <span aria-hidden>{c.icon ?? "🏷️"}</span>
@@ -1051,7 +1052,7 @@ export function TransactionComposer({
                           </ul>
                         ) : (
                           <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                            No category matches “{tagQuery}”
+                            No category matches “{categoryQuery}”
                           </p>
                         )}
                       </div>

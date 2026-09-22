@@ -107,10 +107,12 @@ export function ShortcutsPreview() {
       // and in both cases the honest answer is that the key isn't ours. The
       // panel lets them through rather than swallowing them.
       case "tracker.category":
-        // Spelled "# (hash)" because the live region reads this sentence out:
-        // a bare "#" is punctuation most readers drop, taking the subject of
-        // the sentence with it.
-        return "A character, not a binding — type # (hash) in the title field and the composer offers matching categories from the text itself.";
+        // Spelled "/ (slash)" because the live region reads this sentence out:
+        // a bare "/" is punctuation most readers drop, taking the subject of
+        // the sentence with it. Same reason for "# (hash)" below.
+        return "A character, not a binding — type / (slash) in the title field and the composer offers matching categories from the text itself.";
+      case "tracker.tag":
+        return "A character, not a binding — type # (hash) in the title field and the composer offers matching tags from the text itself.";
       case "global.print":
         return "That one is the browser's own print dialog — we didn't bind it, we just made the pages print properly.";
       default:

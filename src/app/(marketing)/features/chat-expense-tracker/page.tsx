@@ -75,7 +75,7 @@ export default function ChatExpenseTrackerPage() {
           },
           {
             title: "Pick a category",
-            body: "Click a chip, or type # in the title field and keep typing to filter — the category is chosen without your hands leaving the keyboard.",
+            body: "Click a chip, or type / in the title field and keep typing to filter — the category is chosen without your hands leaving the keyboard.",
           },
           {
             title: "Send",

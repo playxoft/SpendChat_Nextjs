@@ -170,13 +170,21 @@ export function resolveShortcut(
   // while a field has focus, because that is the only moment the character is
   // what the visitor meant and the only moment the app behaves this way.
   //
-  // That single condition settles both layouts and the collision between them.
-  // On a US keyboard `#` is Shift+3, which `normalizeKey` reports as the
-  // physical "3": outside a field it is Shift + a digit and belongs to
-  // `profiles.switch`, exactly as in the app, and inside one the bare-key
-  // shortcut stands down and the "#" types. On UK/DE/IT/ES layouts `#` is its
-  // own unshifted key and reaches the fallthrough below on its own. Either way
-  // the panel now says what the row beside it says.
+  // That single condition settles both layouts and both collisions.
+  //
+  // `#` (the tag marker): on a US keyboard it is Shift+3, which `normalizeKey`
+  // reports as the physical "3" — outside a field it is Shift + a digit and
+  // belongs to `profiles.switch`, exactly as in the app, and inside one the
+  // bare-key shortcut stands down and the "#" types. On UK/DE/IT/ES layouts
+  // `#` is its own unshifted key and reaches the fallthrough below on its own.
+  //
+  // `/` (the category marker): the same character everywhere, but the registry
+  // also binds a bare "/" to `global.shortcuts`. The branch below runs first
+  // and only while a field has focus, so inside a field "/" is the marker and
+  // outside one it falls through to the cheat sheet — which is exactly how the
+  // app behaves, for the same reason.
+  //
+  // Either way the panel now says what the row beside it says.
   //
   // AltGr layouts (`#` is AltGr+3 on AZERTY) never get here — AltGr arrives as
   // Ctrl+Alt and is rejected above — so the character simply types, which is
@@ -186,7 +194,7 @@ export function resolveShortcut(
     if (typed) return typed;
   }
 
-  return SHORTCUTS.find((s) => {
+  const matches = (s: ShortcutDef) => {
     const parts = splitCombo(s.combo);
     if (parts.includes("mod") !== mod) return false;
     if (parts.includes("shift") !== e.shiftKey) return false;
@@ -194,5 +202,22 @@ export function resolveShortcut(
     // first one as the representative combo.
     if (s.id === "profiles.switch") return e.shiftKey && /^[0-9]$/.test(key);
     return parts[parts.length - 1] === key;
-  });
+  };
+
+  // Bound entries win over `typed` ones, and the two passes are the whole
+  // reason this isn't a single `find`.
+  //
+  // A `typed` entry is only ever *meant* while a field has focus — that case
+  // was handled above and returned. Reaching here with one still matching means
+  // the character was produced outside a field, where the app would fire
+  // whatever is actually bound to that key. `/` is the live example: it is the
+  // category marker in the title field and `global.shortcuts` everywhere else,
+  // and the registry lists the marker first, so a single ordered `find` would
+  // have the panel claim "a character, not a binding" while the real app opened
+  // the cheat sheet.
+  //
+  // The second pass is not a fallback nobody needs: on UK/DE/IT/ES layouts `#`
+  // is an unshifted key of its own that nothing is bound to, and naming the tag
+  // row there (without swallowing the key) is the honest answer.
+  return SHORTCUTS.find((s) => !s.unbound && matches(s)) ?? SHORTCUTS.find(matches);
 }

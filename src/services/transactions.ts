@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { getDb } from "@/db";
-import { categories, profiles, transactionAttachments, transactions } from "@/db/schema";
+import { categories, profiles, tags, transactionAttachments, transactions } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { badRequest, forbidden, validationError } from "@/lib/errors";
 import { toMinorUnits } from "@/lib/money";
@@ -26,6 +26,7 @@ import {
   transactionInputSchema,
   updateTransactionSchema,
   bulkTransactionsSchema,
+  setTransactionTagsSchema,
 } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { z } from "zod";
@@ -37,6 +38,30 @@ import { z } from "zod";
  * a profile grant); reads are the viewer role. `transactions.user_id` records
  * the author, not access.
  */
+
+/**
+ * Narrow submitted tag ids to the ones that actually exist in this workspace.
+ *
+ * The tag analogue of `workspaceCategoryId` below, and it drops rather than
+ * rejects for the same reason: an id the caller shouldn't have is a stale
+ * client cache or a tag someone else just deleted, and failing the whole write
+ * over it would lose the transaction the user was trying to save. What must
+ * never happen is storing it — `tag_ids` has no foreign key, so an id that got
+ * in would sit there unresolvable.
+ *
+ * Returns the ids in the order the caller sent them, so the chips keep the order
+ * the user picked. An empty input short-circuits without a query.
+ */
+async function workspaceTagIds(workspaceId: string, tagIds?: string[]): Promise<string[]> {
+  if (!tagIds?.length) return [];
+  const db = getDb();
+  const rows = await db
+    .select({ id: tags.id })
+    .from(tags)
+    .where(and(eq(tags.workspaceId, workspaceId), inArray(tags.id, tagIds)));
+  const allowed = new Set(rows.map((r) => r.id));
+  return tagIds.filter((id) => allowed.has(id));
+}
 
 /** Confirm a category id belongs to this workspace; returns null otherwise. */
 async function workspaceCategoryId(workspaceId: string, categoryId?: string | null) {
@@ -131,13 +156,18 @@ export async function createTransactionId(
     (await time("createTransaction.moneyFormat", () => getWorkspaceMoneyFormat(workspaceId)));
   // Category validation and profile resolution touch different tables and don't
   // depend on each other — run them in one round-trip instead of two.
-  const [categoryId, profileId] = await Promise.all([
+  const [categoryId, profileId, tagIds] = await Promise.all([
     time("createTransaction.categoryLookup", () =>
       workspaceCategoryId(workspaceId, data.categoryId),
     ),
     time("createTransaction.resolveProfile", () =>
       resolveProfileId(userId, workspaceId, data.profileId),
     ),
+    // Folded into the same round-trip as the two above rather than awaited
+    // after them: it touches a different table and depends on neither, so it
+    // costs nothing here and a serial await would have put a whole round-trip
+    // on the send path.
+    time("createTransaction.tagLookup", () => workspaceTagIds(workspaceId, data.tagIds)),
   ]);
   setLogContext({ profileId }); // log lines for this write carry the resolved profile
 
@@ -154,6 +184,7 @@ export async function createTransactionId(
         title: pickTitle(data),
         description: data.description?.trim() ? data.description.trim() : null,
         occurredOn: data.occurredOn,
+        tagIds,
       })
       .returning({ id: transactions.id }),
   );
@@ -251,6 +282,13 @@ export async function updateTransaction(
     description: data.description?.trim() ? data.description.trim() : null,
     occurredOn: data.occurredOn,
     updatedAt: new Date(),
+    // Absent means "leave the tags alone", which is why `tagIds` is optional in
+    // the schema and not defaulted to `[]`. A PATCH that only moves the date
+    // must not silently strip a row's tags, and the mobile client sends partial
+    // updates. Clearing them is `tagIds: []`, explicitly.
+    ...(data.tagIds === undefined
+      ? {}
+      : { tagIds: await workspaceTagIds(workspaceId, data.tagIds) }),
   };
 
   if (profileId === existing.profileId) {
@@ -271,6 +309,44 @@ export async function updateTransaction(
         .where(eq(transactionAttachments.transactionId, data.id));
     });
   }
+
+  return getTransactionById(userId, workspaceId, data.id);
+}
+
+/**
+ * Set a transaction's tags, touching nothing else.
+ *
+ * Its own path rather than a `updateTransaction` call with the other fields
+ * echoed back, because every caller that tags a row — the composer's chips, the
+ * table cell's picker — holds the tags and nothing else. Routing them through
+ * the full update would make them re-send an amount and a date they never
+ * touched, and any staleness in those would be written back over a concurrent
+ * edit.
+ *
+ * Same access rule as any other write to the row: editor on its profile, in the
+ * current workspace. Returns the updated row, or null when nothing matched.
+ */
+export async function setTransactionTags(
+  userId: string,
+  workspaceId: string,
+  id: string,
+  input: unknown,
+): Promise<TransactionRow | null> {
+  const data = parseOrThrow(setTransactionTagsSchema, withId(input, id));
+  const db = getDb();
+
+  const existing = await db.query.transactions.findFirst({
+    where: eq(transactions.id, data.id),
+    columns: { id: true, profileId: true },
+  });
+  if (!existing) return null;
+  if (!(await editableInWorkspace(userId, workspaceId, existing.profileId))) return null;
+
+  const tagIds = await workspaceTagIds(workspaceId, data.tagIds);
+  await db
+    .update(transactions)
+    .set({ tagIds, updatedAt: new Date() })
+    .where(eq(transactions.id, data.id));
 
   return getTransactionById(userId, workspaceId, data.id);
 }

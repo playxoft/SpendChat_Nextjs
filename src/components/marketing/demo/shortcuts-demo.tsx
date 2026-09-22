@@ -169,13 +169,19 @@ export function ShortcutsDemo() {
         // the same physical key is Shift + 3 and belongs to the profile
         // switcher, in the demo exactly as in the app.
         //
-        // "# (hash)" rather than a bare "#", the way the page's own prose
+        // "/ (slash)" rather than a bare "/", the way the page's own prose
         // writes it: this sentence is read aloud by the live region, and a
-        // lone "#" is punctuation a reader drops at its default verbosity —
+        // lone "/" is punctuation a reader drops at its default verbosity —
         // the sentence would lose the very character it's about.
         return typing
-          ? "Typed, not fired — the # (hash) lands in the field, and the composer offers matching categories from the text as you go."
-          : "A character, not a binding. Type # (hash) in the note field below and the category picker opens from the text itself.";
+          ? "Typed, not fired — the / (slash) lands in the field, and the composer offers matching categories from the text as you go."
+          : "A character, not a binding. Type / (slash) in the note field below and the category picker opens from the text itself.";
+      case "tracker.tag":
+        // Same shape as the category marker above, and the same reason for
+        // spelling the character out.
+        return typing
+          ? "Typed, not fired — the # (hash) lands in the field, and the composer offers matching tags from the text as you go."
+          : "A character, not a binding. Type # (hash) in the note field below and the tag picker opens from the text itself.";
       case "tracker.toggle-type": {
         const next = type === "expense" ? "income" : "expense";
         setType(next);

@@ -80,7 +80,7 @@ export default function CategoriesPage() {
           },
           {
             title: "Use them without thinking",
-            body: "Tap a chip in the composer, or type # and keep typing to filter. Analytics, filters and exports all read the same list.",
+            body: "Tap a chip in the composer, or type / and keep typing to filter. Analytics, filters and exports all read the same list.",
           },
         ]}
       />

@@ -29,11 +29,12 @@ export const metadata = createMetadata({
  * Windows reader is worse than one that says both. Everything still comes out
  * of the registry, so no key is spelled out by hand anywhere on this page.
  *
- * `#` is the one place both renderings appear at once — "type # (hash)". It is
- * a character you literally type rather than a chord you press, so the glyph is
- * the useful half for a reader who can see it and for the search query someone
- * arrives on; the word is there because a screen reader below "all" punctuation
- * verbosity drops a bare "#" and the sentence loses its subject.
+ * The two typed markers — `/` for a category, `#` for a tag — are the one place
+ * both renderings appear at once ("type / (slash)"). They are characters you
+ * literally type rather than chords you press, so the glyph is the useful half
+ * for a reader who can see it and for the search query someone arrives on; the
+ * word is there because a screen reader below "all" punctuation verbosity drops
+ * a bare "/" or "#" and the sentence loses its subject.
  */
 function comboText(id: string): string {
   const combo = comboFor(id);
