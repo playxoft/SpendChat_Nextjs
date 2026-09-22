@@ -52,11 +52,12 @@ import { usePermissions } from "./permissions";
 import { AttachmentBox } from "./attachments/attachment-box";
 import { TagChip } from "./tags/tag-chip";
 import { TagSelect } from "./tags/tag-select";
+import { useCreatedTags } from "./tags/use-created-tags";
 import { StagedAttachmentList, useStagedAttachments } from "./attachments/staged-attachments";
 import { TransactionAttachments } from "./attachments/transaction-attachments";
 import { uploadStagedAttachments } from "./attachments/upload-client";
 import type { AttachmentDTO } from "@/lib/attachments";
-import type { TxnTagDTO } from "@/lib/tags";
+import { sameTagSet, sortTagsByName, type TxnTagDTO } from "@/lib/tags";
 import type { TransactionRow } from "@/lib/queries";
 import type { Category, Profile } from "@/db/schema";
 
@@ -75,11 +76,7 @@ export type TransactionValues = {
   tagIds: string[];
 };
 
-/** Order-sensitive id comparison for the dirty check: `tag_ids` is an array
- *  column, so a reorder is a real change to what would be written. */
-function sameIds(a: string[], b: string[]): boolean {
-  return a.length === b.length && a.every((id, i) => id === b[i]);
-}
+
 
 export function TransactionDialog({
   mode,
@@ -151,7 +148,7 @@ export function TransactionDialog({
   // Tags created from the picker inside this dialog, until the server prop
   // catches up — without them the chip for a tag you just made can't be
   // resolved, so it would be applied but invisible.
-  const [createdTags, setCreatedTags] = useState<TxnTagDTO[]>([]);
+  const createdTags = useCreatedTags(tags);
   // (add) Files chosen before the transaction exists; uploaded once it's created.
   const staged = useStagedAttachments();
   const [uploading, setUploading] = useState(false);
@@ -172,7 +169,7 @@ export function TransactionDialog({
     values.title !== baseline.title ||
     values.description !== baseline.description ||
     values.occurredOn !== baseline.occurredOn ||
-    !sameIds(values.tagIds, baseline.tagIds);
+    !sameTagSet(values.tagIds, baseline.tagIds);
 
   // Reset the form to the row being edited each time the dialog opens, and (add
   // mode) seed any files dropped onto the page as staged attachments.
@@ -180,7 +177,7 @@ export function TransactionDialog({
     if (!isOpen) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setValues(defaultValues ?? emptyValues);
-    setCreatedTags([]);
+    createdTags.reset();
     if (mode === "add") {
       staged.clear();
       if (initialFiles?.length) staged.add(initialFiles);
@@ -191,11 +188,10 @@ export function TransactionDialog({
   // The server list plus anything created from the picker while this dialog has
   // been open; the server copy wins on id, so a rename made elsewhere isn't
   // masked by a stale local one.
-  const knownTags = createdTags.length
-    ? [...tags, ...createdTags.filter((c) => !tags.some((t) => t.id === c.id))]
-    : tags;
-  // In pick order (`knownTags` is name-ordered), and an id that no longer
-  // resolves — a tag deleted in another tab — simply drops out.
+  const knownTags = createdTags.known;
+  // In pick order, which is what the chip row below should read in while you
+  // are editing. An id that no longer resolves — a tag deleted in another tab
+  // — simply drops out.
   const pickedTags = values.tagIds
     .map((id) => knownTags.find((t) => t.id === id))
     .filter((t): t is TxnTagDTO => !!t);
@@ -285,7 +281,10 @@ export function TransactionDialog({
             categoryId: values.categoryId,
             categoryName: cat?.name ?? null,
             categoryIcon: cat?.icon ?? null,
-            tags: pickedTags,
+            // Name-ordered, not pick-ordered: that is how the row will come
+            // back from the server, and a patch in the other order repaints
+            // itself a moment later.
+            tags: sortTagsByName(pickedTags),
           };
           if (prof) {
             patch.profileId = prof.id;
@@ -486,7 +485,7 @@ export function TransactionDialog({
               tags={knownTags}
               value={values.tagIds}
               onChange={(ids) => setValues((v) => ({ ...v, tagIds: ids }))}
-              onCreated={(tag) => setCreatedTags((prev) => [...prev, tag])}
+              onCreated={createdTags.add}
               canCreate
               triggerLabel="Add tags"
               className="w-full"

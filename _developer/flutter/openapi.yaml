@@ -471,6 +471,11 @@ paths:
         none). It was appended in 6.2.0 rather than inserted, so every earlier
         column kept its position.
 
+        Treat the cell as text to display, not a list to parse: a tag name is
+        only trimmed and length-capped, so it may itself contain `;` or `,`.
+        The file stays well-formed either way — a cell containing a comma is
+        quoted, and the formula guard applies as it does to every text cell.
+
         Text cells that would otherwise be executed as a formula by
         Excel/Sheets (those starting with `=`, `+`, `-`, `@`, tab or CR) are
         prefixed with a single quote and quoted, e.g. a title `=SUM(A1)`

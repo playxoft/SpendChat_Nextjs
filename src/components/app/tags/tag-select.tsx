@@ -15,6 +15,7 @@ import type { TxnTagDTO } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 import { TagChip } from "./tag-chip";
 import { TagFormDialog } from "./tag-form-dialog";
+import { useCreatedTags } from "./use-created-tags";
 
 /**
  * Pick several tags from the workspace's list — the transactions page's filter
@@ -38,9 +39,9 @@ export function TagSelect({
   canCreate = false,
   placeholder = "Add tags…",
   triggerLabel,
+  triggerAriaLabel,
   className,
   align = "start",
-  disabled = false,
   max = TAGS_PER_TRANSACTION_MAX,
 }: {
   /** Every tag in the workspace, already name-ordered by the server. */
@@ -55,25 +56,20 @@ export function TagSelect({
   /** Offer a "Create new tag" row (the edit dialog; not the filter). */
   canCreate?: boolean;
   placeholder?: string;
-  /** Overrides the chips in the trigger — the filter shows a count instead. */
+  /** Plain text in place of the selected chips — the edit dialog uses it,
+   *  because it renders the full, removable selection underneath instead. */
   triggerLabel?: string;
+  /** Names the control for a screen reader, as the Type/Category filters do.
+   *  The visible text is the selection, which doesn't say what it selects. */
+  triggerAriaLabel?: string;
   className?: string;
   align?: "start" | "end";
-  disabled?: boolean;
   max?: number;
 }) {
   const [creating, setCreating] = useState(false);
-  // Tags created from this control, held until the server list catches up —
-  // the same reason the composer keeps `createdTags`: `tags` is a server prop
-  // and the chip for a just-created tag can't be resolved without it.
-  const [created, setCreated] = useState<TxnTagDTO[]>([]);
-
-  // The server list is authoritative and name-ordered; a locally created tag is
-  // appended only until `tags` arrives carrying it (the action revalidates), so
-  // a rename made elsewhere is never masked by a stale local copy.
-  const serverIds = new Set(tags.map((t) => t.id));
-  const extra = created.filter((t) => !serverIds.has(t.id));
-  const all = extra.length ? [...tags, ...extra] : tags;
+  // Tags created from this control, until the server list carries them.
+  const created = useCreatedTags(tags);
+  const all = created.known;
   const known = new Map(all.map((t) => [t.id, t]));
   // Pick order, not list order — the chips should read in the order they were
   // chosen, and an id that no longer resolves (a tag deleted in another tab)
@@ -93,7 +89,7 @@ export function TagSelect({
           <Button
             type="button"
             variant="outline"
-            disabled={disabled}
+            aria-label={triggerAriaLabel}
             className={cn("justify-start font-normal", className)}
           >
             <TagIcon className="size-4 shrink-0 text-muted-foreground" />
@@ -130,6 +126,13 @@ export function TagSelect({
                 return (
                   <DropdownMenuItem
                     key={tag.id}
+                    // A checkable row, not a command: without the role and
+                    // `aria-checked` a screen reader reads "Travel, menu item"
+                    // whether or not it is applied — and in the filter there is
+                    // no other way to know what is selected.
+                    role="menuitemcheckbox"
+                    aria-checked={active}
+                    aria-disabled={!active && atMax}
                     // Keep the menu open while multi-selecting.
                     onSelect={(e) => {
                       e.preventDefault();
@@ -173,7 +176,14 @@ export function TagSelect({
           {canCreate ? (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => setCreating(true)} className="py-1.5">
+              {/* Disabled at the cap, rather than opening a form whose result
+                  can't be applied: it used to create the tag, close, and
+                  silently not attach it — the work looked lost. */}
+              <DropdownMenuItem
+                disabled={atMax}
+                onSelect={() => setCreating(true)}
+                className="py-1.5"
+              >
                 <Plus className="size-4" /> Create new tag
               </DropdownMenuItem>
             </>
@@ -186,11 +196,13 @@ export function TagSelect({
           open={creating}
           onOpenChange={setCreating}
           onSaved={(tag) => {
-            setCreated((prev) => [...prev, tag]);
+            created.add(tag);
             onCreated?.(tag);
             // Apply it straight away — creating a tag from inside a picker is
-            // only ever a step towards putting it on this transaction.
-            if (!atMax) onChange([...value, tag.id]);
+            // only ever a step towards putting it on this transaction. The cap
+            // can't be reached here: the row that opens this form is disabled
+            // at the cap.
+            onChange([...value, tag.id]);
           }}
         />
       ) : null}

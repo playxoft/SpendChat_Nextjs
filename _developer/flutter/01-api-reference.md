@@ -676,6 +676,10 @@ date) and `Cache-Control: no-store`. Up to 5000 rows, honouring the same filters
   row's tag names joined by `"; "` (empty when it has none).
 - **`Tags` was appended in 6.2.0**, after `Currency` rather than beside
   `Category`, so every earlier column kept its index.
+- The `Tags` cell is **for display, not for parsing**: a tag name is only
+  trimmed and length-capped, so it may itself contain `;` or `,`. Splitting on
+  `"; "` is a guess. (The file is still well-formed — a cell with a comma is
+  quoted, and the formula guard applies to it like any text cell.)
 - Cells are quoted when they contain `"`, `,`, `\n`, or `\r`; lines joined
   with **CRLF**.
 - **Formula-injection guard (2.1.0):** a *text* cell starting with `=`, `+`,

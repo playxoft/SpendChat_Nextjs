@@ -771,7 +771,16 @@ export async function getCategories(workspaceId: string) {
 
 /** The workspace's tags, by name — the list the picker, the filter and the
  *  settings manager all render. Mirrors `getCategories`. */
-export async function getTags(workspaceId: string): Promise<TxnTagDTO[]> {
+/**
+ * Memoized per request: the app layout and both the tracker and transactions
+ * pages ask for this list, and layout and page render in the same RSC pass —
+ * without `cache()` that is two identical round trips on every load of the two
+ * busiest routes. (`getCategories`/`getProfiles` beside it have the same shape
+ * and are not yet memoized; that is worth doing, but not from this change.)
+ */
+export const getTags = cache(getTagsUncached);
+
+async function getTagsUncached(workspaceId: string): Promise<TxnTagDTO[]> {
   const db = getDb();
   const rows = await db
     .select()
@@ -797,9 +806,23 @@ export async function getTags(workspaceId: string): Promise<TxnTagDTO[]> {
  * `countTransactionsForTxnTag`, which is the form the GIN index on `tag_ids`
  * can actually serve (`id = any(tag_ids)` has no index path at all).
  *
- * Scoped through `profiles` to this workspace, like every other transaction
- * read — a tag id shouldn't be able to appear on another workspace's rows, and
- * this doesn't rely on that being true.
+ * Scoped through `profiles` to the workspace — a tag id shouldn't be able to
+ * appear on another workspace's rows, and this doesn't rely on that being true.
+ *
+ * Note that this is the *workspace*, not the caller's accessible profiles,
+ * which is what every transaction read scopes to. That is deliberate: the
+ * number's job is to say what deleting the tag would detach, and a delete
+ * sweeps the whole workspace whoever presses it — a count of the caller's own
+ * profiles would understate the blast radius of a destructive action. The cost
+ * is that a user who reaches this workspace through a single profile grant
+ * sees a total covering rows they can't open. It is an aggregate over a shared
+ * workspace entity, and `countTransactionsForTxnTag` behind the delete
+ * confirmation has counted the same way since it was written.
+ *
+ * If it ever gets slow: the work here is `sum(usage)` across tags, so a
+ * heavily-tagged large workspace pays for every tagged row once per tag it
+ * carries. The one-pass alternative is `unnest(tx.tag_ids)` grouped and
+ * left-joined onto `tags`, trading the GIN probes for a single scan.
  */
 export async function getTagsWithUsage(
   workspaceId: string,

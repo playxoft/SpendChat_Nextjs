@@ -15,10 +15,11 @@ import { cn } from "@/lib/utils";
  *  - A chat bubble grows to fit its content already, so it passes `wrap` and
  *    every tag shows.
  *
- * Not a client component: it renders no interaction, so it can stay on the
- * server wherever its parent is a server component (the feed) and cost nothing
- * in the bundle. `TagChip` is a client component only because the composer
- * needs its remove button.
+ * Not a client component: it renders no interaction, so it costs nothing of
+ * its own. That is not the same as staying off the client — both of today's
+ * callers sit inside `"use client"` trees (the table and, through
+ * `TransactionItem`, the feed bubble), so it ships either way. It only stays
+ * server-side if a server component ever renders it directly.
  */
 export function TagList({
   tags,
@@ -26,7 +27,9 @@ export function TagList({
   wrap = false,
   className,
 }: {
-  tags: ChipTag[];
+  /** `id` is optional — `TagChip` doesn't need one, but every real tag has
+   *  one and it makes the better React key. */
+  tags: (ChipTag & { id?: string })[];
   /** Chips shown before the "+N" counter takes over (single-line mode only). */
   max?: number;
   /** Let the chips wrap onto further lines and show all of them. */
@@ -36,6 +39,10 @@ export function TagList({
   if (tags.length === 0) return null;
   const shown = wrap ? tags : tags.slice(0, max);
   const hidden = tags.length - shown.length;
+  const hiddenNames = tags
+    .slice(shown.length)
+    .map((t) => t.name)
+    .join(", ");
 
   return (
     <span
@@ -46,19 +53,23 @@ export function TagList({
       )}
     >
       {shown.map((t) => (
-        <TagChip key={t.name} tag={t} />
+        // Names are unique per workspace (a `lower(name)` unique index), so
+        // they key safely; `id` is preferred when the caller has one, which
+        // `ChipTag` doesn't require.
+        <TagChip key={t.id ?? t.name} tag={t} />
       ))}
       {hidden > 0 ? (
         <span
           className="shrink-0 text-xs text-muted-foreground"
           // The names of what's hidden, so widening the column isn't the only
           // way to find out what a "+2" stands for.
-          title={tags
-            .slice(shown.length)
-            .map((t) => t.name)
-            .join(", ")}
+          title={hiddenNames}
         >
           +{hidden}
+          {/* A `title` reaches a mouse and nothing else. The same names ride
+              in the cell's text for anyone reading it another way — the User
+              column does this with its email for the same reason. */}
+          <span className="sr-only">{` (${hiddenNames})`}</span>
         </span>
       ) : null}
     </span>

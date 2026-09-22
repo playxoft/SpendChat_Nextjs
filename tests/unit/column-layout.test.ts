@@ -28,10 +28,33 @@ describe("normalizeOrder", () => {
   });
 
   it("drops ids that are no longer columns", () => {
-    expect(normalizeOrder(["date", "gone", "title"])).toEqual(
-      expect.arrayContaining(["date", "title"]),
-    );
-    expect(normalizeOrder(["date", "gone", "title"])).not.toContain("gone");
+    // `toEqual` on the whole array, not `arrayContaining` — that passes for
+    // any superset in any order, so it asserted almost nothing.
+    expect(normalizeOrder(["date", "gone", "title"])).toEqual([
+      "date",
+      "category",
+      "title",
+      "tags",
+      "attachments",
+      "description",
+      "amount",
+      "user",
+    ]);
+  });
+
+  it("drops a repeated id", () => {
+    // Nothing writes a repeat, but a half-written localStorage entry would,
+    // and two cells sharing a React key is a visible break.
+    const merged = normalizeOrder(["date", "date", "title"]);
+    expect(merged.filter((id) => id === "date")).toHaveLength(1);
+    expect(new Set(merged).size).toBe(merged.length);
+  });
+
+  it("does not hand out the shared COLUMN_IDS array", () => {
+    // It is also `DEFAULT_LAYOUT.order`; an in-place sort downstream would
+    // rewrite the default layout for the rest of the session.
+    expect(normalizeOrder(null)).not.toBe(COLUMN_IDS);
+    expect(normalizeOrder(null)).toEqual(COLUMN_IDS);
   });
 
   it("slots a new column in after its default-order predecessor", () => {
@@ -69,6 +92,17 @@ describe("normalizeOrder", () => {
       "amount",
       "user",
     ]);
+  });
+
+  it("follows the user's arrangement, even when that puts the new column last", () => {
+    // Title dragged to the far right. "tags" follows "title" in the default
+    // order, so it lands at the far right too — off the visible edge, the very
+    // thing slotting-in was meant to avoid. That is the right answer (their
+    // layout says those two belong together) but it is a heuristic, not a
+    // guarantee, and this pins the known-awkward case rather than pretending
+    // it doesn't exist.
+    const stored: ColumnId[] = ["date", "category", "attachments", "description", "amount", "user", "title"];
+    expect(normalizeOrder(stored)).toEqual([...stored, "tags"]);
   });
 
   it("never loses or duplicates a column", () => {

@@ -113,7 +113,10 @@ const COLUMNS: Record<ColumnId, ColumnDef> = {
     // Not sortable: the server sorts the five documented columns, and "sort by
     // tags" has no obvious meaning for a row carrying several of them.
     sortable: false,
-    render: (row) => <TagList tags={row.tags} />,
+    // Two, not the component's default of three: the column starts at 200px
+    // and three chips there each shrink to about 60px, ellipsing "Reimbursable"
+    // to "Rei…". Two chips and a "+N" that names the rest says more.
+    render: (row) => <TagList tags={row.tags} max={2} />,
   },
   attachments: {
     sortable: false,

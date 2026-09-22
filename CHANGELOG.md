@@ -46,6 +46,18 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   [the API changelog](./_developer/flutter/_changelog.md).
 
 ### Fixed
+- **Picking two tags in the filter kept only the second.** The control read its
+  selection back from the URL, which lags a round-trip behind on this page, so
+  the second tick was computed against a selection that hadn't updated yet.
+- **A filter on a deleted tag was a dead end** — an empty list with every
+  control looking unset and no Clear button, escapable only by editing the URL.
+- **Renaming or deleting a tag that someone else had already deleted reported
+  success.** The settings page now says it couldn't find the tag, which is what
+  the mobile API has always answered.
+- **"Create new tag" at the 10-tag limit** created the tag and silently didn't
+  attach it. The option is disabled at the limit.
+- Tags on a row no longer visibly reshuffle a moment after saving: the row is
+  painted in the order the server will return it.
 - **The edit dialog could refuse to save.** Once its content was taller than
   the window, the attachment dropzone stopped being clipped and covered the
   footer, swallowing every click on Save — the button looked fine and did

@@ -2,8 +2,8 @@ import { describe, it, expect } from "vitest";
 import { GET as listTags, POST as createTag } from "@/app/api/v1/tags/route";
 import { PATCH as patchTag, DELETE as deleteTag } from "@/app/api/v1/tags/[id]/route";
 import { GET as listTxns, POST as createTxn } from "@/app/api/v1/transactions/route";
-import { setSession, signInAs } from "../helpers/session";
-import { bootstrapUser } from "../helpers/seed";
+import { setSession, signInAs, uid } from "../helpers/session";
+import { bootstrapUser, workspaceIdOf } from "../helpers/seed";
 import { apiReq, jsonBody, ctx } from "./helpers";
 
 const MISSING = "00000000-0000-0000-0000-000000000000";
@@ -176,6 +176,56 @@ describe("/api/v1/tags", () => {
       ctx({ id: "not-a-uuid" }),
     );
     expect(res.status).toBe(422);
+  });
+
+  it("is read-only for a viewer (403 on every write)", async () => {
+    // Four rows of the API reference promise "Editor+ (403 for viewer)", and
+    // nothing was checking it.
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+    const mine = (await post("Travel")).body.data.id;
+
+    const ws = await import("@/services/workspaces");
+    await bootstrapUser("v");
+    await ws.addMember(uid("a"), W, {
+      email: "v@example.com",
+      access: { mode: "all", role: "viewer" },
+    });
+    signInAs("v");
+    await ws.openWorkspaceIfAccessible(uid("v"), W);
+
+    // Reading is fine — a viewer sees the shared list.
+    const list = await listTags(apiReq("/api/v1/tags"));
+    expect(list.status).toBe(200);
+    expect((await list.json()).data.map((t: { name: string }) => t.name)).toEqual(["Travel"]);
+
+    expect((await post("Theirs")).status).toBe(403);
+    const patched = await patchTag(
+      apiReq(`/api/v1/tags/${mine}`, { method: "PATCH", body: jsonBody({ name: "Nope" }) }),
+      ctx({ id: mine }),
+    );
+    expect(patched.status).toBe(403);
+    const deleted = await deleteTag(
+      apiReq(`/api/v1/tags/${mine}`, { method: "DELETE" }),
+      ctx({ id: mine }),
+    );
+    expect(deleted.status).toBe(403);
+  });
+
+  it("409s past the workspace tag ceiling", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const { TAGS_PER_WORKSPACE_MAX } = await import("@/lib/validation");
+    const { createTxnTag } = await import("@/services/tags");
+    const W = await workspaceIdOf("a");
+    // Through the service, so the test isn't 100 HTTP round trips.
+    for (let i = 0; i < TAGS_PER_WORKSPACE_MAX; i++) {
+      await createTxnTag(uid("a"), W, { name: `tag-${i}`, color: "#ef4444" });
+    }
+    const res = await post("one-too-many");
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toMatch(new RegExp(`${TAGS_PER_WORKSPACE_MAX} tags`));
   });
 
   it("keeps another workspace's tags out of reach", async () => {

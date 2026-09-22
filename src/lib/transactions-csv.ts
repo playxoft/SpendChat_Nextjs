@@ -5,9 +5,18 @@ import { formatDateLabel } from "@/lib/dates";
 import { siteConfig } from "@/lib/site";
 import type { TransactionRow } from "@/lib/queries";
 
-/** A row's tags as one cell. Semicolons, not commas: a comma would need
- *  quoting in a CSV, and a reader splitting the cell back apart would then
- *  have to parse quotes a second time. Tag names can't contain either. */
+/**
+ * A row's tags as one cell. Semicolons, not commas: a comma would need quoting
+ * in a CSV, and a reader splitting the cell back apart would then have to parse
+ * quotes a second time.
+ *
+ * It is a cell to *read*, not to parse. A tag name is only `trim`ed and
+ * length-capped, so "Food, drink" and "a; b" are both legal names and a client
+ * splitting on "; " would get them wrong. Escaping is still correct either way
+ * — `escapeCell` quotes on a comma, and the formula guard still fires on a tag
+ * named `=cmd|…` — so the file is well-formed regardless; it's only the
+ * round-trip that isn't promised. The spec says the same.
+ */
 function tagCell(row: TransactionRow): string {
   return row.tags.map((t) => t.name).join("; ");
 }

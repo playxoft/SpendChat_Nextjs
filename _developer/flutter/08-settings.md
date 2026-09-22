@@ -174,7 +174,11 @@ second place one can be created (the first is the composer's `#` picker,
   the chips alone or count client-side from a list you already hold.
 - Tapping a tag opens the same create/edit sheet the composer uses: name
   (≤ 20), the 20-swatch palette, and **Delete** in edit mode. Deleting detaches
-  the tag from every transaction carrying it — say how many before asking.
+  the tag from every transaction carrying it, so say that plainly before
+  asking. `GET /tags` carries no count, so unless you can count from a list you
+  already hold, name the consequence rather than a number — "removes it from
+  every transaction that has it", not "untags 34". (The web app has a count
+  because it reads one server-side; there is no endpoint for it.)
 - **Editor+ only.** A viewer sees the list read-only: no add button, no edit
   affordance. The server enforces it (403), so this is presentation.
 - A workspace starts with **no** tags and is capped at **100**; past that

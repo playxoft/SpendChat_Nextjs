@@ -102,6 +102,40 @@ export function defaultTagColor(name: string): string {
 }
 
 /**
+ * Order a resolved tag list the way a read will return it.
+ *
+ * `tag_ids` stores the order the user picked, and `workspaceTagIds` preserves
+ * it — but every read re-sorts by `lower(name)` (see the embed in
+ * `queries.ts`), so pick order is written and never read back. An optimistic
+ * row patch built in pick order therefore paints one order and then silently
+ * rearranges when the revalidation lands; with more than three tags the table
+ * clips to `3 + "+N"`, so the *set of visible chips* changes too.
+ *
+ * `lower()`, not `localeCompare`, to match the SQL rather than the browser.
+ */
+export function sortTagsByName<T extends { name: string }>(tags: T[]): T[] {
+  return [...tags].sort((a, b) => {
+    const x = a.name.toLowerCase();
+    const y = b.name.toLowerCase();
+    return x < y ? -1 : x > y ? 1 : 0;
+  });
+}
+
+/**
+ * Do two id lists hold the same tags, in any order?
+ *
+ * Order-insensitive on purpose. The array's order is real in the column and
+ * unobservable everywhere else, so treating a reorder as a change made "Save
+ * changes" light up for an edit nobody could see: untick a tag and tick it
+ * again, and the form was dirty while the saved row would be identical.
+ */
+export function sameTagSet(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  const seen = new Set(a);
+  return b.every((id) => seen.has(id));
+}
+
+/**
  * The tag picker's option model, as a pure function of what the user has typed
  * and what already exists.
  *
