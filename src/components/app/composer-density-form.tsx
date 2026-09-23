@@ -41,6 +41,7 @@ export function ComposerDensityForm({
   density,
   inputMode,
   onSelectedChange,
+  preview,
 }: {
   density: string;
   /** The layout the previews render — follows the *selected* option in the
@@ -50,6 +51,8 @@ export function ComposerDensityForm({
   /** Reports the *selected* (not yet saved) density, so the layout card above
    *  previews at it. */
   onSelectedChange?: (density: ComposerDensity) => void;
+  /** Workspace facts the preview renders — currency symbol, locale, today. */
+  preview: { symbol: string; locale: string; today: string };
 }) {
   const initial = (OPTIONS.some((o) => o.value === density)
     ? density
@@ -147,6 +150,7 @@ export function ComposerDensityForm({
               {/* The composer as it would actually look at this density,
                   in the layout selected above — not a drawing of it. */}
               <ComposerPreview
+                {...preview}
                 density={opt.value}
                 inputMode={inputMode}
                 className="mt-auto"

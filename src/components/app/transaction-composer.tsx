@@ -55,22 +55,16 @@ import {
   markerPickerModel,
   type TxnTagDTO,
 } from "@/lib/tags";
+import {
+  CATEGORY_MARKER_RE as CATEGORY_RE,
+  TAG_MARKER_RE as TAG_RE,
+} from "@/lib/composer-markers";
 import type { Category, Profile } from "@/db/schema";
 
-// Matches a trailing "/query" token typed into the title field — "/" is the
-// app-wide category trigger (in the AI note too).
-const CATEGORY_RE = /(?:^|\s)\/([^\s/]*)$/;
-
-// Matches a trailing "#query" token typed into the title field — "#" is the
 /** Tag chips shown inline in the field before the count takes over. Two fits
  *  beside real text at a phone width; a transaction can carry
  *  `TAGS_PER_TRANSACTION_MAX`. */
 const TAGS_IN_FIELD = 2;
-
-// app-wide tag trigger, the sibling of "/" above. Separate regexes rather than
-// one alternation, because the two pickers hold different state and a match has
-// to say which one opened.
-const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
 
 // How much text the amount chip holds. Nine whole digits is the real cap
 // (`AMOUNT_INTEGER_DIGITS_MAX`, enforced per keystroke below); this only stops a
@@ -131,7 +125,20 @@ export function TransactionComposer({
   const [description, setDescription] = useState("");
   const [occurredOn, setOccurredOn] = useState(today);
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
-  const [editorOpen, setEditorOpen] = useState(false);
+  /**
+   * The category editor, and *why* it was opened — the two are different
+   * dialogs wearing one component.
+   *
+   * "create" came from the "/" picker and should apply what it makes to the
+   * transaction being written, then close. "manage" came from "Edit
+   * categories" and should stay open so you can add several. Deriving that
+   * from whether a name happened to be typed got it wrong for the "New
+   * category" row, which opens the create flow with an empty query and so
+   * silently behaved like "manage".
+   */
+  const [categoryEditor, setCategoryEditor] = useState<
+    { mode: "manage" } | { mode: "create"; name: string } | null
+  >(null);
   // Description is off by default; a toggle on the amount/title row reveals it.
   const [showDescription, setShowDescription] = useState(false);
   const [categoryDismissed, setCategoryDismissed] = useState(false);
@@ -147,7 +154,6 @@ export function TransactionComposer({
   const [tagEditorOpen, setTagEditorOpen] = useState(false);
   // Open the category editor with the text typed after the "/", so
   // "Create /trav" pre-fills — the tag form's `initialName`, for categories.
-  const [categoryFormName, setCategoryFormName] = useState("");
   // Tags created from inside this composer, held until the server list catches
   // up (see the hook — it also retires them, which is what stops a tag deleted
   // elsewhere reappearing as a pickable option).
@@ -374,8 +380,10 @@ export function TransactionComposer({
   /** "Create /trav" — open the category editor with the typed name filled in,
    *  and drop the token, exactly as the tag one does. */
   function openCategoryCreate() {
-    setCategoryFormName(categoryQuery.trim().slice(0, CATEGORY_NAME_MAX));
-    setEditorOpen(true);
+    setCategoryEditor({
+      mode: "create",
+      name: categoryQuery.trim().slice(0, CATEGORY_NAME_MAX),
+    });
     clearCategoryToken();
   }
 
@@ -1068,7 +1076,7 @@ export function TransactionComposer({
         categories={cats}
         value={categoryId}
         onChange={setCategoryId}
-        onEdit={() => setEditorOpen(true)}
+        onEdit={() => setCategoryEditor({ mode: "manage" })}
       />
     </div>
   );
@@ -1105,7 +1113,7 @@ export function TransactionComposer({
         categories={cats}
         value={categoryId}
         onChange={setCategoryId}
-        onEdit={() => setEditorOpen(true)}
+        onEdit={() => setCategoryEditor({ mode: "manage" })}
       />
     </div>
   );
@@ -1427,8 +1435,7 @@ export function TransactionComposer({
                               onMouseDown={(e) => {
                                 e.preventDefault();
                                 clearCategoryToken();
-                                setCategoryFormName("");
-                                setEditorOpen(true);
+                                setCategoryEditor({ mode: "manage" });
                               }}
                               className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
                             >
@@ -1468,6 +1475,13 @@ export function TransactionComposer({
                               </button>
                             </li>
                           ))}
+                          {categoryResults.length === 0 && (
+                            <li className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {cats.length === 0
+                                ? `No ${type} categories yet`
+                                : `No ${type} category matches`}
+                            </li>
+                          )}
                           {/* Always offered. With something typed it is the
                               last option and Enter reaches it; with nothing to
                               create from it is a plain "New category" button,
@@ -1501,13 +1515,6 @@ export function TransactionComposer({
                               )}
                             </button>
                           </li>
-                          {categoryResults.length === 0 && (
-                            <li className="px-2 py-1.5 text-sm text-muted-foreground">
-                              {cats.length === 0
-                                ? `No ${type} categories yet`
-                                : `No ${type} category matches`}
-                            </li>
-                          )}
                         </ul>
                       </div>
                     )}
@@ -1561,21 +1568,20 @@ export function TransactionComposer({
         onCreated={createdTags.add}
       />
       <CategoryEditorDialog
-        open={editorOpen}
+        open={categoryEditor !== null}
         onOpenChange={(v) => {
-          setEditorOpen(v);
-          if (!v) setCategoryFormName("");
+          if (!v) setCategoryEditor(null);
         }}
         categories={categories}
         defaultKind={type}
-        initialName={categoryFormName}
-        // Only when the editor was opened from the "/" picker: opened from
-        // "Edit categories" it is a management dialog and should stay open.
+        initialName={categoryEditor?.mode === "create" ? categoryEditor.name : ""}
+        // Only for the "/" picker's create flow: from "Edit categories" this is
+        // a management dialog and closing it after one add would be wrong.
         onCreated={
-          categoryFormName
+          categoryEditor?.mode === "create"
             ? (c) => {
                 if (c.kind === type) setCategoryId(c.id);
-                setCategoryFormName("");
+                setCategoryEditor(null);
               }
             : undefined
         }

@@ -1,5 +1,8 @@
-import { CalendarDays, Hash, Minus, Paperclip, Pencil, Plus, Sparkles } from "lucide-react";
+import { ArrowUp, CalendarDays, Hash, Minus, Paperclip, Pencil, Plus, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatDateLabel, formatDateShort } from "@/lib/dates";
+import { TAG_COLORS } from "@/lib/tags";
+import { TagChip } from "./tags/tag-chip";
 import type { ComposerDensity, InputMode } from "@/lib/validation";
 
 /**
@@ -63,40 +66,70 @@ function TitleField({ withClip }: { withClip: boolean }) {
       <span className="min-w-0 flex-1 truncate text-muted-foreground">
         Add a title — / for category, # for tags
       </span>
-      <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-1.5 text-[10px] text-violet-600 dark:text-violet-400">
-        <span className="size-1 rounded-full bg-current" />
-        travel
-      </span>
+      {/* The real chip component, so its shape can't drift from the one the
+          composer renders. */}
+      <TagChip tag={{ name: "travel", color: PREVIEW_TAG_COLOR }} className="text-[10px]" />
     </span>
   );
 }
 
-function AmountField() {
+function AmountField({ symbol }: { symbol: string }) {
   return (
     <span className="flex h-8 w-20 shrink-0 items-center rounded-lg border border-input bg-transparent px-2.5 text-[11px] text-muted-foreground dark:bg-input/30">
-      ₹ 0.00
+      {symbol} 0.00
     </span>
   );
 }
+
+/** Violet, the swatch `defaultTagColor("travel")` actually lands on. */
+const PREVIEW_TAG_COLOR = TAG_COLORS[12];
 
 export function ComposerPreview({
   density,
   inputMode,
+  symbol,
+  locale,
+  today,
   className,
 }: {
   density: ComposerDensity;
   inputMode: InputMode;
+  /** The workspace's currency symbol — the real chip renders this, and a
+   *  preview showing "₹" to a dollar workspace is exactly the kind of drift
+   *  this component replaced. */
+  symbol: string;
+  locale: string;
+  /** Today, so the date pill reads what the composer's would rather than a
+   *  frozen string in the wrong locale convention. */
+  today: string;
   className?: string;
 }) {
   const dense = density === "compact";
+  // The same two helpers the real `DatePicker` picks between.
+  const dateLabel = dense ? formatDateShort(today, locale) : formatDateLabel(today, locale);
 
+  // Normal spells the two modes out and tints the AI half — that gradient is
+  // the app's one "this calls a model" signal, and a preview that drops it
+  // shows a control the Normal composer doesn't have.
   const modeToggle = (
     <span className="inline-flex h-7 shrink-0 items-center gap-0.5 rounded-full border bg-background/60 p-0.5">
-      <span className="inline-flex size-6 items-center justify-center rounded-full bg-background shadow-sm">
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full bg-background shadow-sm",
+          dense ? "size-6 justify-center" : "px-2 py-0.5",
+        )}
+      >
         <Pencil className="size-3" />
+        {!dense && <span className="text-[11px] font-medium">Manual</span>}
       </span>
-      <span className="inline-flex size-6 items-center justify-center rounded-full text-muted-foreground">
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-blue-500/15 to-violet-500/15 text-violet-600 dark:text-violet-400",
+          dense ? "size-6 justify-center" : "px-2 py-0.5",
+        )}
+      >
         <Sparkles className="size-3" />
+        {!dense && <span className="text-[11px]">AI</span>}
       </span>
     </span>
   );
@@ -121,10 +154,9 @@ export function ComposerPreview({
   const date = (
     <Control>
       <CalendarDays className="size-3" />
-      {dense ? "Sep 22" : "22 Sept 2026"}
+      {dateLabel}
     </Control>
   );
-  const profile = <Control>👤{!dense && <span>Personal</span>}</Control>;
   const tagButton = (
     <Control className="px-1.5">
       <Hash className="size-3" />
@@ -139,74 +171,85 @@ export function ComposerPreview({
     </>
   );
 
+  // Both end the field row in the real composer, and both are part of why the
+  // title field is the width it is.
+  const rowTail = (
+    <>
+      <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border text-muted-foreground">
+        <Pencil className="size-3" />
+      </span>
+      <span className="inline-flex h-8 shrink-0 items-center gap-1 rounded-lg bg-primary px-2 text-[11px] text-primary-foreground">
+        <ArrowUp className="size-3" />
+      </span>
+    </>
+  );
+
   return (
-    <div
+    <span
       aria-hidden
       className={cn(
-        "pointer-events-none select-none overflow-hidden rounded-lg border bg-card p-2",
+        "pointer-events-none block select-none overflow-hidden rounded-lg border bg-card p-2",
         className,
       )}
     >
-      <div className="flex flex-col gap-1.5">
+      <span className="flex flex-col gap-1.5">
         {dense ? (
           // Compact: one row, controls gathered into a single grouped widget
           // with the category slider sharing it.
-          <div className="flex items-center gap-1.5">
+          <span className="flex items-center gap-1.5">
             {modeToggle}
             <span className="flex h-8 min-w-0 flex-1 items-center gap-1 overflow-hidden rounded-full border bg-muted/40 px-1">
               {typeToggle}
               {date}
-              {profile}
               {tagButton}
               {categories}
             </span>
-          </div>
+          </span>
         ) : (
           // Normal: labelled controls on one row, the category slider on its own.
           <>
-            <div className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5">
               {modeToggle}
               {typeToggle}
               <span className="ml-auto flex min-w-0 items-center gap-1.5">
                 {date}
-                {profile}
-                {tagButton}
+                  {tagButton}
               </span>
-            </div>
-            <div className="flex items-center gap-1 overflow-hidden">{categories}</div>
+            </span>
+            {/* Desktop only, like the real slider — a phone shows the category
+                button in the strip instead. */}
+            <span className="hidden items-center gap-1 overflow-hidden md:flex">{categories}</span>
           </>
         )}
 
         {/* The field row, in the order the input mode asks for. */}
-        <div className="flex items-end gap-1.5">
+        <span className="flex items-end gap-1.5">
           {inputMode === "combined" ? (
             <span className="flex h-8 min-w-0 flex-1 items-center gap-1.5 rounded-lg border border-input bg-transparent pr-2.5 pl-1 text-[11px] dark:bg-input/30">
               <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
               <span className="inline-flex h-5 shrink-0 items-center rounded-md bg-muted px-1.5 font-medium">
-                ₹ 100
+                {symbol} 100
               </span>
               <span className="min-w-0 flex-1 truncate text-muted-foreground">fruits</span>
-              <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-violet-500/40 bg-violet-500/10 px-1.5 text-[10px] text-violet-600 dark:text-violet-400">
-                <span className="size-1 rounded-full bg-current" />
-                travel
-              </span>
+              <TagChip tag={{ name: "travel", color: PREVIEW_TAG_COLOR }} className="text-[10px]" />
             </span>
           ) : inputMode === "title_amount" ? (
             <>
               <TitleField withClip />
-              <AmountField />
+              <AmountField symbol={symbol} />
             </>
           ) : (
             <>
               <span className="inline-flex size-8 shrink-0 items-center justify-center rounded-lg border text-muted-foreground">
                 <Paperclip className="size-3.5" />
               </span>
-              <AmountField />
+              <AmountField symbol={symbol} />
               <TitleField withClip={false} />
             </>
           )}
-        </div>
-      </div>
-    </div>
+          {rowTail}
+        </span>
+      </span>
+    </span>
   );
 }

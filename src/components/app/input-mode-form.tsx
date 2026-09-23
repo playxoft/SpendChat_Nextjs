@@ -38,6 +38,7 @@ export function InputModeForm({
   inputMode,
   density,
   onSelectedChange,
+  preview,
 }: {
   inputMode: string;
   /** The density the previews below should render at — so the two cards on
@@ -46,6 +47,8 @@ export function InputModeForm({
   /** Reports the *selected* (not yet saved) layout, so the density card's
    *  preview follows it as you click through the options. */
   onSelectedChange?: (mode: InputMode) => void;
+  /** Workspace facts the preview renders — currency symbol, locale, today. */
+  preview: { symbol: string; locale: string; today: string };
 }) {
   const initial = (OPTIONS.some((o) => o.value === inputMode)
     ? inputMode
@@ -116,6 +119,7 @@ export function InputModeForm({
               {/* The composer as it would actually look, at the density
                   currently in force — not a drawing of it. */}
               <ComposerPreview
+                {...preview}
                 density={density}
                 inputMode={opt.value}
                 className="mt-auto"

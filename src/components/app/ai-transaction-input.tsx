@@ -66,19 +66,13 @@ import { TagEditorDialog } from "./tags/tag-editor-dialog";
 import { useCreatedTags } from "./tags/use-created-tags";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { CATEGORY_NAME_MAX, TAG_NAME_MAX } from "@/lib/validation";
+import {
+  CATEGORY_MARKER_RE as CATEGORY_RE,
+  TAG_MARKER_RE as TAG_RE,
+} from "@/lib/composer-markers";
 import type { Category, Profile } from "@/db/schema";
 
 const NONE = "none";
-
-// A trailing "/query" immediately before the caret opens the category picker.
-// "/" is the app-wide category trigger; the note keeps the picked category as a
-// "/Name" token because that is the marker `buildParsePrompt` teaches the model
-// to read (see `src/lib/ai-parse.ts` — the two must agree).
-const CATEGORY_RE = /(?:^|\s)\/([^\s/]*)$/;
-// The tag marker, the sibling of "/" above and the same shape as the
-// composer's. The note keeps the "#name" text — the model reads it on parse —
-// so this picker only completes what you are typing, it never strips it.
-const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
 
 /** One reviewable draft, edited as strings (amount parsed on save). */
 type Row = {
@@ -296,8 +290,11 @@ export function AiTransactionInput({
   const [tagEditorOpen, setTagEditorOpen] = useState(false);
   const createdTags = useCreatedTags(tags);
   // Categories created from the "/" picker's Create row.
-  const [categoryFormName, setCategoryFormName] = useState("");
-  const [editorOpen, setEditorOpen] = useState(false);
+  // "create" came from the "/" picker, "manage" from Edit categories — the two
+  // want opposite behaviour after an add. See the composer's copy.
+  const [categoryEditor, setCategoryEditor] = useState<
+    { mode: "manage" } | { mode: "create"; name: string } | null
+  >(null);
 
   const symbol = getCurrency(currency).symbol;
   const isMac = useIsMac();
@@ -429,8 +426,10 @@ export function AiTransactionInput({
    *  name filled in. The token is left in the note: the name is about to exist,
    *  and the model will resolve it on parse. */
   function openCategoryCreate() {
-    setCategoryFormName(categoryQuery.trim().slice(0, CATEGORY_NAME_MAX));
-    setEditorOpen(true);
+    setCategoryEditor({
+      mode: "create",
+      name: categoryQuery.trim().slice(0, CATEGORY_NAME_MAX),
+    });
     setCategoryDismissed(true);
   }
 
@@ -689,6 +688,11 @@ export function AiTransactionInput({
   }, [mode, reviewing, saving, switching, validRows.length]);
 
   function onTextareaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // ⌘/Ctrl+Enter parses, whatever is open. Without this the picker branches
+    // below claim it — so with a marker half-typed, the documented shortcut
+    // inserted the highlighted option instead of parsing the note.
+    const parseChord = e.key === "Enter" && (e.metaKey || e.ctrlKey);
+
     // The tag marker first, then the category one. Both are anchored to the
     // caret so only one can be open, but neither relies on that. Each is gated
     // on its *active* flag rather than on having options, so the popover on
@@ -700,7 +704,7 @@ export function AiTransactionInput({
         setTagDismissed(true);
         return;
       }
-      if (tagOptionCount > 0) {
+      if (tagOptionCount > 0 && !parseChord) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
           setTagIndex(stepPickerIndex(tagIdx, tagOptionCount, 1));
@@ -717,7 +721,7 @@ export function AiTransactionInput({
           else insertTag(tagResults[tagIdx]!.name);
           return;
         }
-      } else if (e.key === "Enter" || e.key === "Tab") {
+      } else if (!parseChord && (e.key === "Enter" || e.key === "Tab")) {
         e.preventDefault();
         return;
       }
@@ -729,7 +733,7 @@ export function AiTransactionInput({
         setCategoryDismissed(true);
         return;
       }
-      if (categoryOptionCount > 0) {
+      if (categoryOptionCount > 0 && !parseChord) {
         if (e.key === "ArrowDown") {
           e.preventDefault();
           setCategoryIndex(stepPickerIndex(categoryIdx, categoryOptionCount, 1));
@@ -746,7 +750,7 @@ export function AiTransactionInput({
           else insertCategory(categoryResults[categoryIdx]!.name);
           return;
         }
-      } else if (e.key === "Enter" || e.key === "Tab") {
+      } else if (!parseChord && (e.key === "Enter" || e.key === "Tab")) {
         e.preventDefault();
         return;
       }
@@ -769,8 +773,7 @@ export function AiTransactionInput({
             onMouseDown={(e) => {
               e.preventDefault();
               setCategoryDismissed(true);
-              setCategoryFormName("");
-              setEditorOpen(true);
+              setCategoryEditor({ mode: "manage" });
             }}
             className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
           >
@@ -812,6 +815,11 @@ export function AiTransactionInput({
             </button>
           </li>
         ))}
+        {categoryResults.length === 0 && (
+          <li className="px-2 py-1.5 text-sm text-muted-foreground">
+            {categories.length === 0 ? "No categories yet" : "No category matches"}
+          </li>
+        )}
         <li>
           <button
             type="button"
@@ -838,11 +846,6 @@ export function AiTransactionInput({
             )}
           </button>
         </li>
-        {categoryResults.length === 0 && (
-          <li className="px-2 py-1.5 text-sm text-muted-foreground">
-            {categories.length === 0 ? "No categories yet" : "No category matches"}
-          </li>
-        )}
       </ul>
     </div>
   ) : null;
@@ -1094,15 +1097,19 @@ export function AiTransactionInput({
           onCreated={createdTags.add}
         />
         <CategoryEditorDialog
-          open={editorOpen}
+          open={categoryEditor !== null}
           onOpenChange={(v) => {
-            setEditorOpen(v);
-            if (!v) setCategoryFormName("");
+            if (!v) setCategoryEditor(null);
           }}
           categories={categories}
           defaultKind="expense"
-          initialName={categoryFormName}
-          onCreated={() => setCategoryFormName("")}
+          initialName={categoryEditor?.mode === "create" ? categoryEditor.name : ""}
+          // Only the picker's create flow closes on a successful add; opened
+          // from "Edit categories" this stays open so several can be added.
+          // Passing it unconditionally shut the manager after the first one.
+          onCreated={
+            categoryEditor?.mode === "create" ? () => setCategoryEditor(null) : undefined
+          }
         />
       </SwitchLock>
     );

@@ -63,6 +63,17 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   `tagNames` per draft — spec **6.3.0**, additive. See
   [the API changelog](./_developer/flutter/_changelog.md).
 
+### Fixed
+- **A flight number no longer opens the tag picker.** `#204` matched the tag
+  marker, and because an open picker answers for Enter, that key offered to
+  create a tag called “204” instead of sending the transaction — or, in the AI
+  note, instead of starting a new line. A hash followed by a digit isn't a tag,
+  which is what the AI has always been told and what the API contract says.
+- **⌘/Ctrl+Enter parses the AI note again** even with a picker open; it used to
+  insert the highlighted option instead.
+- **“Edit categories” stays open** after adding one from AI entry. It closed
+  after the first, so adding two meant reopening the picker and the dialog.
+
 ## [0.26.1] — 2026-09-22
 
 ### Fixed

@@ -499,12 +499,17 @@ export async function createBulkFromDrafts(
       profileId,
       title: pickTitle({ title: d.title, note: d.note }),
       description: d.description?.trim() ? d.description.trim() : null,
-      // Deduped and capped here as well as upstream: this path is also reached
-      // by `/api/v1/transactions/bulk`, where the names come from a client.
+      // Deduped and capped here as well as upstream, because this function's
+      // only caller is the `addBulkTransactions` server action, which takes raw
+      // client input with no Zod schema over it. (`/api/v1/transactions/bulk`
+      // does *not* come through here — it goes to `createManyTransactions`,
+      // where `bulkTransactionsSchema` and `workspaceTagIds` do this job.)
+      // `typeof` guard for the same reason: a non-string would throw on
+      // `.trim()` and turn a bad request into a 500.
       tagIds: [
         ...new Set(
           (d.tagNames ?? [])
-            .map((n) => tagMap.get(n.trim().toLowerCase()))
+            .map((n) => (typeof n === "string" ? tagMap.get(n.trim().toLowerCase()) : undefined))
             .filter((id): id is string => !!id),
         ),
       ].slice(0, TAGS_PER_TRANSACTION_MAX),

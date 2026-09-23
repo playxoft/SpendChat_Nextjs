@@ -28,9 +28,13 @@ import type { ComposerDensity, InputMode } from "@/lib/validation";
 export function InputSettings({
   inputMode,
   density,
+  preview,
 }: {
   inputMode: InputMode;
   density: ComposerDensity;
+  /** What the previews need to render the composer the way this workspace
+   *  actually sees it, rather than a hardcoded currency and a frozen date. */
+  preview: { symbol: string; locale: string; today: string };
 }) {
   const [selectedMode, setSelectedMode] = useState<InputMode>(inputMode);
   const [selectedDensity, setSelectedDensity] = useState<ComposerDensity>(density);
@@ -50,6 +54,7 @@ export function InputSettings({
             inputMode={inputMode}
             density={selectedDensity}
             onSelectedChange={setSelectedMode}
+            preview={preview}
           />
         </CardContent>
       </Card>
@@ -80,6 +85,7 @@ export function InputSettings({
             density={density}
             inputMode={selectedMode}
             onSelectedChange={setSelectedDensity}
+            preview={preview}
           />
         </CardContent>
       </Card>

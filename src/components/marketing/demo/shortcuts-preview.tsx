@@ -80,6 +80,10 @@ export function ShortcutsPreview() {
     }
 
     switch (s.id) {
+      // See the note in `shortcuts-demo.tsx`: Settings moved to the profile
+      // menu, so it has no sidebar row here to activate.
+      case "nav.settings":
+        return "Opens settings — from the profile menu rather than the sidebar, so nothing here lights up.";
       case "tracker.toggle-mode": {
         const next = !aiMode;
         setAiMode(next);

@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
+import { CATEGORY_NAME_MAX } from "@/lib/validation";
 import { addCategory, deleteCategory } from "@/actions/categories";
 import { useCategoryRename } from "@/hooks/use-category-rename";
 import { cn } from "@/lib/utils";
@@ -137,7 +138,7 @@ export function CategoryEditorDialog({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="New category name"
-            maxLength={20}
+            maxLength={CATEGORY_NAME_MAX}
             className="flex-1"
             autoFocus
           />
@@ -170,7 +171,7 @@ export function CategoryEditorDialog({
                       onChange={(e) => rename.setDraft(e.target.value)}
                       onKeyDown={rename.keyHandler(c)}
                       aria-label={`Rename ${c.name}`}
-                      maxLength={20}
+                      maxLength={CATEGORY_NAME_MAX}
                       autoFocus
                       className="h-6 min-w-0 flex-1 px-1.5 md:text-sm"
                     />
