@@ -6,7 +6,7 @@ import {
   serializeTxnTag,
   sortTagsByName,
   stepPickerIndex,
-  tagPickerModel,
+  markerPickerModel,
 } from "@/lib/tags";
 import { mergeCreatedTags } from "@/components/app/tags/use-created-tags";
 import { VAULT_COLORS } from "@/lib/files";
@@ -200,14 +200,14 @@ describe("setTransactionTagsSchema", () => {
   });
 });
 
-describe("tagPickerModel", () => {
+describe("markerPickerModel", () => {
   const tags = [
     { id: "1", name: "food" },
     { id: "2", name: "fuel" },
     { id: "3", name: "furniture" },
   ];
   const model = (query: string, rawIndex = 0, applied: string[] = []) =>
-    tagPickerModel({ tags, query, applied, rawIndex });
+    markerPickerModel({ options: tags, query, applied, rawIndex });
 
   it("filters case-insensitively and hides tags already applied", () => {
     expect(model("fu").results.map((t) => t.name)).toEqual(["fuel", "furniture"]);
@@ -229,8 +229,8 @@ describe("tagPickerModel", () => {
   it("counts the Create row as the last option", () => {
     const m = model("fu");
     expect(m.optionCount).toBe(3); // fuel, furniture, Create
-    expect(tagPickerModel({ tags, query: "fu", applied: [], rawIndex: 2 }).onCreateRow).toBe(true);
-    expect(tagPickerModel({ tags, query: "fu", applied: [], rawIndex: 1 }).onCreateRow).toBe(false);
+    expect(markerPickerModel({ options: tags, query: "fu", applied: [], rawIndex: 2 }).onCreateRow).toBe(true);
+    expect(markerPickerModel({ options: tags, query: "fu", applied: [], rawIndex: 1 }).onCreateRow).toBe(false);
     // No create row when the name exists: only the matches are options.
     expect(model("food").optionCount).toBe(1);
   });
@@ -247,7 +247,7 @@ describe("tagPickerModel", () => {
   });
 
   it("is safe on an empty list and on a negative index", () => {
-    expect(tagPickerModel({ tags: [], query: "", applied: [], rawIndex: 5 })).toMatchObject({
+    expect(markerPickerModel({ options: [], query: "", applied: [], rawIndex: 5 })).toMatchObject({
       optionCount: 0,
       activeIndex: 0,
       onCreateRow: false,
@@ -268,8 +268,8 @@ describe("stepPickerIndex", () => {
   // after the list shrank. From a raw 2 with 2 options, both directions compute
   // 1 — which is where the highlight already was, so the press looked ignored.
   it("moves on the first press after the list shrank", () => {
-    const { activeIndex, optionCount } = tagPickerModel({
-      tags: [{ id: "1", name: "fuel" }],
+    const { activeIndex, optionCount } = markerPickerModel({
+      options: [{ id: "1", name: "fuel" }],
       query: "fue",
       applied: [],
       rawIndex: 2,
@@ -345,5 +345,33 @@ describe("mergeCreatedTags", () => {
   it("returns the server array untouched when there is nothing local", () => {
     const server = [tag("1", "Apple")];
     expect(mergeCreatedTags(server, [])).toBe(server);
+  });
+});
+
+describe("markerPickerModel drives the category picker too", () => {
+  // Single-valued marker: nothing is ever "already applied", so `applied` is
+  // omitted. The list and the trailing Create row have to work the same way.
+  const categories = [
+    { id: "1", name: "Food" },
+    { id: "2", name: "Fuel" },
+  ];
+
+  it("filters and still offers a Create row for an unknown name", () => {
+    const m = markerPickerModel({ options: categories, query: "fu", rawIndex: 0 });
+    expect(m.results.map((c) => c.name)).toEqual(["Fuel"]);
+    expect(m.creatable).toBe(true);
+    expect(m.optionCount).toBe(2);
+  });
+
+  it("offers no Create row for a name that already exists", () => {
+    expect(markerPickerModel({ options: categories, query: "food", rawIndex: 0 }).creatable).toBe(
+      false,
+    );
+  });
+
+  it("shows everything for a bare marker, with nothing to create", () => {
+    const m = markerPickerModel({ options: categories, query: "", rawIndex: 0 });
+    expect(m.results).toHaveLength(2);
+    expect(m.creatable).toBe(false);
   });
 });

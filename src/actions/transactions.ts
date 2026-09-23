@@ -12,6 +12,7 @@ import * as txns from "@/services/transactions";
 import {
   FEED_PAGE_SIZE,
   getCategories,
+  getTags,
   listFeedPage,
   listTransactions,
   TRANSACTIONS_PAGE_SIZE,
@@ -235,13 +236,15 @@ export async function parseTransactionsWithAI(
       }
       await assertAiRequestAllowed(user.id, workspace.id, "transaction_parse");
 
-      const [categories, today] = await Promise.all([
+      const [categories, tags, today] = await Promise.all([
         getCategories(workspace.id),
+        getTags(workspace.id),
         getTimeZone().then(todayISO),
       ]);
       const drafts = await parseTransactionsText({
         text: note,
         categories: categories.map((c) => ({ name: c.name, kind: c.kind })),
+        tags: tags.map((t) => t.name),
         currency: workspace.currency,
         locale: workspace.locale,
         today,

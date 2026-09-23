@@ -529,6 +529,77 @@ describe("tagIds on the transaction actions", () => {
   });
 });
 
+/**
+ * `createBulkFromDrafts` is the only place in the app where a tag *name* — not
+ * an id — crosses into a write. The AI path speaks names because the model
+ * never sees an id, so the name→id lookup has to be scoped to the caller's
+ * workspace or one workspace's draft could land another's tag.
+ */
+describe("tagNames on the bulk draft path", () => {
+  async function makeTag(alias: string, name: string): Promise<string> {
+    const { createTxnTag } = await import("@/services/tags");
+    const { workspaceIdOf } = await import("./helpers/seed");
+    const row = await createTxnTag(uid(alias), await workspaceIdOf(alias), {
+      name,
+      color: "#ef4444",
+    });
+    return row.id;
+  }
+
+  const storedTagIds = async (title: string): Promise<string[]> => {
+    const [row] = await getTestDb()
+      .select({ tagIds: transactions.tagIds })
+      .from(transactions)
+      .where(eq(transactions.title, title));
+    return row!.tagIds;
+  };
+
+  const draft = (title: string, tagNames: string[]) => ({
+    type: "expense" as const,
+    amount: 10,
+    note: "",
+    title,
+    categoryName: null,
+    tagNames,
+    occurredOn: "2026-06-01",
+  });
+
+  it("resolves a tag name in this workspace, case-insensitively", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const travel = await makeTag("a", "Travel");
+
+    expect((await addBulkTransactions([draft("flight", ["travel"])])).ok).toBe(true);
+    expect(await storedTagIds("flight")).toEqual([travel]);
+  });
+
+  it("drops another workspace's tag name instead of matching it", async () => {
+    signInAs("b");
+    await bootstrapUser("b");
+    await makeTag("b", "Travel");
+
+    signInAs("a");
+    await bootstrapUser("a");
+    // Same name, different workspace, and A has no tag of its own by that
+    // name. The lookup is scoped, so this resolves to nothing rather than to
+    // B's tag — which nothing in the database would have stopped, since
+    // `tag_ids` carries no foreign key.
+    expect((await addBulkTransactions([draft("borrowed", ["Travel"])])).ok).toBe(true);
+    expect(await storedTagIds("borrowed")).toEqual([]);
+  });
+
+  it("drops a name nobody has, and keeps the ones that resolve", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const travel = await makeTag("a", "Travel");
+
+    expect(
+      (await addBulkTransactions([draft("partly", ["Travel", "Invented"])])).ok,
+    ).toBe(true);
+    expect(await storedTagIds("partly")).toEqual([travel]);
+  });
+});
+
 describe("parseTransactionsWithAI — gates before the model is ever called", () => {
   // The provider is never reached in any of these: each case must be rejected
   // by a gate first. A stubbed fetch that throws proves it — if a gate leaks,

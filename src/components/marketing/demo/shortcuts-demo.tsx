@@ -151,6 +151,13 @@ export function ShortcutsDemo() {
     }
 
     switch (s.id) {
+      // Settings is not in `navItems` any more — it lives in the profile menu,
+      // so there is no sidebar row for the demo to highlight. The key still
+      // goes there, and saying so is the honest answer; falling through to the
+      // registry's bare label would make this panel the one place that claims
+      // a key does nothing.
+      case "nav.settings":
+        return "Opens settings. It's reached from the profile menu rather than the sidebar, so there's no row here to light up — the key still takes you there.";
       case "action.add":
         return "Opens the add-transaction dialog, from any page — pre-filled with the profile you're on.";
       case "action.bulk":

@@ -1,41 +1,20 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { Calendar, Check, Minus, Pencil, Tags } from "lucide-react";
+import { Check } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { updateComposerDensity } from "@/actions/settings";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import type { ComposerDensity } from "@/lib/validation";
+import { ComposerPreview } from "./composer-preview";
+import type { ComposerDensity, InputMode } from "@/lib/validation";
 
 type Option = {
   value: ComposerDensity;
   label: string;
   description: string;
-  /** A small visual mock of the composer's control strip at this density. */
-  example: React.ReactNode;
 };
-
-/** A faux control used purely to illustrate each density. */
-function Pill({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex h-6 items-center gap-1 rounded-full border bg-background px-2 text-[11px] text-muted-foreground",
-        className,
-      )}
-    >
-      {children}
-    </span>
-  );
-}
 
 const OPTIONS: Option[] = [
   {
@@ -43,49 +22,12 @@ const OPTIONS: Option[] = [
     label: "Normal",
     description:
       "The full layout. Controls are labelled and the category list gets a row of its own.",
-    example: (
-      <div className="flex flex-col gap-1.5">
-        <div className="flex items-center gap-1">
-          <Pill>Manual</Pill>
-          <Pill>
-            <Minus className="size-3" />
-            Expense
-          </Pill>
-          <Pill className="ml-auto">
-            <Calendar className="size-3" />3 Aug 2026
-          </Pill>
-        </div>
-        <div className="flex items-center gap-1">
-          <Pill>🍎 Food</Pill>
-          <Pill>🚕 Travel</Pill>
-          <Pill>More</Pill>
-        </div>
-      </div>
-    ),
   },
   {
     value: "compact",
     label: "Compact",
     description:
       "One line. Controls drop to icons and the date to “Aug 3”, freeing the rest of the row for the category list. Hover any control to see its name and shortcut.",
-    example: (
-      <div className="flex items-center gap-1">
-        <Pill>
-          <Pencil className="size-3" />
-        </Pill>
-        <Pill>
-          <Minus className="size-3" />
-        </Pill>
-        <Pill>
-          <Calendar className="size-3" />
-          Aug 3
-        </Pill>
-        <Pill>🍎 Food</Pill>
-        <Pill>
-          <Tags className="size-3" />
-        </Pill>
-      </div>
-    ),
   },
 ];
 
@@ -95,7 +37,23 @@ const OPTIONS: Option[] = [
  * sit together on the input page and describe the same strip of UI — one its
  * field order, the other how much room it takes.
  */
-export function ComposerDensityForm({ density }: { density: string }) {
+export function ComposerDensityForm({
+  density,
+  inputMode,
+  onSelectedChange,
+  preview,
+}: {
+  density: string;
+  /** The layout the previews render — follows the *selected* option in the
+   *  card above, so changing one shows its effect on the other before either
+   *  is saved. They describe the same strip of UI. */
+  inputMode: InputMode;
+  /** Reports the *selected* (not yet saved) density, so the layout card above
+   *  previews at it. */
+  onSelectedChange?: (density: ComposerDensity) => void;
+  /** Workspace facts the preview renders — currency symbol, locale, today. */
+  preview: { symbol: string; locale: string; today: string };
+}) {
   const initial = (OPTIONS.some((o) => o.value === density)
     ? density
     : "normal") as ComposerDensity;
@@ -147,7 +105,10 @@ export function ComposerDensityForm({ density }: { density: string }) {
               // Spells out *why* it's disabled — a bare `disabled` radio reads
               // as a bug to a screen reader user, who can't see the badge.
               aria-describedby={blocked ? "density-normal-unavailable" : undefined}
-              onClick={() => setSelected(opt.value)}
+              onClick={() => {
+                setSelected(opt.value);
+                onSelectedChange?.(opt.value);
+              }}
               className={cn(
                 "flex flex-col gap-2 rounded-lg border p-3 text-left transition-colors",
                 blocked
@@ -186,9 +147,14 @@ export function ComposerDensityForm({ density }: { density: string }) {
               <p className="text-xs leading-relaxed text-muted-foreground">
                 {opt.description}
               </p>
-              <div className="mt-auto overflow-hidden rounded-md bg-muted/50 p-2">
-                {opt.example}
-              </div>
+              {/* The composer as it would actually look at this density,
+                  in the layout selected above — not a drawing of it. */}
+              <ComposerPreview
+                {...preview}
+                density={opt.value}
+                inputMode={inputMode}
+                className="mt-auto"
+              />
             </button>
           );
         })}
@@ -203,7 +169,10 @@ export function ComposerDensityForm({ density }: { density: string }) {
         <Button
           type="button"
           variant="ghost"
-          onClick={() => setSelected(baseline)}
+          onClick={() => {
+            setSelected(baseline);
+            onSelectedChange?.(baseline);
+          }}
           disabled={!dirty || pending}
         >
           Cancel

@@ -693,8 +693,16 @@ export const accountNameSchema = z
 export const updateAccountNameSchema = z.object({ name: accountNameSchema });
 export type UpdateAccountNameInput = z.infer<typeof updateAccountNameSchema>;
 
+/** Category names are capped like tag names — both are chips in the same
+ *  places, and a name that doesn't fit one doesn't fit the other. */
+export const CATEGORY_NAME_MAX = 20;
+
 export const categoryInputSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(20, "Name is too long (max 20 characters)"),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(CATEGORY_NAME_MAX, `Name is too long (max ${CATEGORY_NAME_MAX} characters)`),
   kind: txnTypeSchema,
   icon: z.string().trim().max(16).optional(),
 });

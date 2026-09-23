@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.2.0.** Every API change bumps this version and is logged
+**API spec version: 6.3.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -397,8 +397,9 @@ All analytics responses add `meta.currency = { code, symbol, decimals }`.
 
 ### AiDraft (from `POST /ai/parse`)
 One reviewable transaction the AI extracted from the note. Maps 1:1 onto a
-`TransactionInput` for `POST /transactions/bulk` — drop `categoryName`, add
-`profileId` if the user picked a profile.
+`TransactionInput` for `POST /transactions/bulk` — drop `categoryName` and
+`tagNames` (both display conveniences), add `profileId` if the user picked a
+profile.
 ```jsonc
 {
   "type": "income" | "expense",
@@ -407,6 +408,8 @@ One reviewable transaction the AI extracted from the note. Maps 1:1 onto a
   "description": "June bill" | null,    // ≤ 150 chars; sentence-cased the same way
   "categoryId": "uuid" | null,          // an existing workspace category of this type, or null
   "categoryName": "Food" | null,        // its exact stored name (same match as categoryId)
+  "tagIds": ["uuid"],                   // existing workspace tags the "#" markers asked for, in mention order (6.3.0)
+  "tagNames": ["Travel"],               // the same tags by name (same match as tagIds) (6.3.0)
   "occurredOn": "2026-07-29"            // defaults to "today" in your timezone; never future
 }
 ```
@@ -543,7 +546,7 @@ that feature's model isn't configured (treat as feature-off, like the web);
 `502 ai_failed` = provider hiccup, offer retry. Neither writes anything.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `POST /ai/parse` | `{ text, timezone? }` — text ≤ 2000 chars; timezone = IANA device zone (omitted → UTC) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `/Category` picks a category (slash + a letter; a slash between digits is a date), `(parens)` → description, relative dates resolve against `timezone`. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…") |
+| `POST /ai/parse` | `{ text, timezone? }` — text ≤ 2000 chars; timezone = IANA device zone (omitted → UTC) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `/Category` picks a category (slash + a letter; a slash between digits is a date), `#Tag` tags it (hash + a letter, repeatable, max 10 — **never guessed**, only what the note asks for), `(parens)` → description, relative dates resolve against `timezone`. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…") |
 | `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) | 200 `data: { text }` | Voice note → transcript (≤ 1200 chars) for the composer; user fixes it, then it goes through `/ai/parse` like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB (~1 min — cap recording at 60 s). Languages guided by `settings.voiceLanguages`; amounts come back as digits. **413** when the request's `Content-Length` alone exceeds 4 MB (refused before the body is read); 400 bad/empty/oversized audio or no speech — a 400 on format/size/emptiness costs **no quota slot** (those checks precede the role + quota gates), so retrying is free. 413 and 400 mean the same thing here (recording too long) and differ only in whether the client declared its size |
 
 ### Categories (scoped to the current workspace via `X-Workspace-Id`)

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { AlignLeft, ArrowUp, Minus, Plus } from "lucide-react";
+import { AlignLeft, ArrowUp, Minus, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,8 +14,11 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { CategoryRow } from "./category-row";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TagChip } from "./tags/tag-chip";
 import { TagFormDialog } from "./tags/tag-form-dialog";
+import { TagSelect } from "./tags/tag-select";
+import { TagEditorDialog } from "./tags/tag-editor-dialog";
 import { useCreatedTags } from "./tags/use-created-tags";
 import { CategoryEditorDialog } from "./category-editor-dialog";
 import { ControlHint } from "./control-hint";
@@ -41,6 +44,7 @@ import {
   ATTACHMENT_MAX_PER_TRANSACTION,
   TRANSACTION_AMOUNT_MAX as AMOUNT_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
+  CATEGORY_NAME_MAX,
   TAG_NAME_MAX,
   TRANSACTION_TITLE_MAX as TITLE_MAX,
 } from "@/lib/validation";
@@ -48,20 +52,19 @@ import type { ComposerDensity, InputMode, TransactionInput } from "@/lib/validat
 import {
   defaultTagColor,
   stepPickerIndex,
-  tagPickerModel,
+  markerPickerModel,
   type TxnTagDTO,
 } from "@/lib/tags";
+import {
+  CATEGORY_MARKER_RE as CATEGORY_RE,
+  TAG_MARKER_RE as TAG_RE,
+} from "@/lib/composer-markers";
 import type { Category, Profile } from "@/db/schema";
 
-// Matches a trailing "/query" token typed into the title field — "/" is the
-// app-wide category trigger (in the AI note too).
-const CATEGORY_RE = /(?:^|\s)\/([^\s/]*)$/;
-
-// Matches a trailing "#query" token typed into the title field — "#" is the
-// app-wide tag trigger, the sibling of "/" above. Separate regexes rather than
-// one alternation, because the two pickers hold different state and a match has
-// to say which one opened.
-const TAG_RE = /(?:^|\s)#([^\s#]*)$/;
+/** Tag chips shown inline in the field before the count takes over. Two fits
+ *  beside real text at a phone width; a transaction can carry
+ *  `TAGS_PER_TRANSACTION_MAX`. */
+const TAGS_IN_FIELD = 2;
 
 // How much text the amount chip holds. Nine whole digits is the real cap
 // (`AMOUNT_INTEGER_DIGITS_MAX`, enforced per keystroke below); this only stops a
@@ -122,7 +125,20 @@ export function TransactionComposer({
   const [description, setDescription] = useState("");
   const [occurredOn, setOccurredOn] = useState(today);
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
-  const [editorOpen, setEditorOpen] = useState(false);
+  /**
+   * The category editor, and *why* it was opened — the two are different
+   * dialogs wearing one component.
+   *
+   * "create" came from the "/" picker and should apply what it makes to the
+   * transaction being written, then close. "manage" came from "Edit
+   * categories" and should stay open so you can add several. Deriving that
+   * from whether a name happened to be typed got it wrong for the "New
+   * category" row, which opens the create flow with an empty query and so
+   * silently behaved like "manage".
+   */
+  const [categoryEditor, setCategoryEditor] = useState<
+    { mode: "manage" } | { mode: "create"; name: string } | null
+  >(null);
   // Description is off by default; a toggle on the amount/title row reveals it.
   const [showDescription, setShowDescription] = useState(false);
   const [categoryDismissed, setCategoryDismissed] = useState(false);
@@ -133,6 +149,11 @@ export function TransactionComposer({
   const [tagIndex, setTagIndex] = useState(0);
   // Open with the text typed after the "#", so "Create #trav" pre-fills.
   const [tagFormName, setTagFormName] = useState<string | null>(null);
+  // The "#" button's menu, also opened by the "+N" overflow inside the field.
+  const [tagMenuOpen, setTagMenuOpen] = useState(false);
+  const [tagEditorOpen, setTagEditorOpen] = useState(false);
+  // Open the category editor with the text typed after the "/", so
+  // "Create /trav" pre-fills — the tag form's `initialName`, for categories.
   // Tags created from inside this composer, held until the server list catches
   // up (see the hook — it also retires them, which is what stops a tag deleted
   // elsewhere reappearing as a pickable option).
@@ -210,10 +231,20 @@ export function TransactionComposer({
   const categoryMatch = titleSource.match(CATEGORY_RE);
   const categoryQuery = categoryMatch?.[1] ?? "";
   const categoryActive = !!categoryMatch && !categoryDismissed;
-  const categoryResults = categoryActive
-    ? cats.filter((c) => c.name.toLowerCase().includes(categoryQuery.toLowerCase()))
-    : [];
-  const categoryIdx = categoryResults.length ? Math.min(categoryIndex, categoryResults.length - 1) : 0;
+  // The same model the "#" picker uses — including the trailing "Create" row,
+  // so a category you don't have yet can be made without leaving the sentence,
+  // exactly as a tag can. `applied` is empty: a transaction has one category.
+  const {
+    results: categoryResults,
+    creatable: categoryCreatable,
+    optionCount: categoryOptionCount,
+    activeIndex: categoryIdx,
+    onCreateRow: categoryOnCreateRow,
+  } = markerPickerModel({
+    options: categoryActive ? cats : [],
+    query: categoryQuery,
+    rawIndex: categoryIndex,
+  });
 
   // "#" in the title opens the tag picker — the same shape as the category one
   // above, with two differences. Tags already applied are filtered out (picking
@@ -236,8 +267,8 @@ export function TransactionComposer({
     optionCount: tagOptionCount,
     activeIndex: tagIdx,
     onCreateRow: tagOnCreateRow,
-  } = tagPickerModel({
-    tags: tagActive ? knownTags : [],
+  } = markerPickerModel({
+    options: tagActive ? knownTags : [],
     query: tagQuery,
     applied: tagIds,
     rawIndex: tagIndex,
@@ -337,9 +368,23 @@ export function TransactionComposer({
 
   function selectCategory(cat: Pick<Category, "id">) {
     setCategoryId(cat.id);
+    clearCategoryToken();
+  }
+
+  function clearCategoryToken() {
     setTitleSource((t) => t.replace(CATEGORY_RE, "").replace(/\s+$/, ""));
     setCategoryDismissed(true);
     setCategoryIndex(0);
+  }
+
+  /** "Create /trav" — open the category editor with the typed name filled in,
+   *  and drop the token, exactly as the tag one does. */
+  function openCategoryCreate() {
+    setCategoryEditor({
+      mode: "create",
+      name: categoryQuery.trim().slice(0, CATEGORY_NAME_MAX),
+    });
+    clearCategoryToken();
   }
 
   function submit() {
@@ -502,25 +547,37 @@ export function TransactionComposer({
       }
     }
 
-    if (categoryActive && categoryResults.length > 0) {
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        setCategoryIndex((i) => (i + 1) % categoryResults.length);
-        return;
-      }
-      if (e.key === "ArrowUp") {
-        e.preventDefault();
-        setCategoryIndex((i) => (i - 1 + categoryResults.length) % categoryResults.length);
-        return;
-      }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        selectCategory(categoryResults[categoryIdx]);
-        return;
-      }
+    // Gated on `categoryActive` alone, for the reason the tag branch above
+    // documents: the popover is on screen whenever the token is, empty state
+    // included, and a visible popover has to answer for Enter and Escape.
+    if (categoryActive) {
       if (e.key === "Escape") {
         e.preventDefault();
         setCategoryDismissed(true);
+        return;
+      }
+      if (categoryOptionCount > 0) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          // Off the *clamped* index, not the raw one — see the tag branch.
+          setCategoryIndex(stepPickerIndex(categoryIdx, categoryOptionCount, 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setCategoryIndex(stepPickerIndex(categoryIdx, categoryOptionCount, -1));
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          if (categoryOnCreateRow) openCategoryCreate();
+          else selectCategory(categoryResults[categoryIdx]!);
+          return;
+        }
+      } else if (e.key === "Enter" || e.key === "Tab") {
+        // Nothing to pick and the title still ends in a bare "/" — swallow it
+        // rather than saving a transaction titled "lunch /".
+        e.preventDefault();
         return;
       }
     }
@@ -683,9 +740,6 @@ export function TransactionComposer({
     );
   }
 
-  // Overlaid on the title field, which reserves `pl-9` so text never runs under it.
-  const attachButton = attachTrigger("absolute top-1/2 left-0.5 size-7 -translate-y-1/2");
-
   // Amount-first mode instead puts the paperclip as a standalone leading button
   // at the very left of the row (left of the amount box), not inside a field.
   const standaloneAttach = attachTrigger("size-8 shrink-0 border");
@@ -694,10 +748,78 @@ export function TransactionComposer({
   // (title-first). In amount-first mode it moves to `standaloneAttach` above, so
   // the title drops its leading clip and gets normal padding.
   const titleLeadsRow = inputMode === "title_amount";
+  /**
+   * The tags picked for this send, at the end of the field they were typed in.
+   *
+   * They used to sit on their own row above the input. That row only existed
+   * when a tag was picked, so the whole composer jumped a line the moment you
+   * applied one — and the tags are part of the title you are writing, not a
+   * separate stack like the staged files above them.
+   *
+   * Two chips fit beside real text; past that the count carries the rest, with
+   * the names in a tooltip (and in the accessible name, since a tooltip reaches
+   * a mouse and nothing else). A transaction can hold ten.
+   */
+  const inFieldTags = (
+    <span className="flex shrink-0 items-center gap-1">
+      {pickedTags.slice(0, TAGS_IN_FIELD).map((t) => (
+        <TagChip
+          key={t.id}
+          tag={t}
+          className="max-w-20 text-xs"
+          onRemove={() => removeTag(t.id)}
+        />
+      ))}
+      {pickedTags.length > TAGS_IN_FIELD ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              // Opens the same picker the "#" button does, so the overflow is
+              // a way in rather than a dead label.
+              onClick={() => setTagMenuOpen(true)}
+              className="shrink-0 rounded px-0.5 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            >
+              +{pickedTags.length - TAGS_IN_FIELD}
+              <span className="sr-only">
+                {` more tags: ${pickedTags
+                  .slice(TAGS_IN_FIELD)
+                  .map((t) => t.name)
+                  .join(", ")}`}
+              </span>
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {pickedTags
+              .slice(TAGS_IN_FIELD)
+              .map((t) => t.name)
+              .join(", ")}
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
+    </span>
+  );
+
+  // Not an `<Input>` any more: the field is a shell holding the paperclip, the
+  // text and the picked tags as siblings, the way `combinedField` below already
+  // holds its amount chip. Same border and ring tokens, with focus moved to
+  // `focus-within` so the shell lights up while the caret is in the text.
   const titleField = (
-    <div className="relative min-w-32 flex-1">
-      {titleLeadsRow && attachButton}
-      <Input
+    <div
+      className={cn(
+        "flex h-9 min-w-32 flex-1 items-center gap-1.5 rounded-lg border border-input bg-transparent py-1 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30",
+        titleLeadsRow ? "pr-1.5 pl-1" : "px-2.5",
+      )}
+      // The shell's padding is dead space in a real input; a click there should
+      // land in the text like it would in one.
+      onMouseDown={(e) => {
+        if (e.target !== e.currentTarget) return;
+        e.preventDefault();
+        focusEnd(titleRef);
+      }}
+    >
+      {titleLeadsRow && attachTrigger("size-7 shrink-0")}
+      <input
         ref={titleRef}
         placeholder="Add a title — / for category, # for tags"
         value={title}
@@ -708,8 +830,11 @@ export function TransactionComposer({
         }}
         onKeyDown={onTitleKeyDown}
         aria-label="Title"
-        className={cn("h-9 w-full md:text-base", titleLeadsRow && "pl-9")}
+        // 16px under `md` for the same reason every other field here does it:
+        // iOS Safari zooms the viewport in on a focused input below that.
+        className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-base"
       />
+      {inFieldTags}
     </div>
   );
 
@@ -817,6 +942,9 @@ export function TransactionComposer({
         aria-label="Title"
         className="h-full w-full min-w-0 bg-transparent text-base outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed"
       />
+      {/* Same chips, same end of the same field — this layout just happens to
+          hold the amount in the other end of it. */}
+      {inFieldTags}
     </div>
   );
 
@@ -948,9 +1076,31 @@ export function TransactionComposer({
         categories={cats}
         value={categoryId}
         onChange={setCategoryId}
-        onEdit={() => setEditorOpen(true)}
+        onEdit={() => setCategoryEditor({ mode: "manage" })}
       />
     </div>
+  );
+
+  /**
+   * The "#" button: the pointer's way to the same picker "#" opens by typing.
+   * Compact on purpose — it shares the strip with the date and profile
+   * controls, and a labelled control there would push them off a phone.
+   *
+   * Its menu is controlled so the "+N" overflow inside the field can open it
+   * too: that count is otherwise a dead label on the tags it is hiding.
+   */
+  const tagButton = (
+    <TagSelect
+      compact
+      tags={knownTags}
+      value={tagIds}
+      onChange={setTagIds}
+      onCreated={createdTags.add}
+      canCreate
+      align="end"
+      open={tagMenuOpen}
+      onOpenChange={setTagMenuOpen}
+    />
   );
 
   const categorySlider = (
@@ -963,7 +1113,7 @@ export function TransactionComposer({
         categories={cats}
         value={categoryId}
         onChange={setCategoryId}
-        onEdit={() => setEditorOpen(true)}
+        onEdit={() => setCategoryEditor({ mode: "manage" })}
       />
     </div>
   );
@@ -1012,6 +1162,7 @@ export function TransactionComposer({
           >
             <AiTransactionInput
               mode={mode}
+              tags={knownTags}
               onModeChange={changeMode}
               onReviewingChange={setAiReviewing}
               categories={categories}
@@ -1094,6 +1245,7 @@ export function TransactionComposer({
                         {typeToggle}
                         {datePicker}
                         {profileSelect}
+                        {tagButton}
                         {categoryTagButton}
                         {categorySlider}
                       </div>
@@ -1108,6 +1260,7 @@ export function TransactionComposer({
                         <div className="ml-auto flex min-w-0 items-center gap-2">
                           {datePicker}
                           {profileSelect}
+                          {tagButton}
                           {categoryTagButton}
                         </div>
                       </div>
@@ -1142,16 +1295,6 @@ export function TransactionComposer({
                         onUpdate={staged.update}
                         disabled={switching}
                       />
-                    </div>
-                  ) : null}
-
-                  {/* Picked tags, above the input row like the staged files —
-                      a pending part of the next send, removable until it goes. */}
-                  {pickedTags.length > 0 ? (
-                    <div className="flex flex-wrap items-center gap-1">
-                      {pickedTags.map((t) => (
-                        <TagChip key={t.id} tag={t} onRemove={() => removeTag(t.id)} />
-                      ))}
                     </div>
                   ) : null}
 
@@ -1195,6 +1338,20 @@ export function TransactionComposer({
                     {tagActive && (
                       <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
                         <ul className="max-h-56 overflow-y-auto">
+                          <li>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                clearTagToken();
+                                setTagEditorOpen(true);
+                              }}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                            >
+                              <Pencil className="size-3.5 shrink-0" aria-hidden />
+                              Edit tags
+                            </button>
+                          </li>
                           {tagResults.map((t, i) => (
                             <li key={t.id}>
                               <button
@@ -1265,38 +1422,100 @@ export function TransactionComposer({
                         viewport, so it never runs off-screen on a phone. */}
                     {categoryActive && (
                       <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
-                        {categoryResults.length > 0 ? (
-                          <ul className="max-h-56 overflow-y-auto">
-                            {categoryResults.map((c, i) => (
-                              <li key={c.id}>
-                                <button
-                                  type="button"
-                                  // The list is no longer capped, so arrowing
-                                  // down can walk past the scroll window.
-                                  // "nearest" is a no-op when already visible.
-                                  ref={(el) => {
-                                    if (i === categoryIdx) el?.scrollIntoView({ block: "nearest" });
-                                  }}
-                                  onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    selectCategory(c);
-                                  }}
-                                  className={cn(
-                                    "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                                    i === categoryIdx ? "bg-accent" : "hover:bg-muted",
-                                  )}
-                                >
-                                  <span aria-hidden>{c.icon ?? "🏷️"}</span>
-                                  <span className="truncate">{c.name}</span>
-                                </button>
-                              </li>
-                            ))}
-                          </ul>
-                        ) : (
-                          <p className="px-2 py-1.5 text-sm text-muted-foreground">
-                            No category matches “{categoryQuery}”
-                          </p>
-                        )}
+                        <ul className="max-h-56 overflow-y-auto">
+                          {/* Pinned at the top, and deliberately outside the
+                              arrow-key list: these manage the list rather than
+                              complete what you typed, and putting them in the
+                              option model would land the highlight on "Edit"
+                              when you meant the first match. Mouse affordances,
+                              like the "More" grid on the slider. */}
+                          <li>
+                            <button
+                              type="button"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                clearCategoryToken();
+                                setCategoryEditor({ mode: "manage" });
+                              }}
+                              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                            >
+                              <Pencil className="size-3.5 shrink-0" aria-hidden />
+                              Edit categories
+                            </button>
+                          </li>
+                          {categoryResults.map((c, i) => (
+                            <li key={c.id}>
+                              <button
+                                type="button"
+                                // The list is no longer capped, so arrowing
+                                // down can walk past the scroll window.
+                                // "nearest" is a no-op when already visible.
+                                ref={(el) => {
+                                  if (i === categoryIdx) el?.scrollIntoView({ block: "nearest" });
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  selectCategory(c);
+                                }}
+                                className={cn(
+                                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                                  i === categoryIdx ? "bg-accent" : "hover:bg-muted",
+                                )}
+                              >
+                                <span aria-hidden>{c.icon ?? "🏷️"}</span>
+                                <span className="truncate">{c.name}</span>
+                                {/* Which side of the ledger this category is.
+                                    The word, not "in"/"out": two letters that
+                                    differ by one glyph are a worse label than
+                                    the thing they abbreviate, and there is room
+                                    at the end of the row for it. */}
+                                <span className="ml-auto shrink-0 text-xs text-muted-foreground capitalize">
+                                  {c.kind}
+                                </span>
+                              </button>
+                            </li>
+                          ))}
+                          {categoryResults.length === 0 && (
+                            <li className="px-2 py-1.5 text-sm text-muted-foreground">
+                              {cats.length === 0
+                                ? `No ${type} categories yet`
+                                : `No ${type} category matches`}
+                            </li>
+                          )}
+                          {/* Always offered. With something typed it is the
+                              last option and Enter reaches it; with nothing to
+                              create from it is a plain "New category" button,
+                              outside the arrow-key list for the same reason the
+                              manage row above is. */}
+                          <li>
+                            <button
+                              type="button"
+                              ref={(el) => {
+                                if (categoryOnCreateRow) el?.scrollIntoView({ block: "nearest" });
+                              }}
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                openCategoryCreate();
+                              }}
+                              className={cn(
+                                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                                categoryOnCreateRow ? "bg-accent" : "hover:bg-muted",
+                              )}
+                            >
+                              <Plus className="size-3.5 shrink-0" aria-hidden />
+                              {categoryCreatable ? (
+                                <>
+                                  <span className="truncate text-muted-foreground">Create</span>
+                                  <span className="truncate font-medium">
+                                    {categoryQuery.trim()}
+                                  </span>
+                                </>
+                              ) : (
+                                <span className="truncate text-muted-foreground">New category</span>
+                              )}
+                            </button>
+                          </li>
+                        </ul>
                       </div>
                     )}
                   </div>
@@ -1342,11 +1561,30 @@ export function TransactionComposer({
           setTagFormName(null);
         }}
       />
+      <TagEditorDialog
+        open={tagEditorOpen}
+        onOpenChange={setTagEditorOpen}
+        tags={knownTags}
+        onCreated={createdTags.add}
+      />
       <CategoryEditorDialog
-        open={editorOpen}
-        onOpenChange={setEditorOpen}
+        open={categoryEditor !== null}
+        onOpenChange={(v) => {
+          if (!v) setCategoryEditor(null);
+        }}
         categories={categories}
         defaultKind={type}
+        initialName={categoryEditor?.mode === "create" ? categoryEditor.name : ""}
+        // Only for the "/" picker's create flow: from "Edit categories" this is
+        // a management dialog and closing it after one add would be wrong.
+        onCreated={
+          categoryEditor?.mode === "create"
+            ? (c) => {
+                if (c.kind === type) setCategoryId(c.id);
+                setCategoryEditor(null);
+              }
+            : undefined
+        }
       />
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown, Plus, Tag as TagIcon } from "lucide-react";
+import { Check, ChevronDown, Hash, Plus } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,6 +43,9 @@ export function TagSelect({
   className,
   align = "start",
   max = TAGS_PER_TRANSACTION_MAX,
+  compact = false,
+  open,
+  onOpenChange,
 }: {
   /** Every tag in the workspace, already name-ordered by the server. */
   tags: TxnTagDTO[];
@@ -65,6 +68,13 @@ export function TagSelect({
   className?: string;
   align?: "start" | "end";
   max?: number;
+  /** Icon-only trigger with a count — for the composer's control strip, where
+   *  a full-width control would crowd out the date and profile beside it. */
+  compact?: boolean;
+  /** Controlled open state, so something else on screen can open this menu —
+   *  the composer's "+N" tag overflow does. */
+  open?: boolean;
+  onOpenChange?: (v: boolean) => void;
 }) {
   const [creating, setCreating] = useState(false);
   // Tags created from this control, until the server list carries them.
@@ -84,15 +94,33 @@ export function TagSelect({
 
   return (
     <>
-      <DropdownMenu>
+      <DropdownMenu open={open} onOpenChange={onOpenChange}>
         <DropdownMenuTrigger asChild>
+          {compact ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              aria-label={
+                value.length ? `Tags (${value.length} selected)` : "Tags"
+              }
+              className={cn("relative size-8 shrink-0", className)}
+            >
+              <Hash className="size-4" />
+              {value.length > 0 ? (
+                <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
+                  {value.length}
+                </span>
+              ) : null}
+            </Button>
+          ) : (
           <Button
             type="button"
             variant="outline"
             aria-label={triggerAriaLabel}
             className={cn("justify-start font-normal", className)}
           >
-            <TagIcon className="size-4 shrink-0 text-muted-foreground" />
+            <Hash className="size-4 shrink-0 text-muted-foreground" />
             {triggerLabel ? (
               <span className="truncate">{triggerLabel}</span>
             ) : selected.length === 0 ? (
@@ -113,6 +141,7 @@ export function TagSelect({
             )}
             <ChevronDown className="ml-auto size-4 shrink-0 text-muted-foreground" />
           </Button>
+          )}
         </DropdownMenuTrigger>
         <DropdownMenuContent align={align} className="w-64">
           {all.length === 0 ? (

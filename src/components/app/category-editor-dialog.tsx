@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
+import { CATEGORY_NAME_MAX } from "@/lib/validation";
 import { addCategory, deleteCategory } from "@/actions/categories";
 import { useCategoryRename } from "@/hooks/use-category-rename";
 import { cn } from "@/lib/utils";
@@ -27,22 +28,37 @@ export function CategoryEditorDialog({
   onOpenChange,
   categories,
   defaultKind,
+  initialName = "",
+  onCreated,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   categories: Cat[];
   defaultKind: "income" | "expense";
+  /** Seeds the name field — the "/" picker passes whatever was typed after the
+   *  slash, so "Create /trav" opens with "trav" already filled in. */
+  initialName?: string;
+  /** The created category, so a caller that opened this from a picker can
+   *  apply it to the transaction being written instead of re-fetching the list
+   *  and matching on name. When set, the dialog closes on a successful add —
+   *  the caller came here to make one category, not to manage the list. */
+  onCreated?: (category: { id: string; name: string; kind: "income" | "expense" }) => void;
 }) {
   const [kind, setKind] = React.useState<"income" | "expense">(defaultKind);
-  const [name, setName] = React.useState("");
+  const [name, setName] = React.useState(initialName);
   const [icon, setIcon] = React.useState("🏷️");
   const [pending, startTransition] = useTransition();
 
-  // Reset the active tab to the composer's type each time the dialog opens.
+  // Reset the active tab to the composer's type each time the dialog opens, and
+  // re-seed the name: this is mounted once and reused, so without it a second
+  // "Create /travel" would still show the first name.
   const [wasOpen, setWasOpen] = React.useState(open);
   if (open !== wasOpen) {
     setWasOpen(open);
-    if (open) setKind(defaultKind);
+    if (open) {
+      setKind(defaultKind);
+      setName(initialName);
+    }
   }
 
   const rename = useCategoryRename(categories.filter((c) => c.kind === kind));
@@ -65,6 +81,10 @@ export function CategoryEditorDialog({
         setName("");
         setIcon("🏷️");
         toast.success("Category added");
+        if (onCreated) {
+          onCreated(res.category);
+          onOpenChange(false);
+        }
       } else {
         toast.error(res.error);
       }
@@ -118,7 +138,7 @@ export function CategoryEditorDialog({
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="New category name"
-            maxLength={20}
+            maxLength={CATEGORY_NAME_MAX}
             className="flex-1"
             autoFocus
           />
@@ -151,7 +171,7 @@ export function CategoryEditorDialog({
                       onChange={(e) => rename.setDraft(e.target.value)}
                       onKeyDown={rename.keyHandler(c)}
                       aria-label={`Rename ${c.name}`}
-                      maxLength={20}
+                      maxLength={CATEGORY_NAME_MAX}
                       autoFocus
                       className="h-6 min-w-0 flex-1 px-1.5 md:text-sm"
                     />

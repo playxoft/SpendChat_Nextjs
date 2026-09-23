@@ -12,8 +12,9 @@ import {
 } from "@/components/ui/dialog";
 
 /**
- * The "i" help for AI entry — a dialog explaining the free-text syntax (/category,
- * (description), income words, dates) with worked examples and their output. Pure
+ * The "i" help for AI entry — a dialog explaining the free-text syntax
+ * (/category, #tag, (description), income words, dates) with worked examples and
+ * their output. Pure
  * instructional content; the `symbol` just makes the example amounts feel local.
  */
 export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
@@ -22,6 +23,7 @@ export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
     { k: "a, b, c", d: "Commas separate items — each becomes its own transaction." },
     { k: "salary, got", d: "Income words (salary, got, refund, sold) mark money in." },
     { k: "/Food", d: "Pick a category. Matched to your existing ones — never creates new." },
+    { k: "#travel", d: "Tag it. Matched to your existing tags — and never guessed, only what you write." },
     { k: "(June bill)", d: "Text in parentheses becomes the description." },
     { k: "yesterday", d: "Plain dates set the day; otherwise today is used." },
   ];
@@ -38,8 +40,8 @@ export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
       ],
     },
     {
-      in: "500 groceries /Food yesterday",
-      out: [`Groceries — ${symbol}500 · /Food · dated yesterday`],
+      in: "500 groceries /Food #weekly yesterday",
+      out: [`Groceries — ${symbol}500 · /Food · #weekly · dated yesterday`],
     },
   ];
 

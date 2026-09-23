@@ -14,9 +14,65 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.2.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.3.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.27.0] — 2026-09-23
+
+### Added
+- **Tags work in AI entry.** Type `#travel` in the note the way you type
+  `/Food`, with the same picker and the same Create-it-from-here row. The
+  marker stays in the note — it is the instruction the model reads — and the
+  review list shows which tags each draft picked up. Unlike the category, a tag
+  is **never guessed**: you get the ones you asked for and nothing else.
+- **A `#` button on the tracker composer**, for picking tags with the pointer
+  instead of typing the marker.
+- **Create a category from the `/` picker.** If what you typed doesn't match
+  one, the last row offers to make it — the same step the `#` picker has had.
+  With nothing typed it reads **New category** and does the same thing. It
+  works in manual entry, in AI entry and in the single-field layout.
+- **Manage either list without leaving what you're typing.** The `/` picker
+  opens with **Edit categories** at the top, the `#` picker with **Edit tags**,
+  which opens a compact manager — rename, recolour, delete, add — rather than
+  navigating to Settings and losing an unsent transaction.
+- **Settings → About**, with what the app is, the versions it's running, and
+  what the AGPL actually grants you.
+
+### Changed
+- **Picked tags now sit at the end of the title field** instead of on a row of
+  their own above it. The composer no longer jumps a line the moment you apply
+  one. Two show inline; the rest become a `+N` that names them on hover and
+  opens the picker when clicked.
+- The `/` category list says **Income** or **Expense** at the end of each row,
+  instead of `in` / `out` — two letters that differ by one glyph.
+- **The Input settings page shows the composer, not a drawing of it.** Both
+  cards' previews render the real control strip and field row, and each follows
+  the *other* card's current selection — so picking a layout updates the
+  density previews, and vice versa. The old mocks had drifted: they predated
+  the `#` button and showed controls the composer no longer has.
+- **Settings has left the sidebar.** It is in the profile menu, which is on
+  every screen in both layouts, and listing it twice spent a nav slot on the
+  destination people visit least. The `s` shortcut still goes there.
+- Tags use a **`#` icon** everywhere instead of the tag glyph, which was a
+  near-twin of the one Categories uses.
+- **The profile menu drops the source link.** The offer the AGPL's section 13
+  asks for moved to Settings → About, which is reachable from the same menu and
+  has room to say what the licence means instead of being a bare link.
+- The mobile API's `/ai/parse` reads the `#` marker and returns `tagIds` /
+  `tagNames` per draft — spec **6.3.0**, additive. See
+  [the API changelog](./_developer/flutter/_changelog.md).
+
+### Fixed
+- **A flight number no longer opens the tag picker.** `#204` matched the tag
+  marker, and because an open picker answers for Enter, that key offered to
+  create a tag called “204” instead of sending the transaction — or, in the AI
+  note, instead of starting a new line. A hash followed by a digit isn't a tag,
+  which is what the AI has always been told and what the API contract says.
+- **⌘/Ctrl+Enter parses the AI note again** even with a picker open; it used to
+  insert the highlighted option instead.
+- **“Edit categories” stays open** after adding one from AI entry. It closed
+  after the first, so adding two meant reopening the picker and the dialog.
 
 ## [0.26.1] — 2026-09-22
 

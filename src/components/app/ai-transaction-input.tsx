@@ -54,15 +54,25 @@ import { cn } from "@/lib/utils";
 import { EntryModeToggle, MODE_ROW_DENSE, type EntryMode } from "./entry-mode-toggle";
 import { AiHelpDialog } from "./ai-help-dialog";
 import { AI_BTN, RowTypeToggle } from "./ai-accent";
+import {
+  defaultTagColor,
+  markerPickerModel,
+  stepPickerIndex,
+  type TxnTagDTO,
+} from "@/lib/tags";
+import { TagChip } from "./tags/tag-chip";
+import { TagFormDialog } from "./tags/tag-form-dialog";
+import { TagEditorDialog } from "./tags/tag-editor-dialog";
+import { useCreatedTags } from "./tags/use-created-tags";
+import { CategoryEditorDialog } from "./category-editor-dialog";
+import { CATEGORY_NAME_MAX, TAG_NAME_MAX } from "@/lib/validation";
+import {
+  CATEGORY_MARKER_RE as CATEGORY_RE,
+  TAG_MARKER_RE as TAG_RE,
+} from "@/lib/composer-markers";
 import type { Category, Profile } from "@/db/schema";
 
 const NONE = "none";
-
-// A trailing "/query" immediately before the caret opens the category picker.
-// "/" is the app-wide category trigger; the note keeps the picked category as a
-// "/Name" token because that is the marker `buildParsePrompt` teaches the model
-// to read (see `src/lib/ai-parse.ts` — the two must agree).
-const CATEGORY_RE = /(?:^|\s)\/([^\s/]*)$/;
 
 /** One reviewable draft, edited as strings (amount parsed on save). */
 type Row = {
@@ -73,6 +83,8 @@ type Row = {
   description: string;
   /** "" = no category. */
   categoryName: string;
+  /** Workspace tag names the note asked for, in mention order. */
+  tagNames: string[];
   occurredOn: string;
 };
 
@@ -214,6 +226,7 @@ export function AiTransactionInput({
   onModeChange,
   onReviewingChange,
   categories,
+  tags,
   currency,
   locale = "en-US",
   today,
@@ -229,6 +242,8 @@ export function AiTransactionInput({
    * this pane's (much taller) height while Manual is the visible mode. */
   onReviewingChange?: (reviewing: boolean) => void;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
+  /** The workspace's tags, for the "#" picker. */
+  tags: TxnTagDTO[];
   currency: string;
   locale?: string;
   today: string;
@@ -267,6 +282,19 @@ export function AiTransactionInput({
   const [caret, setCaret] = useState(0);
   const [categoryDismissed, setCategoryDismissed] = useState(false);
   const [categoryIndex, setCategoryIndex] = useState(0);
+  // "#" tag autocomplete over the same textarea. Both markers are anchored to
+  // the caret, so at most one is open at a time.
+  const [tagDismissed, setTagDismissed] = useState(false);
+  const [tagIndex, setTagIndex] = useState(0);
+  const [tagFormName, setTagFormName] = useState<string | null>(null);
+  const [tagEditorOpen, setTagEditorOpen] = useState(false);
+  const createdTags = useCreatedTags(tags);
+  // Categories created from the "/" picker's Create row.
+  // "create" came from the "/" picker, "manage" from Edit categories — the two
+  // want opposite behaviour after an add. See the composer's copy.
+  const [categoryEditor, setCategoryEditor] = useState<
+    { mode: "manage" } | { mode: "create"; name: string } | null
+  >(null);
 
   const symbol = getCurrency(currency).symbol;
   const isMac = useIsMac();
@@ -282,12 +310,36 @@ export function AiTransactionInput({
   // Both kinds are offered (the item's type isn't known yet at typing time) and
   // colored — emerald income / red expense — like the transactions dropdown. The
   // model resolves the tag to the category of the matching kind on parse.
-  const categoryResults = categoryActive
-    ? categories
-        .filter((c) => c.name.toLowerCase().includes(categoryQuery.toLowerCase()))
-        .slice(0, 10)
-    : [];
-  const categoryIdx = categoryResults.length ? Math.min(categoryIndex, categoryResults.length - 1) : 0;
+  const {
+    results: categoryResults,
+    creatable: categoryCreatable,
+    optionCount: categoryOptionCount,
+    activeIndex: categoryIdx,
+    onCreateRow: categoryOnCreateRow,
+  } = markerPickerModel({
+    options: categoryActive ? categories : [],
+    query: categoryQuery,
+    rawIndex: categoryIndex,
+  });
+
+  // The "#" picker, the same control over the workspace's tags. Unlike the
+  // composer's, nothing is "already applied" here — the marker stays in the
+  // note as text and the model reads it on parse — so no ids are filtered out.
+  const tagMatch = text.slice(0, caret).match(TAG_RE);
+  const tagQuery = tagMatch?.[1] ?? "";
+  const tagActive = !!tagMatch && !tagDismissed && !parsing;
+  const knownTags = createdTags.known;
+  const {
+    results: tagResults,
+    creatable: tagCreatable,
+    optionCount: tagOptionCount,
+    activeIndex: tagIdx,
+    onCreateRow: tagOnCreateRow,
+  } = markerPickerModel({
+    options: tagActive ? knownTags : [],
+    query: tagQuery,
+    rawIndex: tagIndex,
+  });
 
   const parseAmount = (s: string) => parseAmountInput(s, locale);
   const isPositive = (s: string) => {
@@ -318,6 +370,7 @@ export function AiTransactionInput({
               title: "",
               description: "",
               categoryName: "",
+              tagNames: [],
               occurredOn: today,
             },
           ]
@@ -332,19 +385,30 @@ export function AiTransactionInput({
   }
 
   // Replace the "/query" before the caret with the picked category name.
-  function insertCategory(name: string) {
+  /**
+   * Complete the marker token under the caret — "/Food " or "#travel ".
+   *
+   * The token stays in the note rather than becoming a chip, because the note
+   * *is* the input here: the model reads the markers on parse (see the rules in
+   * `lib/ai-parse.ts`), so removing them would remove the instruction. That is
+   * the opposite of the manual composer, where the picker applies the value to
+   * a field and strips the token.
+   */
+  function insertToken(marker: "/" | "#", name: string) {
+    const re = marker === "/" ? CATEGORY_RE : TAG_RE;
     const el = taRef.current;
     const c = el ? (el.selectionStart ?? caret) : caret;
     const before = text.slice(0, c);
     const after = text.slice(c);
-    const m = before.match(CATEGORY_RE);
+    const m = before.match(re);
     if (!m) return;
-    const slashStart = before.length - m[0].length + (m[0].length - m[0].trimStart().length);
-    const insert = `/${name} `;
-    const next = before.slice(0, slashStart) + insert + after;
-    const pos = slashStart + insert.length;
+    const start = before.length - m[0].length + (m[0].length - m[0].trimStart().length);
+    const insert = `${marker}${name} `;
+    const next = before.slice(0, start) + insert + after;
+    const pos = start + insert.length;
     setText(next);
-    setCategoryDismissed(true);
+    if (marker === "/") setCategoryDismissed(true);
+    else setTagDismissed(true);
     requestAnimationFrame(() => {
       const node = taRef.current;
       if (node) {
@@ -353,6 +417,25 @@ export function AiTransactionInput({
       }
       setCaret(pos);
     });
+  }
+
+  const insertCategory = (name: string) => insertToken("/", name);
+  const insertTag = (name: string) => insertToken("#", name);
+
+  /** "Create /trav" / "Create #trav" — open the matching form with the typed
+   *  name filled in. The token is left in the note: the name is about to exist,
+   *  and the model will resolve it on parse. */
+  function openCategoryCreate() {
+    setCategoryEditor({
+      mode: "create",
+      name: categoryQuery.trim().slice(0, CATEGORY_NAME_MAX),
+    });
+    setCategoryDismissed(true);
+  }
+
+  function openTagCreate() {
+    setTagFormName(tagQuery.trim().slice(0, TAG_NAME_MAX));
+    setTagDismissed(true);
   }
 
   // Drop the drafts but keep the note, so a bad split can be corrected by
@@ -410,6 +493,7 @@ export function AiTransactionInput({
           title: d.title,
           description: d.description ?? "",
           categoryName: d.categoryName ?? "",
+          tagNames: d.tagNames,
           occurredOn: d.occurredOn,
         })),
       );
@@ -500,6 +584,7 @@ export function AiTransactionInput({
       description: r.description.trim() || undefined,
       note: "",
       categoryName: r.categoryName || null,
+      tagNames: r.tagNames,
       profileId: targetProfileId || undefined,
       occurredOn: r.occurredOn || today,
     }));
@@ -603,25 +688,70 @@ export function AiTransactionInput({
   }, [mode, reviewing, saving, switching, validRows.length]);
 
   function onTextareaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (categoryActive && categoryResults.length > 0) {
-      if (e.key === "ArrowDown") {
+    // ⌘/Ctrl+Enter parses, whatever is open. Without this the picker branches
+    // below claim it — so with a marker half-typed, the documented shortcut
+    // inserted the highlighted option instead of parsing the note.
+    const parseChord = e.key === "Enter" && (e.metaKey || e.ctrlKey);
+
+    // The tag marker first, then the category one. Both are anchored to the
+    // caret so only one can be open, but neither relies on that. Each is gated
+    // on its *active* flag rather than on having options, so the popover on
+    // screen is the one that answers for Enter and Escape — gating on the count
+    // let Enter through to the parse while a picker was open.
+    if (tagActive) {
+      if (e.key === "Escape") {
         e.preventDefault();
-        setCategoryIndex((i) => (i + 1) % categoryResults.length);
+        setTagDismissed(true);
         return;
       }
-      if (e.key === "ArrowUp") {
+      if (tagOptionCount > 0 && !parseChord) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setTagIndex(stepPickerIndex(tagIdx, tagOptionCount, 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setTagIndex(stepPickerIndex(tagIdx, tagOptionCount, -1));
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          if (tagOnCreateRow) openTagCreate();
+          else insertTag(tagResults[tagIdx]!.name);
+          return;
+        }
+      } else if (!parseChord && (e.key === "Enter" || e.key === "Tab")) {
         e.preventDefault();
-        setCategoryIndex((i) => (i - 1 + categoryResults.length) % categoryResults.length);
         return;
       }
-      if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        insertCategory(categoryResults[categoryIdx].name);
-        return;
-      }
+    }
+
+    if (categoryActive) {
       if (e.key === "Escape") {
         e.preventDefault();
         setCategoryDismissed(true);
+        return;
+      }
+      if (categoryOptionCount > 0 && !parseChord) {
+        if (e.key === "ArrowDown") {
+          e.preventDefault();
+          setCategoryIndex(stepPickerIndex(categoryIdx, categoryOptionCount, 1));
+          return;
+        }
+        if (e.key === "ArrowUp") {
+          e.preventDefault();
+          setCategoryIndex(stepPickerIndex(categoryIdx, categoryOptionCount, -1));
+          return;
+        }
+        if (e.key === "Enter" || e.key === "Tab") {
+          e.preventDefault();
+          if (categoryOnCreateRow) openCategoryCreate();
+          else insertCategory(categoryResults[categoryIdx]!.name);
+          return;
+        }
+      } else if (!parseChord && (e.key === "Enter" || e.key === "Tab")) {
+        e.preventDefault();
         return;
       }
     }
@@ -634,47 +764,161 @@ export function AiTransactionInput({
 
   const categoryMenu = categoryActive ? (
     <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
-      {categoryResults.length > 0 ? (
-        <ul className="max-h-56 overflow-y-auto">
-          {categoryResults.map((c, i) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  insertCategory(c.name);
-                }}
+      <ul className="max-h-56 overflow-y-auto">
+        {/* Manage rows sit outside the arrow-key list — see the composer's
+            copy of this picker for why. */}
+        <li>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setCategoryDismissed(true);
+              setCategoryEditor({ mode: "manage" });
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="size-3.5 shrink-0" aria-hidden />
+            Edit categories
+          </button>
+        </li>
+        {categoryResults.map((c, i) => (
+          <li key={c.id}>
+            <button
+              type="button"
+              ref={(el) => {
+                if (i === categoryIdx) el?.scrollIntoView({ block: "nearest" });
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertCategory(c.name);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                i === categoryIdx ? "bg-accent" : "hover:bg-muted",
+              )}
+            >
+              <span aria-hidden>{c.icon ?? "🏷️"}</span>
+              <span
                 className={cn(
-                  "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
-                  i === categoryIdx ? "bg-accent" : "hover:bg-muted",
+                  "truncate",
+                  c.kind === "income"
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400",
                 )}
               >
-                <span aria-hidden>{c.icon ?? "🏷️"}</span>
-                <span
-                  className={cn(
-                    "truncate",
-                    c.kind === "income"
-                      ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-red-600 dark:text-red-400",
-                  )}
-                >
-                  {c.name}
-                </span>
-                <span
-                  aria-hidden
-                  className="ml-auto text-sm uppercase tracking-wide text-muted-foreground"
-                >
-                  {c.kind === "income" ? "in" : "out"}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="px-2 py-1.5 text-sm text-muted-foreground">
-          No category matches “{categoryQuery}”
-        </p>
-      )}
+                {c.name}
+              </span>
+              {/* The word, not "in"/"out" — see the composer's copy of this
+                  list. Two letters differing by one glyph are a worse label
+                  than the thing they stand for. */}
+              <span className="ml-auto shrink-0 text-xs text-muted-foreground capitalize">{c.kind}</span>
+            </button>
+          </li>
+        ))}
+        {categoryResults.length === 0 && (
+          <li className="px-2 py-1.5 text-sm text-muted-foreground">
+            {categories.length === 0 ? "No categories yet" : "No category matches"}
+          </li>
+        )}
+        <li>
+          <button
+            type="button"
+            ref={(el) => {
+              if (categoryOnCreateRow) el?.scrollIntoView({ block: "nearest" });
+            }}
+            onMouseDown={(e) => {
+              e.preventDefault();
+              openCategoryCreate();
+            }}
+            className={cn(
+              "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+              categoryOnCreateRow ? "bg-accent" : "hover:bg-muted",
+            )}
+          >
+            <Plus className="size-3.5 shrink-0" aria-hidden />
+            {categoryCreatable ? (
+              <>
+                <span className="truncate text-muted-foreground">Create</span>
+                <span className="truncate font-medium">{categoryQuery.trim()}</span>
+              </>
+            ) : (
+              <span className="truncate text-muted-foreground">New category</span>
+            )}
+          </button>
+        </li>
+      </ul>
+    </div>
+  ) : null;
+
+  const tagMenu = tagActive ? (
+    <div className="absolute bottom-full left-0 z-30 mb-1 w-72 max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-lg border bg-popover p-1 shadow-md">
+      <ul className="max-h-56 overflow-y-auto">
+        <li>
+          <button
+            type="button"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              setTagDismissed(true);
+              setTagEditorOpen(true);
+            }}
+            className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <Pencil className="size-3.5 shrink-0" aria-hidden />
+            Edit tags
+          </button>
+        </li>
+        {tagResults.map((t, i) => (
+          <li key={t.id}>
+            <button
+              type="button"
+              ref={(el) => {
+                if (i === tagIdx) el?.scrollIntoView({ block: "nearest" });
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                insertTag(t.name);
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                i === tagIdx ? "bg-accent" : "hover:bg-muted",
+              )}
+            >
+              <TagChip tag={t} />
+            </button>
+          </li>
+        ))}
+        {tagCreatable && (
+          <li>
+            <button
+              type="button"
+              ref={(el) => {
+                if (tagOnCreateRow) el?.scrollIntoView({ block: "nearest" });
+              }}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                openTagCreate();
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm",
+                tagOnCreateRow ? "bg-accent" : "hover:bg-muted",
+              )}
+            >
+              <Plus className="size-3.5 shrink-0" aria-hidden />
+              <span className="truncate text-muted-foreground">Create</span>
+              <TagChip
+                tag={{ name: tagQuery.trim(), color: defaultTagColor(tagQuery.trim()) }}
+              />
+            </button>
+          </li>
+        )}
+        {tagOptionCount === 0 && (
+          <li className="px-2 py-1.5 text-sm text-muted-foreground">
+            {knownTags.length === 0
+              ? "No tags yet — type a name to create one"
+              : "No tag matches"}
+          </li>
+        )}
+      </ul>
     </div>
   ) : null;
 
@@ -717,14 +961,20 @@ export function AiTransactionInput({
             (`pb-10`), so the same max-height is the same number of lines. */}
         <div className="relative flex min-h-0 max-h-84 flex-1 flex-col">
           {categoryMenu}
+          {tagMenu}
           <Textarea
             ref={taRef}
             value={text}
             onChange={(e) => {
               setText(e.target.value);
               setCaret(e.target.selectionStart ?? e.target.value.length);
+              // Re-arm both pickers on every edit. The manual composer learned
+              // this the hard way: forgetting one of them made its marker work
+              // exactly once per note.
               setCategoryDismissed(false);
               setCategoryIndex(0);
+              setTagDismissed(false);
+              setTagIndex(0);
             }}
             onKeyDown={onTextareaKeyDown}
             onKeyUp={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
@@ -821,10 +1071,46 @@ export function AiTransactionInput({
                 "Type or hold to speak". */}
             Type or hold{" "}
             <Kbd combo={voiceCombo} className="align-middle" describe /> to speak — use{" "}
-            <span className="font-mono text-foreground">/</span> for a category and{" "}
+            <span className="font-mono text-foreground">/</span> for a category,{" "}
+            <span className="font-mono text-foreground">#</span> for tags and{" "}
             <span className="font-mono text-foreground">( )</span> for a note.
           </p>
         )}
+
+        {/* Both "Create" rows open a form; the note keeps its token either way,
+            because the model resolves the name on parse. */}
+        <TagFormDialog
+          open={tagFormName !== null}
+          onOpenChange={(v) => {
+            if (!v) setTagFormName(null);
+          }}
+          initialName={tagFormName ?? ""}
+          onSaved={(tag) => {
+            createdTags.add(tag);
+            setTagFormName(null);
+          }}
+        />
+        <TagEditorDialog
+          open={tagEditorOpen}
+          onOpenChange={setTagEditorOpen}
+          tags={knownTags}
+          onCreated={createdTags.add}
+        />
+        <CategoryEditorDialog
+          open={categoryEditor !== null}
+          onOpenChange={(v) => {
+            if (!v) setCategoryEditor(null);
+          }}
+          categories={categories}
+          defaultKind="expense"
+          initialName={categoryEditor?.mode === "create" ? categoryEditor.name : ""}
+          // Only the picker's create flow closes on a successful add; opened
+          // from "Edit categories" this stays open so several can be added.
+          // Passing it unconditionally shut the manager after the first one.
+          onCreated={
+            categoryEditor?.mode === "create" ? () => setCategoryEditor(null) : undefined
+          }
+        />
       </SwitchLock>
     );
   }
@@ -981,6 +1267,31 @@ export function AiTransactionInput({
                   value={r.description}
                   onChange={(v) => patch(r.key, { description: v })}
                 />
+                {/* What the "#" markers resolved to. Read-only on purpose: the
+                    note is the input in this pane, so the way to change them is
+                    to edit the note and parse again — an editable control here
+                    would be a second source of truth for the same thing.
+                    Removable, though, because dropping one is not worth a
+                    re-parse. */}
+                {r.tagNames.length > 0 && (
+                  <div className="col-span-full flex flex-wrap items-center gap-1 pl-0.5">
+                    {r.tagNames.map((name) => {
+                      const tag = knownTags.find((t) => t.name === name);
+                      return (
+                        <TagChip
+                          key={name}
+                          tag={tag ?? { name, color: defaultTagColor(name) }}
+                          className="text-xs"
+                          onRemove={() =>
+                            patch(r.key, {
+                              tagNames: r.tagNames.filter((n) => n !== name),
+                            })
+                          }
+                        />
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             );
           })}
