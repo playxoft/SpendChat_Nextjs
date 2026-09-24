@@ -37,7 +37,7 @@ export const CURRENCIES: {
   name: string;
   /** Below the global (USD) price, for the market this currency serves. */
   discount: number;
-  /** Only used to put the global price into this currency for the strike-through. */
+  /** Units per US dollar — converts the rupee list into this currency's prices. */
   perUsd: number;
 }[] = [
   { code: "INR", name: "Indian rupee", discount: 0.62, perUsd: 88 },
@@ -143,6 +143,13 @@ export function currencyForCountry(country: string | null | undefined): Currency
 
 export const pct = (n: number) => `${Math.round(n * 100)}%`;
 
+/** What the sales tax added at checkout is called where this currency is used. */
+export function taxName(currency: Currency): string {
+  if (currency === "INR" || currency === "AUD") return "GST";
+  if (currency === "EUR" || currency === "GBP") return "VAT";
+  return "sales tax";
+}
+
 export function formatAmount(major: number, currency: Currency): string {
   const whole = Number.isInteger(major) || currency === "JPY";
   return new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en-US", {
@@ -165,9 +172,12 @@ export function formatAmount(major: number, currency: Currency): string {
  */
 export function divide(total: number, parts: number, currency: Currency): number {
   if (parts === 1) return total;
-  const exact = Math.round(total * 100) / parts / 100;
-  const cents = currency !== "INR" && currency !== "JPY" && exact < 10;
-  return cents ? Math.floor(exact * 100) / 100 : Math.floor(exact);
+  // Divide in integer minor units: `Math.floor(exact * 100)` on a float in
+  // major units loses a cent whenever the product lands just under a whole
+  // number (0.87 / 3 → 0.29 * 100 = 28.999… → $0.28).
+  const exactMinor = Math.round(total * 100) / parts;
+  const cents = currency !== "INR" && currency !== "JPY" && exactMinor < 1000;
+  return cents ? Math.floor(exactMinor) / 100 : Math.floor(exactMinor / 100);
 }
 
 // ── Periods & quotes ───────────────────────────────────────────────────────

@@ -19,6 +19,7 @@ import {
   pct,
   periodDiscount,
   quote,
+  taxName,
   topUpPrice,
   type Currency,
   type Period,
@@ -43,7 +44,7 @@ export function PricingExplorer() {
         <PricingControls />
         <p className="inline-flex items-center gap-1.5 text-center text-xs text-muted-foreground">
           <Info className="size-3.5 shrink-0" />
-          All prices exclude GST.
+          All prices exclude {taxName(currency)}, added at checkout.
         </p>
       </div>
 
