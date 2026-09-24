@@ -18,6 +18,15 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.27.1] — 2026-09-24
+
+### Fixed
+- **A missing blog post no longer shows two footers.** A 404 raised inside the
+  marketing site — an unknown blog post, or a dev-only page in production —
+  rendered the site-wide not-found page, which brings its own nav and footer,
+  inside the marketing layout, which already has both. It now renders just the
+  404 itself there, so the page has one nav and one footer like every other.
+
 ## [0.27.0] — 2026-09-23
 
 ### Added

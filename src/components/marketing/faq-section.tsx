@@ -24,10 +24,13 @@ export function FaqSection({
   faqs,
   heading,
   className,
+  answerClassName,
 }: {
   faqs: Faq[];
   heading: string;
   className?: string;
+  /** Extra classes for each answer — e.g. a larger size on a page where the answers carry the detail. */
+  answerClassName?: string;
 }) {
   if (faqs.length === 0) return null;
 
@@ -43,7 +46,7 @@ export function FaqSection({
           // "the accordion is haunted" long after the copy edit that caused it.
           <AccordionItem key={i} value={`faq-${i}`}>
             <AccordionTrigger>{faq.q}</AccordionTrigger>
-            <AccordionContent className="leading-relaxed text-muted-foreground">
+            <AccordionContent className={cn("leading-relaxed text-muted-foreground", answerClassName)}>
               {faq.a}
             </AccordionContent>
           </AccordionItem>
