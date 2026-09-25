@@ -55,6 +55,13 @@ export function aiFailed(): ApiError {
 }
 
 // Gemini responseSchema (OpenAPI subset: uppercase types, `nullable`).
+//
+// **A field missing from here can never be returned, whatever the prompt says.**
+// Structured output is a hard constraint, not a hint: Gemini emits exactly the
+// declared keys and silently drops the rest. That is how `tagNames` came to be
+// absent from every response while the prompt described it in detail and the
+// resolver stood ready for it — the feature was unreachable on this provider.
+// Adding a field to the prompt means adding it here in the same change.
 const GEMINI_SCHEMA = {
   type: "OBJECT",
   properties: {
@@ -68,9 +75,12 @@ const GEMINI_SCHEMA = {
           title: { type: "STRING" },
           description: { type: "STRING", nullable: true },
           categoryName: { type: "STRING", nullable: true },
+          tagNames: { type: "ARRAY", items: { type: "STRING" } },
           occurredOn: { type: "STRING" },
         },
-        required: ["type", "amount", "title", "occurredOn"],
+        // `tagNames` is required so it arrives as [] rather than going missing;
+        // an optional array is exactly the shape a model leaves out.
+        required: ["type", "amount", "title", "tagNames", "occurredOn"],
       },
     },
   },

@@ -19,6 +19,36 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.4.0 — 2026-09-25
+
+`POST /ai/parse` now infers tags — and starts returning the ones it was always
+supposed to.
+
+**The 6.3.0 tag markers never actually worked.** Gemini's structured-output
+schema, which the parse request sends alongside the prompt, never declared
+`tagNames` — and a field absent from that schema is dropped from the response
+whatever the prompt says. So every draft came back with `tagIds: []` and
+`tagNames: []`, including notes that spelled a tag out with `#`. The schema now
+declares the field, and a test derives the check from the prompt's own example
+object so the two can't drift again.
+
+With that fixed, tags also stop being marker-only. A `#Tag` marker is still
+honoured exactly, and beyond it the model applies any workspace tag that clearly
+fits the item, the way it already picks a category. "1200 flight to Delhi" comes
+back tagged `Travel` if that tag exists.
+
+Unchanged: a tag is always one that already exists in the workspace (the model
+is handed the list; anything outside it is dropped, never created), and the cap
+is still 10 per draft.
+
+**Flutter impact:** none required — same fields, same types. Two things to know:
+drafts now arrive with `tagIds`/`tagNames` populated where they were previously
+always empty, so a review screen that skipped rendering them will start showing
+tags; and since a tag can now be inferred rather than asked for, the review
+screen should let the user remove one before committing.
+
+---
+
 ## 6.3.0 — 2026-09-23
 
 `POST /ai/parse` reads a `#tag` marker, and each draft says which tags it found.

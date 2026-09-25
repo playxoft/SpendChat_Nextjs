@@ -23,7 +23,7 @@ export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
     { k: "a, b, c", d: "Commas separate items — each becomes its own transaction." },
     { k: "salary, got", d: "Income words (salary, got, refund, sold) mark money in." },
     { k: "/Food", d: "Pick a category. Matched to your existing ones — never creates new." },
-    { k: "#travel", d: "Tag it. Matched to your existing tags — and never guessed, only what you write." },
+    { k: "#travel", d: "Tag it. Matched to your existing tags — and tags that fit are added for you, so check the review." },
     { k: "(June bill)", d: "Text in parentheses becomes the description." },
     { k: "yesterday", d: "Plain dates set the day; otherwise today is used." },
   ];

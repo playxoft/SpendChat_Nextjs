@@ -506,13 +506,114 @@ describe("tag markers", () => {
     expect(new Set(d!.tagNames).size).toBe(TAGS_PER_TRANSACTION_MAX);
   });
 
-  it("is an empty array when the note carried no marker", () => {
+  it("is an empty array when the model returned none", () => {
     const [d] = draftsFromRawJson(
       JSON.stringify({ transactions: [{ type: "expense", amount: 5, title: "X" }] }),
       opts,
     );
-    // Never null: every consumer treats it as a list, and a tag is only ever
-    // what the user asked for — the model is told not to guess one.
+    // Never null: every consumer treats it as a list.
     expect(d!.tagNames).toEqual([]);
+  });
+});
+
+/**
+ * The bug this guards against shipped to production and was invisible in review:
+ * the prompt described `tagNames` in detail, the resolver was ready for it, and
+ * every response came back without it — because Gemini's `responseSchema` never
+ * declared the field, and structured output drops whatever the schema omits.
+ * Reading the prompt or the parser told you nothing; only the wire did.
+ *
+ * So the assertion is derived rather than written down: pull the example object
+ * out of the system prompt the request actually carries, and require the schema
+ * to declare every key of it. Add a field to one and forget the other, and this
+ * fails by construction — which is the only way a second field won't repeat it.
+ */
+describe("Gemini responseSchema covers every field the prompt asks for", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  /** The slice of Gemini's request body these two tests read. */
+  type GeminiRequest = {
+    systemInstruction: { parts: Array<{ text: string }> };
+    generationConfig: {
+      responseSchema: {
+        properties: {
+          transactions: {
+            items: { properties: Record<string, unknown>; required: string[] };
+          };
+        };
+      };
+    };
+  };
+
+  /** Run one Gemini parse and hand back the request body that went out. */
+  async function capturedRequest(): Promise<GeminiRequest> {
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    let sent: GeminiRequest | null = null;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init: { body: string }) => {
+        sent = JSON.parse(init.body);
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [
+              {
+                content: {
+                  parts: [
+                    {
+                      text: JSON.stringify({
+                        transactions: [
+                          { type: "expense", amount: 1, title: "X", tagNames: [], occurredOn: TODAY },
+                        ],
+                      }),
+                    },
+                  ],
+                },
+              },
+            ],
+          }),
+          text: async () => "",
+        };
+      }),
+    );
+    await parseTransactionsText({
+      text: "200 fruits",
+      categories: CATEGORIES,
+      tags: ["Travel"],
+      currency: "INR",
+      locale: "en-IN",
+      today: TODAY,
+    });
+    if (!sent) throw new Error("no request was sent");
+    return sent;
+  }
+
+  it("declares every key of the prompt's own example object", async () => {
+    const body = await capturedRequest();
+    const system: string = body.systemInstruction.parts[0].text;
+
+    // The prompt ends with the literal shape it demands — that line is the
+    // contract, so parse it rather than restating the field list here.
+    const example = system.match(/\{"transactions":\[(\{.*\})\]\}/);
+    expect(example, "the prompt no longer ends with its example object").not.toBeNull();
+    const promptKeys = Object.keys(JSON.parse(example![1]!)).sort();
+
+    const schemaKeys = Object.keys(
+      body.generationConfig.responseSchema.properties.transactions.items.properties,
+    ).sort();
+
+    expect(schemaKeys).toEqual(promptKeys);
+  });
+
+  it("requires tagNames, so it arrives as [] instead of going missing", async () => {
+    const body = await capturedRequest();
+    const items = body.generationConfig.responseSchema.properties.transactions.items;
+    expect(items.properties.tagNames).toEqual({ type: "ARRAY", items: { type: "STRING" } });
+    // An optional array is precisely the shape a model leaves out — which is
+    // what happened here.
+    expect(items.required).toContain("tagNames");
   });
 });

@@ -61,6 +61,8 @@ import {
   type TxnTagDTO,
 } from "@/lib/tags";
 import { TagChip } from "./tags/tag-chip";
+import { TagsInField } from "./tags/tags-in-field";
+import { TagSelect } from "./tags/tag-select";
 import { TagFormDialog } from "./tags/tag-form-dialog";
 import { TagEditorDialog } from "./tags/tag-editor-dialog";
 import { useCreatedTags } from "./tags/use-created-tags";
@@ -83,8 +85,10 @@ type Row = {
   description: string;
   /** "" = no category. */
   categoryName: string;
-  /** Workspace tag names the note asked for, in mention order. */
-  tagNames: string[];
+  /** Applied tag ids. The parse answers in names (the model never sees an id);
+   *  they are resolved once on the way in, so the row's picker and the shared
+   *  chip strip both speak the same language the composer's do. */
+  tagIds: string[];
   occurredOn: string;
 };
 
@@ -329,6 +333,18 @@ export function AiTransactionInput({
   const tagQuery = tagMatch?.[1] ?? "";
   const tagActive = !!tagMatch && !tagDismissed && !parsing;
   const knownTags = createdTags.known;
+  // The parse speaks tag *names* and the pickers speak ids, so the two crossings
+  // happen in one place. Both are lossless for anything real: the resolver only
+  // ever returns names that exist in this workspace, and `knownTags` is that
+  // same list plus anything created since.
+  const namesToIds = (names: string[]) =>
+    names.map((n) => knownTags.find((t) => t.name === n)?.id).filter((id): id is string => !!id);
+  const idsToNames = (ids: string[]) =>
+    ids.map((id) => knownTags.find((t) => t.id === id)?.name).filter((n): n is string => !!n);
+  const tagsOf = (ids: string[]) =>
+    ids.map((id) => knownTags.find((t) => t.id === id)).filter((t): t is TxnTagDTO => !!t);
+  // Which row's "#" menu is open, so a row's "+N" overflow can open its own.
+  const [openTagRow, setOpenTagRow] = useState<number | null>(null);
   const {
     results: tagResults,
     creatable: tagCreatable,
@@ -370,7 +386,7 @@ export function AiTransactionInput({
               title: "",
               description: "",
               categoryName: "",
-              tagNames: [],
+              tagIds: [],
               occurredOn: today,
             },
           ]
@@ -493,7 +509,7 @@ export function AiTransactionInput({
           title: d.title,
           description: d.description ?? "",
           categoryName: d.categoryName ?? "",
-          tagNames: d.tagNames,
+          tagIds: namesToIds(d.tagNames),
           occurredOn: d.occurredOn,
         })),
       );
@@ -584,7 +600,7 @@ export function AiTransactionInput({
       description: r.description.trim() || undefined,
       note: "",
       categoryName: r.categoryName || null,
-      tagNames: r.tagNames,
+      tagNames: idsToNames(r.tagIds),
       profileId: targetProfileId || undefined,
       occurredOn: r.occurredOn || today,
     }));
@@ -1184,13 +1200,13 @@ export function AiTransactionInput({
           one — columns never shift row-to-row, and nothing wraps to a 2nd line
           except the optional description. */}
       <div className="scrollbar-slim max-h-72 overflow-auto">
-        <div className="min-w-[38rem] space-y-2 pr-1">
+        <div className="min-w-[42rem] space-y-2 pr-1">
           {rows.map((r) => {
             const cats = categories.filter((c) => c.kind === r.type);
             return (
               <div
                 key={r.key}
-                className="grid grid-cols-[auto_5.5rem_minmax(6rem,1fr)_8.5rem_8.5rem_auto] items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/30 p-2"
+                className="grid grid-cols-[auto_5.5rem_minmax(11rem,1.6fr)_8.5rem_8.5rem_auto] items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/30 p-2"
               >
                 <RowTypeToggle
                   value={r.type}
@@ -1218,15 +1234,48 @@ export function AiTransactionInput({
                     className="h-8 w-full pl-6 tabular-nums"
                   />
                 </div>
-                <Input
-                  value={r.title}
-                  onChange={(e) => patch(r.key, { title: e.target.value })}
-                  placeholder="Title"
-                  aria-label="Title"
+                {/* Not an `<Input>`: a shell holding the text, the row's tags
+                    and its "#" button as siblings — the manual composer's title
+                    field has the same three, and tags belong to the title you
+                    are reading rather than to a strip under it. Focus moves to
+                    `focus-within` so the shell lights up with the caret. */}
+                <div
+                  className="flex h-8 w-full min-w-0 items-center gap-1 rounded-md border border-input bg-transparent pr-0.5 pl-2.5 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 aria-invalid:border-destructive dark:bg-input/30"
                   aria-invalid={!r.title.trim() || undefined}
-                  maxLength={TITLE_MAX}
-                  className="h-8 w-full"
-                />
+                >
+                  <input
+                    value={r.title}
+                    onChange={(e) => patch(r.key, { title: e.target.value })}
+                    placeholder="Title"
+                    aria-label="Title"
+                    maxLength={TITLE_MAX}
+                    className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                  />
+                  <TagsInField
+                    visible={1}
+                    tags={tagsOf(r.tagIds)}
+                    onRemove={(id) =>
+                      patch(r.key, { tagIds: r.tagIds.filter((t) => t !== id) })
+                    }
+                    onOverflowClick={() => setOpenTagRow(r.key)}
+                  />
+                  {/* Editable, not read-only. The note is no longer the only
+                      source of these: the model infers tags as well as reading
+                      "#" markers, so the review is where a wrong guess gets
+                      dropped — and re-parsing to fix one tag costs a model call
+                      and re-does every other edit on the list. */}
+                  <TagSelect
+                    compact
+                    tags={knownTags}
+                    value={r.tagIds}
+                    onChange={(ids) => patch(r.key, { tagIds: ids })}
+                    onCreated={createdTags.add}
+                    canCreate
+                    align="end"
+                    open={openTagRow === r.key}
+                    onOpenChange={(o) => setOpenTagRow(o ? r.key : null)}
+                  />
+                </div>
                 <Select
                   value={r.categoryName || NONE}
                   onValueChange={(v) => patch(r.key, { categoryName: v === NONE ? "" : v })}
@@ -1267,31 +1316,6 @@ export function AiTransactionInput({
                   value={r.description}
                   onChange={(v) => patch(r.key, { description: v })}
                 />
-                {/* What the "#" markers resolved to. Read-only on purpose: the
-                    note is the input in this pane, so the way to change them is
-                    to edit the note and parse again — an editable control here
-                    would be a second source of truth for the same thing.
-                    Removable, though, because dropping one is not worth a
-                    re-parse. */}
-                {r.tagNames.length > 0 && (
-                  <div className="col-span-full flex flex-wrap items-center gap-1 pl-0.5">
-                    {r.tagNames.map((name) => {
-                      const tag = knownTags.find((t) => t.name === name);
-                      return (
-                        <TagChip
-                          key={name}
-                          tag={tag ?? { name, color: defaultTagColor(name) }}
-                          className="text-xs"
-                          onRemove={() =>
-                            patch(r.key, {
-                              tagNames: r.tagNames.filter((n) => n !== name),
-                            })
-                          }
-                        />
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             );
           })}
