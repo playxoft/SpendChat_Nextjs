@@ -218,8 +218,10 @@ export function draftsFromRawJson(
     const rawCat = typeof o.categoryName === "string" ? o.categoryName.trim() : "";
     const categoryName = rawCat ? (canonical.get(`${type}:${rawCat.toLowerCase()}`) ?? null) : null;
 
-    // Deduped and capped, in the order the note mentioned them. An unknown
-    // name resolves to nothing at all — never to a new tag.
+    // Deduped and capped, in the order the model returned them — which is not
+    // "mention order" any more, since a tag can be inferred from an item the
+    // note never tagged. An unknown name resolves to nothing at all — never to
+    // a new tag.
     const rawTags = Array.isArray(o.tagNames) ? o.tagNames : [];
     const tagNames: string[] = [];
     for (const value of rawTags) {

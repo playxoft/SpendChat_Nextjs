@@ -61,10 +61,6 @@ import {
 } from "@/lib/composer-markers";
 import type { Category, Profile } from "@/db/schema";
 
-/** Tag chips shown inline in the field before the count takes over. Two fits
- *  beside real text at a phone width; a transaction can carry
- *  `TAGS_PER_TRANSACTION_MAX`. */
-
 // How much text the amount chip holds. Nine whole digits is the real cap
 // (`AMOUNT_INTEGER_DIGITS_MAX`, enforced per keystroke below); this only stops a
 // pasted wall of digits from stretching the chip across the whole field.

@@ -24,13 +24,15 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 `POST /ai/parse` now infers tags — and starts returning the ones it was always
 supposed to.
 
-**The 6.3.0 tag markers never actually worked.** Gemini's structured-output
-schema, which the parse request sends alongside the prompt, never declared
-`tagNames` — and a field absent from that schema is dropped from the response
-whatever the prompt says. So every draft came back with `tagIds: []` and
-`tagNames: []`, including notes that spelled a tag out with `#`. The schema now
-declares the field, and a test derives the check from the prompt's own example
-object so the two can't drift again.
+**On a Gemini-configured deployment the 6.3.0 tag markers never worked** — which
+is every deployment we run. Gemini's structured-output schema, which the parse
+request sends alongside the prompt, never declared `tagNames`, and a field
+absent from that schema is dropped from the response whatever the prompt says.
+So every draft came back with `tagIds: []` and `tagNames: []`, including notes
+that spelled a tag out with `#`. (The OpenAI and Anthropic adapters send no
+schema, so markers did work there.) The schema now declares the field and caps
+it at 10, and a test derives the check from the prompt's own example object so
+the two can't drift again.
 
 With that fixed, tags also stop being marker-only. A `#Tag` marker is still
 honoured exactly, and beyond it the model applies any workspace tag that clearly
@@ -41,11 +43,12 @@ Unchanged: a tag is always one that already exists in the workspace (the model
 is handed the list; anything outside it is dropped, never created), and the cap
 is still 10 per draft.
 
-**Flutter impact:** none required — same fields, same types. Two things to know:
-drafts now arrive with `tagIds`/`tagNames` populated where they were previously
-always empty, so a review screen that skipped rendering them will start showing
-tags; and since a tag can now be inferred rather than asked for, the review
-screen should let the user remove one before committing.
+**Flutter impact:** no *compile* change — same fields, same types — but one
+screen change you should make. Drafts now arrive with `tagIds`/`tagNames`
+populated where they were always empty, so the AI review row must show its tags
+and let the user remove one before committing: a tag can now be inferred rather
+than asked for, and review is the only place to drop it. Details in
+[04-tracker-chat.md](./04-tracker-chat.md) §4.11.
 
 ---
 

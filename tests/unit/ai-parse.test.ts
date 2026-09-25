@@ -597,7 +597,14 @@ describe("Gemini responseSchema covers every field the prompt asks for", () => {
 
     // The prompt ends with the literal shape it demands — that line is the
     // contract, so parse it rather than restating the field list here.
-    const example = system.match(/\{"transactions":\[(\{.*\})\]\}/);
+    //
+    // Anchored to the end and barred from crossing a newline on purpose.
+    // `String.match` without /g returns the *first* hit, so an unanchored
+    // pattern would happily lock on to some earlier counter-example line and
+    // then validate the wrong object — passing while the real last line drifted
+    // away from the schema, which is the exact failure this test exists to
+    // catch. Reformat the prompt and this goes null, which fails loudly below.
+    const example = system.match(/\{"transactions":\[(\{[^\n]*\})\]\}\s*$/);
     expect(example, "the prompt no longer ends with its example object").not.toBeNull();
     const promptKeys = Object.keys(JSON.parse(example![1]!)).sort();
 
@@ -608,10 +615,74 @@ describe("Gemini responseSchema covers every field the prompt asks for", () => {
     expect(schemaKeys).toEqual(promptKeys);
   });
 
+  it("carries a tag the model returned all the way to the draft", async () => {
+    // The one assertion that would have gone red in 6.3.0. Everything else here
+    // checks the *request*; this checks the round trip, so a tag lost anywhere
+    // between the adapter's response and `AiParsedDraft` fails the build rather
+    // than shipping as "the hashtag does nothing".
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          candidates: [
+            {
+              content: {
+                parts: [
+                  {
+                    text: JSON.stringify({
+                      transactions: [
+                        {
+                          type: "expense",
+                          amount: 1200,
+                          title: "Flight",
+                          tagNames: ["Travel"],
+                          occurredOn: TODAY,
+                        },
+                      ],
+                    }),
+                  },
+                ],
+              },
+            },
+          ],
+        }),
+        text: async () => "",
+      })),
+    );
+
+    const drafts = await parseTransactionsText({
+      text: "1200 flight",
+      categories: CATEGORIES,
+      tags: ["Travel"],
+      currency: "INR",
+      locale: "en-IN",
+      today: TODAY,
+    });
+    expect(drafts[0]!.tagNames).toEqual(["Travel"]);
+  });
+
+  it("puts the workspace's tag list in the prompt", async () => {
+    const body = await capturedRequest();
+    const system: string = body.systemInstruction.parts[0]!.text;
+    // Without this the model is asked for tags and handed no vocabulary, so it
+    // returns none — the same "prompt says one thing, wire does another" shape
+    // as the schema bug, one layer along, and nothing else here would notice.
+    expect(system).toContain('Allowed tags: "Travel"');
+  });
+
   it("requires tagNames, so it arrives as [] instead of going missing", async () => {
     const body = await capturedRequest();
     const items = body.generationConfig.responseSchema.properties.transactions.items;
-    expect(items.properties.tagNames).toEqual({ type: "ARRAY", items: { type: "STRING" } });
+    expect(items.properties.tagNames).toEqual({
+      type: "ARRAY",
+      items: { type: "STRING" },
+      // The cap has to bound the *reply*, not just the rows kept afterwards:
+      // `draftsFromRawJson` trimming to 10 does nothing for the output-token
+      // budget the reply was already written against.
+      maxItems: TAGS_PER_TRANSACTION_MAX,
+    });
     // An optional array is precisely the shape a model leaves out — which is
     // what happened here.
     expect(items.required).toContain("tagNames");

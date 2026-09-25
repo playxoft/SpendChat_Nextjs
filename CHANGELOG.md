@@ -27,7 +27,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   field and the save path was ready for it — but the Gemini request also carries
   a response schema, and that schema never declared `tagNames`, so the model was
   structurally unable to return it. Nothing in the diff showed this; only the
-  wire did.
+  wire did. (Gemini is what every deployment runs; the other providers send no
+  schema and were unaffected.)
 
 ### Added
 - **The AI tags transactions itself.** Beyond honouring a `#Tag` you type, it

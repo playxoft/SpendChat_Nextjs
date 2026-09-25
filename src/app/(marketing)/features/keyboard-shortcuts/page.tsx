@@ -196,8 +196,8 @@ export default function KeyboardShortcutsPage() {
           that character is Shift and 3, and outside a field that combination
           switches profile; inside the field it types, and the picker opens. On
           a UK or German layout it has a key of its own and behaves the same
-          way. The one difference from the category marker: the category one
-          also works in the AI note, and this one is the manual composer only.
+          way. Like the category marker, it works in the AI note as well as the
+          manual composer — and in the AI note the model reads it on parse.
         </p>
       </FeatureSection>
 

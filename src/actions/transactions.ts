@@ -24,6 +24,7 @@ import {
   type TransactionInput,
 } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
+import type { TxnTagDTO } from "@/lib/tags";
 import { MAX_INPUT_CHARS, parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
 import { isSupportedAudioType, transcribeVoiceNote } from "@/lib/ai-transcribe";
@@ -218,7 +219,7 @@ export async function addBulkTransactions(drafts: BulkDraft[]): Promise<ActionRe
  */
 export async function parseTransactionsWithAI(
   text: string,
-): Promise<ActionResult<{ drafts: AiParsedDraft[] }>> {
+): Promise<ActionResult<{ drafts: AiParsedDraft[]; tags: TxnTagDTO[] }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
@@ -249,7 +250,13 @@ export async function parseTransactionsWithAI(
         locale: workspace.locale,
         today,
       });
-      return { drafts };
+      // The tag list the drafts were resolved against goes back with them. The
+      // caller has its own copy from the page render, but that copy can be
+      // older than this one — a tag a teammate added since is in `tags` and not
+      // in theirs — and a name it can't resolve is a tag the user watches
+      // vanish. `/api/v1/ai/parse` already hands mobile the resolved ids for
+      // the same reason; this is the web half of that.
+      return { drafts, tags };
     },
     { userId: user.id, workspaceId: workspace.id },
   );

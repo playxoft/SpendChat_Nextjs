@@ -1,6 +1,7 @@
 import "server-only";
 import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
+import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 
 /**
  * The AI transport layer: the shared config/error vocabulary plus one generic
@@ -26,11 +27,19 @@ export type ModelConfig = {
 };
 
 /**
- * Output budget. Sized against `MAX_DRAFTS` (50) — each draft serializes to
- * roughly 45 tokens, so 50 rows plus the envelope needs ~2.5k. A budget that
- * can't hold the reply truncates the JSON mid-object, and a truncated object is
- * unrecoverable (the `{…}`-span salvage in `parseLoose` yields unbalanced JSON),
- * which would surface to the user as a bogus "couldn't reach the AI".
+ * Output budget. Sized against `MAX_DRAFTS` (50) — a draft serializes to roughly
+ * 45 tokens bare, and `tagNames` now rides on every one of them (the model
+ * infers tags, so rows the note never tagged carry them too). At the schema's
+ * `maxItems` of 10 a fully-tagged row roughly doubles, so the worst case is
+ * ~4.5k against this 4096 — which is why that `maxItems` is on the schema and
+ * not just asked for in prose: the cap has to bound the *reply*, not the rows
+ * we keep afterwards. In practice the prompt asks for one or two tags and 50
+ * rows land near 3k.
+ *
+ * A budget that can't hold the reply truncates the JSON mid-object, and a
+ * truncated object is unrecoverable (the `{…}`-span salvage in `parseLoose`
+ * yields unbalanced JSON), which surfaces to the user as a bogus "couldn't
+ * reach the AI" — with their note gone and a quota slot spent.
  */
 const MAX_OUTPUT_TOKENS = 4096;
 
@@ -75,7 +84,7 @@ const GEMINI_SCHEMA = {
           title: { type: "STRING" },
           description: { type: "STRING", nullable: true },
           categoryName: { type: "STRING", nullable: true },
-          tagNames: { type: "ARRAY", items: { type: "STRING" } },
+          tagNames: { type: "ARRAY", items: { type: "STRING" }, maxItems: TAGS_PER_TRANSACTION_MAX },
           occurredOn: { type: "STRING" },
         },
         // `tagNames` is required so it arrives as [] rather than going missing;

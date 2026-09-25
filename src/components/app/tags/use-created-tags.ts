@@ -47,6 +47,19 @@ export function useCreatedTags(tags: TxnTagDTO[]) {
     /** The list to render and resolve ids against. */
     known: mergeCreatedTags(tags, created),
     add: (tag: TxnTagDTO) => setCreated((prev) => [...prev, tag]),
+    /**
+     * Fold in a list the *server* just handed back — the AI parse returns the
+     * tag list its drafts were resolved against, which can be newer than the
+     * `tags` prop this page rendered with. Deduped against what's already held,
+     * because the same list arrives again on every re-parse and a duplicate id
+     * would show the tag twice in every picker.
+     */
+    addMany: (list: TxnTagDTO[]) =>
+      setCreated((prev) => {
+        const have = new Set(prev.map((t) => t.id));
+        const extra = list.filter((t) => !have.has(t.id));
+        return extra.length ? [...prev, ...extra] : prev;
+      }),
     /** Drop everything held locally — for a form that re-seeds on open. */
     reset: () => setCreated([]),
   };

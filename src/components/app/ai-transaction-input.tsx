@@ -333,12 +333,13 @@ export function AiTransactionInput({
   const tagQuery = tagMatch?.[1] ?? "";
   const tagActive = !!tagMatch && !tagDismissed && !parsing;
   const knownTags = createdTags.known;
-  // The parse speaks tag *names* and the pickers speak ids, so the two crossings
-  // happen in one place. Both are lossless for anything real: the resolver only
-  // ever returns names that exist in this workspace, and `knownTags` is that
-  // same list plus anything created since.
-  const namesToIds = (names: string[]) =>
-    names.map((n) => knownTags.find((t) => t.name === n)?.id).filter((id): id is string => !!id);
+  // Rows hold ids (what the pickers speak); the parse and the bulk save speak
+  // names. These two cross between them against `knownTags`, which is safe here
+  // only because every id in a row was put there from a list this component was
+  // handed — the page's `tags` prop, a tag created in a picker, or the list the
+  // parse returned, all of which land in `knownTags`. Resolving a *name* that
+  // came from somewhere else is what is not safe, and `handleParse` is careful
+  // not to: see the note there.
   const idsToNames = (ids: string[]) =>
     ids.map((id) => knownTags.find((t) => t.id === id)?.name).filter((n): n is string => !!n);
   const tagsOf = (ids: string[]) =>
@@ -501,6 +502,14 @@ export function AiTransactionInput({
         toast.error(res.error);
         return;
       }
+      // Resolve against the list that came back with the drafts, not against
+      // `knownTags`. The server resolved these names live; this page's copy can
+      // be older (a teammate added a tag since it rendered), and a name it
+      // can't find would drop a tag the user explicitly typed — silently, with
+      // the transaction then saved untagged. Folding the list into the known
+      // set as well keeps the chips coloured and the "#" picker offering it.
+      const idByName = new Map(res.tags.map((t) => [t.name, t.id]));
+      createdTags.addMany(res.tags.filter((t) => !knownTags.some((k) => k.id === t.id)));
       setRows(
         res.drafts.map((d) => ({
           key: nextKey(),
@@ -509,7 +518,7 @@ export function AiTransactionInput({
           title: d.title,
           description: d.description ?? "",
           categoryName: d.categoryName ?? "",
-          tagIds: namesToIds(d.tagNames),
+          tagIds: d.tagNames.map((n) => idByName.get(n)).filter((id): id is string => !!id),
           occurredOn: d.occurredOn,
         })),
       );
