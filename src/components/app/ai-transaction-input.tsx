@@ -338,6 +338,12 @@ export function AiTransactionInput({
   // the row would save without the tag it is showing. Names are crossed to ids
   // exactly once, in `handleParse`, against the list the server resolved with.
   // This resolves ids the other way only to *render* them.
+  //
+  // Which sets an invariant: what is saved and what is on screen are now two
+  // lookups, not one. An id `knownTags` can't resolve draws no chip but is
+  // still written, so nothing may drop entries from the known set while `rows`
+  // is non-null — in practice, don't call `createdTags.reset()` here (nothing
+  // does).
   const tagsOf = (ids: string[]) =>
     ids.map((id) => knownTags.find((t) => t.id === id)).filter((t): t is TxnTagDTO => !!t);
   // Which row's "#" menu is open, so a row's "+N" overflow can open its own.
@@ -1246,7 +1252,7 @@ export function AiTransactionInput({
                     `focus-within` so the shell lights up with the caret. */}
                 <div
                   className={cn(
-                    "flex h-8 w-full min-w-0 items-center gap-1 rounded-md border border-input bg-transparent pr-0.5 pl-2.5 transition-colors dark:bg-input/30",
+                    "flex h-8 w-full min-w-0 items-center gap-1 rounded-lg border border-input bg-transparent pr-0.5 pl-2.5 transition-colors dark:bg-input/30",
                     // Destructive *replaces* the focus ring rather than layering
                     // under it, the rule the composer's combined field already
                     // documents: `focus-within:` carries a pseudo-class, so a

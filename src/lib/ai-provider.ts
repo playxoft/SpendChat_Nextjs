@@ -28,20 +28,26 @@ export type ModelConfig = {
 
 /**
  * Output budget. Sized against `MAX_DRAFTS` (50) — a draft serializes to roughly
- * 45 tokens bare, and `tagNames` now rides on every one of them (the model
- * infers tags, so rows the note never tagged carry them too). At the schema's
- * `maxItems` of 10 a fully-tagged row roughly doubles, so the worst case is
- * ~4.5k against this 4096 — which is why that `maxItems` is on the schema and
- * not just asked for in prose: the cap has to bound the *reply*, not the rows
- * we keep afterwards. In practice the prompt asks for one or two tags and 50
- * rows land near 3k.
+ * 45 tokens bare, and `tagNames` rides on every one of them now that the model
+ * infers tags, so rows the note never tagged carry them too. At the schema's
+ * `maxItems` of 10 a fully-tagged row roughly doubles, which puts the worst
+ * case near 4.5k. The prompt asks for one or two tags and 50 real rows land
+ * around 3k, but the budget has to cover the ceiling the schema actually
+ * enforces rather than the typical case — so 8192, not 4096.
  *
- * A budget that can't hold the reply truncates the JSON mid-object, and a
- * truncated object is unrecoverable (the `{…}`-span salvage in `parseLoose`
- * yields unbalanced JSON), which surfaces to the user as a bogus "couldn't
- * reach the AI" — with their note gone and a quota slot spent.
+ * Lowering `maxItems` instead would have been the cheaper fix and is the wrong
+ * one: a user may type ten "#" markers, and `TAGS_PER_TRANSACTION_MAX` is the
+ * promise we made them. Capping the model below it would silently drop the
+ * tags they asked for by name.
+ *
+ * This is a ceiling, not a spend — an unused token is not billed — so the only
+ * cost of the headroom is the headroom. A budget that can't hold the reply
+ * truncates the JSON mid-object, and a truncated object is unrecoverable (the
+ * `{…}`-span salvage in `parseLoose` yields unbalanced JSON), surfacing as a
+ * bogus "couldn't reach the AI" with a quota slot spent. (The note itself
+ * survives — the composer keeps it so the user can retry.)
  */
-const MAX_OUTPUT_TOKENS = 4096;
+const MAX_OUTPUT_TOKENS = 8192;
 
 /** Every adapter pins this: the same note must split the same way twice. */
 const TEMPERATURE = 0;

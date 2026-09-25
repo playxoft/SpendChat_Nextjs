@@ -471,7 +471,7 @@ export async function createBulkFromDrafts(
   // is dropped rather than trusted.
   const tagMap = new Map<string, string>();
   const workspaceTagIds = new Set<string>();
-  if (drafts.some((d) => d.tagNames?.length || d.tagIds?.length)) {
+  if (drafts.some((d) => d.tagNames?.length || Array.isArray(d.tagIds))) {
     const workspaceTags = await db
       .select({ id: tags.id, name: tags.name })
       .from(tags)
@@ -517,11 +517,21 @@ export async function createBulkFromDrafts(
       // `.trim()` and turn a bad request into a 500.
       tagIds: [
         ...new Set(
-          d.tagIds?.length
-            ? d.tagIds.filter(
-                (id): id is string => typeof id === "string" && workspaceTagIds.has(id),
-              )
-            : (d.tagNames ?? [])
+          // `Array.isArray`, not `?.length`: a caller that sends `tagIds` is
+          // stating the whole set, and an empty one means "no tags" — not
+          // "fall back to the names". Truthiness here would let a row whose
+          // tags the user just removed be re-tagged from a stale `tagNames`
+          // the same payload happened to carry. It doubles as the type guard
+          // this function applies everywhere else: `tagIds: "abc"` has a
+          // truthy `.length` and no `.filter`, which is a 500, not a 400.
+          Array.isArray(d.tagIds)
+            ? d.tagIds
+                .slice(0, TAGS_PER_TRANSACTION_MAX)
+                .filter(
+                  (id): id is string => typeof id === "string" && workspaceTagIds.has(id),
+                )
+            : (Array.isArray(d.tagNames) ? d.tagNames : [])
+                .slice(0, TAGS_PER_TRANSACTION_MAX)
                 .map((n) =>
                   typeof n === "string" ? tagMap.get(n.trim().toLowerCase()) : undefined,
                 )

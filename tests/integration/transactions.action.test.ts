@@ -605,6 +605,35 @@ describe("tagNames on the bulk draft path", () => {
     expect(await storedTagIds("renamed")).toEqual([travel]);
   });
 
+  it("treats an empty tagIds as 'no tags', not as 'fall back to names'", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    await makeTag("a", "Travel");
+
+    // The contract that lets the AI review row work: sending `tagIds` states
+    // the whole set. A user who removes the tag the model guessed sends an
+    // empty array, and a `tagNames` still riding along in the same payload
+    // must not put it back. Today's AI client sends no names at all — this
+    // pins the rule so that stays a choice rather than the only thing
+    // standing between the user and a tag they explicitly deleted.
+    const row = { ...draft("cleared", ["Travel"]), tagIds: [] as string[] };
+    expect((await addBulkTransactions([row])).ok).toBe(true);
+    expect(await storedTagIds("cleared")).toEqual([]);
+  });
+
+  it("rejects a malformed tagIds as a bad request, not a 500", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+
+    // `"abc"` has a truthy `.length` and no `.filter`. Without the array
+    // guard this is a TypeError, which `runAction` rethrows — the user sees a
+    // crash instead of a saved transaction.
+    const row = { ...draft("malformed", []), tagIds: "abc" as unknown as string[] };
+    const res = await addBulkTransactions([row]);
+    expect(res.ok).toBe(true);
+    expect(await storedTagIds("malformed")).toEqual([]);
+  });
+
   it("drops another workspace's tag id — an id from a client is not trusted", async () => {
     signInAs("b");
     await bootstrapUser("b");

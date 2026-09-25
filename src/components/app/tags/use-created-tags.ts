@@ -53,6 +53,16 @@ export function useCreatedTags(tags: TxnTagDTO[]) {
      * `tags` prop this page rendered with. Deduped against what's already held,
      * because the same list arrives again on every re-parse and a duplicate id
      * would show the tag twice in every picker.
+     *
+     * One residual window, and it is the resurrection case the pruning above
+     * exists to close: these ids are by definition ones the prop doesn't carry
+     * yet, so the prune can't see them. If such a tag is *deleted* elsewhere
+     * before the prop ever catches up, it stays offered for the rest of the
+     * session and the server drops it on save. `add` has the same shape but a
+     * `revalidatePath` closes its window within a render; a parse has no such
+     * event. Narrow — it needs a delete racing a parse — and the failure is a
+     * tag that doesn't stick rather than wrong data, so it is documented here
+     * rather than paid for with a refetch on every parse.
      */
     addMany: (list: TxnTagDTO[]) =>
       setCreated((prev) => {
