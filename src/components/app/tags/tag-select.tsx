@@ -44,6 +44,7 @@ export function TagSelect({
   align = "start",
   max = TAGS_PER_TRANSACTION_MAX,
   compact = false,
+  showCount = true,
   open,
   onOpenChange,
 }: {
@@ -58,6 +59,10 @@ export function TagSelect({
   onCreated?: (tag: TxnTagDTO) => void;
   /** Offer a "Create new tag" row (the edit dialog; not the filter). */
   canCreate?: boolean;
+  /** The compact trigger's count badge. Off where the selection is already on
+   *  screen beside the button — inside a field whose chips say the same thing,
+   *  where the badge also has no room and floats outside the field. */
+  showCount?: boolean;
   placeholder?: string;
   /** Plain text in place of the selected chips — the edit dialog uses it,
    *  because it renders the full, removable selection underneath instead. */
@@ -107,7 +112,7 @@ export function TagSelect({
               className={cn("relative size-8 shrink-0", className)}
             >
               <Hash className="size-4" />
-              {value.length > 0 ? (
+              {showCount && value.length > 0 ? (
                 <span className="absolute -top-1 -right-1 flex size-4 items-center justify-center rounded-full bg-primary text-[10px] font-medium text-primary-foreground">
                   {value.length}
                 </span>

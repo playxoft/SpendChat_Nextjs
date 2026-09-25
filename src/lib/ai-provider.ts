@@ -1,6 +1,7 @@
 import "server-only";
 import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
+import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 
 /**
  * The AI transport layer: the shared config/error vocabulary plus one generic
@@ -26,13 +27,27 @@ export type ModelConfig = {
 };
 
 /**
- * Output budget. Sized against `MAX_DRAFTS` (50) — each draft serializes to
- * roughly 45 tokens, so 50 rows plus the envelope needs ~2.5k. A budget that
- * can't hold the reply truncates the JSON mid-object, and a truncated object is
- * unrecoverable (the `{…}`-span salvage in `parseLoose` yields unbalanced JSON),
- * which would surface to the user as a bogus "couldn't reach the AI".
+ * Output budget. Sized against `MAX_DRAFTS` (50) — a draft serializes to roughly
+ * 45 tokens bare, and `tagNames` rides on every one of them now that the model
+ * infers tags, so rows the note never tagged carry them too. At the schema's
+ * `maxItems` of 10 a fully-tagged row roughly doubles, which puts the worst
+ * case near 4.5k. The prompt asks for one or two tags and 50 real rows land
+ * around 3k, but the budget has to cover the ceiling the schema actually
+ * enforces rather than the typical case — so 8192, not 4096.
+ *
+ * Lowering `maxItems` instead would have been the cheaper fix and is the wrong
+ * one: a user may type ten "#" markers, and `TAGS_PER_TRANSACTION_MAX` is the
+ * promise we made them. Capping the model below it would silently drop the
+ * tags they asked for by name.
+ *
+ * This is a ceiling, not a spend — an unused token is not billed — so the only
+ * cost of the headroom is the headroom. A budget that can't hold the reply
+ * truncates the JSON mid-object, and a truncated object is unrecoverable (the
+ * `{…}`-span salvage in `parseLoose` yields unbalanced JSON), surfacing as a
+ * bogus "couldn't reach the AI" with a quota slot spent. (The note itself
+ * survives — the composer keeps it so the user can retry.)
  */
-const MAX_OUTPUT_TOKENS = 4096;
+const MAX_OUTPUT_TOKENS = 8192;
 
 /** Every adapter pins this: the same note must split the same way twice. */
 const TEMPERATURE = 0;
@@ -55,6 +70,13 @@ export function aiFailed(): ApiError {
 }
 
 // Gemini responseSchema (OpenAPI subset: uppercase types, `nullable`).
+//
+// **A field missing from here can never be returned, whatever the prompt says.**
+// Structured output is a hard constraint, not a hint: Gemini emits exactly the
+// declared keys and silently drops the rest. That is how `tagNames` came to be
+// absent from every response while the prompt described it in detail and the
+// resolver stood ready for it — the feature was unreachable on this provider.
+// Adding a field to the prompt means adding it here in the same change.
 const GEMINI_SCHEMA = {
   type: "OBJECT",
   properties: {
@@ -68,9 +90,12 @@ const GEMINI_SCHEMA = {
           title: { type: "STRING" },
           description: { type: "STRING", nullable: true },
           categoryName: { type: "STRING", nullable: true },
+          tagNames: { type: "ARRAY", items: { type: "STRING" }, maxItems: TAGS_PER_TRANSACTION_MAX },
           occurredOn: { type: "STRING" },
         },
-        required: ["type", "amount", "title", "occurredOn"],
+        // `tagNames` is required so it arrives as [] rather than going missing;
+        // an optional array is exactly the shape a model leaves out.
+        required: ["type", "amount", "title", "tagNames", "occurredOn"],
       },
     },
   },

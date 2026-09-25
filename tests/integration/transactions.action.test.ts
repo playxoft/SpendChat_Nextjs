@@ -588,6 +588,69 @@ describe("tagNames on the bulk draft path", () => {
     expect(await storedTagIds("borrowed")).toEqual([]);
   });
 
+  it("prefers ids over names, so a rename mid-review still saves the tag", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const travel = await makeTag("a", "Travel");
+
+    // The AI review list holds ids and shows the name it resolved at parse
+    // time. Renaming the tag from another tab makes that name stale — the id
+    // does not go stale, which is the whole reason the row sends it.
+    const { updateTxnTag } = await import("@/services/tags");
+    const { workspaceIdOf } = await import("./helpers/seed");
+    await updateTxnTag(uid("a"), await workspaceIdOf("a"), travel, { name: "Travel 2026" });
+
+    const row = { ...draft("renamed", ["Travel"]), tagIds: [travel] };
+    expect((await addBulkTransactions([row])).ok).toBe(true);
+    expect(await storedTagIds("renamed")).toEqual([travel]);
+  });
+
+  it("treats an empty tagIds as 'no tags', not as 'fall back to names'", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    await makeTag("a", "Travel");
+
+    // The contract that lets the AI review row work: sending `tagIds` states
+    // the whole set. A user who removes the tag the model guessed sends an
+    // empty array, and a `tagNames` still riding along in the same payload
+    // must not put it back. Today's AI client sends no names at all — this
+    // pins the rule so that stays a choice rather than the only thing
+    // standing between the user and a tag they explicitly deleted.
+    const row = { ...draft("cleared", ["Travel"]), tagIds: [] as string[] };
+    expect((await addBulkTransactions([row])).ok).toBe(true);
+    expect(await storedTagIds("cleared")).toEqual([]);
+  });
+
+  it("rejects a malformed tagIds as a bad request, not a 500", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+
+    // `"abc"` has a truthy `.length` and no `.filter`. Without the array
+    // guard this is a TypeError, which `runAction` rethrows — the user sees a
+    // crash instead of a saved transaction.
+    const row = { ...draft("malformed", []), tagIds: "abc" as unknown as string[] };
+    const res = await addBulkTransactions([row]);
+    expect(res.ok).toBe(true);
+    expect(await storedTagIds("malformed")).toEqual([]);
+  });
+
+  it("drops another workspace's tag id — an id from a client is not trusted", async () => {
+    signInAs("b");
+    await bootstrapUser("b");
+    const theirs = await makeTag("b", "Private");
+
+    signInAs("a");
+    await bootstrapUser("a");
+    const mine = await makeTag("a", "Mine");
+
+    // `tag_ids` carries no foreign key, so nothing in the database would stop
+    // B's id from landing on A's transaction. The workspace check is the only
+    // thing between a hand-edited request and someone else's tag.
+    const row = { ...draft("smuggled", []), tagIds: [mine, theirs] };
+    expect((await addBulkTransactions([row])).ok).toBe(true);
+    expect(await storedTagIds("smuggled")).toEqual([mine]);
+  });
+
   it("drops a name nobody has, and keeps the ones that resolve", async () => {
     signInAs("a");
     await bootstrapUser("a");

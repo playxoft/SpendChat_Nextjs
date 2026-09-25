@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.3.0"
+  version: "6.4.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -1830,8 +1830,12 @@ paths:
         relative dates; omitted → UTC. Send the device zone. Drafts never get
         a future date; `categoryId`/`categoryName` are guaranteed to be an
         existing workspace category of the draft's type, or null. `tagIds` are
-        existing workspace tags, and unlike the category they are **never
-        guessed** — only what the note's "#" markers asked for.
+        always existing workspace tags — the model is given the workspace's list
+        and a name outside it is dropped, never created. Since 6.4.0 they are
+        **inferred as well as asked for**: a "#Tag" marker is still honoured
+        exactly, and beyond that the model applies any workspace tag that
+        clearly fits, the way it already picks a category. Present the drafts
+        for review — a tag the user did not ask for is theirs to remove.
 
         Gates, in order: 400 (empty or > 2000-char note, bad timezone),
         403 (viewer in this workspace), 429 (shared 30/hour AI quota),
@@ -2871,9 +2875,10 @@ components:
         tagIds:
           type: array
           description: >
-            Resolved ids of the workspace tags the note asked for, in mention
-            order — pass straight through as `tagIds` on POST /transactions/bulk.
-            Empty when the note carried no "#" marker. Added in 6.3.0.
+            Resolved ids of the workspace tags for this draft — pass straight
+            through as `tagIds` on POST /transactions/bulk. Both the note's "#"
+            markers and, since 6.4.0, tags the model inferred from the item.
+            Empty when nothing fits. Added in 6.3.0.
           items: { type: string, format: uuid }
           maxItems: 10
         tagNames:

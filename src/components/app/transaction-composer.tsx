@@ -14,10 +14,10 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import { CategoryRow } from "./category-row";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TagChip } from "./tags/tag-chip";
 import { TagFormDialog } from "./tags/tag-form-dialog";
 import { TagSelect } from "./tags/tag-select";
+import { TagsInField } from "./tags/tags-in-field";
 import { TagEditorDialog } from "./tags/tag-editor-dialog";
 import { useCreatedTags } from "./tags/use-created-tags";
 import { CategoryEditorDialog } from "./category-editor-dialog";
@@ -60,11 +60,6 @@ import {
   TAG_MARKER_RE as TAG_RE,
 } from "@/lib/composer-markers";
 import type { Category, Profile } from "@/db/schema";
-
-/** Tag chips shown inline in the field before the count takes over. Two fits
- *  beside real text at a phone width; a transaction can carry
- *  `TAGS_PER_TRANSACTION_MAX`. */
-const TAGS_IN_FIELD = 2;
 
 // How much text the amount chip holds. Nine whole digits is the real cap
 // (`AMOUNT_INTEGER_DIGITS_MAX`, enforced per keystroke below); this only stops a
@@ -748,56 +743,15 @@ export function TransactionComposer({
   // (title-first). In amount-first mode it moves to `standaloneAttach` above, so
   // the title drops its leading clip and gets normal padding.
   const titleLeadsRow = inputMode === "title_amount";
-  /**
-   * The tags picked for this send, at the end of the field they were typed in.
-   *
-   * They used to sit on their own row above the input. That row only existed
-   * when a tag was picked, so the whole composer jumped a line the moment you
-   * applied one — and the tags are part of the title you are writing, not a
-   * separate stack like the staged files above them.
-   *
-   * Two chips fit beside real text; past that the count carries the rest, with
-   * the names in a tooltip (and in the accessible name, since a tooltip reaches
-   * a mouse and nothing else). A transaction can hold ten.
-   */
+  /** The tags picked for this send, at the end of the field they were typed in. */
   const inFieldTags = (
-    <span className="flex shrink-0 items-center gap-1">
-      {pickedTags.slice(0, TAGS_IN_FIELD).map((t) => (
-        <TagChip
-          key={t.id}
-          tag={t}
-          className="max-w-20 text-xs"
-          onRemove={() => removeTag(t.id)}
-        />
-      ))}
-      {pickedTags.length > TAGS_IN_FIELD ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              // Opens the same picker the "#" button does, so the overflow is
-              // a way in rather than a dead label.
-              onClick={() => setTagMenuOpen(true)}
-              className="shrink-0 rounded px-0.5 text-xs text-muted-foreground hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
-            >
-              +{pickedTags.length - TAGS_IN_FIELD}
-              <span className="sr-only">
-                {` more tags: ${pickedTags
-                  .slice(TAGS_IN_FIELD)
-                  .map((t) => t.name)
-                  .join(", ")}`}
-              </span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="top">
-            {pickedTags
-              .slice(TAGS_IN_FIELD)
-              .map((t) => t.name)
-              .join(", ")}
-          </TooltipContent>
-        </Tooltip>
-      ) : null}
-    </span>
+    <TagsInField
+      tags={pickedTags}
+      onRemove={removeTag}
+      // Opens the same picker the "#" button does, so the overflow is a way in
+      // rather than a dead label.
+      onOverflowClick={() => setTagMenuOpen(true)}
+    />
   );
 
   // Not an `<Input>` any more: the field is a shell holding the paperclip, the

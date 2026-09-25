@@ -47,11 +47,14 @@ export type AiParsedDraft = {
   /** An existing workspace category name (exact case) or null. */
   categoryName: string | null;
   /**
-   * Existing workspace tag names (exact case), in the order the note mentioned
-   * them. Names, not ids, for the same reason `categoryName` is: the model
-   * never sees an id, and the confirm path resolves both against the workspace
-   * so a hallucinated one becomes nothing rather than somebody else's tag.
-   * Empty when the note carried no "#" marker.
+   * Existing workspace tag names (exact case). Names, not ids, for the same
+   * reason `categoryName` is: the model never sees an id, and the confirm path
+   * resolves both against the workspace so a hallucinated one becomes nothing
+   * rather than somebody else's tag.
+   *
+   * Both chosen and inferred: a "#name" marker in the note is the user naming a
+   * tag outright, and beyond those the model picks any that clearly fit, the way
+   * it picks a category. Empty when the workspace has no tags, or none fit.
    */
   tagNames: string[];
   /** YYYY-MM-DD. */
@@ -87,7 +90,7 @@ function buildSystemPrompt(
     `4. title: a short label for the item or merchant, at most ${TRANSACTION_TITLE_MAX} characters (e.g. "Fruits", "Electricity"). Never keep a /category marker, a #tag marker or a (parenthetical) in the title — strip all three out.`,
     '5. description: optional. When an item wraps text in parentheses, that parenthetical IS its description — "1200 electricity (June bill)" → description "June bill". Otherwise omit it or use null.',
     "6. categoryName: when an item carries a \"/name\" marker — a slash followed immediately by a letter (e.g. \"500 groceries /Food\") — that is the user's chosen category: match it to the nearest Allowed category of that type and output that exact stored name. A slash between digits is a date or a fraction, never a category (\"paid 12/05\", \"1/2 share\"). With no marker, pick the single best Allowed match. If nothing fits, use null. Never invent a name that is not in the Allowed list below.",
-    `7. tagNames: when an item carries one or more "#name" markers — a hash followed immediately by a letter (e.g. "500 groceries #weekly #home") — those are the user's chosen tags: match each to the nearest Allowed tag and output that exact stored name, in an array. A "#" followed by a digit is not a tag ("#1 priority", "flight #204"). With no marker, output an empty array — never guess a tag the way you guess a category, because a tag is something the user chose to file under, not something to infer. At most ${TAGS_PER_TRANSACTION_MAX}. Never invent a name that is not in the Allowed tags list below.`,
+    `7. tagNames: always an array, and always present — output [] rather than dropping the key. Two things go in it. First, every "#name" marker on the item — a hash followed immediately by a letter (e.g. "500 groceries #weekly #home") is the user asking for that tag by name, so match it to the nearest Allowed tag and always include it; a "#" followed by a digit is not a marker ("#1 priority", "flight #204"). Second, any other Allowed tag that clearly fits the item, chosen the same way you choose a category. A tag cuts across categories — a trip, a project, a person, an occasion — so add one only when the item plainly belongs to it, and prefer one or two over a long list. At most ${TAGS_PER_TRANSACTION_MAX} per item. Never invent a name that is not in the Allowed tags list below; when that list is empty, every tagNames is [].`,
     "8. occurredOn: YYYY-MM-DD. Use today's date unless the note clearly states another date — including relative ones (\"yesterday\", \"last Friday\"), which you resolve against today's date above. Never use a future date.",
     `9. Output at most ${MAX_DRAFTS} transactions.`,
     "",
@@ -101,7 +104,10 @@ function buildSystemPrompt(
     `Allowed income categories: ${incomeNames.length ? incomeNames.map((n) => JSON.stringify(n)).join(", ") : "(none)"}`,
     `Allowed tags: ${tagNames.length ? tagNames.map((n) => JSON.stringify(n)).join(", ") : "(none)"}`,
     "",
-    "Respond with ONLY a JSON object of this exact shape — no prose, no markdown, no code fences:",
+    // Spelled out because a model that is told a field is usually empty tends to
+    // drop the key instead of sending it empty — which is exactly how tagNames
+    // went missing from every object while the note carried "#" markers.
+    "Respond with ONLY a JSON object of this exact shape — no prose, no markdown, no code fences. Every transaction object carries every one of these keys, tagNames included, even when the value is null or []:",
     '{"transactions":[{"type":"expense","amount":0,"title":"","description":null,"categoryName":null,"tagNames":[],"occurredOn":"YYYY-MM-DD"}]}',
   ].join("\n");
 }
@@ -212,8 +218,10 @@ export function draftsFromRawJson(
     const rawCat = typeof o.categoryName === "string" ? o.categoryName.trim() : "";
     const categoryName = rawCat ? (canonical.get(`${type}:${rawCat.toLowerCase()}`) ?? null) : null;
 
-    // Deduped and capped, in the order the note mentioned them. An unknown
-    // name resolves to nothing at all — never to a new tag.
+    // Deduped and capped, in the order the model returned them — which is not
+    // "mention order" any more, since a tag can be inferred from an item the
+    // note never tagged. An unknown name resolves to nothing at all — never to
+    // a new tag.
     const rawTags = Array.isArray(o.tagNames) ? o.tagNames : [];
     const tagNames: string[] = [];
     for (const value of rawTags) {

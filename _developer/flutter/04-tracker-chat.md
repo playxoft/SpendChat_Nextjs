@@ -311,6 +311,11 @@ explains the note syntax.
    - one transaction per item/amount ("200 fruits, 100 veg" = two rows);
    - `/CategoryName` picks a category (a slash followed by a letter; a slash
      between digits is a date, not a category);
+   - `#TagName` tags the item (a hash followed by a letter, repeatable, max 10;
+     `#1` and `flight #204` are not tags). Matched to the workspace's existing
+     tags — a name that isn't one is dropped, never created. Since spec 6.4.0
+     the model **also infers** tags, so a draft can carry one the note never
+     named;
    - `(parentheses)` become the description;
    - income words ("got 5000 salary", "refund") flip the type;
    - relative dates ("yesterday", "last Friday") resolve against the device
@@ -321,16 +326,27 @@ explains the note syntax.
    429 quota ("try again later"), 503 feature-off (hide/disable AI mode with a
    notice), 502 retry.
 3. **Review grid** (replaces the note in the composer): one editable row per
-   draft — compact type toggle, amount, title, **description** (pencil toggles
-   an edit field), category select (options of the row's type; "" = none), date
-   picker (max today). Row actions: **remove**; a trailing **"add row"** (+)
-   for anything the AI missed; **"Start over"** (↺) drops the drafts but keeps
-   the note text so the user can fix the wording and re-parse.
+   draft — compact type toggle, amount, title, **tags**, **description** (pencil
+   toggles an edit field), category select (options of the row's type; "" =
+   none), date picker (max today). Row actions: **remove**; a trailing **"add
+   row"** (+) for anything the AI missed; **"Start over"** (↺) drops the drafts
+   but keeps the note text so the user can fix the wording and re-parse.
+
+   **Tags belong in the row, and must be removable there.** Web renders them as
+   chips at the end of the title field with a "×" each and a "#" button to add
+   more; match the spirit rather than the pixels if a phone row wants them
+   under the title. This is not optional polish: since 6.4.0 the model *infers*
+   tags, so a row can arrive carrying a tag the user never asked for, and review
+   is the only place to drop it before it is written. Re-parsing is not the
+   answer — it costs a model call, a quota slot, and every other edit on the
+   list. Each draft carries `tagIds` (resolved, ready to send) and `tagNames`
+   (for display without a lookup).
 4. **Save** (gradient primary, e.g. "Add N transactions") → validate rows like
    manual entry (amount > 0, title non-empty), then commit via
    `POST /transactions/bulk` with the kept rows mapped to `TransactionInput`
-   (`categoryId` comes straight off the draft). Toast the count, clear back to
-   the empty note, refresh the feed.
+   (`categoryId` and `tagIds` come straight off the draft — pass `tagIds`
+   through as the user left it, including empty). Toast the count, clear back
+   to the empty note, refresh the feed.
 
 **Voice entry (hold-to-talk).** The mic is **held, not tapped** (walkie-talkie
 style — on web it's hold the button or hold `M`):

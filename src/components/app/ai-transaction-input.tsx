@@ -61,6 +61,8 @@ import {
   type TxnTagDTO,
 } from "@/lib/tags";
 import { TagChip } from "./tags/tag-chip";
+import { TagsInField } from "./tags/tags-in-field";
+import { TagSelect } from "./tags/tag-select";
 import { TagFormDialog } from "./tags/tag-form-dialog";
 import { TagEditorDialog } from "./tags/tag-editor-dialog";
 import { useCreatedTags } from "./tags/use-created-tags";
@@ -83,8 +85,10 @@ type Row = {
   description: string;
   /** "" = no category. */
   categoryName: string;
-  /** Workspace tag names the note asked for, in mention order. */
-  tagNames: string[];
+  /** Applied tag ids. The parse answers in names (the model never sees an id);
+   *  they are resolved once on the way in, so the row's picker and the shared
+   *  chip strip both speak the same language the composer's do. */
+  tagIds: string[];
   occurredOn: string;
 };
 
@@ -329,6 +333,21 @@ export function AiTransactionInput({
   const tagQuery = tagMatch?.[1] ?? "";
   const tagActive = !!tagMatch && !tagDismissed && !parsing;
   const knownTags = createdTags.known;
+  // Rows hold ids, and the save sends ids — an id survives a rename of the tag
+  // while the review list is open, where a name would quietly stop matching and
+  // the row would save without the tag it is showing. Names are crossed to ids
+  // exactly once, in `handleParse`, against the list the server resolved with.
+  // This resolves ids the other way only to *render* them.
+  //
+  // Which sets an invariant: what is saved and what is on screen are now two
+  // lookups, not one. An id `knownTags` can't resolve draws no chip but is
+  // still written, so nothing may drop entries from the known set while `rows`
+  // is non-null — in practice, don't call `createdTags.reset()` here (nothing
+  // does).
+  const tagsOf = (ids: string[]) =>
+    ids.map((id) => knownTags.find((t) => t.id === id)).filter((t): t is TxnTagDTO => !!t);
+  // Which row's "#" menu is open, so a row's "+N" overflow can open its own.
+  const [openTagRow, setOpenTagRow] = useState<number | null>(null);
   const {
     results: tagResults,
     creatable: tagCreatable,
@@ -370,7 +389,7 @@ export function AiTransactionInput({
               title: "",
               description: "",
               categoryName: "",
-              tagNames: [],
+              tagIds: [],
               occurredOn: today,
             },
           ]
@@ -485,6 +504,14 @@ export function AiTransactionInput({
         toast.error(res.error);
         return;
       }
+      // Resolve against the list that came back with the drafts, not against
+      // `knownTags`. The server resolved these names live; this page's copy can
+      // be older (a teammate added a tag since it rendered), and a name it
+      // can't find would drop a tag the user explicitly typed — silently, with
+      // the transaction then saved untagged. Folding the list into the known
+      // set as well keeps the chips coloured and the "#" picker offering it.
+      const idByName = new Map(res.tags.map((t) => [t.name, t.id]));
+      createdTags.addMany(res.tags.filter((t) => !knownTags.some((k) => k.id === t.id)));
       setRows(
         res.drafts.map((d) => ({
           key: nextKey(),
@@ -493,7 +520,7 @@ export function AiTransactionInput({
           title: d.title,
           description: d.description ?? "",
           categoryName: d.categoryName ?? "",
-          tagNames: d.tagNames,
+          tagIds: d.tagNames.map((n) => idByName.get(n)).filter((id): id is string => !!id),
           occurredOn: d.occurredOn,
         })),
       );
@@ -584,7 +611,7 @@ export function AiTransactionInput({
       description: r.description.trim() || undefined,
       note: "",
       categoryName: r.categoryName || null,
-      tagNames: r.tagNames,
+      tagIds: r.tagIds,
       profileId: targetProfileId || undefined,
       occurredOn: r.occurredOn || today,
     }));
@@ -1184,13 +1211,13 @@ export function AiTransactionInput({
           one — columns never shift row-to-row, and nothing wraps to a 2nd line
           except the optional description. */}
       <div className="scrollbar-slim max-h-72 overflow-auto">
-        <div className="min-w-[38rem] space-y-2 pr-1">
+        <div className="min-w-[44rem] space-y-2 pr-1">
           {rows.map((r) => {
             const cats = categories.filter((c) => c.kind === r.type);
             return (
               <div
                 key={r.key}
-                className="grid grid-cols-[auto_5.5rem_minmax(6rem,1fr)_8.5rem_8.5rem_auto] items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/30 p-2"
+                className="grid grid-cols-[auto_5.5rem_minmax(13rem,1.6fr)_8.5rem_8.5rem_auto] items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/30 p-2"
               >
                 <RowTypeToggle
                   value={r.type}
@@ -1218,15 +1245,72 @@ export function AiTransactionInput({
                     className="h-8 w-full pl-6 tabular-nums"
                   />
                 </div>
-                <Input
-                  value={r.title}
-                  onChange={(e) => patch(r.key, { title: e.target.value })}
-                  placeholder="Title"
-                  aria-label="Title"
-                  aria-invalid={!r.title.trim() || undefined}
-                  maxLength={TITLE_MAX}
-                  className="h-8 w-full"
-                />
+                {/* Not an `<Input>`: a shell holding the text, the row's tags
+                    and its "#" button as siblings — the manual composer's title
+                    field has the same three, and tags belong to the title you
+                    are reading rather than to a strip under it. Focus moves to
+                    `focus-within` so the shell lights up with the caret. */}
+                <div
+                  className={cn(
+                    "flex h-8 w-full min-w-0 items-center gap-1 rounded-lg border border-input bg-transparent pr-0.5 pl-2.5 transition-colors dark:bg-input/30",
+                    // Destructive *replaces* the focus ring rather than layering
+                    // under it, the rule the composer's combined field already
+                    // documents: `focus-within:` carries a pseudo-class, so a
+                    // plain `border-destructive` loses to it and an empty title
+                    // would read blue for exactly as long as the caret is in it.
+                    !r.title.trim()
+                      ? "border-destructive ring-3 ring-destructive/20 dark:border-destructive/50 dark:ring-destructive/40"
+                      : "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+                  )}
+                >
+                  <input
+                    value={r.title}
+                    onChange={(e) => patch(r.key, { title: e.target.value })}
+                    placeholder="Title"
+                    aria-label="Title"
+                    // On the input, not the shell: a screen reader reports the
+                    // invalid state of the widget that takes focus, and a plain
+                    // <div> has no role to carry it.
+                    aria-invalid={!r.title.trim() || undefined}
+                    maxLength={TITLE_MAX}
+                    // 16px under `md`, like every other field here: iOS Safari
+                    // zooms the viewport in on a focused input below that, and
+                    // the amount beside it doesn't — so a phone would zoom on
+                    // some fields of the same row and not others.
+                    className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
+                  />
+                  <TagsInField
+                    visible={1}
+                    tags={tagsOf(r.tagIds)}
+                    onRemove={(id) =>
+                      patch(r.key, { tagIds: r.tagIds.filter((t) => t !== id) })
+                    }
+                    onOverflowClick={() => setOpenTagRow(r.key)}
+                  />
+                  {/* Editable, not read-only. The note is no longer the only
+                      source of these: the model infers tags as well as reading
+                      "#" markers, so the review is where a wrong guess gets
+                      dropped — and re-parsing to fix one tag costs a model call
+                      and re-does every other edit on the list. */}
+                  <TagSelect
+                    compact
+                    // Sized and stripped for life *inside* a field: the strip's
+                    // `size-8` overflows this shell's 30px content box onto its
+                    // own border, and the count badge floats outside the field
+                    // entirely — where it only repeats what the chips beside it
+                    // already say.
+                    className="size-7"
+                    showCount={false}
+                    tags={knownTags}
+                    value={r.tagIds}
+                    onChange={(ids) => patch(r.key, { tagIds: ids })}
+                    onCreated={createdTags.add}
+                    canCreate
+                    align="end"
+                    open={openTagRow === r.key}
+                    onOpenChange={(o) => setOpenTagRow(o ? r.key : null)}
+                  />
+                </div>
                 <Select
                   value={r.categoryName || NONE}
                   onValueChange={(v) => patch(r.key, { categoryName: v === NONE ? "" : v })}
@@ -1267,31 +1351,6 @@ export function AiTransactionInput({
                   value={r.description}
                   onChange={(v) => patch(r.key, { description: v })}
                 />
-                {/* What the "#" markers resolved to. Read-only on purpose: the
-                    note is the input in this pane, so the way to change them is
-                    to edit the note and parse again — an editable control here
-                    would be a second source of truth for the same thing.
-                    Removable, though, because dropping one is not worth a
-                    re-parse. */}
-                {r.tagNames.length > 0 && (
-                  <div className="col-span-full flex flex-wrap items-center gap-1 pl-0.5">
-                    {r.tagNames.map((name) => {
-                      const tag = knownTags.find((t) => t.name === name);
-                      return (
-                        <TagChip
-                          key={name}
-                          tag={tag ?? { name, color: defaultTagColor(name) }}
-                          className="text-xs"
-                          onRemove={() =>
-                            patch(r.key, {
-                              tagNames: r.tagNames.filter((n) => n !== name),
-                            })
-                          }
-                        />
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             );
           })}

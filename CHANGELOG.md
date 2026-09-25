@@ -14,9 +14,35 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.3.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.4.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.28.0] — 2026-09-25
+
+### Fixed
+- **`#tags` in AI entry never reached the transaction.** Typing `#Travel` in an
+  AI note picked the tag, left the marker in the note, and then lost it: the
+  drafts came back untagged and saving wrote none. The prompt described the
+  field and the save path was ready for it — but the Gemini request also carries
+  a response schema, and that schema never declared `tagNames`, so the model was
+  structurally unable to return it. Nothing in the diff showed this; only the
+  wire did. (Gemini is what every deployment runs; the other providers send no
+  schema and were unaffected.)
+
+### Added
+- **The AI tags transactions itself.** Beyond honouring a `#Tag` you type, it
+  now applies any tag that clearly fits the item, the way it already picks a
+  category — "1200 flight to Delhi, 800 hotel" comes back tagged `Travel`. Only
+  tags that already exist in the workspace are ever used; it never invents one,
+  and the review step is where you drop a guess you disagree with.
+
+### Changed
+- **A review row's tags moved into its title field**, as chips at the end of the
+  text, matching where the manual composer already puts them. They are editable
+  there too — a "#" button on each row, and a "×" on each chip — because the
+  model now proposes tags as well as reading them, and re-parsing to fix one tag
+  costs a model call and discards every other edit on the list.
 
 ## [0.27.1] — 2026-09-24
 
