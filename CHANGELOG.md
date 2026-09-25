@@ -18,6 +18,17 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.28.1] — 2026-09-26
+
+### Fixed
+- **Google shows the SpendChat icon instead of a placeholder.** `favicon.ico`
+  was still the Next.js starter's triangle from the day the project was
+  scaffolded; only the SVG icon had ever been replaced. Google Search (and
+  Search Console) picks the `.ico`, so results showed the placeholder. It is now
+  the SpendChat chat-bubble mark at 16/32/48 px on white — padded so it survives
+  Google's circular crop — and iOS home-screen bookmarks get a matching 180 px
+  `apple-icon.png`.
+
 ## [0.28.0] — 2026-09-25
 
 ### Fixed

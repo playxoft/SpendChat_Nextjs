@@ -56,7 +56,9 @@ export const metadata: Metadata = {
     ? { verification: { google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION } }
     : {}),
   // Icons are set via the file conventions in `app/`: `icon.svg` (the SpendChat
-  // mark, preferred by modern browsers) and `favicon.ico` (legacy fallback).
+  // mark, preferred by modern browsers), `favicon.ico` (the same mark at 16/32/48 px
+  // on white — what Google Search shows, so keep it padded for its circular crop)
+  // and `apple-icon.png` (iOS home screen).
   // Tell the Dark Reader extension to leave this page alone — the app manages
   // its own light/dark theme, and extension overrides break our color tokens.
   // The content must be non-empty: Next drops `other` meta tags whose value is
