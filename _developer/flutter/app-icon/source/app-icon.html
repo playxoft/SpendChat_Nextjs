@@ -1,0 +1,58 @@
+<!doctype html>
+<!--
+  Source for the Flutter app's launcher icons (_developer/flutter/app-icon/).
+  It's the website's mark, unchanged — the chat bubble + "$" from
+  src/app/icon.svg / src/components/logo.tsx — drawn at 1024×1024 in four
+  variants, picked with the URL hash:
+
+    #ios         full-bleed white square, no transparency (iOS masks corners)
+    #square      Android legacy ic_launcher: rounded white tile, transparent corners
+    #round       Android legacy ic_launcher_round: white circle
+    #foreground  Android adaptive-icon foreground: mark only, transparent,
+                 sized to sit inside the 66dp safe zone of the 108dp canvas
+
+  Regenerate everything with: python3 _developer/flutter/app-icon/source/generate.py
+-->
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      html, body { margin: 0; padding: 0; background: transparent; }
+      .canvas {
+        width: 1024px; height: 1024px;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .tile { background: #ffffff; display: flex; align-items: center; justify-content: center; }
+      svg { display: block; }
+    </style>
+  </head>
+  <body>
+    <div class="canvas">
+      <div class="tile" id="tile">
+        <svg id="mark" viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+          <text x="12" y="10.4" text-anchor="middle" dominant-baseline="middle" font-size="9" font-weight="600" font-family="ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif" fill="#0a0a0a" stroke="none">$</text>
+        </svg>
+      </div>
+    </div>
+    <script>
+      // [tile size, tile radius, mark size, tile background]
+      const variants = {
+        ios:        [1024, 0,   600, "#ffffff"],
+        square:     [896,  160, 560, "#ffffff"],
+        round:      [960,  480, 560, "#ffffff"],
+        // 108dp canvas → 1024px; 66dp safe zone ≈ 626px. Mark at 500px keeps
+        // the bubble's stroke well inside it on every launcher mask.
+        foreground: [1024, 0,   500, "transparent"],
+      };
+      const [size, radius, mark, bg] = variants[location.hash.slice(1)] || variants.ios;
+      const tile = document.getElementById("tile");
+      Object.assign(tile.style, {
+        width: size + "px", height: size + "px",
+        borderRadius: radius + "px", background: bg,
+      });
+      const svg = document.getElementById("mark");
+      svg.style.width = svg.style.height = mark + "px";
+    </script>
+  </body>
+</html>
