@@ -461,16 +461,25 @@ export async function createBulkFromDrafts(
   const catMap = new Map<string, string>();
   for (const c of workspaceCats) catMap.set(`${c.kind}:${c.name.toLowerCase()}`, c.id);
 
-  // Tag names → ids, resolved once for the batch. Only fetched when a draft
-  // actually carries tags: the text-paste path never does, and this runs on
-  // every bulk import.
+  // The workspace's tags, resolved once for the batch. Only fetched when a
+  // draft actually carries tags: the text-paste path never does, and this runs
+  // on every bulk import.
+  //
+  // Both a name map and an id set, because a draft may arrive with either.
+  // The id set is what makes ids safe to accept from a client: an id is opaque
+  // and guessable in the sense that matters, so one that isn't this workspace's
+  // is dropped rather than trusted.
   const tagMap = new Map<string, string>();
-  if (drafts.some((d) => d.tagNames?.length)) {
+  const workspaceTagIds = new Set<string>();
+  if (drafts.some((d) => d.tagNames?.length || d.tagIds?.length)) {
     const workspaceTags = await db
       .select({ id: tags.id, name: tags.name })
       .from(tags)
       .where(eq(tags.workspaceId, workspaceId));
-    for (const t of workspaceTags) tagMap.set(t.name.toLowerCase(), t.id);
+    for (const t of workspaceTags) {
+      tagMap.set(t.name.toLowerCase(), t.id);
+      workspaceTagIds.add(t.id);
+    }
   }
 
   const writable = await writableProfileIds(userId, workspaceId);
@@ -508,9 +517,15 @@ export async function createBulkFromDrafts(
       // `.trim()` and turn a bad request into a 500.
       tagIds: [
         ...new Set(
-          (d.tagNames ?? [])
-            .map((n) => (typeof n === "string" ? tagMap.get(n.trim().toLowerCase()) : undefined))
-            .filter((id): id is string => !!id),
+          d.tagIds?.length
+            ? d.tagIds.filter(
+                (id): id is string => typeof id === "string" && workspaceTagIds.has(id),
+              )
+            : (d.tagNames ?? [])
+                .map((n) =>
+                  typeof n === "string" ? tagMap.get(n.trim().toLowerCase()) : undefined,
+                )
+                .filter((id): id is string => !!id),
         ),
       ].slice(0, TAGS_PER_TRANSACTION_MAX),
       occurredOn: d.occurredOn,

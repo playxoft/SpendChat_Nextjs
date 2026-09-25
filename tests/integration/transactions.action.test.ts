@@ -588,6 +588,40 @@ describe("tagNames on the bulk draft path", () => {
     expect(await storedTagIds("borrowed")).toEqual([]);
   });
 
+  it("prefers ids over names, so a rename mid-review still saves the tag", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const travel = await makeTag("a", "Travel");
+
+    // The AI review list holds ids and shows the name it resolved at parse
+    // time. Renaming the tag from another tab makes that name stale — the id
+    // does not go stale, which is the whole reason the row sends it.
+    const { updateTxnTag } = await import("@/services/tags");
+    const { workspaceIdOf } = await import("./helpers/seed");
+    await updateTxnTag(uid("a"), await workspaceIdOf("a"), travel, { name: "Travel 2026" });
+
+    const row = { ...draft("renamed", ["Travel"]), tagIds: [travel] };
+    expect((await addBulkTransactions([row])).ok).toBe(true);
+    expect(await storedTagIds("renamed")).toEqual([travel]);
+  });
+
+  it("drops another workspace's tag id — an id from a client is not trusted", async () => {
+    signInAs("b");
+    await bootstrapUser("b");
+    const theirs = await makeTag("b", "Private");
+
+    signInAs("a");
+    await bootstrapUser("a");
+    const mine = await makeTag("a", "Mine");
+
+    // `tag_ids` carries no foreign key, so nothing in the database would stop
+    // B's id from landing on A's transaction. The workspace check is the only
+    // thing between a hand-edited request and someone else's tag.
+    const row = { ...draft("smuggled", []), tagIds: [mine, theirs] };
+    expect((await addBulkTransactions([row])).ok).toBe(true);
+    expect(await storedTagIds("smuggled")).toEqual([mine]);
+  });
+
   it("drops a name nobody has, and keeps the ones that resolve", async () => {
     signInAs("a");
     await bootstrapUser("a");

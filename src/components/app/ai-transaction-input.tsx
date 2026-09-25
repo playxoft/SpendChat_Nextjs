@@ -333,15 +333,11 @@ export function AiTransactionInput({
   const tagQuery = tagMatch?.[1] ?? "";
   const tagActive = !!tagMatch && !tagDismissed && !parsing;
   const knownTags = createdTags.known;
-  // Rows hold ids (what the pickers speak); the parse and the bulk save speak
-  // names. These two cross between them against `knownTags`, which is safe here
-  // only because every id in a row was put there from a list this component was
-  // handed — the page's `tags` prop, a tag created in a picker, or the list the
-  // parse returned, all of which land in `knownTags`. Resolving a *name* that
-  // came from somewhere else is what is not safe, and `handleParse` is careful
-  // not to: see the note there.
-  const idsToNames = (ids: string[]) =>
-    ids.map((id) => knownTags.find((t) => t.id === id)?.name).filter((n): n is string => !!n);
+  // Rows hold ids, and the save sends ids — an id survives a rename of the tag
+  // while the review list is open, where a name would quietly stop matching and
+  // the row would save without the tag it is showing. Names are crossed to ids
+  // exactly once, in `handleParse`, against the list the server resolved with.
+  // This resolves ids the other way only to *render* them.
   const tagsOf = (ids: string[]) =>
     ids.map((id) => knownTags.find((t) => t.id === id)).filter((t): t is TxnTagDTO => !!t);
   // Which row's "#" menu is open, so a row's "+N" overflow can open its own.
@@ -609,7 +605,7 @@ export function AiTransactionInput({
       description: r.description.trim() || undefined,
       note: "",
       categoryName: r.categoryName || null,
-      tagNames: idsToNames(r.tagIds),
+      tagIds: r.tagIds,
       profileId: targetProfileId || undefined,
       occurredOn: r.occurredOn || today,
     }));
@@ -1209,13 +1205,13 @@ export function AiTransactionInput({
           one — columns never shift row-to-row, and nothing wraps to a 2nd line
           except the optional description. */}
       <div className="scrollbar-slim max-h-72 overflow-auto">
-        <div className="min-w-[42rem] space-y-2 pr-1">
+        <div className="min-w-[44rem] space-y-2 pr-1">
           {rows.map((r) => {
             const cats = categories.filter((c) => c.kind === r.type);
             return (
               <div
                 key={r.key}
-                className="grid grid-cols-[auto_5.5rem_minmax(11rem,1.6fr)_8.5rem_8.5rem_auto] items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/30 p-2"
+                className="grid grid-cols-[auto_5.5rem_minmax(13rem,1.6fr)_8.5rem_8.5rem_auto] items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/30 p-2"
               >
                 <RowTypeToggle
                   value={r.type}
@@ -1249,16 +1245,33 @@ export function AiTransactionInput({
                     are reading rather than to a strip under it. Focus moves to
                     `focus-within` so the shell lights up with the caret. */}
                 <div
-                  className="flex h-8 w-full min-w-0 items-center gap-1 rounded-md border border-input bg-transparent pr-0.5 pl-2.5 transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 aria-invalid:border-destructive dark:bg-input/30"
-                  aria-invalid={!r.title.trim() || undefined}
+                  className={cn(
+                    "flex h-8 w-full min-w-0 items-center gap-1 rounded-md border border-input bg-transparent pr-0.5 pl-2.5 transition-colors dark:bg-input/30",
+                    // Destructive *replaces* the focus ring rather than layering
+                    // under it, the rule the composer's combined field already
+                    // documents: `focus-within:` carries a pseudo-class, so a
+                    // plain `border-destructive` loses to it and an empty title
+                    // would read blue for exactly as long as the caret is in it.
+                    !r.title.trim()
+                      ? "border-destructive ring-3 ring-destructive/20 dark:border-destructive/50 dark:ring-destructive/40"
+                      : "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+                  )}
                 >
                   <input
                     value={r.title}
                     onChange={(e) => patch(r.key, { title: e.target.value })}
                     placeholder="Title"
                     aria-label="Title"
+                    // On the input, not the shell: a screen reader reports the
+                    // invalid state of the widget that takes focus, and a plain
+                    // <div> has no role to carry it.
+                    aria-invalid={!r.title.trim() || undefined}
                     maxLength={TITLE_MAX}
-                    className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+                    // 16px under `md`, like every other field here: iOS Safari
+                    // zooms the viewport in on a focused input below that, and
+                    // the amount beside it doesn't — so a phone would zoom on
+                    // some fields of the same row and not others.
+                    className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
                   />
                   <TagsInField
                     visible={1}
@@ -1275,6 +1288,13 @@ export function AiTransactionInput({
                       and re-does every other edit on the list. */}
                   <TagSelect
                     compact
+                    // Sized and stripped for life *inside* a field: the strip's
+                    // `size-8` overflows this shell's 30px content box onto its
+                    // own border, and the count badge floats outside the field
+                    // entirely — where it only repeats what the chips beside it
+                    // already say.
+                    className="size-7"
+                    showCount={false}
                     tags={knownTags}
                     value={r.tagIds}
                     onChange={(ids) => patch(r.key, { tagIds: ids })}

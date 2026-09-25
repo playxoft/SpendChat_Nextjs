@@ -8,9 +8,14 @@ export type BulkDraft = {
   description?: string;
   note: string;
   categoryName: string | null;
-  /** Workspace tag names (not ids) — the AI path speaks names, and the text
-   *  parser produces none. Resolved against the workspace on save; an unknown
-   *  name is dropped, never created. */
+  /** Workspace tag ids. Preferred over `tagNames` when both are set: an id
+   *  survives a rename and a name does not, so a row whose tag was renamed
+   *  elsewhere while the user sat on the review list still saves the tag it
+   *  shows. Validated against the workspace on save — an id from anywhere else
+   *  is dropped. */
+  tagIds?: string[];
+  /** Workspace tag names, for callers that only have names. Resolved against
+   *  the workspace on save; an unknown name is dropped, never created. */
   tagNames?: string[];
   profileId?: string;
   occurredOn: string; // YYYY-MM-DD
