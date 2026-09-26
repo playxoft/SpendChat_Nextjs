@@ -11,6 +11,14 @@ compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 # `wrangler secret put` persist regardless; this also protects dashboard vars.)
 keep_vars = true
 
+# Don't let esbuild wrap functions in its `__name(fn, "fn")` helper. It exists to
+# restore `.name` after minification renames things — and we don't minify, so it
+# buys nothing. It also breaks any function serialized into the page with
+# `fn.toString()`: next-themes ships its pre-paint theme script that way, the
+# helper doesn't exist in the browser, and the script threw
+# "__name is not defined" before applying the stored theme on every page.
+keep_names = false
+
 # ---------------------------------------------------------------------------
 # There is NO deployable top-level environment: prod and beta are BOTH named
 # environments, so every build/deploy must pass `-e|--env` — prod via

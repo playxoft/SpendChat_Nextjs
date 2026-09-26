@@ -18,6 +18,15 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.29.1] — 2026-09-27
+
+### Fixed
+- **Your light or dark theme applies before the page paints again.** The small
+  script that sets the theme ahead of the first paint was throwing on every page
+  ("__name is not defined") — a build helper had been injected into it that
+  doesn't exist in the browser — so dark-mode users could see a light flash on a
+  full reload until the app caught up. The Worker build no longer injects it.
+
 ## [0.29.0] — 2026-09-26
 
 ### Added
