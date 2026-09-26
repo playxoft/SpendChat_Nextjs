@@ -24,7 +24,7 @@ import { CategoryEditorDialog } from "./category-editor-dialog";
 import { ControlHint } from "./control-hint";
 import { AiTransactionInput } from "./ai-transaction-input";
 import { EntryModeToggle, MODE_ROW_DENSE } from "./entry-mode-toggle";
-import { useEntryMode } from "./entry-mode-store";
+import { readEntryMode, useEntryMode } from "./entry-mode-store";
 import { cn } from "@/lib/utils";
 import { usePendingMessages } from "./pending-messages";
 import { useLoadingOverlay } from "./loading-overlay";
@@ -37,7 +37,7 @@ import { toMinorUnits } from "@/lib/money";
 import { amountPlaceholder, formatAmountInput, integerDigitCount, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 import { splitChipPaste } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { isMobileViewport, useIsMobile } from "@/hooks/use-is-mobile";
 import { comboFor, describeShortcut, formatShortcut } from "@/lib/shortcuts";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
@@ -339,18 +339,27 @@ export function TransactionComposer({
    *   wherever the browser just restored the reader to.
    * - **Not repeatable.** Once per mount. Re-running on a mode or density
    *   change would take the caret back from wherever the user has since put it.
+   *   An AI-mode or phone visit spends the shot too, so switching to Manual
+   *   later never pulls focus.
    *
-   * The `activeElement` re-check after `focus()` is what makes this safe across
-   * hydration: `useEntryMode` renders "manual" on the server and corrects to the
-   * stored mode on the client, and the inactive pane is `visibility: hidden`,
-   * which browsers refuse to focus. So the shot is only spent when the caret
-   * actually landed — an AI-mode user's settled render still gets its turn to
-   * decline.
+   * Mode and viewport are read **live**, not from `mode` / `isMobile`. Both are
+   * `useSyncExternalStore` values, which hold the server snapshot ("manual", the
+   * UA hint) for the whole hydration commit — and this effect runs in that
+   * commit, before the stores re-read. Trusting them would focus an AI-mode
+   * user's manual pane just before it hides, or raise a phone's keyboard when
+   * the UA hint guessed desktop. The deps only let it retry while it has not
+   * yet run for real (a profile switch still finishing).
+   *
+   * Escape leaves the field (see the form's `onKeyDown`), since a focused input
+   * holds back the single-key shortcuts until the caret goes elsewhere.
    */
   const autoFocused = useRef(false);
   useEffect(() => {
-    if (autoFocused.current || isMobile) return;
-    if (switching || mode !== "manual") return;
+    if (autoFocused.current || switching) return;
+    if (isMobileViewport() || readEntryMode() !== "manual") {
+      autoFocused.current = true;
+      return;
+    }
     const el = firstField().current;
     if (!el) return;
     const active = document.activeElement;
@@ -359,11 +368,10 @@ export function TransactionComposer({
       return;
     }
     el.focus({ preventScroll: true });
-    if (document.activeElement === el) autoFocused.current = true;
-    // Mount-once by the ref above; the deps only let it retry while it has not
-    // yet succeeded (hydration settling, a profile switch finishing).
+    autoFocused.current = true;
+    // Mount-once by the ref above; `switching` is the only thing worth a retry.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, isMobile, switching]);
+  }, [switching]);
 
   /**
    * Re-arm both inline pickers after the title text changes.
@@ -1202,6 +1210,21 @@ export function TransactionComposer({
               onSubmit={(e) => {
                 e.preventDefault();
                 submit();
+              }}
+              onKeyDown={(e) => {
+                // Escape leaves a composer field, handing the keyboard back to
+                // the single-key shortcuts a focused input holds back. Only
+                // when nothing nearer used it (an open `/` or `#` picker
+                // preventDefaults), mid-IME, or from a portaled popover, which
+                // bubbles here through React but isn't inside the form.
+                if (e.key !== "Escape" || e.defaultPrevented || e.nativeEvent.isComposing) return;
+                const t = e.target;
+                if (
+                  (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) &&
+                  e.currentTarget.contains(t)
+                ) {
+                  t.blur();
+                }
               }}
             >
               {/* Drop files anywhere on the tracker to stage them for the next send. */}
