@@ -1,5 +1,4 @@
-import type { NextRequest } from "next/server";
-import { cookies } from "next/headers";
+import { NextResponse, type NextRequest } from "next/server";
 import { hasVerifiedEmail, verifyFirebaseIdToken } from "@/lib/firebase-verify";
 import { resolveUser, syncUserProfile } from "@/lib/identity";
 import { attributionInputSchema, type AttributionInput } from "@/lib/attribution";
@@ -46,6 +45,16 @@ function isCrossSite(request: NextRequest): boolean {
  * `__session` (read/verified by `getCurrentUser`) and `__refresh` (used to
  * re-mint an ID token once the short-lived one expires). DELETE — sign-out;
  * clears both cookies.
+ *
+ * The cookies are written on the **response**, not through `cookies()` from
+ * `next/headers`. Next only lets `cookies()` mutate while the request is in its
+ * "action" phase, and flips it to "after" the moment the connection closes —
+ * which happens whenever the browser navigates or reloads while this handler is
+ * still awaiting the database (1–4s in dev against remote Neon). The `set` at
+ * the end then threw "Cookies can only be modified in a Server Action or Route
+ * Handler" and logged a 500 for a client that had already left. Response
+ * cookies don't depend on the phase: if the client is gone the headers are
+ * simply never delivered, which is the right outcome.
  *
  * Known limitation: sign-out clears cookies only — it does NOT revoke the
  * Firebase refresh token server-side (that needs admin credentials, which this
@@ -119,13 +128,13 @@ export async function POST(request: NextRequest) {
       }
     }
     setLogContext({ userId });
-    const store = await cookies();
-    store.set(SESSION_COOKIE, idToken, sessionCookieOptions());
+    const res = NextResponse.json({ ok: true });
+    res.cookies.set(SESSION_COOKIE, idToken, sessionCookieOptions());
     // Readable by the statically-rendered landing page, which has no other way
     // to know a visitor is signed in. A hint only — never an access decision.
     // `Secure` from this request's own scheme, so it matches the preference
     // cookie the landing page writes beside it (see `sessionHintCookieOptions`).
-    store.set(
+    res.cookies.set(
       SESSION_HINT_COOKIE,
       "1",
       sessionHintCookieOptions(new URL(request.url).protocol === "https:"),
@@ -133,9 +142,9 @@ export async function POST(request: NextRequest) {
     // The refresh token is what keeps the session alive for the month — re-set it
     // on every sync so its expiry slides forward with each visit.
     if (refreshToken) {
-      store.set(REFRESH_COOKIE, refreshToken, sessionCookieOptions());
+      res.cookies.set(REFRESH_COOKIE, refreshToken, sessionCookieOptions());
     }
-    return Response.json({ ok: true });
+    return res;
   });
 }
 
@@ -145,11 +154,17 @@ export async function DELETE(request: NextRequest) {
     if (isCrossSite(request)) {
       return Response.json({ error: "Cross-site request rejected" }, { status: 403 });
     }
-    const store = await cookies();
-    store.delete(SESSION_COOKIE);
-    store.delete(REFRESH_COOKIE);
+    const res = NextResponse.json({ ok: true });
+    // Expire each cookie with the same path it was set with, or the browser
+    // treats the deletion as a different cookie and keeps the original.
+    res.cookies.set(SESSION_COOKIE, "", sessionCookieOptions(0));
+    res.cookies.set(REFRESH_COOKIE, "", sessionCookieOptions(0));
     // Must go with them, or `/` keeps offering the app to someone signed out.
-    store.delete(SESSION_HINT_COOKIE);
-    return Response.json({ ok: true });
+    res.cookies.set(
+      SESSION_HINT_COOKIE,
+      "",
+      sessionHintCookieOptions(new URL(request.url).protocol === "https:", 0),
+    );
+    return res;
   });
 }
