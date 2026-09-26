@@ -18,6 +18,16 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.28.2] — 2026-09-26
+
+### Fixed
+- **Leaving a page mid-sign-in no longer logs a false server error.** If the
+  browser navigated or reloaded while the sign-in cookie was still being set,
+  the server threw and recorded a 500 for a visitor who had already gone. The
+  cookies now travel on the response itself, so a visitor who leaves simply
+  doesn't receive them. Sign-out also expires each cookie on the exact path it
+  was set with, so none can linger.
+
 ## [0.28.1] — 2026-09-26
 
 ### Fixed
