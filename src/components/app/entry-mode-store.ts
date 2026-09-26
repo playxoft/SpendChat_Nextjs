@@ -14,7 +14,12 @@ import type { EntryMode } from "./entry-mode-toggle";
 const KEY = "spendchat.entry-mode";
 const listeners = new Set<() => void>();
 
-function read(): EntryMode {
+/**
+ * The stored mode, read live. For code that must not act on the hydration
+ * snapshot (which is always "manual") — e.g. an effect that runs in the same
+ * commit as hydration, before `useSyncExternalStore` has re-read the store.
+ */
+export function readEntryMode(): EntryMode {
   try {
     return localStorage.getItem(KEY) === "ai" ? "ai" : "manual";
   } catch {
@@ -46,6 +51,6 @@ function subscribe(onChange: () => void) {
 
 /** `[mode, setMode]`, mirroring `useState`, but backed by localStorage. */
 export function useEntryMode(): [EntryMode, (mode: EntryMode) => void] {
-  const mode = useSyncExternalStore(subscribe, read, (): EntryMode => "manual");
+  const mode = useSyncExternalStore(subscribe, readEntryMode, (): EntryMode => "manual");
   return [mode, setEntryMode];
 }

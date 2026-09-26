@@ -42,6 +42,13 @@ function getSnapshot() {
   return window.matchMedia(QUERY).matches;
 }
 
+/**
+ * Whether the viewport is phone-sized right now, read live. `useIsMobile` returns
+ * the server fallback (a UA hint) for the whole hydration commit, so an effect
+ * that runs in that commit and must not guess wrong should ask this instead.
+ */
+export const isMobileViewport = getSnapshot;
+
 export function useIsMobile(serverFallback = false) {
   return useSyncExternalStore(subscribe, getSnapshot, () => serverFallback);
 }

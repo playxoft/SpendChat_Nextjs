@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlignLeft, ArrowUp, Minus, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,7 @@ import { CategoryEditorDialog } from "./category-editor-dialog";
 import { ControlHint } from "./control-hint";
 import { AiTransactionInput } from "./ai-transaction-input";
 import { EntryModeToggle, MODE_ROW_DENSE } from "./entry-mode-toggle";
-import { useEntryMode } from "./entry-mode-store";
+import { readEntryMode, useEntryMode } from "./entry-mode-store";
 import { cn } from "@/lib/utils";
 import { usePendingMessages } from "./pending-messages";
 import { useLoadingOverlay } from "./loading-overlay";
@@ -37,7 +37,7 @@ import { toMinorUnits } from "@/lib/money";
 import { amountPlaceholder, formatAmountInput, integerDigitCount, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 import { splitChipPaste } from "@/lib/quick-entry";
 import { useIsMac, useShortcut } from "@/hooks/use-shortcut";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { isMobileViewport, useIsMobile } from "@/hooks/use-is-mobile";
 import { comboFor, describeShortcut, formatShortcut } from "@/lib/shortcuts";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
@@ -304,6 +304,15 @@ export function TransactionComposer({
     { requireNoOverlay: true, enabled: !switching },
   );
 
+  /**
+   * The field an entry starts in: the chip in single-field mode, the title in
+   * title-first, the amount otherwise. One definition, because the composer
+   * needs it twice — after a send, and when the tracker first opens.
+   */
+  function firstField() {
+    return isCombined ? chipRef : inputMode === "title_amount" ? titleRef : amountRef;
+  }
+
   /** Move the caret to the end of one of the single field's two zones. */
   function focusEnd(ref: React.RefObject<HTMLInputElement | null>) {
     const el = ref.current;
@@ -311,6 +320,58 @@ export function TransactionComposer({
     el.focus();
     el.setSelectionRange(el.value.length, el.value.length);
   }
+
+  /**
+   * On desktop the tracker opens with the caret already in the composer, so the
+   * first keystroke after the page loads is the amount rather than a click to
+   * find somewhere to type. The composer is the page's purpose; making the
+   * reader aim at it first is the tap this whole design exists to remove.
+   *
+   * Four things it deliberately does not do:
+   *
+   * - **Not on a phone.** Focusing an input there raises the keyboard over the
+   *   feed the moment the page settles, hiding the thing you came to read.
+   * - **Not a steal.** If anything already holds focus — the user's own click
+   *   during load, a restored dialog — that wins, and the one shot is spent so
+   *   it can't be taken back a beat later.
+   * - **Not a scroll.** `preventScroll`, because the composer sits under a feed
+   *   that can be long and focusing it must not yank the viewport away from
+   *   wherever the browser just restored the reader to.
+   * - **Not repeatable.** Once per mount. Re-running on a mode or density
+   *   change would take the caret back from wherever the user has since put it.
+   *   An AI-mode or phone visit spends the shot too, so switching to Manual
+   *   later never pulls focus.
+   *
+   * Mode and viewport are read **live**, not from `mode` / `isMobile`. Both are
+   * `useSyncExternalStore` values, which hold the server snapshot ("manual", the
+   * UA hint) for the whole hydration commit — and this effect runs in that
+   * commit, before the stores re-read. Trusting them would focus an AI-mode
+   * user's manual pane just before it hides, or raise a phone's keyboard when
+   * the UA hint guessed desktop. The deps only let it retry while it has not
+   * yet run for real (a profile switch still finishing).
+   *
+   * Escape leaves the field (see the form's `onKeyDown`), since a focused input
+   * holds back the single-key shortcuts until the caret goes elsewhere.
+   */
+  const autoFocused = useRef(false);
+  useEffect(() => {
+    if (autoFocused.current || switching) return;
+    if (isMobileViewport() || readEntryMode() !== "manual") {
+      autoFocused.current = true;
+      return;
+    }
+    const el = firstField().current;
+    if (!el) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) {
+      autoFocused.current = true;
+      return;
+    }
+    el.focus({ preventScroll: true });
+    autoFocused.current = true;
+    // Mount-once by the ref above; `switching` is the only thing worth a retry.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [switching]);
 
   /**
    * Re-arm both inline pickers after the title text changes.
@@ -472,9 +533,8 @@ export function TransactionComposer({
     setTagIds([]);
     setTagDismissed(false);
     setTagIndex(0);
-    // Back to whichever field the next entry starts in: the chip in single-field
-    // mode, the title in title-first, the amount otherwise.
-    (isCombined ? chipRef : inputMode === "title_amount" ? titleRef : amountRef).current?.focus();
+    // Back to whichever field the next entry starts in.
+    firstField().current?.focus();
   }
 
   // Files dropped anywhere on the tracker page: filter to the free slots and
@@ -1150,6 +1210,21 @@ export function TransactionComposer({
               onSubmit={(e) => {
                 e.preventDefault();
                 submit();
+              }}
+              onKeyDown={(e) => {
+                // Escape leaves a composer field, handing the keyboard back to
+                // the single-key shortcuts a focused input holds back. Only
+                // when nothing nearer used it (an open `/` or `#` picker
+                // preventDefaults), mid-IME, or from a portaled popover, which
+                // bubbles here through React but isn't inside the form.
+                if (e.key !== "Escape" || e.defaultPrevented || e.nativeEvent.isComposing) return;
+                const t = e.target;
+                if (
+                  (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement) &&
+                  e.currentTarget.contains(t)
+                ) {
+                  t.blur();
+                }
               }}
             >
               {/* Drop files anywhere on the tracker to stage them for the next send. */}

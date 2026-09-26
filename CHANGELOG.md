@@ -18,6 +18,16 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.29.0] — 2026-09-26
+
+### Added
+- **The tracker opens with the caret in the composer.** On desktop, the first
+  keystroke after the page loads is the amount — no click to find somewhere to
+  type. It stands down on phones (focusing an input there raises the keyboard
+  over the feed you came to read), never takes focus from a click that got there
+  first, and doesn't scroll the feed to do it. Press **Esc** to leave the field
+  and get the single-key shortcuts back.
+
 ## [0.28.2] — 2026-09-26
 
 ### Fixed
