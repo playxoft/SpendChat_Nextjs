@@ -145,6 +145,39 @@ export function breadcrumbJsonLd(trail: Crumb[]): Record<string, unknown> {
 }
 
 /**
+ * `WebApplication` structured data for a free `/tools/*` page.
+ *
+ * Describes the calculator the visitor can see and use on that page — which is
+ * what makes it honest markup. `price: 0` is what lets Google show it as free.
+ */
+export function webApplicationJsonLd({
+  name,
+  description,
+  path,
+  category = "FinanceApplication",
+}: {
+  name: string;
+  description: string;
+  path: string;
+  /** schema.org `applicationCategory` — `UtilitiesApplication` for date tools. */
+  category?: "FinanceApplication" | "BusinessApplication" | "UtilitiesApplication";
+}): Record<string, unknown> {
+  return {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    name,
+    description,
+    url: `${siteConfig.url}${path}`,
+    applicationCategory: category,
+    operatingSystem: "Any",
+    browserRequirements: "Requires JavaScript",
+    isAccessibleForFree: true,
+    offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    publisher: { "@type": "Organization", name: siteConfig.name, url: siteConfig.url },
+  };
+}
+
+/**
  * One question and its answer. The same shape drives the visible accordion
  * (`FaqSection`) and the `FAQPage` markup below, which is the point: a page
  * marking up an answer a reader can't find on it is the mismatch the spam

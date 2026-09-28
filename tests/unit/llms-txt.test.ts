@@ -103,6 +103,25 @@ describe("buildLlmsTxt", () => {
     expect(out).not.toContain("/compare/hidden");
   });
 
+  it("lists only published free tools, and leaves the section out when there are none", () => {
+    const tool = (slug: string, published: boolean) => ({
+      slug,
+      label: slug,
+      title: `${slug} title`,
+      h1: `${slug} heading`,
+      description: `About ${slug}.`,
+      blurb: "Blurb.",
+      icon: "Percent",
+      group: "everyday" as const,
+      related: [],
+      published,
+    });
+    const withTools = buildLlmsTxt({ ...input, tools: [tool("live-calc", true), tool("draft-calc", false)] });
+    expect(withTools).toContain(`- [live-calc heading](${siteConfig.url}/tools/live-calc): About live-calc.`);
+    expect(withTools).not.toContain("draft-calc");
+    expect(out).not.toContain("## Free tools");
+  });
+
   it("orders posts newest first and flattens their excerpts to one line", () => {
     const newer = out.indexOf("/blog/newer");
     const older = out.indexOf("/blog/older");

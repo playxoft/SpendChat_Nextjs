@@ -4,6 +4,7 @@ import type { DocsSection } from "@/lib/docs";
 import type { Faq } from "@/lib/faq";
 import type { Feature } from "@/lib/features";
 import { FEATURE_GROUPS, featurePath } from "@/lib/features";
+import { toolPath, type Tool } from "@/lib/tools";
 import { siteConfig } from "@/lib/site";
 
 /**
@@ -35,6 +36,8 @@ export type LlmsTxtInput = {
   posts: LlmsPost[];
   faqs: Faq[];
   docs: DocsSection[];
+  /** Free `/tools/*` calculators; unpublished entries are dropped. */
+  tools?: Tool[];
 };
 
 const abs = (path: string) => `${siteConfig.url}${path}`;
@@ -52,7 +55,7 @@ function section(title: string, lines: string[]): string {
   return [`## ${title}`, "", ...lines, ""].join("\n");
 }
 
-export function buildLlmsTxt({ features, comparisons, posts, faqs, docs }: LlmsTxtInput): string {
+export function buildLlmsTxt({ features, comparisons, posts, faqs, docs, tools = [] }: LlmsTxtInput): string {
   const name = siteConfig.name;
   const live = features.filter((f) => f.published);
 
@@ -88,6 +91,7 @@ export function buildLlmsTxt({ features, comparisons, posts, faqs, docs }: LlmsT
     item("FAQ", abs("/faq"), "Short answers to the questions people ask before signing up."),
     item("About", abs("/about"), "Why it exists, the values behind it, and the tech stack."),
     item("Blog", abs("/blog"), "Guides on tracking habits and notes from building the product."),
+    item("Free tools", abs("/tools"), "Free no-signup calculators: percentages, tax, interest, dates, invoices."),
   ]);
 
   const featureLines = FEATURE_GROUPS.flatMap((group) => {
@@ -95,6 +99,11 @@ export function buildLlmsTxt({ features, comparisons, posts, faqs, docs }: LlmsT
     return inGroup.map((f) => item(`${f.label} (${group.label})`, abs(featurePath(f.slug)), f.description));
   });
   const featureSection = section("Features", featureLines);
+
+  const toolSection = section(
+    "Free tools",
+    tools.filter((t) => t.published).map((t) => item(t.h1, abs(toolPath(t.slug)), t.description)),
+  );
 
   const docsSection = section(
     "Documentation",
@@ -138,7 +147,7 @@ export function buildLlmsTxt({ features, comparisons, posts, faqs, docs }: LlmsT
     item("Create an account", abs("/sign-up"), "Free; Google or email and password."),
   ]);
 
-  return [header, product, featureSection, docsSection, compareSection, blogSection, faqSection, devSection, optional]
+  return [header, product, featureSection, toolSection, docsSection, compareSection, blogSection, faqSection, devSection, optional]
     .join("\n")
     .replace(/\n{3,}/g, "\n\n")
     .trimEnd()

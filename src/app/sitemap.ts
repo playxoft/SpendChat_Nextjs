@@ -3,6 +3,7 @@ import { getPosts } from "@/lib/blog";
 import { comparePath, publishedComparisons } from "@/lib/compare";
 import { featurePath, publishedFeatures } from "@/lib/features";
 import { siteConfig } from "@/lib/site";
+import { publishedTools, toolPath } from "@/lib/tools";
 
 export default function sitemap(): MetadataRoute.Sitemap {
   const now = new Date();
@@ -10,6 +11,7 @@ export default function sitemap(): MetadataRoute.Sitemap {
     { path: "", priority: 1, freq: "weekly" },
     { path: "/features", priority: 0.8, freq: "monthly" },
     { path: "/compare", priority: 0.7, freq: "monthly" },
+    { path: "/tools", priority: 0.8, freq: "monthly" },
     { path: "/pricing", priority: 0.7, freq: "monthly" },
     { path: "/blog", priority: 0.7, freq: "weekly" },
     { path: "/docs", priority: 0.7, freq: "monthly" },
@@ -59,5 +61,13 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.6,
   }));
 
-  return [...staticEntries, ...featureEntries, ...compareEntries, ...postEntries];
+  // Free tools, same registry discipline: only pages that exist are submitted.
+  const toolEntries: MetadataRoute.Sitemap = publishedTools().map((tool) => ({
+    url: `${siteConfig.url}${toolPath(tool.slug)}`,
+    lastModified: now,
+    changeFrequency: "monthly",
+    priority: 0.7,
+  }));
+
+  return [...staticEntries, ...featureEntries, ...compareEntries, ...toolEntries, ...postEntries];
 }

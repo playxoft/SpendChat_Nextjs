@@ -163,7 +163,7 @@ function param(url: URL, key: string): string | null {
  * everything else collapses to its first segment, so a share link's secret
  * token or an app route never lands in a column documented as non-identifying.
  */
-const KEEP_FULL_PATH = new Set(["features", "blog", "compare", "docs"]);
+const KEEP_FULL_PATH = new Set(["features", "blog", "compare", "docs", "tools"]);
 
 export function landingFor(pathname: string): string {
   const [first, ...rest] = pathname.split("/").filter(Boolean);
