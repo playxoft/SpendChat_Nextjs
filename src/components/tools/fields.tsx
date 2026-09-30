@@ -274,6 +274,8 @@ function dateLabel(iso: string, locale: string, weekday: boolean): string {
 }
 
 export type Option = { value: string; label: string };
+/** A labelled run of options — a native `<optgroup>`. */
+export type OptionGroup = { label: string; options: readonly Option[] };
 
 /** Native `<select>` — the OS picker is the most usable one on a phone. */
 export function SelectField({
@@ -287,11 +289,16 @@ export function SelectField({
   label: ReactNode;
   value: string;
   onChange: (value: string) => void;
-  options: readonly Option[];
+  options: readonly (Option | OptionGroup)[];
   hint?: ReactNode;
   className?: string;
 }) {
   const id = useId();
+  const option = (o: Option) => (
+    <option key={o.value} value={o.value}>
+      {o.label}
+    </option>
+  );
   return (
     <Field id={id} label={label} hint={hint} className={className}>
       <div className="relative">
@@ -302,11 +309,15 @@ export function SelectField({
           aria-describedby={hint ? `${id}-msg` : undefined}
           className={cn(control, "appearance-none pr-9")}
         >
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
+          {options.map((o) =>
+            "options" in o ? (
+              <optgroup key={o.label} label={o.label}>
+                {o.options.map(option)}
+              </optgroup>
+            ) : (
+              option(o)
+            ),
+          )}
         </select>
         <svg
           aria-hidden

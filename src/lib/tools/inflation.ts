@@ -15,6 +15,11 @@ import { currencySymbol } from "@/lib/tools/format";
  * buying power lost) are always measured from the earlier year to the later
  * one, so they read the same whichever way the question was asked.
  *
+ * Years after a country's last published figure can be estimated too: the
+ * index is carried on at a steady yearly rate (`extendSeries`) — by default
+ * the country's own compound average over its last 20 years of data — and
+ * every figure that leans on one of those years is flagged as an estimate.
+ *
  * Floats throughout: these are estimates for planning, rounded for display.
  */
 
@@ -225,32 +230,59 @@ export function coverageNote(
   return null;
 }
 
+/** How a figure past a country's data was estimated. */
+export type Estimate = FutureRate & {
+  /** The last year with published figures; every year after it is estimated. */
+  dataLastYear: number;
+  /** The value again with the rate a point lower and a point higher, smaller first. */
+  range: [number, number];
+};
+
 /** One country's answer in a comparison: a result, or the note saying why there isn't one. */
 export type CountryInflation =
-  | { series: CpiCountry; result: InflationResult; note: null }
-  | { series: CpiCountry; result: null; note: string };
+  | { series: CpiCountry; result: InflationResult; note: null; estimate: Estimate | null }
+  | { series: CpiCountry; result: null; note: string; estimate: null };
 
 /**
  * The same amount, read in each country's own currency, moved from
  * `fromYear` to `toYear` with each country's own index — in the order given.
+ *
+ * With `rateFor`, years after a country's data are estimated at the rate it
+ * returns, and the answer carries an `estimate` saying so; without it, those
+ * years have no figure.
  */
 export function compareInflation({
   amount,
   fromYear,
   toYear,
   countries,
+  rateFor,
 }: {
   amount: number;
   fromYear: number;
   toYear: number;
   countries: readonly CpiCountry[];
+  rateFor?: (series: CpiCountry) => FutureRate;
 }): CountryInflation[] {
+  const later = Math.max(fromYear, toYear);
   return countries.map((series) => {
-    const note = coverageNote(series, fromYear, toYear);
-    const result = note ? null : adjustForInflation({ amount, fromYear, toYear, series });
-    return result
-      ? { series, result, note: null }
-      : { series, result: null, note: note ?? "No figures for those years" };
+    const rate = rateFor && later > series.lastYear ? rateFor(series) : null;
+    const used = rate ? extendSeries(series, rate.percent, later) : series;
+    const note = coverageNote(used, fromYear, toYear);
+    const result = note ? null : adjustForInflation({ amount, fromYear, toYear, series: used });
+    if (!result) return { series, result: null, note: note ?? "No figures for those years", estimate: null };
+    if (!rate) return { series, result, note: null, estimate: null };
+    const at = (percent: number) =>
+      adjustForInflation({ amount, fromYear, toYear, series: extendSeries(series, percent, later) })?.value ??
+      result.value;
+    const a = at(rate.percent - RANGE_POINTS);
+    const b = at(rate.percent + RANGE_POINTS);
+    return {
+      series,
+      result,
+      note: null,
+      estimate: { ...rate, dataLastYear: series.lastYear, range: a <= b ? [a, b] : [b, a] },
+    };
   });
 }
 
@@ -282,4 +314,102 @@ export function indexedPaths(
     rows.push(row);
   }
   return { codes: usable.map((c) => c.country), rows };
+}
+
+// ---------------------------------------------------------------------------
+// Beyond the data: estimated years
+// ---------------------------------------------------------------------------
+
+/** The furthest year the calculator will estimate to. */
+export const FUTURE_LAST_YEAR = 2500;
+
+/** How many years of a country's own data its default future rate averages. */
+export const AVERAGE_YEARS = 20;
+
+/** How far either side of the assumed rate the range under an estimate goes, in percentage points. */
+export const RANGE_POINTS = 1;
+
+/** The rates a visitor may set for the future, in percent a year. */
+export const CUSTOM_RATE_RANGE = { min: -10, max: 100 } as const;
+
+/** Every year the pickers offer, published or estimated. */
+export const ALL_YEARS: Pick<CpiCountry, "firstYear" | "lastYear"> = {
+  firstYear: YEAR_RANGE.firstYear,
+  lastYear: FUTURE_LAST_YEAR,
+};
+
+/** The steady yearly rate assumed after a country's data ends. */
+export type FutureRate = {
+  /** Percent a year. */
+  percent: number;
+  /** The years it's the average of — null when the visitor set it. */
+  window: { from: number; to: number } | null;
+};
+
+/**
+ * A country's compound average inflation over its last `years` years of data
+ * (fewer when the series is shorter) — the rate its estimates use unless the
+ * visitor sets one.
+ */
+export function recentAverage(
+  series: Pick<CpiCountry, "firstYear" | "lastYear" | "values">,
+  years = AVERAGE_YEARS,
+): FutureRate | null {
+  const to = series.lastYear;
+  const from = Math.max(series.firstYear, to - years);
+  const a = cpiFor(series, from);
+  const b = cpiFor(series, to);
+  if (a === null || b === null || to <= from) return null;
+  return { percent: ((b / a) ** (1 / (to - from)) - 1) * 100, window: { from, to } };
+}
+
+/**
+ * The series carried on past its last year at a steady `ratePercent` a year,
+ * to `untilYear`:
+ *
+ *   CPI[y] = CPI[last] × (1 + rate)^(y − last)
+ *
+ * Published years keep their figures. A rate at or below −100% (prices
+ * vanishing) or a year the series already covers leaves it as it is.
+ */
+export function extendSeries<T extends Pick<CpiCountry, "lastYear" | "values">>(
+  series: T,
+  ratePercent: number,
+  untilYear: number,
+): T {
+  const last = cpiFor(series, series.lastYear);
+  if (!Number.isFinite(ratePercent) || ratePercent <= -100 || last === null || untilYear <= series.lastYear) {
+    return series;
+  }
+  const values: Record<number, number> = { ...series.values };
+  const step = 1 + ratePercent / 100;
+  for (let y = series.lastYear + 1; y <= Math.min(untilYear, FUTURE_LAST_YEAR); y++) {
+    values[y] = last * step ** (y - series.lastYear);
+  }
+  return { ...series, lastYear: Math.min(untilYear, FUTURE_LAST_YEAR), values };
+}
+
+/**
+ * A figure in powers of ten — 7.12e33 → { mantissa: 7.12, exponent: 33 } —
+ * with the mantissa rounded to `digits` decimals and carried over when it
+ * rounds up to 10.
+ */
+export function scientificParts(value: number, digits = 2): { mantissa: number; exponent: number } {
+  if (value === 0 || !Number.isFinite(value)) return { mantissa: value, exponent: 0 };
+  let exponent = Math.floor(Math.log10(Math.abs(value)));
+  let mantissa = Number((value / 10 ** exponent).toFixed(digits));
+  if (Math.abs(mantissa) >= 10) {
+    exponent += 1;
+    mantissa = Number((mantissa / 10).toFixed(digits));
+  }
+  return { mantissa, exponent };
+}
+
+const SUPERSCRIPT = "⁰¹²³⁴⁵⁶⁷⁸⁹";
+
+/** An exponent as superscript digits: 33 → "³³", −4 → "⁻⁴". */
+export function superscript(n: number): string {
+  return String(Math.trunc(n))
+    .replace("-", "⁻")
+    .replace(/[0-9]/g, (d) => SUPERSCRIPT[Number(d)]!);
 }

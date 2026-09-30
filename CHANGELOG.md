@@ -31,7 +31,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   **When can I afford it?**; a **freelance rate calculator**; a **currency
   converter** at today's reference rates, with a trip mode; and an **inflation
   calculator** that compares up to 20 major economies side by side, from
-  World Bank consumer price data.
+  World Bank consumer price data — and estimates future years (2050, 2100,
+  up to 2500) from each country's 20-year average or a rate you set, clearly
+  marked as an estimate with a range for a point less or more inflation.
 - **Download invoices and quotations as a PDF file.** The big **Download**
   button now saves a real PDF — sharp, selectable text, named after the
   document number (`INV-0007.pdf`) — made entirely in your browser. Printing

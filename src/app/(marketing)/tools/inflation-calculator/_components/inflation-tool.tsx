@@ -2,9 +2,9 @@
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, TriangleAlert } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { NumberField, SelectField, type Option } from "@/components/tools/fields";
+import { ChoiceChips, NumberField, SelectField, type Option, type OptionGroup } from "@/components/tools/fields";
 import {
   ResultActions,
   ResultEmpty,
@@ -19,19 +19,31 @@ import { CPI_COUNTRIES, CPI_FETCHED_ON, CPI_SOURCE, findCpiCountry, type CpiCoun
 import { formatCurrency, formatPercent } from "@/lib/tools/format";
 import { amountRangeError, readField } from "@/lib/tools/growth";
 import {
+  ALL_YEARS,
+  AVERAGE_YEARS,
   clampYear,
   commonLastYear,
   compareInflation,
   countryInSentence,
   coverageNote,
+  cpiFor,
   currencyTag,
+  CUSTOM_RATE_RANGE,
   defaultCountries,
+  extendSeries,
   flagEmoji,
+  FUTURE_LAST_YEAR,
   indexedPaths,
   MAX_COUNTRIES,
   parseCountryList,
+  RANGE_POINTS,
+  recentAverage,
+  scientificParts,
+  superscript,
   YEAR_RANGE,
   type CountryInflation,
+  type Estimate,
+  type FutureRate,
   type IndexedYear,
 } from "@/lib/tools/inflation";
 import { cn } from "@/lib/utils";
@@ -42,6 +54,12 @@ import type { ChartSeries } from "./cpi-chart";
  * once — each from its own consumer price index, read in its own currency.
  * There's no currency picker: an index only means something in the money it
  * was measured in, so "100" is $100 in the US and ₹100 in India.
+ *
+ * Either year can be in the future. Past a country's last published figure
+ * its prices are carried on at a steady rate — its own 20-year average, or
+ * one the visitor sets — and everything that leans on those years says it's
+ * an estimate: "≈" on the figure, a dashed line on the chart, italics in the
+ * table, a range for a point less or more inflation, and a plain warning.
  */
 
 // Short, stable query keys — they're in every shared link.
@@ -53,6 +71,10 @@ const DEFAULTS = {
   f: "2000",
   /** To year. "" = the latest year every picked country has. */
   t: "",
+  /** Future inflation: "avg" = each country's own 20-year average, "own" = the rate in `r`. */
+  e: "avg",
+  /** The visitor's own future rate, percent a year. */
+  r: "3",
 };
 
 const DEFAULT_FROM = 2000;
@@ -63,10 +85,43 @@ const MAX_COLOURED = 8;
 /** Euro-area countries converted at a fixed rate in 1999 (all of ours did — Greece, in 2001, isn't one of them). */
 const EURO_START = 1999;
 
-const YEAR_OPTIONS: Option[] = Array.from({ length: YEAR_RANGE.lastYear - YEAR_RANGE.firstYear + 1 }, (_, i) => {
-  const y = String(YEAR_RANGE.lastYear - i);
-  return { value: y, label: y };
-});
+/** Past this, a figure is written in powers of ten ("₺1.07 × 10³⁶"): its digits would be unreadable, and falsely precise. */
+const HUGE = 1e15;
+
+const yearOption = (y: number): Option => ({ value: String(y), label: String(y) });
+
+/** Published years, newest first. */
+const PAST_YEARS = Array.from({ length: YEAR_RANGE.lastYear - YEAR_RANGE.firstYear + 1 }, (_, i) => YEAR_RANGE.lastYear - i);
+
+/** Years to estimate: every one to 2100, then every 10 to 2200, then every 50. Newest first, like the past ones. */
+const FUTURE_YEARS = (() => {
+  const years: number[] = [];
+  for (let y = YEAR_RANGE.lastYear + 1; y <= 2100; y++) years.push(y);
+  for (let y = 2110; y <= 2200; y += 10) years.push(y);
+  for (let y = 2250; y <= FUTURE_LAST_YEAR; y += 50) years.push(y);
+  return years.reverse();
+})();
+
+/**
+ * The year picker's list: estimates on top (the picker opens on the chosen
+ * year, so the next years are just above it), then the published years. A
+ * year from a link that isn't on the list — 2137 — is slotted in.
+ */
+function yearOptions(selected: number): OptionGroup[] {
+  const future = FUTURE_YEARS.includes(selected) || selected <= YEAR_RANGE.lastYear
+    ? FUTURE_YEARS
+    : [...FUTURE_YEARS, selected].sort((a, b) => b - a);
+  return [
+    { label: "Estimates", options: future.map(yearOption) },
+    { label: "Published data", options: PAST_YEARS.map(yearOption) },
+  ];
+}
+
+/** Quick picks under the years; "" is the latest published year. */
+const JUMP_TO: Option[] = [
+  { value: "", label: "Latest" },
+  ...[2030, 2050, 2100, 2500].map(yearOption),
+];
 
 const noopSubscribe = () => () => {};
 
@@ -105,9 +160,38 @@ function fixed(v: number, locale: string, decimals: number): string {
   }
 }
 
+/** "7.12 × 10³³" — the mantissa with `decimals` decimals, in the visitor's number format. */
+function powerOfTen(v: number, locale: string, decimals = 2): string {
+  const { mantissa, exponent } = scientificParts(v, decimals);
+  return `${fixed(mantissa, locale, decimals)} × 10${superscript(exponent)}`;
+}
+
+/** Money as usual, or in powers of ten once it's astronomically large. */
+function money(v: number, currency: string, locale: string): string {
+  if (Math.abs(v) < HUGE) return formatCurrency(v, currency, locale);
+  const { mantissa, exponent } = scientificParts(v);
+  return `${formatCurrency(mantissa, currency, locale, { decimals: 2 })} × 10${superscript(exponent)}`;
+}
+
+/** A percentage as usual, or in powers of ten once it's astronomically large. */
+function percent(v: number, locale: string): string {
+  return Math.abs(v) < HUGE ? formatPercent(v, locale, 2) : `${powerOfTen(v, locale)}%`;
+}
+
 /** "+82.17%" / "−3.10%": a price change with its direction. */
 function signedPercent(v: number, locale: string): string {
-  return `${v >= 0 ? "+" : "−"}${formatPercent(Math.abs(v), locale, 2)}`;
+  return `${v >= 0 ? "+" : "−"}${percent(Math.abs(v), locale)}`;
+}
+
+/** An index figure for the tables: one decimal, or powers of ten once it's too long. */
+function indexText(v: number, locale: string): string {
+  return Math.abs(v) < 1e9 ? fixed(v, locale, 1) : powerOfTen(v, locale, 1);
+}
+
+/** "2.57% a year (its 2004–2024 average)": the assumed rate and where it came from. */
+function rateText(e: FutureRate, locale: string): string {
+  const pct = `${formatPercent(e.percent, locale, 2)} a year`;
+  return e.window ? `${pct} (its ${e.window.from}–${e.window.to} average)` : `${pct} (the rate you set)`;
 }
 
 /** One line of the copied result. */
@@ -116,6 +200,15 @@ function sentence(r: CountryInflation, fromYear: number, toYear: number, locale:
   if (!r.result) return `${r.series.name}: no figure for ${fromYear}–${toYear} (${r.note.toLowerCase()}).`;
   const x = r.result;
   const cur = r.series.currency;
+  if (r.estimate) {
+    const e = r.estimate;
+    return (
+      `${amountText(x.amount, cur, locale)} in ${fromYear} is estimated at about ${money(x.value, cur, locale)} ` +
+      `in ${toYear} in ${place}, assuming prices rise ${rateText(e, locale)} after ${e.dataLastYear} ` +
+      `(${money(e.range[0], cur, locale)} to ${money(e.range[1], cur, locale)} with ${RANGE_POINTS} point less or ` +
+      `more a year). An estimate, not a forecast.`
+    );
+  }
   return (
     `${amountText(x.amount, cur, locale)} in ${fromYear} is worth about ${formatCurrency(x.value, cur, locale)} ` +
     `in ${toYear} in ${place}: prices ${x.cumulativePercent >= 0 ? "rose" : "fell"} ` +
@@ -139,9 +232,10 @@ export function InflationTool() {
   const selected = codes.map((c) => findCpiCountry(c)).filter((c): c is CpiCountry => c !== null);
 
   const rawTo = s.t === "" ? null : parseYear(s.t);
-  const fromYear = clampYear(parseYear(s.f), YEAR_RANGE, DEFAULT_FROM);
-  const toYear = clampYear(rawTo, YEAR_RANGE, commonLastYear(selected));
+  const fromYear = clampYear(parseYear(s.f), ALL_YEARS, DEFAULT_FROM);
+  const toYear = clampYear(rawTo, ALL_YEARS, commonLastYear(selected));
   const earlier = Math.min(fromYear, toYear);
+  const later = Math.max(fromYear, toYear);
 
   const amount = readField(s.a, locale, {
     min: 0,
@@ -149,6 +243,18 @@ export function InflationTool() {
     required: "Enter an amount.",
     range: amountRangeError,
   });
+
+  // Future years: shown only when a picked country needs one estimated.
+  const estimating = selected.some((c) => later > c.lastYear);
+  const customRate = s.e === "own";
+  const rate = readField(s.r, locale, {
+    min: CUSTOM_RATE_RANGE.min,
+    max: CUSTOM_RATE_RANGE.max,
+    required: "Enter a yearly rate.",
+    range: `Enter a rate from ${CUSTOM_RATE_RANGE.min}% to ${CUSTOM_RATE_RANGE.max}% a year.`,
+  });
+  const rateFor = (c: CpiCountry): FutureRate =>
+    customRate && rate.value !== null ? { percent: rate.value, window: null } : recentAverage(c)!;
 
   /**
    * Any edit pins the auto-picked countries into the URL, so a copied link
@@ -163,8 +269,12 @@ export function InflationTool() {
   };
 
   const sameYear = fromYear === toYear ? "Pick two different years to see how prices changed." : null;
-  const problem = (amount.error && `Amount: ${amount.error}`) || sameYear;
-  const rows = problem ? null : compareInflation({ amount: amount.value!, fromYear, toYear, countries: selected });
+  const rateProblem = estimating && customRate && rate.error ? `Future inflation: ${rate.error}` : null;
+  const problem = (amount.error && `Amount: ${amount.error}`) || sameYear || rateProblem;
+  const rows = problem
+    ? null
+    : compareInflation({ amount: amount.value!, fromYear, toYear, countries: selected, rateFor });
+  const estimates = rows?.flatMap((r) => (r.estimate ? [r.estimate] : [])) ?? [];
 
   const copy = rows
     ? `${rows.map((r) => sentence(r, fromYear, toYear, locale)).join("\n")}\nSource: World Bank consumer price index.`
@@ -178,6 +288,11 @@ export function InflationTool() {
           .slice(0, 3)
           .map((c) => amountText(amount.value!, c.currency, locale))
           .join(", ")}${selected.length > 3 ? "…" : "."}`;
+
+  // The chart draws each country carried on to the later year where it needs estimating.
+  const charted = rateProblem
+    ? selected
+    : selected.map((c) => (later > c.lastYear ? extendSeries(c, rateFor(c).percent, later) : c));
 
   return (
     <div>
@@ -196,15 +311,39 @@ export function InflationTool() {
               label="From year"
               value={String(fromYear)}
               onChange={(v) => update({ f: v })}
-              options={YEAR_OPTIONS}
+              options={yearOptions(fromYear)}
             />
             <SelectField
               label="To year"
               value={String(toYear)}
               onChange={(v) => update({ t: v })}
-              options={YEAR_OPTIONS}
-              hint={s.t === "" ? "The latest year all your countries have." : undefined}
+              options={yearOptions(toYear)}
+              hint={
+                s.t === ""
+                  ? "The latest year all your countries have."
+                  : toYear > YEAR_RANGE.lastYear
+                    ? "An estimate — see the note with the result."
+                    : undefined
+              }
             />
+            <ChoiceChips
+              label="Jump to"
+              className="sm:col-span-2"
+              value={s.t === "" ? "" : String(toYear)}
+              onChange={(v) => update({ t: v })}
+              options={JUMP_TO}
+            />
+            {estimating && (
+              <FutureRateField
+                own={customRate}
+                value={s.r}
+                error={rate.error}
+                locale={locale}
+                onMode={(own) => update({ e: own ? "own" : "avg" })}
+                onChange={(v) => update({ r: v })}
+                className="sm:col-span-2"
+              />
+            )}
             {earlier < EURO_START && euroNames.length > 0 && (
               <p className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">
                 Before {EURO_START}, enter amounts for {listNames(euroNames)} in euros, converted at the old
@@ -222,6 +361,7 @@ export function InflationTool() {
               {rows.length > 1 && (
                 <Comparison rows={rows} amount={amount.value!} fromYear={fromYear} toYear={toYear} locale={locale} />
               )}
+              {estimates.length > 0 && <EstimateNotice estimates={estimates} own={customRate} later={later} />}
             </>
           ) : (
             <ResultEmpty>{problem}</ResultEmpty>
@@ -230,8 +370,104 @@ export function InflationTool() {
         </ToolPanel>
       </ToolLayout>
 
-      <PricePaths selected={selected} fromYear={fromYear} toYear={toYear} problem={sameYear} locale={locale} />
-      <AllCountries picked={codes} fromYear={fromYear} toYear={toYear} problem={sameYear} locale={locale} />
+      <PricePaths
+        selected={charted}
+        fromYear={fromYear}
+        toYear={toYear}
+        problem={sameYear ?? rateProblem}
+        locale={locale}
+      />
+      <AllCountries
+        picked={codes}
+        fromYear={fromYear}
+        toYear={toYear}
+        problem={sameYear}
+        ownRate={customRate && rate.value !== null ? rate.value : null}
+        locale={locale}
+      />
+    </div>
+  );
+}
+
+/**
+ * Where the future rate comes from: each country's own recent average (the
+ * default), or one rate the visitor sets for every country.
+ */
+function FutureRateField({
+  own,
+  value,
+  error,
+  locale,
+  onMode,
+  onChange,
+  className,
+}: {
+  own: boolean;
+  value: string;
+  error: string | null;
+  locale: string;
+  onMode: (own: boolean) => void;
+  onChange: (v: string) => void;
+  className?: string;
+}) {
+  return (
+    <div className={cn("space-y-3 rounded-xl border bg-muted/30 p-3", className)}>
+      <ChoiceChips
+        label="Future inflation"
+        value={own ? "own" : "avg"}
+        onChange={(v) => onMode(v === "own")}
+        options={[
+          { value: "avg", label: `${AVERAGE_YEARS}-year average` },
+          { value: "own", label: "My own rate" },
+        ]}
+      />
+      {own ? (
+        <NumberField
+          label="Inflation per year, for every country"
+          suffix="%"
+          value={value}
+          onChange={onChange}
+          error={error}
+          hint={`Central banks in many countries aim for about ${formatPercent(2, locale, 0)}.`}
+        />
+      ) : (
+        <p className="text-xs leading-relaxed text-muted-foreground">
+          Years after a country&apos;s latest published figure assume its prices keep rising at its own average rate
+          over its last {AVERAGE_YEARS} years of data.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The plain warning that goes with any estimated figure: what was assumed,
+ * that real inflation won't follow it, and — far out — that the figure is an
+ * illustration of compounding rather than a number to plan on.
+ */
+function EstimateNotice({ estimates, own, later }: { estimates: Estimate[]; own: boolean; later: number }) {
+  const ends = [...new Set(estimates.map((e) => e.dataLastYear))].sort((a, b) => a - b);
+  const since = ends.length === 1 ? `after ${ends[0]}` : "after each country's latest published year";
+  const years = later - ends[0]!;
+  return (
+    <div role="note" className="flex gap-2.5 rounded-xl border bg-muted/40 p-3 text-xs leading-relaxed">
+      <TriangleAlert aria-hidden className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-500" />
+      <div className="min-w-0 text-muted-foreground">
+        <p className="font-medium text-foreground">An estimate, not a forecast</p>
+        <p className="mt-1">
+          There are no price figures {since}, so the calculator assumes prices rise at one steady rate —{" "}
+          {own ? "the rate you set" : `each country's average over its last ${AVERAGE_YEARS} years`} — every year.
+          Real inflation changes from year to year and can&apos;t be predicted, so real prices will be different.
+          The range shows what just {RANGE_POINTS} point less or more a year does.
+        </p>
+        {years > 50 && (
+          <p className="mt-1">
+            Over {years} years small differences compound into enormous ones: read figures this far out as an
+            illustration of how inflation adds up, not as a prediction.
+          </p>
+        )}
+        <p className="mt-1">For rough planning only — not financial advice.</p>
+      </div>
     </div>
   );
 }
@@ -336,33 +572,88 @@ function LeadResult({
     );
   }
   const r = row.result;
-  const money = (v: number) => formatCurrency(v, series.currency, locale);
+  const e = row.estimate;
+  const cash = (v: number) => money(v, series.currency, locale);
   const typed = amountText(r.amount, series.currency, locale);
+  const place = countryInSentence(series);
+  const label = (
+    <>
+      <span aria-hidden>{flagEmoji(series.country)} </span>
+      {series.name} · {typed} from {fromYear}, in {toYear} money
+    </>
+  );
+
+  if (!e) {
+    return (
+      <>
+        <ResultHero
+          label={label}
+          value={cash(r.value)}
+          sub={`What cost ${typed} in ${fromYear} cost about ${cash(r.value)} in ${toYear} in ${place}.`}
+        />
+        <ResultRows
+          rows={[
+            { label: `Prices, ${r.earlierYear}–${r.laterYear}`, value: signedPercent(r.cumulativePercent, locale) },
+            { label: "Average inflation per year", value: formatPercent(r.averageAnnualPercent!, locale, 2) },
+            {
+              label: r.purchasingPowerLossPercent >= 0 ? "Buying power lost" : "Buying power gained",
+              value: percent(Math.abs(r.purchasingPowerLossPercent), locale),
+            },
+          ]}
+        />
+      </>
+    );
+  }
+
+  // The most asked future question — "what will today's money be worth?" —
+  // answered alongside when the from-year is further back than the data's end.
+  const indexIn = (year: number) => r.path.find((p) => p.year === year)!.index;
+  const today =
+    fromYear < e.dataLastYear && toYear > e.dataLastYear
+      ? (r.amount * indexIn(toYear)) / indexIn(e.dataLastYear)
+      : null;
+
   return (
     <>
       <ResultHero
         label={
           <>
-            <span aria-hidden>{flagEmoji(series.country)} </span>
-            {series.name} · {typed} from {fromYear}, in {toYear} money
+            {label}{" "}
+            <span className="ml-1 inline-flex rounded-full border px-1.5 text-[11px] font-medium text-foreground">
+              Estimate
+            </span>
           </>
         }
-        value={money(r.value)}
-        sub={`What cost ${typed} in ${fromYear} cost about ${money(r.value)} in ${toYear} in ${countryInSentence(series)}.`}
+        value={`≈ ${cash(r.value)}`}
+        sub={
+          `${typed} in ${fromYear} is roughly ${cash(r.value)} in ${toYear} money in ${place}, assuming prices ` +
+          `rise ${rateText(e, locale)} after ${e.dataLastYear}.`
+        }
       />
       <ResultRows
         rows={[
-          { label: `Prices, ${r.earlierYear}–${r.laterYear}`, value: signedPercent(r.cumulativePercent, locale) },
+          {
+            label: `With ${RANGE_POINTS} point less or more inflation a year`,
+            value: `${cash(e.range[0])} – ${cash(e.range[1])}`,
+          },
+          ...(today !== null
+            ? [{ label: `${typed} in ${e.dataLastYear}, in ${toYear} money`, value: `≈ ${cash(today)}` }]
+            : []),
+          {
+            label: `Prices, ${r.earlierYear}–${r.laterYear} (estimated)`,
+            value: signedPercent(r.cumulativePercent, locale),
+          },
           { label: "Average inflation per year", value: formatPercent(r.averageAnnualPercent!, locale, 2) },
           {
             label: r.purchasingPowerLossPercent >= 0 ? "Buying power lost" : "Buying power gained",
-            value: formatPercent(Math.abs(r.purchasingPowerLossPercent), locale, 2),
+            value: percent(Math.abs(r.purchasingPowerLossPercent), locale),
           },
         ]}
       />
     </>
   );
 }
+
 
 function Comparison({
   rows,
@@ -394,10 +685,14 @@ function Comparison({
             </span>
             {r.result ? (
               <span className="shrink-0 text-right tabular-nums">
-                <span className="block font-medium">{formatCurrency(r.result.value, r.series.currency, locale)}</span>
+                <span className="block font-medium">
+                  {r.estimate && "≈ "}
+                  {money(r.result.value, r.series.currency, locale)}
+                </span>
                 <span className="block text-xs text-muted-foreground">
                   {signedPercent(r.result.cumulativePercent, locale)} ·{" "}
                   {formatPercent(r.result.averageAnnualPercent!, locale, 2)} a year
+                  {r.estimate && " · estimate"}
                 </span>
               </span>
             ) : (
@@ -467,6 +762,17 @@ function LazyCpiChart(props: { rows: IndexedYear[]; series: ChartSeries[]; fromY
   );
 }
 
+/**
+ * Whether the year-by-year table lists `year`: every year over a short span;
+ * over a long one (1960–2500 is 541 rows), round years at a step that keeps
+ * it readable — plus the ends and the years the data stops.
+ */
+function keepYear(year: number, earlier: number, later: number, marks: number[]): boolean {
+  const span = later - earlier;
+  const step = span <= 60 ? 1 : span <= 150 ? 5 : span <= 300 ? 10 : 25;
+  return year % step === 0 || year === earlier || year === later || marks.includes(year);
+}
+
 const fetchedOn = new Date(`${CPI_FETCHED_ON}T00:00:00Z`);
 const LATEST = Math.max(...CPI_COUNTRIES.map((c) => c.lastYear));
 const BEHIND = CPI_COUNTRIES.filter((c) => c.lastYear < LATEST);
@@ -488,13 +794,23 @@ function PricePaths({
   const later = Math.max(fromYear, toYear);
   const { codes, rows } = problem ? { codes: [], rows: [] } : indexedPaths(selected, fromYear, toYear);
   const byCode = new Map(selected.map((c) => [c.country, c]));
+  /** The last published year for each country whose line runs past it; estimated years come after. */
+  const dataEnds = new Map(
+    codes.flatMap((code) => {
+      const last = findCpiCountry(code)!.lastYear;
+      return later > last ? [[code, last] as const] : [];
+    }),
+  );
   const series: ChartSeries[] = codes.map((code, i) => ({
     code,
     name: byCode.get(code)!.name,
     color: i < MAX_COLOURED ? `var(--inf-${i + 1})` : "var(--muted-foreground)",
     muted: i >= MAX_COLOURED,
+    dataLastYear: dataEnds.get(code) ?? null,
   }));
   const charted = codes.map((c) => byCode.get(c)!);
+  const estimated = (code: string, year: number) => year > (dataEnds.get(code) ?? Infinity);
+  const tableRows = rows.filter((r) => keepYear(r.year, earlier, later, [...dataEnds.values()]));
   const missing = selected.filter((c) => !codes.includes(c.country));
   const retrieved = fetchedOn.toLocaleDateString(locale, {
     day: "numeric",
@@ -506,7 +822,11 @@ function PricePaths({
   return (
     <ToolPanel as="section" className={cn("mt-4 lg:mt-6", SERIES_COLOURS)}>
       <h2 className="text-lg font-semibold tracking-tight">
-        {problem ? "How prices moved" : `How prices moved, ${earlier}–${later}`}
+        {problem
+          ? "How prices moved"
+          : dataEnds.size
+            ? `Prices from ${earlier} to ${later}`
+            : `How prices moved, ${earlier}–${later}`}
       </h2>
 
       {problem ? (
@@ -522,6 +842,8 @@ function PricePaths({
           <p className="mt-1 text-sm text-muted-foreground">
             Each country&apos;s prices with {fromYear} = 100, so they all start from the same point: 150 means
             prices half as high again.
+            {dataEnds.size > 0 &&
+              " Dashed lines and figures in italics are estimates, from the rate above — not published data."}
           </p>
 
           <ul aria-hidden className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-muted-foreground">
@@ -534,6 +856,12 @@ function PricePaths({
                 {s.name}
               </li>
             ))}
+            {dataEnds.size > 0 && (
+              <li className="flex items-center gap-1.5">
+                <span className="w-4 border-t-2 border-dashed border-muted-foreground" />
+                Estimate
+              </li>
+            )}
           </ul>
 
           <div className="mt-3">
@@ -564,6 +892,8 @@ function PricePaths({
                 <caption className="sr-only">
                   Consumer prices in each year from {earlier} to {later}, with {fromYear} = 100, for{" "}
                   {listNames(charted.map((c) => c.name))}
+                  {tableRows.length < rows.length && ", every few years"}
+                  {dataEnds.size > 0 && "; figures after a country's published data are estimates"}
                 </caption>
                 <thead>
                   <tr className="text-xs text-muted-foreground">
@@ -579,16 +909,23 @@ function PricePaths({
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((r) => (
+                  {tableRows.map((r) => (
                     <tr key={r.year} className="border-t">
                       <th scope="row" className="py-2 pr-3 text-left font-normal text-muted-foreground">
                         {r.year}
                       </th>
-                      {charted.map((c) => (
-                        <td key={c.country} className="px-3 py-2 text-right">
-                          {fixed(r[c.country]!, locale, 1)}
-                        </td>
-                      ))}
+                      {charted.map((c) => {
+                        const est = estimated(c.country, r.year);
+                        return (
+                          <td
+                            key={c.country}
+                            className={cn("px-3 py-2 text-right", est && "text-muted-foreground italic")}
+                          >
+                            {indexText(r[c.country]!, locale)}
+                            {est && <span className="sr-only"> (estimate)</span>}
+                          </td>
+                        );
+                      })}
                     </tr>
                   ))}
                 </tbody>
@@ -619,35 +956,74 @@ function PricePaths({
 // Every country's average inflation for the chosen years
 // ---------------------------------------------------------------------------
 
+/** One line of the all-countries table. */
+type AverageRow = {
+  series: CpiCountry;
+  /** Average inflation a year, and the total rise, in percent — null with a `note` when there's no figure. */
+  average: number | null;
+  total: number | null;
+  note: string | null;
+  /** The years the figures cover. */
+  span: string;
+};
+
+/**
+ * Every country's average inflation, alphabetically. For published years it's
+ * the chosen span; once the years reach into the future it's each country's
+ * last 20 years instead — the rates its estimates use — since an "average" over
+ * years that are themselves estimated would only read the assumption back.
+ */
 function AllCountries({
   picked,
   fromYear,
   toYear,
   problem,
+  ownRate,
   locale,
 }: {
   picked: string[];
   fromYear: number;
   toYear: number;
   problem: string | null;
+  /** The visitor's own future rate, when they set one. */
+  ownRate: number | null;
   locale: string;
 }) {
   const earlier = Math.min(fromYear, toYear);
   const later = Math.max(fromYear, toYear);
-  const rows = compareInflation({ amount: 1, fromYear: earlier, toYear: later, countries: CPI_COUNTRIES });
-  const ranked = rows
-    .filter((r) => r.result)
-    .sort((a, b) => b.result!.averageAnnualPercent! - a.result!.averageAnnualPercent!);
+  const future = later > LATEST;
+
+  const rows: AverageRow[] = future
+    ? CPI_COUNTRIES.map((series) => {
+        const avg = recentAverage(series)!;
+        const { from, to } = avg.window!;
+        return {
+          series,
+          average: avg.percent,
+          total: (cpiFor(series, to)! / cpiFor(series, from)! - 1) * 100,
+          note: null,
+          span: `${from}–${to}`,
+        };
+      })
+    : compareInflation({ amount: 1, fromYear: earlier, toYear: later, countries: CPI_COUNTRIES }).map((r) => ({
+        series: r.series,
+        average: r.result ? r.result.averageAnnualPercent! : null,
+        total: r.result ? r.result.cumulativePercent : null,
+        note: r.note,
+        span: `${r.series.firstYear}–${r.series.lastYear}`,
+      }));
+  const ranked = rows.filter((r) => r.average !== null).sort((a, b) => b.average! - a.average!);
   const fastest = ranked[0];
   const slowest = ranked.at(-1);
   const notes = CPI_COUNTRIES.filter((c) => c.note);
+  const span = future ? `last ${AVERAGE_YEARS} years` : `${earlier}–${later}`;
 
   return (
     <ToolPanel as="section" className="mt-4 lg:mt-6">
       <h2 className="text-lg font-semibold tracking-tight">
         {problem
           ? `Average inflation in all ${CPI_COUNTRIES.length} countries`
-          : `Average inflation in all ${CPI_COUNTRIES.length} countries, ${earlier}–${later}`}
+          : `Average inflation in all ${CPI_COUNTRIES.length} countries, ${span}`}
       </h2>
 
       {problem ? (
@@ -657,15 +1033,26 @@ function AllCountries({
       ) : (
         <>
           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-            The yearly rate that compounds to each country&apos;s total rise in consumer prices between {earlier} and{" "}
-            {later}.
+            {future ? (
+              <>
+                Published figures only: each country&apos;s compound average over its last {AVERAGE_YEARS} years of
+                data, or since its series starts.{" "}
+                {ownRate === null
+                  ? "These are the rates the estimates above carry forward."
+                  : `The estimates above use the ${formatPercent(ownRate, locale, 2)} a year you set instead.`}
+              </>
+            ) : (
+              <>
+                The yearly rate that compounds to each country&apos;s total rise in consumer prices between {earlier}{" "}
+                and {later}.
+              </>
+            )}
             {fastest && slowest && fastest !== slowest && (
               <>
                 {" "}
                 Prices rose fastest in {countryInSentence(fastest.series)} (
-                {formatPercent(fastest.result!.averageAnnualPercent!, locale, 2)} a year) and slowest in{" "}
-                {countryInSentence(slowest.series)} ({formatPercent(slowest.result!.averageAnnualPercent!, locale, 2)} a
-                year).
+                {formatPercent(fastest.average!, locale, 2)} a year) and slowest in {countryInSentence(slowest.series)}{" "}
+                ({formatPercent(slowest.average!, locale, 2)} a year).
               </>
             )}{" "}
             Your countries are highlighted.
@@ -674,8 +1061,9 @@ function AllCountries({
           <div className="mt-4 overflow-x-auto">
             <table className="w-full min-w-[34rem] text-sm tabular-nums">
               <caption className="sr-only">
-                Average yearly inflation and total price rise from {earlier} to {later} in each of{" "}
-                {CPI_COUNTRIES.length} countries, alphabetically
+                Average yearly inflation and total price rise{" "}
+                {future ? `over each country's last ${AVERAGE_YEARS} years of data` : `from ${earlier} to ${later}`} in
+                each of {CPI_COUNTRIES.length} countries, alphabetically
               </caption>
               <thead>
                 <tr className="text-xs text-muted-foreground">
@@ -686,10 +1074,10 @@ function AllCountries({
                     Average a year
                   </th>
                   <th scope="col" className="px-3 py-2 text-right font-medium">
-                    Prices, {earlier}–{later}
+                    {future ? "Total rise" : `Prices, ${earlier}–${later}`}
                   </th>
                   <th scope="col" className="py-2 pl-3 text-right font-medium">
-                    Data
+                    {future ? "Years" : "Data"}
                   </th>
                 </tr>
               </thead>
@@ -713,14 +1101,12 @@ function AllCountries({
                           </span>
                         </span>
                       </th>
-                      {r.result ? (
+                      {r.average !== null && r.total !== null ? (
                         <>
-                          <td className="px-3 py-2 text-right font-medium">
-                            {fixed(r.result.averageAnnualPercent!, locale, 2)}%
-                          </td>
+                          <td className="px-3 py-2 text-right font-medium">{fixed(r.average, locale, 2)}%</td>
                           <td className="px-3 py-2 text-right text-muted-foreground">
-                            {r.result.cumulativePercent >= 0 ? "+" : "−"}
-                            {fixed(Math.abs(r.result.cumulativePercent), locale, 1)}%
+                            {r.total >= 0 ? "+" : "−"}
+                            {fixed(Math.abs(r.total), locale, 1)}%
                           </td>
                         </>
                       ) : (
@@ -728,9 +1114,7 @@ function AllCountries({
                           {r.note}
                         </td>
                       )}
-                      <td className="py-2 pl-3 text-right whitespace-nowrap text-muted-foreground">
-                        {r.series.firstYear}–{r.series.lastYear}
-                      </td>
+                      <td className="py-2 pl-3 text-right whitespace-nowrap text-muted-foreground">{r.span}</td>
                     </tr>
                   );
                 })}

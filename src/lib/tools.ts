@@ -488,11 +488,11 @@ export const TOOLS: Tool[] = [
   {
     slug: "inflation-calculator",
     label: "Inflation calculator",
-    title: "Inflation Calculator — Value of Money Then & Now",
+    title: "Inflation Calculator — Past & Future Value",
     h1: "Inflation calculator",
     description:
-      "See what money from any year is worth today and compare inflation across 20 major economies, from official consumer price data. Free, no sign-up.",
-    blurb: "What money from the past is worth today.",
+      "See what money from any year is worth today, estimate its value in 2050 or 2100, and compare inflation across 20 major economies. Free, no sign-up.",
+    blurb: "What money is worth across the years, past or future.",
     action: "Calculate inflation",
     group: "everyday",
     related: [
@@ -501,7 +501,7 @@ export const TOOLS: Tool[] = [
       "fire-calculator",
       "percentage-calculator",
     ],
-    keywords: ["cpi", "purchasing power", "value of money", "price rise", "then vs now"],
+    keywords: ["cpi", "purchasing power", "value of money", "price rise", "then vs now", "future value", "2050"],
     published: true,
   },
 

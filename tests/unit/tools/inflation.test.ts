@@ -4,6 +4,7 @@ import { COUNTRY_TO_CURRENCY } from "@/lib/geo";
 import { CPI_COUNTRIES, CPI_FETCHED_ON, CPI_SOURCE, findCpiCountry } from "@/lib/tools/data/cpi";
 import {
   adjustForInflation,
+  ALL_YEARS,
   clampYear,
   commonLastYear,
   compareInflation,
@@ -12,11 +13,17 @@ import {
   cpiFor,
   currencyTag,
   defaultCountries,
+  extendSeries,
   flagEmoji,
+  FUTURE_LAST_YEAR,
   indexedPaths,
   MAX_COUNTRIES,
   parseCountryList,
+  RANGE_POINTS,
+  recentAverage,
+  scientificParts,
   SERVER_COUNTRIES,
+  superscript,
   YEAR_RANGE,
 } from "@/lib/tools/inflation";
 
@@ -400,5 +407,167 @@ describe("indexedPaths", () => {
   it("is a single row for a single year", () => {
     const { rows } = indexedPaths([US], 2010, 2010);
     expect(rows).toEqual([{ year: 2010, US: 100 }]);
+  });
+});
+
+describe("recentAverage", () => {
+  it("is the compound average over a country's last 20 years of data", () => {
+    const avg = recentAverage(US)!;
+    expect(avg.window).toEqual({ from: 2004, to: 2024 });
+    expect(avg.percent).toBeCloseTo(((143.857 / 86.6217) ** (1 / 20) - 1) * 100, 10);
+    expect(avg.percent).toBeCloseTo(2.5688, 4);
+  });
+
+  it("uses the whole series when it's shorter than the window", () => {
+    const avg = recentAverage(TOY)!;
+    expect(avg.window).toEqual({ from: 2000, to: 2004 });
+    expect(avg.percent).toBeCloseTo((1.331 ** 0.25 - 1) * 100, 10);
+  });
+
+  it("takes a shorter window on request", () => {
+    expect(recentAverage(TOY, 2)!.window).toEqual({ from: 2002, to: 2004 });
+    expect(recentAverage(TOY, 2)!.percent).toBeCloseTo(((133.1 / 121) ** 0.5 - 1) * 100, 10);
+  });
+
+  it("has a rate for every country", () => {
+    for (const c of CPI_COUNTRIES) {
+      const avg = recentAverage(c);
+      expect(avg, c.country).not.toBeNull();
+      expect(Number.isFinite(avg!.percent)).toBe(true);
+      expect(avg!.window!.to).toBe(c.lastYear);
+    }
+  });
+});
+
+describe("extendSeries", () => {
+  it("carries the last figure on at a steady rate", () => {
+    const x = extendSeries(TOY, 10, 2006);
+    expect(x.lastYear).toBe(2006);
+    expect(cpiFor(x, 2005)).toBeCloseTo(146.41, 10);
+    expect(cpiFor(x, 2006)).toBeCloseTo(161.051, 10);
+    expect(cpiFor(x, 2003)).toBe(115); // published years untouched
+  });
+
+  it("doesn't touch the series it was given", () => {
+    extendSeries(TOY, 10, 2010);
+    expect(TOY.lastYear).toBe(2004);
+    expect(cpiFor(TOY, 2005)).toBeNull();
+  });
+
+  it("handles falling prices and a flat rate", () => {
+    expect(cpiFor(extendSeries(TOY, -10, 2005), 2005)).toBeCloseTo(119.79, 10);
+    expect(cpiFor(extendSeries(TOY, 0, 2050), 2050)).toBe(133.1);
+  });
+
+  it("leaves the series alone for a year it already covers or an impossible rate", () => {
+    expect(extendSeries(TOY, 5, 2004)).toBe(TOY);
+    expect(extendSeries(TOY, 5, 1990)).toBe(TOY);
+    expect(extendSeries(TOY, -100, 2010)).toBe(TOY);
+    expect(extendSeries(TOY, Number.NaN, 2010)).toBe(TOY);
+  });
+
+  it("stops at the furthest year the calculator estimates to", () => {
+    expect(extendSeries(TOY, 2, 9999).lastYear).toBe(FUTURE_LAST_YEAR);
+    expect(ALL_YEARS).toEqual({ firstYear: YEAR_RANGE.firstYear, lastYear: FUTURE_LAST_YEAR });
+  });
+});
+
+describe("compareInflation with estimates", () => {
+  const avg = (s: Parameters<typeof recentAverage>[0]) => recentAverage(s)!;
+
+  it("estimates years after the data at the given rate, and says so", () => {
+    const [row] = compareInflation({ amount: 100, fromYear: 2024, toYear: 2050, countries: [US], rateFor: avg });
+    const r = avg(US).percent / 100;
+    expect(row!.result!.value).toBeCloseTo(100 * (1 + r) ** 26, 8);
+    expect(row!.result!.value).toBeCloseTo(193.37, 2);
+    expect(row!.estimate).toMatchObject({ dataLastYear: 2024, window: { from: 2004, to: 2024 } });
+  });
+
+  it("gives the value a point either side of the rate, smaller first", () => {
+    const [row] = compareInflation({ amount: 100, fromYear: 2024, toYear: 2050, countries: [US], rateFor: avg });
+    const r = avg(US).percent;
+    const [lo, hi] = row!.estimate!.range;
+    expect(lo).toBeCloseTo(100 * (1 + (r - RANGE_POINTS) / 100) ** 26, 8);
+    expect(hi).toBeCloseTo(100 * (1 + (r + RANGE_POINTS) / 100) ** 26, 8);
+    expect(lo).toBeLessThan(row!.result!.value);
+    expect(hi).toBeGreaterThan(row!.result!.value);
+  });
+
+  it("keeps the range in order when the question runs backwards from the future", () => {
+    const [row] = compareInflation({ amount: 1_000_000, fromYear: 2050, toYear: 2024, countries: [US], rateFor: avg });
+    expect(row!.result!.value).toBeCloseTo(517_135.57, 1);
+    const [lo, hi] = row!.estimate!.range;
+    expect(lo).toBeLessThan(row!.result!.value);
+    expect(hi).toBeGreaterThan(row!.result!.value);
+  });
+
+  it("joins published and estimated years: 2000 → 2050 is 2000 → 2024 times the estimate", () => {
+    const [row] = compareInflation({ amount: 100, fromYear: 2000, toYear: 2050, countries: [US], rateFor: avg });
+    const r = avg(US).percent / 100;
+    expect(row!.result!.value).toBeCloseTo(((100 * 143.857) / 78.9707) * (1 + r) ** 26, 8);
+    expect(row!.result!.path).toHaveLength(51);
+  });
+
+  it("uses the visitor's own rate for every country", () => {
+    const rows = compareInflation({
+      amount: 100,
+      fromYear: 2025,
+      toYear: 2035,
+      countries: [IN, findCpiCountry("GB")!],
+      rateFor: () => ({ percent: 3, window: null }),
+    });
+    for (const row of rows) {
+      expect(row.result!.value).toBeCloseTo(100 * 1.03 ** 10, 8);
+      expect(row.estimate!.window).toBeNull();
+    }
+  });
+
+  it("estimates only the countries whose data runs out", () => {
+    const rows = compareInflation({ amount: 100, fromYear: 2000, toYear: 2025, countries: [US, IN], rateFor: avg });
+    expect(rows[0]!.estimate).toMatchObject({ dataLastYear: 2024 });
+    expect(rows[1]!.estimate).toBeNull();
+    expect(rows[1]!.result!.value).toBeCloseTo((100 * 233.063) / 54.3383, 8);
+  });
+
+  it("without a rate, a year past the data still has no figure", () => {
+    const [row] = compareInflation({ amount: 100, fromYear: 2000, toYear: 2050, countries: [US] });
+    expect(row).toMatchObject({ result: null, note: "Data runs to 2024", estimate: null });
+  });
+
+  it("stays finite five centuries out at the highest rate we have", () => {
+    const [row] = compareInflation({
+      amount: 1e12,
+      fromYear: 2005,
+      toYear: FUTURE_LAST_YEAR,
+      countries: [findCpiCountry("TR")!],
+      rateFor: () => ({ percent: 100, window: null }),
+    });
+    expect(Number.isFinite(row!.result!.value)).toBe(true);
+    expect(Number.isFinite(row!.estimate!.range[1])).toBe(true);
+    expect(row!.result!.value).toBeGreaterThan(1e150);
+  });
+});
+
+describe("scientificParts", () => {
+  it("splits a figure into a mantissa and a power of ten", () => {
+    expect(scientificParts(7.1234e33)).toEqual({ mantissa: 7.12, exponent: 33 });
+    expect(scientificParts(1e15)).toEqual({ mantissa: 1, exponent: 15 });
+    expect(scientificParts(-4.5e20, 1)).toEqual({ mantissa: -4.5, exponent: 20 });
+  });
+
+  it("carries over when the mantissa rounds up to 10", () => {
+    expect(scientificParts(9.999e17)).toEqual({ mantissa: 1, exponent: 18 });
+  });
+
+  it("leaves zero alone", () => {
+    expect(scientificParts(0)).toEqual({ mantissa: 0, exponent: 0 });
+  });
+});
+
+describe("superscript", () => {
+  it("writes an exponent in superscript digits", () => {
+    expect(superscript(33)).toBe("³³");
+    expect(superscript(150)).toBe("¹⁵⁰");
+    expect(superscript(-4)).toBe("⁻⁴");
   });
 });
