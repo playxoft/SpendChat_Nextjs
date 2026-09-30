@@ -62,7 +62,7 @@ type Parsed = {
   missing: string | null;
 };
 
-function parseOffer(s: State, slot: Slot, locale: string): Parsed {
+function parseOffer(s: State, slot: Slot, locale: string, decimals: number): Parsed {
   const n = (v: string) => parseNumber(v, locale);
   const raw = {
     amount: s[key("a", slot)],
@@ -76,8 +76,9 @@ function parseOffer(s: State, slot: Slot, locale: string): Parsed {
 
   const amount = n(raw.amount);
   if (raw.amount.trim() && amount === null) errors.amount = NaNish;
-  else if (amount !== null && (amount <= 0 || amount > LOAN_LIMITS.maxAmount))
-    errors.amount = amount <= 0 ? "Enter an amount above zero." : "That's more than this calculator can handle.";
+  // Less than the smallest coin rounds to nothing to lend, so it counts as zero.
+  else if (amount !== null && (Math.round(amount * 10 ** decimals) <= 0 || amount > LOAN_LIMITS.maxAmount))
+    errors.amount = amount <= LOAN_LIMITS.maxAmount ? "Enter an amount above zero." : "That's more than this calculator can handle.";
 
   const rate = n(raw.rate);
   if (raw.rate.trim() && rate === null) errors.rate = NaNish;
@@ -150,7 +151,7 @@ export function LoanComparisonTool() {
   const count = s.n === "3" ? 3 : 2;
   const unit = s.u === "m" ? "m" : "y";
   const shown = SLOTS.slice(0, count);
-  const parsed = shown.map((slot) => parseOffer(s, slot, locale));
+  const parsed = shown.map((slot) => parseOffer(s, slot, locale, decimals));
   const costs: (OfferCost | null)[] = parsed.map((p) => (p.offer ? offerCost(p.offer, decimals) : null));
   const best = cheapestOffer(costs, decimals);
 

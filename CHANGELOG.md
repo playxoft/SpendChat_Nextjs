@@ -46,6 +46,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - **Invoice and quotation actions are always in reach.** Print, save a copy,
   open, share and reset sit together in one chip beside Download, and the same
   bar is pinned to the bottom of the form while you scroll it.
+- **Number fields take only numbers** — in any script, so Arabic-Indic,
+  Devanagari and Bengali digits work — and never quietly turn a pasted value
+  into a different one ("USD -1,200" keeps its minus; "12-15" is flagged).
+- The **privacy and cookie policies** now name the currency converter's rate
+  feeds (Frankfurter, jsDelivr) and the tools' on-device storage.
 
 ## [0.30.0] — 2026-09-28
 

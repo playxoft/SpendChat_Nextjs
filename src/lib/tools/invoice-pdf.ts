@@ -13,9 +13,11 @@ import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf
  * this module only when someone presses Download.
  *
  * The font is Noto Sans, subset to Latin, Greek, Cyrillic and the currency
- * symbols (`public/fonts/pdf/`, OFL). A document using a script it doesn't
- * cover — Devanagari, Arabic, CJK — is caught by `unsupportedCharacters` first,
- * and the page falls back to the browser's print-to-PDF, which has every font.
+ * symbols (`public/fonts/pdf/`, OFL). The few currency signs Noto Sans itself
+ * lacks are written another way (`pdfText`). A document using a script it
+ * doesn't cover — Devanagari, Arabic, CJK — is caught by
+ * `unsupportedCharacters` first, and the page falls back to the browser's
+ * print-to-PDF, which has every font.
  */
 
 export type DocView = {
@@ -69,6 +71,58 @@ const UNIT_RIGHT = RIGHT - 100;
 const QTY_RIGHT = RIGHT - 200;
 const DESC_MAX = QTY_RIGHT - 52 - LEFT;
 
+/**
+ * Text as the PDF draws it:
+ * - composed (NFC), so "José" typed as e + a combining accent is one glyph;
+ * - with invisible formatting characters (zero-width spaces, byte-order
+ *   marks, direction marks, soft hyphens) dropped, and every other kind of
+ *   line break turned into "\n" — pdf-lib splits lines on them itself, which
+ *   drew them on top of each other;
+ * - with the currency signs Noto Sans has no glyph for written as the font
+ *   can: full-width ￥ and ￦ (Japanese and Chinese locales) as ¥ and ₩, the
+ *   baht and taka signs as THB and BDT.
+ */
+export function pdfText(text: string): string {
+  return text
+    .normalize("NFC")
+    .replace(/\r\n?|[\f\v\u2028\u2029]/g, "\n")
+    .replace(/[\u0000-\u0008\u000e-\u001f\u007f\u00ad\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff]/g, "")
+    .replace(/\uffe5/g, "¥")
+    .replace(/\uffe6/g, "₩")
+    .replace(/\u0e3f(?=\s?\d)/g, "THB ")
+    .replace(/\u0e3f/g, "THB")
+    .replace(/\u09f3(?=\s?\d)/g, "BDT ")
+    .replace(/\u09f3/g, "BDT");
+}
+
+/** The document with every string passed through `pdfText` (the logo is data, not text). */
+export function pdfView(view: DocView): DocView {
+  const t = pdfText;
+  const block = (b: { name: string; lines: string[] }) => ({ name: t(b.name), lines: b.lines.map(t) });
+  const pairs = (rows: { label: string; value: string }[]) => rows.map((r) => ({ label: t(r.label), value: t(r.value) }));
+  return {
+    ...view,
+    title: t(view.title),
+    fileName: t(view.fileName),
+    seller: block(view.seller),
+    meta: pairs(view.meta),
+    clientLabel: t(view.clientLabel),
+    client: block(view.client),
+    items: view.items.map((i) => ({
+      description: t(i.description),
+      qty: t(i.qty),
+      unitPrice: t(i.unitPrice),
+      amount: t(i.amount),
+    })),
+    totalRows: pairs(view.totalRows),
+    total: view.total === null ? null : t(view.total),
+    amountInWords: view.amountInWords === null ? null : t(view.amountInWords),
+    notes: t(view.notes),
+    terms: t(view.terms),
+    credit: view.credit === null ? null : t(view.credit),
+  };
+}
+
 /** Every string the PDF will draw, to check the font covers it. */
 function allText(view: DocView): string {
   return [
@@ -98,7 +152,7 @@ function allText(view: DocView): string {
 export function unsupportedCharacters(view: DocView, fontBytes: Uint8Array): string[] {
   const font = fontkit.create(fontBytes);
   const missing = new Set<string>();
-  for (const ch of allText(view)) {
+  for (const ch of allText(pdfView(view))) {
     const cp = ch.codePointAt(0)!;
     if (cp < 0x20) continue; // newlines and tabs are layout, not glyphs
     if (!font.hasGlyphForCodePoint(cp)) missing.add(ch);
@@ -123,13 +177,20 @@ export function wrapText(text: string, font: PDFFont, size: number, maxWidth: nu
         continue;
       }
       if (line) out.push(line);
-      // A single word wider than the column (a long URL or email) is broken by character.
+      // A single word wider than the column (a long URL or email) is broken by
+      // character, at the longest prefix that fits — found by halving, so a
+      // 2,000-character paste costs a few dozen measurements, not millions.
       let rest = word;
       while (font.widthOfTextAtSize(rest, size) > maxWidth) {
-        let cut = rest.length - 1;
-        while (cut > 1 && font.widthOfTextAtSize(rest.slice(0, cut), size) > maxWidth) cut--;
-        out.push(rest.slice(0, cut));
-        rest = rest.slice(cut);
+        let lo = 1;
+        let hi = rest.length - 1;
+        while (lo < hi) {
+          const mid = Math.ceil((lo + hi) / 2);
+          if (font.widthOfTextAtSize(rest.slice(0, mid), size) <= maxWidth) lo = mid;
+          else hi = mid - 1;
+        }
+        out.push(rest.slice(0, lo));
+        rest = rest.slice(lo);
       }
       line = rest;
     }
@@ -191,7 +252,8 @@ function logoSize(image: PDFImage, maxW: number, maxH: number) {
   return { width: image.width * scale, height: image.height * scale };
 }
 
-export async function renderDocPdf(view: DocView, fonts: PdfFonts, logo: PdfLogo | null = null): Promise<Uint8Array> {
+export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo | null = null): Promise<Uint8Array> {
+  const view = pdfView(raw);
   const pdf = await PDFDocument.create();
   pdf.registerFontkit(fontkit);
   pdf.setTitle(view.fileName.replace(/\.pdf$/, ""));
@@ -203,7 +265,11 @@ export async function renderDocPdf(view: DocView, fonts: PdfFonts, logo: PdfLogo
 
   // ---- Header: seller on the left, title and dates on the right ----
   const top = w.y;
-  const leftW = CONTENT_W * 0.55;
+  // The dates block is as wide as its longest label and value; the seller's
+  // column gives way to it, so a long document number can't run into the address.
+  const valueW = Math.max(0, ...view.meta.map((m) => regular.widthOfTextAtSize(m.value, 9)));
+  const labelW = Math.max(0, ...view.meta.map((m) => regular.widthOfTextAtSize(m.label, 9)));
+  const leftW = Math.max(CONTENT_W * 0.3, Math.min(CONTENT_W * 0.55, CONTENT_W - valueW - labelW - 12 - 20));
   let leftY = top;
   if (logo) {
     const image = logo.kind === "png" ? await pdf.embedPng(logo.bytes) : await pdf.embedJpg(logo.bytes);
@@ -226,7 +292,6 @@ export async function renderDocPdf(view: DocView, fonts: PdfFonts, logo: PdfLogo
   let rightY = top - 20;
   w.textRight(view.title.toUpperCase(), RIGHT, rightY, { font: bold, size: 22 });
   rightY -= 10;
-  const valueW = Math.max(...view.meta.map((m) => regular.widthOfTextAtSize(m.value, 9)));
   for (const m of view.meta) {
     rightY -= 13;
     w.textRight(m.value, RIGHT, rightY, { size: 9 });

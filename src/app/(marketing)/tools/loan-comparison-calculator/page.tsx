@@ -77,10 +77,15 @@ export default function LoanComparisonCalculatorPage() {
           payments. From there:
         </p>
         <Formula>
-          Total interest = EMI × n − P
+          Total interest ≈ EMI × n − P
           <br />
           Total cost = total interest + processing fee + other charges
         </Formula>
+        <p>
+          Interest is only approximately EMI × n − P because each EMI is rounded to the cent (or
+          paisa) and the last payment absorbs the difference, so the totals below can differ from
+          it by a few cents.
+        </p>
         <p>
           The offers are ranked on total cost. The effective rate (APR) is the rate at which the EMIs
           repay only what you actually received — the loan minus the fees — so it rises above the

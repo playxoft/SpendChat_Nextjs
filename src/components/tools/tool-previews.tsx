@@ -426,3 +426,12 @@ export function ToolPreview({ slug }: { slug: string }) {
   const Preview = PREVIEWS[slug];
   return Preview ? <Preview /> : null;
 }
+
+/**
+ * The pictures for a set of tools, by slug, for `ToolCardGrid` — built where
+ * the grid's server parent renders, so a client grid receives finished markup
+ * rather than the pictures' code.
+ */
+export function toolPreviews(slugs: readonly string[]): Record<string, ReactNode> {
+  return Object.fromEntries(slugs.map((slug) => [slug, <ToolPreview key={slug} slug={slug} />]));
+}

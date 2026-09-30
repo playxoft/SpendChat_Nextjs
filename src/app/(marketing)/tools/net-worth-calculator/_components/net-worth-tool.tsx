@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { History, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { CurrencyField } from "@/components/tools/fields";
+import { CurrencyField, sanitizeKeepingCaret } from "@/components/tools/fields";
 import {
   ResultActions,
   ResultEmpty,
@@ -17,7 +17,7 @@ import {
 import { useToolCurrency, useToolLocale, useUrlState } from "@/components/tools/tool-state";
 import { useToday } from "@/components/tools/use-today";
 import { getCurrency, isSupportedCurrency } from "@/lib/currencies";
-import { currencySymbol, EMPTY, formatCurrency, formatPercent, sanitizeNumberInput } from "@/lib/tools/format";
+import { currencySymbol, EMPTY, formatCurrency, formatPercent } from "@/lib/tools/format";
 import {
   GROUPS,
   MAX_NAME,
@@ -405,7 +405,7 @@ function GroupBlock({
                       aria-invalid={error ? true : undefined}
                       aria-describedby={error ? errorId : undefined}
                       onFocus={(e) => e.currentTarget.select()}
-                      onChange={(e) => onChange(i, { amount: sanitizeNumberInput(e.target.value) })}
+                      onChange={(e) => onChange(i, { amount: sanitizeKeepingCaret(e.currentTarget) })}
                       className="h-full w-full min-w-0 bg-transparent px-2 text-base tabular-nums outline-none placeholder:text-muted-foreground/70 sm:px-3"
                     />
                   </div>

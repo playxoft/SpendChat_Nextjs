@@ -60,7 +60,7 @@ export function CpiChart({
   const ticks = log ? logTicks(lo, hi) : undefined;
   const axis = axisNumber(locale, hi >= 1e15);
   const one = (v: number) => {
-    if (Math.abs(v) < 1e9) return fixed(v, locale, 1);
+    if (Math.abs(v) < 1e9 && (v === 0 || Math.abs(v) >= 0.05)) return fixed(v, locale, 1);
     const { mantissa, exponent } = scientificParts(v, 1);
     return `${fixed(mantissa, locale, 1)} × 10${superscript(exponent)}`;
   };
@@ -196,7 +196,8 @@ function axisNumber(locale: string, huge: boolean) {
   }
   return (v: number) => {
     // Compact notation stops at trillions; past that, powers of ten ("10¹⁸").
-    if (Math.abs(v) >= (huge ? 1000 : 1e15)) {
+    // …and below 0.01 too, where compact notation would print "0".
+    if (Math.abs(v) >= (huge ? 1000 : 1e15) || (v !== 0 && Math.abs(v) < 0.01)) {
       const { mantissa, exponent } = scientificParts(v, 0);
       return `${mantissa === 1 ? "" : `${mantissa}×`}10${superscript(exponent)}`;
     }

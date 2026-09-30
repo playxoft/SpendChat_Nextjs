@@ -6,6 +6,7 @@ import { JsonLd } from "@/components/json-ld";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { FaqSection } from "@/components/marketing/faq-section";
 import { ToolCardGrid } from "@/components/tools/tool-card";
+import { toolPreviews } from "@/components/tools/tool-previews";
 import { ToolCta } from "@/components/tools/result";
 import { getTool, relatedTools, toolPath } from "@/lib/tools";
 import { breadcrumbJsonLd, faqJsonLd, webApplicationJsonLd, type Faq } from "@/lib/seo";
@@ -111,7 +112,13 @@ export function ToolPage({
         {related.length > 0 && (
           <section className="mt-16">
             <h2 className="text-2xl font-semibold tracking-tight">More free tools</h2>
-            <ToolCardGrid items={related} location={`${slug}_related`} columns={2} className="mt-6" />
+            <ToolCardGrid
+              items={related}
+              previews={toolPreviews(related.map((t) => t.slug))}
+              location={`${slug}_related`}
+              columns={2}
+              className="mt-6"
+            />
             <Link
               href="/tools"
               className="mt-4 inline-flex items-center gap-1 text-sm font-medium hover:underline"

@@ -56,7 +56,7 @@ const faqs = [
   },
   {
     q: "Can I use it for years before the euro?",
-    a: "Yes. For euro-area countries, enter an amount from before the euro in euros, converted at the fixed rate the old currency joined at — 1.95583 Deutsche Mark or 6.55957 French francs to €1, for example. The notes under the country table give each rate. Countries whose currency was replaced at an odd rate, like Brazil, start in the first full year of today's currency.",
+    a: "Yes. For euro-area countries, enter an amount from before euro notes and coins arrived in 2002 in euros, converted at the fixed rate the old currency joined at — 1.95583 Deutsche Mark or 6.55957 French francs to €1, for example. The notes under the country table give each rate. Countries whose currency was replaced at an odd rate, like Brazil, start in the first full year of today's currency.",
   },
 ];
 
@@ -193,7 +193,9 @@ export default function InflationCalculatorPage() {
           economies: {namesText}. Each country&apos;s series runs to the last full
           year the World Bank has published — {LATEST} for most countries
           {BEHIND.length ? `, ${behindText}` : ""} — and starts when today&apos;s
-          currency began, where that&apos;s later than the data.
+          currency began, where that&apos;s later than the data (euro-area
+          countries keep their earlier years; the notes under the country
+          table explain each case).
         </p>
         <p>
           A CPI is an average household&apos;s basket, so your own inflation can

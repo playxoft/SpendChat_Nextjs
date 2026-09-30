@@ -295,7 +295,8 @@ export function SimpleInterestTool() {
 
   // Same money, same rate, compounded once a year.
   let compare: { text: string; href: string | null } | null = null;
-  if (result && result.ratePercent > 0 && result.years > 0) {
+  // Past 100 years compounding runs off the scale (to Infinity at 7,500 years), so the comparison stops there.
+  if (result && result.ratePercent > 0 && result.years > 0 && result.years <= 100) {
     const ci = compoundedYearly(result.principal, result.ratePercent, result.years) - result.principal;
     const gap = ci - result.interest;
     const text =

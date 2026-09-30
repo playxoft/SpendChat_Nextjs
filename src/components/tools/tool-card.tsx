@@ -1,6 +1,6 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { ToolPreview } from "@/components/tools/tool-previews";
 import { toolPath, type Tool } from "@/lib/tools";
 import { cn } from "@/lib/utils";
 
@@ -12,14 +12,20 @@ import { cn } from "@/lib/utils";
  * naming the action ("Calculate GST"). Hovering lifts the card and brings the
  * picture to life. `index` staggers the entrance so a grid fades in card by
  * card.
+ *
+ * The picture comes in as `preview`, rendered by a server component
+ * (`toolPreviews`), so the hub's client-side search doesn't ship every
+ * picture's markup as JavaScript.
  */
 export function ToolCard({
   tool,
   location,
   heading: Heading = "h3",
   index = 0,
+  preview,
 }: {
   tool: Tool;
+  preview: ReactNode;
   /** Goes into the click event, so each directory's links can be told apart. */
   location: string;
   heading?: "h2" | "h3";
@@ -38,7 +44,7 @@ export function ToolCard({
       {/* Decorative: the example repeats what the title and blurb say. */}
       <div className="mt-auto pt-5" aria-hidden>
         <div className="flex h-36 items-center justify-center overflow-hidden rounded-xl border border-dashed bg-muted/40 transition-colors duration-300 group-hover:border-solid group-hover:bg-background">
-          <ToolPreview slug={tool.slug} />
+          {preview}
         </div>
       </div>
       {/* Looks like a button; the whole card is the link, so it isn't a second one. */}
@@ -61,9 +67,12 @@ export function ToolCardGrid({
   heading,
   columns = 3,
   className,
+  previews,
 }: {
   items: Tool[];
   location: string;
+  /** Each tool's picture, by slug — see `toolPreviews`. */
+  previews: Readonly<Record<string, ReactNode>>;
   heading?: "h2" | "h3";
   /** Columns at `lg`; always two at `sm`. Two suits the narrow column under a tool. */
   columns?: keyof typeof GRID;
@@ -73,7 +82,14 @@ export function ToolCardGrid({
   return (
     <div className={cn(GRID[columns], className)}>
       {items.map((tool, i) => (
-        <ToolCard key={tool.slug} tool={tool} location={location} heading={heading} index={i} />
+        <ToolCard
+          key={tool.slug}
+          tool={tool}
+          location={location}
+          heading={heading}
+          index={i}
+          preview={previews[tool.slug]}
+        />
       ))}
     </div>
   );

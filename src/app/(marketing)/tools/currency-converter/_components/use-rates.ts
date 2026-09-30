@@ -24,8 +24,9 @@ import {
  * Two independent, free, keyless feeds, tried in order:
  * 1. Frankfurter — central-bank reference rates, blended across ~100 official
  *    sources (v2 API; v1 is ECB-only and deprecated).
- * 2. The open `currency-api` dataset (CC0), from jsDelivr and then its
- *    Cloudflare Pages mirror, as its author asks clients to do.
+ * 2. The open `currency-api` dataset (CC0), from jsDelivr. (Its Cloudflare
+ *    Pages mirror is left out on purpose: the site-wide CSP would have to
+ *    allow every `*.pages.dev` host to reach it.)
  * If both fail, the last cached list (however old) stays in use and the tool
  * says so; with nothing cached it shows an offline message and a retry.
  *

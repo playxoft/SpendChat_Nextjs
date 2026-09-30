@@ -8,7 +8,7 @@ export const metadata = createMetadata({
   path: "/privacy",
 });
 
-const LAST_UPDATED = "September 7, 2026";
+const LAST_UPDATED = "September 30, 2026";
 
 /**
  * Every claim on this page has to be a statement about code in the repository,
@@ -217,6 +217,15 @@ export default function PrivacyPage() {
               </tbody>
             </table>
           </div>
+          <p>
+            The free tools at <Link href="/tools" className="text-foreground underline underline-offset-4">/tools</Link>{" "}
+            work in your browser: what you type into them stays on your device and is never
+            sent to us. The one exception is the currency converter, which fetches exchange
+            rates straight from your browser — from Frankfurter (api.frankfurter.dev) and, if
+            that fails, jsDelivr (cdn.jsdelivr.net). Like any web request, those carry your IP
+            address and browser details, but never the amounts or currencies you enter. They
+            aren&apos;t our processors and handle requests under their own policies.
+          </p>
           <p>
             Analytics never run on the authenticated app, and never run anywhere until you
             accept them — see the{" "}

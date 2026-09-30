@@ -75,6 +75,7 @@ export function NumberField({
   placeholder,
   className,
   integer,
+  allowNegative,
 }: {
   label: ReactNode;
   value: string;
@@ -89,6 +90,11 @@ export function NumberField({
   className?: string;
   /** Whole numbers only — opens the plain numeric keypad. */
   integer?: boolean;
+  /**
+   * The field takes negative numbers: opens a keyboard with a minus key
+   * (iOS's decimal pad has none).
+   */
+  allowNegative?: boolean;
 }) {
   const id = useId();
   return (
@@ -107,13 +113,13 @@ export function NumberField({
         <input
           id={id}
           type="text"
-          inputMode={integer ? "numeric" : "decimal"}
+          inputMode={allowNegative ? "text" : integer ? "numeric" : "decimal"}
           autoComplete="off"
           enterKeyHint="done"
           spellCheck={false}
           value={value}
           placeholder={placeholder}
-          onChange={(e) => onChange(sanitizeNumberInput(e.target.value))}
+          onChange={(e) => onChange(sanitizeKeepingCaret(e.currentTarget))}
           onFocus={(e) => e.currentTarget.select()}
           aria-invalid={error ? true : undefined}
           aria-describedby={error || hint ? `${id}-msg` : undefined}
@@ -127,6 +133,24 @@ export function NumberField({
       </div>
     </Field>
   );
+}
+
+/**
+ * The field's text with anything that isn't part of a number dropped — and
+ * the caret put back where it was. Without that, dropping a keystroke in the
+ * middle of "1,500" makes React rewrite the value and throw the caret to the end.
+ */
+export function sanitizeKeepingCaret(input: HTMLInputElement): string {
+  const raw = input.value;
+  const clean = sanitizeNumberInput(raw);
+  const caret = input.selectionStart;
+  if (clean !== raw && caret !== null) {
+    const at = Math.min(clean.length, sanitizeNumberInput(raw.slice(0, caret)).length);
+    requestAnimationFrame(() => {
+      if (document.activeElement === input) input.setSelectionRange(at, at);
+    });
+  }
+  return clean;
 }
 
 /** A plain text input with the same shape as the number fields. */

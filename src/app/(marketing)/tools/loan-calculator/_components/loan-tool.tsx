@@ -72,13 +72,15 @@ const MODE_OPTIONS = [
 
 type Read = { value: number | null; error: string | null };
 
-function readAmount(raw: string, locale: string, required: string | null): Read {
+function readAmount(raw: string, locale: string, required: string | null, decimals = 2): Read {
   if (!raw.trim()) return required ? { value: null, error: required } : { value: null, error: null };
   const n = parseNumber(raw, locale);
   if (n === null) return { value: null, error: "That doesn't look like a number." };
   if (n < 0) return { value: null, error: "Can't be negative." };
   if (n > LOAN_LIMITS.maxAmount) return { value: null, error: "That's more than this calculator can handle." };
   if (required && n === 0) return { value: null, error: required };
+  // Less than the smallest coin rounds to nothing to lend — an empty schedule.
+  if (required && Math.round(n * 10 ** decimals) === 0) return { value: null, error: "Enter an amount above zero." };
   return { value: n, error: null };
 }
 
@@ -115,7 +117,7 @@ export function LoanTool() {
   const pc = (v: number) => formatPercent(v, locale, 3);
 
   const unit = s.u === "m" ? "m" : "y";
-  const amount = readAmount(s.a, locale, "Enter the loan amount.");
+  const amount = readAmount(s.a, locale, "Enter the loan amount.", decimals);
   const rate = readRate(s.r, locale);
   const tenure = readTenure(s.t, unit, locale);
   const months = tenure.value;

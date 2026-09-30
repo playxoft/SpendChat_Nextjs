@@ -82,21 +82,24 @@ const DEFAULT_FROM = 2000;
 /** Lines that get their own colour; any more are drawn as grey context lines. */
 const MAX_COLOURED = 8;
 
-/** Euro-area countries converted at a fixed rate in 1999 (all of ours did — Greece, in 2001, isn't one of them). */
-const EURO_START = 1999;
+/**
+ * Until euro notes and coins arrived in 2002, prices in euro-area countries
+ * were in the old currencies (ours all converted at a fixed rate from 1999).
+ */
+const EURO_CASH = 2002;
 
 /** Past this, a figure is written in powers of ten ("₺1.07 × 10³⁶"): its digits would be unreadable, and falsely precise. */
 const HUGE = 1e15;
 
 const yearOption = (y: number): Option => ({ value: String(y), label: String(y) });
 
-/** Published years, newest first. */
-const PAST_YEARS = Array.from({ length: YEAR_RANGE.lastYear - YEAR_RANGE.firstYear + 1 }, (_, i) => YEAR_RANGE.lastYear - i);
-
-/** Years to estimate: every one to 2100, then every 10 to 2200, then every 50. Newest first, like the past ones. */
-const FUTURE_YEARS = (() => {
+/**
+ * Every year the pickers offer, newest first: each one from the first
+ * published year to 2100, then every 10 to 2200, then every 50.
+ */
+const YEARS = (() => {
   const years: number[] = [];
-  for (let y = YEAR_RANGE.lastYear + 1; y <= 2100; y++) years.push(y);
+  for (let y = YEAR_RANGE.firstYear; y <= 2100; y++) years.push(y);
   for (let y = 2110; y <= 2200; y += 10) years.push(y);
   for (let y = 2250; y <= FUTURE_LAST_YEAR; y += 50) years.push(y);
   return years.reverse();
@@ -104,16 +107,16 @@ const FUTURE_YEARS = (() => {
 
 /**
  * The year picker's list: estimates on top (the picker opens on the chosen
- * year, so the next years are just above it), then the published years. A
- * year from a link that isn't on the list — 2137 — is slotted in.
+ * year, so the next years are just above it), then the years every picked
+ * country has published — so a year that's published for the UK but not yet
+ * for the US sits with the estimates, not the data. A year from a link that
+ * isn't on the list — 2137 — is slotted in.
  */
-function yearOptions(selected: number): OptionGroup[] {
-  const future = FUTURE_YEARS.includes(selected) || selected <= YEAR_RANGE.lastYear
-    ? FUTURE_YEARS
-    : [...FUTURE_YEARS, selected].sort((a, b) => b - a);
+function yearOptions(selected: number, published: number): OptionGroup[] {
+  const years = YEARS.includes(selected) ? YEARS : [...YEARS, selected].sort((a, b) => b - a);
   return [
-    { label: "Estimates", options: future.map(yearOption) },
-    { label: "Published data", options: PAST_YEARS.map(yearOption) },
+    { label: "Estimates", options: years.filter((y) => y > published).map(yearOption) },
+    { label: "Published data", options: years.filter((y) => y <= published).map(yearOption) },
   ];
 }
 
@@ -160,16 +163,21 @@ function powerOfTen(v: number, locale: string, decimals = 2): string {
   return `${fixed(mantissa, locale, decimals)} × 10${superscript(exponent)}`;
 }
 
-/** Money as usual, or in powers of ten once it's astronomically large. */
+/** Below this (but above zero), a figure is written in powers of ten too — "$0.00" would read as nothing. */
+const TINY = 0.01;
+
+/** Money as usual, or in powers of ten once it's astronomically large or vanishingly small. */
 function money(v: number, currency: string, locale: string): string {
-  if (Math.abs(v) < HUGE) return formatCurrency(v, currency, locale);
+  if (Math.abs(v) < HUGE && (v === 0 || Math.abs(v) >= TINY)) return formatCurrency(v, currency, locale);
   const { mantissa, exponent } = scientificParts(v);
   return `${formatCurrency(mantissa, currency, locale, { decimals: 2 })} × 10${superscript(exponent)}`;
 }
 
-/** A percentage as usual, or in powers of ten once it's astronomically large. */
+/** A percentage as usual, or in powers of ten once it's astronomically large or vanishingly small. */
 function percent(v: number, locale: string): string {
-  return Math.abs(v) < HUGE ? formatPercent(v, locale, 2) : `${powerOfTen(v, locale)}%`;
+  return Math.abs(v) < HUGE && (v === 0 || Math.abs(v) >= TINY)
+    ? formatPercent(v, locale, 2)
+    : `${powerOfTen(v, locale)}%`;
 }
 
 /** "+82.17%" / "−3.10%": a price change with its direction. */
@@ -177,9 +185,9 @@ function signedPercent(v: number, locale: string): string {
   return `${v >= 0 ? "+" : "−"}${percent(Math.abs(v), locale)}`;
 }
 
-/** An index figure for the tables: one decimal, or powers of ten once it's too long. */
+/** An index figure for the tables: one decimal, or powers of ten once it's too long or would round to 0.0. */
 function indexText(v: number, locale: string): string {
-  return Math.abs(v) < 1e9 ? fixed(v, locale, 1) : powerOfTen(v, locale, 1);
+  return Math.abs(v) < 1e9 && (v === 0 || Math.abs(v) >= 0.05) ? fixed(v, locale, 1) : powerOfTen(v, locale, 1);
 }
 
 /** "2.57% a year (its 2004–2024 average)": the assumed rate and where it came from. */
@@ -271,7 +279,8 @@ export function InflationTool() {
   const estimates = rows?.flatMap((r) => (r.estimate ? [r.estimate] : [])) ?? [];
 
   const copy = rows
-    ? `${rows.map((r) => sentence(r, fromYear, toYear, locale)).join("\n")}\nSource: World Bank consumer price index.`
+    ? `${rows.map((r) => sentence(r, fromYear, toYear, locale)).join("\n")}\nSource: World Bank consumer price index` +
+      (estimates.length ? "; years after the published data are estimates, not World Bank figures." : ".")
     : null;
 
   const euroNames = selected.filter((c) => c.currency === "EUR").map((c) => c.name);
@@ -305,13 +314,13 @@ export function InflationTool() {
               label="From year"
               value={String(fromYear)}
               onChange={(v) => update({ f: v })}
-              options={yearOptions(fromYear)}
+              options={yearOptions(fromYear, commonLastYear(selected))}
             />
             <SelectField
               label="To year"
               value={String(toYear)}
               onChange={(v) => update({ t: v })}
-              options={yearOptions(toYear)}
+              options={yearOptions(toYear, commonLastYear(selected))}
             />
             {estimating && (
               <FutureRateField
@@ -324,9 +333,9 @@ export function InflationTool() {
                 className="sm:col-span-2"
               />
             )}
-            {earlier < EURO_START && euroNames.length > 0 && (
+            {earlier < EURO_CASH && euroNames.length > 0 && (
               <p className="text-xs leading-relaxed text-muted-foreground sm:col-span-2">
-                Before {EURO_START}, enter amounts for {listNames(euroNames)} in euros, converted at the old
+                Before {EURO_CASH}, enter amounts for {listNames(euroNames)} in euros, converted at the old
                 currency&apos;s fixed rate — the notes under the country table give each one.
               </p>
             )}
@@ -362,7 +371,8 @@ export function InflationTool() {
         fromYear={fromYear}
         toYear={toYear}
         problem={sameYear}
-        ownRate={customRate && rate.value !== null ? rate.value : null}
+        customRate={customRate}
+        ownRate={customRate ? rate.value : null}
         locale={locale}
       />
     </div>
@@ -405,6 +415,7 @@ function FutureRateField({
         <NumberField
           label="Inflation per year, for every country"
           suffix="%"
+          allowNegative
           value={value}
           onChange={onChange}
           error={error}
@@ -546,7 +557,7 @@ function LeadResult({
   if (!row.result) {
     return (
       <ResultEmpty>
-        {row.note} for {countryInSentence(series)} — pick years from {series.firstYear} to {series.lastYear} to see
+        {row.note} for {countryInSentence(series)} — pick years from {series.firstYear} on to see
         its figure here.
       </ResultEmpty>
     );
@@ -620,13 +631,13 @@ function LeadResult({
             ? [{ label: `${typed} in ${e.dataLastYear}, in ${toYear} money`, value: `≈ ${cash(today)}` }]
             : []),
           {
-            label: `Prices, ${r.earlierYear}–${r.laterYear} (estimated)`,
-            value: signedPercent(r.cumulativePercent, locale),
+            label: `Prices, ${r.earlierYear}–${r.laterYear}`,
+            value: `≈ ${signedPercent(r.cumulativePercent, locale)}`,
           },
-          { label: "Average inflation per year", value: formatPercent(r.averageAnnualPercent!, locale, 2) },
+          { label: "Average inflation per year", value: `≈ ${formatPercent(r.averageAnnualPercent!, locale, 2)}` },
           {
             label: r.purchasingPowerLossPercent >= 0 ? "Buying power lost" : "Buying power gained",
-            value: percent(Math.abs(r.purchasingPowerLossPercent), locale),
+            value: `≈ ${percent(Math.abs(r.purchasingPowerLossPercent), locale)}`,
           },
         ]}
       />
@@ -958,6 +969,7 @@ function AllCountries({
   fromYear,
   toYear,
   problem,
+  customRate,
   ownRate,
   locale,
 }: {
@@ -965,7 +977,9 @@ function AllCountries({
   fromYear: number;
   toYear: number;
   problem: string | null;
-  /** The visitor's own future rate, when they set one. */
+  /** Whether the visitor chose their own future rate… */
+  customRate: boolean;
+  /** …and what it is, when it's a usable number. */
   ownRate: number | null;
   locale: string;
 }) {
@@ -1017,9 +1031,11 @@ function AllCountries({
               <>
                 Published figures only: each country&apos;s compound average over its last {AVERAGE_YEARS} years of
                 data, or since its series starts.{" "}
-                {ownRate === null
+                {!customRate
                   ? "These are the rates the estimates above carry forward."
-                  : `The estimates above use the ${formatPercent(ownRate, locale, 2)} a year you set instead.`}
+                  : ownRate === null
+                    ? "Fix the rate you set above to see the estimates."
+                    : `The estimates above use the ${formatPercent(ownRate, locale, 2)} a year you set instead.`}
               </>
             ) : (
               <>

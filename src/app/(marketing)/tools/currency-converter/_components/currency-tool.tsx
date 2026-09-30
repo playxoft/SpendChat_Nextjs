@@ -290,6 +290,14 @@ function ConvertResult({
   );
 }
 
+/**
+ * What to call the rates in copied text: Frankfurter's are central-bank
+ * reference rates; the fallback dataset's are not, so it isn't credited as such.
+ */
+function ratesName(table: RateTable): string {
+  return table.source === "frankfurter" ? "reference rates" : "open-data exchange rates";
+}
+
 function convertCopy(s: State, home: string, locale: string, table: RateTable | null): string | null {
   const from = validCode(s.f, DEFAULTS.f);
   const { amount } = readAmount(s, locale);
@@ -299,7 +307,7 @@ function convertCopy(s: State, home: string, locale: string, table: RateTable | 
     return v === null ? [] : [formatCurrency(v, code, locale)];
   });
   if (parts.length === 0) return null;
-  return `${formatCurrency(amount, from, locale)} = ${parts.join(" · ")} (reference rates as of ${formatRateDate(table.date, locale)}).`;
+  return `${formatCurrency(amount, from, locale)} = ${parts.join(" · ")} (${ratesName(table)} as of ${formatRateDate(table.date, locale)}).`;
 }
 
 // ---------------------------------------------------------------------------
@@ -515,7 +523,7 @@ function tripCopy(s: State, home: string, locale: string, table: RateTable | nul
     totals.totalWithMarkup !== null
       ? `, or ${money(totals.totalWithMarkup, home)} with a ${formatNumber(fee, locale, 2)}% card fee`
       : "";
-  return `Trip total: ${money(totals.totalTrip, trip)} (${n} ${n === 1 ? "expense" : "expenses"}) = ${money(totals.totalHome, home)} at the reference rate of ${formatRateDate(table.date, locale)}${withFee}.`;
+  return `Trip total: ${money(totals.totalTrip, trip)} (${n} ${n === 1 ? "expense" : "expenses"}) = ${money(totals.totalHome, home)} at the ${ratesName(table)} of ${formatRateDate(table.date, locale)}${withFee}.`;
 }
 
 // ---------------------------------------------------------------------------

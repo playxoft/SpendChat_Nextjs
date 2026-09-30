@@ -172,7 +172,9 @@ function saveFile(blob: Blob, name: string) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Generous: iOS Safari asks before downloading and only reads the file once
+  // the visitor agrees, so revoking after a second can leave nothing to save.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 async function fetchBytes(url: string): Promise<Uint8Array> {
@@ -182,14 +184,17 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
 }
 
 /**
- * The logo as bytes a PDF can embed. PNG and JPEG go in as they are; WebP,
- * GIF and SVG are redrawn to a PNG through a canvas first, at up to 2× the
- * size they're shown at so they stay sharp.
+ * The logo as bytes a PDF can embed, always redrawn through a canvas at up to
+ * 2× the size it's shown at. Passing the upload straight through went wrong
+ * in too many ways: a JPEG saved as .png gets a PNG data URL and breaks
+ * pdf-lib, an animated PNG is refused, a phone photo's EXIF rotation is
+ * ignored, and a small file can still be an 8000-pixel image. The canvas
+ * decodes whatever the browser can show, upright, at a sensible size. Photos
+ * (JPEG by their first bytes) stay JPEG; everything else becomes a PNG, which
+ * keeps transparency.
  */
 async function logoForPdf(dataUrl: string): Promise<{ bytes: Uint8Array; kind: "png" | "jpg" } | null> {
   const toBytes = (url: string) => Uint8Array.from(atob(url.slice(url.indexOf(",") + 1)), (c) => c.charCodeAt(0));
-  if (dataUrl.startsWith("data:image/png;base64,")) return { bytes: toBytes(dataUrl), kind: "png" };
-  if (dataUrl.startsWith("data:image/jpeg;base64,")) return { bytes: toBytes(dataUrl), kind: "jpg" };
   const image = new Image();
   image.src = dataUrl;
   await image.decode();
@@ -200,7 +205,11 @@ async function logoForPdf(dataUrl: string): Promise<{ bytes: Uint8Array; kind: "
   const ctx = canvas.getContext("2d");
   if (!ctx) return null;
   ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-  return { bytes: toBytes(canvas.toDataURL("image/png")), kind: "png" };
+  const head = dataUrl.startsWith("data:") && dataUrl.includes(";base64,") ? toBytes(dataUrl.slice(0, dataUrl.indexOf(",") + 8)) : null;
+  const jpeg = head !== null && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+  return jpeg
+    ? { bytes: toBytes(canvas.toDataURL("image/jpeg", 0.92)), kind: "jpg" }
+    : { bytes: toBytes(canvas.toDataURL("image/png")), kind: "png" };
 }
 
 /**
@@ -242,6 +251,10 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
   const [dueOpen, setDueOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
   const [makingPdf, setMakingPdf] = useState(false);
+  /** What the Download button is doing, for screen readers ("Making the PDF…"). */
+  const [pdfStatus, setPdfStatus] = useState("");
+  // The guard against a second press reads this, not the state, which is a render behind.
+  const pdfBusy = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -321,8 +334,10 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
    * PDF", which has every font on the device.
    */
   const downloadPdf = async () => {
-    if (makingPdf) return;
+    if (pdfBusy.current) return;
+    pdfBusy.current = true;
     setMakingPdf(true);
+    setPdfStatus("Making the PDF…");
     try {
       const view = buildDocView({ doc: getDraft(kind), labels, evaluation, dates, currency, locale });
       const [pdf, regular, bold] = await Promise.all([
@@ -335,15 +350,19 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
         toast.info("Opening Print instead", {
           description: `The downloaded PDF can't show ${missing.slice(0, 5).join(" ")} yet — choose “Save as PDF” in the print dialog.`,
         });
+        setPdfStatus("Opening Print instead.");
         print();
         return;
       }
       const logo = view.logo ? await logoForPdf(view.logo) : null;
       const bytes = await pdf.renderDocPdf(view, { regular, bold }, logo);
       saveFile(new Blob([bytes as BlobPart], { type: "application/pdf" }), view.fileName);
+      setPdfStatus(`Downloaded ${view.fileName}.`);
     } catch {
+      setPdfStatus("");
       toast.error("Couldn't make the PDF — use Print and choose “Save as PDF” instead.");
     } finally {
+      pdfBusy.current = false;
       setMakingPdf(false);
     }
   };
@@ -494,7 +513,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
       size="sm"
       className="h-8 shrink-0 rounded-lg px-3"
       onClick={() => void downloadPdf()}
-      disabled={makingPdf}
+      aria-disabled={makingPdf || undefined}
       title="Download as a PDF file"
     >
       {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}{" "}
@@ -560,16 +579,25 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
             className="size-11 shrink-0 rounded-xl"
             aria-label="Download as PDF"
             onClick={() => void downloadPdf()}
-            disabled={makingPdf}
+            aria-disabled={makingPdf || undefined}
           >
             {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}
           </Button>
         </div>
       </div>
 
+      <p role="status" className="sr-only">
+        {pdfStatus}
+      </p>
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6">
         {/* ---------------- Editor ---------------- */}
-        <ToolPanel className={cn("space-y-8", view === "preview" && "max-lg:hidden")}>
+        <ToolPanel
+          className={cn(
+            // Tabbing to a field just above the pinned action bar scrolls it clear of the bar.
+            "space-y-8 [&_:is(input,select,textarea,button,summary)]:scroll-mb-24",
+            view === "preview" && "max-lg:hidden",
+          )}
+        >
           <EditorSection title={`${labels.title} details`}>
             {kind === "quotation" && (
               <Segmented
@@ -917,7 +945,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
                     size="sm"
                     className="h-8 rounded-lg px-3"
                     onClick={() => void downloadPdf()}
-                    disabled={makingPdf}
+                    aria-disabled={makingPdf || undefined}
                   >
                     {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}{" "}
                     <span className="max-sm:sr-only">Download</span>

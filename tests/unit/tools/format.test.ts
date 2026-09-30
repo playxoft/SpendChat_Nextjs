@@ -32,6 +32,35 @@ describe("formatters", () => {
   });
 });
 
+describe("sanitizeNumberInput — never a different number", () => {
+  it("keeps digits in any script, and the Arabic separators", () => {
+    expect(sanitizeNumberInput("٤٠٫٥")).toBe("٤٠٫٥");
+    expect(parseNumber(sanitizeNumberInput("٤٠٫٥"), "ar-EG")).toBe(40.5);
+    expect(sanitizeNumberInput("१२३४")).toBe("१२३४");
+    expect(sanitizeNumberInput("১২৩")).toBe("১২৩");
+  });
+
+  it("reads a minus or brackets before the first digit as the sign", () => {
+    expect(sanitizeNumberInput("USD -1,200")).toBe("-1,200");
+    expect(sanitizeNumberInput("$-1,200")).toBe("-1,200");
+    expect(sanitizeNumberInput("(1,200)")).toBe("-1,200");
+    expect(sanitizeNumberInput("-")).toBe("-");
+  });
+
+  it("leaves a minus between digits and a pasted exponent for the parser to reject", () => {
+    expect(sanitizeNumberInput("12-15")).toBe("12-15");
+    expect(parseNumber(sanitizeNumberInput("12-15"), "en-US")).toBeNull();
+    expect(parseNumber(sanitizeNumberInput("1e6"), "en-US")).toBeNull();
+  });
+
+  it("still drops letters as they're typed", () => {
+    expect(sanitizeNumberInput("1e")).toBe("1");
+    expect(sanitizeNumberInput("12%")).toBe("12");
+    expect(sanitizeNumberInput("1.")).toBe("1.");
+    expect(sanitizeNumberInput("1 ")).toBe("1 ");
+  });
+});
+
 describe("sanitizeNumberInput", () => {
   it("keeps digits, the world's separators and a leading minus", () => {
     expect(sanitizeNumberInput("1,00,000.50")).toBe("1,00,000.50");
@@ -44,8 +73,6 @@ describe("sanitizeNumberInput", () => {
   it("drops letters and symbols as they're typed", () => {
     expect(sanitizeNumberInput("12k")).toBe("12");
     expect(sanitizeNumberInput("$1,500")).toBe("1,500");
-    expect(sanitizeNumberInput("1e5")).toBe("15");
     expect(sanitizeNumberInput("abc")).toBe("");
-    expect(sanitizeNumberInput("5-3")).toBe("53");
   });
 });

@@ -53,17 +53,39 @@ export function fromCanonicalNumber(raw: string, locale: string): string {
   return CANONICAL.test(raw) ? formatAmountInput(Number(raw), locale, 10) : raw;
 }
 
+/** Anything that can be part of a written number: any script's digits and the separators. */
+const NUMBER_CHAR = /[\p{Nd}.,'’ \u00a0\u202f\u066b\u066c]/u;
+/** A digit in any script — Latin, Arabic-Indic (٤), Devanagari (४), Bengali (৪)… */
+const DIGIT = /\p{Nd}/u;
+
 /**
- * What a number field accepts as it's typed: digits, the separators numbers
- * are written with around the world ("1,00,000.50", "1.000,5", "1 000",
- * "1'000"), and a minus sign at the start. Letters and symbols are dropped on
- * the spot, so a stray "k" or "$" never reaches the parser.
+ * What a number field accepts as it's typed: digits in any script, the
+ * separators numbers are written with around the world ("1,00,000.50",
+ * "1.000,5", "1 000", "1'000", "٤٠٫٥"), and a sign. Letters and symbols are
+ * dropped on the spot, so a stray "k" or "$" never reaches the parser.
+ *
+ * Dropping must never turn one number into another, so:
+ * - a minus anywhere before the first digit is the sign ("USD -1,200",
+ *   "$-5"), and so are accounting brackets ("(1,200)");
+ * - a minus between digits is left in ("12-15"), as is a pasted exponent
+ *   ("1e6"), for the parser to reject — rather than read as 1215 or 16.
  */
 export function sanitizeNumberInput(raw: string): string {
-  const trimmedStart = raw.replace(/^\s+/, "");
-  const negative = /^[-−]/.test(trimmedStart);
-  const kept = raw.replace(/[^\d.,'’ \u00a0\u202f]/g, "");
-  return negative ? `-${kept.replace(/^\s+/, "")}` : kept;
+  if (/\p{Nd}\s*[eE][+-]?\p{Nd}/u.test(raw)) return raw.trim();
+  const chars = [...raw];
+  const first = chars.findIndex((c) => DIGIT.test(c));
+  const last = chars.findLastIndex((c) => DIGIT.test(c));
+  const lead = first === -1 ? raw : chars.slice(0, first).join("");
+  const negative = /[-−]/.test(lead) || (/\(/.test(lead) && first !== -1 && chars.slice(last + 1).includes(")"));
+  const kept = chars
+    .filter((c, i) => {
+      if (NUMBER_CHAR.test(c)) return true;
+      // A minus between two digits stays, so "12-15" is an error and not 1215.
+      return (c === "-" || c === "−") && i > first && i < last && first !== -1;
+    })
+    .join("")
+    .replace(/^\s+/, "");
+  return negative ? `-${kept}` : kept;
 }
 
 /** Placeholder for a result that can't be computed yet. */

@@ -222,7 +222,7 @@ export const TOOLS: Tool[] = [
     title: "FIRE Calculator — FIRE Number & Coast FIRE",
     h1: "FIRE calculator",
     description:
-      "Find your FIRE number and when you can retire early — Coast, Lean and Fat FIRE, the 4% rule and your savings rate. Free, no sign-up.",
+      "Find your FIRE number and when you can retire early — Coast, Lean and Fat FIRE, the 4% rule and what you save each month. Free, no sign-up.",
     blurb: "Your FIRE number and early-retirement date.",
     action: "Find my FIRE number",
     group: "plan",
