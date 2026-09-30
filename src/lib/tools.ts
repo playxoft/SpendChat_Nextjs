@@ -11,7 +11,7 @@
  */
 
 /** Where a tool sits on the `/tools` hub. */
-export type ToolGroup = "everyday" | "dates" | "grow" | "debt" | "business";
+export type ToolGroup = "everyday" | "dates" | "grow" | "plan" | "debt" | "business";
 
 export const TOOL_GROUPS: { id: ToolGroup; label: string; blurb: string }[] = [
   // First: the invoice and quotation generators are the tools people come back to.
@@ -34,6 +34,11 @@ export const TOOL_GROUPS: { id: ToolGroup; label: string; blurb: string }[] = [
     id: "grow",
     label: "Saving & investing",
     blurb: "See what regular saving grows into.",
+  },
+  {
+    id: "plan",
+    label: "Planning & goals",
+    blurb: "Know where you stand, and when you'll get there.",
   },
   {
     id: "debt",
@@ -289,6 +294,217 @@ export const TOOLS: Tool[] = [
       "percentage-calculator",
     ],
     keywords: ["quote", "estimate", "proposal", "pdf", "price"],
+    published: true,
+  },
+
+  // ---- Batch 2: tools 12–22 ----
+  {
+    slug: "simple-interest-calculator",
+    label: "Simple interest calculator",
+    title: "Simple Interest Calculator — SI = PRT/100",
+    h1: "Simple interest calculator",
+    description:
+      "Calculate simple interest from principal, rate and time — or solve for the missing one — with the working shown and a compound comparison. Free.",
+    blurb: "Interest, principal, rate or time — with the steps.",
+    action: "Calculate interest",
+    group: "grow",
+    related: [
+      "compound-interest-calculator",
+      "fd-calculator",
+      "loan-calculator",
+      "percentage-calculator",
+    ],
+    keywords: ["si", "prt", "principal", "rate", "time", "interest formula", "flat rate"],
+    published: true,
+  },
+  {
+    slug: "loan-calculator",
+    label: "EMI & loan calculator",
+    title: "EMI & Loan Calculator — Amortization Schedule",
+    h1: "EMI & loan calculator",
+    description:
+      "Work out your loan EMI, total interest and a month-by-month amortization schedule, with prepayments that cut interest and tenure. Free, no sign-up.",
+    blurb: "Monthly EMI, total interest and a full schedule.",
+    action: "Calculate EMI",
+    group: "debt",
+    related: [
+      "loan-comparison-calculator",
+      "credit-card-payoff-calculator",
+      "simple-interest-calculator",
+      "compound-interest-calculator",
+    ],
+    keywords: ["emi", "mortgage", "home loan", "car loan", "personal loan", "amortization", "prepayment"],
+    published: true,
+  },
+  {
+    slug: "loan-comparison-calculator",
+    label: "Loan comparison calculator",
+    title: "Loan Comparison Calculator — Compare Offers",
+    h1: "Loan comparison calculator",
+    description:
+      "Compare two or three loan offers side by side — EMI, total interest and the true total cost including fees — and see which loan is really cheaper.",
+    blurb: "Which loan offer is really cheaper, fees included.",
+    action: "Compare loans",
+    group: "debt",
+    related: [
+      "loan-calculator",
+      "credit-card-payoff-calculator",
+      "simple-interest-calculator",
+      "percentage-calculator",
+    ],
+    keywords: ["compare loans", "loan offers", "processing fee", "cheapest loan", "emi"],
+    published: true,
+  },
+  {
+    slug: "net-worth-calculator",
+    label: "Net worth calculator",
+    title: "Net Worth Calculator — Assets Minus Debts",
+    h1: "Net worth calculator",
+    description:
+      "Add up what you own and what you owe to find your net worth — cash, investments, property, loans and cards — and see how it changes over time.",
+    blurb: "What you own minus what you owe.",
+    action: "Calculate net worth",
+    group: "plan",
+    related: [
+      "fire-calculator",
+      "when-can-i-afford-it",
+      "compound-interest-calculator",
+      "loan-calculator",
+    ],
+    keywords: ["assets", "liabilities", "wealth", "balance sheet", "how rich am i"],
+    published: true,
+  },
+  {
+    slug: "fire-calculator",
+    label: "FIRE calculator",
+    title: "FIRE Calculator — FIRE Number & Coast FIRE",
+    h1: "FIRE calculator",
+    description:
+      "Find your FIRE number and when you can retire early — Coast, Lean and Fat FIRE, the 4% rule and your savings rate. Free, no sign-up.",
+    blurb: "Your FIRE number and early-retirement date.",
+    action: "Find my FIRE number",
+    group: "plan",
+    related: [
+      "net-worth-calculator",
+      "sip-calculator",
+      "compound-interest-calculator",
+      "inflation-calculator",
+    ],
+    keywords: ["early retirement", "4% rule", "coast fire", "lean fire", "fat fire", "retire"],
+    published: true,
+  },
+  {
+    slug: "savings-challenge",
+    label: "Savings challenge",
+    title: "Savings Challenge — 52-Week & 100-Envelope",
+    h1: "Savings challenge tracker",
+    description:
+      "Start a 52-week or 100-envelope savings challenge in any currency: tick off each step, watch the total grow, and print a tracker. Free, no sign-up.",
+    blurb: "52-week and 100-envelope challenges, printable.",
+    action: "Start a challenge",
+    group: "plan",
+    related: [
+      "when-can-i-afford-it",
+      "net-worth-calculator",
+      "compound-interest-calculator",
+      "sip-calculator",
+    ],
+    keywords: ["52 week challenge", "100 envelope challenge", "money challenge", "printable", "saving"],
+    published: true,
+  },
+  {
+    slug: "when-can-i-afford-it",
+    label: "When can I afford it?",
+    title: "Savings Goal Calculator — When Can I Afford It",
+    h1: "When can I afford it?",
+    description:
+      "Find when you can afford something from your savings and monthly saving, or how much to set aside each month to buy it by a date. Free goal calculator.",
+    blurb: "When you can buy it, or what to save each month.",
+    action: "Plan my goal",
+    group: "plan",
+    related: [
+      "savings-challenge",
+      "net-worth-calculator",
+      "compound-interest-calculator",
+      "sip-calculator",
+    ],
+    keywords: ["savings goal", "save for", "how long to save", "monthly saving", "afford"],
+    published: true,
+  },
+  {
+    slug: "freelance-rate-calculator",
+    label: "Freelance rate calculator",
+    title: "Freelance Rate Calculator — Hourly & Day Rate",
+    h1: "Freelance rate calculator",
+    description:
+      "Work out what to charge as a freelancer: the hourly and day rate that covers your target income, taxes, expenses and time off. Free, no sign-up.",
+    blurb: "The hourly rate that pays what you need.",
+    action: "Calculate my rate",
+    group: "business",
+    related: [
+      "invoice-generator",
+      "quotation-generator",
+      "vat-calculator",
+      "percentage-calculator",
+    ],
+    keywords: ["hourly rate", "day rate", "freelancer", "consultant", "how much to charge"],
+    published: true,
+  },
+  {
+    slug: "fd-calculator",
+    label: "FD & RD calculator",
+    title: "FD & RD Calculator — Maturity & Interest",
+    h1: "FD & RD calculator",
+    description:
+      "Calculate fixed and recurring deposit maturity amounts and interest, with quarterly compounding as Indian banks use and an optional TDS estimate. Free.",
+    blurb: "Fixed and recurring deposit maturity.",
+    action: "Calculate maturity",
+    group: "grow",
+    related: [
+      "simple-interest-calculator",
+      "compound-interest-calculator",
+      "sip-calculator",
+      "inflation-calculator",
+    ],
+    keywords: ["fixed deposit", "recurring deposit", "fd interest", "rd", "maturity", "tds"],
+    published: true,
+  },
+  {
+    slug: "currency-converter",
+    label: "Currency converter",
+    title: "Currency Converter — Today's Exchange Rates",
+    h1: "Currency converter",
+    description:
+      "Convert between currencies at today's reference rates — one amount into several currencies at once, and a trip mode for a list of expenses. Free.",
+    blurb: "One amount in several currencies at once.",
+    action: "Convert currency",
+    group: "everyday",
+    related: [
+      "vat-calculator",
+      "inflation-calculator",
+      "percentage-calculator",
+      "amount-in-words",
+    ],
+    keywords: ["exchange rate", "forex", "usd to inr", "euro", "convert money", "fx"],
+    published: true,
+  },
+  {
+    slug: "inflation-calculator",
+    label: "Inflation calculator",
+    title: "Inflation Calculator — Value of Money Then & Now",
+    h1: "Inflation calculator",
+    description:
+      "See what money from any year is worth today, and how much prices rose, from official consumer price data for 40+ countries. Free, no sign-up.",
+    blurb: "What money from the past is worth today.",
+    action: "Calculate inflation",
+    group: "everyday",
+    related: [
+      "currency-converter",
+      "compound-interest-calculator",
+      "fire-calculator",
+      "percentage-calculator",
+    ],
+    keywords: ["cpi", "purchasing power", "value of money", "price rise", "then vs now"],
     published: true,
   },
 ];

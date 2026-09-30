@@ -21,6 +21,16 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 ## [0.31.0] — 2026-09-30
 
 ### Added
+- **Eleven more free tools**, taking [/tools](https://spendchat.app/tools) to 22:
+  an **EMI & loan calculator** (amortization schedule, prepayments that cut
+  interest or tenure) and a **loan comparison** that counts the fees; **simple
+  interest** (solve for any of P, R, T with the working shown) and **FD & RD**
+  maturity with Indian banks' quarterly compounding; **net worth** with saved
+  snapshots; a **FIRE calculator** (FIRE number, Coast, Lean and Fat FIRE); a
+  printable **52-week / 100-envelope savings challenge** in any currency;
+  **When can I afford it?**; a **freelance rate calculator**; a **currency
+  converter** at today's reference rates, with a trip mode; and an **inflation
+  calculator** from World Bank consumer price data for 43 countries.
 - **Download invoices and quotations as a PDF file.** The big **Download**
   button now saves a real PDF — sharp, selectable text, named after the
   document number (`INV-0007.pdf`) — made entirely in your browser. Printing
@@ -28,6 +38,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   **Save copy (.json)** icon. A document written in a script the PDF font
   doesn't cover yet (Devanagari, Arabic, Chinese…) opens the print dialog to
   save as PDF instead.
+
+### Changed
+- **Invoice and quotation actions are always in reach.** Print, save a copy,
+  open, share and reset sit together in one chip beside Download, and the same
+  bar is pinned to the bottom of the form while you scroll it.
 
 ## [0.30.0] — 2026-09-28
 

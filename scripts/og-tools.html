@@ -11,7 +11,10 @@
 
     for s in index invoice-generator quotation-generator percentage-calculator \
       vat-calculator amount-in-words electricity-cost-calculator days-between-dates \
-      age-calculator compound-interest-calculator sip-calculator credit-card-payoff-calculator; do
+      age-calculator compound-interest-calculator sip-calculator credit-card-payoff-calculator \
+      simple-interest-calculator loan-calculator loan-comparison-calculator net-worth-calculator \
+      fire-calculator savings-challenge when-can-i-afford-it freelance-rate-calculator fd-calculator \
+      currency-converter inflation-calculator; do
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
         --headless=new --disable-gpu --hide-scrollbars \
         --force-device-scale-factor=1 --window-size=1200,630 \
@@ -90,7 +93,7 @@
 
     <script>
       const CARDS = {
-        index: ["Free financial calculators", "GST, SIP, invoices, dates and more — all free.", "11 free tools", "GST · SIP · Invoice"],
+        index: ["Free financial calculators", "GST, EMI, SIP, invoices, dates and more — all free.", "22 free tools", "GST · EMI · Invoice"],
         "invoice-generator": ["Free Invoice Generator", "Line items, GST or VAT, any currency — save as PDF.", "Invoice INV-0007 · total", "₹37,501.50"],
         "quotation-generator": ["Free Quotation Maker", "Quotes and estimates that turn into invoices.", "Quotation · valid 30 days", "₹85,000.00"],
         "percentage-calculator": ["Percentage Calculator", "X% of Y, increase, decrease and change.", "15% of 200", "= 30"],
@@ -102,6 +105,17 @@
         "compound-interest-calculator": ["Compound Interest Calculator", "Monthly deposits, any compounding.", "$10,000 + $200/mo · 7% · 10 yrs", "$54,714"],
         "sip-calculator": ["SIP Calculator", "Step-up SIP returns, year by year.", "₹5,000/month · 12% · 10 yrs", "₹11,61,695"],
         "credit-card-payoff-calculator": ["Credit Card Payoff Calculator", "How long to clear it, and the interest.", "$5,000 at 22% APR · $200/mo", "2 yrs 10 mos"],
+        "currency-converter": ["Currency Converter", "One amount, many currencies at once.", "$100 in rupees?", "₹9,592.00"],
+        "freelance-rate-calculator": ["Freelance Rate Calculator", "The hourly and day rate that pays your target.", "Take home $60,000?", "$74.78 an hour"],
+        "inflation-calculator": ["Inflation Calculator", "What money is worth, then and now.", "$100 in 2000, today?", "$182.17 in 2024"],
+        "simple-interest-calculator": ["Simple Interest Calculator", "Interest, principal, rate or time, with steps.", "10,000 at 7% for 3 years?", "2,100 interest"],
+        "fd-calculator": ["FD & RD Calculator", "Maturity and interest, compounded quarterly.", "₹1,00,000 at 7% for 5 yrs?", "₹1,41,478"],
+        "loan-calculator": ["EMI & Loan Calculator", "EMI, interest and a full amortization schedule.", "₹10 lakh at 8.5% for 20 yrs?", "₹8,678.23/month"],
+        "loan-comparison-calculator": ["Loan Comparison Calculator", "Which offer is really cheaper, fees included.", "10.5% + fees vs 11%?", "11% saves ₹2,044"],
+        "savings-challenge": ["Savings Challenge Tracker", "52-week and 100-envelope, in any currency.", "52-week challenge from $1?", "$1,378 saved"],
+        "when-can-i-afford-it": ["When Can I Afford It?", "A savings goal calculator.", "$2,000, $350 saved, $150/mo?", "11 months"],
+        "net-worth-calculator": ["Net Worth Calculator", "What you own minus what you owe.", "Own $392,000, owe $230,500?", "$161,500"],
+        "fire-calculator": ["FIRE Calculator", "FIRE number, Coast and Lean FIRE.", "Spend $40k a year at 4%?", "$1,000,000"],
       };
       const slug = new URLSearchParams(location.search).get("t") || "index";
       const [title, sub, q, a] = CARDS[slug] || CARDS.index;

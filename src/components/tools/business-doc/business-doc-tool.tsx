@@ -485,6 +485,59 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
       ]
     : [{ label: "Total", value: "Too large to total exactly" }];
 
+  // The document's actions, rendered twice: in the toolbar above the preview
+  // and in a bar pinned to the bottom of the form, so they're in reach
+  // wherever someone has scrolled to.
+  const downloadButton = (
+    <Button
+      type="button"
+      size="sm"
+      className="h-8 shrink-0 rounded-lg px-3"
+      onClick={() => void downloadPdf()}
+      disabled={makingPdf}
+      title="Download as a PDF file"
+    >
+      {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}{" "}
+      <span className="max-sm:sr-only">Download</span>
+    </Button>
+  );
+  const previewButton = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-8 shrink-0 rounded-lg px-2"
+      onClick={() => setFullScreen(true)}
+      title="See the whole page full screen"
+    >
+      <Expand /> <span className="max-sm:sr-only">Preview</span>
+    </Button>
+  );
+  // The five less-frequent actions as one quiet chip of icons, on the right.
+  const actionChip = (
+    <div
+      role="group"
+      aria-label={`${labels.title} actions`}
+      className="ml-auto flex shrink-0 items-center gap-0.5 rounded-full border bg-muted/60 p-0.5"
+    >
+      <ChipAction label="Print" onClick={print}>
+        <Printer />
+      </ChipAction>
+      <ChipAction label="Save a copy (.json) to open again later" onClick={exportJson}>
+        <FileJson />
+      </ChipAction>
+      <ChipAction label="Open a saved copy (.json)" onClick={() => importInput.current?.click()}>
+        <Upload />
+      </ChipAction>
+      <ChipAction label={`Share this ${labels.noun} as a link`} onClick={() => void share()}>
+        <Share2 />
+      </ChipAction>
+      <ChipAction label="Reset — clear everything" onClick={clearAll}>
+        <RotateCcw />
+      </ChipAction>
+    </div>
+  );
+
   return (
     <div ref={rootRef} className="scroll-mt-24">
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
@@ -766,6 +819,14 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
               <span>Show &lsquo;Made with SpendChat&rsquo; on the document</span>
             </label>
           </EditorSection>
+
+          {/* Pinned to the bottom of the form while it scrolls: Download and
+              the rest shouldn't be a trip back to the top away. */}
+          <div className="sticky bottom-3 z-20 flex items-center gap-1 rounded-2xl border bg-background/90 p-1.5 shadow-lg backdrop-blur-md">
+            {downloadButton}
+            {previewButton}
+            {actionChip}
+          </div>
         </ToolPanel>
 
         {/* ---------------- Document ----------------
@@ -782,38 +843,8 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
               anything wraps. The icon-only buttons carry their name in
               `aria-label` and a tooltip. */}
           <div className="flex h-9 shrink-0 flex-nowrap items-center gap-1 overflow-x-auto">
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 shrink-0 rounded-lg px-3"
-              onClick={() => void downloadPdf()}
-              disabled={makingPdf}
-              title="Download as a PDF file"
-            >
-              {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}{" "}
-              <span className="max-sm:sr-only">Download</span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="size-8 shrink-0 rounded-lg"
-              onClick={print}
-              aria-label="Print"
-              title="Print"
-            >
-              <Printer />
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 shrink-0 rounded-lg px-2"
-              onClick={() => setFullScreen(true)}
-              title="See the whole page full screen"
-            >
-              <Expand /> <span className="max-sm:sr-only">Preview</span>
-            </Button>
+            {downloadButton}
+            {previewButton}
             <Button
               type="button"
               variant="outline"
@@ -837,19 +868,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
                 <ArrowRight /> <span className="max-sm:sr-only">Invoice</span>
               </Button>
             )}
-            <span className="mx-0.5 h-5 w-px shrink-0 bg-border" aria-hidden />
-            <IconAction label="Save a copy (.json) to open again later" onClick={exportJson}>
-              <FileJson />
-            </IconAction>
-            <IconAction label="Open a saved copy (.json)" onClick={() => importInput.current?.click()}>
-              <Upload />
-            </IconAction>
-            <IconAction label={`Share this ${labels.noun} as a link`} onClick={() => void share()}>
-              <Share2 />
-            </IconAction>
-            <IconAction label="Reset — clear everything" onClick={clearAll}>
-              <RotateCcw />
-            </IconAction>
+            {actionChip}
             <input
               ref={importInput}
               type="file"
@@ -903,20 +922,14 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
                     {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}{" "}
                     <span className="max-sm:sr-only">Download</span>
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="icon"
-                    className="size-8 rounded-lg"
-                    onClick={print}
-                    aria-label="Print"
-                    title="Print"
-                  >
-                    <Printer />
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg" onClick={() => void share()}>
-                    <Share2 /> <span className="max-sm:sr-only">Share</span>
-                  </Button>
+                  <div className="flex items-center gap-0.5 rounded-full border bg-muted/60 p-0.5">
+                    <ChipAction label="Print" onClick={print}>
+                      <Printer />
+                    </ChipAction>
+                    <ChipAction label={`Share this ${labels.noun} as a link`} onClick={() => void share()}>
+                      <Share2 />
+                    </ChipAction>
+                  </div>
                   <Button
                     type="button"
                     variant="ghost"
@@ -951,14 +964,14 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
   );
 }
 
-/** A toolbar button that is only an icon; its name lives in `aria-label` and the tooltip. */
-function IconAction({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+/** One icon in the actions chip; its name lives in `aria-label` and the tooltip. */
+function ChipAction({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
     <Button
       type="button"
       variant="ghost"
       size="icon"
-      className="size-7 shrink-0 rounded-lg text-muted-foreground hover:text-foreground"
+      className="size-7 shrink-0 rounded-full text-muted-foreground hover:bg-background hover:text-foreground"
       onClick={onClick}
       aria-label={label}
       title={label}
