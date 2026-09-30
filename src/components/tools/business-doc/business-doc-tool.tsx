@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Download, Expand, FilePlus2, ImagePlus, Printer, RotateCcw, Share2, Upload, X } from "lucide-react";
+import { ArrowRight, Download, Expand, FileJson, FilePlus2, ImagePlus, Loader2, Printer, RotateCcw, Share2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -48,6 +48,7 @@ import {
 import { cn } from "@/lib/utils";
 import { clearDraft, getDraft, setDraft, useDraft } from "./draft-store";
 import { DocPaper } from "./doc-paper";
+import { buildDocView } from "./doc-view";
 import { FitPaper } from "./fit-paper";
 import { CUSTOM_TERMS, docLabels } from "./labels";
 import { LineItems } from "./line-items";
@@ -146,6 +147,63 @@ function useRegion(): string | null {
  * gets.
  */
 /**
+ * Open the print dialog. The browser names a "Save as PDF" file after the page
+ * title, so it's set to "Invoice INV-0007" for the moment the dialog is up.
+ */
+function printDocument(title: string) {
+  const previous = document.title;
+  document.title = title;
+  window.addEventListener(
+    "afterprint",
+    () => {
+      document.title = previous;
+    },
+    { once: true },
+  );
+  window.print();
+}
+
+/** Save a blob as a download named `name`. */
+function saveFile(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+async function fetchBytes(url: string): Promise<Uint8Array> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Couldn't load ${url}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/**
+ * The logo as bytes a PDF can embed. PNG and JPEG go in as they are; WebP,
+ * GIF and SVG are redrawn to a PNG through a canvas first, at up to 2× the
+ * size they're shown at so they stay sharp.
+ */
+async function logoForPdf(dataUrl: string): Promise<{ bytes: Uint8Array; kind: "png" | "jpg" } | null> {
+  const toBytes = (url: string) => Uint8Array.from(atob(url.slice(url.indexOf(",") + 1)), (c) => c.charCodeAt(0));
+  if (dataUrl.startsWith("data:image/png;base64,")) return { bytes: toBytes(dataUrl), kind: "png" };
+  if (dataUrl.startsWith("data:image/jpeg;base64,")) return { bytes: toBytes(dataUrl), kind: "jpg" };
+  const image = new Image();
+  image.src = dataUrl;
+  await image.decode();
+  const scale = Math.min(1, 600 / (image.naturalWidth || 600), 200 / (image.naturalHeight || 200)) * 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round((image.naturalWidth || 300) * scale));
+  canvas.height = Math.max(1, Math.round((image.naturalHeight || 100) * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return { bytes: toBytes(canvas.toDataURL("image/png")), kind: "png" };
+}
+
+/**
  * Swap in a whole document (and, from a file or link, its currency), with an
  * Undo that puts both back. Always offered: "is there anything worth undoing"
  * is harder to judge than it looks (seller details, logo and bank notes all
@@ -183,6 +241,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
   const [view, setView] = useState<"edit" | "preview">("edit");
   const [dueOpen, setDueOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
+  const [makingPdf, setMakingPdf] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -253,18 +312,40 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
     if (root && root.getBoundingClientRect().top < 0) root.scrollIntoView({ block: "start" });
   };
 
-  const print = () => {
-    // The browser names the PDF after the page title: "Invoice INV-0007.pdf".
-    const previous = document.title;
-    document.title = `${labels.title} ${doc.number}`.trim();
-    window.addEventListener(
-      "afterprint",
-      () => {
-        document.title = previous;
-      },
-      { once: true },
-    );
-    window.print();
+  const print = () => printDocument(`${labels.title} ${doc.number}`.trim());
+
+  /**
+   * Download: a real PDF file, drawn in the browser (nothing is uploaded). The
+   * PDF library and its font load only on the first press. A document in a
+   * script the font doesn't cover falls back to the print dialog's "Save as
+   * PDF", which has every font on the device.
+   */
+  const downloadPdf = async () => {
+    if (makingPdf) return;
+    setMakingPdf(true);
+    try {
+      const view = buildDocView({ doc: getDraft(kind), labels, evaluation, dates, currency, locale });
+      const [pdf, regular, bold] = await Promise.all([
+        import("@/lib/tools/invoice-pdf"),
+        fetchBytes("/fonts/pdf/NotoSans-Regular.ttf"),
+        fetchBytes("/fonts/pdf/NotoSans-Bold.ttf"),
+      ]);
+      const missing = pdf.unsupportedCharacters(view, regular);
+      if (missing.length > 0) {
+        toast.info("Opening Print instead", {
+          description: `The downloaded PDF can't show ${missing.slice(0, 5).join(" ")} yet — choose “Save as PDF” in the print dialog.`,
+        });
+        print();
+        return;
+      }
+      const logo = view.logo ? await logoForPdf(view.logo) : null;
+      const bytes = await pdf.renderDocPdf(view, { regular, bold }, logo);
+      saveFile(new Blob([bytes as BlobPart], { type: "application/pdf" }), view.fileName);
+    } catch {
+      toast.error("Couldn't make the PDF — use Print and choose “Save as PDF” instead.");
+    } finally {
+      setMakingPdf(false);
+    }
   };
 
   const startNew = () => {
@@ -298,14 +379,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
 
   const exportJson = () => {
     const current = getDraft(kind);
-    const url = URL.createObjectURL(new Blob([exportDoc(current, currency, locale)], { type: "application/json" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = docFileName(current);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    saveFile(new Blob([exportDoc(current, currency, locale)], { type: "application/json" }), docFileName(current));
   };
 
   /**
@@ -431,10 +505,11 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
             variant="outline"
             size="icon"
             className="size-11 shrink-0 rounded-xl"
-            aria-label="Print or save as PDF"
-            onClick={print}
+            aria-label="Download as PDF"
+            onClick={() => void downloadPdf()}
+            disabled={makingPdf}
           >
-            <Printer />
+            {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}
           </Button>
         </div>
       </div>
@@ -710,11 +785,24 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
             <Button
               type="button"
               size="sm"
-              className="h-8 shrink-0 rounded-lg px-2"
-              onClick={print}
-              title="Pick “Save as PDF” as the printer, and turn off “Headers and footers” for a clean page."
+              className="h-8 shrink-0 rounded-lg px-3"
+              onClick={() => void downloadPdf()}
+              disabled={makingPdf}
+              title="Download as a PDF file"
             >
-              <Printer /> <span className="max-sm:sr-only">Print / PDF</span>
+              {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}{" "}
+              <span className="max-sm:sr-only">Download</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="size-8 shrink-0 rounded-lg"
+              onClick={print}
+              aria-label="Print"
+              title="Print"
+            >
+              <Printer />
             </Button>
             <Button
               type="button"
@@ -750,10 +838,10 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
               </Button>
             )}
             <span className="mx-0.5 h-5 w-px shrink-0 bg-border" aria-hidden />
-            <IconAction label="Download a copy (.json) you can open again later" onClick={exportJson}>
-              <Download />
+            <IconAction label="Save a copy (.json) to open again later" onClick={exportJson}>
+              <FileJson />
             </IconAction>
-            <IconAction label="Open a downloaded copy" onClick={() => importInput.current?.click()}>
+            <IconAction label="Open a saved copy (.json)" onClick={() => importInput.current?.click()}>
               <Upload />
             </IconAction>
             <IconAction label={`Share this ${labels.noun} as a link`} onClick={() => void share()}>
@@ -805,11 +893,26 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
                   {`${labels.title} ${doc.number}`.trim()}
                 </DialogTitle>
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                  <Button type="button" size="sm" className="h-8 rounded-lg" onClick={print}>
-                    <Printer /> <span className="max-sm:sr-only">Print / PDF</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 rounded-lg px-3"
+                    onClick={() => void downloadPdf()}
+                    disabled={makingPdf}
+                  >
+                    {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}{" "}
+                    <span className="max-sm:sr-only">Download</span>
                   </Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg" onClick={exportJson}>
-                    <Download /> <span className="max-sm:sr-only">Download</span>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="size-8 rounded-lg"
+                    onClick={print}
+                    aria-label="Print"
+                    title="Print"
+                  >
+                    <Printer />
                   </Button>
                   <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg" onClick={() => void share()}>
                     <Share2 /> <span className="max-sm:sr-only">Share</span>

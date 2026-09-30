@@ -18,6 +18,17 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-09-30
+
+### Added
+- **Download invoices and quotations as a PDF file.** The big **Download**
+  button now saves a real PDF — sharp, selectable text, named after the
+  document number (`INV-0007.pdf`) — made entirely in your browser. Printing
+  moved to the printer icon beside it, and the backup file is now the
+  **Save copy (.json)** icon. A document written in a script the PDF font
+  doesn't cover yet (Devanagari, Arabic, Chinese…) opens the print dialog to
+  save as PDF instead.
+
 ## [0.30.0] — 2026-09-28
 
 ### Added
