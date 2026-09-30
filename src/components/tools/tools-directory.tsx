@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Search, X } from "lucide-react";
 import { ToolCardGrid } from "@/components/tools/tool-card";
 import type { Tool } from "@/lib/tools";
@@ -37,7 +37,14 @@ function search(groups: ToolGroupWithItems[], query: string): Tool[] {
  * groups for one flat list of matches. "/" focuses the box from anywhere on the
  * page, like most sites with search.
  */
-export function ToolsDirectory({ groups }: { groups: ToolGroupWithItems[] }) {
+export function ToolsDirectory({
+  groups,
+  previews,
+}: {
+  groups: ToolGroupWithItems[];
+  /** Each tool's hub picture, rendered on the server (`toolPreviews`). */
+  previews: Readonly<Record<string, ReactNode>>;
+}) {
   const [query, setQuery] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const trimmed = query.trim();
@@ -111,7 +118,7 @@ export function ToolsDirectory({ groups }: { groups: ToolGroupWithItems[] }) {
               ? `No tools match “${trimmed}”.`
               : `${results.length} ${results.length === 1 ? "tool" : "tools"} for “${trimmed}”`}
           </h2>
-          <ToolCardGrid items={results} location="tools_hub_search" className="mt-4" />
+          <ToolCardGrid items={results} previews={previews} location="tools_hub_search" className="mt-4" />
         </section>
       ) : (
         <div className="mt-12 space-y-12">
@@ -121,7 +128,7 @@ export function ToolsDirectory({ groups }: { groups: ToolGroupWithItems[] }) {
                 {g.label}
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">{g.blurb}</p>
-              <ToolCardGrid items={g.items} location="tools_hub" className="mt-5" />
+              <ToolCardGrid items={g.items} previews={previews} location="tools_hub" className="mt-5" />
             </section>
           ))}
         </div>

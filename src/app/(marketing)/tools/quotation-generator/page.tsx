@@ -33,11 +33,11 @@ const faqs = [
   },
   {
     q: "Is my data stored anywhere?",
-    a: "Only in your browser. The draft is saved in this device's local storage so it's there when you come back; nothing is sent to SpendChat. Download saves a copy you can open elsewhere with Open, and Reset deletes it.",
+    a: "Only in your browser. The draft is saved in this device's local storage so it's there when you come back; nothing is sent to SpendChat. The Save copy (.json) icon keeps a file you can reopen elsewhere with Open, and Reset deletes the draft.",
   },
   {
     q: "How do I save the quote as a PDF?",
-    a: "Press Print / Save as PDF and choose “Save as PDF” as the printer. Turn off “Headers and footers” in the print dialog for a clean page. Only the quotation prints — not the rest of this page.",
+    a: "Press Download. You get a PDF file named after the quotation number, made in your browser — nothing is uploaded. To print on paper, use the printer icon; only the quotation prints.",
   },
 ];
 
@@ -65,7 +65,7 @@ export default function QuotationGeneratorPage() {
             price. Press Enter in the price box to start the next line.
           </li>
           <li>Add a discount or tax if they apply, then your terms: deposit, schedule, what&apos;s not included.</li>
-          <li>Press Print / Save as PDF and send it. When it&apos;s accepted, press Invoice to turn it into an invoice.</li>
+          <li>Press Download and send the PDF. When it&apos;s accepted, press Invoice to turn it into an invoice.</li>
         </ol>
       </ToolSection>
 

@@ -17,7 +17,7 @@ export const metadata = createMetadata({
   path: "/cookie-policy",
 });
 
-const LAST_UPDATED = "September 7, 2026";
+const LAST_UPDATED = "September 30, 2026";
 
 // Strictly-necessary cookies first, then the consent-gated analytics ones — the
 // note under the table splits them that way.
@@ -172,7 +172,7 @@ export default function CookiePolicyPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">Local storage (not a cookie)</h2>
           <p>
-            The site also keeps one small entry in your browser&apos;s local storage,{" "}
+            The site also keeps a small entry in your browser&apos;s local storage,{" "}
             <span className="text-foreground">spendchat:attribution</span>: the name of the
             site that linked you here and any campaign tag on that link, with the date. It
             is sent to our server once, the next time you sign in or create an account, and
@@ -182,6 +182,14 @@ export default function CookiePolicyPage() {
             open the site. It is not sent to any third party and is not affected by your
             analytics choice above — it holds no identifier and can&apos;t be used to
             recognise you. Clear your site data to remove it sooner.
+          </p>
+          <p>
+            The free tools at /tools keep a few more entries there, all starting{" "}
+            <span className="text-foreground">spendchat:tools:</span> — the currency you picked,
+            invoice and quotation drafts, net-worth snapshots, savings-challenge progress and
+            the last exchange rates the currency converter loaded (refreshed at most twice a
+            day, so it doesn&apos;t fetch them on every visit). They exist so your work is still there when you
+            come back, stay on your device, and are never sent to us or anyone else.
           </p>
         </section>
 

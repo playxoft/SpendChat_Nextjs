@@ -9,6 +9,7 @@ import { CURRENCIES } from "@/lib/currencies";
 import { toISODate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useToolCurrency, useToolLocale } from "@/components/tools/tool-state";
+import { sanitizeNumberInput } from "@/lib/tools/format";
 
 /**
  * Form controls for the `/tools/*` calculators.
@@ -74,6 +75,7 @@ export function NumberField({
   placeholder,
   className,
   integer,
+  allowNegative,
 }: {
   label: ReactNode;
   value: string;
@@ -88,6 +90,11 @@ export function NumberField({
   className?: string;
   /** Whole numbers only — opens the plain numeric keypad. */
   integer?: boolean;
+  /**
+   * The field takes negative numbers: opens a keyboard with a minus key
+   * (iOS's decimal pad has none).
+   */
+  allowNegative?: boolean;
 }) {
   const id = useId();
   return (
@@ -106,13 +113,13 @@ export function NumberField({
         <input
           id={id}
           type="text"
-          inputMode={integer ? "numeric" : "decimal"}
+          inputMode={allowNegative ? "text" : integer ? "numeric" : "decimal"}
           autoComplete="off"
           enterKeyHint="done"
           spellCheck={false}
           value={value}
           placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => onChange(sanitizeKeepingCaret(e.currentTarget))}
           onFocus={(e) => e.currentTarget.select()}
           aria-invalid={error ? true : undefined}
           aria-describedby={error || hint ? `${id}-msg` : undefined}
@@ -126,6 +133,24 @@ export function NumberField({
       </div>
     </Field>
   );
+}
+
+/**
+ * The field's text with anything that isn't part of a number dropped — and
+ * the caret put back where it was. Without that, dropping a keystroke in the
+ * middle of "1,500" makes React rewrite the value and throw the caret to the end.
+ */
+export function sanitizeKeepingCaret(input: HTMLInputElement): string {
+  const raw = input.value;
+  const clean = sanitizeNumberInput(raw);
+  const caret = input.selectionStart;
+  if (clean !== raw && caret !== null) {
+    const at = Math.min(clean.length, sanitizeNumberInput(raw.slice(0, caret)).length);
+    requestAnimationFrame(() => {
+      if (document.activeElement === input) input.setSelectionRange(at, at);
+    });
+  }
+  return clean;
 }
 
 /** A plain text input with the same shape as the number fields. */
@@ -273,6 +298,8 @@ function dateLabel(iso: string, locale: string, weekday: boolean): string {
 }
 
 export type Option = { value: string; label: string };
+/** A labelled run of options — a native `<optgroup>`. */
+export type OptionGroup = { label: string; options: readonly Option[] };
 
 /** Native `<select>` — the OS picker is the most usable one on a phone. */
 export function SelectField({
@@ -286,11 +313,16 @@ export function SelectField({
   label: ReactNode;
   value: string;
   onChange: (value: string) => void;
-  options: readonly Option[];
+  options: readonly (Option | OptionGroup)[];
   hint?: ReactNode;
   className?: string;
 }) {
   const id = useId();
+  const option = (o: Option) => (
+    <option key={o.value} value={o.value}>
+      {o.label}
+    </option>
+  );
   return (
     <Field id={id} label={label} hint={hint} className={className}>
       <div className="relative">
@@ -301,11 +333,15 @@ export function SelectField({
           aria-describedby={hint ? `${id}-msg` : undefined}
           className={cn(control, "appearance-none pr-9")}
         >
-          {options.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
+          {options.map((o) =>
+            "options" in o ? (
+              <optgroup key={o.label} label={o.label}>
+                {o.options.map(option)}
+              </optgroup>
+            ) : (
+              option(o)
+            ),
+          )}
         </select>
         <svg
           aria-hidden

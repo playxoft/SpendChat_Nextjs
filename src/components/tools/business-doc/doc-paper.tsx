@@ -3,10 +3,9 @@ import { siteConfig } from "@/lib/site";
 import { isSupportedCurrency } from "@/lib/currencies";
 import { formatMoney } from "@/lib/money";
 import { toolPath } from "@/lib/tools";
-import { formatDate } from "@/lib/tools/date-math";
 import { EMPTY, formatNumber } from "@/lib/tools/format";
 import type { BusinessDoc, DocEvaluation } from "@/lib/tools/invoice";
-import { applyLetterCase, defaultNumberingSystem, minorAmountInWords } from "@/lib/tools/number-words";
+import { buildDocView } from "./doc-view";
 import type { DocLabels } from "./labels";
 
 /**
@@ -53,16 +52,10 @@ export function DocPaper({
     .map((item, i) => ({ item, result: evaluation.items[i]! }))
     .filter(({ result }) => !result.blank);
 
-  const due =
-    doc.kind === "invoice" && doc.dueDays === 0
-      ? "On receipt"
-      : dates.due
-        ? formatDate(dates.due, locale, "plain")
-        : EMPTY;
-
-  const taxName = doc.taxLabel.trim() || "Tax";
-  const words = totals ? amountWords(totals.total, code) : null;
-  const showSubtotal = totals !== null && (totals.discount > 0 || evaluation.taxRate > 0);
+  // Dates, total rows and the amount in words come from the same view the
+  // downloaded PDF is drawn from, so screen and file always agree.
+  const view = buildDocView({ doc, labels, evaluation, dates, currency, locale });
+  const [, issueRow, dueRow] = view.meta;
 
   return (
     <article
@@ -104,9 +97,9 @@ export function DocPaper({
               {doc.number || <Placeholder>{EMPTY}</Placeholder>}
             </dd>
             <dt className="text-neutral-500">{labels.issue}</dt>
-            <dd className="tabular-nums">{dates.issue ? formatDate(dates.issue, locale, "plain") : EMPTY}</dd>
+            <dd className="tabular-nums">{issueRow?.value}</dd>
             <dt className="text-neutral-500">{labels.due}</dt>
-            <dd className="tabular-nums">{due}</dd>
+            <dd className="tabular-nums">{dueRow?.value}</dd>
           </dl>
         </div>
       </header>
@@ -183,35 +176,21 @@ export function DocPaper({
         ) : (
           <>
             <dl className="text-[0.95em]">
-              {showSubtotal && <TotalRow label="Subtotal" value={money(totals.subtotal)} />}
-              {totals.discount > 0 && (
-                <TotalRow
-                  label={
-                    evaluation.discountPercent !== null
-                      ? `Discount (${formatNumber(evaluation.discountPercent, locale, 4)}%)`
-                      : "Discount"
-                  }
-                  value={`−${money(totals.discount)}`}
-                />
-              )}
-              {evaluation.taxRate > 0 && (
-                <TotalRow
-                  label={`${taxName} (${formatNumber(evaluation.taxRate, locale, 4)}%)`}
-                  value={money(totals.tax)}
-                />
-              )}
+              {view.totalRows.map((row) => (
+                <TotalRow key={row.label} label={row.label} value={row.value} />
+              ))}
             </dl>
             <div className="mt-[0.4em] flex items-baseline justify-between gap-[1em] border-t-2 border-neutral-900 pt-[0.5em] text-[1.3em] font-semibold">
               <span>Total</span>
-              <span className="tabular-nums whitespace-nowrap">{money(totals.total)}</span>
+              <span className="tabular-nums whitespace-nowrap">{view.total}</span>
             </div>
           </>
         )}
       </div>
-      {words && (
+      {view.amountInWords && (
         <p className="bd-keep mt-[0.8em] text-right text-[0.9em] text-neutral-600">
           <span className="text-neutral-500">Amount in words: </span>
-          {words}
+          {view.amountInWords}
         </p>
       )}
 
@@ -253,13 +232,4 @@ function TotalRow({ label, value }: { label: string; value: string }) {
 /** A prompt for an empty field — shown faintly on screen, never printed. */
 function Placeholder({ children }: { children: ReactNode }) {
   return <span className="bd-ph text-neutral-400">{children}</span>;
-}
-
-/** "Sixty-three dollars and sixty-eight cents" — null if it can't be written out. */
-function amountWords(totalMinor: number, currency: string): string | null {
-  try {
-    return applyLetterCase(minorAmountInWords(totalMinor, currency, defaultNumberingSystem(currency)), "sentence");
-  } catch {
-    return null;
-  }
 }

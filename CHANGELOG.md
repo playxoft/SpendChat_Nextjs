@@ -18,6 +18,40 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-09-30
+
+### Added
+- **Eleven more free tools**, taking [/tools](https://spendchat.app/tools) to 22:
+  an **EMI & loan calculator** (amortization schedule, prepayments that cut
+  interest or tenure) and a **loan comparison** that counts the fees; **simple
+  interest** (solve for any of P, R, T with the working shown) and **FD & RD**
+  maturity with Indian banks' quarterly compounding; **net worth** with saved
+  snapshots; a **FIRE calculator** (FIRE number, Coast, Lean and Fat FIRE); a
+  printable **52-week / 100-envelope savings challenge** in any currency;
+  **When can I afford it?**; a **freelance rate calculator**; a **currency
+  converter** at today's reference rates, with a trip mode; and an **inflation
+  calculator** that compares up to 20 major economies side by side, from
+  World Bank consumer price data — and estimates future years (2050, 2100,
+  up to 2500) from each country's 20-year average or a rate you set, clearly
+  marked as an estimate with a range for a point less or more inflation.
+- **Download invoices and quotations as a PDF file.** The big **Download**
+  button now saves a real PDF — sharp, selectable text, named after the
+  document number (`INV-0007.pdf`) — made entirely in your browser. Printing
+  moved to the printer icon beside it, and the backup file is now the
+  **Save copy (.json)** icon. A document written in a script the PDF font
+  doesn't cover yet (Devanagari, Arabic, Chinese…) opens the print dialog to
+  save as PDF instead.
+
+### Changed
+- **Invoice and quotation actions are always in reach.** Print, save a copy,
+  open, share and reset sit together in one chip beside Download, and the same
+  bar is pinned to the bottom of the form while you scroll it.
+- **Number fields take only numbers** — in any script, so Arabic-Indic,
+  Devanagari and Bengali digits work — and never quietly turn a pasted value
+  into a different one ("USD -1,200" keeps its minus; "12-15" is flagged).
+- The **privacy and cookie policies** now name the currency converter's rate
+  feeds (Frankfurter, jsDelivr) and the tools' on-device storage.
+
 ## [0.30.0] — 2026-09-28
 
 ### Added

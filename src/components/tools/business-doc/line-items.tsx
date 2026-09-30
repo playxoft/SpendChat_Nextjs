@@ -3,6 +3,7 @@
 import { useId, useRef, type KeyboardEvent } from "react";
 import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { sanitizeKeepingCaret } from "@/components/tools/fields";
 import { EMPTY } from "@/lib/tools/format";
 import { LIMITS, MAX_ITEMS, emptyItem, type ItemResult, type LineItem } from "@/lib/tools/invoice";
 import { cn } from "@/lib/utils";
@@ -170,7 +171,7 @@ function ItemRow({
             aria-invalid={qtyError ? true : undefined}
             aria-describedby={qtyError || priceError ? `${id}-err` : undefined}
             onFocus={(e) => e.currentTarget.select()}
-            onChange={(e) => onChange({ qty: e.target.value })}
+            onChange={(e) => onChange({ qty: sanitizeKeepingCaret(e.currentTarget) })}
             className={cn(input, "tabular-nums")}
           />
         </div>
@@ -200,7 +201,7 @@ function ItemRow({
               aria-invalid={priceError ? true : undefined}
               aria-describedby={qtyError || priceError ? `${id}-err` : undefined}
               onFocus={(e) => e.currentTarget.select()}
-              onChange={(e) => onChange({ price: e.target.value })}
+              onChange={(e) => onChange({ price: sanitizeKeepingCaret(e.currentTarget) })}
               onKeyDown={onPriceKeyDown}
               className="h-full w-full min-w-0 bg-transparent px-3 text-base tabular-nums outline-none placeholder:text-muted-foreground/70"
             />

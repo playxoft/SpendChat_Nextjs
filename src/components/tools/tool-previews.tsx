@@ -2,6 +2,17 @@ import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
 import { FaBolt, FaCheck } from "react-icons/fa6";
 import { cn } from "@/lib/utils";
+import { Preview as SimpleInterestPreview } from "@/components/tools/previews/simple-interest-calculator";
+import { Preview as LoanPreview } from "@/components/tools/previews/loan-calculator";
+import { Preview as LoanComparisonPreview } from "@/components/tools/previews/loan-comparison-calculator";
+import { Preview as NetWorthPreview } from "@/components/tools/previews/net-worth-calculator";
+import { Preview as FirePreview } from "@/components/tools/previews/fire-calculator";
+import { Preview as SavingsChallengePreview } from "@/components/tools/previews/savings-challenge";
+import { Preview as WhenCanIAffordItPreview } from "@/components/tools/previews/when-can-i-afford-it";
+import { Preview as FreelanceRatePreview } from "@/components/tools/previews/freelance-rate-calculator";
+import { Preview as FdPreview } from "@/components/tools/previews/fd-calculator";
+import { Preview as CurrencyConverterPreview } from "@/components/tools/previews/currency-converter";
+import { Preview as InflationPreview } from "@/components/tools/previews/inflation-calculator";
 
 /**
  * The little picture on each `/tools` hub card — a worked example of what the
@@ -391,6 +402,18 @@ const PREVIEWS: Record<string, () => ReactNode> = {
   "compound-interest-calculator": CompoundPreview,
   "sip-calculator": SipPreview,
   "credit-card-payoff-calculator": CreditCardPreview,
+  // Batch 2 — one file per tool in ./previews/.
+  "simple-interest-calculator": SimpleInterestPreview,
+  "loan-calculator": LoanPreview,
+  "loan-comparison-calculator": LoanComparisonPreview,
+  "net-worth-calculator": NetWorthPreview,
+  "fire-calculator": FirePreview,
+  "savings-challenge": SavingsChallengePreview,
+  "when-can-i-afford-it": WhenCanIAffordItPreview,
+  "freelance-rate-calculator": FreelanceRatePreview,
+  "fd-calculator": FdPreview,
+  "currency-converter": CurrencyConverterPreview,
+  "inflation-calculator": InflationPreview,
 };
 
 /** Whether a tool has its mini picture — every published tool should. */
@@ -402,4 +425,13 @@ export function hasToolPreview(slug: string): boolean {
 export function ToolPreview({ slug }: { slug: string }) {
   const Preview = PREVIEWS[slug];
   return Preview ? <Preview /> : null;
+}
+
+/**
+ * The pictures for a set of tools, by slug, for `ToolCardGrid` — built where
+ * the grid's server parent renders, so a client grid receives finished markup
+ * rather than the pictures' code.
+ */
+export function toolPreviews(slugs: readonly string[]): Record<string, ReactNode> {
+  return Object.fromEntries(slugs.map((slug) => [slug, <ToolPreview key={slug} slug={slug} />]));
 }

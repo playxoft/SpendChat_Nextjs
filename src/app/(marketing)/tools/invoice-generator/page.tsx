@@ -25,11 +25,11 @@ const faqs = [
   },
   {
     q: "How do I save the invoice as a PDF?",
-    a: "Press Print / Save as PDF and choose “Save as PDF” (or “Microsoft Print to PDF”) as the printer. Turn off “Headers and footers” in the print dialog so the page address and date aren't added to the margins. Only the invoice prints — not the rest of this page.",
+    a: "Press Download. You get a PDF file named after the invoice number, made in your browser — nothing is uploaded. To print on paper, use the printer icon; only the invoice prints, not the rest of this page.",
   },
   {
     q: "Is my data stored anywhere?",
-    a: "Only in your browser. The draft is saved in this device's local storage so it's still there when you come back; nothing is sent to SpendChat. Download saves a copy you can open on another device with Open, and Reset deletes it.",
+    a: "Only in your browser. The draft is saved in this device's local storage so it's still there when you come back; nothing is sent to SpendChat. The Save copy (.json) icon keeps a file you can reopen on another device with Open, and Reset deletes the draft.",
   },
   {
     q: "Can I add GST or VAT?",
@@ -69,7 +69,7 @@ export default function InvoiceGeneratorPage() {
           </li>
           <li>Add a discount or tax if they apply, and your payment details in Notes.</li>
           <li>
-            Press Print / Save as PDF. For the next one, press New invoice — your details stay and
+            Press Download to get the PDF. For the next one, press New invoice — your details stay and
             INV-0007 becomes INV-0008.
           </li>
         </ol>

@@ -1,5 +1,6 @@
 import { JsonLd } from "@/components/json-ld";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
+import { toolPreviews } from "@/components/tools/tool-previews";
 import { ToolsDirectory } from "@/components/tools/tools-directory";
 import { breadcrumbJsonLd, createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
@@ -8,7 +9,7 @@ import { TOOL_GROUPS, publishedTools, toolOgImage, toolPath, toolsInGroup } from
 export const metadata = createMetadata({
   title: "Free Financial Calculators & Money Tools",
   description:
-    "Free online money tools, no sign-up: GST & VAT calculator, invoice and quotation maker, SIP, compound interest, age, date and percentage calculators.",
+    `Free money tools, no sign-up: invoice maker, EMI & loan, GST & VAT, SIP, FD, inflation, currency converter, FIRE and more — ${publishedTools().length} calculators in all.`,
   path: "/tools",
   image: toolOgImage("index"),
 });
@@ -48,14 +49,14 @@ export default function ToolsHubPage() {
           Free financial calculators &amp; money tools
         </h1>
         <p className="mt-3 text-pretty text-lg leading-relaxed text-muted-foreground">
-          GST and VAT, SIP and compound interest, invoices and quotations, dates
-          and ages — calculators for the money questions that come up every day.
-          They run in your browser, answer as you type, and never ask you to
-          sign up.
+          Invoices and quotations, EMI and loans, GST and VAT, SIP and FDs,
+          inflation, currencies, FIRE and more — {tools.length} calculators for
+          the money questions that come up every day. They run in your browser,
+          answer as you type, and never ask you to sign up.
         </p>
       </header>
 
-      <ToolsDirectory groups={groups} />
+      <ToolsDirectory groups={groups} previews={toolPreviews(tools.map((t) => t.slug))} />
     </div>
   );
 }

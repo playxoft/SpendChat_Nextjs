@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Download, Expand, FilePlus2, ImagePlus, Printer, RotateCcw, Share2, Upload, X } from "lucide-react";
+import { ArrowRight, Download, Expand, FileJson, FilePlus2, ImagePlus, Loader2, Printer, RotateCcw, Share2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -48,6 +48,7 @@ import {
 import { cn } from "@/lib/utils";
 import { clearDraft, getDraft, setDraft, useDraft } from "./draft-store";
 import { DocPaper } from "./doc-paper";
+import { buildDocView } from "./doc-view";
 import { FitPaper } from "./fit-paper";
 import { CUSTOM_TERMS, docLabels } from "./labels";
 import { LineItems } from "./line-items";
@@ -146,6 +147,72 @@ function useRegion(): string | null {
  * gets.
  */
 /**
+ * Open the print dialog. The browser names a "Save as PDF" file after the page
+ * title, so it's set to "Invoice INV-0007" for the moment the dialog is up.
+ */
+function printDocument(title: string) {
+  const previous = document.title;
+  document.title = title;
+  window.addEventListener(
+    "afterprint",
+    () => {
+      document.title = previous;
+    },
+    { once: true },
+  );
+  window.print();
+}
+
+/** Save a blob as a download named `name`. */
+function saveFile(blob: Blob, name: string) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  // Generous: iOS Safari asks before downloading and only reads the file once
+  // the visitor agrees, so revoking after a second can leave nothing to save.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+async function fetchBytes(url: string): Promise<Uint8Array> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Couldn't load ${url}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
+/**
+ * The logo as bytes a PDF can embed, always redrawn through a canvas at up to
+ * 2× the size it's shown at. Passing the upload straight through went wrong
+ * in too many ways: a JPEG saved as .png gets a PNG data URL and breaks
+ * pdf-lib, an animated PNG is refused, a phone photo's EXIF rotation is
+ * ignored, and a small file can still be an 8000-pixel image. The canvas
+ * decodes whatever the browser can show, upright, at a sensible size. Photos
+ * (JPEG by their first bytes) stay JPEG; everything else becomes a PNG, which
+ * keeps transparency.
+ */
+async function logoForPdf(dataUrl: string): Promise<{ bytes: Uint8Array; kind: "png" | "jpg" } | null> {
+  const toBytes = (url: string) => Uint8Array.from(atob(url.slice(url.indexOf(",") + 1)), (c) => c.charCodeAt(0));
+  const image = new Image();
+  image.src = dataUrl;
+  await image.decode();
+  const scale = Math.min(1, 600 / (image.naturalWidth || 600), 200 / (image.naturalHeight || 200)) * 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.max(1, Math.round((image.naturalWidth || 300) * scale));
+  canvas.height = Math.max(1, Math.round((image.naturalHeight || 100) * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  const head = dataUrl.startsWith("data:") && dataUrl.includes(";base64,") ? toBytes(dataUrl.slice(0, dataUrl.indexOf(",") + 8)) : null;
+  const jpeg = head !== null && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
+  return jpeg
+    ? { bytes: toBytes(canvas.toDataURL("image/jpeg", 0.92)), kind: "jpg" }
+    : { bytes: toBytes(canvas.toDataURL("image/png")), kind: "png" };
+}
+
+/**
  * Swap in a whole document (and, from a file or link, its currency), with an
  * Undo that puts both back. Always offered: "is there anything worth undoing"
  * is harder to judge than it looks (seller details, logo and bank notes all
@@ -183,6 +250,11 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
   const [view, setView] = useState<"edit" | "preview">("edit");
   const [dueOpen, setDueOpen] = useState(false);
   const [fullScreen, setFullScreen] = useState(false);
+  const [makingPdf, setMakingPdf] = useState(false);
+  /** What the Download button is doing, for screen readers ("Making the PDF…"). */
+  const [pdfStatus, setPdfStatus] = useState("");
+  // The guard against a second press reads this, not the state, which is a render behind.
+  const pdfBusy = useRef(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
@@ -253,18 +325,46 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
     if (root && root.getBoundingClientRect().top < 0) root.scrollIntoView({ block: "start" });
   };
 
-  const print = () => {
-    // The browser names the PDF after the page title: "Invoice INV-0007.pdf".
-    const previous = document.title;
-    document.title = `${labels.title} ${doc.number}`.trim();
-    window.addEventListener(
-      "afterprint",
-      () => {
-        document.title = previous;
-      },
-      { once: true },
-    );
-    window.print();
+  const print = () => printDocument(`${labels.title} ${doc.number}`.trim());
+
+  /**
+   * Download: a real PDF file, drawn in the browser (nothing is uploaded). The
+   * PDF library and its font load only on the first press. A document in a
+   * script the font doesn't cover falls back to the print dialog's "Save as
+   * PDF", which has every font on the device.
+   */
+  const downloadPdf = async () => {
+    if (pdfBusy.current) return;
+    pdfBusy.current = true;
+    setMakingPdf(true);
+    setPdfStatus("Making the PDF…");
+    try {
+      const view = buildDocView({ doc: getDraft(kind), labels, evaluation, dates, currency, locale });
+      const [pdf, regular, bold] = await Promise.all([
+        import("@/lib/tools/invoice-pdf"),
+        fetchBytes("/fonts/pdf/NotoSans-Regular.ttf"),
+        fetchBytes("/fonts/pdf/NotoSans-Bold.ttf"),
+      ]);
+      const missing = pdf.unsupportedCharacters(view, regular);
+      if (missing.length > 0) {
+        toast.info("Opening Print instead", {
+          description: `The downloaded PDF can't show ${missing.slice(0, 5).join(" ")} yet — choose “Save as PDF” in the print dialog.`,
+        });
+        setPdfStatus("Opening Print instead.");
+        print();
+        return;
+      }
+      const logo = view.logo ? await logoForPdf(view.logo) : null;
+      const bytes = await pdf.renderDocPdf(view, { regular, bold }, logo);
+      saveFile(new Blob([bytes as BlobPart], { type: "application/pdf" }), view.fileName);
+      setPdfStatus(`Downloaded ${view.fileName}.`);
+    } catch {
+      setPdfStatus("");
+      toast.error("Couldn't make the PDF — use Print and choose “Save as PDF” instead.");
+    } finally {
+      pdfBusy.current = false;
+      setMakingPdf(false);
+    }
   };
 
   const startNew = () => {
@@ -298,14 +398,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
 
   const exportJson = () => {
     const current = getDraft(kind);
-    const url = URL.createObjectURL(new Blob([exportDoc(current, currency, locale)], { type: "application/json" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = docFileName(current);
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    saveFile(new Blob([exportDoc(current, currency, locale)], { type: "application/json" }), docFileName(current));
   };
 
   /**
@@ -411,6 +504,59 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
       ]
     : [{ label: "Total", value: "Too large to total exactly" }];
 
+  // The document's actions, rendered twice: in the toolbar above the preview
+  // and in a bar pinned to the bottom of the form, so they're in reach
+  // wherever someone has scrolled to.
+  const downloadButton = (
+    <Button
+      type="button"
+      size="sm"
+      className="h-8 shrink-0 rounded-lg px-3"
+      onClick={() => void downloadPdf()}
+      aria-disabled={makingPdf || undefined}
+      title="Download as a PDF file"
+    >
+      {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}{" "}
+      <span className="max-sm:sr-only">Download</span>
+    </Button>
+  );
+  const previewButton = (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-8 shrink-0 rounded-lg px-2"
+      onClick={() => setFullScreen(true)}
+      title="See the whole page full screen"
+    >
+      <Expand /> <span className="max-sm:sr-only">Preview</span>
+    </Button>
+  );
+  // The five less-frequent actions as one quiet chip of icons, on the right.
+  const actionChip = (
+    <div
+      role="group"
+      aria-label={`${labels.title} actions`}
+      className="ml-auto flex shrink-0 items-center gap-0.5 rounded-full border bg-muted/60 p-0.5"
+    >
+      <ChipAction label="Print" onClick={print}>
+        <Printer />
+      </ChipAction>
+      <ChipAction label="Save a copy (.json) to open again later" onClick={exportJson}>
+        <FileJson />
+      </ChipAction>
+      <ChipAction label="Open a saved copy (.json)" onClick={() => importInput.current?.click()}>
+        <Upload />
+      </ChipAction>
+      <ChipAction label={`Share this ${labels.noun} as a link`} onClick={() => void share()}>
+        <Share2 />
+      </ChipAction>
+      <ChipAction label="Reset — clear everything" onClick={clearAll}>
+        <RotateCcw />
+      </ChipAction>
+    </div>
+  );
+
   return (
     <div ref={rootRef} className="scroll-mt-24">
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
@@ -431,17 +577,27 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
             variant="outline"
             size="icon"
             className="size-11 shrink-0 rounded-xl"
-            aria-label="Print or save as PDF"
-            onClick={print}
+            aria-label="Download as PDF"
+            onClick={() => void downloadPdf()}
+            aria-disabled={makingPdf || undefined}
           >
-            <Printer />
+            {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}
           </Button>
         </div>
       </div>
 
+      <p role="status" className="sr-only">
+        {pdfStatus}
+      </p>
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:gap-6">
         {/* ---------------- Editor ---------------- */}
-        <ToolPanel className={cn("space-y-8", view === "preview" && "max-lg:hidden")}>
+        <ToolPanel
+          className={cn(
+            // Tabbing to a field just above the pinned action bar scrolls it clear of the bar.
+            "space-y-8 [&_:is(input,select,textarea,button,summary)]:scroll-mb-24",
+            view === "preview" && "max-lg:hidden",
+          )}
+        >
           <EditorSection title={`${labels.title} details`}>
             {kind === "quotation" && (
               <Segmented
@@ -691,6 +847,14 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
               <span>Show &lsquo;Made with SpendChat&rsquo; on the document</span>
             </label>
           </EditorSection>
+
+          {/* Pinned to the bottom of the form while it scrolls: Download and
+              the rest shouldn't be a trip back to the top away. */}
+          <div className="sticky bottom-3 z-20 flex items-center gap-1 rounded-2xl border bg-background/90 p-1.5 shadow-lg backdrop-blur-md">
+            {downloadButton}
+            {previewButton}
+            {actionChip}
+          </div>
         </ToolPanel>
 
         {/* ---------------- Document ----------------
@@ -707,25 +871,8 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
               anything wraps. The icon-only buttons carry their name in
               `aria-label` and a tooltip. */}
           <div className="flex h-9 shrink-0 flex-nowrap items-center gap-1 overflow-x-auto">
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 shrink-0 rounded-lg px-2"
-              onClick={print}
-              title="Pick “Save as PDF” as the printer, and turn off “Headers and footers” for a clean page."
-            >
-              <Printer /> <span className="max-sm:sr-only">Print / PDF</span>
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 shrink-0 rounded-lg px-2"
-              onClick={() => setFullScreen(true)}
-              title="See the whole page full screen"
-            >
-              <Expand /> <span className="max-sm:sr-only">Preview</span>
-            </Button>
+            {downloadButton}
+            {previewButton}
             <Button
               type="button"
               variant="outline"
@@ -749,19 +896,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
                 <ArrowRight /> <span className="max-sm:sr-only">Invoice</span>
               </Button>
             )}
-            <span className="mx-0.5 h-5 w-px shrink-0 bg-border" aria-hidden />
-            <IconAction label="Download a copy (.json) you can open again later" onClick={exportJson}>
-              <Download />
-            </IconAction>
-            <IconAction label="Open a downloaded copy" onClick={() => importInput.current?.click()}>
-              <Upload />
-            </IconAction>
-            <IconAction label={`Share this ${labels.noun} as a link`} onClick={() => void share()}>
-              <Share2 />
-            </IconAction>
-            <IconAction label="Reset — clear everything" onClick={clearAll}>
-              <RotateCcw />
-            </IconAction>
+            {actionChip}
             <input
               ref={importInput}
               type="file"
@@ -805,15 +940,24 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
                   {`${labels.title} ${doc.number}`.trim()}
                 </DialogTitle>
                 <div className="ml-auto flex shrink-0 items-center gap-1.5">
-                  <Button type="button" size="sm" className="h-8 rounded-lg" onClick={print}>
-                    <Printer /> <span className="max-sm:sr-only">Print / PDF</span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="h-8 rounded-lg px-3"
+                    onClick={() => void downloadPdf()}
+                    aria-disabled={makingPdf || undefined}
+                  >
+                    {makingPdf ? <Loader2 className="animate-spin" /> : <Download />}{" "}
+                    <span className="max-sm:sr-only">Download</span>
                   </Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg" onClick={exportJson}>
-                    <Download /> <span className="max-sm:sr-only">Download</span>
-                  </Button>
-                  <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg" onClick={() => void share()}>
-                    <Share2 /> <span className="max-sm:sr-only">Share</span>
-                  </Button>
+                  <div className="flex items-center gap-0.5 rounded-full border bg-muted/60 p-0.5">
+                    <ChipAction label="Print" onClick={print}>
+                      <Printer />
+                    </ChipAction>
+                    <ChipAction label={`Share this ${labels.noun} as a link`} onClick={() => void share()}>
+                      <Share2 />
+                    </ChipAction>
+                  </div>
                   <Button
                     type="button"
                     variant="ghost"
@@ -848,14 +992,14 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
   );
 }
 
-/** A toolbar button that is only an icon; its name lives in `aria-label` and the tooltip. */
-function IconAction({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+/** One icon in the actions chip; its name lives in `aria-label` and the tooltip. */
+function ChipAction({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
     <Button
       type="button"
       variant="ghost"
       size="icon"
-      className="size-7 shrink-0 rounded-lg text-muted-foreground hover:text-foreground"
+      className="size-7 shrink-0 rounded-full text-muted-foreground hover:bg-background hover:text-foreground"
       onClick={onClick}
       aria-label={label}
       title={label}

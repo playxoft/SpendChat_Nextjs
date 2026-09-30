@@ -72,7 +72,11 @@ const securityHeaders = [
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob: https:",
       "font-src 'self' data:",
-      "connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://www.clarity.ms https://*.clarity.ms",
+      // The currency converter (/tools/currency-converter) reads public
+      // exchange-rate lists from Frankfurter, falling back to the jsDelivr copy
+      // of the open currency-api — site-wide, because CSP is fixed when a page
+      // first loads and visitors reach the converter by client navigation.
+      "connect-src 'self' https://*.googleapis.com https://*.firebaseapp.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com https://www.google-analytics.com https://*.google-analytics.com https://*.analytics.google.com https://www.clarity.ms https://*.clarity.ms https://api.frankfurter.dev https://cdn.jsdelivr.net",
       "frame-src 'self' https://*.firebaseapp.com https://accounts.google.com https://apis.google.com",
       // pdf.js renders PDF thumbnails in a same-origin (bundled) module worker.
       "worker-src 'self' blob:",

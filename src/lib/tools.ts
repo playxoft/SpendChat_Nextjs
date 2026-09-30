@@ -11,24 +11,15 @@
  */
 
 /** Where a tool sits on the `/tools` hub. */
-export type ToolGroup = "everyday" | "dates" | "grow" | "debt" | "business";
+export type ToolGroup = "everyday" | "dates" | "grow" | "plan" | "debt" | "business";
 
 export const TOOL_GROUPS: { id: ToolGroup; label: string; blurb: string }[] = [
-  // First: the invoice and quotation generators are the tools people come back to.
+  // Order is the hub's order: the generators people return to, then growth,
+  // planning and debt, with the quick everyday calculators last.
   {
     id: "business",
     label: "Invoices & quotes",
     blurb: "Paperwork for freelancers and small businesses.",
-  },
-  {
-    id: "everyday",
-    label: "Everyday maths",
-    blurb: "Percentages, tax, and the numbers on a bill.",
-  },
-  {
-    id: "dates",
-    label: "Dates",
-    blurb: "Count days to a deadline, a due date or a birthday.",
   },
   {
     id: "grow",
@@ -36,10 +27,26 @@ export const TOOL_GROUPS: { id: ToolGroup; label: string; blurb: string }[] = [
     blurb: "See what regular saving grows into.",
   },
   {
+    id: "plan",
+    label: "Planning & goals",
+    blurb: "Know where you stand, and when you'll get there.",
+  },
+  {
     id: "debt",
     label: "Loans & debt",
     blurb: "Know what borrowing really costs before you sign.",
   },
+  {
+    id: "dates",
+    label: "Dates",
+    blurb: "Count days to a deadline, a due date or a birthday.",
+  },
+  {
+    id: "everyday",
+    label: "Everyday maths",
+    blurb: "Percentages, tax, and the numbers on a bill.",
+  },
+
 ];
 
 export type Tool = {
@@ -73,6 +80,315 @@ export type Tool = {
 };
 
 export const TOOLS: Tool[] = [
+  // ---- Invoices & quotes ----
+  {
+    slug: "invoice-generator",
+    label: "Invoice generator",
+    title: "Free Invoice Generator — No Sign-Up, PDF",
+    h1: "Free invoice generator",
+    description:
+      "Create a professional invoice online in seconds: line items, GST or VAT, discounts, any currency. Save it as a PDF or share a link. Free, no sign-up.",
+    blurb: "Make an invoice and save it as a PDF.",
+    action: "Create an invoice",
+    group: "business",
+    related: [
+      "quotation-generator",
+      "vat-calculator",
+      "amount-in-words",
+      "days-between-dates",
+    ],
+    keywords: ["bill", "billing", "receipt", "pdf", "gst invoice", "freelance"],
+    published: true,
+  },
+  {
+    slug: "quotation-generator",
+    label: "Quotation generator",
+    title: "Free Quotation Maker & Estimate Generator",
+    h1: "Free quotation & estimate maker",
+    description:
+      "Make a professional quotation or estimate online: line items, tax, validity and terms. Save as PDF, share a link, or turn it into an invoice. Free, no sign-up.",
+    blurb: "Price quotes and estimates, ready to send.",
+    action: "Create a quotation",
+    group: "business",
+    related: [
+      "invoice-generator",
+      "vat-calculator",
+      "amount-in-words",
+      "percentage-calculator",
+    ],
+    keywords: ["quote", "estimate", "proposal", "pdf", "price"],
+    published: true,
+  },
+  {
+    slug: "freelance-rate-calculator",
+    label: "Freelance rate calculator",
+    title: "Freelance Rate Calculator — Hourly & Day Rate",
+    h1: "Freelance rate calculator",
+    description:
+      "Work out what to charge as a freelancer: the hourly and day rate that covers your target income, taxes, expenses and time off. Free, no sign-up.",
+    blurb: "The hourly rate that pays what you need.",
+    action: "Calculate my rate",
+    group: "business",
+    related: [
+      "invoice-generator",
+      "quotation-generator",
+      "vat-calculator",
+      "percentage-calculator",
+    ],
+    keywords: ["hourly rate", "day rate", "freelancer", "consultant", "how much to charge"],
+    published: true,
+  },
+  // ---- Saving & investing ----
+  {
+    slug: "compound-interest-calculator",
+    label: "Compound interest calculator",
+    title: "Compound Interest Calculator — Monthly & Daily",
+    h1: "Compound interest calculator",
+    description:
+      "Compound interest with monthly deposits and daily, monthly or yearly compounding: a year-by-year table, a growth chart and the inflation-adjusted value. Free.",
+    blurb: "Growth with monthly deposits, year by year.",
+    action: "Calculate interest",
+    group: "grow",
+    related: [
+      "sip-calculator",
+      "credit-card-payoff-calculator",
+      "percentage-calculator",
+      "age-calculator",
+    ],
+    keywords: ["interest", "savings", "investment", "growth", "fd"],
+    published: true,
+  },
+  {
+    slug: "sip-calculator",
+    label: "SIP calculator",
+    title: "SIP Calculator — Step-Up SIP & Returns",
+    h1: "SIP calculator with step-up",
+    description:
+      "Estimate mutual fund SIP returns with an annual step-up: invested vs returns year by year, a growth chart and the inflation-adjusted value. Free, no sign-up.",
+    blurb: "Monthly investing with step-up and inflation.",
+    action: "Calculate SIP returns",
+    group: "grow",
+    related: [
+      "compound-interest-calculator",
+      "age-calculator",
+      "percentage-calculator",
+      "credit-card-payoff-calculator",
+    ],
+    keywords: ["mutual fund", "investment", "step-up", "returns", "monthly"],
+    published: true,
+  },
+  {
+    slug: "simple-interest-calculator",
+    label: "Simple interest calculator",
+    title: "Simple Interest Calculator — SI = PRT/100",
+    h1: "Simple interest calculator",
+    description:
+      "Calculate simple interest from principal, rate and time — or solve for the missing one — with the working shown and a compound comparison. Free.",
+    blurb: "Interest, principal, rate or time — with the steps.",
+    action: "Calculate interest",
+    group: "grow",
+    related: [
+      "compound-interest-calculator",
+      "fd-calculator",
+      "loan-calculator",
+      "percentage-calculator",
+    ],
+    keywords: ["si", "prt", "principal", "rate", "time", "interest formula", "flat rate"],
+    published: true,
+  },
+  {
+    slug: "fd-calculator",
+    label: "FD & RD calculator",
+    title: "FD & RD Calculator — Maturity & Interest",
+    h1: "FD & RD calculator",
+    description:
+      "Calculate fixed and recurring deposit maturity amounts and interest, with quarterly compounding as Indian banks use and an optional TDS estimate. Free.",
+    blurb: "Fixed and recurring deposit maturity.",
+    action: "Calculate maturity",
+    group: "grow",
+    related: [
+      "simple-interest-calculator",
+      "compound-interest-calculator",
+      "sip-calculator",
+      "inflation-calculator",
+    ],
+    keywords: ["fixed deposit", "recurring deposit", "fd interest", "rd", "maturity", "tds"],
+    published: true,
+  },
+  // ---- Planning & goals ----
+  {
+    slug: "fire-calculator",
+    label: "FIRE calculator",
+    title: "FIRE Calculator — FIRE Number & Coast FIRE",
+    h1: "FIRE calculator",
+    description:
+      "Find your FIRE number and when you can retire early — Coast, Lean and Fat FIRE, the 4% rule and what you save each month. Free, no sign-up.",
+    blurb: "Your FIRE number and early-retirement date.",
+    action: "Find my FIRE number",
+    group: "plan",
+    related: [
+      "net-worth-calculator",
+      "sip-calculator",
+      "compound-interest-calculator",
+      "inflation-calculator",
+    ],
+    keywords: ["early retirement", "4% rule", "coast fire", "lean fire", "fat fire", "retire"],
+    published: true,
+  },
+  {
+    slug: "net-worth-calculator",
+    label: "Net worth calculator",
+    title: "Net Worth Calculator — Assets Minus Debts",
+    h1: "Net worth calculator",
+    description:
+      "Add up what you own and what you owe to find your net worth — cash, investments, property, loans and cards — and see how it changes over time.",
+    blurb: "What you own minus what you owe.",
+    action: "Calculate net worth",
+    group: "plan",
+    related: [
+      "fire-calculator",
+      "when-can-i-afford-it",
+      "compound-interest-calculator",
+      "loan-calculator",
+    ],
+    keywords: ["assets", "liabilities", "wealth", "balance sheet", "how rich am i"],
+    published: true,
+  },
+  {
+    slug: "savings-challenge",
+    label: "Savings challenge",
+    title: "Savings Challenge — 52-Week & 100-Envelope",
+    h1: "Savings challenge tracker",
+    description:
+      "Start a 52-week or 100-envelope savings challenge in any currency: tick off each step, watch the total grow, and print a tracker. Free, no sign-up.",
+    blurb: "52-week and 100-envelope challenges, printable.",
+    action: "Start a challenge",
+    group: "plan",
+    related: [
+      "when-can-i-afford-it",
+      "net-worth-calculator",
+      "compound-interest-calculator",
+      "sip-calculator",
+    ],
+    keywords: ["52 week challenge", "100 envelope challenge", "money challenge", "printable", "saving"],
+    published: true,
+  },
+  {
+    slug: "when-can-i-afford-it",
+    label: "When can I afford it?",
+    title: "Savings Goal Calculator — When Can I Afford It",
+    h1: "When can I afford it?",
+    description:
+      "Find when you can afford something from your savings and monthly saving, or how much to set aside each month to buy it by a date. Free goal calculator.",
+    blurb: "When you can buy it, or what to save each month.",
+    action: "Plan my goal",
+    group: "plan",
+    related: [
+      "savings-challenge",
+      "net-worth-calculator",
+      "compound-interest-calculator",
+      "sip-calculator",
+    ],
+    keywords: ["savings goal", "save for", "how long to save", "monthly saving", "afford"],
+    published: true,
+  },
+  // ---- Loans & debt ----
+  {
+    slug: "loan-calculator",
+    label: "EMI & loan calculator",
+    title: "EMI & Loan Calculator — Amortization Schedule",
+    h1: "EMI & loan calculator",
+    description:
+      "Work out your loan EMI, total interest and a month-by-month amortization schedule, with prepayments that cut interest and tenure. Free, no sign-up.",
+    blurb: "Monthly EMI, total interest and a full schedule.",
+    action: "Calculate EMI",
+    group: "debt",
+    related: [
+      "loan-comparison-calculator",
+      "credit-card-payoff-calculator",
+      "simple-interest-calculator",
+      "compound-interest-calculator",
+    ],
+    keywords: ["emi", "mortgage", "home loan", "car loan", "personal loan", "amortization", "prepayment"],
+    published: true,
+  },
+  {
+    slug: "credit-card-payoff-calculator",
+    label: "Credit card payoff calculator",
+    title: "Credit Card Payoff & Interest Calculator",
+    h1: "Credit card payoff calculator",
+    description:
+      "See how long your credit card takes to pay off, the total interest, and how much you save over minimum payments. Free credit card payoff calculator, no sign-up.",
+    blurb: "How long to clear a card, and the minimum-payment trap.",
+    action: "Plan my payoff",
+    group: "debt",
+    related: [
+      "compound-interest-calculator",
+      "percentage-calculator",
+      "sip-calculator",
+      "days-between-dates",
+    ],
+    keywords: ["debt", "loan", "credit card", "minimum payment", "apr", "interest"],
+    published: true,
+  },
+  {
+    slug: "loan-comparison-calculator",
+    label: "Loan comparison calculator",
+    title: "Loan Comparison Calculator — Compare Offers",
+    h1: "Loan comparison calculator",
+    description:
+      "Compare two or three loan offers side by side — EMI, total interest and the true total cost including fees — and see which loan is really cheaper.",
+    blurb: "Which loan offer is really cheaper, fees included.",
+    action: "Compare loans",
+    group: "debt",
+    related: [
+      "loan-calculator",
+      "credit-card-payoff-calculator",
+      "simple-interest-calculator",
+      "percentage-calculator",
+    ],
+    keywords: ["compare loans", "loan offers", "processing fee", "cheapest loan", "emi"],
+    published: true,
+  },
+  // ---- Dates ----
+  {
+    slug: "days-between-dates",
+    label: "Days between dates",
+    title: "Date Calculator — Days Between Two Dates",
+    h1: "Days between dates calculator",
+    description:
+      "Count the days, weeks and months between two dates, count working days, or add and subtract days from a date. A free, instant date calculator with no sign-up.",
+    blurb: "Days between dates, add days, working days.",
+    action: "Count the days",
+    group: "dates",
+    related: [
+      "age-calculator",
+      "invoice-generator",
+      "credit-card-payoff-calculator",
+      "sip-calculator",
+    ],
+    keywords: ["date", "calendar", "working days", "business days", "countdown", "due date"],
+    published: true,
+  },
+  {
+    slug: "age-calculator",
+    label: "Age calculator",
+    title: "Age Calculator — Exact Age by Date of Birth",
+    h1: "Age calculator",
+    description:
+      "Calculate your exact age from your date of birth in years, months and days — plus total weeks and days and a countdown to your next birthday. Free, no sign-up.",
+    blurb: "Exact age in years, months and days.",
+    action: "Calculate age",
+    group: "dates",
+    related: [
+      "days-between-dates",
+      "sip-calculator",
+      "compound-interest-calculator",
+      "percentage-calculator",
+    ],
+    keywords: ["birthday", "date of birth", "dob", "how old"],
+    published: true,
+  },
   // ---- Everyday maths ----
   {
     slug: "percentage-calculator",
@@ -150,147 +466,45 @@ export const TOOLS: Tool[] = [
     keywords: ["power", "energy", "kwh", "bill", "ac", "appliance", "units"],
     published: true,
   },
-
-  // ---- Dates ----
   {
-    slug: "days-between-dates",
-    label: "Days between dates",
-    title: "Date Calculator — Days Between Two Dates",
-    h1: "Days between dates calculator",
+    slug: "currency-converter",
+    label: "Currency converter",
+    title: "Currency Converter — Today's Exchange Rates",
+    h1: "Currency converter",
     description:
-      "Count the days, weeks and months between two dates, count working days, or add and subtract days from a date. A free, instant date calculator with no sign-up.",
-    blurb: "Days between dates, add days, working days.",
-    action: "Count the days",
-    group: "dates",
+      "Convert between currencies at today's reference rates — one amount into several currencies at once, and a trip mode for a list of expenses. Free.",
+    blurb: "One amount in several currencies at once.",
+    action: "Convert currency",
+    group: "everyday",
     related: [
-      "age-calculator",
-      "invoice-generator",
-      "credit-card-payoff-calculator",
-      "sip-calculator",
-    ],
-    keywords: ["date", "calendar", "working days", "business days", "countdown", "due date"],
-    published: true,
-  },
-  {
-    slug: "age-calculator",
-    label: "Age calculator",
-    title: "Age Calculator — Exact Age by Date of Birth",
-    h1: "Age calculator",
-    description:
-      "Calculate your exact age from your date of birth in years, months and days — plus total weeks and days and a countdown to your next birthday. Free, no sign-up.",
-    blurb: "Exact age in years, months and days.",
-    action: "Calculate age",
-    group: "dates",
-    related: [
-      "days-between-dates",
-      "sip-calculator",
-      "compound-interest-calculator",
-      "percentage-calculator",
-    ],
-    keywords: ["birthday", "date of birth", "dob", "how old"],
-    published: true,
-  },
-
-  // ---- Saving & investing ----
-  {
-    slug: "compound-interest-calculator",
-    label: "Compound interest calculator",
-    title: "Compound Interest Calculator — Monthly & Daily",
-    h1: "Compound interest calculator",
-    description:
-      "Compound interest with monthly deposits and daily, monthly or yearly compounding: a year-by-year table, a growth chart and the inflation-adjusted value. Free.",
-    blurb: "Growth with monthly deposits, year by year.",
-    action: "Calculate interest",
-    group: "grow",
-    related: [
-      "sip-calculator",
-      "credit-card-payoff-calculator",
-      "percentage-calculator",
-      "age-calculator",
-    ],
-    keywords: ["interest", "savings", "investment", "growth", "fd"],
-    published: true,
-  },
-  {
-    slug: "sip-calculator",
-    label: "SIP calculator",
-    title: "SIP Calculator — Step-Up SIP & Returns",
-    h1: "SIP calculator with step-up",
-    description:
-      "Estimate mutual fund SIP returns with an annual step-up: invested vs returns year by year, a growth chart and the inflation-adjusted value. Free, no sign-up.",
-    blurb: "Monthly investing with step-up and inflation.",
-    action: "Calculate SIP returns",
-    group: "grow",
-    related: [
-      "compound-interest-calculator",
-      "age-calculator",
-      "percentage-calculator",
-      "credit-card-payoff-calculator",
-    ],
-    keywords: ["mutual fund", "investment", "step-up", "returns", "monthly"],
-    published: true,
-  },
-
-  // ---- Loans & debt ----
-  {
-    slug: "credit-card-payoff-calculator",
-    label: "Credit card payoff calculator",
-    title: "Credit Card Payoff & Interest Calculator",
-    h1: "Credit card payoff calculator",
-    description:
-      "See how long your credit card takes to pay off, the total interest, and how much you save over minimum payments. Free credit card payoff calculator, no sign-up.",
-    blurb: "How long to clear a card, and the minimum-payment trap.",
-    action: "Plan my payoff",
-    group: "debt",
-    related: [
-      "compound-interest-calculator",
-      "percentage-calculator",
-      "sip-calculator",
-      "days-between-dates",
-    ],
-    keywords: ["debt", "loan", "credit card", "minimum payment", "apr", "interest"],
-    published: true,
-  },
-
-  // ---- Invoices & quotes ----
-  {
-    slug: "invoice-generator",
-    label: "Invoice generator",
-    title: "Free Invoice Generator — No Sign-Up, PDF",
-    h1: "Free invoice generator",
-    description:
-      "Create a professional invoice online in seconds: line items, GST or VAT, discounts, any currency. Save it as a PDF or share a link. Free, no sign-up.",
-    blurb: "Make an invoice and save it as a PDF.",
-    action: "Create an invoice",
-    group: "business",
-    related: [
-      "quotation-generator",
       "vat-calculator",
+      "inflation-calculator",
+      "percentage-calculator",
       "amount-in-words",
-      "days-between-dates",
     ],
-    keywords: ["bill", "billing", "receipt", "pdf", "gst invoice", "freelance"],
+    keywords: ["exchange rate", "forex", "usd to inr", "euro", "convert money", "fx"],
     published: true,
   },
   {
-    slug: "quotation-generator",
-    label: "Quotation generator",
-    title: "Free Quotation Maker & Estimate Generator",
-    h1: "Free quotation & estimate maker",
+    slug: "inflation-calculator",
+    label: "Inflation calculator",
+    title: "Inflation Calculator — Past & Future Value",
+    h1: "Inflation calculator",
     description:
-      "Make a professional quotation or estimate online: line items, tax, validity and terms. Save as PDF, share a link, or turn it into an invoice. Free, no sign-up.",
-    blurb: "Price quotes and estimates, ready to send.",
-    action: "Create a quotation",
-    group: "business",
+      "See what money from any year is worth today, estimate its value in 2050 or 2100, and compare inflation across 20 major economies. Free, no sign-up.",
+    blurb: "What money is worth across the years, past or future.",
+    action: "Calculate inflation",
+    group: "everyday",
     related: [
-      "invoice-generator",
-      "vat-calculator",
-      "amount-in-words",
+      "currency-converter",
+      "compound-interest-calculator",
+      "fire-calculator",
       "percentage-calculator",
     ],
-    keywords: ["quote", "estimate", "proposal", "pdf", "price"],
+    keywords: ["cpi", "purchasing power", "value of money", "price rise", "then vs now", "future value", "2050"],
     published: true,
   },
+
 ];
 
 /** Entries whose page exists. */
