@@ -7,7 +7,6 @@ import {
   ResultEmpty,
   ResultHero,
   ResultRows,
-  ToolCta,
   ToolLayout,
   ToolPanel,
   type ResultRow,
@@ -244,7 +243,6 @@ export function CompoundTool() {
             <ResultEmpty>{problem}</ResultEmpty>
           )}
           <ResultActions copy={sentence} onReset={reset} />
-          <ToolCta slug="compound-interest-calculator" message="Looking for more to save each month?" />
         </ToolPanel>
       </ToolLayout>
 

@@ -1,10 +1,11 @@
 "use client";
 
-import { useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Download, FilePlus2, ImagePlus, Printer, RotateCcw, Upload, X } from "lucide-react";
+import { ArrowRight, Download, Expand, FilePlus2, ImagePlus, Printer, RotateCcw, Share2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import {
   ChoiceChips,
   CurrencyField,
@@ -14,7 +15,7 @@ import {
   Segmented,
   TextField,
 } from "@/components/tools/fields";
-import { ResultRows, ToolCta, ToolPanel, type ResultRow } from "@/components/tools/result";
+import { ResultRows, ToolPanel, type ResultRow } from "@/components/tools/result";
 import { useToolCurrency, useToolLocale } from "@/components/tools/tool-state";
 import { useToday } from "@/components/tools/use-today";
 import { regionFromLocale } from "@/lib/geo";
@@ -22,6 +23,7 @@ import { formatMoney } from "@/lib/money";
 import { toolPath } from "@/lib/tools";
 import { findTaxRate } from "@/lib/tools/data/tax-rates";
 import { currencySymbol, formatNumber } from "@/lib/tools/format";
+import { SHARE_PARAM, decodeShareToken, encodeShareToken, shareTokenFromHash } from "@/lib/tools/share-link";
 import {
   DEFAULT_DUE_DAYS,
   LIMITS,
@@ -46,6 +48,7 @@ import {
 import { cn } from "@/lib/utils";
 import { clearDraft, getDraft, setDraft, useDraft } from "./draft-store";
 import { DocPaper } from "./doc-paper";
+import { FitPaper } from "./fit-paper";
 import { CUSTOM_TERMS, docLabels } from "./labels";
 import { LineItems } from "./line-items";
 
@@ -151,9 +154,33 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
   const router = useRouter();
   const [view, setView] = useState<"edit" | "preview">("edit");
   const [dueOpen, setDueOpen] = useState(false);
+  const [fullScreen, setFullScreen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const logoInput = useRef<HTMLInputElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
+
+  // A share link (`#share=…`) opens as the visitor's own copy, with an Undo.
+  useEffect(() => {
+    const token = shareTokenFromHash(window.location.hash);
+    if (!token) return;
+    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+    void decodeShareToken(token).then((text) => {
+      const parsed = text ? parseDocFile(text, kind) : null;
+      if (!parsed) {
+        toast.error("That share link is incomplete or damaged — ask for it to be sent again.");
+        return;
+      }
+      if (parsed.currency) setCurrency(parsed.currency);
+      const previous = getDraft(kind);
+      setDraft(kind, parsed.doc, { immediate: true });
+      toast.success(`Opened the shared ${docLabels(kind, parsed.doc.quoteTitle).noun} ${parsed.doc.number}.`, {
+        description: "It's your copy now — edits stay in this browser.",
+        action: hasContent(previous)
+          ? { label: "Undo", onClick: () => setDraft(kind, previous, { immediate: true }) }
+          : undefined,
+      });
+    });
+  }, [kind, setCurrency]);
 
   const labels = docLabels(kind, doc.quoteTitle);
   const evaluation = evaluateDoc(doc, currency, locale);
@@ -242,6 +269,34 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  /**
+   * Share as a link: the document rides in the URL's `#fragment`, which the
+   * browser never sends to a server. The logo stays behind — it would make the
+   * link too long for most chat apps.
+   */
+  const share = async () => {
+    const current = { ...getDraft(kind), logo: null };
+    const token = await encodeShareToken(exportDoc(current, currency));
+    const url = `${window.location.origin}${window.location.pathname}#${SHARE_PARAM}=${token}`;
+    const title = `${labels.title} ${current.number}`.trim();
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, url });
+        return;
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return;
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Link copied", {
+        description: `Whoever opens it gets their own copy of this ${labels.noun} to view, edit or print (your logo isn't included).`,
+      });
+    } catch {
+      toast.error("Couldn't copy the link — your browser blocked clipboard access.");
+    }
   };
 
   const importJson = async (file: File | undefined) => {
@@ -592,83 +647,173 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
           </EditorSection>
         </ToolPanel>
 
-        {/* ---------------- Document ---------------- */}
+        {/* ---------------- Document ----------------
+            Desktop: pinned beside the editor at exactly the screen's height,
+            with the sheet scaled to fit — the whole document stays in view
+            while the form scrolls. */}
         <div
           className={cn(
-            "min-w-0 space-y-4 lg:sticky lg:top-24 lg:-m-1 lg:max-h-[calc(100svh-7rem)] lg:overflow-y-auto lg:p-1",
+            "flex min-w-0 flex-col gap-2 lg:sticky lg:top-20 lg:h-[calc(100svh-5.75rem)]",
             view === "edit" && "max-lg:hidden",
           )}
         >
-          <div className="space-y-2">
-            <div className="flex flex-wrap gap-2">
-              <Button type="button" className="h-10 rounded-lg" onClick={print}>
-                <Printer /> Print / Save as PDF
-              </Button>
-              {kind === "quotation" && (
-                <Button type="button" variant="outline" className="h-10 rounded-lg" onClick={convertToInvoice}>
-                  Convert to invoice <ArrowRight />
-                </Button>
-              )}
-              <Button type="button" variant="outline" className="h-10 rounded-lg" onClick={startNew}>
-                <FilePlus2 /> {labels.newDoc}
-              </Button>
-            </div>
-            <div className="flex flex-wrap gap-1">
-              <Button type="button" variant="ghost" className="h-9 rounded-lg text-muted-foreground" onClick={exportJson}>
-                <Download /> Export JSON
-              </Button>
+          {/* One thin row, whatever the width: labels fold down to icons before
+              anything wraps. The icon-only buttons carry their name in
+              `aria-label` and a tooltip. */}
+          <div className="flex h-9 shrink-0 flex-nowrap items-center gap-1 overflow-x-auto">
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 shrink-0 rounded-lg px-2"
+              onClick={print}
+              title="Pick “Save as PDF” as the printer, and turn off “Headers and footers” for a clean page."
+            >
+              <Printer /> <span className="max-sm:sr-only">Print / PDF</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 rounded-lg px-2"
+              onClick={() => setFullScreen(true)}
+              title="See the whole page full screen"
+            >
+              <Expand /> <span className="max-sm:sr-only">Preview</span>
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 shrink-0 rounded-lg px-2"
+              onClick={startNew}
+              title={labels.newDoc}
+              aria-label={labels.newDoc}
+            >
+              <FilePlus2 /> <span className="max-sm:sr-only">New</span>
+            </Button>
+            {kind === "quotation" && (
               <Button
                 type="button"
-                variant="ghost"
-                className="h-9 rounded-lg text-muted-foreground"
-                onClick={() => importInput.current?.click()}
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 rounded-lg px-2"
+                onClick={convertToInvoice}
+                title="Turn this quotation into an invoice"
               >
-                <Upload /> Import JSON
+                <ArrowRight /> <span className="max-sm:sr-only">Invoice</span>
               </Button>
-              <Button type="button" variant="ghost" className="h-9 rounded-lg text-muted-foreground" onClick={clearAll}>
-                <RotateCcw /> Clear all
-              </Button>
-              <input
-                ref={importInput}
-                type="file"
-                accept="application/json,.json"
-                className="sr-only"
-                tabIndex={-1}
-                aria-hidden
-                onChange={(e) => {
-                  void importJson(e.target.files?.[0]);
-                  e.target.value = "";
-                }}
-              />
-            </div>
-            <p className="text-xs text-muted-foreground">
-              To save a PDF, pick &ldquo;Save as PDF&rdquo; as the printer, and turn off
-              &ldquo;Headers and footers&rdquo; for a clean page.
-            </p>
-          </div>
-
-          <div className="@container rounded-2xl border bg-muted/50 p-3 sm:p-5">
-            <DocPaper
-              doc={doc}
-              labels={labels}
-              evaluation={evaluation}
-              dates={dates}
-              currency={currency}
-              locale={locale}
+            )}
+            <span className="mx-0.5 h-5 w-px shrink-0 bg-border" aria-hidden />
+            <IconAction label="Download a copy (.json) you can open again later" onClick={exportJson}>
+              <Download />
+            </IconAction>
+            <IconAction label="Open a downloaded copy" onClick={() => importInput.current?.click()}>
+              <Upload />
+            </IconAction>
+            <IconAction label={`Share this ${labels.noun} as a link`} onClick={() => void share()}>
+              <Share2 />
+            </IconAction>
+            <IconAction label="Reset — clear everything" onClick={clearAll}>
+              <RotateCcw />
+            </IconAction>
+            <input
+              ref={importInput}
+              type="file"
+              accept="application/json,.json"
+              className="sr-only"
+              tabIndex={-1}
+              aria-hidden
+              onChange={(e) => {
+                void importJson(e.target.files?.[0]);
+                e.target.value = "";
+              }}
             />
           </div>
 
-          <ToolCta
-            slug={labels.slug}
-            message={
-              kind === "invoice"
-                ? "Track this income in SpendChat once it's paid."
-                : "Won the job? Track the income in SpendChat when it's paid."
-            }
-          />
+          <div className="flex min-h-0 flex-1 flex-col rounded-2xl border bg-muted/50 p-2 sm:p-3">
+            <FitPaper>
+              <DocPaper
+                doc={doc}
+                labels={labels}
+                evaluation={evaluation}
+                dates={dates}
+                currency={currency}
+                locale={locale}
+              />
+            </FitPaper>
+          </div>
+
+          {/* Full screen: the same document at a readable size, with the few
+              things you'd do from a finished page. Not printable itself — the
+              print stylesheet prints the copy above. */}
+          <Dialog open={fullScreen} onOpenChange={setFullScreen}>
+            <DialogContent
+              showCloseButton={false}
+              aria-describedby={undefined}
+              className="top-0 left-0 flex h-svh w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none bg-background p-0 ring-0 sm:max-w-none"
+            >
+              <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-5">
+                <DialogTitle className="min-w-0 truncate text-sm font-semibold">
+                  {`${labels.title} ${doc.number}`.trim()}
+                </DialogTitle>
+                <div className="ml-auto flex shrink-0 items-center gap-1.5">
+                  <Button type="button" size="sm" className="h-8 rounded-lg" onClick={print}>
+                    <Printer /> <span className="max-sm:sr-only">Print / PDF</span>
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg" onClick={exportJson}>
+                    <Download /> <span className="max-sm:sr-only">Download</span>
+                  </Button>
+                  <Button type="button" variant="outline" size="sm" className="h-8 rounded-lg" onClick={() => void share()}>
+                    <Share2 /> <span className="max-sm:sr-only">Share</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="ml-1 size-9 rounded-lg"
+                    onClick={() => setFullScreen(false)}
+                    aria-label="Close preview"
+                    title="Close (Esc)"
+                  >
+                    <X className="size-5" />
+                  </Button>
+                </div>
+              </header>
+              <div className="min-h-0 flex-1 overflow-auto bg-muted/50 px-3 py-6 sm:px-8 sm:py-10">
+                <div className="@container mx-auto w-full max-w-[860px]">
+                  <DocPaper
+                    doc={doc}
+                    labels={labels}
+                    evaluation={evaluation}
+                    dates={dates}
+                    currency={currency}
+                    locale={locale}
+                    printable={false}
+                  />
+                </div>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
     </div>
+  );
+}
+
+/** A toolbar button that is only an icon; its name lives in `aria-label` and the tooltip. */
+function IconAction({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className="size-7 shrink-0 rounded-lg text-muted-foreground hover:text-foreground"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+    >
+      {children}
+    </Button>
   );
 }
 

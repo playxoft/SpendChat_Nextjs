@@ -174,21 +174,34 @@ export function ResultActions({
 }
 
 /**
- * The one SpendChat hand-off on a tool: a quiet line under the result, never a
- * wall in front of it. `message` ties it to what the visitor just did.
+ * The one SpendChat hand-off on a tool: a quiet, centred line under the whole
+ * calculator — never a wall in front of the answer. `message` ties it to what
+ * the visitor just did. Rendered by `ToolPage`, not by each tool.
  */
-export function ToolCta({ slug, message }: { slug: string; message: string }) {
+export function ToolCta({
+  slug,
+  message,
+  className,
+}: {
+  slug: string;
+  message: string;
+  className?: string;
+}) {
   return (
     <Link
       href="/sign-up"
       data-track-event="cta_click"
       data-track-params={JSON.stringify({ location: `tool_${slug}`, label: "tool_result_cta" })}
-      className="group flex items-center justify-between gap-3 rounded-xl border border-dashed px-4 py-3 text-sm transition-colors hover:bg-muted/50"
+      className={cn(
+        "group flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-xl border border-dashed px-4 py-3 text-center text-sm transition-colors hover:bg-muted/50",
+        className,
+      )}
     >
-      <span className="text-muted-foreground">
-        {message} <span className="font-medium text-foreground">Try SpendChat free</span>
+      <span className="text-muted-foreground">{message}</span>
+      <span className="inline-flex items-center gap-1 font-medium text-foreground">
+        Try SpendChat free
+        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
       </span>
-      <ArrowRight className="size-4 shrink-0 transition-transform group-hover:translate-x-0.5" />
     </Link>
   );
 }

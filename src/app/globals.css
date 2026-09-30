@@ -272,6 +272,59 @@
   }
 }
 
+/* Free-tools hub cards (`src/components/tools/tool-previews.tsx`): each card's
+   mini picture comes alive on hover. Neutralized by the reduced-motion rule
+   below, like every other animation. */
+@keyframes tool-flicker {
+  0%, 100% { opacity: 1; transform: scale(1) rotate(0deg); }
+  25% { opacity: 0.75; transform: scale(0.92) rotate(-4deg); }
+  50% { opacity: 1; transform: scale(1.08) rotate(3deg); }
+  75% { opacity: 0.85; transform: scale(0.96) rotate(-2deg); }
+}
+
+@utility animate-tool-flicker {
+  animation: tool-flicker 0.6s ease-in-out infinite;
+}
+
+@keyframes tool-grow {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+@utility animate-tool-grow {
+  animation: tool-grow 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+@keyframes tool-drop {
+  0% { opacity: 0; transform: translateY(-18px); }
+  60% { opacity: 1; transform: translateY(2px); }
+  80% { transform: translateY(-2px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+@utility animate-tool-drop {
+  animation: tool-drop 0.7s ease-out 0.35s both;
+}
+
+@keyframes tool-flip {
+  0% { transform: rotateX(0deg); }
+  45% { transform: rotateX(-90deg); }
+  100% { transform: rotateX(0deg); }
+}
+
+@utility animate-tool-flip {
+  animation: tool-flip 0.6s ease-in-out;
+}
+
+@keyframes tool-sign {
+  from { stroke-dashoffset: 100; }
+  to { stroke-dashoffset: 0; }
+}
+
+@utility animate-tool-sign {
+  animation: tool-sign 0.9s ease-out;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

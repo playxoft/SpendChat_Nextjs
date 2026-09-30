@@ -1,6 +1,6 @@
 import { Formula, ToolPage, ToolSection } from "@/components/tools/tool-page";
 import { createMetadata } from "@/lib/seo";
-import { getTool, toolPath } from "@/lib/tools";
+import { getTool, toolOgImage, toolPath } from "@/lib/tools";
 import { AgeTool } from "./_components/age-tool";
 
 const SLUG = "age-calculator";
@@ -10,6 +10,7 @@ export const metadata = createMetadata({
   title: tool.title,
   description: tool.description,
   path: toolPath(SLUG),
+  image: toolOgImage(SLUG),
 });
 
 const faqs = [
@@ -43,6 +44,7 @@ export default function AgeCalculatorPage() {
   return (
     <ToolPage
       slug={SLUG}
+      cta="Planning for the years ahead? It starts with knowing what you spend."
       faqs={faqs}
       category="UtilitiesApplication"
       intro={

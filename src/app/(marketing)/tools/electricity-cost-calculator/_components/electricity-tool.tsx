@@ -8,7 +8,6 @@ import {
   ResultEmpty,
   ResultHero,
   ResultRows,
-  ToolCta,
   ToolLayout,
   ToolPanel,
 } from "@/components/tools/result";
@@ -29,7 +28,6 @@ import {
 import { currencySymbol, formatCurrency, formatNumber, parseNumber } from "@/lib/tools/format";
 import { cn } from "@/lib/utils";
 
-const SLUG = "electricity-cost-calculator";
 
 // Short, stable query keys — they're in every shared link. `a` is the whole
 // appliance list, `id~watts~hours~qty` per row, rows joined by `|`.
@@ -270,7 +268,6 @@ export function ElectricityTool() {
                 ]}
               />
               <ResultActions copy={copy} onReset={reset} />
-              <ToolCta slug={SLUG} message="Want the power bill next to everything else you spend?" />
             </>
           )}
         </ToolPanel>

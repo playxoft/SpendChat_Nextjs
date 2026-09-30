@@ -443,7 +443,7 @@ export function ChoiceChips({
         {options.map((o) => (
           <label
             key={o.value}
-            className="inline-flex h-8 cursor-pointer items-center rounded-full border bg-background px-3 text-sm whitespace-nowrap text-muted-foreground transition-colors select-none hover:bg-muted hover:text-foreground has-checked:border-foreground has-checked:bg-foreground has-checked:text-background has-focus-visible:ring-3 has-focus-visible:ring-ring/40 dark:bg-input/30 dark:has-checked:bg-foreground"
+            className="inline-flex h-8 cursor-pointer items-center rounded-full border bg-background px-2.5 text-sm whitespace-nowrap text-muted-foreground transition-colors select-none hover:bg-muted hover:text-foreground has-checked:border-foreground has-checked:bg-foreground has-checked:text-background has-focus-visible:ring-3 has-focus-visible:ring-ring/40 dark:bg-input/30 dark:has-checked:bg-foreground"
           >
             <input
               type="radio"

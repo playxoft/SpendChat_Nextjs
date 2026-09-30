@@ -5,12 +5,14 @@ import {
   TOOLS,
   TOOL_GROUPS,
   getTool,
+  toolOgImage,
   publishedTools,
   relatedTools,
   toolPath,
   type Tool,
 } from "@/lib/tools";
 import { siteConfig } from "@/lib/site";
+import { hasToolPreview } from "@/components/tools/tool-previews";
 
 function tool(overrides: Partial<Tool> & { slug: string }): Tool {
   return {
@@ -19,7 +21,7 @@ function tool(overrides: Partial<Tool> & { slug: string }): Tool {
     h1: `${overrides.slug} heading`,
     description: "x".repeat(80),
     blurb: "A blurb.",
-    icon: "Percent",
+    action: "Calculate",
     group: "everyday",
     related: [],
     published: true,
@@ -32,6 +34,13 @@ describe("TOOLS registry", () => {
     const slugs = TOOLS.map((t) => t.slug);
     expect(new Set(slugs).size).toBe(slugs.length);
     for (const slug of slugs) expect(slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+  });
+
+  it("gives every tool a short verb for its hub button", () => {
+    for (const t of TOOLS) {
+      expect(t.action.trim(), t.slug).not.toBe("");
+      expect(t.action.length, t.slug).toBeLessThanOrEqual(28);
+    }
   });
 
   it("keeps descriptions inside Google's snippet window", () => {
@@ -65,6 +74,26 @@ describe("TOOLS registry", () => {
     for (const t of publishedTools()) {
       const page = path.join(process.cwd(), "src/app/(marketing)/tools", t.slug, "page.tsx");
       expect(fs.existsSync(page), `missing page for ${t.slug}`).toBe(true);
+    }
+  });
+});
+
+describe("social previews", () => {
+  it("every published tool, and the hub, has its 1200×630 preview image under 300 KB", () => {
+    // Regenerate with the loop in scripts/og-tools.html after adding a tool.
+    for (const slug of ["index", ...publishedTools().map((t) => t.slug)]) {
+      const file = path.join(process.cwd(), "public", toolOgImage(slug));
+      expect(fs.existsSync(file), `missing ${toolOgImage(slug)}`).toBe(true);
+      expect(fs.statSync(file).size, slug).toBeLessThan(300_000);
+    }
+  });
+});
+
+describe("hub cards", () => {
+  it("every published tool has its mini picture", () => {
+    // A tool without one renders an empty box on the hub, next to cards that sell.
+    for (const t of publishedTools()) {
+      expect(hasToolPreview(t.slug), `no preview for ${t.slug}`).toBe(true);
     }
   });
 });

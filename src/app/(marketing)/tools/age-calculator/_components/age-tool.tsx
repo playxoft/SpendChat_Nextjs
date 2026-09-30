@@ -6,7 +6,6 @@ import {
   ResultEmpty,
   ResultHero,
   ResultRows,
-  ToolCta,
   ToolLayout,
   ToolPanel,
   type ResultRow,
@@ -26,7 +25,6 @@ import {
   type NextBirthday,
 } from "@/lib/tools/date-math";
 
-const SLUG = "age-calculator";
 
 /**
  * Exact age from a date of birth, on today or any other date. "Age on"
@@ -112,7 +110,6 @@ export function AgeTool() {
         )}
 
         <ResultActions copy={copy} onReset={reset} withCurrency={false} />
-        <ToolCta slug={SLUG} message="Planning for the years ahead? It starts with knowing what you spend." />
       </ToolPanel>
     </ToolLayout>
   );

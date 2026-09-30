@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Formula, ToolPage, ToolSection } from "@/components/tools/tool-page";
 import { createMetadata } from "@/lib/seo";
-import { getTool, toolPath } from "@/lib/tools";
+import { getTool, toolOgImage, toolPath } from "@/lib/tools";
 import { SipTool } from "./_components/sip-tool";
 
 const SLUG = "sip-calculator";
@@ -11,6 +11,7 @@ export const metadata = createMetadata({
   title: tool.title,
   description: tool.description,
   path: toolPath(SLUG),
+  image: toolOgImage(SLUG),
 });
 
 const faqs = [
@@ -44,6 +45,7 @@ export default function SipCalculatorPage() {
   return (
     <ToolPage
       slug={SLUG}
+      cta="Looking for more to invest each month?"
       faqs={faqs}
       intro={
         <p>

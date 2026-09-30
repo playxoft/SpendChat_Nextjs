@@ -13,6 +13,7 @@ import {
   Wallet,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { FaqSection } from "@/components/marketing/faq-section";
 import { Kbd } from "@/components/ui/kbd";
 import { GithubIcon } from "@/components/icons/github";
 import { ChatDemo } from "@/components/marketing/demo/chat-demo";
@@ -639,36 +640,23 @@ export default function LandingPage() {
         </ol>
       </section>
 
-      {/* FAQ teaser — the same entries the FAQPage markup above describes. */}
-      <section className="border-t bg-muted/30">
-        <div className="mx-auto max-w-3xl px-4 py-20">
-          <h2 className="text-center text-3xl font-semibold tracking-tight">
-            Frequently asked questions
-          </h2>
-          <dl className="mt-10 divide-y">
-            {homeFaqs.map((faq) => (
-              <div key={faq.q} className="py-5">
-                <dt className="font-medium">{faq.q}</dt>
-                <dd className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                  {faq.a}
-                </dd>
-              </div>
-            ))}
-          </dl>
-          <div className="mt-8 text-center">
-            <Button asChild variant="outline" className={marketingCta}>
-              <Link
-                href="/faq"
-                data-track-event="nav_link_click"
-                data-track-params={JSON.stringify({
-                  location: "faq_teaser",
-                  label: "read_all_faqs",
-                })}
-              >
-                Read all FAQs
-              </Link>
-            </Button>
-          </div>
+      {/* FAQ teaser — the same entries the FAQPage markup above describes, in
+          the same FAQ block every other page uses. */}
+      <section className="mx-auto max-w-3xl px-4 py-20">
+        <FaqSection faqs={homeFaqs} heading="Frequently asked questions" className="mt-0" />
+        <div className="mt-8 text-center">
+          <Button asChild variant="outline" className={marketingCta}>
+            <Link
+              href="/faq"
+              data-track-event="nav_link_click"
+              data-track-params={JSON.stringify({
+                location: "faq_teaser",
+                label: "read_all_faqs",
+              })}
+            >
+              Read all FAQs
+            </Link>
+          </Button>
         </div>
       </section>
 

@@ -30,6 +30,7 @@ export function DocPaper({
   dates,
   currency,
   locale,
+  printable = true,
 }: {
   doc: BusinessDoc;
   labels: DocLabels;
@@ -37,6 +38,12 @@ export function DocPaper({
   dates: { issue: string | null; due: string | null };
   currency: string;
   locale: string;
+  /**
+   * Whether this is the copy the print stylesheet prints (it keys on
+   * `.bd-paper`). The full-screen preview renders a second copy, which must
+   * not also print, or the PDF would hold the document twice.
+   */
+  printable?: boolean;
 }) {
   const code = isSupportedCurrency(currency) ? currency : "USD";
   const money = (minor: number) => formatMoney(minor, code, locale);
@@ -60,7 +67,7 @@ export function DocPaper({
   return (
     <article
       aria-label={`${labels.title} preview`}
-      className="bd-paper flex aspect-[210/297] flex-col rounded-[0.25em] bg-white p-[1.6em] leading-[1.45] text-neutral-900 shadow-sm ring-1 ring-black/10 @md:p-[3.2em]"
+      className={`${printable ? "bd-paper " : ""}flex aspect-[210/297] flex-col rounded-[0.25em] bg-white p-[1.6em] leading-[1.45] text-neutral-900 shadow-sm ring-1 ring-black/10 @md:p-[3.2em]`}
       // 10pt on an A4-wide sheet is 1.68% of its width; a touch larger reads
       // better on screen, and the floor keeps a phone preview legible.
       style={{ fontSize: "clamp(10px, 1.9cqi, 13.5px)" }}

@@ -10,7 +10,6 @@ import {
   ResultEmpty,
   ResultHero,
   ResultRows,
-  ToolCta,
   ToolLayout,
   ToolPanel,
   type ResultRow,
@@ -29,7 +28,6 @@ import {
   resolveDateInput,
 } from "@/lib/tools/date-math";
 
-const SLUG = "days-between-dates";
 
 /**
  * Two date questions behind one switch: "how long between these dates?" and
@@ -212,7 +210,6 @@ export function DaysBetweenTool() {
         )}
 
         <ResultActions copy={copy} onReset={reset} withCurrency={false} />
-        <ToolCta slug={SLUG} message="Counting the days to payday?" />
       </ToolPanel>
     </ToolLayout>
   );

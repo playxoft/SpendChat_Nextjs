@@ -1,6 +1,6 @@
 import { Formula, ToolPage, ToolSection } from "@/components/tools/tool-page";
 import { createMetadata } from "@/lib/seo";
-import { getTool, toolPath } from "@/lib/tools";
+import { getTool, toolOgImage, toolPath } from "@/lib/tools";
 import { PercentageTool } from "./_components/percentage-tool";
 
 const SLUG = "percentage-calculator";
@@ -10,6 +10,7 @@ export const metadata = createMetadata({
   title: tool.title,
   description: tool.description,
   path: toolPath(SLUG),
+  image: toolOgImage(SLUG),
 });
 
 const faqs = [
@@ -43,6 +44,7 @@ export default function PercentageCalculatorPage() {
   return (
     <ToolPage
       slug={SLUG}
+      cta="Watching how your spending changes month to month?"
       faqs={faqs}
       intro={
         <p>

@@ -57,7 +57,7 @@ export function ToolsDirectory({ groups }: { groups: ToolGroupWithItems[] }) {
 
   return (
     <div className="mt-8">
-      <div className="relative max-w-xl">
+      <div className="relative">
         <Search
           className="pointer-events-none absolute top-1/2 left-4 size-4 -translate-y-1/2 text-muted-foreground"
           aria-hidden

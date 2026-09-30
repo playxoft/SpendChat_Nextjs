@@ -8,7 +8,6 @@ import {
   ResultEmpty,
   ResultHero,
   ResultRows,
-  ToolCta,
   ToolLayout,
   ToolPanel,
 } from "@/components/tools/result";
@@ -26,7 +25,6 @@ import {
 import { currencySymbol, formatCurrency, formatPercent, parseNumber } from "@/lib/tools/format";
 import { cn } from "@/lib/utils";
 
-const SLUG = "credit-card-payoff-calculator";
 
 // Short, stable query keys — they're in every shared link.
 const DEFAULTS = {
@@ -253,10 +251,6 @@ export function CardPayoffTool() {
               )}
 
               <ResultActions copy={copy} onReset={reset} />
-              <ToolCta
-                slug={SLUG}
-                message="Paying it down? See where the rest of your money goes each month."
-              />
             </>
           )}
         </ToolPanel>

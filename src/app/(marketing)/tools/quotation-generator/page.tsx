@@ -2,7 +2,7 @@ import Link from "next/link";
 import { BusinessDocTool } from "@/components/tools/business-doc/business-doc-tool";
 import { Formula, ToolPage, ToolSection } from "@/components/tools/tool-page";
 import { createMetadata } from "@/lib/seo";
-import { getTool, toolPath } from "@/lib/tools";
+import { getTool, toolOgImage, toolPath } from "@/lib/tools";
 
 const SLUG = "quotation-generator";
 const tool = getTool(SLUG)!;
@@ -11,6 +11,7 @@ export const metadata = createMetadata({
   title: tool.title,
   description: tool.description,
   path: toolPath(SLUG),
+  image: toolOgImage(SLUG),
 });
 
 const faqs = [
@@ -44,6 +45,7 @@ export default function QuotationGeneratorPage() {
   return (
     <ToolPage
       slug={SLUG}
+      cta="Won the job? Track the income in SpendChat when it's paid."
       faqs={faqs}
       category="BusinessApplication"
       intro={

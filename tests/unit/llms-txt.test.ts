@@ -111,7 +111,7 @@ describe("buildLlmsTxt", () => {
       h1: `${slug} heading`,
       description: `About ${slug}.`,
       blurb: "Blurb.",
-      icon: "Percent",
+      action: "Calculate",
       group: "everyday" as const,
       related: [],
       published,

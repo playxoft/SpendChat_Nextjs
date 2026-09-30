@@ -7,7 +7,6 @@ import {
   ResultEmpty,
   ResultHero,
   ResultRows,
-  ToolCta,
   ToolLayout,
   ToolPanel,
   type ResultRow,
@@ -316,7 +315,6 @@ export function VatTool() {
       <ToolPanel sticky className="space-y-5">
         {body}
         <ResultActions copy={copy} onReset={reset} />
-        <ToolCta slug="vat-calculator" message="Logging purchases for your records?" />
       </ToolPanel>
     </ToolLayout>
   );

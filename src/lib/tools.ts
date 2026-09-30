@@ -6,9 +6,8 @@
  * entry plus its page file. A tool that exists but is linked from nowhere is
  * the failure this guards against — it never gets crawled.
  *
- * Deliberately dependency-free (no React, no `lucide-react`): `sitemap.ts` only
- * needs the slugs. Icons are named as strings and resolved in
- * `src/components/tools/tool-icon.tsx`.
+ * Deliberately dependency-free (no React): `sitemap.ts` only needs the slugs.
+ * Each card's picture lives in `src/components/tools/tool-previews.tsx`.
  */
 
 /** Where a tool sits on the `/tools` hub. */
@@ -56,8 +55,8 @@ export type Tool = {
   description: string;
   /** One-line blurb for hub cards. */
   blurb: string;
-  /** Icon name resolved by `tool-icon.tsx`. */
-  icon: string;
+  /** The hub card's button — a verb for what the tool does ("Calculate GST"). */
+  action: string;
   group: ToolGroup;
   /** Sibling slugs to surface in this page's "Related tools" block. */
   related: string[];
@@ -78,12 +77,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "percentage-calculator",
     label: "Percentage calculator",
-    title: "Percentage Calculator — Increase, Change & Of",
+    title: "Percentage Calculator — %, Increase & Change",
     h1: "Percentage calculator",
     description:
-      "Work out X% of Y, percentage increase or decrease, percent change and discounts — with the working shown. Free, instant, no signup.",
+      "Find X% of Y, what percent one number is of another, percentage increase or decrease, percent change and discounts — with the working shown. Free, no sign-up.",
     blurb: "X% of Y, % change, increase, decrease and discounts.",
-    icon: "Percent",
+    action: "Calculate percentage",
     group: "everyday",
     related: [
       "vat-calculator",
@@ -96,13 +95,13 @@ export const TOOLS: Tool[] = [
   },
   {
     slug: "vat-calculator",
-    label: "VAT & GST calculator",
-    title: "VAT & GST Calculator — Add or Remove Tax",
-    h1: "VAT, GST & sales tax calculator",
+    label: "GST & VAT calculator",
+    title: "GST & VAT Calculator — Add or Remove Tax",
+    h1: "GST & VAT calculator",
     description:
-      "Add or remove VAT, GST or sales tax — reverse VAT included — with 75 countries' rates preset and India's CGST/SGST split. Free, no signup.",
+      "Add or remove GST or VAT — inclusive, exclusive and reverse GST — with the CGST/SGST/IGST split and 75 countries' rates preset. Free tax calculator, no sign-up.",
     blurb: "Add or remove tax, with country rates preset.",
-    icon: "Receipt",
+    action: "Calculate GST / VAT",
     group: "everyday",
     related: [
       "percentage-calculator",
@@ -116,12 +115,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "amount-in-words",
     label: "Amount in words",
-    title: "Amount in Words — Number to Words Converter",
-    h1: "Amount in words converter",
+    title: "Number to Words Converter — Amount in Words",
+    h1: "Amount in words & number to words converter",
     description:
-      "Convert any amount to words for cheques and invoices — Indian lakh/crore or international style, rupees and paise, dollars and cents.",
+      "Convert any number or amount to words for cheques and invoices: rupees in lakh and crore, dollars in millions, in cheque and US check formats. Free, no sign-up.",
     blurb: "Write any amount out in words, cheque-ready.",
-    icon: "PenLine",
+    action: "Convert to words",
     group: "everyday",
     related: [
       "invoice-generator",
@@ -135,12 +134,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "electricity-cost-calculator",
     label: "Electricity cost calculator",
-    title: "Electricity Cost Calculator for Appliances",
-    h1: "Appliance electricity cost calculator",
+    title: "Electricity Bill & Cost Calculator (kWh)",
+    h1: "Electricity bill & appliance cost calculator",
     description:
-      "Work out what each appliance costs to run per hour, day, month and year from its wattage and your tariff. Add several and see the total.",
+      "Estimate your electricity bill: what each appliance — AC, fridge, heater, fan — costs per hour, day, month and year from its watts and your price per kWh.",
     blurb: "What each appliance costs to run, from watts and your tariff.",
-    icon: "Zap",
+    action: "Calculate electricity cost",
     group: "everyday",
     related: [
       "percentage-calculator",
@@ -156,12 +155,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "days-between-dates",
     label: "Days between dates",
-    title: "Days Between Dates Calculator",
+    title: "Date Calculator — Days Between Two Dates",
     h1: "Days between dates calculator",
     description:
-      "Count the days, weeks and months between two dates, add or subtract days from a date, or count working days. Free date calculator.",
+      "Count the days, weeks and months between two dates, count working days, or add and subtract days from a date. A free, instant date calculator with no sign-up.",
     blurb: "Days between dates, add days, working days.",
-    icon: "CalendarDays",
+    action: "Count the days",
     group: "dates",
     related: [
       "age-calculator",
@@ -175,12 +174,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "age-calculator",
     label: "Age calculator",
-    title: "Age Calculator — Exact Age in Years & Days",
+    title: "Age Calculator — Exact Age by Date of Birth",
     h1: "Age calculator",
     description:
-      "Find your exact age in years, months and days, the days until your next birthday, and your age on any date. Free, instant, no signup.",
+      "Calculate your exact age from your date of birth in years, months and days — plus total weeks and days and a countdown to your next birthday. Free, no sign-up.",
     blurb: "Exact age in years, months and days.",
-    icon: "Cake",
+    action: "Calculate age",
     group: "dates",
     related: [
       "days-between-dates",
@@ -196,12 +195,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "compound-interest-calculator",
     label: "Compound interest calculator",
-    title: "Compound Interest Calculator with Deposits",
+    title: "Compound Interest Calculator — Monthly & Daily",
     h1: "Compound interest calculator",
     description:
-      "See how savings grow with compound interest and monthly deposits: year-by-year table, chart and inflation-adjusted value. Free, no signup.",
+      "Compound interest with monthly deposits and daily, monthly or yearly compounding: a year-by-year table, a growth chart and the inflation-adjusted value. Free.",
     blurb: "Growth with monthly deposits, year by year.",
-    icon: "TrendingUp",
+    action: "Calculate interest",
     group: "grow",
     related: [
       "sip-calculator",
@@ -215,12 +214,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "sip-calculator",
     label: "SIP calculator",
-    title: "SIP Calculator with Step-Up & Inflation",
-    h1: "SIP calculator",
+    title: "SIP Calculator — Step-Up SIP & Returns",
+    h1: "SIP calculator with step-up",
     description:
-      "Estimate what a monthly SIP or investment grows to, with a yearly step-up and inflation-adjusted value. Year-by-year table and chart.",
+      "Estimate mutual fund SIP returns with an annual step-up: invested vs returns year by year, a growth chart and the inflation-adjusted value. Free, no sign-up.",
     blurb: "Monthly investing with step-up and inflation.",
-    icon: "PiggyBank",
+    action: "Calculate SIP returns",
     group: "grow",
     related: [
       "compound-interest-calculator",
@@ -236,12 +235,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "credit-card-payoff-calculator",
     label: "Credit card payoff calculator",
-    title: "Credit Card Payoff Calculator",
+    title: "Credit Card Payoff & Interest Calculator",
     h1: "Credit card payoff calculator",
     description:
-      "See how long your credit card balance takes to clear and what it costs — and how much you save by paying more than the minimum.",
+      "See how long your credit card takes to pay off, the total interest, and how much you save over minimum payments. Free credit card payoff calculator, no sign-up.",
     blurb: "How long to clear a card, and the minimum-payment trap.",
-    icon: "CreditCard",
+    action: "Plan my payoff",
     group: "debt",
     related: [
       "compound-interest-calculator",
@@ -257,12 +256,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "invoice-generator",
     label: "Invoice generator",
-    title: "Free Invoice Generator — No Signup",
+    title: "Free Invoice Generator — No Sign-Up, PDF",
     h1: "Free invoice generator",
     description:
-      "Create an invoice in your browser — line items, tax, discounts, any currency, amount in words — and save it as a PDF. Free, no signup.",
+      "Create a professional invoice online in seconds: line items, GST or VAT, discounts, any currency. Save it as a PDF or share a link. Free, no sign-up.",
     blurb: "Make an invoice and save it as a PDF.",
-    icon: "FileText",
+    action: "Create an invoice",
     group: "business",
     related: [
       "quotation-generator",
@@ -276,12 +275,12 @@ export const TOOLS: Tool[] = [
   {
     slug: "quotation-generator",
     label: "Quotation generator",
-    title: "Quotation Generator — Free Quote Maker",
-    h1: "Free quotation generator",
+    title: "Free Quotation Maker & Estimate Generator",
+    h1: "Free quotation & estimate maker",
     description:
-      "Make a price quotation or estimate in minutes: line items, tax, validity date and terms. Save it as a PDF and turn it into an invoice later.",
+      "Make a professional quotation or estimate online: line items, tax, validity and terms. Save as PDF, share a link, or turn it into an invoice. Free, no sign-up.",
     blurb: "Price quotes and estimates, ready to send.",
-    icon: "ClipboardList",
+    action: "Create a quotation",
     group: "business",
     related: [
       "invoice-generator",
@@ -328,6 +327,14 @@ export function relatedTools(slug: string, min = 3, from: Tool[] = TOOLS): Tool[
   const seen = new Set([slug, ...picked.map((t) => t.slug)]);
   const fillers = live.filter((t) => !seen.has(t.slug));
   return [...picked, ...fillers.slice(0, min - picked.length)];
+}
+
+/**
+ * The social preview for a tool page (or `"index"` for the hub): a static
+ * 1200×630 PNG in `public/og/tools/`, generated from `scripts/og-tools.html`.
+ */
+export function toolOgImage(slug: string): string {
+  return `/og/tools/${slug}.png`;
 }
 
 /** Absolute-from-root path for a tool page. */

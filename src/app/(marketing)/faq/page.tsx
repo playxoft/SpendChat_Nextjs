@@ -1,6 +1,6 @@
 import { createMetadata, faqJsonLd } from "@/lib/seo";
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { FaqSection } from "@/components/marketing/faq-section";
 import { Button } from "@/components/ui/button";
 import { JsonLd } from "@/components/json-ld";
 import { faqs } from "@/lib/faq";
@@ -29,20 +29,7 @@ export default function FaqPage() {
         </p>
       </div>
 
-      <div className="mt-12 space-y-3">
-        {faqs.map((f) => (
-          <details
-            key={f.q}
-            className="group rounded-xl border bg-card px-5 py-4 [&_summary::-webkit-details-marker]:hidden"
-          >
-            <summary className="flex cursor-pointer items-center justify-between gap-4 font-medium">
-              {f.q}
-              <Plus className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-45" />
-            </summary>
-            <p className="mt-3 text-sm text-muted-foreground">{f.a}</p>
-          </details>
-        ))}
-      </div>
+      <FaqSection faqs={faqs} className="mt-12" />
 
       <div className="mt-12 text-center">
         <p className="text-muted-foreground">

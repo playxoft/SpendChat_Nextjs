@@ -7,7 +7,6 @@ import {
   ResultEmpty,
   ResultHero,
   ResultRows,
-  ToolCta,
   ToolLayout,
   ToolPanel,
   type ResultRow,
@@ -220,7 +219,6 @@ export function SipTool() {
             <ResultEmpty>{problem}</ResultEmpty>
           )}
           <ResultActions copy={sentence} onReset={reset} />
-          <ToolCta slug="sip-calculator" message="Looking for more to invest each month?" />
         </ToolPanel>
       </ToolLayout>
 

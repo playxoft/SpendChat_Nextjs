@@ -5,7 +5,7 @@ import { Copy } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { NumberField, Segmented } from "@/components/tools/fields";
-import { ResultActions, ToolCta, ToolPanel } from "@/components/tools/result";
+import { ResultActions, ToolPanel } from "@/components/tools/result";
 import { useToolLocale, useUrlState } from "@/components/tools/tool-state";
 import { EMPTY, formatNumber, formatPercent, parseNumber } from "@/lib/tools/format";
 import {
@@ -218,7 +218,6 @@ export function PercentageTool() {
       </div>
 
       <ResultActions copy={null} withCurrency={false} onReset={reset} />
-      <ToolCta slug="percentage-calculator" message="Watching how your spending changes month to month?" />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { JsonLd } from "@/components/json-ld";
 import { Breadcrumbs } from "@/components/marketing/breadcrumbs";
 import { FaqSection } from "@/components/marketing/faq-section";
 import { ToolCardGrid } from "@/components/tools/tool-card";
+import { ToolCta } from "@/components/tools/result";
 import { getTool, relatedTools, toolPath } from "@/lib/tools";
 import { breadcrumbJsonLd, faqJsonLd, webApplicationJsonLd, type Faq } from "@/lib/seo";
 import { marketingCta } from "@/lib/marketing";
@@ -30,10 +31,17 @@ export function ToolPage({
   faqs,
   category,
   tool,
+  cta,
   children,
 }: {
   /** Must match an entry in `src/lib/tools.ts`. */
   slug: string;
+  /**
+   * The one SpendChat line, tied to what the visitor just did ("Counting the
+   * days to payday?"). Rendered once, full width under the whole tool — never
+   * inside the result panel, where it competed with the answer.
+   */
+  cta: string;
   /** One or two sentences under the h1 — what it does, in plain words. */
   intro: ReactNode;
   /** Rendered visibly *and* as `FAQPage` markup, from this one array. */
@@ -84,6 +92,8 @@ export function ToolPage({
 
       <div className="mt-8">{tool}</div>
 
+      <ToolCta slug={slug} message={cta} className="mt-4" />
+
       <p className="mt-4 text-xs text-muted-foreground">
         Runs entirely in your browser — nothing you type is sent anywhere. Results
         are estimates for planning, not financial advice.
@@ -92,12 +102,12 @@ export function ToolPage({
       <div className="mx-auto mt-16 max-w-3xl space-y-12">{children}</div>
 
       <div className="mx-auto max-w-3xl">
-        <FaqSection faqs={faqs} heading="FAQ" />
+        <FaqSection faqs={faqs} heading={`${entry.label} FAQ`} />
 
         {related.length > 0 && (
           <section className="mt-16">
             <h2 className="text-2xl font-semibold tracking-tight">More free tools</h2>
-            <ToolCardGrid items={related} location={`${slug}_related`} className="mt-6" />
+            <ToolCardGrid items={related} location={`${slug}_related`} columns={2} className="mt-6" />
             <Link
               href="/tools"
               className="mt-4 inline-flex items-center gap-1 text-sm font-medium hover:underline"

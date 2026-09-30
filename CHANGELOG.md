@@ -44,6 +44,13 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   Everything runs in the browser: nothing typed into a tool is sent anywhere.
   Amounts show in your local currency and number format, and **Copy link**
   shares a calculation with its numbers filled in.
+- **Invoice and quotation previews you can read.** The page stays pinned beside
+  the form, fitted to the screen; scroll to zoom, drag to move, or open it
+  **full screen**. **Share** sends the document as a link — it travels in the
+  part of the URL that never reaches a server, and opens as the recipient's own
+  copy.
+- **One FAQ design everywhere.** The homepage, `/faq`, feature, comparison, blog
+  and tool pages now share the same collapsible FAQ on a tinted panel.
 
 ### Changed
 - **Date pickers jump to a year.** Click the month title once for months and

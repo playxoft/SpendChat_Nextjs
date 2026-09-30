@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Formula, ToolPage, ToolSection } from "@/components/tools/tool-page";
 import { createMetadata } from "@/lib/seo";
-import { getTool, toolPath } from "@/lib/tools";
+import { getTool, toolOgImage, toolPath } from "@/lib/tools";
 import { TAX_RATES, TAX_RATES_SOURCE, TAX_RATES_VERIFIED_ON } from "@/lib/tools/data/tax-rates";
 import { VatTool } from "./_components/vat-tool";
 
@@ -12,6 +12,7 @@ export const metadata = createMetadata({
   title: tool.title,
   description: tool.description,
   path: toolPath(SLUG),
+  image: toolOgImage(SLUG),
 });
 
 /** "28 September 2026" — fixed format and time zone, so the build is deterministic. */
@@ -58,6 +59,7 @@ export default function VatCalculatorPage() {
   return (
     <ToolPage
       slug={SLUG}
+      cta="Logging purchases for your records?"
       faqs={faqs}
       intro={
         <p>

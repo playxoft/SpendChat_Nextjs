@@ -8,7 +8,6 @@ import {
   ResultActions,
   ResultEmpty,
   ResultHero,
-  ToolCta,
   ToolLayout,
   ToolPanel,
 } from "@/components/tools/result";
@@ -129,7 +128,6 @@ export function AmountInWordsTool() {
               </p>
             )}
             <ResultActions copy={words} onReset={reset} />
-            <ToolCta slug="amount-in-words" message="Writing out amounts for bills and invoices?" />
           </>
         ) : (
           <ResultEmpty>{problem}</ResultEmpty>

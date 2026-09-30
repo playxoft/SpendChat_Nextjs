@@ -1,6 +1,6 @@
 import { Formula, ToolPage, ToolSection } from "@/components/tools/tool-page";
 import { createMetadata } from "@/lib/seo";
-import { getTool, toolPath } from "@/lib/tools";
+import { getTool, toolOgImage, toolPath } from "@/lib/tools";
 import { AmountInWordsTool } from "./_components/amount-in-words-tool";
 
 const SLUG = "amount-in-words";
@@ -10,6 +10,7 @@ export const metadata = createMetadata({
   title: tool.title,
   description: tool.description,
   path: toolPath(SLUG),
+  image: toolOgImage(SLUG),
 });
 
 const faqs = [
@@ -43,6 +44,7 @@ export default function AmountInWordsPage() {
   return (
     <ToolPage
       slug={SLUG}
+      cta="Writing out amounts for bills and invoices?"
       faqs={faqs}
       intro={
         <p>
