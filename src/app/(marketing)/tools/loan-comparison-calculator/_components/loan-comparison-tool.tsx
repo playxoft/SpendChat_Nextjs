@@ -243,7 +243,9 @@ export function LoanComparisonTool() {
         </div>
       </ToolPanel>
 
-      <div className="grid items-start gap-4 md:grid-cols-2 lg:grid-cols-3">
+      {/* Cards stretch to the row's height, so an offer still being filled in
+          is as tall as the ones showing results beside it. */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
         {parsed.map((p, i) => (
           <OfferCard
             key={p.slot}
@@ -377,7 +379,7 @@ function OfferCard({
     <section
       aria-labelledby={headingId}
       className={cn(
-        "min-w-0 rounded-2xl border bg-card p-4 sm:p-5",
+        "flex min-w-0 flex-col rounded-2xl border bg-card p-4 sm:p-5",
         status?.kind === "cheapest" && "border-emerald-600/50 dark:border-emerald-500/50",
       )}
     >
@@ -473,7 +475,7 @@ function OfferCard({
         />
       </div>
 
-      <div className="mt-5 border-t pt-4">
+      <div className="mt-5 flex flex-1 flex-col border-t pt-4">
         {cost ? (
           <>
             <p className="text-xs text-muted-foreground">Monthly payment (EMI)</p>
@@ -494,7 +496,9 @@ function OfferCard({
             )}
           </>
         ) : (
-          <p className="text-sm text-muted-foreground">{parsed.missing}</p>
+          <p className="flex flex-1 items-center justify-center rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
+            {parsed.missing}
+          </p>
         )}
       </div>
     </section>

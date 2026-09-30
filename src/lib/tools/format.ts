@@ -53,6 +53,19 @@ export function fromCanonicalNumber(raw: string, locale: string): string {
   return CANONICAL.test(raw) ? formatAmountInput(Number(raw), locale, 10) : raw;
 }
 
+/**
+ * What a number field accepts as it's typed: digits, the separators numbers
+ * are written with around the world ("1,00,000.50", "1.000,5", "1 000",
+ * "1'000"), and a minus sign at the start. Letters and symbols are dropped on
+ * the spot, so a stray "k" or "$" never reaches the parser.
+ */
+export function sanitizeNumberInput(raw: string): string {
+  const trimmedStart = raw.replace(/^\s+/, "");
+  const negative = /^[-−]/.test(trimmedStart);
+  const kept = raw.replace(/[^\d.,'’ \u00a0\u202f]/g, "");
+  return negative ? `-${kept.replace(/^\s+/, "")}` : kept;
+}
+
 /** Placeholder for a result that can't be computed yet. */
 export const EMPTY = "—";
 

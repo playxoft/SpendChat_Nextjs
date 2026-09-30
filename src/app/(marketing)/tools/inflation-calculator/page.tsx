@@ -22,6 +22,8 @@ const link = "font-medium text-foreground underline underline-offset-4";
 const LATEST = Math.max(...CPI_COUNTRIES.map((c) => c.lastYear));
 const BEHIND = CPI_COUNTRIES.filter((c) => c.lastYear < LATEST);
 const behindText = BEHIND.map((c) => `${countryInSentence(c)} to ${c.lastYear}`).join(", ");
+const NAMES = CPI_COUNTRIES.map((c) => c.name);
+const namesText = `${NAMES.slice(0, -1).join(", ")} and ${NAMES.at(-1)}`;
 
 const faqs = [
   {
@@ -33,20 +35,20 @@ const faqs = [
     a: "About ₹1,015.57 in 2025 money: Indian consumer prices rose roughly tenfold between 1990 and 2025, 6.85% a year on average. ₹100 from 2000 is worth about ₹428.91 in 2025.",
   },
   {
+    q: "Can I compare inflation between countries?",
+    a: `Yes. Pick as many of the ${CPI_COUNTRIES.length} countries as you like and each one is worked out from its own price index, in its own currency. Compare the percentages rather than the amounts: from 2000 to 2024 prices rose 82.17% in the United States, 80.94% in the United Kingdom and 318.86% in India. The chart starts every country at 100 in the first year, and the table under it lists the average rate for all ${CPI_COUNTRIES.length}.`,
+  },
+  {
     q: "How do you calculate inflation between two years?",
-    a: "Divide the consumer price index (CPI) for the later year by the CPI for the earlier year, and multiply your amount by the result. Take one away from that ratio for the cumulative inflation, or raise it to the power of 1 ÷ the number of years and take one away for the average yearly rate. The calculator does all three from World Bank CPI data.",
+    a: "Divide the consumer price index (CPI) for the later year by the CPI for the earlier year, and multiply your amount by the result. Take one away from that ratio for the cumulative inflation — the total rise, 82.17% in the US from 2000 to 2024. Raise the ratio to the power of 1 ÷ the number of years and take one away for the average yearly rate, the steady rate that compounds to the same total: 2.53% a year. Real years were above and below it (8% in the US in 2022).",
   },
   {
     q: "Why doesn't the calculator go up to this year?",
-    a: `It uses one average price index per full calendar year, and the latest year for each country is the last full year the World Bank has published — ${LATEST} for most countries${BEHIND.length ? ` (${behindText})` : ""}. A year's figure appears once the year is over and national statistics offices have reported it, and the data here is refreshed once a year.`,
-  },
-  {
-    q: "What's the difference between cumulative and average inflation?",
-    a: "Cumulative inflation is the total rise in prices between the two years: 82.17% in the US from 2000 to 2024. The average yearly rate is the steady rate that compounds to the same total — 2.53% a year. Some years were well above the average (8% in the US in 2022) and some below it.",
+    a: `It uses one average price index per full calendar year, and the latest year for each country is the last full year the World Bank has published — ${LATEST} for most countries${BEHIND.length ? ` (${behindText})` : ""}. The "to" year starts at the latest year all your countries have. A year's figure appears once the year is over and national statistics offices have reported it, and the data here is refreshed once a year.`,
   },
   {
     q: "Can I use it for years before the euro?",
-    a: "Yes. For euro-area countries, enter an amount from before the euro in euros, converted at the fixed rate the old currency joined at — 1.95583 Deutsche Mark or 6.55957 French francs to €1, for example. The country's note in the calculator gives its rate. Countries whose currency was replaced at an odd rate, like Brazil, start in the first full year of today's currency.",
+    a: "Yes. For euro-area countries, enter an amount from before the euro in euros, converted at the fixed rate the old currency joined at — 1.95583 Deutsche Mark or 6.55957 French francs to €1, for example. The notes under the country table give each rate. Countries whose currency was replaced at an odd rate, like Brazil, start in the first full year of today's currency.",
   },
 ];
 
@@ -59,27 +61,31 @@ export default function InflationCalculatorPage() {
       intro={
         <p>
           See what money from any year is worth in another — and how much prices
-          rose in between — from official consumer price data for{" "}
-          {CPI_COUNTRIES.length} countries.
+          rose in between — for up to {CPI_COUNTRIES.length} countries side by
+          side, from official consumer price data.
         </p>
       }
       tool={<InflationTool />}
     >
       <ToolSection title="How to use the inflation calculator">
         <p>
-          Enter an amount, pick the country and the two years, and the answer
-          updates as you go. The amount is always in the country&apos;s own
-          currency, so there&apos;s nothing else to choose. It works in both
-          directions: 2000 to 2024 shows what an old price comes to today,
-          and 2024 to 2000 shows what today&apos;s money would have been worth
-          back then.
+          Enter an amount, pick the two years and tick the countries you want,
+          and the answer updates as you go. The same amount is read in each
+          country&apos;s own currency — 100 is $100 in the United States and
+          ₹100 in India — so there&apos;s no currency to choose. Your own
+          country is picked for you, next to the US and the UK. It works in both
+          directions: 2000 to 2024 shows what an old price comes to today, and
+          2024 to 2000 shows what today&apos;s money would have been worth back
+          then.
         </p>
         <p>
-          Under the answer you get the cumulative inflation between the two
-          years, the average rate per year and how much buying power the money
-          lost. The chart and the year-by-year table show the whole path,
-          including the inflation rate in each single year. Copy link shares the
-          exact calculation.
+          The first country you tick is the headline, with its cumulative
+          inflation, average rate per year and the buying power lost; every
+          other country gets its own line underneath. The chart puts all of
+          them at 100 in the first year so their paths compare fairly, and the
+          table under it lists the average inflation of all{" "}
+          {CPI_COUNTRIES.length} countries for the same years. Copy link shares
+          the exact comparison.
         </p>
       </ToolSection>
 
@@ -101,6 +107,12 @@ export default function InflationCalculatorPage() {
           exactly on the cumulative figure. Buying power lost is 1 − CPI(earlier)
           ÷ CPI(later): the share of the later year&apos;s money that the rise in
           prices has eaten.
+        </p>
+        <p>
+          To compare countries, the chart rebases each one&apos;s index to the
+          first year: 100 × CPI(year) ÷ CPI(from year). Every line starts at
+          100, and a line at 180 means prices there are 80% higher than they
+          were — whatever the currency.
         </p>
       </ToolSection>
 
@@ -136,8 +148,9 @@ export default function InflationCalculatorPage() {
           <a href={CPI_SOURCE.licenseUrl} className={link} rel="license">
             {CPI_SOURCE.license}
           </a>{" "}
-          licence. Each country&apos;s series runs to the last full year the World
-          Bank has published — {LATEST} for most countries
+          licence. It covers {CPI_COUNTRIES.length} of the world&apos;s largest
+          economies: {namesText}. Each country&apos;s series runs to the last full
+          year the World Bank has published — {LATEST} for most countries
           {BEHIND.length ? `, ${behindText}` : ""} — and starts when today&apos;s
           currency began, where that&apos;s later than the data.
         </p>

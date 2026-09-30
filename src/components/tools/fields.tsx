@@ -9,6 +9,7 @@ import { CURRENCIES } from "@/lib/currencies";
 import { toISODate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 import { useToolCurrency, useToolLocale } from "@/components/tools/tool-state";
+import { sanitizeNumberInput } from "@/lib/tools/format";
 
 /**
  * Form controls for the `/tools/*` calculators.
@@ -112,7 +113,7 @@ export function NumberField({
           spellCheck={false}
           value={value}
           placeholder={placeholder}
-          onChange={(e) => onChange(e.target.value)}
+          onChange={(e) => onChange(sanitizeNumberInput(e.target.value))}
           onFocus={(e) => e.currentTarget.select()}
           aria-invalid={error ? true : undefined}
           aria-describedby={error || hint ? `${id}-msg` : undefined}

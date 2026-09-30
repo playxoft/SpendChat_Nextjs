@@ -2,7 +2,23 @@ import { describe, expect, it } from "vitest";
 import { isSupportedCurrency } from "@/lib/currencies";
 import { COUNTRY_TO_CURRENCY } from "@/lib/geo";
 import { CPI_COUNTRIES, CPI_FETCHED_ON, CPI_SOURCE, findCpiCountry } from "@/lib/tools/data/cpi";
-import { adjustForInflation, clampYear, countryInSentence, cpiFor } from "@/lib/tools/inflation";
+import {
+  adjustForInflation,
+  clampYear,
+  commonLastYear,
+  compareInflation,
+  countryInSentence,
+  coverageNote,
+  cpiFor,
+  currencyTag,
+  defaultCountries,
+  flagEmoji,
+  indexedPaths,
+  MAX_COUNTRIES,
+  parseCountryList,
+  SERVER_COUNTRIES,
+  YEAR_RANGE,
+} from "@/lib/tools/inflation";
 
 const US = findCpiCountry("US")!;
 const IN = findCpiCountry("IN")!;
@@ -29,11 +45,22 @@ describe("CPI data", () => {
     expect(cpiFor(findCpiCountry("DE")!, 2025)).toBe(137.798);
   });
 
-  it("covers the countries the page promises", () => {
-    expect(CPI_COUNTRIES.length).toBeGreaterThanOrEqual(20);
-    for (const code of ["IN", "US", "GB", "DE", "FR", "CA", "AU", "JP", "SG", "AE", "NG", "KE"]) {
-      expect(findCpiCountry(code), code).not.toBeNull();
-    }
+  it("has exactly the 20 countries the page promises", () => {
+    const want = [
+      "US", "IN", "GB", "DE", "FR", "IT", "ES", "CA", "AU", "JP",
+      "CN", "BR", "MX", "KR", "ID", "TR", "SA", "ZA", "SG", "AE",
+    ];
+    expect(CPI_COUNTRIES.map((c) => c.country).sort()).toEqual([...want].sort());
+    expect(MAX_COUNTRIES).toBe(20);
+  });
+
+  it("has the coverage the copy relies on", () => {
+    // The page's FAQ quotes the US to 2024 and everyone else to 2025.
+    expect(US.lastYear).toBe(2024);
+    expect(CPI_COUNTRIES.filter((c) => c.lastYear !== 2025).map((c) => c.country)).toEqual(["US"]);
+    expect(findCpiCountry("TR")!.firstYear).toBe(2005);
+    expect(findCpiCountry("AE")!.firstYear).toBe(2007);
+    expect(YEAR_RANGE).toEqual({ firstYear: 1960, lastYear: 2025 });
   });
 
   it("has a gap-free, positive series for every country, based at 2010 = 100", () => {
@@ -198,7 +225,180 @@ describe("countryInSentence", () => {
   it("adds \"the\" where English needs it", () => {
     expect(countryInSentence(US)).toBe("the United States");
     expect(countryInSentence(findCpiCountry("GB")!)).toBe("the United Kingdom");
-    expect(countryInSentence(findCpiCountry("NL")!)).toBe("the Netherlands");
+    expect(countryInSentence(findCpiCountry("AE")!)).toBe("the United Arab Emirates");
+    expect(countryInSentence(findCpiCountry("TR")!)).toBe("Türkiye");
     expect(countryInSentence(IN)).toBe("India");
+  });
+});
+
+describe("flagEmoji", () => {
+  it("builds the flag from regional-indicator letters", () => {
+    expect(flagEmoji("IN")).toBe("\u{1F1EE}\u{1F1F3}");
+    expect(flagEmoji("us")).toBe("🇺🇸");
+    expect(flagEmoji(" gb ")).toBe("🇬🇧");
+  });
+
+  it("returns nothing for anything that isn't a two-letter code", () => {
+    expect(flagEmoji("")).toBe("");
+    expect(flagEmoji("USA")).toBe("");
+    expect(flagEmoji("1A")).toBe("");
+    expect(flagEmoji("É")).toBe("");
+  });
+});
+
+describe("currencyTag", () => {
+  it("puts the locale's symbol before the code", () => {
+    expect(currencyTag("INR", "en-US")).toBe("₹ INR");
+    expect(currencyTag("USD", "en-US")).toBe("$ USD");
+    expect(currencyTag("GBP", "en-GB")).toBe("£ GBP");
+    expect(currencyTag("EUR", "de-DE")).toBe("€ EUR");
+  });
+
+  it("falls back to the app's symbol where the locale only knows the code", () => {
+    // en-US formats these as "SGD", "ZAR", "TRY"…
+    expect(currencyTag("SGD", "en-US")).toBe("S$ SGD");
+    expect(currencyTag("ZAR", "en-US")).toBe("R ZAR");
+    expect(currencyTag("TRY", "en-US")).toBe("₺ TRY");
+    expect(currencyTag("IDR", "en-US")).toBe("Rp IDR");
+  });
+
+  it("has a symbol for every country's currency, never the code twice", () => {
+    for (const c of CPI_COUNTRIES) {
+      const tag = currencyTag(c.currency, "en-US");
+      expect(tag.endsWith(` ${c.currency}`), c.name).toBe(true);
+      expect(tag.split(c.currency).length - 1, c.name).toBe(1);
+    }
+  });
+});
+
+describe("parseCountryList", () => {
+  it("reads known codes in order, once each, in any case", () => {
+    expect(parseCountryList("IN,US,GB")).toEqual(["IN", "US", "GB"]);
+    expect(parseCountryList(" gb , in ")).toEqual(["GB", "IN"]);
+    expect(parseCountryList("US,US,us")).toEqual(["US"]);
+  });
+
+  it("drops unknown and malformed entries", () => {
+    expect(parseCountryList("")).toEqual([]);
+    expect(parseCountryList(",,,")).toEqual([]);
+    expect(parseCountryList("XX,NG,NL")).toEqual([]);
+    expect(parseCountryList("XX,JP,<script>")).toEqual(["JP"]);
+  });
+
+  it("caps the list at every country we have", () => {
+    const all = CPI_COUNTRIES.map((c) => c.country);
+    const doubled = [...all, ...all].join(",");
+    expect(parseCountryList(doubled)).toEqual(all);
+    expect(parseCountryList(doubled)).toHaveLength(MAX_COUNTRIES);
+  });
+});
+
+describe("defaultCountries", () => {
+  it("is fixed on the server, so the static page never depends on the visitor", () => {
+    expect(defaultCountries(null)).toEqual(["US", "GB", "IN"]);
+    expect(defaultCountries(null)).toEqual([...SERVER_COUNTRIES]);
+  });
+
+  it("leads with the visitor's own country, then the US and the UK", () => {
+    expect(defaultCountries("IN")).toEqual(["IN", "US", "GB"]);
+    expect(defaultCountries("de")).toEqual(["DE", "US", "GB"]);
+  });
+
+  it("doesn't repeat the US or the UK", () => {
+    expect(defaultCountries("US")).toEqual(["US", "GB"]);
+    expect(defaultCountries("GB")).toEqual(["GB", "US"]);
+  });
+
+  it("falls back to the US and the UK for a region we don't cover, or none", () => {
+    expect(defaultCountries("NG")).toEqual(["US", "GB"]);
+    expect(defaultCountries("")).toEqual(["US", "GB"]);
+  });
+});
+
+describe("commonLastYear", () => {
+  it("is the newest year every country has", () => {
+    expect(commonLastYear([US, IN])).toBe(2024);
+    expect(commonLastYear([IN, findCpiCountry("GB")!])).toBe(2025);
+    expect(commonLastYear([])).toBe(YEAR_RANGE.lastYear);
+  });
+});
+
+describe("coverageNote", () => {
+  const BR = findCpiCountry("BR")!;
+  it("says where the data starts or stops, whichever way round the years are", () => {
+    expect(coverageNote(BR, 1990, 2020)).toBe("Data starts in 1995");
+    expect(coverageNote(BR, 2020, 1990)).toBe("Data starts in 1995");
+    expect(coverageNote(US, 2000, 2025)).toBe("Data runs to 2024");
+    expect(coverageNote(US, 2025, 2000)).toBe("Data runs to 2024");
+  });
+
+  it("is null when the series covers both years, including its first and last", () => {
+    expect(coverageNote(BR, 1995, 2025)).toBeNull();
+    expect(coverageNote(US, 1960, 2024)).toBeNull();
+  });
+});
+
+describe("compareInflation", () => {
+  it("gives each country its own answer, in the order given", () => {
+    const rows = compareInflation({
+      amount: 100,
+      fromYear: 2000,
+      toYear: 2024,
+      countries: [IN, US, findCpiCountry("TR")!],
+    });
+    expect(rows.map((r) => r.series.country)).toEqual(["IN", "US", "TR"]);
+    expect(rows[0]!.result!.value).toBeCloseTo((100 * cpiFor(IN, 2024)!) / 54.3383, 9);
+    expect(rows[1]!.result!.value).toBeCloseTo((100 * 143.857) / 78.9707, 9);
+    expect(rows[2]!.result).toBeNull();
+    expect(rows[2]!.note).toBe("Data starts in 2005");
+  });
+
+  it("matches a single-country calculation exactly", () => {
+    const [row] = compareInflation({ amount: 250, fromYear: 2024, toYear: 1990, countries: [IN] });
+    const single = adjustForInflation({ amount: 250, fromYear: 2024, toYear: 1990, series: IN })!;
+    expect(row!.result).toEqual(single);
+    expect(row!.note).toBeNull();
+  });
+
+  it("returns an empty comparison for no countries", () => {
+    expect(compareInflation({ amount: 100, fromYear: 2000, toYear: 2024, countries: [] })).toEqual([]);
+  });
+
+  it("covers every country from 2007 on (the UAE's first year) to 2024", () => {
+    const rows = compareInflation({ amount: 1, fromYear: 2007, toYear: 2024, countries: CPI_COUNTRIES });
+    expect(rows.every((r) => r.result !== null)).toBe(true);
+  });
+});
+
+describe("indexedPaths", () => {
+  it("rebases every country so the from-year is 100", () => {
+    const { codes, rows } = indexedPaths([US, IN], 2000, 2024);
+    expect(codes).toEqual(["US", "IN"]);
+    expect(rows).toHaveLength(25);
+    expect(rows[0]!.year).toBe(2000);
+    expect(rows[0]!.US).toBeCloseTo(100, 12);
+    expect(rows[0]!.IN).toBeCloseTo(100, 12);
+    // The end of each line is 100 × the ratio: the single-country answer for 100.
+    expect(rows[24]!.US).toBeCloseTo(adjustForInflation({ amount: 100, fromYear: 2000, toYear: 2024, series: US })!.value, 9);
+  });
+
+  it("puts the 100 at the from-year when the years run backwards", () => {
+    const { rows } = indexedPaths([US], 2024, 2000);
+    expect(rows[0]!.year).toBe(2000);
+    expect(rows.at(-1)!.year).toBe(2024);
+    expect(rows.at(-1)!.US).toBeCloseTo(100, 12);
+    expect(rows[0]!.US).toBeCloseTo((78.9707 / 143.857) * 100, 9);
+  });
+
+  it("leaves out countries without figures for the whole span", () => {
+    const { codes, rows } = indexedPaths([findCpiCountry("TR")!, US, findCpiCountry("GB")!], 2000, 2025);
+    expect(codes).toEqual(["GB"]);
+    expect(rows[0]).not.toHaveProperty("TR");
+    expect(rows[0]).not.toHaveProperty("US");
+  });
+
+  it("is a single row for a single year", () => {
+    const { rows } = indexedPaths([US], 2010, 2010);
+    expect(rows).toEqual([{ year: 2010, US: 100 }]);
   });
 });
