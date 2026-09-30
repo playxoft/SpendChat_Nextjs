@@ -25,7 +25,7 @@ const faqs = [
   },
   {
     q: "Can I turn a quote into an invoice?",
-    a: "Yes. Press Convert to invoice and the client, items, discount and tax are copied into the invoice generator with the next invoice number and today's date. The quote itself stays here, unchanged.",
+    a: "Yes. Press Invoice and the client, items, discount and tax are copied into the invoice generator with the next invoice number and today's date. The quote itself stays here, unchanged.",
   },
   {
     q: "What's the difference between a quotation and an estimate?",
@@ -33,7 +33,7 @@ const faqs = [
   },
   {
     q: "Is my data stored anywhere?",
-    a: "Only in your browser. The draft is saved in this device's local storage so it's there when you come back; nothing is sent to SpendChat or anyone else. Export JSON makes a backup you can import elsewhere, and Clear all deletes it.",
+    a: "Only in your browser. The draft is saved in this device's local storage so it's there when you come back; nothing is sent to SpendChat. Download saves a copy you can open elsewhere with Open, and Reset deletes it.",
   },
   {
     q: "How do I save the quote as a PDF?",
@@ -65,7 +65,7 @@ export default function QuotationGeneratorPage() {
             price. Press Enter in the price box to start the next line.
           </li>
           <li>Add a discount or tax if they apply, then your terms: deposit, schedule, what&apos;s not included.</li>
-          <li>Press Print / Save as PDF and send it. When it&apos;s accepted, press Convert to invoice.</li>
+          <li>Press Print / Save as PDF and send it. When it&apos;s accepted, press Invoice to turn it into an invoice.</li>
         </ol>
       </ToolSection>
 

@@ -60,8 +60,14 @@ export async function decodeShareToken(token: string): Promise<string | null> {
   }
 }
 
-/** The token in a `#share=…` fragment, or null when the fragment isn't a share link. */
+/**
+ * The token in a `#share=…` fragment, or null when the fragment isn't a share
+ * link. Read as fragment parameters, since the tools keep other state (the
+ * currency) there too.
+ */
 export function shareTokenFromHash(hash: string): string | null {
-  const prefix = `#${SHARE_PARAM}=`;
-  return hash.startsWith(prefix) ? hash.slice(prefix.length) : null;
+  return new URLSearchParams(hash.replace(/^#/, "")).get(SHARE_PARAM) || null;
 }
+
+/** Longest token a share link may carry — the decoder refuses anything longer. */
+export const MAX_SHARE_TOKEN = MAX_TOKEN;

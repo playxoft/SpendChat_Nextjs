@@ -150,10 +150,10 @@ export function CardPayoffTool() {
           </div>
 
           <MoreOptions summary="your card's minimum payment" bodyClassName="space-y-4">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <NumberField
-                  label="Minimum payment"
-                  suffix="% of balance"
+                  label="Minimum payment (% of balance)"
+                  suffix="%"
                   value={s.mp}
                   onChange={(v) => set({ mp: v })}
                   error={pctError}
@@ -260,7 +260,7 @@ export function CardPayoffTool() {
         <ToolPanel>
           <details className="group">
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-2 rounded-lg text-sm font-medium outline-none focus-visible:ring-3 focus-visible:ring-ring/40 [&::-webkit-details-marker]:hidden">
-              <h2 className="text-base font-medium">Year-by-year balance</h2>
+              <span className="text-base font-medium">Year-by-year balance</span>
               <ChevronDown
                 aria-hidden
                 className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180"
@@ -364,9 +364,9 @@ function Comparison({
 
   return (
     <section aria-labelledby="payoff-compare" className="space-y-3">
-      <h3 id="payoff-compare" className="text-sm font-medium">
+      <h2 id="payoff-compare" className="text-sm font-medium">
         Minimum payments vs your payment
-      </h3>
+      </h2>
       <div className="grid grid-cols-2 gap-3">
         <PlanCard
           title="Minimum only"

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { TAX_RATES, TAX_RATES_VERIFIED_ON, findTaxRate } from "@/lib/tools/data/tax-rates";
-import { MAX_MINOR, calculateTax, splitGst, toMinor } from "@/lib/tools/tax";
+import { MAX_MINOR, calculateIntraStateGst, calculateTax, toMinor } from "@/lib/tools/tax";
 
 describe("toMinor", () => {
   it("scales by the currency's decimals", () => {
@@ -120,21 +120,25 @@ describe("calculateTax — invalid input", () => {
   });
 });
 
-describe("splitGst", () => {
-  it("halves the GST into CGST and SGST", () => {
-    expect(splitGst(1800)).toEqual({ cgst: 900, sgst: 900 });
+describe("calculateIntraStateGst", () => {
+  it("charges CGST and SGST at half the rate each, always equal", () => {
+    expect(calculateIntraStateGst(10000, 18, "add")).toEqual({ net: 10000, tax: 1800, gross: 11800, cgst: 900, sgst: 900 });
   });
 
-  it("gives an odd paisa to CGST so the halves add up", () => {
-    expect(splitGst(1801)).toEqual({ cgst: 901, sgst: 900 });
-    expect(splitGst(1)).toEqual({ cgst: 1, sgst: 0 });
-    expect(splitGst(0)).toEqual({ cgst: 0, sgst: 0 });
+  it("rounds each half on its own rather than splitting an odd paisa", () => {
+    // ₹10.05 at 18%: each 9% half is 90.45 paise → 90, so GST is 180, not 181.
+    expect(calculateIntraStateGst(1005, 18, "add")).toEqual({ net: 1005, tax: 180, gross: 1185, cgst: 90, sgst: 90 });
   });
 
-  it("mirrors negative amounts", () => {
-    const { cgst, sgst } = splitGst(-1801);
-    expect(cgst + sgst).toBe(-1801);
-    expect(Math.abs(cgst - sgst)).toBe(1);
+  it("keeps the entered price when removing GST, and adds up", () => {
+    const r = calculateIntraStateGst(11800, 18, "remove")!;
+    expect(r.gross).toBe(11800);
+    expect(r.cgst).toBe(r.sgst);
+    expect(r.net + r.cgst + r.sgst).toBe(11800);
+  });
+
+  it("returns null where the plain calculation does", () => {
+    expect(calculateIntraStateGst(100, 150, "add")).toBeNull();
   });
 });
 

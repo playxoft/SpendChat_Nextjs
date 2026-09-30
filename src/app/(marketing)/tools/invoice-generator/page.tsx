@@ -29,7 +29,7 @@ const faqs = [
   },
   {
     q: "Is my data stored anywhere?",
-    a: "Only in your browser. The draft is saved in this device's local storage so it's still there when you come back; nothing is sent to SpendChat or anyone else. Export JSON makes a backup you can import on another device, and Clear all deletes it.",
+    a: "Only in your browser. The draft is saved in this device's local storage so it's still there when you come back; nothing is sent to SpendChat. Download saves a copy you can open on another device with Open, and Reset deletes it.",
   },
   {
     q: "Can I add GST or VAT?",
@@ -51,7 +51,7 @@ export default function InvoiceGeneratorPage() {
       intro={
         <p>
           Fill in the form and your invoice builds itself alongside it, ready to print or save as
-          a PDF. No signup, and nothing you type leaves your browser.
+          a PDF. No signup, and what you type stays in your browser.
         </p>
       }
       tool={<BusinessDocTool kind="invoice" />}

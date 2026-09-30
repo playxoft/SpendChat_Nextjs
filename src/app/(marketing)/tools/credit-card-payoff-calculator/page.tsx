@@ -109,7 +109,7 @@ export default function CreditCardPayoffCalculatorPage() {
             <strong className="font-medium text-foreground">
               Keep paying 142.58 every month:
             </strong>{" "}
-            4 years 9 months and 3,082.01 in interest. Same first payment, less than half the
+            4 years 9 months and 3,082.15 in interest. Same first payment, less than half the
             interest.
           </li>
           <li>

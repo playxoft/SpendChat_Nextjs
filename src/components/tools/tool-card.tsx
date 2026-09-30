@@ -31,7 +31,7 @@ export function ToolCard({
       data-track-event="nav_link_click"
       data-track-params={JSON.stringify({ location, label: tool.slug })}
       style={{ animationDelay: `${index * 50}ms` }}
-      className="group flex flex-col rounded-2xl border bg-card p-5 transition-all duration-300 hover:border-foreground/25 hover:shadow-lg motion-safe:animate-rise motion-safe:hover:-translate-y-1"
+      className="group flex flex-col rounded-2xl border bg-card p-5 outline-none transition-all duration-300 hover:border-foreground/25 hover:shadow-lg focus-visible:ring-2 focus-visible:ring-foreground/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background motion-safe:animate-rise motion-safe:hover:-translate-y-1"
     >
       <Heading className="text-lg font-semibold tracking-tight">{tool.label}</Heading>
       <p className="mt-1 text-sm text-muted-foreground">{tool.blurb}</p>

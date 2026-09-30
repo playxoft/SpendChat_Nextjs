@@ -53,7 +53,7 @@ const LABELS: GrowthLabels = { contributed: "Contributed", interest: "Interest",
 const RATE_RANGE = "Use a rate between −50% and 100%.";
 
 function isCompounding(v: string): v is Compounding {
-  return v in PERIODS_PER_YEAR;
+  return Object.hasOwn(PERIODS_PER_YEAR, v);
 }
 
 export function CompoundTool() {

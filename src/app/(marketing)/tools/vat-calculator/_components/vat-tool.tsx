@@ -17,7 +17,7 @@ import { currencyForCountry, regionFromLocale } from "@/lib/geo";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { currencySymbol, formatNumber, formatPercent, parseNumber } from "@/lib/tools/format";
-import { calculateTax, splitGst, toMinor, type TaxMode } from "@/lib/tools/tax";
+import { calculateIntraStateGst, calculateTax, toMinor, type TaxMode } from "@/lib/tools/tax";
 import { TAX_RATES, findTaxRate, type CountryTaxRate } from "@/lib/tools/data/tax-rates";
 
 /**
@@ -126,10 +126,10 @@ export function VatTool() {
             ? "That amount is too large to calculate exactly."
             : null;
 
-  const result =
-    minor !== null && rate !== null && !amountError && !rateError
-      ? calculateTax(minor, rate, mode)
-      : null;
+  const ready = minor !== null && rate !== null && !amountError && !rateError;
+  // India within one state: CGST and SGST are each charged at half the rate.
+  const intra = ready && isIndia && !interState ? calculateIntraStateGst(minor, rate, mode) : null;
+  const result = intra ?? (ready ? calculateTax(minor, rate, mode) : null);
 
   /**
    * Any edit pins the auto-detected country into the URL, so a copied link
@@ -184,7 +184,7 @@ export function VatTool() {
     const { net, tax: taxMinor, gross } = result;
     const factor = formatNumber(1 + rate / 100, locale, 6);
     const half = pc(rate / 2);
-    const split = splitGst(taxMinor);
+    const split = intra ?? { cgst: 0, sgst: 0 };
 
     const rows: ResultRow[] = [
       { label: `Net (before ${tax})`, value: money(net), strong: mode === "remove" },

@@ -81,11 +81,25 @@ export function calculateTax(amountMinor: number, ratePercent: number, mode: Tax
 }
 
 /**
- * India's intra-state GST, split into its central (CGST) and state (SGST)
- * halves. An odd paisa goes to CGST, so the two always add up to the GST
- * shown rather than each being rounded on its own and drifting by one.
+ * India's intra-state GST: CGST and SGST are each charged at half the rate and
+ * rounded on their own — the way GST invoices show them — so the two halves are
+ * always equal and the GST is exactly twice one half. (Splitting a GST figure
+ * rounded at the full rate would hand an odd paisa to one side.) Adding tax,
+ * the total follows the halves; removing it, the price stays as entered and the
+ * net absorbs the rounding.
  */
-export function splitGst(taxMinor: number): { cgst: number; sgst: number } {
-  const sgst = Math.trunc(taxMinor / 2);
-  return { cgst: taxMinor - sgst, sgst };
+export function calculateIntraStateGst(
+  amountMinor: number,
+  ratePercent: number,
+  mode: TaxMode,
+): (TaxBreakdown & { cgst: number; sgst: number }) | null {
+  const full = calculateTax(amountMinor, ratePercent, mode);
+  if (!full) return null;
+  const halfOnNet = calculateTax(full.net, ratePercent / 2, "add");
+  if (!halfOnNet) return null;
+  const half = halfOnNet.tax;
+  const tax = half * 2;
+  return mode === "add"
+    ? { net: full.net, tax, gross: full.net + tax, cgst: half, sgst: half }
+    : { net: amountMinor - tax, tax, gross: amountMinor, cgst: half, sgst: half };
 }

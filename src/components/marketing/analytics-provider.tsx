@@ -66,7 +66,8 @@ export function AnalyticsProvider() {
     }
     trackEvent("page_view", {
       page_path: pathname,
-      page_location: window.location.href,
+      // Without the #fragment: the free tools keep what people type there.
+      page_location: `${window.location.origin}${window.location.pathname}${window.location.search}`,
       page_title: document.title,
     });
   }, [pathname]);
@@ -105,7 +106,7 @@ export function AnalyticsProvider() {
               window.dataLayer = window.dataLayer || [];
               function gtag(){dataLayer.push(arguments);}
               gtag('js', new Date());
-              gtag('config', '${GA_MEASUREMENT_ID}');
+              gtag('config', '${GA_MEASUREMENT_ID}', { page_location: location.href.split('#')[0] });
             `}
           </Script>
         </>

@@ -99,7 +99,7 @@ export const TOOLS: Tool[] = [
     title: "GST & VAT Calculator — Add or Remove Tax",
     h1: "GST & VAT calculator",
     description:
-      "Add or remove GST or VAT — inclusive, exclusive and reverse GST — with the CGST/SGST/IGST split and 75 countries' rates preset. Free tax calculator, no sign-up.",
+      "Add or remove GST or VAT — inclusive, exclusive and reverse GST — with the CGST/SGST/IGST split and 70+ countries' rates preset. Free calculator, no sign-up.",
     blurb: "Add or remove tax, with country rates preset.",
     action: "Calculate GST / VAT",
     group: "everyday",

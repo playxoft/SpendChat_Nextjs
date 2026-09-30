@@ -74,6 +74,11 @@ export function FitPaper({ children }: { children: ReactNode }) {
   const inner = useRef<HTMLDivElement>(null);
   const [state, setState] = useState<{ geo: Geometry | null; view: View }>({ geo: null, view: FITTED });
   const drag = useRef<{ id: number; startX: number; startY: number; x: number; y: number } | null>(null);
+  // The wheel listener is attached once; it reads the current view from here.
+  const latest = useRef(state);
+  useEffect(() => {
+    latest.current = state;
+  });
   const [dragging, setDragging] = useState(false);
 
   useEffect(() => {
@@ -105,15 +110,21 @@ export function FitPaper({ children }: { children: ReactNode }) {
     observer.observe(box);
     observer.observe(sheet);
 
-    // Wheel zoom needs a non-passive listener to stop the page scrolling.
+    // Wheel zoom needs a non-passive listener to stop the page scrolling — but
+    // only when the wheel actually zooms. Scrolling down on the whole-page view
+    // (or past the zoom limits) is left to the page, so the preview never traps
+    // the scroll of the form beside it.
     const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
+      const now = latest.current;
+      if (!now.geo) return;
       const rect = box.getBoundingClientRect();
       // A trackpad pinch arrives as a ctrl+wheel with small deltas.
       const factor = Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015));
-      setState((s) =>
-        s.geo ? { ...s, view: zoomAt(s.geo, s.view, factor, e.clientX - rect.left, e.clientY - rect.top) } : s,
-      );
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      if (zoomAt(now.geo, now.view, factor, cx, cy).zoom === now.view.zoom) return;
+      e.preventDefault();
+      setState((s) => (s.geo ? { ...s, view: zoomAt(s.geo, s.view, factor, cx, cy) } : s));
     };
     box.addEventListener("wheel", onWheel, { passive: false });
     return () => {
@@ -135,8 +146,9 @@ export function FitPaper({ children }: { children: ReactNode }) {
     <div
       ref={outer}
       className={cn(
-        "relative h-full min-h-0 w-full touch-none overflow-hidden select-none",
-        zoomed ? (dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in",
+        "relative h-full min-h-0 w-full overflow-hidden select-none",
+        // Touch scrolls the page as usual until the sheet is zoomed; then a drag pans it.
+        zoomed ? cn("touch-none", dragging ? "cursor-grabbing" : "cursor-grab") : "cursor-zoom-in",
       )}
       onPointerDown={(e) => {
         if (e.button !== 0 || !zoomed || (e.target as HTMLElement).closest("button")) return;

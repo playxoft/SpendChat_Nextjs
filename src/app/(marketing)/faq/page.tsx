@@ -29,7 +29,7 @@ export default function FaqPage() {
         </p>
       </div>
 
-      <FaqSection faqs={faqs} className="mt-12" />
+      <FaqSection faqs={faqs} heading="All questions" hideHeading className="mt-12" />
 
       <div className="mt-12 text-center">
         <p className="text-muted-foreground">

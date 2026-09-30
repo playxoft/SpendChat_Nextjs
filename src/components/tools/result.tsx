@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode, type RefObject } from "react";
 import Link from "next/link";
 import { ArrowRight, Copy, Link2, Printer, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
@@ -12,9 +12,9 @@ import { cn } from "@/lib/utils";
  * The output half of a `/tools/*` calculator: the answer, the breakdown, and
  * what you can do with it (copy, share, reset).
  *
- * The answer is the biggest thing on the screen and sits in an `aria-live`
- * region, so a screen reader announces the new result as the visitor types —
- * there is no "Calculate" button to press, anywhere.
+ * The answer is the biggest thing on the screen and is announced to screen
+ * readers as it changes (`useAnnounce`) — there is no "Calculate" button to
+ * press, anywhere.
  */
 
 /** Inputs left, result right on desktop; stacked (inputs first) on a phone. */
@@ -57,6 +57,46 @@ export function ToolPanel({
   );
 }
 
+/**
+ * Screen-reader announcements for results. A live region only announces
+ * changes to itself, and each result block mounts and unmounts as inputs go
+ * from valid to empty and back — a fresh region arrives already full and is
+ * usually read out by nobody. So every result speaks through one region that
+ * lives on the page for good, debounced so typing "1500" announces once.
+ */
+let announcer: HTMLElement | null = null;
+let announceTimer: ReturnType<typeof setTimeout> | undefined;
+let lastAnnounced = "";
+
+function ensureAnnouncer(): HTMLElement {
+  if (announcer && document.body.contains(announcer)) return announcer;
+  announcer = document.createElement("div");
+  announcer.setAttribute("role", "status");
+  announcer.className = "sr-only";
+  document.body.appendChild(announcer);
+  return announcer;
+}
+
+/** Announce `ref`'s text whenever it changes — but not on first render, which is the page loading. */
+function useAnnounce(ref: RefObject<HTMLElement | null>) {
+  const first = useRef(true);
+  useEffect(() => {
+    const text = ref.current?.textContent?.replace(/\s+/g, " ").trim() ?? "";
+    const region = ensureAnnouncer();
+    if (first.current) {
+      first.current = false;
+      lastAnnounced = text;
+      return;
+    }
+    if (!text || text === lastAnnounced) return;
+    lastAnnounced = text;
+    clearTimeout(announceTimer);
+    announceTimer = setTimeout(() => {
+      region.textContent = text;
+    }, 700);
+  });
+}
+
 /** The one number the visitor came for. */
 export function ResultHero({
   label,
@@ -70,8 +110,10 @@ export function ResultHero({
   sub?: ReactNode;
   className?: string;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useAnnounce(ref);
   return (
-    <div className={cn("min-w-0", className)} aria-live="polite" aria-atomic="true">
+    <div ref={ref} className={cn("min-w-0", className)}>
       <p className="text-sm text-muted-foreground">{label}</p>
       <p className="mt-1 text-3xl font-semibold tracking-tight tabular-nums break-words sm:text-4xl">
         {value}
@@ -108,8 +150,10 @@ export function ResultRows({ rows, className }: { rows: ResultRow[]; className?:
 
 /** A friendly nudge shown in place of a result while an input is missing or invalid. */
 export function ResultEmpty({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  useAnnounce(ref);
   return (
-    <p className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground" aria-live="polite">
+    <p ref={ref} className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
       {children}
     </p>
   );

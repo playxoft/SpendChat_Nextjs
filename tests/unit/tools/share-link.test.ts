@@ -25,6 +25,7 @@ describe("share links", () => {
 
   it("reads the token only from a #share= fragment", () => {
     expect(shareTokenFromHash("#share=abc")).toBe("abc");
+    expect(shareTokenFromHash("#currency=INR&share=abc")).toBe("abc");
     expect(shareTokenFromHash("#faq")).toBeNull();
     expect(shareTokenFromHash("")).toBeNull();
   });

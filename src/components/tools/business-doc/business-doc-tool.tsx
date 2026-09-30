@@ -16,14 +16,14 @@ import {
   TextField,
 } from "@/components/tools/fields";
 import { ResultRows, ToolPanel, type ResultRow } from "@/components/tools/result";
-import { useToolCurrency, useToolLocale } from "@/components/tools/tool-state";
+import { getToolCurrency, setToolCurrency, useToolCurrency, useToolLocale } from "@/components/tools/tool-state";
 import { useToday } from "@/components/tools/use-today";
 import { regionFromLocale } from "@/lib/geo";
 import { formatMoney } from "@/lib/money";
 import { toolPath } from "@/lib/tools";
 import { findTaxRate } from "@/lib/tools/data/tax-rates";
 import { currencySymbol, formatNumber } from "@/lib/tools/format";
-import { SHARE_PARAM, decodeShareToken, encodeShareToken, shareTokenFromHash } from "@/lib/tools/share-link";
+import { MAX_SHARE_TOKEN, SHARE_PARAM, decodeShareToken, encodeShareToken, shareTokenFromHash } from "@/lib/tools/share-link";
 import {
   DEFAULT_DUE_DAYS,
   LIMITS,
@@ -64,7 +64,7 @@ import { LineItems } from "./line-items";
  */
 const PRINT_CSS = `
 @media print {
-  @page { size: A4; margin: 14mm; }
+  @page { margin: 14mm; }
   html, body { background: #fff !important; }
   body * { visibility: hidden !important; }
   .bd-paper, .bd-paper * { visibility: visible !important; }
@@ -145,11 +145,39 @@ function useRegion(): string | null {
  * printed document — not a lookalike — so what you see is what the client
  * gets.
  */
+/**
+ * Swap in a whole document (and, from a file or link, its currency), with an
+ * Undo that puts both back. Always offered: "is there anything worth undoing"
+ * is harder to judge than it looks (seller details, logo and bank notes all
+ * live in the draft), and one stray click shouldn't cost them.
+ */
+function swapDoc(
+  kind: DocKind,
+  next: BusinessDoc,
+  message: string,
+  { currency, description }: { currency?: string | null; description?: string } = {},
+) {
+  const previous = getDraft(kind);
+  const previousCurrency = getToolCurrency();
+  if (currency) setToolCurrency(currency);
+  setDraft(kind, next, { immediate: true });
+  toast.success(message, {
+    description,
+    action: {
+      label: "Undo",
+      onClick: () => {
+        setDraft(kind, previous, { immediate: true });
+        setToolCurrency(previousCurrency);
+      },
+    },
+  });
+}
+
 export function BusinessDocTool({ kind }: { kind: DocKind }) {
   const doc = useDraft(kind);
   const today = useToday();
   const locale = useToolLocale();
-  const [currency, setCurrency] = useToolCurrency();
+  const [currency] = useToolCurrency();
   const region = useRegion();
   const router = useRouter();
   const [view, setView] = useState<"edit" | "preview">("edit");
@@ -159,28 +187,48 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
   const logoInput = useRef<HTMLInputElement>(null);
   const importInput = useRef<HTMLInputElement>(null);
 
-  // A share link (`#share=…`) opens as the visitor's own copy, with an Undo.
+  // A share link (`#share=…`) opens as the visitor's own copy, with an Undo —
+  // on load, and when one is pasted over this page (a fragment-only
+  // navigation, which doesn't remount anything).
   useEffect(() => {
-    const token = shareTokenFromHash(window.location.hash);
-    if (!token) return;
-    window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
-    void decodeShareToken(token).then((text) => {
-      const parsed = text ? parseDocFile(text, kind) : null;
-      if (!parsed) {
-        toast.error("That share link is incomplete or damaged — ask for it to be sent again.");
+    const openShared = () => {
+      const token = shareTokenFromHash(window.location.hash);
+      if (!token) return;
+      window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}`);
+      void decodeShareToken(token).then((text) => {
+        const parsed = text ? parseDocFile(text, kind, navigator.language || "en-US") : null;
+        if (!parsed) {
+          toast.error("That share link is incomplete or damaged — ask for it to be sent again.");
+          return;
+        }
+        swapDoc(kind, parsed.doc, `Opened the shared ${docLabels(kind, parsed.doc.quoteTitle).noun} ${parsed.doc.number}.`, {
+          currency: parsed.currency,
+          description: "It's your copy now — edits stay in this browser.",
+        });
+      });
+    };
+    openShared();
+    window.addEventListener("hashchange", openShared);
+    return () => window.removeEventListener("hashchange", openShared);
+  }, [kind]);
+
+  // The draft remembers its currency: another tool changing the site-wide
+  // currency (picking a country on the VAT calculator, say) must not turn a
+  // saved ₹ invoice into £. On arrival the draft's currency wins; after that,
+  // changing the currency here is saved into the draft.
+  const currencyRestored = useRef(false);
+  useEffect(() => {
+    const draft = getDraft(kind);
+    const live = getToolCurrency();
+    if (!currencyRestored.current) {
+      currencyRestored.current = true;
+      if (draft.currency && draft.currency !== live) {
+        setToolCurrency(draft.currency);
         return;
       }
-      if (parsed.currency) setCurrency(parsed.currency);
-      const previous = getDraft(kind);
-      setDraft(kind, parsed.doc, { immediate: true });
-      toast.success(`Opened the shared ${docLabels(kind, parsed.doc.quoteTitle).noun} ${parsed.doc.number}.`, {
-        description: "It's your copy now — edits stay in this browser.",
-        action: hasContent(previous)
-          ? { label: "Undo", onClick: () => setDraft(kind, previous, { immediate: true }) }
-          : undefined,
-      });
-    });
-  }, [kind, setCurrency]);
+    }
+    if (draft.currency !== live) setDraft(kind, { ...draft, currency: live });
+  }, [kind, currency]);
 
   const labels = docLabels(kind, doc.quoteTitle);
   const evaluation = evaluateDoc(doc, currency, locale);
@@ -198,15 +246,6 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
   };
   const setFrom = (patch: Partial<Seller>) => update({ from: { ...getDraft(kind).from, ...patch } });
   const setTo = (patch: Partial<Buyer>) => update({ to: { ...getDraft(kind).to, ...patch } });
-
-  /** Swap in a whole document, with an Undo on the toast. */
-  const replaceWithUndo = (next: BusinessDoc, message: string) => {
-    const previous = getDraft(kind);
-    setDraft(kind, next, { immediate: true });
-    toast.success(message, {
-      action: { label: "Undo", onClick: () => setDraft(kind, previous, { immediate: true }) },
-    });
-  };
 
   const showView = (value: string) => {
     setView(value === "preview" ? "preview" : "edit");
@@ -230,7 +269,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
 
   const startNew = () => {
     const next = startNextDoc(getDraft(kind));
-    replaceWithUndo(next, `Started ${labels.noun} ${next.number}. Your details are kept.`);
+    swapDoc(kind, next, `Started ${labels.noun} ${next.number}. Your details are kept.`);
     setView("edit");
   };
 
@@ -253,15 +292,13 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
     router.push(toolPath("invoice-generator"));
     toast.success(`${labels.title} ${quote.number} is now invoice ${number}.`, {
       description: replacing ? `It replaced the invoice draft you had open (${existing.number}).` : undefined,
-      action: replacing
-        ? { label: "Undo", onClick: () => setDraft("invoice", existing, { immediate: true }) }
-        : undefined,
+      action: { label: "Undo", onClick: () => setDraft("invoice", existing, { immediate: true }) },
     });
   };
 
   const exportJson = () => {
     const current = getDraft(kind);
-    const url = URL.createObjectURL(new Blob([exportDoc(current, currency)], { type: "application/json" }));
+    const url = URL.createObjectURL(new Blob([exportDoc(current, currency, locale)], { type: "application/json" }));
     const a = document.createElement("a");
     a.href = url;
     a.download = docFileName(current);
@@ -278,7 +315,17 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
    */
   const share = async () => {
     const current = { ...getDraft(kind), logo: null };
-    const token = await encodeShareToken(exportDoc(current, currency));
+    let token: string;
+    try {
+      token = await encodeShareToken(exportDoc(current, currency, locale));
+    } catch {
+      toast.error("This browser can't make share links — use Download to send a copy instead.");
+      return;
+    }
+    if (token.length > MAX_SHARE_TOKEN) {
+      toast.error(`This ${labels.noun} is too long to fit in a link — use Download to send a copy instead.`);
+      return;
+    }
     const url = `${window.location.origin}${window.location.pathname}#${SHARE_PARAM}=${token}`;
     const title = `${labels.title} ${current.number}`.trim();
     if (navigator.share) {
@@ -307,7 +354,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
     }
     let parsed: ReturnType<typeof parseDocFile> = null;
     try {
-      parsed = parseDocFile(await file.text(), kind);
+      parsed = parseDocFile(await file.text(), kind, locale);
     } catch {
       parsed = null;
     }
@@ -315,8 +362,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
       toast.error("That file isn't an invoice or quotation exported from SpendChat's generator.");
       return;
     }
-    if (parsed.currency) setCurrency(parsed.currency);
-    replaceWithUndo(parsed.doc, `Opened ${parsed.doc.number || labels.noun}.`);
+    swapDoc(kind, parsed.doc, `Opened ${parsed.doc.number || labels.noun}.`, { currency: parsed.currency });
   };
 
   const readLogo = (file: File | undefined) => {
@@ -750,6 +796,8 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
             <DialogContent
               showCloseButton={false}
               aria-describedby={undefined}
+              // Session-replay tools must not record the document's contents.
+              data-clarity-mask="true"
               className="top-0 left-0 flex h-svh w-screen max-w-none translate-x-0 translate-y-0 flex-col gap-0 rounded-none bg-background p-0 ring-0 sm:max-w-none"
             >
               <header className="flex h-14 shrink-0 items-center gap-2 border-b px-3 sm:px-5">

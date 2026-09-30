@@ -140,7 +140,14 @@ export function Calendar({
         </button>
         <button
           type="button"
-          aria-label={mode === "months" ? "Choose a year" : mode === "years" ? "Back to days" : "Choose a month"}
+          // The spoken name starts with what's shown, then says what a click does.
+          aria-label={`${
+            mode === "days"
+              ? format(view, "MMMM yyyy")
+              : mode === "months"
+                ? format(view, "yyyy")
+                : `${decadeStart(view)} – ${decadeStart(view) + 11}`
+          }, ${mode === "months" ? "choose a year" : mode === "years" ? "back to days" : "choose a month"}`}
           // days → months → years → back to days. Jumping to a year is what
           // makes a date decades away (a birthday) a few clicks, not dozens.
           onClick={() => setMode((m) => (m === "days" ? "months" : m === "months" ? "years" : "days"))}

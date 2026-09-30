@@ -24,12 +24,15 @@ import type { Faq } from "@/lib/seo";
 export function FaqSection({
   faqs,
   heading,
+  hideHeading,
   className,
   answerClassName,
 }: {
   faqs: Faq[];
-  /** The section's `<h2>`. Leave it out where the page's own `<h1>` already names the list (`/faq`). */
-  heading?: string;
+  /** The section's `<h2>` — always rendered, since each question is an `<h3>` under it. */
+  heading: string;
+  /** Keep the `<h2>` for screen readers only, where the page's `<h1>` already names the list (`/faq`). */
+  hideHeading?: boolean;
   className?: string;
   /** Extra classes for each answer — e.g. a larger size on a page where the answers carry the detail. */
   answerClassName?: string;
@@ -40,8 +43,8 @@ export function FaqSection({
     // One FAQ look across the site: a tinted panel that sets the questions
     // apart from the prose around them, with the same accordion inside.
     <section className={cn("mt-16 rounded-3xl border bg-muted/40 px-5 py-8 sm:px-8 sm:py-10", className)}>
-      {heading && <h2 className="text-2xl font-semibold tracking-tight">{heading}</h2>}
-      <Accordion type="multiple" className={cn("border-t", heading && "mt-6")}>
+      <h2 className={cn("text-2xl font-semibold tracking-tight", hideHeading && "sr-only")}>{heading}</h2>
+      <Accordion type="multiple" className={cn("border-t", !hideHeading && "mt-6")}>
         {faqs.map((faq, i) => (
           // Keyed by position, not by the question text. Two entries can
           // legitimately ask the same thing under different headings, and a

@@ -90,13 +90,17 @@ export function ToolPage({
         </div>
       </header>
 
-      <div className="mt-8">{tool}</div>
+      {/* Masked from session replay (Clarity): what people type into a tool
+          — and the invoice it builds — never goes into a recording. */}
+      <div className="mt-8" data-clarity-mask="true">
+        {tool}
+      </div>
 
       <ToolCta slug={slug} message={cta} className="mt-4" />
 
       <p className="mt-4 text-xs text-muted-foreground">
-        Runs entirely in your browser — nothing you type is sent anywhere. Results
-        are estimates for planning, not financial advice.
+        Runs in your browser — what you type isn&apos;t sent to our servers or kept
+        in analytics. Results are estimates for planning, not financial advice.
       </p>
 
       <div className="mx-auto mt-16 max-w-3xl space-y-12">{children}</div>

@@ -1,5 +1,5 @@
 import { getCurrency, isSupportedCurrency } from "@/lib/currencies";
-import { parseAmountInput } from "@/lib/parse-amount";
+import { formatAmountInput, parseAmountInput } from "@/lib/parse-amount";
 
 /**
  * Parsing and display helpers shared by every `/tools/*` calculator.
@@ -29,6 +29,28 @@ export function parseNumber(raw: string, locale = "en-US"): number | null {
   if (!trimmed || trimmed.length > MAX_INPUT) return null;
   const n = parseAmountInput(trimmed, locale) ?? (locale === "en-US" ? null : parseAmountInput(trimmed, "en-US"));
   return n === null || !Number.isFinite(n) ? null : n;
+}
+
+/** Text that is only a number as typed in some locale: digits, separators, a sign. */
+const NUMBER_LIKE = /^[+\-−]?[\d\s.,'’\u00a0\u202f]*\d[\d\s.,'’\u00a0\u202f]*$/;
+/** The form numbers travel in, in links and files: plain digits with a "." decimal. */
+const CANONICAL = /^-?\d+(\.\d+)?$/;
+
+/**
+ * A typed number, written the way it travels between people: "1.500" typed in
+ * Germany becomes "1500", so it can't open as 1.5 in the UK. Anything that
+ * isn't a plain number (a date, a mode, a label) is returned unchanged.
+ */
+export function toCanonicalNumber(raw: string, locale: string): string {
+  const text = raw.trim();
+  if (!NUMBER_LIKE.test(text)) return raw;
+  const n = parseAmountInput(text, locale);
+  return n === null || !Number.isFinite(n) ? raw : String(n);
+}
+
+/** The reverse: a canonical number shown in the reader's own format ("1500,5" in Germany). */
+export function fromCanonicalNumber(raw: string, locale: string): string {
+  return CANONICAL.test(raw) ? formatAmountInput(Number(raw), locale, 10) : raw;
 }
 
 /** Placeholder for a result that can't be computed yet. */

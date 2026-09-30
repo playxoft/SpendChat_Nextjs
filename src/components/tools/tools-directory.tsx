@@ -96,8 +96,16 @@ export function ToolsDirectory({ groups }: { groups: ToolGroupWithItems[] }) {
         )}
       </div>
 
+      {/* One live region that's always there, so every change is announced —
+          the match count, not the whole grid of cards. */}
+      <p role="status" className="sr-only">
+        {results
+          ? `${results.length} ${results.length === 1 ? "tool matches" : "tools match"} ${trimmed}.`
+          : ""}
+      </p>
+
       {results ? (
-        <section className="mt-8" aria-live="polite">
+        <section className="mt-8">
           <h2 className="text-sm text-muted-foreground">
             {results.length === 0
               ? `No tools match “${trimmed}”.`

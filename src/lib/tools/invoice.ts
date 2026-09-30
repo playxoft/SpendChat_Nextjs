@@ -1,7 +1,7 @@
-import { isSupportedCurrency } from "@/lib/currencies";
+import { getCurrency, isSupportedCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
 import { addDays, daysBetween, parseDate } from "@/lib/tools/date-math";
-import { parseNumber } from "@/lib/tools/format";
+import { fromCanonicalNumber, parseNumber, toCanonicalNumber } from "@/lib/tools/format";
 
 /**
  * The document engine behind `/tools/invoice-generator` and
@@ -58,6 +58,12 @@ export type BusinessDoc = {
   terms: string;
   /** A `data:image/…;base64,` URL, read in the browser and never uploaded. */
   logo: string | null;
+  /**
+   * The currency this document is written in. Saved with the draft, since the
+   * site-wide currency can change on another tool — a saved ₹ invoice must
+   * not reopen as £. Null for a draft saved before this existed.
+   */
+  currency: string | null;
   /** The "Made with SpendChat" line at the foot of the document. */
   credit: boolean;
 };
@@ -136,6 +142,7 @@ export function defaultDoc(kind: DocKind): BusinessDoc {
     notes: "",
     terms: "",
     logo: null,
+    currency: null,
     credit: true,
   };
 }
@@ -147,6 +154,8 @@ export function defaultDoc(kind: DocKind): BusinessDoc {
 /** Rates keep four decimals (8.1%, 5.5%, 12.875%). */
 const RATE_SCALE = 10_000;
 const QTY_SCALE = 10 ** QTY_DECIMALS;
+/** Sub-minor-unit precision kept on a unit price before it is multiplied (4 decimal places of a cent). */
+const UNIT_SCALE = 10_000;
 
 /** `numerator ÷ denominator` rounded half away from zero. Denominator > 0. */
 function divRound(numerator: bigint, denominator: bigint): bigint {
@@ -159,14 +168,18 @@ function divRound(numerator: bigint, denominator: bigint): bigint {
 }
 
 /**
- * `qty × unit price`, rounded to the currency's minor unit. Null for a
- * negative or non-finite quantity or price, or a result past `MAX_MINOR`.
+ * `qty × unit price`, rounded once, to the currency's minor unit. The unit
+ * price may carry fractions of a minor unit (0.085 per word is 8.5 cents):
+ * rounding it to cents first would bill 10,000 words at $900 instead of $850.
+ * Null for a negative or non-finite quantity or price, or a result past
+ * `MAX_MINOR`.
  */
 export function lineAmountMinor(qty: number, unitMinor: number): number | null {
   if (!Number.isFinite(qty) || qty < 0 || qty > MAX_QTY) return null;
-  if (!Number.isSafeInteger(unitMinor) || unitMinor < 0 || unitMinor > MAX_MINOR) return null;
+  if (!Number.isFinite(unitMinor) || unitMinor < 0 || unitMinor > MAX_MINOR) return null;
   const scaledQty = BigInt(Math.round(qty * QTY_SCALE));
-  const amount = Number(divRound(scaledQty * BigInt(unitMinor), BigInt(QTY_SCALE)));
+  const scaledUnit = BigInt(Math.round(unitMinor * UNIT_SCALE));
+  const amount = Number(divRound(scaledQty * scaledUnit, BigInt(QTY_SCALE) * BigInt(UNIT_SCALE)));
   return amount > MAX_MINOR ? null : amount;
 }
 
@@ -294,8 +307,9 @@ export function evaluateDoc(doc: BusinessDoc, currency: string, locale = "en-US"
     }
     const qtyValue = "value" in qty ? qty.value : null;
     let amountMinor: number | null = null;
-    if (qtyValue !== null && unitMinor !== null) {
-      amountMinor = lineAmountMinor(qtyValue, unitMinor);
+    if (qtyValue !== null && unitMinor !== null && "value" in price) {
+      // From the price as typed, not the rounded unit price shown on the paper.
+      amountMinor = lineAmountMinor(qtyValue, price.value * 10 ** getCurrency(code).decimals);
       if (amountMinor === null) priceError ??= "That line is too large.";
     }
     return { qty: qtyValue, unitMinor, amountMinor, qtyError, priceError, blank };
@@ -534,6 +548,10 @@ export function sanitizeDoc(raw: unknown, kind: DocKind): BusinessDoc | null {
     notes: text(raw.notes, LIMITS.notes),
     terms: text(raw.terms, LIMITS.terms),
     logo: isValidLogo(raw.logo) ? raw.logo : null,
+    currency:
+      typeof raw.currency === "string" && isSupportedCurrency(raw.currency.toUpperCase())
+        ? raw.currency.toUpperCase()
+        : null,
     credit: raw.credit !== false,
   };
 }
@@ -544,21 +562,46 @@ export function sanitizeDoc(raw: unknown, kind: DocKind): BusinessDoc | null {
 
 /** Marks our JSON files, so importing some other `.json` fails with a clear message. */
 export const DOC_FILE_FORMAT = "spendchat-business-doc";
-const DOC_FILE_VERSION = 1;
+/**
+ * Version 2 writes every number in canonical form ("1500.5"), so a file or
+ * share link made in one locale reads the same in another. Version 1 files
+ * kept the typed text and are read as-is.
+ */
+const DOC_FILE_VERSION = 2;
 /** A draft with a maximum-size logo and 100 full rows is well under this. */
 export const MAX_DOC_FILE_CHARS = 1_000_000;
 
+/** Every typed number on a document, converted with `convert`. */
+function mapNumbers(doc: BusinessDoc, convert: (raw: string) => string): BusinessDoc {
+  return {
+    ...doc,
+    items: doc.items.map((item) => ({ ...item, qty: convert(item.qty), price: convert(item.price) })),
+    discount: convert(doc.discount),
+    taxRate: convert(doc.taxRate),
+  };
+}
+
 /** The draft as a downloadable JSON file, with the currency it was written in. */
-export function exportDoc(doc: BusinessDoc, currency: string): string {
-  return JSON.stringify({ format: DOC_FILE_FORMAT, version: DOC_FILE_VERSION, currency, ...doc }, null, 2);
+export function exportDoc(doc: BusinessDoc, currency: string, locale = "en-US"): string {
+  const portable = mapNumbers(doc, (raw) => toCanonicalNumber(raw, locale));
+  return JSON.stringify(
+    { format: DOC_FILE_FORMAT, version: DOC_FILE_VERSION, ...portable, currency },
+    null,
+    2,
+  );
 }
 
 /**
  * An exported file back into a draft for this page, or null when it isn't
- * one of ours. The currency comes back separately (the page's currency picker
- * owns it), and only when it's one we support.
+ * one of ours. Numbers come back in the reader's `locale`; the currency comes
+ * back separately (the page's currency picker owns it), and only when it's
+ * one we support.
  */
-export function parseDocFile(textContent: string, kind: DocKind): { doc: BusinessDoc; currency: string | null } | null {
+export function parseDocFile(
+  textContent: string,
+  kind: DocKind,
+  locale = "en-US",
+): { doc: BusinessDoc; currency: string | null } | null {
   if (textContent.length > MAX_DOC_FILE_CHARS) return null;
   let raw: unknown;
   try {
@@ -567,10 +610,13 @@ export function parseDocFile(textContent: string, kind: DocKind): { doc: Busines
     return null;
   }
   if (!isObject(raw) || raw.format !== DOC_FILE_FORMAT) return null;
-  const doc = sanitizeDoc(raw, kind);
-  if (!doc) return null;
-  const code = typeof raw.currency === "string" ? raw.currency.toUpperCase() : "";
-  return { doc, currency: isSupportedCurrency(code) ? code : null };
+  const sanitized = sanitizeDoc(raw, kind);
+  if (!sanitized) return null;
+  const doc =
+    typeof raw.version === "number" && raw.version >= 2
+      ? mapNumbers(sanitized, (value) => fromCanonicalNumber(value, locale))
+      : sanitized;
+  return { doc, currency: doc.currency };
 }
 
 /** A safe download name from the document number: `INV-0007.json`. */

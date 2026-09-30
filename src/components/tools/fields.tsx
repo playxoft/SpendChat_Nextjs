@@ -41,7 +41,7 @@ export function Field({
 }) {
   return (
     <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
-      <label htmlFor={id} className="text-sm font-medium">
+      <label id={`${id}-label`} htmlFor={id} className="text-sm font-medium">
         {label}
       </label>
       {children}
@@ -217,6 +217,9 @@ export function DateField({
           <button
             id={id}
             type="button"
+            // Name = the label *and* the date, so a screen reader hears
+            // "Date of birth, Sat 14 Mar 1990" rather than just the label.
+            aria-labelledby={`${id}-label ${id}-value`}
             aria-describedby={error || hint ? `${id}-msg` : undefined}
             className={cn(
               control,
@@ -227,6 +230,9 @@ export function DateField({
             )}
           >
             <CalendarDays className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span id={`${id}-value`} className="sr-only">
+              {value ? dateLabel(value, locale, true) : placeholder}
+            </span>
             {value ? (
               <>
                 <span className="min-w-0 truncate @min-[13rem]:hidden">{dateLabel(value, locale, false)}</span>

@@ -40,10 +40,15 @@ describe("lineAmountMinor", () => {
     expect(lineAmountMinor(0.125, 4)).toBe(1); // 0.5 → 1, halves round up
   });
 
+  it("multiplies before rounding, so fractional unit prices bill correctly", () => {
+    expect(lineAmountMinor(10_000, 8.5)).toBe(85_000); // 10,000 words × $0.085 = $850.00
+    expect(lineAmountMinor(40, 145.9)).toBe(5_836); // 40 L × 1.459 = 58.36
+    expect(lineAmountMinor(1, 100.49999999999999)).toBe(101); // 1.005 typed, float-scaled → 1.01
+  });
+
   it("rejects negatives and amounts past the exact range", () => {
     expect(lineAmountMinor(-1, 100)).toBeNull();
     expect(lineAmountMinor(1, -100)).toBeNull();
-    expect(lineAmountMinor(1, 1.5)).toBeNull();
     expect(lineAmountMinor(1_000_000_000, MAX_MINOR)).toBeNull();
     expect(lineAmountMinor(Number.NaN, 100)).toBeNull();
   });
@@ -344,7 +349,17 @@ describe("export / import", () => {
   it("round-trips a document with its currency", () => {
     const parsed = parseDocFile(exportDoc(original, "EUR"), "invoice");
     expect(parsed?.currency).toBe("EUR");
-    expect(parsed?.doc).toEqual(original);
+    expect(parsed?.doc).toEqual({ ...original, currency: "EUR" });
+  });
+
+  it("carries numbers between locales without changing their value", () => {
+    const german = { ...original, items: [{ ...original.items[0]!, qty: "2", price: "1.500" }], taxRate: "19", discount: "2,5" };
+    const file = exportDoc(german, "EUR", "de-DE");
+    const english = parseDocFile(file, "invoice", "en-GB")!;
+    expect(english.doc.items[0]!.price).toBe("1500");
+    expect(english.doc.discount).toBe("2.5");
+    const back = parseDocFile(file, "invoice", "de-DE")!;
+    expect(back.doc.discount).toBe("2,5");
   });
 
   it("imports into the page's kind", () => {
