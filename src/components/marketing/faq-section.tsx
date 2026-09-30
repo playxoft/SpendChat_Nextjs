@@ -10,8 +10,9 @@ import type { Faq } from "@/lib/seo";
 /**
  * The visible half of a page's FAQ — the accordion that `faqJsonLd()` marks up.
  *
- * Feature pages and blog posts render the same block from the same array, so it
- * lives here rather than in either of them. That matters beyond tidiness: the
+ * Every FAQ on the site — the homepage, `/faq`, feature, comparison, tool and
+ * blog pages — renders this one block, so they look and behave the same, and
+ * each renders it from the same array as its markup. That matters beyond tidiness: the
  * structured data is only honest while the visible answers and the marked-up
  * ones come from one source, and two hand-maintained copies of the markup is
  * how the two drift.
@@ -23,11 +24,15 @@ import type { Faq } from "@/lib/seo";
 export function FaqSection({
   faqs,
   heading,
+  hideHeading,
   className,
   answerClassName,
 }: {
   faqs: Faq[];
+  /** The section's `<h2>` — always rendered, since each question is an `<h3>` under it. */
   heading: string;
+  /** Keep the `<h2>` for screen readers only, where the page's `<h1>` already names the list (`/faq`). */
+  hideHeading?: boolean;
   className?: string;
   /** Extra classes for each answer — e.g. a larger size on a page where the answers carry the detail. */
   answerClassName?: string;
@@ -35,9 +40,11 @@ export function FaqSection({
   if (faqs.length === 0) return null;
 
   return (
-    <section className={cn("mt-16", className)}>
-      <h2 className="text-2xl font-semibold tracking-tight">{heading}</h2>
-      <Accordion type="multiple" className="mt-6 border-t">
+    // One FAQ look across the site: a tinted panel that sets the questions
+    // apart from the prose around them, with the same accordion inside.
+    <section className={cn("mt-16 rounded-3xl border bg-muted/40 px-5 py-8 sm:px-8 sm:py-10", className)}>
+      <h2 className={cn("text-2xl font-semibold tracking-tight", hideHeading && "sr-only")}>{heading}</h2>
+      <Accordion type="multiple" className={cn("border-t", !hideHeading && "mt-6")}>
         {faqs.map((faq, i) => (
           // Keyed by position, not by the question text. Two entries can
           // legitimately ask the same thing under different headings, and a

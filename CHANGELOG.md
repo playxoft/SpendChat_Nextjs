@@ -18,6 +18,45 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-09-28
+
+### Added
+- **Free money tools at [/tools](https://spendchat.app/tools)** — calculators
+  anyone can use without an account, answering as you type:
+  - **Percentage calculator** — X% of Y, percentage change, increase/decrease,
+    discounts and percent difference, with the working shown.
+  - **VAT, GST & sales tax calculator** — add or remove tax with rates for 75
+    countries preset, and India's CGST/SGST vs IGST split.
+  - **Amount in words** — any amount written out for a cheque or invoice, in
+    lakh/crore or millions, with Indian/UK "only" and US "and 50/100" lines.
+  - **Compound interest** and **SIP** calculators — monthly deposits, step-up,
+    inflation-adjusted value, a year-by-year chart and table, CSV download.
+  - **Credit card payoff calculator** — how long a balance takes to clear, and
+    what paying only the minimum costs by comparison.
+  - **Appliance electricity cost calculator** — what each appliance costs to
+    run from its wattage and your tariff.
+  - **Days between dates** (with working days, and adding days to a date) and
+    an **age calculator**.
+  - **Invoice** and **quotation** generators — line items, tax, discount and the
+    total in words; saved in your browser and printed straight to PDF, and a
+    quote turns into an invoice in one click.
+
+  Everything runs in the browser: nothing typed into a tool is sent anywhere.
+  Amounts show in your local currency and number format, and **Copy link**
+  shares a calculation with its numbers filled in.
+- **Invoice and quotation previews you can read.** The page stays pinned beside
+  the form, fitted to the screen; scroll to zoom, drag to move, or open it
+  **full screen**. **Share** sends the document as a link — it travels in the
+  part of the URL that never reaches a server, and opens as the recipient's own
+  copy.
+- **One FAQ design everywhere.** The homepage, `/faq`, feature, comparison, blog
+  and tool pages now share the same collapsible FAQ on a tinted panel.
+
+### Changed
+- **Date pickers jump to a year.** Click the month title once for months and
+  again for a grid of years, so a date years away — a date of birth, an old
+  receipt — is a few clicks instead of dozens of "previous month".
+
 ## [0.29.1] — 2026-09-27
 
 ### Fixed

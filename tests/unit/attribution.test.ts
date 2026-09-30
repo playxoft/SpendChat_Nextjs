@@ -106,6 +106,7 @@ describe("attributionFromLanding", () => {
     expect(landingFor("/features/voice-expense-tracker")).toBe("/features/voice-expense-tracker");
     expect(landingFor("/blog/some-post")).toBe("/blog/some-post");
     expect(landingFor("/compare/splitwise")).toBe("/compare/splitwise");
+    expect(landingFor("/tools/percentage-calculator")).toBe("/tools/percentage-calculator");
     // A share link's secret token must never be stored.
     expect(landingFor("/share/abc123secret")).toBe("/share");
     expect(landingFor("/app/settings/workspace")).toBe("/app");

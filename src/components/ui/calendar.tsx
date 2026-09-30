@@ -20,6 +20,14 @@ import { parseISODate, toISODate } from "@/lib/dates";
 
 const WEEKDAYS = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
+/** How far the arrows move in each view: a month, a year, or a page of 12 years. */
+const MONTHS_PER_STEP = { days: 1, months: 12, years: 144 } as const;
+
+/** First year of the 12-year page the year picker shows for `view`. */
+function decadeStart(view: Date): number {
+  return Math.floor(view.getFullYear() / 12) * 12;
+}
+
 /**
  * A small, dependency-free month calendar. Values are passed and returned as
  * `YYYY-MM-DD` strings parsed in local time, so the selected day always matches
@@ -60,7 +68,7 @@ export function Calendar({
   );
   // "days" shows the day grid; "months" shows a 12-month quick picker so you can
   // jump to any month (Jan…Dec) without stepping one month at a time.
-  const [mode, setMode] = React.useState<"days" | "months">("days");
+  const [mode, setMode] = React.useState<"days" | "months" | "years">("days");
 
   // In range mode: the first-clicked endpoint, held until the second click
   // completes the span; and the day under the cursor, for the hover preview.
@@ -122,31 +130,77 @@ export function Calendar({
       <div className="mb-2 flex items-center justify-between">
         <button
           type="button"
-          aria-label={mode === "months" ? "Previous year" : "Previous month"}
-          onClick={() => setView((v) => addMonths(v, mode === "months" ? -12 : -1))}
+          aria-label={
+            mode === "years" ? "Previous years" : mode === "months" ? "Previous year" : "Previous month"
+          }
+          onClick={() => setView((v) => addMonths(v, -MONTHS_PER_STEP[mode]))}
           className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <ChevronLeft className="size-4" />
         </button>
         <button
           type="button"
-          aria-label="Choose a month"
-          onClick={() => setMode((m) => (m === "days" ? "months" : "days"))}
+          // The spoken name starts with what's shown, then says what a click does.
+          aria-label={`${
+            mode === "days"
+              ? format(view, "MMMM yyyy")
+              : mode === "months"
+                ? format(view, "yyyy")
+                : `${decadeStart(view)} – ${decadeStart(view) + 11}`
+          }, ${mode === "months" ? "choose a year" : mode === "years" ? "back to days" : "choose a month"}`}
+          // days → months → years → back to days. Jumping to a year is what
+          // makes a date decades away (a birthday) a few clicks, not dozens.
+          onClick={() => setMode((m) => (m === "days" ? "months" : m === "months" ? "years" : "days"))}
           className="rounded-md px-2 py-1 text-sm font-medium hover:bg-muted"
         >
-          {mode === "days" ? format(view, "MMMM yyyy") : format(view, "yyyy")}
+          {mode === "days"
+            ? format(view, "MMMM yyyy")
+            : mode === "months"
+              ? format(view, "yyyy")
+              : `${decadeStart(view)} – ${decadeStart(view) + 11}`}
         </button>
         <button
           type="button"
-          aria-label={mode === "months" ? "Next year" : "Next month"}
-          onClick={() => setView((v) => addMonths(v, mode === "months" ? 12 : 1))}
+          aria-label={mode === "years" ? "Next years" : mode === "months" ? "Next year" : "Next month"}
+          onClick={() => setView((v) => addMonths(v, MONTHS_PER_STEP[mode]))}
           className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
         >
           <ChevronRight className="size-4" />
         </button>
       </div>
 
-      {mode === "months" ? (
+      {mode === "years" ? (
+        <div className="grid grid-cols-3 gap-1.5">
+          {Array.from({ length: 12 }, (_, i) => {
+            const year = decadeStart(view) + i;
+            const disabled = Boolean(
+              (maxDate && year > maxDate.getFullYear()) ||
+                (minDate && year < minDate.getFullYear()),
+            );
+            const isSelYear = !!selectedDate && selectedDate.getFullYear() === year;
+            const isViewYear = view.getFullYear() === year;
+            return (
+              <button
+                key={year}
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  setView(new Date(year, view.getMonth(), 1));
+                  setMode("months");
+                }}
+                className={cn(
+                  "rounded-md py-2 text-sm tabular-nums transition-colors",
+                  disabled && "cursor-not-allowed opacity-30 hover:bg-transparent",
+                  isSelYear ? "bg-foreground font-medium text-background" : "hover:bg-muted",
+                  !isSelYear && isViewYear && "ring-1 ring-foreground/30",
+                )}
+              >
+                {year}
+              </button>
+            );
+          })}
+        </div>
+      ) : mode === "months" ? (
         <div className="grid grid-cols-3 gap-1.5">
           {Array.from({ length: 12 }, (_, m) => {
             const d = new Date(view.getFullYear(), m, 1);

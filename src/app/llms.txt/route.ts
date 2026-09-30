@@ -4,6 +4,7 @@ import { docsSections } from "@/lib/docs";
 import { faqs } from "@/lib/faq";
 import { FEATURES } from "@/lib/features";
 import { buildLlmsTxt } from "@/lib/llms-txt";
+import { TOOLS } from "@/lib/tools";
 
 /**
  * `GET /llms.txt` — see `lib/llms-txt.ts` for what it contains and why. Built
@@ -24,6 +25,7 @@ export function GET(): Response {
     })),
     faqs,
     docs: docsSections,
+    tools: TOOLS,
   });
   return new Response(body, {
     headers: {
