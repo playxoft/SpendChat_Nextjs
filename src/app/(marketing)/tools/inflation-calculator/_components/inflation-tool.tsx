@@ -117,12 +117,6 @@ function yearOptions(selected: number): OptionGroup[] {
   ];
 }
 
-/** Quick picks under the years; "" is the latest published year. */
-const JUMP_TO: Option[] = [
-  { value: "", label: "Latest" },
-  ...[2030, 2050, 2100, 2500].map(yearOption),
-];
-
 const noopSubscribe = () => () => {};
 
 /**
@@ -318,20 +312,6 @@ export function InflationTool() {
               value={String(toYear)}
               onChange={(v) => update({ t: v })}
               options={yearOptions(toYear)}
-              hint={
-                s.t === ""
-                  ? "The latest year all your countries have."
-                  : toYear > YEAR_RANGE.lastYear
-                    ? "An estimate — see the note with the result."
-                    : undefined
-              }
-            />
-            <ChoiceChips
-              label="Jump to"
-              className="sm:col-span-2"
-              value={s.t === "" ? "" : String(toYear)}
-              onChange={(v) => update({ t: v })}
-              options={JUMP_TO}
             />
             {estimating && (
               <FutureRateField

@@ -85,8 +85,8 @@ export default function InflationCalculatorPage() {
           country is picked for you, next to the US and the UK. It works in both
           directions: 2000 to 2024 shows what an old price comes to today, and
           2024 to 2000 shows what today&apos;s money would have been worth back
-          then. Pick a year after the data — use Jump to for 2030, 2050, 2100
-          or {FUTURE_LAST_YEAR} — and you get an estimate instead, explained
+          then. Pick a year after the data — anything up to{" "}
+          {FUTURE_LAST_YEAR} — and you get an estimate instead, explained
           below.
         </p>
         <p>
