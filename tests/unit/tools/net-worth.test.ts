@@ -247,9 +247,10 @@ describe("sanitizeSnapshots", () => {
 
   it("keeps only known group keys, capped like a link", () => {
     const rows = Array.from({ length: 30 }, () => "x~1").join("|");
-    const [s] = sanitizeSnapshots([
-      { d: "2026-01-01", c: "USD", a: 1, l: 0, i: { ca: rows, zz: "a~1", iv: 7, __proto__: "x" } },
-    ]);
+    // Parsed, as it comes out of localStorage: "__proto__" is then a real own key, not the prototype.
+    const inputs = JSON.parse(JSON.stringify({ ca: rows, zz: "a~1", iv: 7 }).replace(/}$/, ',"__proto__":"x"}'));
+    expect(Object.keys(inputs)).toContain("__proto__");
+    const [s] = sanitizeSnapshots([{ d: "2026-01-01", c: "USD", a: 1, l: 0, i: inputs }]);
     expect(Object.keys(s!.inputs)).toEqual(["ca"]);
     expect(decodeRows(s!.inputs.ca!)).toHaveLength(MAX_ROWS);
   });
