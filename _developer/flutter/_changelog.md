@@ -19,6 +19,96 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.5.0 — 2026-10-05
+
+Plans, spaces and the organisation. Every workspace now has a **plan**
+(`free` / `plus` / `pro`) whose limits are shared by everyone in it, profiles
+live in **spaces** (workspace → space → profile — the space is the unit of
+sharing), and every account has one personal **organisation** holding the
+workspaces it owns. Everything here is additive.
+
+**New fields**
+
+| Where | Field | Notes |
+|---|---|---|
+| `Profile` (every profile response) | `spaceId` | The space the profile lives in. |
+| `Profile` | `access` | The caller's effective access on it: `read` (viewer), `write` (editor), `admin`. In a view-only workspace every profile reads `read`. Use it to show/hide add, edit and manage actions per profile instead of deriving them from the workspace role. |
+| `WorkspaceSummary` (`/me`, `/workspaces`) | `plan`, `organizationId`, `grandfathered` | `grandfathered` = the workspace existed before plans and keeps what it had during the grace period. |
+| `ProfileInput` (`POST /profiles`) | `spaceId?` | Create into that space; omitted → the workspace's first space. |
+
+**New endpoints**
+
+| Method & path | What |
+|---|---|
+| `GET /spaces` | The current workspace's spaces the caller can see (`id, name, icon, position, profileCount, role`). |
+| `POST /spaces` | Create a space `{ name, icon? }` (admin). |
+| `PATCH /spaces/{id}` | Rename / re-icon `{ name?, icon? }` (admin). |
+| `DELETE /spaces/{id}` | Delete (admin). A space with profiles needs `moveProfilesTo` (query param or JSON body); the last space can't go. |
+| `POST /spaces/reorder` | `{ ids }` (admin). |
+| `GET /spaces/{id}/access` | Members, the space's profiles, overrides and `canEditOverrides` (admin). |
+| `PUT /spaces/{id}/members` | `{ userId, role: "viewer" \| "editor" \| null }` (admin). |
+| `POST /profiles/{id}/space` | Move a profile to another space `{ spaceId }` (admin). |
+| `GET /profiles/{id}/overrides` | Per-profile overrides on one profile (admin). |
+| `PUT /profiles/{id}/overrides` | `{ userId, access: "none" \| "read" \| "write" \| null }` (admin, **Plus/Pro**). |
+| `GET /organization` · `PATCH /organization` | The caller's organisation and its workspaces with their plans; rename `{ name }`. |
+| `GET /usage` | The current workspace's plan, limits and usage (AI actions, storage, members, spaces, categories, tags, per-space profile cap, voice, per-profile access, grace / view-only flags). |
+
+Space item endpoints are scoped to the current workspace (`X-Workspace-Id`):
+a space id from another workspace is a 404, like a single transaction.
+
+**New error: `403 plan_limit`.** A stable code for "the workspace's plan
+doesn't allow this", with machine-readable `details`:
+`{ limit, plan, max?, used?, upgradeTo }`. `limit` is one of `members`,
+`spaces`, `profilesPerSpace`, `categories`, `tags`, `storage`, `aiActions`,
+`voice`, `profileLevelAccess`, `freeWorkspaces`; `upgradeTo` is the cheapest
+plan that lifts it, or `null` ("contact us"). Endpoints that can now return
+it: `POST /workspaces` (`freeWorkspaces` — one free workspace per person),
+`POST /spaces` (`spaces`), `POST /profiles`, `POST /profiles/{id}/space` and
+`DELETE /spaces/{id}` with a move (`profilesPerSpace`), `POST /categories`
+(`categories`), `POST /tags` (`tags`), `PUT /profiles/{id}/overrides`
+(`profileLevelAccess`), and `POST /ai/parse` / `POST /ai/transcribe`
+(`aiActions`; `voice` for transcription). `members` is enforced on the web's
+invite flow only — v1 has no member endpoints. Uploads keep their
+**413 `storage_quota_exceeded`** but now carry the same `details`
+(`limit: "storage"`), and the quota is the plan's storage (1 / 5 / 20 GB)
+rather than a flat 1 GB — `GET /files` `meta.storage.limitBytes` reports it.
+
+**View-only workspaces.** A person gets one free workspace; an extra free one
+turns view-only once its grace period is over. `GET /usage` → `readOnly: true`
+(and `GET /organization` → `workspaces[].readOnly`) says so up front, every
+profile there reports `access: "read"`, and writes are refused with
+`403 plan_limit`, `limit: "freeWorkspaces"` — anything inside a profile
+(transactions, attachments, vault files, profile edits) and every add at
+workspace level (profiles, spaces, categories, tags).
+
+**AI: a monthly allowance, voice on Pro, longer clips.** Responses are
+unchanged; requests gain two optional fields and the gates gain two errors.
+
+| Endpoint | Change |
+|---|---|
+| `POST /ai/parse` | New optional body field `source: "typed" \| "voice"` (default `typed`; anything else → 422). A parse costs one AI action, except a `source: "voice"` parse that follows a paid transcription by the same user in the same workspace within 15 minutes, which costs nothing (each paid clip covers one such parse). The note cap rises from 2000 to **3000** characters. |
+| `POST /ai/transcribe` | New optional multipart field `durationMs` (integer milliseconds, clamped to 120000; malformed or negative → 400). A clip costs **one AI action per started minute** (61 s → 2); a request without `durationMs` is charged as a full two-minute clip. Recordings may now be up to **2 minutes** (was 60 s; the 4 MB cap is unchanged) and the transcript cap rises from 1200 to **2400** characters. |
+| both | `403 plan_limit`, `limit: "aiActions"`, once the workspace's monthly allowance is spent — 50 / 300 / 1,000 actions on Free / Plus / Pro per UTC calendar month (`GET /usage` → `ai`, refilling at `ai.resetsAt`). The hourly `429 rate_limited` is still checked first. A call that fails on our side (502/503) gives its actions back. |
+| `POST /ai/transcribe` | `403 plan_limit`, `limit: "voice"`, unless the workspace is on **Pro** (or is grandfathered and inside its grace period — `GET /usage` → `voice`). |
+
+**Flutter impact:** additive — nothing breaks. Add `spaceId` + `access` to
+the `Profile` model and `plan` / `organizationId` / `grandfathered` to the
+workspace model (all always present). Handle `403` with
+`error.code == "plan_limit"` distinctly from `forbidden`: show an upgrade
+prompt built from `details` (or "contact us" when `upgradeTo` is null) rather
+than "ask an admin", and read `details` on a `413 storage_quota_exceeded` the
+same way. For voice entry: hide or upsell the mic when `GET /usage` →
+`voice` is false, send `durationMs` with every recording (omitting it bills
+two actions), raise the recording cap to 120 s and the composer's note cap to
+3000 characters, and send the transcript's parse with `source: "voice"` so it
+isn't charged twice. Optionally read `GET /usage` for a plan/usage screen and
+to render a `readOnly` workspace view-only, and drive per-profile actions
+from `access`. Space management can stay web-only for v1; if the app groups
+profiles in its drawer, group them by `spaceId`, using `GET /spaces` for
+names and order.
+
+---
+
 ## 6.4.0 — 2026-09-25
 
 `POST /ai/parse` now infers tags — and starts returning the ones it was always

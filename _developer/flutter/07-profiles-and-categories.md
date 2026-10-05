@@ -9,12 +9,19 @@ member of the workspace) with emoji icons.
 ## 1. Profiles
 
 A profile has `name`, `icon` (emoji), `color` (in the schema but **no UI sets
-it**), and `sortOrder`. Profiles belong to a workspace; names are unique per
+it**), `sortOrder`, and (spec 6.5.0) `spaceId` + `access` — the space it lives
+in and the caller's effective access on it (`read` / `write` / `admin`). Profiles belong to a workspace; names are unique per
 workspace. Every workspace always has **at least one** profile (a default
 "Personal" is created at bootstrap).
 
 API: `GET/POST /profiles`, `PATCH/DELETE /profiles/{id}`,
-`POST /profiles/reorder`, `POST /profiles/{id}/move`. RBAC:
+`POST /profiles/reorder`, `POST /profiles/{id}/move`, and since 6.5.0
+`POST /profiles/{id}/space` (move to another space) and
+`GET/PUT /profiles/{id}/overrides` (per-profile access, Plus/Pro). Profiles live
+in **spaces** (`GET /spaces`); creating one takes an optional `spaceId`, and a
+full space (3 / 5 / 10 profiles on Free / Plus / Pro) answers
+`403 plan_limit` with `details.limit == "profilesPerSpace"` — show the message
+and an upgrade prompt, not "ask an admin". RBAC:
 - create/rename/delete/**reorder** require **admin**; move requires **editor**
   (on both profiles). Hide the drag-reorder UI for non-admins — editors get 403.
 - 404 = no access; 403 = role too low. Gate the UI on the current workspace role

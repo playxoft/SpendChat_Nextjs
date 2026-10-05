@@ -4,7 +4,7 @@ import { getApiContext } from "@/lib/api-auth";
 import { apiOk, handle, parseOrThrow, readJson } from "@/lib/api-response";
 import { badRequest, forbidden } from "@/lib/errors";
 import { canWriteInWorkspace } from "@/lib/workspaces";
-import { assertAiRequestAllowed } from "@/lib/ai-quota";
+import { chargeAiParse, withAiCharge } from "@/lib/ai-quota";
 import { MAX_INPUT_CHARS, parseTransactionsText } from "@/lib/ai-parse";
 import { getCategories, getTags } from "@/lib/queries";
 import { DEFAULT_TIME_ZONE, isValidTimeZone } from "@/lib/timezone";
@@ -20,12 +20,19 @@ export const dynamic = "force-dynamic";
  * dates like "yesterday"; without it the drafts default to the UTC date.
  *
  * Gated exactly like the web action, and in the same order: cheap local checks,
- * then the editor role, then the per-user hourly AI quota — a denied caller
- * must never burn another caller's budget or reach a paid provider.
+ * then the editor role, then the AI charge (per-user hourly cap → 429, the
+ * workspace's monthly AI allowance → 403 `plan_limit`) — a denied caller must
+ * never burn another caller's budget or reach a paid provider.
+ *
+ * A typed note costs one AI action. `source: "voice"` marks a note that is a
+ * transcript from `POST /ai/transcribe`: the clip already paid for its parse,
+ * so this one is free if the caller has an unclaimed paid transcription in the
+ * workspace from the last 15 minutes, and charged like a typed note otherwise.
  */
 const parseBodySchema = z.object({
   text: z.string(),
   timezone: z.string().trim().optional(),
+  source: z.enum(["typed", "voice"]).optional(),
 });
 
 export async function POST(request: NextRequest) {
@@ -44,20 +51,24 @@ export async function POST(request: NextRequest) {
     if (!(await canWriteInWorkspace(user.id, workspace.id))) {
       throw forbidden("You don't have permission to add transactions in this workspace");
     }
-    await assertAiRequestAllowed(user.id, workspace.id, "transaction_parse");
+    const charge = await chargeAiParse(user.id, workspace.id, { source: body.source });
 
     const today = todayISO(body.timezone ?? DEFAULT_TIME_ZONE);
-    const [categories, tags] = await Promise.all([
-      getCategories(workspace.id),
-      getTags(workspace.id),
-    ]);
-    const drafts = await parseTransactionsText({
-      text: note,
-      categories: categories.map((c) => ({ name: c.name, kind: c.kind })),
-      tags: tags.map((t) => t.name),
-      currency: workspace.currency,
-      locale: workspace.locale,
-      today,
+    const { categories, tags, drafts } = await withAiCharge(charge, async (onUsage) => {
+      const [categories, tags] = await Promise.all([
+        getCategories(workspace.id),
+        getTags(workspace.id),
+      ]);
+      const drafts = await parseTransactionsText({
+        text: note,
+        categories: categories.map((c) => ({ name: c.name, kind: c.kind })),
+        tags: tags.map((t) => t.name),
+        currency: workspace.currency,
+        locale: workspace.locale,
+        today,
+        onUsage,
+      });
+      return { categories, tags, drafts };
     });
 
     // The model resolves category *names*; hand the client the matching ids so

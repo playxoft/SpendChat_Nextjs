@@ -22,11 +22,14 @@ import { DELETE as deleteShare } from "@/app/api/v1/file-shares/[id]/route";
 import { GET as shareFileBytes } from "@/app/api/share/[token]/file/[fileId]/route";
 import { eq } from "drizzle-orm";
 import { fileShares, files, folders, profileAccess, transactionAttachments } from "@/db/schema";
-import { STORAGE_QUOTA_BYTES } from "@/lib/validation";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { bootstrapUser, firstProfileId, insertTxn, workspaceIdOf } from "../helpers/seed";
 import { signInAs, uid } from "../helpers/session";
 import { getTestDb } from "../helpers/test-db";
 import { apiReq, jsonBody, ctx } from "./helpers";
+
+/** A new workspace is on Free, so its quota is Free's storage. */
+const STORAGE_QUOTA_BYTES = PLAN_LIMITS.free.storageBytes;
 
 /** Sign in + bootstrap "a" and return their first profile id. */
 async function setup(): Promise<string> {

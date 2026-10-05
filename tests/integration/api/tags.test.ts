@@ -2,8 +2,11 @@ import { describe, it, expect } from "vitest";
 import { GET as listTags, POST as createTag } from "@/app/api/v1/tags/route";
 import { PATCH as patchTag, DELETE as deleteTag } from "@/app/api/v1/tags/[id]/route";
 import { GET as listTxns, POST as createTxn } from "@/app/api/v1/transactions/route";
+import { tags } from "@/db/schema";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { setSession, signInAs, uid } from "../helpers/session";
 import { bootstrapUser, workspaceIdOf } from "../helpers/seed";
+import { getTestDb } from "../helpers/test-db";
 import { apiReq, jsonBody, ctx } from "./helpers";
 
 const MISSING = "00000000-0000-0000-0000-000000000000";
@@ -217,15 +220,37 @@ describe("/api/v1/tags", () => {
     signInAs("a");
     await bootstrapUser("a");
     const { TAGS_PER_WORKSPACE_MAX } = await import("@/lib/validation");
-    const { createTxnTag } = await import("@/services/tags");
     const W = await workspaceIdOf("a");
-    // Through the service, so the test isn't 100 HTTP round trips.
-    for (let i = 0; i < TAGS_PER_WORKSPACE_MAX; i++) {
-      await createTxnTag(uid("a"), W, { name: `tag-${i}`, color: "#ef4444" });
-    }
+    // Every plan's own cap (5 / 10 / 20) sits below the hard ceiling, so the
+    // service can't reach it any more — a workspace only gets there by being
+    // over its cap already (grandfathered / downgraded). Seed that directly.
+    await getTestDb()
+      .insert(tags)
+      .values(
+        Array.from({ length: TAGS_PER_WORKSPACE_MAX }, (_, i) => ({
+          workspaceId: W,
+          userId: uid("a"),
+          name: `tag-${i}`,
+          color: "#ef4444",
+        })),
+      );
     const res = await post("one-too-many");
     expect(res.status).toBe(409);
     expect(res.body.error.message).toMatch(new RegExp(`${TAGS_PER_WORKSPACE_MAX} tags`));
+  });
+
+  it("403s plan_limit past the Free plan's tag cap, with the upgrade in details", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    for (let i = 0; i < PLAN_LIMITS.free.tags; i++) {
+      expect((await post(`tag-${i}`)).status).toBe(201);
+    }
+    const res = await post("one-too-many");
+    expect(res.status).toBe(403);
+    expect(res.body.error).toMatchObject({
+      code: "plan_limit",
+      details: { limit: "tags", plan: "free", max: PLAN_LIMITS.free.tags, upgradeTo: "plus" },
+    });
   });
 
   it("keeps another workspace's tags out of reach", async () => {

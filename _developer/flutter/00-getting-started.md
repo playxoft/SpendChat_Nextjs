@@ -23,7 +23,7 @@ display formatting.
 | Secure storage | **flutter_secure_storage** *(optional)* | Not required for the token — Firebase persists the session itself. |
 | CSV share | **share_plus** + **path_provider** | Save/share the exported CSV file. |
 | Local prefs | **shared_preferences** | Remember last workspace id, composer entry mode (Manual/AI), theme override fallback. |
-| Voice recording | **record** (or flutter_sound) | Hold-to-talk voice entry: record ≤ 60 s (AAC/M4A or Opus), multipart to `POST /ai/transcribe`. Optional grey live preview via **speech_to_text** (cosmetic only — the server transcript is what lands). |
+| Voice recording | **record** (or flutter_sound) | Hold-to-talk voice entry: record ≤ 120 s (AAC/M4A or Opus), multipart to `POST /ai/transcribe` with `durationMs`. Optional grey live preview via **speech_to_text** (cosmetic only — the server transcript is what lands). |
 | Attachments | **image_picker** + **file_picker**; **open_filex** (or a PDF/image viewer) | Pick camera/photo/file → multipart upload; open downloaded files. Thumbnails: fetch `/attachments/{id}/url?variant=thumb`. |
 
 > **Theme override & Firebase both persist server-side.** The user's theme and

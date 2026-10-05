@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.4.0"
+  version: "6.5.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -70,9 +70,17 @@ info:
     provider, so they carry extra gates the CRUD endpoints don't:
     the **editor** role in the current workspace (403 otherwise), a shared
     per-user quota of **30 AI calls per hour** across both endpoints
-    (`429 rate_limited`), `503 ai_unavailable` when the operator hasn't
-    configured that feature's model, and `502 ai_failed` when the provider
-    errors. Neither endpoint writes anything: parse output is reviewed by the
+    (`429 rate_limited`, checked first), the workspace's monthly **AI
+    allowance** from its plan — 50 / 300 / 1,000 AI actions per UTC calendar
+    month on Free / Plus / Pro (`403 plan_limit`, `limit: "aiActions"` once
+    it's spent — see `GET /usage` → `ai`), voice entry for transcription
+    (Pro, or a grandfathered workspace in its grace period — otherwise
+    `403 plan_limit`, `limit: "voice"`), `503 ai_unavailable` when the
+    operator hasn't configured that feature's model, and `502 ai_failed` when
+    the provider errors (a call that fails on our side gives its AI action
+    back). A typed parse costs one AI action; a transcription costs one per
+    started minute of the clip and also covers parsing its transcript (send
+    that parse with `source: "voice"`). Neither endpoint writes anything: parse output is reviewed by the
     user and committed via `POST /transactions/bulk`; transcribe output is
     reviewed and then sent to `/ai/parse`. Audio is transcribed and discarded —
     never stored.
@@ -86,8 +94,9 @@ info:
     client GETs **without** the Authorization header. Uploading/editing/deleting
     needs editor; viewing needs viewer. `503 storage_unavailable` when the
     server has no file storage configured; `413 payload_too_large` for an
-    oversized file. Attachments count toward the workspace's **1 GB storage
-    quota** (shared with the files vault) — an upload that would exceed it gets
+    oversized file. Attachments count toward the workspace's **storage quota**
+    (the plan's storage — 1 / 5 / 20 GB on Free / Plus / Pro — shared with the
+    files vault); an upload that would exceed it gets
     `413 storage_quota_exceeded`.
 
     ## Files vault
@@ -107,12 +116,49 @@ info:
     `503 storage_unavailable` / `413 payload_too_large` semantics as
     attachments.
 
-    Each workspace has a flat **1 GB storage quota** covering vault files and
-    transaction attachments together. `GET /files` reports it in
-    `meta.storage` (`usedBytes` / `limitBytes`, workspace-wide); an upload
-    that would exceed it — on either upload endpoint — is rejected with
-    `413 storage_quota_exceeded` (the message says how much space remains and
-    is safe to display as-is).
+    Each workspace has a **storage quota** — its plan's storage (1 / 5 / 20 GB
+    on Free / Plus / Pro) — covering vault files and transaction attachments
+    together. `GET /files` reports it in `meta.storage` (`usedBytes` /
+    `limitBytes`, workspace-wide); an upload that would exceed it — on either
+    upload endpoint — is rejected with `413 storage_quota_exceeded` (the
+    message says how much space remains and is safe to display as-is;
+    `details` carries the same plan fields as a `plan_limit` error, with
+    `limit: "storage"`).
+
+    ## Plans, spaces and the organisation (6.5.0)
+    The hierarchy is **organisation → workspace → space → profile**. Every
+    account has one personal organisation (`GET /organization`) holding the
+    workspaces it owns. Each **workspace has a plan** — `free`, `plus` or
+    `pro` (`WorkspaceSummary.plan`) — and every limit belongs to the
+    workspace, shared by everyone in it: members, spaces, profiles per space,
+    categories, tags, storage, AI actions per month, voice entry and
+    per-profile access. `GET /usage` reports the current workspace's limits
+    and how much of each is used.
+
+    Profiles live in **spaces** (`Profile.spaceId`); the space is the unit of
+    sharing. Workspace admins see every space; other members see the spaces
+    they belong to (`GET /spaces`), at that space's role. A Plus/Pro
+    workspace can also set a **per-profile override** that replaces the space
+    role on one profile (`PUT /profiles/{id}/overrides`). Every profile
+    response carries the caller's effective `access` (`read` / `write` /
+    `admin`) — drive per-profile actions from it.
+
+    **`403 plan_limit`.** When a plan doesn't allow an action the server
+    answers `403` with `error.code = "plan_limit"` (distinct from `forbidden`,
+    which is about role) and `details` = `PlanLimitDetails`
+    (`{ limit, plan, max?, used?, upgradeTo }`). Show an upgrade prompt for
+    `upgradeTo`, or "contact us" when it is `null`. The message is safe to
+    display as-is. Limits gate *adding*, never existing data: a workspace over
+    a cap keeps everything and just can't add another.
+
+    **View-only workspaces.** One free workspace per person: creating another
+    is `403 plan_limit` (`freeWorkspaces`), and an extra free workspace that
+    already exists turns view-only once its grace period ends —
+    `GET /usage` → `readOnly: true`, every profile reads `access: "read"`, and
+    writes are refused with `403 plan_limit`, `limit: "freeWorkspaces"` —
+    anything inside a profile (transactions, attachments, vault files, profile
+    edits) and every add at workspace level (profiles, spaces, categories,
+    tags).
 
 servers:
   - url: http://localhost:3010
@@ -135,6 +181,9 @@ tags:
   - name: Categories
   - name: Tags
   - name: Profiles
+  - name: Spaces
+  - name: Organization
+  - name: Usage
   - name: Settings
   - name: Analytics
   - name: AI
@@ -235,6 +284,11 @@ paths:
         pin the returned id as `X-Workspace-Id` on subsequent requests. The
         `X-Workspace-Id` request header is ignored here (creation is not
         scoped to the current workspace).
+
+        A new workspace starts on the **Free** plan, and a person gets one
+        free workspace: when the caller already owns a free workspace this is
+        `403 plan_limit` with `limit: "freeWorkspaces"` (`max: 1`,
+        `upgradeTo: "plus"`) and nothing is created.
       requestBody:
         required: true
         content:
@@ -242,7 +296,7 @@ paths:
             schema: { $ref: "#/components/schemas/WorkspaceInput" }
       responses:
         "201":
-          description: The created workspace (`role` is always `admin`).
+          description: The created workspace (`role` is always `admin`, `plan` is `free`).
           content:
             application/json:
               schema:
@@ -251,7 +305,7 @@ paths:
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
   /api/v1/workspaces/{id}:
@@ -568,8 +622,9 @@ paths:
 
         Limits: at most **2 files per transaction** (total, including already
         attached ones — 400 when exceeded), **5 MB per file** (413
-        `payload_too_large`), the workspace's **1 GB storage quota** (413
-        `storage_quota_exceeded` when the batch doesn't fit), and only
+        `payload_too_large`), the workspace's **storage quota** — its plan's
+        storage, 1 / 5 / 20 GB (413 `storage_quota_exceeded` when the batch
+        doesn't fit), and only
         these types: JPEG, PNG, WebP, GIF, PDF, Word (doc/docx), Excel
         (xls/xlsx), CSV, plain text (422 otherwise).
 
@@ -714,10 +769,12 @@ paths:
         Also lazily creates each profile's predefined "Transaction attachments"
         folder, so it is always present in `folders`.
 
-        `meta.storage` reports the workspace's storage usage against its 1 GB
-        quota (vault files + transaction attachments). It is **workspace-wide
-        even when `?profile=` scopes the list**, so it can back a storage
-        indicator directly.
+        `meta.storage` reports the workspace's storage usage against its
+        quota (vault files + transaction attachments). `limitBytes` is the
+        workspace **plan's** storage — 1 / 5 / 20 GB on Free / Plus / Pro, the
+        same value as `GET /usage` → `storage.limitBytes` (it was a flat 1 GB
+        before 6.5.0). It is **workspace-wide even when `?profile=` scopes the
+        list**, so it can back a storage indicator directly.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/profile"
@@ -754,7 +811,8 @@ paths:
                         type: object
                         description: >
                           Workspace-wide stored bytes (vault files +
-                          transaction attachments) against the flat quota.
+                          transaction attachments) against the plan's
+                          storage (1 / 5 / 20 GB on Free / Plus / Pro).
                         properties:
                           usedBytes: { type: integer, format: int64, example: 52428800 }
                           limitBytes: { type: integer, format: int64, example: 1073741824 }
@@ -790,8 +848,9 @@ paths:
         applied when a file is read, so files uploaded before it existed report
         their real type as well. Limits: **10 files per request** (400),
         **5 MB per file — previews included** (413 `payload_too_large`), and
-        the workspace's **1 GB storage quota** — a batch whose combined size
-        doesn't fit gets 413 `storage_quota_exceeded`.
+        the workspace's **storage quota** (its plan's storage, 1 / 5 / 20 GB)
+        — a batch whose combined size doesn't fit gets 413
+        `storage_quota_exceeded`.
 
         A request whose `Content-Length` alone is past what those limits could
         ever allow is refused with 413 `payload_too_large` **before the body is
@@ -1255,6 +1314,10 @@ paths:
       description: |
         Creates a category in the current workspace (`X-Workspace-Id`). Requires
         the **editor** role or higher — a viewer gets 403.
+
+        The workspace's plan caps its categories (20 / 30 / 50 on Free / Plus /
+        Pro; the seeded defaults count, and deleting one frees a slot). At the
+        cap this is `403 plan_limit` with `limit: "categories"`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1273,7 +1336,7 @@ paths:
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
@@ -1367,8 +1430,12 @@ paths:
         **editor** role or higher — a viewer gets 403.
 
         Names are unique per workspace, case-insensitively: creating "travel"
-        where "Travel" exists is a 409. `color` is stored lowercased. A
-        workspace is capped at 100 tags (409 past that).
+        where "Travel" exists is a 409. `color` is stored lowercased.
+
+        The workspace's plan caps its tags (5 / 10 / 20 on Free / Plus / Pro):
+        at the cap this is `403 plan_limit` with `limit: "tags"`. Independently
+        of the plan there is a hard ceiling of 100 tags (409 past that) — only
+        reachable by a workspace that already had more than its plan allows.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1387,7 +1454,7 @@ paths:
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
@@ -1470,6 +1537,13 @@ paths:
     post:
       tags: [Profiles]
       summary: Create a profile (admin only)
+      description: |
+        Creates a profile at the end of the sidebar order, in `spaceId` when
+        given (a space of the current workspace — 404 otherwise) or else the
+        workspace's first space. Requires the workspace **admin** role.
+
+        The plan caps profiles per space (3 / 5 / 10 on Free / Plus / Pro): a
+        full space is `403 plan_limit` with `limit: "profilesPerSpace"`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1488,7 +1562,7 @@ paths:
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
@@ -1671,6 +1745,417 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
+  /api/v1/profiles/{id}/space:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [Profiles]
+      summary: Move a profile into another space (admin only)
+      description: |
+        Moves the profile into another space of **its** workspace (the path id
+        decides the workspace, like the other profile item endpoints).
+        Requires the workspace **admin** role. Who can see the profile follows
+        the new space's members, plus anyone with an override on the profile
+        itself (overrides belong to the profile and move with it). Moving it
+        into the space it's already in is a no-op.
+
+        A full destination space is `403 plan_limit` with
+        `limit: "profilesPerSpace"`. 422 for a malformed profile id or
+        `spaceId`; 404 when the space isn't in the profile's workspace.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileSpaceMove" }
+      responses:
+        "200":
+          description: The profile, with its new `spaceId`.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Profile" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/profiles/{id}/overrides:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Profiles]
+      summary: Per-profile access overrides on one profile (admin only)
+      description: |
+        The overrides on this profile, oldest first. An override replaces a
+        member's space role on this one profile: `none` hides it inside their
+        space, `read` / `write` open it (read-only / editable) even in a space
+        they're not in. Only non-admin workspace members are listed — admins
+        see everything, so an override means nothing for them. Requires the
+        workspace **admin** role. 422 for a malformed id.
+      responses:
+        "200":
+          description: The profile's overrides.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProfileOverride" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    put:
+      tags: [Profiles]
+      summary: Set or clear one member's override on this profile (admin, Plus/Pro)
+      description: |
+        Sets `userId`'s override on this profile to `none` / `read` / `write`,
+        or clears it with `access: null` (back to their space role). Requires
+        the workspace **admin** role; the target must be a non-admin member of
+        the workspace (400 "Add them to the workspace first" / "Admins already
+        see every space").
+
+        Changing overrides is a **Plus/Pro** feature: on Free this is
+        `403 plan_limit` with `limit: "profileLevelAccess"`. Existing
+        overrides keep applying after a downgrade — only changing them is
+        gated, so a downgrade never widens anyone's access.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ProfileOverrideInput" }
+      responses:
+        "200":
+          description: The profile's overrides after the change.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProfileOverride" }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/spaces:
+    get:
+      tags: [Spaces]
+      summary: List the current workspace's spaces
+      description: |
+        The spaces of the current workspace (`X-Workspace-Id`) the caller can
+        see, ordered by `position`. Workspace admins see every space (`role:
+        "admin"`); anyone else sees the spaces they're a member of (at their
+        space role) plus any space holding a profile they reach another way —
+        an override or a per-profile grant — with `role: null`.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: The visible spaces, in order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Space" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Spaces]
+      summary: Create a space (admin only)
+      description: |
+        Creates a space at the end of the current workspace's list. Requires
+        the workspace **admin** role. Names are unique per workspace (409).
+        The plan caps spaces (2 / 6 / 15 on Free / Plus / Pro, the default
+        space included): at the cap this is `403 plan_limit` with
+        `limit: "spaces"`.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceInput" }
+      responses:
+        "201":
+          description: 'The created space (`role` is `admin`, `profileCount` is 0).'
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Space" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/spaces/reorder:
+    post:
+      tags: [Spaces]
+      summary: Reorder spaces (admin only)
+      description: |
+        Persists the order of the current workspace's spaces. Send the full
+        ordered list; every id must be a space of this workspace (400
+        otherwise) and none may repeat (422). Requires the workspace **admin**
+        role.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceReorder" }
+      responses:
+        "200":
+          description: The spaces in their new order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Space" }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/spaces/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    patch:
+      tags: [Spaces]
+      summary: Rename / re-icon a space (admin only)
+      description: |
+        Scoped to the current workspace: a space id from another workspace is
+        a 404 (a malformed id is a 422). Requires the workspace **admin** role.
+        At least one of `name` / `icon`; `icon: ""` or `null` clears it.
+        409 for a duplicate name.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceUpdate" }
+      responses:
+        "200":
+          description: The updated space.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Space" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Spaces]
+      summary: Delete a space (admin only)
+      description: |
+        Scoped to the current workspace (404 for a space elsewhere, 422 for a
+        malformed id). Requires the workspace **admin** role.
+
+        **Profiles are never deleted with a space.** An empty space just goes.
+        One that still holds profiles needs a destination — `moveProfilesTo`,
+        another space of the same workspace — or the delete is refused with
+        409 ("This space still has profiles — move them to another space
+        first"); the move and the delete commit together. The destination must
+        have room under the plan's per-space cap (`403 plan_limit`,
+        `limit: "profilesPerSpace"`). The workspace's **last** space can't be
+        deleted (409). Membership rows go with the space.
+
+        Send the destination either as the `moveProfilesTo` query parameter or
+        as an optional JSON body `{ "moveProfilesTo": "<uuid>" }`; when both
+        are sent the body wins. A blank `?moveProfilesTo=` counts as absent.
+      parameters:
+        - name: moveProfilesTo
+          in: query
+          required: false
+          description: The space to move this space's profiles into.
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceDeleteInput" }
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/spaces/{id}/access:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    get:
+      tags: [Spaces]
+      summary: Members & access for one space (admin only)
+      description: |
+        Everything a "Members & access" screen shows for one space: every
+        workspace member with their role in this space, the space's profiles,
+        the per-profile overrides on them, and whether the plan lets
+        overrides be changed (`canEditOverrides` — Plus/Pro). Scoped to the
+        current workspace (404 elsewhere, 422 malformed id). Requires the
+        workspace **admin** role.
+      responses:
+        "200":
+          description: The space's access view.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/SpaceAccess" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/spaces/{id}/members:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    put:
+      tags: [Spaces]
+      summary: Add, re-role or remove a member in one space (admin only)
+      description: |
+        Puts a workspace member in this space at `role` (`viewer` / `editor`),
+        changes their role, or takes them out (`role: null`). Taking someone
+        out also clears their overrides on this space's profiles, so "removed
+        from the space" means no access to it. Requires the workspace
+        **admin** role; the target must be a non-admin member of the
+        workspace (400 otherwise — admins already see every space). Scoped to
+        the current workspace (404 elsewhere, 422 malformed id).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SpaceMemberInput" }
+      responses:
+        "200":
+          description: The space's access view after the change.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/SpaceAccess" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/organization:
+    get:
+      tags: [Organization]
+      summary: The caller's organisation and its workspaces
+      description: |
+        The caller's personal organisation — every account has exactly one,
+        created at first sign-in — with its owner and every workspace in it
+        (the ones the caller owns), each with its plan, whether it's
+        grandfathered, whether it's view-only, and whether the caller can open
+        it. Not scoped to one workspace: `X-Workspace-Id` is ignored.
+      responses:
+        "200":
+          description: The organisation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Organization" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+    patch:
+      tags: [Organization]
+      summary: Rename the caller's organisation
+      description: |
+        Renames the caller's personal organisation (they own it by
+        definition). `X-Workspace-Id` is ignored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/OrganizationPatch" }
+      responses:
+        "200":
+          description: The renamed organisation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Organization" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/usage:
+    get:
+      tags: [Usage]
+      summary: The current workspace's plan, limits and usage
+      description: |
+        Everything the current workspace's plan allows and how much of it is
+        in use, in one call — for a plan/usage screen and for gating UI before
+        the server has to refuse: AI actions this month, storage, members,
+        spaces, categories and tags (each `{ used, limit }`), the per-space
+        profile cap, and the feature flags (`voice`, `profileLevelAccess`).
+        `readOnly: true` means the workspace is an extra free one past its
+        grace period — render it view-only. Readable by anyone who can open
+        the workspace.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: The workspace's usage.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Usage" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/settings:
     get:
       tags: [Settings]
@@ -1837,10 +2322,22 @@ paths:
         clearly fits, the way it already picks a category. Present the drafts
         for review — a tag the user did not ask for is theirs to remove.
 
-        Gates, in order: 400 (empty or > 2000-char note, bad timezone),
-        403 (viewer in this workspace), 429 (shared 30/hour AI quota),
-        503 (parse model not configured), 502 (provider failed). At most 50
-        drafts per call; a note that yields nothing usable is a 400.
+        **Cost (6.5.0).** A parse costs one AI action from the workspace's
+        monthly allowance. `source: "voice"` marks a note that is a transcript
+        from `POST /ai/transcribe` — the clip already paid for its parse, so
+        the call is free when the caller has an unclaimed paid transcription
+        in this workspace from the last 15 minutes (each paid clip covers one
+        such parse), and is charged like a typed note otherwise. `source`
+        omitted means `typed`; any other value is a 422.
+
+        Gates, in order: 422 (bad `source`), 400 (empty or > 3000-char note,
+        bad timezone), 403 `forbidden` (viewer in this workspace),
+        429 (shared 30/hour AI quota), 403 `plan_limit` with
+        `limit: "aiActions"` once the workspace's monthly allowance is spent
+        (`max` = the allowance, `used` = actions counted this month; it
+        refills on `GET /usage` → `ai.resetsAt`), 503 (parse model not
+        configured), 502 (provider failed — the action is given back). At
+        most 50 drafts per call; a note that yields nothing usable is a 400.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1871,7 +2368,7 @@ paths:
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
         "413": { $ref: "#/components/responses/PayloadTooLarge" }
@@ -1889,20 +2386,34 @@ paths:
         then send it through `POST /ai/parse` like a typed note. The audio is
         transcribed and discarded; nothing is stored.
 
-        Multipart form data: the recording under `audio`. The part should carry
+        Multipart form data: the recording under `audio`, and its length in
+        milliseconds under `durationMs` (6.5.0). The audio part should carry
         its content type; if your HTTP client drops it, send a `mimeType` text
         field as fallback. Accepted containers: `audio/webm`, `audio/ogg`,
         `audio/mp4` (AAC/M4A), `audio/mpeg`, `audio/wav`, `audio/x-wav`,
-        `audio/x-m4a`. Max 4 MB (≈ 1 minute — cap recordings at 60 s
-        client-side). Amounts come back as digits ("two fifty" → 250, "2 lakh"
-        → 200000); spoken languages are transcribed as spoken (never
-        translated), guided by the user's `voiceLanguages` setting.
+        `audio/x-m4a`. Max 4 MB, and recordings up to **2 minutes** (cap them
+        at 120 s client-side; it was 60 s before 6.5.0). Amounts come back as
+        digits ("two fifty" → 250, "2 lakh" → 200000); spoken languages are
+        transcribed as spoken (never translated), guided by the user's
+        `voiceLanguages` setting.
+
+        **Plan and cost (6.5.0).** Voice entry is a **Pro** feature (and keeps
+        working for a grandfathered workspace during its grace period —
+        `GET /usage` → `voice`); elsewhere this is `403 plan_limit` with
+        `limit: "voice"`. A clip costs **one AI action per started minute** of
+        `durationMs` (clamped to 120000), so a 61-second clip costs two; a
+        request without `durationMs` is charged as a full two-minute clip, so
+        always send it. That charge also covers parsing the transcript — send
+        it to `/ai/parse` with `source: "voice"` within 15 minutes.
 
         Gates, in order: 413 (the request body's `Content-Length` alone is past
         the 4 MB cap — refused before the body is read), 400 (missing/empty/
-        oversized/unsupported audio, or no speech heard), 403 (viewer in this
-        workspace), 429 (shared 30/hour AI quota), 503 (transcribe model not
-        configured), 502 (provider failed).
+        oversized/unsupported audio, a malformed or negative `durationMs`, or
+        no speech heard), 403 `forbidden` (viewer in this workspace),
+        403 `plan_limit` `voice`, 429 (shared 30/hour AI quota), 403
+        `plan_limit` `aiActions` (monthly allowance spent), 503 (transcribe
+        model not configured), 502 (provider failed — the actions are given
+        back).
 
         The 413 and the 400 report the same thing — a recording over 4 MB — and
         differ only in whether the client declared the size up front. A client
@@ -1922,10 +2433,19 @@ paths:
                 mimeType:
                   type: string
                   description: Fallback content type when the audio part has none.
+                durationMs:
+                  type: integer
+                  minimum: 0
+                  description: >
+                    The clip's length in milliseconds (6.5.0) — what the charge
+                    is computed from (one AI action per started minute; values
+                    above 120000 are clamped). Omitted or blank → charged as a
+                    full two-minute clip. Not a non-negative number → 400.
+                  example: 42000
               required: [audio]
       responses:
         "200":
-          description: The transcript (≤ 1200 chars), ready for the composer.
+          description: The transcript (≤ 2400 chars), ready for the composer.
           content:
             application/json:
               schema:
@@ -1934,12 +2454,12 @@ paths:
                   data:
                     type: object
                     properties:
-                      text: { type: string, maxLength: 1200 }
+                      text: { type: string, maxLength: 2400 }
                     required: [text]
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
         "502": { $ref: "#/components/responses/AiFailed" }
@@ -2045,11 +2565,34 @@ components:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: { code: unauthorized, message: "Missing bearer token" } }
     Forbidden:
-      description: Email not verified, or RBAC role too low for the action.
+      description: >
+        Email not verified, or RBAC role too low for the action. A write into
+        a view-only workspace (an extra free workspace past its grace period)
+        is answered with code `plan_limit` and `details.limit:
+        "freeWorkspaces"` instead — see `ForbiddenOrPlanLimit`.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
           example: { error: { code: forbidden, message: "Email not verified" } }
+    ForbiddenOrPlanLimit:
+      description: >
+        Either `forbidden` (email not verified, role too low) or `plan_limit`
+        — the workspace's plan doesn't allow this (a cap is reached, or the
+        feature belongs to a higher plan). Branch on `error.code`; for
+        `plan_limit`, `details` is a `PlanLimitDetails` and the message is
+        safe to display as-is.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            forbidden:
+              value: { error: { code: forbidden, message: "You don't have permission to do that" } }
+            plan_limit:
+              value:
+                error:
+                  code: plan_limit
+                  message: "This workspace's Free plan includes 2 spaces. Upgrade to Plus for 6 spaces."
+                  details: { limit: spaces, plan: free, max: 2, used: 2, upgradeTo: plus }
     BadRequest:
       description: Malformed request (e.g. invalid JSON, wrong confirm string).
       content:
@@ -2105,8 +2648,10 @@ components:
       description: >
         The upload doesn't fit: either a single file exceeds the per-file cap
         (5 MB — `payload_too_large`), or the batch would push the workspace
-        past its 1 GB storage quota (`storage_quota_exceeded`, message says
-        how much space remains and is safe to display as-is).
+        past its plan's storage (1 / 5 / 20 GB — `storage_quota_exceeded`;
+        the message says how much space remains and is safe to display as-is,
+        and `details` is a `PlanLimitDetails` with `limit: "storage"`, `max`
+        = the quota in bytes and `used` = bytes already stored).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -2114,7 +2659,11 @@ components:
             payload_too_large:
               value: { error: { code: payload_too_large, message: "Each file must be 5 MB or smaller." } }
             storage_quota_exceeded:
-              value: { error: { code: storage_quota_exceeded, message: "Not enough storage left — this upload needs 3.2 MB but only 1.1 MB of the 1.0 GB quota remains" } }
+              value:
+                error:
+                  code: storage_quota_exceeded
+                  message: "Not enough storage left — this upload needs 3.2 MB but only 1.1 MB of the 1.0 GB remains. Upgrade to Plus for 5.0 GB."
+                  details: { limit: storage, plan: free, max: 1073741824, used: 1072578560, upgradeTo: plus }
 
   schemas:
     Error:
@@ -2125,17 +2674,68 @@ components:
           properties:
             code:
               type: string
-              enum: [unauthorized, forbidden, bad_request, not_found, conflict,
-                     validation_error, rate_limited, payload_too_large,
+              enum: [unauthorized, forbidden, plan_limit, bad_request, not_found,
+                     conflict, validation_error, rate_limited, payload_too_large,
                      storage_quota_exceeded, ai_unavailable, ai_failed,
                      storage_unavailable, internal_error]
             message: { type: string }
             details:
-              description: Optional per-field messages for validation errors.
-              type: object
-              additionalProperties: { type: string }
+              description: >
+                Optional. For `validation_error`, a flat `{ field: message }`
+                map. For `plan_limit` and `storage_quota_exceeded`, a
+                `PlanLimitDetails` object.
+              oneOf:
+                - type: object
+                  additionalProperties: { type: string }
+                - $ref: "#/components/schemas/PlanLimitDetails"
           required: [code, message]
       required: [error]
+
+    Plan:
+      type: string
+      description: A workspace's plan. Every limit belongs to the workspace and is shared by everyone in it.
+      enum: [free, plus, pro]
+
+    PlanLimitKey:
+      type: string
+      description: >
+        Which limit a `plan_limit` (or `storage_quota_exceeded`) error is
+        about — pick the upgrade copy from it. `members`: people in the
+        workspace (invites count; enforced by the web's invite flow).
+        `spaces`, `profilesPerSpace`, `categories`, `tags`: counted caps.
+        `storage`: bytes (on 413 `storage_quota_exceeded`). `aiActions`: the
+        monthly AI allowance. `voice`: voice entry isn't on this plan.
+        `profileLevelAccess`: per-profile overrides need Plus/Pro.
+        `freeWorkspaces`: one free workspace per person — creating another, or
+        writing into an extra one that is view-only.
+      enum: [members, spaces, profilesPerSpace, categories, tags, storage,
+             aiActions, voice, profileLevelAccess, freeWorkspaces]
+
+    PlanLimitDetails:
+      type: object
+      description: >
+        `details` of a `403 plan_limit` error (and of a
+        `413 storage_quota_exceeded`). Stable and machine-readable, so a
+        client can show an upgrade prompt instead of a generic "not allowed".
+      properties:
+        limit: { $ref: "#/components/schemas/PlanLimitKey" }
+        plan:
+          description: The workspace's plan right now.
+          allOf: [{ $ref: "#/components/schemas/Plan" }]
+        max:
+          type: integer
+          format: int64
+          description: The cap that was hit, when it's a number (bytes for `storage`). Absent for feature gates.
+        used:
+          type: integer
+          format: int64
+          description: How much is in use, when it's a number. Absent for feature gates.
+        upgradeTo:
+          description: The cheapest plan that lifts this limit; null when none does ("contact us").
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Plan"
+      required: [limit, plan, upgradeTo]
 
     VersionInfo:
       type: object
@@ -2221,7 +2821,20 @@ components:
         currency: { $ref: "#/components/schemas/CurrencyCode" }
         locale: { type: string, example: en-US }
         currencyDetail: { $ref: "#/components/schemas/CurrencyMeta" }
-      required: [id, name, icon, role, currency, locale, currencyDetail]
+        plan:
+          description: The workspace's plan (6.5.0). Limits are per workspace — see `GET /usage`.
+          allOf: [{ $ref: "#/components/schemas/Plan" }]
+        organizationId:
+          type: string
+          format: uuid
+          description: The organisation that holds the workspace (6.5.0).
+        grandfathered:
+          type: boolean
+          description: >
+            The workspace existed before plans did, so it keeps what it had
+            until the grace period ends (6.5.0).
+      required: [id, name, icon, role, currency, locale, currencyDetail, plan,
+                 organizationId, grandfathered]
 
     WorkspaceInput:
       type: object
@@ -2469,9 +3082,24 @@ components:
         icon: { type: [string, "null"] }
         color: { type: [string, "null"], description: Exists in the schema but no UI sets it. }
         sortOrder: { type: integer }
+        spaceId:
+          type: string
+          format: uuid
+          description: The space the profile lives in (6.5.0).
+        access: { $ref: "#/components/schemas/ProfileAccess" }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-      required: [id, name, icon, color, sortOrder, createdAt, updatedAt]
+      required: [id, name, icon, color, sortOrder, spaceId, access, createdAt, updatedAt]
+
+    ProfileAccess:
+      type: string
+      description: >
+        The caller's effective access on a profile (6.5.0): `read` (viewer —
+        see it), `write` (editor — add/edit its transactions and files),
+        `admin` (manage the profile). Resolved from the workspace role, the
+        space role, any per-profile override and any per-profile grant. In a
+        view-only workspace every profile is `read`.
+      enum: [read, write, admin]
 
     ProfileInput:
       type: object
@@ -2479,6 +3107,12 @@ components:
         name: { type: string, minLength: 1, maxLength: 20 }
         icon: { type: string, maxLength: 16 }
         color: { type: string, maxLength: 32 }
+        spaceId:
+          type: string
+          format: uuid
+          description: >
+            The space to create it in (6.5.0) — a space of the current
+            workspace (404 otherwise). Omitted → the workspace's first space.
       required: [name]
 
     ProfileUpdate:
@@ -2513,6 +3147,270 @@ components:
             and a full vault, so a dialog that reads only one of the three
             under-reports what it is about to act on.
       required: [transactions, files, attachments]
+
+    ProfileSpaceMove:
+      type: object
+      properties:
+        spaceId: { type: string, format: uuid, description: The destination space (same workspace). }
+      required: [spaceId]
+
+    ProfileAccessLevel:
+      type: string
+      description: >
+        A per-profile override: `none` hides the profile from the member even
+        inside their space; `read` / `write` give view / edit access even in a
+        space they're not in.
+      enum: [none, read, write]
+
+    ProfileOverride:
+      type: object
+      properties:
+        userId: { type: string, format: uuid }
+        access: { $ref: "#/components/schemas/ProfileAccessLevel" }
+      required: [userId, access]
+
+    ProfileOverrideInput:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: A non-admin member of the profile's workspace.
+        access:
+          description: The override to set, or null to clear it (back to the space role).
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/ProfileAccessLevel"
+      required: [userId, access]
+
+    Space:
+      type: object
+      description: A space — the middle of workspace → space → profile, and the unit of sharing (6.5.0).
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 30 }
+        icon: { type: [string, "null"], example: "🗂️" }
+        position: { type: integer, description: Sidebar order within the workspace. }
+        profileCount:
+          type: integer
+          description: >
+            Every profile in the space — what the per-space cap counts — not
+            just the ones the caller can see.
+        role:
+          description: >
+            The caller's role here: `admin` for workspace admins (they see
+            every space); otherwise their space role, or null when the space
+            is visible only because they reach one of its profiles another way
+            (an override or a per-profile grant).
+          oneOf:
+            - type: "null"
+            - type: string
+              enum: [viewer, editor, admin]
+      required: [id, name, icon, position, profileCount, role]
+
+    SpaceInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 30, description: Unique per workspace; trimmed. }
+        icon: { type: string, maxLength: 16, description: Optional emoji. }
+      required: [name]
+
+    SpaceUpdate:
+      type: object
+      description: At least one of `name` / `icon`.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 30 }
+        icon: { type: [string, "null"], maxLength: 16, description: '"" or null clears it.' }
+
+    SpaceReorder:
+      type: object
+      properties:
+        ids:
+          type: array
+          description: The workspace's space ids in their new order (no duplicates).
+          items: { type: string, format: uuid }
+          minItems: 1
+          maxItems: 200
+      required: [ids]
+
+    SpaceDeleteInput:
+      type: object
+      description: Optional body of `DELETE /spaces/{id}`.
+      properties:
+        moveProfilesTo:
+          type: string
+          format: uuid
+          description: Where this space's profiles go. Required when it has any.
+
+    SpaceMemberInput:
+      type: object
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: A non-admin member of the workspace.
+        role:
+          description: Their role in this space, or null to take them out of it.
+          oneOf:
+            - type: "null"
+            - type: string
+              enum: [viewer, editor]
+      required: [userId, role]
+
+    SpaceAccess:
+      type: object
+      description: The "Members & access" view of one space (admin only).
+      properties:
+        space:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+            icon: { type: [string, "null"] }
+            workspaceId: { type: string, format: uuid }
+          required: [id, name, icon, workspaceId]
+        members:
+          type: array
+          description: Every workspace member, the owner first.
+          items:
+            type: object
+            properties:
+              userId: { type: string, format: uuid }
+              name: { type: [string, "null"] }
+              email: { type: [string, "null"] }
+              workspaceRole: { type: string, enum: [viewer, editor, admin] }
+              spaceRole:
+                description: Their role in this space; null when not in it — and always null for admins, who see every space.
+                oneOf:
+                  - type: "null"
+                  - type: string
+                    enum: [viewer, editor]
+              isOwner: { type: boolean }
+            required: [userId, name, email, workspaceRole, spaceRole, isOwner]
+        profiles:
+          type: array
+          description: The space's profiles, in sidebar order.
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              icon: { type: [string, "null"] }
+            required: [id, name, icon]
+        overrides:
+          type: array
+          description: Per-profile overrides on this space's profiles (members only).
+          items:
+            type: object
+            properties:
+              profileId: { type: string, format: uuid }
+              userId: { type: string, format: uuid }
+              access: { $ref: "#/components/schemas/ProfileAccessLevel" }
+            required: [profileId, userId, access]
+        canEditOverrides:
+          type: boolean
+          description: Whether the plan lets overrides be changed (Plus/Pro). Existing ones always apply.
+      required: [space, members, profiles, overrides, canEditOverrides]
+
+    Organization:
+      type: object
+      description: The caller's personal organisation (6.5.0).
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 40 }
+        kind: { type: string, enum: [personal, business], description: Always `personal` today. }
+        owner:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: [string, "null"] }
+            email: { type: [string, "null"] }
+          required: [id, name, email]
+        workspaces:
+          type: array
+          description: The workspaces in the organisation, oldest first.
+          items:
+            type: object
+            properties:
+              id: { type: string, format: uuid }
+              name: { type: string }
+              icon: { type: [string, "null"] }
+              plan: { $ref: "#/components/schemas/Plan" }
+              grandfathered: { type: boolean }
+              readOnly:
+                type: boolean
+                description: An extra free workspace past its grace period — view-only until it upgrades.
+              canOpen:
+                type: boolean
+                description: Whether the caller can open it (send it as `X-Workspace-Id`).
+            required: [id, name, icon, plan, grandfathered, readOnly, canOpen]
+      required: [id, name, kind, owner, workspaces]
+
+    OrganizationPatch:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40, description: Trimmed. }
+      required: [name]
+
+    Meter:
+      type: object
+      description: A counted limit — how much is in use against the plan's cap.
+      properties:
+        used: { type: integer }
+        limit: { type: integer }
+      required: [used, limit]
+
+    Usage:
+      type: object
+      description: >
+        The current workspace's plan, limits and usage (6.5.0). Limits gate
+        adding, never existing data, so `used` can exceed `limit` (a
+        grandfathered workspace, or one after a downgrade) — it just can't add
+        more until it's back under.
+      properties:
+        plan: { $ref: "#/components/schemas/Plan" }
+        grandfathered: { type: boolean, description: Existed before plans. }
+        inGrace:
+          type: boolean
+          description: A grandfathered workspace still inside its grace period (keeps features like voice running).
+        readOnly:
+          type: boolean
+          description: >
+            An extra free workspace past its grace period: view-only. Writes
+            inside a profile and adds of profiles, spaces, categories and tags
+            get `403 plan_limit` (`freeWorkspaces`).
+        ai:
+          type: object
+          description: The monthly AI allowance (parse + transcribe), shared by the workspace.
+          properties:
+            used: { type: integer, description: AI actions counted this calendar month (UTC). }
+            limit: { type: integer, description: The plan's monthly allowance. }
+            remaining: { type: integer, description: "max(0, limit - used)." }
+            topUpRemaining: { type: integer, description: Top-up actions left (0 until top-ups exist). }
+            resetsAt: { type: string, format: date-time, description: When the allowance refills — the first instant of next month (UTC). }
+          required: [used, limit, remaining, topUpRemaining, resetsAt]
+        storage:
+          type: object
+          description: Vault files + transaction attachments, workspace-wide (same as `GET /files` → `meta.storage`).
+          properties:
+            usedBytes: { type: integer, format: int64 }
+            limitBytes: { type: integer, format: int64 }
+          required: [usedBytes, limitBytes]
+        members:
+          description: People with access, the owner and pending invites included.
+          allOf: [{ $ref: "#/components/schemas/Meter" }]
+        spaces: { $ref: "#/components/schemas/Meter" }
+        categories:
+          description: The seeded defaults count.
+          allOf: [{ $ref: "#/components/schemas/Meter" }]
+        tags: { $ref: "#/components/schemas/Meter" }
+        profilesPerSpace:
+          type: integer
+          description: The per-space profile cap (compare with each `Space.profileCount`).
+        voice: { type: boolean, description: Whether voice entry (`POST /ai/transcribe`) is available. }
+        profileLevelAccess: { type: boolean, description: Whether per-profile overrides can be changed (Plus/Pro). }
+      required: [plan, grandfathered, inGrace, readOnly, ai, storage, members, spaces,
+                 categories, tags, profilesPerSpace, voice, profileLevelAccess]
 
     Summary:
       type: object
@@ -2832,12 +3730,21 @@ components:
         text:
           type: string
           minLength: 1
-          maxLength: 2000
-          description: The free-text note to parse (trimmed server-side).
+          maxLength: 3000
+          description: The free-text note to parse (trimmed server-side). The cap was 2000 before 6.5.0.
         timezone:
           type: string
           description: IANA zone (e.g. Asia/Kolkata) anchoring "today" for relative dates. Send the device zone; omitted → UTC.
           example: Asia/Kolkata
+        source:
+          type: string
+          enum: [typed, voice]
+          default: typed
+          description: >
+            Where the note came from (6.5.0). `voice` = a transcript from
+            `POST /ai/transcribe`: free when the caller has an unclaimed paid
+            transcription in this workspace from the last 15 minutes, charged
+            like `typed` (one AI action) otherwise. Any other value → 422.
       required: [text]
 
     AiDraft:

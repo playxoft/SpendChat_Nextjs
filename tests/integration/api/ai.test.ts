@@ -7,16 +7,21 @@ import { AI_REQUESTS_PER_HOUR } from "@/lib/ai-quota";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
 import * as ws from "@/services/workspaces";
 import { signInAs, uid } from "../helpers/session";
-import { bootstrapUser, workspaceIdOf } from "../helpers/seed";
+import { bootstrapUser, setWorkspacePlan, workspaceIdOf } from "../helpers/seed";
 import { getTestDb } from "../helpers/test-db";
 import { apiReq, jsonBody } from "./helpers";
 import type { NextRequest } from "next/server";
 
 /**
  * The two AI endpoints cost real money per call, so what's asserted here is the
- * *gate order*, not the model output: cheap local checks → editor role → hourly
- * quota → provider. A denied caller must never reach `fetch`, and must never
- * consume a quota slot that belongs to someone who was allowed.
+ * *gate order*, not the model output: cheap local checks → editor role → (voice:
+ * the Pro plan gate) → hourly quota → monthly allowance → provider. A denied
+ * caller must never reach `fetch`, and must never consume a quota slot that
+ * belongs to someone who was allowed. The allowance itself — what each call
+ * charges — is covered in `ai-allowance.test.ts`.
+ *
+ * Voice is Pro-only, and bootstrap creates Free workspaces, so every test that
+ * means to get a transcription past the plan gate puts the workspace on Pro.
  *
  * `fetch` is stubbed with a throwing spy throughout — every test that expects a
  * rejection also asserts it was never called, which is the part that actually
@@ -126,20 +131,41 @@ describe("/api/v1/ai — gating before the provider", () => {
     expect(await quotaUsed("b")).toBe(0);
   });
 
+  it("403s voice on a Free workspace with plan_limit, before the quota", async () => {
+    const fetchSpy = noProviderCalls();
+    signInAs("a");
+    await bootstrapUser("a");
+
+    const res = await transcribe(audioReq(SPEECH));
+    expect(res.status).toBe(403);
+    const { error } = await res.json();
+    expect(error.code).toBe("plan_limit");
+    expect(error.details).toMatchObject({ limit: "voice", plan: "free", upgradeTo: "pro" });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await quotaUsed("a")).toBe(0);
+  });
+
   it("503s an editor when no model is configured — after the gates, not before", async () => {
     const fetchSpy = noProviderCalls();
     vi.stubEnv("AI_TRANSCRIBE_MODEL", "");
     vi.stubEnv("AI_TRANSCRIBE_MODEL_CURRENT", "");
     signInAs("a");
     await bootstrapUser("a");
+    await setWorkspacePlan(await workspaceIdOf("a"), "pro");
 
     const res = await transcribe(audioReq(SPEECH));
     expect(res.status).toBe(503);
     expect((await res.json()).error.code).toBe("ai_unavailable");
     expect(fetchSpy).not.toHaveBeenCalled();
-    // The slot is still spent: the caller was allowed, and the gates ran in
-    // order. Only the operator's missing config stopped it.
+    // The hourly slot is still spent: the caller was allowed, and the gates ran
+    // in order. Only the operator's missing config stopped it — so the monthly
+    // AI action it was charged is given back (the row stays, at 0 units).
     expect(await quotaUsed("a")).toBe(1);
+    const [row] = await getTestDb()
+      .select({ units: aiUsageLog.units, kind: aiUsageLog.kind })
+      .from(aiUsageLog)
+      .where(eq(aiUsageLog.userId, uid("a")));
+    expect(row).toEqual({ units: 0, kind: "voice_transcribe_failed" });
   });
 
   it("429s once the hourly budget is gone, without reaching the provider", async () => {
@@ -147,6 +173,7 @@ describe("/api/v1/ai — gating before the provider", () => {
     signInAs("a");
     await bootstrapUser("a");
     const W = await workspaceIdOf("a");
+    await setWorkspacePlan(W, "pro");
 
     // Fill the budget directly — the pool is one per user, shared across kinds.
     await getTestDb()
@@ -170,6 +197,7 @@ describe("/api/v1/ai — gating before the provider", () => {
     signInAs("a");
     await bootstrapUser("a");
     const W = await workspaceIdOf("a");
+    await setWorkspacePlan(W, "pro");
 
     // Leave exactly one slot, then ask for twelve.
     //

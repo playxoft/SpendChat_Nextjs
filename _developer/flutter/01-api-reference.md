@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.4.0.** Every API change bumps this version and is logged
+**API spec version: 6.5.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -39,8 +39,10 @@ Every JSON response uses one of two shapes:
 ```
 
 - Branch on the **HTTP status**, then read `error.code` for the machine reason,
-  `error.message` for display, and `error.details` (a flat `{ field → message }`
-  map) for form validation. Only the **first** issue per field is included.
+  `error.message` for display, and `error.details` — a flat `{ field → message }`
+  map for form validation (only the **first** issue per field is included), or
+  a `PlanLimitDetails` object on `plan_limit` / `storage_quota_exceeded` (§1 ·
+  Plan limits).
 - Unwrap `data` in **one place** (a dio interceptor / response layer). Analytics
   and list endpoints also return `meta` — surface both.
 
@@ -51,12 +53,13 @@ Every JSON response uses one of two shapes:
 | `bad_request` | 400 | Malformed JSON body; wrong confirm string |
 | `unauthorized` | 401 | Missing/invalid/expired bearer token |
 | `forbidden` | 403 | Email not verified; RBAC role too low; no writable profile |
+| `plan_limit` | 403 | The workspace's **plan** doesn't allow this — a cap is reached or the feature is on a higher plan; also writes into a view-only workspace. `details` = `PlanLimitDetails` (see below). Since 6.5.0. |
 | `not_found` | 404 | Resource / workspace / profile not accessible to the caller |
 | `conflict` | 409 | Duplicate name; last profile; non-empty profile delete; email already registered with a different sign-in method (unverified email only — see § Authentication) |
 | `validation_error` | 422 | Zod validation failed (`details` = field→message) |
 | `rate_limited` | 429 | Shared per-user AI quota spent (30 calls/hour across `/ai/*`) |
 | `payload_too_large` | 413 | An uploaded attachment file exceeds 5 MB, or the whole request body is larger than the endpoint's limits could ever allow (rejected from `Content-Length`, before the body is read) |
-| `storage_quota_exceeded` | 413 | The upload would push the workspace past its 1 GB storage quota (message says how much space remains — displayable as-is) |
+| `storage_quota_exceeded` | 413 | The upload would push the workspace past its plan's storage — 1 / 5 / 20 GB on Free / Plus / Pro (message says how much space remains — displayable as-is; since 6.5.0 `details` is a `PlanLimitDetails` with `limit: "storage"`) |
 | `ai_failed` | 502 | The upstream AI model provider errored — retry is reasonable |
 | `ai_unavailable` | 503 | That AI feature's model isn't configured on the server (feature off) |
 | `storage_unavailable` | 503 | File storage (R2) isn't configured on the server (attachments off) |
@@ -72,7 +75,54 @@ Every JSON response uses one of two shapes:
 - **403 `forbidden`** = you *can see it* but your role is too low for the action.
 
 The client should treat these differently: 404 → "not found / no access", 403 →
-"you don't have permission" (and hide the action for viewers).
+"you don't have permission" (and hide the action for viewers). A 403 whose
+`error.code` is **`plan_limit`** is different again: the role is fine, the
+**plan** isn't — offer the upgrade (below), never "ask an admin".
+
+### Plan limits (`403 plan_limit`, since 6.5.0)
+
+Every workspace has a **plan** — `free`, `plus` or `pro` (`Workspace.plan`) —
+and every limit belongs to the workspace, shared by everyone in it. When an
+action would go past one, the server answers **403** with
+`error.code = "plan_limit"`, a message that is safe to display as-is, and:
+
+```jsonc
+"details": {
+  "limit": "spaces",        // PlanLimitKey — which limit (pick the upgrade copy from it)
+  "plan": "free",           // the workspace's plan right now
+  "max": 2,                 // the cap, when it's a number (bytes for storage) — absent for feature gates
+  "used": 2,                // how much is in use, when it's a number — absent for feature gates
+  "upgradeTo": "plus"       // the cheapest plan that lifts it; null → "contact us"
+}
+```
+
+| `limit` | Free / Plus / Pro | Returned by |
+|---|---|---|
+| `members` | 3 / 5 / 10 people (invites count) | The web's invite flow — v1 has no member endpoints |
+| `spaces` | 2 / 6 / 15 (the default space counts) | `POST /spaces` |
+| `profilesPerSpace` | 3 / 5 / 10 per space | `POST /profiles`, `POST /profiles/{id}/space`, `DELETE /spaces/{id}` with a move |
+| `categories` | 20 / 30 / 50 (the seeded defaults count) | `POST /categories` |
+| `tags` | 5 / 10 / 20 | `POST /tags` |
+| `storage` | 1 / 5 / 20 GB | **413 `storage_quota_exceeded`** (not 403) on `POST /files` and `POST /transactions/{id}/attachments` — same `details` |
+| `aiActions` | 50 / 300 / 1,000 per UTC calendar month | `POST /ai/parse`, `POST /ai/transcribe` |
+| `voice` | Pro only (and grandfathered workspaces in their grace period) | `POST /ai/transcribe` |
+| `profileLevelAccess` | Plus / Pro | `PUT /profiles/{id}/overrides` |
+| `freeWorkspaces` | one free workspace per person | `POST /workspaces`; writes into a view-only workspace — any endpoint that adds or edits data (below) |
+
+Limits gate **adding**, never existing data: a workspace over a cap (it was
+grandfathered, or it downgraded) keeps everything and just can't add another
+until it's back under. `GET /usage` reports every limit and how much of it is
+used, so the app can show the upgrade before the server has to refuse.
+
+**View-only workspaces.** A person gets one free workspace. An extra free one
+(left over from before plans, or after a downgrade) turns **view-only** once its
+grace period ends: `GET /usage` → `readOnly: true` (and
+`GET /organization` → `workspaces[].readOnly`), every profile in it reports
+`access: "read"`, and writes are refused with `403 plan_limit`,
+`limit: "freeWorkspaces"` — anything inside a profile (transactions,
+attachments, vault files, profile edits) and every add at workspace level
+(profiles, spaces, categories, tags). Render such a workspace read-only up
+front rather than waiting for the error.
 
 ---
 
@@ -122,9 +172,10 @@ attribution).
 - Send **`X-Workspace-Id: <uuid>`** to pick the workspace. Endpoints that honour
   it: `/me`, **all** `transactions` endpoints (list/create/bulk/export,
   single-item get/patch/delete, delete-all), `analytics/*`, `profiles`
-  list/create/reorder. Single-transaction ops are scoped to the current
-  workspace: an id from another of the user's workspaces is a **404**.
-  (Profile item-level mutations resolve access by profile role instead.)
+  list/create/reorder, **all** `spaces` endpoints, and `/usage`.
+  Single-transaction and single-space ops are scoped to the current workspace:
+  an id from another of the user's workspaces is a **404**. (Profile
+  item-level endpoints resolve access by profile role instead.)
 - **If absent:** the server uses the user's `lastWorkspaceId`, else their first
   accessible workspace. Bootstrap guarantees ≥1.
 - **Unknown / inaccessible id → 404** `not_found` "Workspace not found".
@@ -137,7 +188,15 @@ attribution).
 - **Create a workspace** with **`POST /workspaces`** `{ name }` — the caller
   becomes its **admin** and a default "Personal" profile is seeded. The server
   makes it the current workspace (persists `lastWorkspaceId`); pin the returned
-  id as `X-Workspace-Id` and re-fetch `/me` + data.
+  id as `X-Workspace-Id` and re-fetch `/me` + data. A new workspace is on the
+  **Free** plan, and a person gets one free workspace — a second is
+  `403 plan_limit` (`freeWorkspaces`).
+- **Hierarchy (6.5.0):** organisation → workspace → space → profile. Every
+  account has one personal **organisation** (`GET /organization`) holding the
+  workspaces it owns; each workspace has a **plan** (`plan` on the workspace
+  object) and its profiles live in **spaces** (`Profile.spaceId`,
+  `GET /spaces`). The space is the unit of sharing: admins see every space,
+  other members see the spaces they're in, at that space's role.
 
 `role` is `viewer | editor | admin | null` (null = access via a per-profile grant
 only). See [08-settings.md](./08-settings.md) § Workspaces for RBAC and what's in
@@ -343,9 +402,92 @@ separately. Resolve `tagIds` against the `tags` list client-side.
   "icon": "👤" | null,
   "color": "#…" | null,        // exists but no UI sets it
   "sortOrder": 0,
+  "spaceId": "uuid",           // the space it lives in (6.5.0)
+  "access": "read" | "write" | "admin",  // the caller's effective access (6.5.0)
   "createdAt": "…", "updatedAt": "…"
 }
 ```
+`access` is resolved from the workspace role, the space role, any per-profile
+override and any per-profile grant: `read` = viewer (see it), `write` = editor
+(add/edit its transactions and files), `admin` = manage the profile. In a
+view-only workspace every profile is `read`. Drive per-profile actions from it
+rather than from the workspace `role`.
+
+### Space (6.5.0)
+```jsonc
+{
+  "id": "uuid",
+  "name": "Main",              // ≤ 30 chars, unique per workspace
+  "icon": "🗂️" | null,
+  "position": 0,               // order within the workspace
+  "profileCount": 1,           // every profile in the space (what the per-space cap counts)
+  "role": "admin" | "editor" | "viewer" | null
+}
+```
+`role` is `admin` for workspace admins (who see every space), otherwise the
+caller's space role — or `null` when the space is visible only because they
+reach one of its profiles another way (an override or a per-profile grant).
+
+### SpaceAccess (6.5.0, admin only)
+```jsonc
+{
+  "space": { "id": "uuid", "name": "Main", "icon": "🗂️" | null, "workspaceId": "uuid" },
+  "members": [                 // every workspace member, owner first
+    { "userId": "uuid", "name": "Ada" | null, "email": "a@b.com" | null,
+      "workspaceRole": "admin" | "editor" | "viewer",
+      "spaceRole": "editor" | "viewer" | null,   // null = not in the space; always null for admins
+      "isOwner": true }
+  ],
+  "profiles": [ { "id": "uuid", "name": "Personal", "icon": "👤" | null } ],
+  "overrides": [ { "profileId": "uuid", "userId": "uuid", "access": "none" | "read" | "write" } ],
+  "canEditOverrides": false    // the plan lets overrides be changed (Plus/Pro); existing ones always apply
+}
+```
+
+### ProfileOverride (6.5.0)
+```jsonc
+{ "userId": "uuid", "access": "none" | "read" | "write" }
+```
+An override replaces a member's space role on one profile: `none` hides it
+inside their space; `read` / `write` open it even in a space they're not in.
+
+### Organization (6.5.0)
+```jsonc
+{
+  "id": "uuid",
+  "name": "Ada's organisation",          // ≤ 40 chars
+  "kind": "personal",                    // "business" is reserved for later
+  "owner": { "id": "uuid", "name": "Ada" | null, "email": "a@b.com" | null },
+  "workspaces": [                        // the workspaces in it, oldest first
+    { "id": "uuid", "name": "Ada's Workspace", "icon": "🏢" | null,
+      "plan": "free" | "plus" | "pro", "grandfathered": false,
+      "readOnly": false,                 // an extra free workspace past its grace period
+      "canOpen": true }                  // the caller can open it (send as X-Workspace-Id)
+  ]
+}
+```
+
+### Usage (6.5.0, from `GET /usage`)
+```jsonc
+{
+  "plan": "free" | "plus" | "pro",
+  "grandfathered": false,      // existed before plans
+  "inGrace": false,            // grandfathered and still inside the grace period
+  "readOnly": false,           // view-only (extra free workspace) — render read-only
+  "ai": { "used": 12, "limit": 50, "remaining": 38, "topUpRemaining": 0,
+          "resetsAt": "2026-11-01T00:00:00.000Z" },   // first instant of next month, UTC
+  "storage": { "usedBytes": 52428800, "limitBytes": 1073741824 },
+  "members":    { "used": 1, "limit": 3 },   // people incl. pending invites
+  "spaces":     { "used": 1, "limit": 2 },
+  "categories": { "used": 15, "limit": 20 }, // seeded defaults count
+  "tags":       { "used": 0, "limit": 5 },
+  "profilesPerSpace": 3,       // compare with each Space.profileCount
+  "voice": false,              // POST /ai/transcribe available
+  "profileLevelAccess": false  // per-profile overrides can be changed
+}
+```
+`used` can exceed `limit` (a grandfathered or downgraded workspace keeps what
+it has) — it just can't add more until it's back under.
 
 ### Settings
 User-level settings that follow the user across every workspace. **Currency and
@@ -371,7 +513,10 @@ once — that's what makes code-mixed speech ("groceries-க்கு 500 rupees
   "role": "admin" | "editor" | "viewer" | null,
   "currency": "USD",
   "locale": "en-US",
-  "currencyDetail": { "code": "USD", "symbol": "$", "decimals": 2 }
+  "currencyDetail": { "code": "USD", "symbol": "$", "decimals": 2 },
+  "plan": "free" | "plus" | "pro",     // 6.5.0 — limits are per workspace (GET /usage)
+  "organizationId": "uuid",            // 6.5.0 — the organisation holding it
+  "grandfathered": false               // 6.5.0 — existed before plans; keeps what it had during the grace period
 }
 ```
 
@@ -419,7 +564,10 @@ profile.
 - List pagination adds `{ "total", "limit", "offset", "currency" }`.
 - `GET /files` adds `{ "storage": { "usedBytes", "limitBytes" } }` — the
   workspace's stored bytes (vault files + transaction attachments) against its
-  1 GB quota. Workspace-wide even when `?profile=` scopes the list.
+  quota. `limitBytes` is the workspace **plan's** storage — 1 / 5 / 20 GB on
+  Free / Plus / Pro (a flat 1 GB before 6.5.0), the same value as
+  `GET /usage` → `storage.limitBytes`. Workspace-wide even when `?profile=`
+  scopes the list.
 
 ### VersionInfo (from `GET /version`)
 ```jsonc
@@ -468,9 +616,20 @@ the debug/about screen so a bug report names the exact deploy, and link
 ### Workspaces
 | Method & path | Body | Success | Notes |
 |---|---|---|---|
-| `GET /workspaces` | — | 200 `data: WorkspaceSummary[]` | Every workspace the user can open (for a switcher). **Ignores `X-Workspace-Id`; never 404s.** Memberships first (`createdAt asc`), then grant-only (`role: null`). Always ≥1. Item shape = the `Workspace` object (`{ id, name, icon, role, currency, locale, currencyDetail }`, same as `/me`'s `workspace`). |
-| `POST /workspaces` | `WorkspaceInput` `{ name, icon? }` | 201 `data: WorkspaceSummary` | Caller becomes **admin** (`role` always `"admin"`); seeds a default "Personal" profile + the default category list; inherits the creator's current currency/number format; becomes the current workspace (server persists `lastWorkspaceId`). `icon` is an optional emoji (omitted/empty → default 🏢). Ignores `X-Workspace-Id`. 400 bad JSON; 422 blank/long name. |
+| `GET /workspaces` | — | 200 `data: WorkspaceSummary[]` | Every workspace the user can open (for a switcher). **Ignores `X-Workspace-Id`; never 404s.** Memberships first (`createdAt asc`), then grant-only (`role: null`). Always ≥1. Item shape = the `Workspace` object (`{ id, name, icon, role, currency, locale, currencyDetail, plan, organizationId, grandfathered }`, same as `/me`'s `workspace`). |
+| `POST /workspaces` | `WorkspaceInput` `{ name, icon? }` | 201 `data: WorkspaceSummary` | Caller becomes **admin** (`role` always `"admin"`); seeds a default "Personal" profile + the default category list; inherits the creator's current currency/number format; becomes the current workspace (server persists `lastWorkspaceId`). `icon` is an optional emoji (omitted/empty → default 🏢). Ignores `X-Workspace-Id`. Starts on **Free**; a caller who already owns a free workspace gets **403 `plan_limit`** (`freeWorkspaces`, `max: 1`, `upgradeTo: "plus"`) and nothing is created. 400 bad JSON; 422 blank/long name. |
 | `PATCH /workspaces/{id}` | `WorkspaceCurrencyPatch` `{ currency, locale }` | 200 `data: WorkspaceSummary` | Set the workspace's currency + number format (every member sees it). **Admin only** → 403 otherwise. Uses the path `id`, not `X-Workspace-Id`. 400; 404; 422 unsupported currency. |
+
+### Organization (6.5.0 — ignores `X-Workspace-Id`)
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `GET /organization` | — | 200 `data: Organization` | The caller's personal organisation (every account has exactly one, created at first sign-in): name, owner, and every workspace in it with its `plan`, `grandfathered`, `readOnly` and `canOpen`. |
+| `PATCH /organization` | `{ name }` (1–40, trimmed) | 200 `data: Organization` | Rename it (the caller owns it by definition). 400 bad JSON; 422 blank/long name. |
+
+### Usage (6.5.0 — current workspace via `X-Workspace-Id`)
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `GET /usage` | — | 200 `data: Usage` | The workspace's plan, every limit and how much is used (AI actions this month, storage, members, spaces, categories, tags), the per-space profile cap, and the `voice` / `profileLevelAccess` feature flags. `readOnly: true` → render the workspace view-only. Readable by anyone who can open the workspace. |
 
 ### Transactions
 | Method & path | Body | Success | Notes / errors |
@@ -489,9 +648,9 @@ Access is inherited from the transaction's profile: **viewer** to see/fetch,
 **editor** to upload/edit/delete. Metadata is embedded on every `Transaction`
 (`attachments`); these endpoints manage it and mint download URLs. Limits: **2
 files per transaction**, **5 MB per file**, types JPEG/PNG/WebP/GIF/PDF/Word/
-Excel/CSV/plain text — and uploads count toward the workspace's **1 GB storage
-quota** (shared with the files vault; 413 `storage_quota_exceeded` when the
-batch doesn't fit). `503 storage_unavailable` on all of them when the server
+Excel/CSV/plain text — and uploads count toward the workspace's **storage
+quota** (its plan's storage, 1 / 5 / 20 GB; shared with the files vault; 413
+`storage_quota_exceeded` when the batch doesn't fit, with `PlanLimitDetails`). `503 storage_unavailable` on all of them when the server
 has no file storage configured.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
@@ -515,15 +674,15 @@ treated as video (it's usually TypeScript source), and `.m4v` reports
 `video/mp4`, the container it actually is. Size is capped at **5 MB per file — client-generated previews
 included**,
 **10 files per upload**, and the
-workspace's **1 GB storage quota** (vault files + transaction attachments
-together; 413 `storage_quota_exceeded` when the batch doesn't fit —
-`GET /files` reports usage in `meta.storage`). The predefined
+workspace's **storage quota** — its plan's storage, 1 / 5 / 20 GB (vault files
++ transaction attachments together; 413 `storage_quota_exceeded` when the batch
+doesn't fit — `GET /files` reports usage in `meta.storage`). The predefined
 **"Transaction attachments"** folder (`system: true`, one per profile) accepts
 only color + tags — rename/move/delete/share/upload-into are 400s.
 `503 storage_unavailable` on upload/url when file storage isn't configured.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit, storage }` | The whole working set in one call (mirrors the web page load). Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. `storage` = workspace usage vs the 1 GB quota (see § meta). Also lazily creates the predefined folder for each profile the caller can **write** to — a viewer's read never creates rows, so a view-only user may not see it until an editor opens the vault (their transaction files are still returned in `transactionFiles`). |
+| `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit, storage }` | The whole working set in one call (mirrors the web page load). Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. `storage` = workspace usage vs the plan's storage (see § meta). Also lazily creates the predefined folder for each profile the caller can **write** to — a viewer's read never creates rows, so a view-only user may not see it until an editor opens the vault (their transaction files are still returned in `transactionFiles`). |
 | `POST /files` | **multipart** — `profileId` (required), `folderId?`, files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. `<index>` counts file parts in send order (`files` before `file`) and is **not** renumbered around non-file parts. 400 no files / > 10 / predefined-folder destination; **413** file **or preview** > 5 MB (`payload_too_large`) or workspace quota exceeded (`storage_quota_exceeded`); 404 profile/folder not reachable |
 | `PATCH /files/{id}` | `{ name?, category?, tagIds?, folderId? }` (≥1; `category: null` clears, `folderId: null` → root) | 200 `data: VaultFile` | Editor. 400 "Nothing to update"; 422; 404 |
 | `DELETE /files/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Removes the stored object, its preview object, and share links to it. 422 non-UUID; 404 |
@@ -541,13 +700,22 @@ only color + tags — rename/move/delete/share/upload-into are 400s.
 
 ### AI (assisted entry — both endpoints cost money server-side, so they're extra-gated)
 Both require the **editor** role (403 for viewers — hide the UI) and share a
-per-user quota of **30 calls/hour** (429 `rate_limited`). `503 ai_unavailable` =
-that feature's model isn't configured (treat as feature-off, like the web);
-`502 ai_failed` = provider hiccup, offer retry. Neither writes anything.
+per-user quota of **30 calls/hour** (429 `rate_limited`, checked first). Since
+6.5.0 both also spend the workspace's **monthly AI allowance** — 50 / 300 /
+1,000 AI actions per UTC calendar month on Free / Plus / Pro (`GET /usage` →
+`ai`); once it's spent the call is **403 `plan_limit`**, `limit: "aiActions"`,
+until `ai.resetsAt`. A typed parse costs one action; a transcription costs one
+per started minute of the clip and also pays for parsing its transcript (send
+that parse with `source: "voice"`). Voice entry is **Pro** (and grandfathered
+workspaces in their grace period) — elsewhere transcribe is **403
+`plan_limit`**, `limit: "voice"`. `503 ai_unavailable` = that feature's model
+isn't configured (treat as feature-off, like the web); `502 ai_failed` =
+provider hiccup, offer retry — a call that fails on our side gives its actions
+back. Neither writes any user data.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `POST /ai/parse` | `{ text, timezone? }` — text ≤ 2000 chars; timezone = IANA device zone (omitted → UTC) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `/Category` picks a category (slash + a letter; a slash between digits is a date), `#Tag` tags it (hash + a letter, repeatable, max 10), `(parens)` → description, relative dates resolve against `timezone`. Since 6.4.0 the model **also infers** tags, so a draft may carry one the note never named — always a real workspace tag, and the user drops it in review. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…") |
-| `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) | 200 `data: { text }` | Voice note → transcript (≤ 1200 chars) for the composer; user fixes it, then it goes through `/ai/parse` like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB (~1 min — cap recording at 60 s). Languages guided by `settings.voiceLanguages`; amounts come back as digits. **413** when the request's `Content-Length` alone exceeds 4 MB (refused before the body is read); 400 bad/empty/oversized audio or no speech — a 400 on format/size/emptiness costs **no quota slot** (those checks precede the role + quota gates), so retrying is free. 413 and 400 mean the same thing here (recording too long) and differ only in whether the client declared its size |
+| `POST /ai/parse` | `{ text, timezone?, source? }` — text ≤ 3000 chars (2000 before 6.5.0); timezone = IANA device zone (omitted → UTC); `source` = `typed` (default) \| `voice` (6.5.0; anything else → 422) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `/Category` picks a category (slash + a letter; a slash between digits is a date), `#Tag` tags it (hash + a letter, repeatable, max 10), `(parens)` → description, relative dates resolve against `timezone`. Since 6.4.0 the model **also infers** tags, so a draft may carry one the note never named — always a real workspace tag, and the user drops it in review. **Cost:** one AI action; a `source: "voice"` parse is free when the caller has an unclaimed paid transcription in this workspace from the last 15 minutes (each paid clip covers one), else charged like a typed note. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…"); 403 `plan_limit` `aiActions` |
+| `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) + `durationMs` (6.5.0, integer ms) | 200 `data: { text }` | Voice note → transcript (≤ 2400 chars) for the composer; user fixes it, then it goes through `/ai/parse` (with `source: "voice"`) like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB and up to **2 minutes** (cap recording at 120 s; 60 s before 6.5.0). **Cost:** one AI action per started minute of `durationMs` (clamped to 120000; 61 s → 2); omitted → charged as a full two minutes, so always send it; malformed/negative → 400. **403 `plan_limit`** `voice` off Pro, `aiActions` when the allowance is spent. Languages guided by `settings.voiceLanguages`; amounts come back as digits. **413** when the request's `Content-Length` alone exceeds 4 MB (refused before the body is read); 400 bad/empty/oversized audio or no speech — a 400 on format/size/emptiness costs **no quota slot** (those checks precede the role + quota gates), so retrying is free. 413 and 400 mean the same thing here (recording too long) and differ only in whether the client declared its size |
 
 ### Categories (scoped to the current workspace via `X-Workspace-Id`)
 Shared by every member of the workspace. Reads need workspace access; writes
@@ -556,14 +724,15 @@ the list.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `GET /categories` | — | 200 `data: Category[]` | The current workspace's list, `kind asc, name asc` (income first). |
-| `POST /categories` | `CategoryInput` `{ name, kind, icon? }` | 201 `data: Category` | Editor+ (403 for viewer). 422; 409 "A category with that name already exists" (unique per workspace+kind) |
+| `POST /categories` | `CategoryInput` `{ name, kind, icon? }` | 201 `data: Category` | Editor+ (403 for viewer). 422; 409 "A category with that name already exists" (unique per workspace+kind); **403 `plan_limit`** `categories` at the plan's cap (20 / 30 / 50 — the seeded defaults count; deleting one frees a slot) |
 | `PATCH /categories/{id}` | `{ name?, icon? }` | 200 `data: Category` | Editor+ (403). 422; 404 "Category not found"; 409 duplicate name |
 | `DELETE /categories/{id}` | — | 200 `data: { id, deleted: true }` | Editor+ (403). Referencing transactions get `categoryId = null`. 422; 404 |
 
 ### Tags (scoped to the current workspace via `X-Workspace-Id`)
 Transaction tags: shared by every member of the workspace. Reads need workspace
 access; writes require the **editor** role (viewer → 403). A new workspace
-starts with **no** tags (unlike categories, which are seeded).
+starts with **no** tags (unlike categories, which are seeded). The plan caps
+tags per workspace (5 / 10 / 20 on Free / Plus / Pro).
 
 Transactions reference tags by id, so a rename or recolor here shows on every
 transaction carrying it without touching a transaction.
@@ -571,20 +740,39 @@ transaction carrying it without touching a transaction.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `GET /tags` | — | 200 `data: Tag[]` | The current workspace's list, ordered by `lower(name)`. |
-| `POST /tags` | `TagInput` `{ name, color }` | 201 `data: Tag` | Editor+ (403 for viewer). 422; 409 "A tag with that name already exists" (unique per workspace, case-insensitive); 409 "This workspace already has 100 tags" |
+| `POST /tags` | `TagInput` `{ name, color }` | 201 `data: Tag` | Editor+ (403 for viewer). 422; 409 "A tag with that name already exists" (unique per workspace, case-insensitive); **403 `plan_limit`** `tags` at the plan's cap (5 / 10 / 20); 409 "This workspace already has 100 tags" (a hard ceiling only a workspace already over its plan can reach) |
 | `PATCH /tags/{id}` | `{ name?, color? }` | 200 `data: Tag` | Editor+ (403). 422 (including an empty body — "Nothing to update"); 404 "Tag not found"; 409 duplicate name |
 | `DELETE /tags/{id}` | — | 200 `data: { id, deleted: true }` | Editor+ (403). Deletes the tag **and** removes its id from every transaction in the workspace, in one database transaction. 422 (non-uuid id); 404 |
 
 ### Profiles (RBAC: 404 = no access, 403 = role too low)
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /profiles` | — | 200 `data: Profile[]` | Accessible profiles in workspace, `sortOrder asc, createdAt asc` |
-| `POST /profiles` | `ProfileInput` `{ name, icon?, color? }` | 201 `data: Profile` | Requires **admin**. 422; 409 duplicate name; 403/404 |
-| `PATCH /profiles/{id}` | `{ name?, icon?, color? }` | 200 `data: Profile` | Requires **admin** on the profile. 422; 404; 409; 403 |
+| `GET /profiles` | — | 200 `data: Profile[]` | Accessible profiles in workspace, `sortOrder asc, createdAt asc`. Each carries `spaceId` and the caller's `access` (6.5.0). |
+| `POST /profiles` | `ProfileInput` `{ name, icon?, color?, spaceId? }` | 201 `data: Profile` | Requires **admin**. `spaceId` (6.5.0) = a space of the current workspace (404 otherwise); omitted → the first space. **403 `plan_limit`** `profilesPerSpace` when that space is full (3 / 5 / 10). 422; 409 duplicate name; 403/404 |
+| `PATCH /profiles/{id}` | `{ name?, icon?, color? }` | 200 `data: Profile` | Requires **admin** on the profile. 422; 404; 409; 403 (`plan_limit` `freeWorkspaces` in a view-only workspace) |
 | `DELETE /profiles/{id}?transactions=&to=` | — | 200 `data: { id, deleted: true }` | Requires admin. `transactions` = `delete` (remove them + their attachments), `move` (re-file under `to` first), or **`reject`, the default** — 409 "Move this profile's transactions to another profile first" while any remain. An **empty value is treated as absent** (`?transactions=` = the default; `&to=` = not given). 422 when `transactions=move` without `to`. Always **409 "You need at least one profile"** for the last one. 409 "Something was added to this profile while it was being deleted — try again" when a concurrent write lands mid-delete (nothing is changed; retry). **The profile's vault follows the same choice**: `move` re-files its files, folders, tags and share links under `to`; `delete` destroys them. A destination tag whose name matches one being moved is **merged** into it (the moved tag's id disappears). 404; 403 |
 | `GET /profiles/{id}/deletion-impact` | — | 200 `data: { transactions, files, attachments }` | Requires admin. Counts for the confirm step: `transactions` is what `?transactions=` decides the fate of; `attachments` are the receipts on those transactions and `files` the vault — all three follow the disposal, destroyed on `delete` and moved on `move`. Offer the choice whenever `transactions > 0` **or** `files > 0`. 422; 404; 403 |
 | `POST /profiles/reorder` | `{ ids: uuid[] }` (1–100, full list) | 200 `data: Profile[]` | Requires **admin** (like all profile management). 422; 403/404 |
 | `POST /profiles/{id}/move` | `{ toProfileId: uuid }` | 200 `data: { moved }` | Requires **editor** on both; same workspace. 422 "Invalid profiles" (bad/equal/cross-workspace ids); 403/404 |
+| `POST /profiles/{id}/space` | `{ spaceId: uuid }` | 200 `data: Profile` | 6.5.0. Move the profile into another space of **its** workspace (path id decides; header ignored). Workspace **admin**. Who sees it follows the new space's members, plus anyone with an override on the profile (overrides move with it). Same space → no-op. **403 `plan_limit`** `profilesPerSpace` when the destination is full; 422 malformed id/`spaceId`; 404 space not in that workspace |
+| `GET /profiles/{id}/overrides` | — | 200 `data: ProfileOverride[]` | 6.5.0. Overrides on this profile, oldest first — non-admin members only (admins see everything). Workspace **admin**. 422 malformed id; 403; 404 |
+| `PUT /profiles/{id}/overrides` | `{ userId, access: "none" \| "read" \| "write" \| null }` | 200 `data: ProfileOverride[]` (after the change) | 6.5.0. Set one member's override, or clear it with `null` (back to their space role). Workspace **admin**; target must be a non-admin member (400 otherwise). **Plus/Pro only** — on Free **403 `plan_limit`** `profileLevelAccess` (existing overrides keep applying after a downgrade; only changing them is gated). 422; 404 |
+
+### Spaces (6.5.0 — current workspace via `X-Workspace-Id`)
+Profiles live in spaces; the space is the unit of sharing. Workspace admins see
+and manage every space; other members only read the spaces they're in. Item
+endpoints are **scoped to the current workspace**: an id from another
+workspace is a 404, a malformed one a 422. Everything but `GET /spaces` needs
+the workspace **admin** role (403 otherwise).
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `GET /spaces` | — | 200 `data: Space[]` | Visible spaces in `position` order. Admins: every space (`role: "admin"`). Others: their spaces at their space role, plus any space holding a profile they reach via an override/grant (`role: null`). |
+| `POST /spaces` | `{ name, icon? }` | 201 `data: Space` | Appended at the end. 409 duplicate name; **403 `plan_limit`** `spaces` at the plan's cap (2 / 6 / 15, the default space included); 422 |
+| `PATCH /spaces/{id}` | `{ name?, icon? }` (≥ 1; `icon: ""`/`null` clears) | 200 `data: Space` | 409 duplicate name; 422 |
+| `DELETE /spaces/{id}?moveProfilesTo=` | optional JSON `{ moveProfilesTo }` | 200 `data: { id, deleted: true }` | **Profiles are never deleted with a space.** Empty space → deleted. With profiles → needs `moveProfilesTo` (another space of this workspace; query param or body — the body wins; a blank `?moveProfilesTo=` = absent), else **409** "This space still has profiles — move them to another space first". The move and the delete commit together; the destination must have room (**403 `plan_limit`** `profilesPerSpace`). The **last** space → 409. Membership rows go with it. 400 same space / bad JSON; 404 destination not in this workspace |
+| `POST /spaces/reorder` | `{ ids: uuid[] }` (full ordered list, no duplicates) | 200 `data: Space[]` | 400 an id that isn't a space of this workspace; 422 duplicates |
+| `GET /spaces/{id}/access` | — | 200 `data: SpaceAccess` | Members (with their space role), the space's profiles, overrides on them, and `canEditOverrides` (Plus/Pro). |
+| `PUT /spaces/{id}/members` | `{ userId, role: "viewer" \| "editor" \| null }` | 200 `data: SpaceAccess` (after the change) | Add a workspace member to the space, change their role, or take them out (`null` — also clears their overrides on this space's profiles). Target must be a non-admin member (400 "Add them to the workspace first" / "Admins already see every space"). 422 |
 
 ### Settings
 | Method & path | Body | Success | Notes / errors |
@@ -628,23 +816,34 @@ transaction carrying it without touching a transaction.
 "…too long (max 30 characters)"), `icon?` (≤16 emoji; omitted/empty → default 🏢).
 `CategoryInput` — `name` (1–20), `kind` (income|expense), `icon?` (≤16). **No `color`.**
 `CategoryUpdate` — `name?` (1–20), `icon?` (≤16, nullable). **No `color`.**
-`ProfileInput` — `name` (1–20), `icon?` (≤16), `color?` (≤32).
+`ProfileInput` — `name` (1–20), `icon?` (≤16), `color?` (≤32), `spaceId?` (uuid, 6.5.0).
 `ProfileUpdate` — `name?` (1–20), `icon?` (≤16, nullable), `color?` (≤32, nullable).
+`ProfileSpaceMove` — `{ spaceId (uuid, required) }`.
+`ProfileOverrideInput` — `{ userId (uuid), access (none|read|write|null) }`, both required.
+`SpaceInput` — `name` (1–30, trimmed; "Space name is required" / "…too long (max 30
+characters)"), `icon?` (≤16).
+`SpaceUpdate` — `name?` (1–30), `icon?` (≤16, nullable; `""` clears); at least one
+("Nothing to update").
+`SpaceReorder` — `{ ids (uuid[], 1–200, no duplicates — "Duplicate space in order") }`.
+`SpaceMemberInput` — `{ userId (uuid), role (viewer|editor|null) }`, both required.
+`OrganizationPatch` — `{ name (1–40, trimmed; "Organisation name is required" /
+"…too long (max 40 characters)") }`.
 `SettingsPatch` — subset of `{ theme (light|dark|system),
 inputMode (amount_title|title_amount|combined), voiceLanguages (string[], each
 2–8 chars, ≤ 20 entries; normalized server-side — see § Settings) }`; at least
 one key.
 `WorkspaceCurrencyPatch` — `{ currency (one of 59 codes), locale (2–20 chars) }`;
 both required. Admin only (`PATCH /workspaces/{id}`).
-`AiParseInput` — `{ text (1–2000 chars after trim, required),
-timezone? (IANA name, e.g. "Asia/Kolkata") }`.
+`AiParseInput` — `{ text (1–3000 chars after trim, required — 2000 before 6.5.0),
+timezone? (IANA name, e.g. "Asia/Kolkata"), source? (typed|voice, 6.5.0) }`.
 `AttachmentMetaPatch` — `{ label? (≤ 80, nullable), kind?
 (receipt|bill|invoice|other, nullable) }`; at least one key.
 Attachment upload (multipart) — ≤ 2 files/transaction total, ≤ 5 MB each; types
 JPEG, PNG, WebP, GIF, PDF, doc/docx, xls/xlsx, CSV, plain text. A generic
 `application/octet-stream` part is resolved by filename extension.
 Voice upload (multipart) — one `audio` part, ≤ 4 MB, container webm/ogg/mp4/
-mpeg/wav; keep recordings ≤ 60 s.
+mpeg/wav; keep recordings ≤ 120 s (60 s before 6.5.0); `durationMs` (integer ms,
+≥ 0; clamped to 120000) — send it, or the clip is charged as two minutes.
 
 Files vault:
 `FolderInput` — `{ profileId (uuid, required), name (1–40, trimmed, required),

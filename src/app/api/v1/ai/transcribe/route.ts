@@ -3,10 +3,15 @@ import { getApiContext } from "@/lib/api-auth";
 import { apiOk, handle } from "@/lib/api-response";
 import { badRequest, forbidden } from "@/lib/errors";
 import { canWriteInWorkspace } from "@/lib/workspaces";
-import { assertAiRequestAllowed } from "@/lib/ai-quota";
+import { chargeVoiceTranscribe, withAiCharge } from "@/lib/ai-quota";
+import { assertVoiceAllowed } from "@/lib/entitlements";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
 import { assertUploadBodySize } from "@/lib/upload-form";
-import { isSupportedAudioType, transcribeVoiceNote } from "@/lib/ai-transcribe";
+import {
+  isSupportedAudioType,
+  parseClipDurationMs,
+  transcribeVoiceNote,
+} from "@/lib/ai-transcribe";
 import { getCategories } from "@/lib/queries";
 
 export const dynamic = "force-dynamic";
@@ -20,11 +25,20 @@ export const dynamic = "force-dynamic";
  *
  * Request: multipart form data with the recording under `audio` (an optional
  * `mimeType` field is a fallback for clients whose upload part drops the
- * content type). The languages the model is told to expect come from the
- * caller's `voiceLanguages` setting.
+ * content type) and the clip length in milliseconds under `durationMs`. The
+ * languages the model is told to expect come from the caller's
+ * `voiceLanguages` setting.
  *
- * Gated exactly like `/ai/parse` and in the same order: cheap local checks
- * (format, size), then the editor role, then the shared hourly AI quota.
+ * Voice is a plan feature (Pro, or a grandfathered workspace in its grace
+ * period) and costs one AI action per started minute of the clip — `durationMs`,
+ * clamped to two minutes; a request without it is charged for the full two.
+ * That charge also covers parsing the transcript: send it to `/ai/parse` with
+ * `source: "voice"`.
+ *
+ * Gated like `/ai/parse` and in the same order: cheap local checks (format,
+ * size, declared length), then the editor role, then the voice plan gate
+ * (403 `plan_limit`), then the AI charge (hourly cap → 429, monthly allowance
+ * → 403 `plan_limit`).
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {
@@ -59,18 +73,23 @@ export async function POST(request: NextRequest) {
     if (!isSupportedAudioType(mimeType)) {
       throw badRequest("That audio format isn't supported — try recording again.");
     }
+    const durationMs = parseClipDurationMs(form.get("durationMs"));
 
     if (!(await canWriteInWorkspace(user.id, workspace.id))) {
       throw forbidden("You don't have permission to add transactions in this workspace");
     }
-    await assertAiRequestAllowed(user.id, workspace.id, "voice_transcribe");
+    await assertVoiceAllowed(workspace.id);
+    const charge = await chargeVoiceTranscribe(user.id, workspace.id, { durationMs });
 
-    const categories = await getCategories(workspace.id);
-    const text = await transcribeVoiceNote({
-      audio: { bytes: new Uint8Array(await audio.arrayBuffer()), mimeType },
-      languages: settings.voiceLanguages,
-      currency: workspace.currency,
-      categoryNames: categories.map((c) => c.name),
+    const text = await withAiCharge(charge, async (onUsage) => {
+      const categories = await getCategories(workspace.id);
+      return transcribeVoiceNote({
+        audio: { bytes: new Uint8Array(await audio.arrayBuffer()), mimeType },
+        languages: settings.voiceLanguages,
+        currency: workspace.currency,
+        categoryNames: categories.map((c) => c.name),
+        onUsage,
+      });
     });
     return apiOk({ text });
   });

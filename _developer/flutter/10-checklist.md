@@ -39,8 +39,10 @@ Cross-references point at the spec docs.
       ([11](./11-additional-details.md) § Dates).
 - [ ] Models: `Transaction` (incl. `user` + `attachments`), `Category`,
       `Profile`, `Settings` (incl. `voiceLanguages`), `CurrencyMeta`, `Summary`,
-      `CategoryBreakdownItem`, `MonthlyPoint`, `WorkspaceSummary`, `User`, `Me`,
-      `Attachment`, `AiDraft`.
+      `CategoryBreakdownItem`, `MonthlyPoint`, `WorkspaceSummary` (incl.
+      `plan`), `User`, `Me`, `Attachment`, `AiDraft`; since 6.5.0 `Profile`
+      gains `spaceId` + `access`, plus `Space`, `Usage`, `Organization` and a
+      `PlanLimitDetails` error detail for `403 plan_limit`.
 - [ ] Repositories: transactions, categories, profiles, settings, analytics,
       workspaces, **ai** (parse/transcribe), **attachments** (upload/patch/
       delete/url) — one method per endpoint; return unwrapped models + `meta`.
@@ -95,13 +97,15 @@ Cross-references point at the spec docs.
 - [ ] **Author labels** in shared workspaces (`transaction.user`, per-user tint;
       hidden in solo workspaces).
 - [ ] **AI entry mode** ([04](./04-tracker-chat.md) §4.11): Manual/AI toggle
-      (persisted; gradient accent; hidden for viewers), note field (≤2000) +
+      (persisted; gradient accent; hidden for viewers), note field (≤3000) +
       help sheet, `POST /ai/parse` with device timezone, editable **review
       grid** (add/remove rows, start-over), save via `POST /transactions/bulk`,
-      429/502/503 handling.
+      429/502/503 + 403 `plan_limit` (`aiActions`) handling.
 - [ ] **Voice entry**: hold-to-talk mic (permission on first hold), record
-      ≤60 s, listening strip, multipart `POST /ai/transcribe`, transcript
-      appended to the note for review; 503 hides the mic.
+      ≤120 s, listening strip, multipart `POST /ai/transcribe` with
+      `durationMs`, transcript appended to the note for review and parsed with
+      `source: "voice"`; 503 hides the mic; Pro-only (`GET /usage` → `voice`,
+      else 403 `plan_limit` `voice` → upsell).
 - [ ] Chat skeleton; pull-to-refresh.
 
 ## Phase 6 — Transactions ([05](./05-transactions.md))
