@@ -24,14 +24,16 @@ export const TAGS_IN_FIELD = 2;
  * tags it hides are still reachable — it opens the same picker the "#" button
  * does, which is what `onOverflowClick` is for.
  *
- * Shared by the manual composer and the AI review rows: both put tags inside a
- * field, and the second one is where this stopped being worth writing twice.
+ * Shared by the manual composer (inside its title field) and the AI review
+ * rows (in the corner under each row's type toggle, beside the "#" button) —
+ * the second caller is where this stopped being worth writing twice.
  */
 export function TagsInField({
   tags,
   onRemove,
   onOverflowClick,
   visible = TAGS_IN_FIELD,
+  chipClassName,
   className,
 }: {
   /** The applied tags, resolved and in pick order. */
@@ -41,9 +43,13 @@ export function TagsInField({
   /** Omit and the overflow count renders as plain text instead of a button. */
   onOverflowClick?: () => void;
   /** How many chips to show before folding the rest into "+N". The AI review
-   *  rows pass 1: their title column is a third of the composer's width, and a
-   *  second chip there leaves the title reading "Fl". */
+   *  rows pass 1: their tag corner is only as wide as the type toggle and the
+   *  amount above it, and a second chip would run under the description. */
   visible?: number;
+  /** Merged into each chip; the "+N" stays plain text. Both callers pass a
+   *  height — the 28px of the button beside the chips (the AI rows' "#", the
+   *  composer's paperclip) — so the chips read as controls, not small labels. */
+  chipClassName?: string;
   className?: string;
 }) {
   if (tags.length === 0) return null;
@@ -56,7 +62,7 @@ export function TagsInField({
         <TagChip
           key={t.id}
           tag={t}
-          className="max-w-20 text-xs"
+          className={cn("max-w-20 text-xs", chipClassName)}
           onRemove={onRemove ? () => onRemove(t.id) : undefined}
         />
       ))}

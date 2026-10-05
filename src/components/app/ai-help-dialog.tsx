@@ -20,6 +20,7 @@ import {
 export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
   const rules: { k: string; d: string }[] = [
     { k: "200 fruits", d: "Amount first, then what it was for." },
+    { k: "Ravi lunch A2B", d: "Your words become the title as you typed them — names, shops and apps stay." },
     { k: "a, b, c", d: "Commas separate items — each becomes its own transaction." },
     { k: "salary, got", d: "Income words (salary, got, refund, sold) mark money in." },
     { k: "/Food", d: "Pick a category. Matched to your existing ones — never creates new." },
@@ -31,6 +32,10 @@ export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
     {
       in: "200 fruits, 100 veg, 1000 electricity",
       out: [`Fruits — ${symbol}200`, `Veg — ${symbol}100`, `Electricity — ${symbol}1,000`],
+    },
+    {
+      in: "Ravi dinner A2B Swiggy 254",
+      out: [`Ravi dinner A2B Swiggy — ${symbol}254`],
     },
     {
       in: "got 50000 salary, 1200 electricity (June bill) /Bills",
@@ -52,8 +57,16 @@ export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
           <Info className="size-4" />
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[85vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
+      {/* Reference text, not a form: nothing here can be lost, so a click
+          outside dismisses it like any other hint (dialogs opt into that).
+          The content box itself never scrolls — only the body below the header
+          does — so the title and the ✕ (absolutely placed in the content box)
+          stay put however far down the examples you are. */}
+      <DialogContent
+        closeOnOutsideClick
+        className="flex max-h-[85vh] flex-col gap-0 overflow-hidden p-0 sm:max-w-lg"
+      >
+        <DialogHeader className="shrink-0 border-b px-4 pt-4 pb-3 pr-12">
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="size-4 text-violet-600" /> How AI entry works
           </DialogTitle>
@@ -63,7 +76,7 @@ export function AiHelpDialog({ symbol = "$" }: { symbol?: string }) {
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5 text-sm">
+        <div className="scrollbar-slim min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4 text-sm">
           <section className="space-y-2">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               Syntax

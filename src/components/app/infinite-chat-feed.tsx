@@ -5,6 +5,10 @@ import { Loader2 } from "lucide-react";
 import { loadOlderFeed } from "@/actions/transactions";
 import { ChatFeed } from "./chat-feed";
 import { MonthScrollSpy } from "./month-scroll-spy";
+import { BulkActionBar } from "./bulk-action-bar";
+import { usePermissions } from "./permissions";
+import { useRowSelection } from "@/hooks/use-row-selection";
+import { setBulkSelecting } from "@/hooks/use-bulk-selecting";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 import type { TxnTagDTO } from "@/lib/tags";
@@ -153,6 +157,39 @@ export function InfiniteChatFeed({
     return () => io.disconnect();
   }, [loadOlder, done, loading, error]);
 
+  // Multi-select, for editors (the server re-checks every row).
+  const { canWrite } = usePermissions();
+  const selection = useRowSelection(rows);
+  const selecting = canWrite && selection.count > 0;
+
+  // The bar takes the composer's place while a selection is up — you aren't
+  // writing while you're picking. The composer lives in another tree, so it
+  // reads this through a shared store (and stands its shortcuts down too).
+  useEffect(() => {
+    setBulkSelecting(selecting);
+    return () => setBulkSelecting(false);
+  }, [selecting]);
+
+  // Bulk results land in the accumulated rows directly: the revalidation that
+  // follows only refreshes the latest page, and a row edited further up the
+  // history would otherwise keep showing its old category or tags. A row moved
+  // out of the profile this feed is showing leaves it.
+  const onBulkUpdated = useCallback(
+    (changed: TransactionRow[]) => {
+      const byId = new Map(changed.map((r) => [r.id, r]));
+      setRows((prev) =>
+        prev
+          .map((r) => byId.get(r.id) ?? r)
+          .filter((r) => !profileId || r.profileId === profileId),
+      );
+    },
+    [profileId],
+  );
+  const onBulkDeleted = useCallback((ids: string[]) => {
+    const gone = new Set(ids);
+    setRows((prev) => prev.filter((r) => !gone.has(r.id)));
+  }, []);
+
   // Changes whenever the rendered rows do (a prepended older page, a revalidated
   // latest page), which is exactly when the set of month sections can change and
   // the spy has to re-read them.
@@ -180,6 +217,7 @@ export function InfiniteChatFeed({
         </div>
       )}
       <ChatFeed
+        selection={canWrite ? selection : null}
         rows={rows}
         currency={currency}
         locale={locale}
@@ -190,6 +228,22 @@ export function InfiniteChatFeed({
         tags={tags}
         showAuthor={showAuthor}
       />
+      {/* Clearance for the last bubbles under the fixed bar (the composer that
+          normally holds this space is hidden while selecting). */}
+      {selecting ? <div aria-hidden className="h-20" /> : null}
+      {canWrite ? (
+        <BulkActionBar
+          selected={selection.selectedRows}
+          categories={categories}
+          profiles={profiles}
+          tags={tags}
+          totalLoaded={rows.length}
+          onSelectAll={selection.selectAll}
+          onClear={selection.clear}
+          onDeleted={onBulkDeleted}
+          onUpdated={onBulkUpdated}
+        />
+      ) : null}
     </>
   );
 }

@@ -157,8 +157,11 @@ export default async function ChatPage({
   const currentMonthKey = monthKey(today);
   const { currency, locale } = workspace;
   // Changing the key remounts the streamed sections so their skeletons show
-  // immediately on profile switch (instead of holding the stale chat).
-  const streamKey = filterProfileId ?? "all";
+  // immediately on profile switch (instead of holding the stale chat). The
+  // workspace is part of it: on "All profiles" the profile half is the same
+  // in every workspace, so a switch kept the feed mounted — merging the old
+  // workspace's history into the new one's, along with any selection over it.
+  const streamKey = `${workspace.id}:${filterProfileId ?? "all"}`;
 
   return (
     <PendingMessagesProvider>

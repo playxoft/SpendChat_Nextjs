@@ -212,3 +212,39 @@ export function stepPickerIndex(activeIndex: number, optionCount: number, delta:
   if (optionCount <= 0) return 0;
   return (activeIndex + delta + optionCount) % optionCount;
 }
+
+/**
+ * How many tag chips fit on one line of `available` px, for the feed bubble's
+ * footer, where the tags share a row with the category and anything that
+ * doesn't fit collapses into a "+N" counter.
+ *
+ * All of them when they fit outright. Otherwise the longest prefix that still
+ * leaves room for the counter — which can be zero, so a very narrow row shows
+ * the counter alone rather than a chip clipped mid-word. The counter is only
+ * reserved when something is actually hidden: a row whose chips fit exactly
+ * must not lose its last chip to a "+1" it didn't need.
+ *
+ * Pure so the arithmetic is tested without a layout engine; the component
+ * feeds it measured widths.
+ */
+export function tagsThatFit(
+  chipWidths: number[],
+  counterWidth: number,
+  gap: number,
+  available: number,
+): number {
+  const n = chipWidths.length;
+  // Sub-pixel slack: measured widths are fractional, and a sum that lands a
+  // hair over the box from rounding shouldn't cost a chip.
+  const room = available + 0.5;
+  const all = chipWidths.reduce((sum, w) => sum + w, 0) + gap * Math.max(n - 1, 0);
+  if (all <= room) return n;
+
+  let used = counterWidth;
+  let shown = 0;
+  while (shown < n - 1 && used + chipWidths[shown] + gap <= room) {
+    used += chipWidths[shown] + gap;
+    shown++;
+  }
+  return shown;
+}

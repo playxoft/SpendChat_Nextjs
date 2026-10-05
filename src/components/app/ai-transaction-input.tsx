@@ -33,6 +33,7 @@ import {
 import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
 import { primaryBcp47 } from "@/lib/voice-languages";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+import { useBulkSelecting } from "@/hooks/use-bulk-selecting";
 import { hasOpenOverlay, useHoldShortcut, useIsMac } from "@/hooks/use-shortcut";
 import {
   comboFor,
@@ -272,6 +273,9 @@ export function AiTransactionInput({
   // composer is usable — and a note parsed against the old profile would save
   // into the new one.
   const { pending: switching } = useLoadingOverlay();
+  // Hidden behind the feed's multi-select bar: the window-bound voice hold and
+  // Enter-to-save below must not act on a pane nobody can see.
+  const bulkSelecting = useBulkSelecting();
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
   const idRef = useRef(0);
   const nextKey = () => ++idRef.current;
@@ -584,7 +588,7 @@ export function AiTransactionInput({
   // the fieldset can't switch it off. (It does end a hold in progress when
   // `enabled` flips — see the hook. The *pointer* hold is ended by the mic
   // button itself, which watches for being disabled mid-gesture.)
-  const voiceEnabled = mode === "ai" && !rows && !parsing && !switching;
+  const voiceEnabled = mode === "ai" && !rows && !parsing && !switching && !bulkSelecting;
   useHoldShortcut(voiceCombo, voice.start, voice.stop, {
     enabled: voiceEnabled,
     requireNoOverlay: true,
@@ -674,7 +678,7 @@ export function AiTransactionInput({
     // Gated on exactly what the Add button is disabled by, so the key and the
     // click refuse in the same places — otherwise ⌘↵ on a list with nothing
     // valid in it fires an error toast that the button it mirrors won't.
-    if (mode !== "ai" || !reviewing || saving || switching) return;
+    if (mode !== "ai" || !reviewing || saving || switching || bulkSelecting) return;
     if (validRows.length === 0) return;
     function onKeyDown(e: KeyboardEvent) {
       if (normalizeKey(e) !== "enter" || e.repeat) return;
@@ -712,7 +716,7 @@ export function AiTransactionInput({
     }
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [mode, reviewing, saving, switching, validRows.length]);
+  }, [mode, reviewing, saving, switching, bulkSelecting, validRows.length]);
 
   function onTextareaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // ⌘/Ctrl+Enter parses, whatever is open. Without this the picker branches
@@ -1245,72 +1249,15 @@ export function AiTransactionInput({
                     className="h-8 w-full pl-6 tabular-nums"
                   />
                 </div>
-                {/* Not an `<Input>`: a shell holding the text, the row's tags
-                    and its "#" button as siblings — the manual composer's title
-                    field has the same three, and tags belong to the title you
-                    are reading rather than to a strip under it. Focus moves to
-                    `focus-within` so the shell lights up with the caret. */}
-                <div
-                  className={cn(
-                    "flex h-8 w-full min-w-0 items-center gap-1 rounded-lg border border-input bg-transparent pr-0.5 pl-2.5 transition-colors dark:bg-input/30",
-                    // Destructive *replaces* the focus ring rather than layering
-                    // under it, the rule the composer's combined field already
-                    // documents: `focus-within:` carries a pseudo-class, so a
-                    // plain `border-destructive` loses to it and an empty title
-                    // would read blue for exactly as long as the caret is in it.
-                    !r.title.trim()
-                      ? "border-destructive ring-3 ring-destructive/20 dark:border-destructive/50 dark:ring-destructive/40"
-                      : "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
-                  )}
-                >
-                  <input
-                    value={r.title}
-                    onChange={(e) => patch(r.key, { title: e.target.value })}
-                    placeholder="Title"
-                    aria-label="Title"
-                    // On the input, not the shell: a screen reader reports the
-                    // invalid state of the widget that takes focus, and a plain
-                    // <div> has no role to carry it.
-                    aria-invalid={!r.title.trim() || undefined}
-                    maxLength={TITLE_MAX}
-                    // 16px under `md`, like every other field here: iOS Safari
-                    // zooms the viewport in on a focused input below that, and
-                    // the amount beside it doesn't — so a phone would zoom on
-                    // some fields of the same row and not others.
-                    className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
-                  />
-                  <TagsInField
-                    visible={1}
-                    tags={tagsOf(r.tagIds)}
-                    onRemove={(id) =>
-                      patch(r.key, { tagIds: r.tagIds.filter((t) => t !== id) })
-                    }
-                    onOverflowClick={() => setOpenTagRow(r.key)}
-                  />
-                  {/* Editable, not read-only. The note is no longer the only
-                      source of these: the model infers tags as well as reading
-                      "#" markers, so the review is where a wrong guess gets
-                      dropped — and re-parsing to fix one tag costs a model call
-                      and re-does every other edit on the list. */}
-                  <TagSelect
-                    compact
-                    // Sized and stripped for life *inside* a field: the strip's
-                    // `size-8` overflows this shell's 30px content box onto its
-                    // own border, and the count badge floats outside the field
-                    // entirely — where it only repeats what the chips beside it
-                    // already say.
-                    className="size-7"
-                    showCount={false}
-                    tags={knownTags}
-                    value={r.tagIds}
-                    onChange={(ids) => patch(r.key, { tagIds: ids })}
-                    onCreated={createdTags.add}
-                    canCreate
-                    align="end"
-                    open={openTagRow === r.key}
-                    onOpenChange={(o) => setOpenTagRow(o ? r.key : null)}
-                  />
-                </div>
+                <Input
+                  value={r.title}
+                  onChange={(e) => patch(r.key, { title: e.target.value })}
+                  placeholder="Title"
+                  aria-label="Title"
+                  aria-invalid={!r.title.trim() || undefined}
+                  maxLength={TITLE_MAX}
+                  className="h-8 w-full"
+                />
                 <Select
                   value={r.categoryName || NONE}
                   onValueChange={(v) => patch(r.key, { categoryName: v === NONE ? "" : v })}
@@ -1345,6 +1292,44 @@ export function AiTransactionInput({
                 >
                   <Trash2 className="size-3.5" />
                 </Button>
+                {/* The row's tags open its second line, in the corner under the
+                    type toggle and the amount — the title stays the title, and
+                    the tags read with the description beside them rather than
+                    crowding the one field a wrong parse most needs fixed.
+                    Editable, not read-only: the model infers tags as well as
+                    reading "#" markers, so the review is where a wrong guess
+                    gets dropped — and re-parsing to fix one tag costs a model
+                    call and re-does every other edit on the list. */}
+                <div className="col-span-2 col-start-1 flex min-w-0 items-center gap-1">
+                  <TagSelect
+                    compact
+                    // The type toggle's height, so the "#" sits under it as one
+                    // more control in the row's left column. The count badge is
+                    // off because the chips beside it already say it.
+                    className="size-7"
+                    showCount={false}
+                    tags={knownTags}
+                    value={r.tagIds}
+                    onChange={(ids) => patch(r.key, { tagIds: ids })}
+                    onCreated={createdTags.add}
+                    canCreate
+                    align="start"
+                    open={openTagRow === r.key}
+                    onOpenChange={(o) => setOpenTagRow(o ? r.key : null)}
+                  />
+                  <TagsInField
+                    visible={1}
+                    tags={tagsOf(r.tagIds)}
+                    onRemove={(id) =>
+                      patch(r.key, { tagIds: r.tagIds.filter((t) => t !== id) })
+                    }
+                    onOverflowClick={() => setOpenTagRow(r.key)}
+                    // The "#" button's height (size-7), so the chips line up
+                    // with it instead of floating as small pills beside it.
+                    chipClassName="h-7"
+                    className="min-w-0"
+                  />
+                </div>
                 {/* Description on its own line, aligned under the title column —
                     click-to-edit so it can be added or fixed after the parse. */}
                 <DescriptionCell

@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
+import { useFilterNavigate, useFilterSearch } from "@/components/app/filter-transition";
 import { TypeFilterOptions } from "@/components/app/type-filter-options";
 import {
   Select,
@@ -31,7 +32,10 @@ export function TransactionFilters({
   today: string;
   locale: string;
 }) {
-  const router = useRouter();
+  // The provider's navigate, so the results can show they're loading, and the
+  // query string to build on — the one already requested while it loads.
+  const navigate = useFilterNavigate();
+  const currentSearch = useFilterSearch();
   const pathname = usePathname();
   const sp = useSearchParams();
 
@@ -80,26 +84,30 @@ export function TransactionFilters({
   const [q, setQ] = useState(qParam);
 
   function update(next: Record<string, string | undefined>) {
-    // Read the live URL, not the `sp` captured at render. An App Router
-    // navigation runs inside a transition, so `useSearchParams()` keeps
-    // returning the old value until the new RSC payload commits — on this
-    // dynamic, DB-backed page that is a round-trip. Rebuilding from the stale
-    // snapshot means two changes made inside that window each drop the other:
-    // pick a tag, then let the 400ms search debounce fire, and the tag is gone.
-    const params = new URLSearchParams(window.location.search);
+    // Build on the URL last asked for, not the `sp` captured at render — nor
+    // `window.location`, which the router only rewrites once a navigation
+    // commits. Both stay stale for a whole round-trip on this DB-backed page,
+    // and rebuilding from either means two changes made inside that window
+    // drop each other: pick a tag, let the search debounce fire before it
+    // lands, and the tag is gone. See `FilterTransitionProvider`.
+    const params = new URLSearchParams(currentSearch());
     for (const [k, v] of Object.entries(next)) {
       if (v) params.set(k, v);
       else params.delete(k);
     }
     params.delete("page");
     const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    navigate(qs ? `${pathname}?${qs}` : pathname);
   }
 
   // Debounced search.
   useEffect(() => {
     const t = setTimeout(() => {
-      if (q !== qParam) update({ q: q || undefined });
+      // Against the requested URL rather than the rendered `qParam`, which is
+      // stale while a change (Clear included) is still loading — comparing to
+      // it pushed the cleared search back a second time.
+      const requestedQ = new URLSearchParams(currentSearch()).get("q") ?? "";
+      if (q !== requestedQ) update({ q: q || undefined });
     }, 400);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -112,7 +120,7 @@ export function TransactionFilters({
   const tagsJoined = tagIds.join(",");
   useEffect(() => {
     const t = setTimeout(() => {
-      const live = new URLSearchParams(window.location.search).get("tags") ?? "";
+      const live = new URLSearchParams(currentSearch()).get("tags") ?? "";
       if (live === tagsJoined) return;
       setPushedTags(tagsJoined);
       update({ tags: tagsJoined || undefined });
@@ -210,7 +218,7 @@ export function TransactionFilters({
             setQ("");
             setTagIds([]);
             setPushedTags("");
-            router.push(pathname);
+            navigate(pathname);
           }}
         >
           <X className="size-4" /> Clear

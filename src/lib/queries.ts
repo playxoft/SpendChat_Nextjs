@@ -369,6 +369,17 @@ function rowOf(id: string, profileIds: string[]) {
     .as("page");
 }
 
+/** `rowOf` for several ids at once — the bulk edit's read-back. */
+function rowsOf(ids: string[], profileIds: string[]) {
+  const db = getDb();
+  return db
+    .select(pageColumns)
+    .from(transactions)
+    .where(and(inArray(transactions.id, ids), inArray(transactions.profileId, profileIds)))
+    .limit(ids.length)
+    .as("page");
+}
+
 /**
  * Re-state the ordering on the outer query. Joining a subquery does not preserve
  * its row order, so without this the page comes back arbitrarily shuffled.
@@ -512,6 +523,22 @@ export async function getTransactionById(
   if (profileIds.length === 0) return null;
   const [row] = await decorate(rowOf(id, profileIds), {});
   return row ?? null;
+}
+
+/**
+ * Several transactions by id, scoped exactly like `getTransactionById`: an id
+ * outside the caller's viewable profiles in the current workspace is simply
+ * absent from the result. Order is the list order (newest first), not `ids`.
+ */
+export async function getTransactionsByIds(
+  userId: string,
+  workspaceId: string,
+  ids: string[],
+): Promise<TransactionRow[]> {
+  if (ids.length === 0) return [];
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return [];
+  return decorate(rowsOf(ids, profileIds), {});
 }
 
 /** Oldest-first, for the chat feed (messages read top to bottom). */

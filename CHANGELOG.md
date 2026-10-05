@@ -18,6 +18,82 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.32.0] — 2026-10-04
+
+### Added
+- **Select many transactions and change them at once** — in the tracker and on
+  the Transactions page. Tick rows in the table (Shift-click picks a run, the
+  header box picks everything loaded), or hover a message in the tracker and tick
+  the small ring that appears under its category icon (picked messages keep a
+  filled check there). A bar takes the composer's
+  place with **Move** (to another profile), **Category**, **Tags** (tick to add
+  to all, untick to remove from all; a dash means some have it) and **Delete**.
+  Rows you can't edit are skipped and counted rather than failing the rest; a
+  category only lands on transactions of its own type; and deleting removes the
+  attached files from storage too. Escape clears the selection.
+- **Right-click a message in the tracker** for **Edit**, **Select** and
+  **Delete** (in red, with a confirmation). On a phone, press and hold a message
+  for the same menu.
+- **Month and quarter picks in the date filter.** The date range popover now
+  opens centred under its button with three columns: the months and Q1–Q4 of a
+  year on the left, the calendar in the middle, and the "Last 24 hours … Last 1
+  year" presets on the right. Picking a month shows "September 2026" on the
+  button; a quarter, "Q3 2026".
+
+### Changed
+- **The Transactions table shows as many tags as its column holds** instead of a
+  fixed two and a "+N" — widen the column and more appear, narrow it and they
+  fold into the count. Hovering the tags lists every one, in their colors.
+- **Every dialog and popup scrolls with the slim scrollbar** used by "How AI
+  entry works" — the transaction editor first among them.
+- **Changing a filter on the Transactions page shows it's loading** — a bar
+  slides across the top of the results and they dim with an "Updating…" note —
+  instead of looking like nothing happened until the new rows arrived.
+- **Tags sit in the bubble's footer, beside the category.** A tagged
+  transaction in the tracker feed used to spend a whole extra line on its tags,
+  between the description and the category. They now share the footer row: the
+  category on the left, the tags to its right taking only the room they need,
+  and the time in the corner as before. When they don't all fit, the rest fold
+  into a **+1 / +2** counter — hover it to see every tag on the transaction.
+  How many fit is worked out from the actual width, so a phone shows fewer than
+  a desktop, and a long category name leaves fewer than a short one.
+- **AI review rows: tags moved out of the title.** Each draft row's `#` button
+  and its tag chips now sit at the start of the row's second line, under the
+  −/+ toggle and beside the description, so the title field holds only the
+  title. The chips there are as tall as the `#` button, so they read as one
+  line of controls.
+- **Taller tag chips in the manual composer** too, matching the paperclip
+  button in the same field.
+- **Clearing tags is always in the tags menu.** It used to appear only once a
+  tag was ticked, so the menu grew a row mid-selection. Where tags can be
+  created, it is now an eraser button beside "Create new tag" (with a "Clear
+  all tags" tooltip); in the transactions filter it stays a "Clear selection"
+  row. Either way it is disabled when nothing is ticked, and the menu stays
+  open after clearing.
+- **"How AI entry works" keeps its title in view.** The heading and the close
+  button stay fixed while the help scrolls under them (with a slim scrollbar),
+  and clicking outside the popup closes it.
+
+### Fixed
+- **Deleting a transaction now deletes its attached files from storage.** Only
+  the database rows went before; the receipts themselves stayed in the bucket,
+  unreachable from any screen.
+- **Scrolling over the composer no longer scrolls the tracker.** With the
+  pointer over the Manual or AI input, the wheel scrolls only what inside it
+  can scroll — a long note, the review list, the category strip sideways —
+  and never the conversation behind it, even when that box reaches its end.
+- **AI entry keeps your words as you typed them.** The model was told to write
+  "a short label for the item", so it summarised: "Nive dinner A2B Swiggey 254"
+  became "Dinner" with the rest pushed into the description, and "Hello 100"
+  became "General expense". Titles now come back as written — names, shops,
+  apps and spelling intact — with only the amount, currency, `/category`,
+  `#tag`, `(description)`, date words and linking words like "spent … on"
+  taken out, and the first letter capitalised. A title longer than the 40
+  characters a title holds breaks at a word, and the rest moves into the
+  description rather than being cut off. The description is otherwise filled
+  only from text in parentheses, and an amount is no longer divided when a note
+  says "split".
+
 ## [0.31.0] — 2026-09-30
 
 ### Added

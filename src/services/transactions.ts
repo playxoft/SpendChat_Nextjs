@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, inArray } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { categories, profiles, tags, transactionAttachments, transactions } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
@@ -8,8 +8,11 @@ import { toMinorUnits } from "@/lib/money";
 import {
   forgetAccessibleProfiles,
   getTransactionById,
+  getTransactionsByIds,
   type TransactionRow,
 } from "@/lib/queries";
+import { deleteObjects } from "@/lib/r2";
+import { planBulkEdit, type BulkChange } from "@/lib/bulk-edit";
 import { setLogContext } from "@/lib/log-context";
 import { logger } from "@/lib/logger";
 import { time } from "@/lib/timing";
@@ -28,6 +31,8 @@ import {
   updateTransactionSchema,
   bulkTransactionsSchema,
   setTransactionTagsSchema,
+  bulkDeleteTransactionsSchema,
+  bulkUpdateTransactionsSchema,
 } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { z } from "zod";
@@ -356,6 +361,13 @@ export async function setTransactionTags(
  * Delete a transaction (requires editor on its profile, in the current
  * workspace). Returns whether a row was removed — false when it doesn't exist
  * or lives in another workspace. Throws a validation error for a non-UUID id.
+ *
+ * Its attachments' stored files go with it. The attachment rows cascade off
+ * the transaction, but nothing cascades in object storage, so the keys are
+ * read under a lock on the row (an upload landing mid-delete can't commit past
+ * it — its foreign key waits on the lock, then finds the row gone) and swept
+ * once the delete has committed. Before 0.32.0 nothing did this, and every
+ * deleted transaction stranded its receipts in the bucket.
  */
 export async function deleteTransaction(
   userId: string,
@@ -373,11 +385,237 @@ export async function deleteTransaction(
   if (!existing) return false;
   if (!(await editableInWorkspace(userId, workspaceId, existing.profileId))) return false;
 
-  const deleted = await db
-    .delete(transactions)
-    .where(eq(transactions.id, id))
-    .returning({ id: transactions.id });
-  return deleted.length > 0;
+  const { deleted, keys } = await db.transaction(async (tx) => {
+    // Locked on the profile the access check above approved, not just the id:
+    // a row moved into a profile the caller can only view, between that check
+    // and this lock, is no longer theirs to delete.
+    const locked = await tx
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(and(eq(transactions.id, id), eq(transactions.profileId, existing.profileId)))
+      .for("update");
+    if (locked.length === 0) return { deleted: false, keys: [] as (string | null)[] };
+    const stored = await tx
+      .select({
+        r2Key: transactionAttachments.r2Key,
+        thumbnailKey: transactionAttachments.thumbnailKey,
+      })
+      .from(transactionAttachments)
+      .where(eq(transactionAttachments.transactionId, id));
+    const removed = await tx
+      .delete(transactions)
+      .where(eq(transactions.id, id))
+      .returning({ id: transactions.id });
+    return {
+      deleted: removed.length > 0,
+      keys: stored.flatMap((f) => [f.r2Key, f.thumbnailKey]),
+    };
+  });
+
+  // After the commit, never inside it: a rolled-back delete must not have
+  // already destroyed the bytes. Best-effort; never throws.
+  if (deleted) await deleteObjects(keys);
+  return deleted;
+}
+
+/**
+ * Delete many transactions at once — the tracker's and the table's multi-select.
+ *
+ * Same rule as a single delete, per row: editor on its profile, in the current
+ * workspace. Rows the caller can't edit (or that don't exist, or live in
+ * another workspace) are left alone and counted in `skipped`; the rest go.
+ *
+ * Like the single delete, this removes the rows' stored files too. Attachment
+ * rows cascade off their transaction, but nothing cascades in object storage —
+ * the keys have to be read while the rows exist, or the bytes stay in the
+ * bucket with nothing left pointing at them. The rows are locked first, so an
+ * attachment uploaded to one of them mid-delete can't commit (its foreign key
+ * waits on the lock, then finds the row gone) and slip past the sweep.
+ * Attachment keys are minted per attachment (`attachments/<ws>/<txn>/<id>`) and
+ * never shared with a vault file, so sweeping them can't take a file elsewhere.
+ */
+export async function deleteTransactions(
+  userId: string,
+  workspaceId: string,
+  input: unknown,
+): Promise<{ deletedIds: string[]; skipped: number }> {
+  const ids = [...new Set(parseOrThrow(bulkDeleteTransactionsSchema, input).ids)];
+  const writable = await writableProfileIds(userId, workspaceId);
+  if (writable.length === 0) throw forbidden("You don't have permission to do that");
+
+  const db = getDb();
+  const { deletedIds, keys } = await db.transaction(async (tx) => {
+    // Locked in id order, whatever plan the scan takes: two overlapping bulk
+    // operations taking their row locks in different orders is a deadlock.
+    const doomed = await tx
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(and(inArray(transactions.id, ids), inArray(transactions.profileId, writable)))
+      .orderBy(asc(transactions.id))
+      .for("update");
+    if (doomed.length === 0) return { deletedIds: [] as string[], keys: [] as (string | null)[] };
+    const doomedIds = doomed.map((r) => r.id);
+
+    const stored = await tx
+      .select({
+        r2Key: transactionAttachments.r2Key,
+        thumbnailKey: transactionAttachments.thumbnailKey,
+      })
+      .from(transactionAttachments)
+      .where(inArray(transactionAttachments.transactionId, doomedIds));
+
+    const deleted = await tx
+      .delete(transactions)
+      .where(inArray(transactions.id, doomedIds))
+      .returning({ id: transactions.id });
+    return {
+      deletedIds: deleted.map((r) => r.id),
+      keys: stored.flatMap((f) => [f.r2Key, f.thumbnailKey]),
+    };
+  });
+
+  // After the commit, never inside it: a rolled-back delete must not have
+  // already destroyed the bytes. `deleteObjects` is best-effort and never throws.
+  await deleteObjects(keys);
+  return { deletedIds, skipped: ids.length - deletedIds.length };
+}
+
+export type BulkUpdateResult = {
+  /** The rows that changed, re-read with their joins for the client to patch in. */
+  rows: TransactionRow[];
+  /** Rows the caller can't edit here (or that no longer exist). */
+  noAccess: number;
+  /** Rows of the other kind that kept their category. */
+  wrongKind: number;
+  /** Rows whose tags were left alone because adding would pass the cap. */
+  tagLimit: number;
+};
+
+/**
+ * Apply one change — move profile, set category, add/remove tags — to many
+ * transactions. Per-row access is the single edit's: editor on the row's
+ * profile, and on the target profile for a move. What each row becomes is
+ * `planBulkEdit`; rows it can't fully take are reported, not failed, so one
+ * income row in a selection doesn't block re-filing the expenses around it.
+ *
+ * The rows are locked while they're read, because the tag arrays written back
+ * are computed from that read — an edit landing in between would otherwise be
+ * overwritten. The write is one statement for every changed row, and a move
+ * carries the attachments' denormalized `profile_id` along in the same
+ * transaction, as the single edit does.
+ */
+export async function updateTransactions(
+  userId: string,
+  workspaceId: string,
+  input: unknown,
+): Promise<BulkUpdateResult> {
+  const data = parseOrThrow(bulkUpdateTransactionsSchema, input);
+  const ids = [...new Set(data.ids)];
+  const writable = await writableProfileIds(userId, workspaceId);
+  if (writable.length === 0) throw forbidden("You don't have permission to do that");
+  if (data.profileId !== undefined && !writable.includes(data.profileId)) {
+    throw forbidden("You don't have permission to move transactions to that profile");
+  }
+
+  const db = getDb();
+  let category: BulkChange["category"];
+  if (data.categoryId === null) category = null;
+  else if (data.categoryId !== undefined) {
+    const found = await db.query.categories.findFirst({
+      where: and(eq(categories.id, data.categoryId), eq(categories.workspaceId, workspaceId)),
+      columns: { id: true, kind: true },
+    });
+    if (!found) throw validationError("Invalid category");
+    category = found;
+  }
+  const change: BulkChange = {
+    profileId: data.profileId,
+    category,
+    addTagIds: await workspaceTagIds(workspaceId, data.addTagIds),
+    removeTagIds: data.removeTagIds ?? [],
+  };
+
+  const outcome = await db.transaction(async (tx) => {
+    const current = await tx
+      .select({
+        id: transactions.id,
+        profileId: transactions.profileId,
+        type: transactions.type,
+        categoryId: transactions.categoryId,
+        tagIds: transactions.tagIds,
+      })
+      .from(transactions)
+      .where(and(inArray(transactions.id, ids), inArray(transactions.profileId, writable)))
+      // In id order, like the bulk delete, so overlapping bulk operations can't
+      // deadlock. `no key update`: the write never touches the key, and plain
+      // `for update` would also hold off attachment inserts (their foreign key
+      // check) for as long as this transaction is open.
+      .orderBy(asc(transactions.id))
+      .for("no key update");
+
+    let wrongKind = 0;
+    let tagLimit = 0;
+    const patches: { id: string; profileId: string; categoryId: string | null; tagIds: string[]; moved: boolean }[] = [];
+    for (const row of current) {
+      const plan = planBulkEdit({ ...row, tagIds: row.tagIds ?? [] }, change, TAGS_PER_TRANSACTION_MAX);
+      if (plan.categorySkipped) wrongKind++;
+      if (plan.tagsSkipped) tagLimit++;
+      if (!plan.changed) continue;
+      patches.push({
+        id: row.id,
+        profileId: plan.next.profileId,
+        categoryId: plan.next.categoryId,
+        tagIds: plan.next.tagIds,
+        moved: plan.next.profileId !== row.profileId,
+      });
+    }
+
+    if (patches.length > 0) {
+      // Every changed row in one statement. Each row carries all three columns —
+      // its own current values where the change doesn't touch them — so one
+      // shape serves every combination of fields.
+      // The tag array is spelled out element by element: handed a JS array, the
+      // `sql` template expands it into a parenthesised parameter *list* (its `IN`
+      // form), which `::uuid[]` can't cast.
+      const uuidArray = (ids: string[]) =>
+        ids.length === 0
+          ? sql`'{}'::uuid[]`
+          : sql`array[${sql.join(ids.map((id) => sql`${id}::uuid`), sql`, `)}]`;
+      const values = sql.join(
+        patches.map(
+          (p) => sql`(${p.id}::uuid, ${p.profileId}::uuid, ${p.categoryId}::uuid, ${uuidArray(p.tagIds)})`,
+        ),
+        sql`, `,
+      );
+      await tx.execute(sql`
+        update ${transactions} as t
+        set profile_id = v.profile_id,
+            category_id = v.category_id,
+            tag_ids = v.tag_ids,
+            updated_at = now()
+        from (values ${values}) as v(id, profile_id, category_id, tag_ids)
+        where t.id = v.id
+      `);
+
+      const moved = patches.filter((p) => p.moved).map((p) => p.id);
+      if (moved.length > 0 && data.profileId) {
+        await tx
+          .update(transactionAttachments)
+          .set({ profileId: data.profileId })
+          .where(inArray(transactionAttachments.transactionId, moved));
+      }
+    }
+
+    return {
+      changedIds: patches.map((p) => p.id),
+      noAccess: ids.length - current.length,
+      wrongKind,
+      tagLimit,
+    };
+  });
+
+  const rows = await getTransactionsByIds(userId, workspaceId, outcome.changedIds);
+  return { rows, noAccess: outcome.noAccess, wrongKind: outcome.wrongKind, tagLimit: outcome.tagLimit };
 }
 
 /**

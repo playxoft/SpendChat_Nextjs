@@ -26,6 +26,8 @@ import { AiTransactionInput } from "./ai-transaction-input";
 import { EntryModeToggle, MODE_ROW_DENSE } from "./entry-mode-toggle";
 import { readEntryMode, useEntryMode } from "./entry-mode-store";
 import { cn } from "@/lib/utils";
+import { useContainWheel } from "@/hooks/use-contain-wheel";
+import { useBulkSelecting } from "@/hooks/use-bulk-selecting";
 import { usePendingMessages } from "./pending-messages";
 import { useLoadingOverlay } from "./loading-overlay";
 import { AttachmentDropzone } from "./attachments/attachment-dropzone";
@@ -159,8 +161,15 @@ export function TransactionComposer({
   // True while a profile/workspace switch is in flight — the fields belong to
   // the outgoing profile, so lock the composer until the new one has loaded.
   const { pending: switching } = useLoadingOverlay();
+  // The feed's multi-select takes this spot (its action bar), so the composer
+  // hides and its window-bound shortcuts stand down while it's up.
+  const bulkSelecting = useBulkSelecting();
 
   const titleRef = useRef<HTMLInputElement>(null);
+  // The card around both modes. A wheel over it scrolls whatever inside it
+  // can scroll and nothing else — never the feed behind (see the hook).
+  const cardRef = useRef<HTMLDivElement>(null);
+  useContainWheel(cardRef);
   const amountRef = useRef<HTMLInputElement>(null);
   // The amount inside the single field's chip — a different input from
   // `amountRef`, which belongs to the two-field layouts.
@@ -291,7 +300,7 @@ export function TransactionComposer({
   // and didn't touch, and "a" swaps the pane while both toggles are disabled.
   // Any new window-bound shortcut in the composer needs the same guard.
   useShortcut(toggleCombo, () => switchType(), {
-    enabled: mode === "manual" && !switching,
+    enabled: mode === "manual" && !switching && !bulkSelecting,
     allowInInput: true,
     requireNoOverlay: true,
   });
@@ -301,7 +310,7 @@ export function TransactionComposer({
   useShortcut(
     comboFor("tracker.toggle-mode"),
     () => changeMode(mode === "manual" ? "ai" : "manual"),
-    { requireNoOverlay: true, enabled: !switching },
+    { requireNoOverlay: true, enabled: !switching && !bulkSelecting },
   );
 
   /**
@@ -811,6 +820,9 @@ export function TransactionComposer({
       // Opens the same picker the "#" button does, so the overflow is a way in
       // rather than a dead label.
       onOverflowClick={() => setTagMenuOpen(true)}
+      // The paperclip's height (size-7), the same as the AI review rows, so a
+      // picked tag reads as a control in the field rather than a small label.
+      chipClassName="h-7"
     />
   );
 
@@ -1136,13 +1148,20 @@ export function TransactionComposer({
     // The strip carries the page background (not a tinted bar) so chat rows can't
     // show through the padding around/below the card as they scroll past — same
     // colour as the page, so it reads as the page, not a separate widget.
-    <div className="sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0">
+    // Hidden while the feed has a multi-select up: its action bar takes this
+    // spot (see `useBulkSelecting`).
+    <div className={cn("sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0", bulkSelecting && "hidden")}>
       {/* Every widget lives inside one rounded, floating card, sitting on the
           page background — the tracker list scrolls up behind the strip's top
           edge, never peeking out beneath the card. */}
       <div
+        ref={cardRef}
         className={cn(
-          "mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background shadow-lg md:bg-background/95 md:backdrop-blur-sm",
+          // `**:overscroll-contain` is the other half of `useContainWheel`: a
+          // box inside that runs out of room mid-gesture keeps the rest of the
+          // scroll instead of passing it to the feed. It only acts on boxes
+          // that actually scroll, so stamping it on every descendant is free.
+          "mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background shadow-lg **:overscroll-contain md:bg-background/95 md:backdrop-blur-sm",
           dense ? "p-2" : "p-2.5",
         )}
       >

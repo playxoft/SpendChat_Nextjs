@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, ChevronDown, Hash, Plus } from "lucide-react";
+import { Check, ChevronDown, Eraser, Hash, Plus } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 import type { TxnTagDTO } from "@/lib/tags";
 import { cn } from "@/lib/utils";
@@ -198,30 +199,61 @@ export function TagSelect({
             </p>
           ) : null}
 
-          {value.length > 0 ? (
-            <>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onSelect={() => onChange([])} className="py-1.5">
-                Clear selection
-              </DropdownMenuItem>
-            </>
-          ) : null}
-
+          <DropdownMenuSeparator />
+          {/* Clearing is always on screen and disabled while there's nothing
+              to clear. It used to appear only once a tag was ticked, so the
+              menu's footer grew a row under the pointer mid-selection, and the
+              way to clear wasn't there to find before you needed it. Clearing
+              keeps the menu open, like ticking does: the list is the
+              confirmation that it worked. */}
           {canCreate ? (
-            <>
-              <DropdownMenuSeparator />
+            <div className="flex items-center gap-1">
               {/* Disabled at the cap, rather than opening a form whose result
                   can't be applied: it used to create the tag, close, and
                   silently not attach it — the work looked lost. */}
               <DropdownMenuItem
                 disabled={atMax}
                 onSelect={() => setCreating(true)}
-                className="py-1.5"
+                className="flex-1 py-1.5"
               >
                 <Plus className="size-4" /> Create new tag
               </DropdownMenuItem>
-            </>
-          ) : null}
+              <Tooltip>
+                {/* The trigger is a wrapper, not the item: a disabled menu item
+                    takes no pointer events, and the tooltip is how anyone
+                    finds out what an unlabelled eraser does. */}
+                <TooltipTrigger asChild>
+                  <span className="shrink-0">
+                    <DropdownMenuItem
+                      disabled={value.length === 0}
+                      onSelect={(e) => {
+                        e.preventDefault();
+                        onChange([]);
+                      }}
+                      aria-label="Clear all tags"
+                      className="size-8 justify-center p-0"
+                    >
+                      <Eraser className="size-4" />
+                    </DropdownMenuItem>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="top">
+                  {value.length === 0 ? "No tags to clear" : "Clear all tags"}
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          ) : (
+            <DropdownMenuItem
+              disabled={value.length === 0}
+              onSelect={(e) => {
+                e.preventDefault();
+                onChange([]);
+              }}
+              className="py-1.5"
+            >
+              Clear selection
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

@@ -144,6 +144,42 @@ export const bulkTransactionsSchema = z.object({
   items: z.array(transactionInputSchema).min(1).max(500),
 });
 
+/**
+ * Rows one bulk edit or delete may touch. A selection is made by hand from
+ * loaded pages, so this is far above any real one — it exists so a tampered
+ * request can't turn into an unbounded `IN` list.
+ */
+export const BULK_TRANSACTIONS_MAX = 500;
+
+const bulkTransactionIdsSchema = z.array(z.string().uuid()).min(1).max(BULK_TRANSACTIONS_MAX);
+
+export const bulkDeleteTransactionsSchema = z.object({ ids: bulkTransactionIdsSchema });
+export type BulkDeleteTransactionsInput = z.input<typeof bulkDeleteTransactionsSchema>;
+
+/**
+ * One change applied to many rows. Every field is optional and means "leave it
+ * alone" when absent; `categoryId: null` is the explicit "Uncategorized". At
+ * least one change is required — an edit of nothing is a client bug, not a
+ * no-op worth a round-trip.
+ */
+export const bulkUpdateTransactionsSchema = z
+  .object({
+    ids: bulkTransactionIdsSchema,
+    profileId: z.string().uuid().optional(),
+    categoryId: z.string().uuid().nullable().optional(),
+    addTagIds: z.array(z.string().uuid()).max(TAGS_PER_TRANSACTION_MAX).optional(),
+    removeTagIds: z.array(z.string().uuid()).max(TAGS_PER_WORKSPACE_MAX).optional(),
+  })
+  .refine(
+    (d) =>
+      d.profileId !== undefined ||
+      d.categoryId !== undefined ||
+      (d.addTagIds?.length ?? 0) > 0 ||
+      (d.removeTagIds?.length ?? 0) > 0,
+    { message: "Nothing to change" },
+  );
+export type BulkUpdateTransactionsInput = z.input<typeof bulkUpdateTransactionsSchema>;
+
 /* -------------------------------------------------------------------------- */
 /* Transaction attachments (receipts / bills / invoices)                       */
 /* -------------------------------------------------------------------------- */

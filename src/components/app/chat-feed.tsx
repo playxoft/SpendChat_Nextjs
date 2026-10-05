@@ -2,6 +2,7 @@ import { MessageSquarePlus } from "lucide-react";
 import { DayDivider } from "./day-divider";
 import { MonthDivider } from "./month-divider";
 import { TransactionItem } from "./transaction-item";
+import type { RowSelection } from "@/hooks/use-row-selection";
 import { dayDividerLabel, monthDividerLabel, monthKey } from "@/lib/dates";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
@@ -26,6 +27,7 @@ export function ChatFeed({
   profiles = [],
   tags,
   showAuthor = false,
+  selection = null,
 }: {
   rows: TransactionRow[];
   currency: string;
@@ -38,6 +40,8 @@ export function ChatFeed({
   tags: TxnTagDTO[];
   /** Shared workspaces only: label each bubble with its author. */
   showAuthor?: boolean;
+  /** Multi-select over the feed, for editors. */
+  selection?: RowSelection | null;
 }) {
   if (rows.length === 0) {
     return (
@@ -91,6 +95,12 @@ export function ChatFeed({
                     today={today}
                     timeLabel={timeLabel(r.createdAt, locale, timeZone)}
                     showAuthor={showAuthor}
+                    // Plain values and one shared `toggle`, so the memoised item
+                    // only re-renders when its own state changes — not every
+                    // bubble on each click.
+                    selected={selection?.isSelected(r.id) ?? false}
+                    selecting={(selection?.count ?? 0) > 0}
+                    onToggleSelect={selection?.toggle}
                   />
                 ))}
               </div>
