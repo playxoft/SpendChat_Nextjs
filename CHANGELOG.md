@@ -14,9 +14,56 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.4.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.5.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.33.0] — 2026-10-05
+
+### Added
+- **Spaces.** Profiles now sit in spaces inside a workspace, shown in the
+  sidebar as groups you can fold away (folds are remembered across devices).
+  Admins can add a space, rename it, give it an icon, move it up or down,
+  delete it (its profiles move to a space you pick — nothing is deleted with
+  it), and move a profile from one space to another. Every existing workspace
+  starts with one **Main** space holding all of its profiles, so nothing moves
+  and nobody's access changes.
+- **Who sees which space.** Admins still see everything. Other members see only
+  the spaces they're added to, with **Read** or **Read + write** on the whole
+  space — set when you invite someone, or later from a space's **Members &
+  access**. On Plus and Pro an admin can also set a single profile to **No
+  access**, **Read** or **Read + write** for one person; that wins over their
+  space role, so you can hide one profile inside a shared space.
+- **Plans per workspace — Free, Plus and Pro.** Each workspace has its own plan,
+  and its limits are shared by everyone in it: members (3 / 5 / 10), spaces
+  (2 / 6 / 15), profiles per space (3 / 5 / 10), categories (20 / 30 / 50,
+  the 15 starters included), tags (5 / 10 / 20), storage (1 / 5 / 20 GB) and AI
+  actions a month (50 / 300 / 1,000). Paid plans aren't on sale yet; when you
+  reach a limit, the app says which plan lifts it instead of a bare error.
+- **Plan & usage** card in workspace settings: AI actions used this month and
+  when they refill, storage, members, spaces, categories and tags against the
+  plan.
+- **Settings → Organisation**: your organisation's name (editable), its owner,
+  and every workspace in it with its plan.
+- Plan badges in the workspace switcher (`g`).
+
+### Changed
+- **AI actions are a monthly allowance per workspace** (Free 50, Plus 300, Pro
+  1,000, refilled on the 1st), on top of the existing hourly cap. A typed note
+  costs one action. A voice note costs one action per started minute and that
+  covers both hearing it and turning it into entries. If the AI service fails
+  on our side, the action is given back.
+- **Voice entry is a Pro feature**, and a recording can now run up to two
+  minutes (was one); notes can be up to 3,000 characters. Workspaces that
+  existed before plans keep voice while plans roll out.
+- **Storage follows the plan** (1 / 5 / 20 GB per workspace) instead of a flat
+  1 GB. The 5 MB per-file limit is unchanged.
+- **One free workspace per person.** Creating another workspace needs a paid
+  plan for it.
+- Being over a limit never deletes anything: a workspace that already has more
+  than its plan allows (one that existed before plans, or after a downgrade)
+  keeps all of it and only stops adding more of that thing. Workspaces that
+  existed before plans keep everything they have during the transition.
 
 ## [0.32.0] — 2026-10-04
 

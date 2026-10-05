@@ -20,8 +20,10 @@ import {
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { useLoadingOverlay } from "./loading-overlay";
 import { usePermissions } from "./permissions";
+import { PlanBadge } from "./plan-badge";
 import { switchWorkspace } from "@/actions/workspaces";
 import type { WorkspaceRole } from "@/db/schema";
+import type { PersonalPlan } from "@/lib/plans";
 
 /** Label for a workspace-wide role; grant-only access (null) reads as "shared". */
 function roleLabel(role: WorkspaceRole | null): string {
@@ -35,6 +37,8 @@ export type WorkspaceOption = {
   icon: string | null;
   /** Workspace-wide role; null = access via shared profiles only. */
   role: WorkspaceRole | null;
+  /** The workspace's plan — shown as a small badge beside it. */
+  plan: PersonalPlan;
 };
 
 /**
@@ -117,7 +121,7 @@ export function WorkspaceSwitcher({
             <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-60">
+        <DropdownMenuContent align="start" className="w-72">
           <DropdownMenuLabel className="text-xs text-muted-foreground">
             Workspaces
           </DropdownMenuLabel>
@@ -131,6 +135,7 @@ export function WorkspaceSwitcher({
                 {w.icon ?? ""}
               </span>
               <span className="min-w-0 flex-1 truncate">{w.name}</span>
+              <PlanBadge plan={w.plan} />
               <span className="shrink-0 text-sm text-muted-foreground capitalize">
                 {roleLabel(w.role)}
               </span>

@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { usePermissions } from "@/components/app/permissions";
 import { useAttachmentViewer } from "@/components/app/attachments/attachment-viewer";
+import { usePlan } from "@/components/app/upgrade-dialog";
 import { updateFile, updateFolder } from "@/actions/files";
 import {
   FILE_CATEGORY_LABELS,
@@ -115,6 +116,7 @@ export function FilesPageClient({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { canWrite } = usePermissions();
+  const { reportFailure } = usePlan();
   const openViewer = useAttachmentViewer();
   const [view, setView] = useFilesView();
   const [q, setQ] = useState("");
@@ -306,7 +308,8 @@ export function FilesPageClient({
     );
     setProgress(null);
     if (!res.ok) {
-      toast.error(res.error);
+      // A full storage quota opens the upgrade dialog; anything else toasts.
+      reportFailure(res);
       return;
     }
     toast.success(res.files.length === 1 ? "File uploaded" : `${res.files.length} files uploaded`);

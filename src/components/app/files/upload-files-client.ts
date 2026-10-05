@@ -11,7 +11,8 @@ import type { FileDTO } from "@/lib/files";
 
 export type VaultUploadResult =
   | { ok: true; files: FileDTO[] }
-  | { ok: false; error: string };
+  /** `code`/`details` when the server sent them (a full storage quota carries plan fields). */
+  | { ok: false; error: string; code?: string; details?: unknown };
 
 /** Splits a picked set into acceptable files + a human reason for the rest. */
 export function pickVaultFiles(
@@ -67,7 +68,7 @@ export async function uploadVaultFilesRequest(
       }
     };
     xhr.onload = () => {
-      type UploadResponse = { files?: FileDTO[]; error?: string };
+      type UploadResponse = { files?: FileDTO[]; error?: string; code?: string; details?: unknown };
       let data: UploadResponse | null = null;
       try {
         data = JSON.parse(xhr.responseText) as UploadResponse;
@@ -75,7 +76,12 @@ export async function uploadVaultFilesRequest(
         data = null;
       }
       if (xhr.status < 200 || xhr.status >= 300 || !data?.files) {
-        resolve({ ok: false, error: data?.error ?? "Upload failed. Please try again." });
+        resolve({
+          ok: false,
+          error: data?.error ?? "Upload failed. Please try again.",
+          code: data?.code,
+          details: data?.details,
+        });
         return;
       }
       onProgress?.(100);

@@ -17,6 +17,7 @@ import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
 import { useLoadingOverlay } from "./loading-overlay";
 import { switchWorkspace } from "@/actions/workspaces";
+import { PlanBadge } from "./plan-badge";
 import type { WorkspaceOption } from "./workspace-switcher";
 
 /**
@@ -227,6 +228,13 @@ export function WorkspaceSwitchDialog({
                     )}
                   </span>
                   <span className="min-w-0 flex-1 truncate">{w.name}</span>
+                  <PlanBadge
+                    plan={w.plan}
+                    className={cn(
+                      active &&
+                        "border-primary-foreground/40 bg-primary-foreground/15 text-primary-foreground",
+                    )}
+                  />
                   <span
                     className={cn(
                       "shrink-0 text-sm",

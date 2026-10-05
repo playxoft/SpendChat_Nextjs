@@ -15,16 +15,18 @@ import {
   SheetTitle,
   SheetTrigger,
 } from "@/components/ui/sheet";
-import { ProfileList } from "./profile-list";
+import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-list";
 import { UserMenu } from "./user-menu";
 import { MobileBulkAdd } from "./mobile-bulk-add";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
 import { hrefWithProfile } from "./nav-items";
-import type { Category, Profile } from "@/db/schema";
+import type { Category } from "@/db/schema";
 
 export function AppTopbar({
   email,
   profiles,
+  spaces,
+  collapsedSpaces,
   workspaces,
   currentWorkspaceId,
   categories,
@@ -34,7 +36,9 @@ export function AppTopbar({
   canWrite,
 }: {
   email: string | null;
-  profiles: Pick<Profile, "id" | "name" | "icon">[];
+  profiles: SidebarProfile[];
+  spaces: SidebarSpace[];
+  collapsedSpaces: string[];
   workspaces: WorkspaceOption[];
   currentWorkspaceId: string;
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
@@ -65,7 +69,7 @@ export function AppTopbar({
           <SheetContent side="left" className="w-72 p-0">
             <SheetHeader className="sr-only">
               <SheetTitle>Profiles</SheetTitle>
-              <SheetDescription>Switch between your transaction profiles.</SheetDescription>
+              <SheetDescription>Switch between your spaces and transaction profiles.</SheetDescription>
             </SheetHeader>
             <div className="flex h-full flex-col pt-10">
               <div className="shrink-0 px-3 pb-1">
@@ -75,7 +79,12 @@ export function AppTopbar({
                   onNavigate={() => setOpen(false)}
                 />
               </div>
-              <ProfileList profiles={profiles} onNavigate={() => setOpen(false)} />
+              <ProfileList
+                profiles={profiles}
+                spaces={spaces}
+                collapsedSpaces={collapsedSpaces}
+                onNavigate={() => setOpen(false)}
+              />
             </div>
           </SheetContent>
         </Sheet>

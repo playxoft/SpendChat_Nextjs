@@ -16,6 +16,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { useLoadingOverlay } from "./loading-overlay";
+import { usePlan } from "./upgrade-dialog";
 import { createWorkspace } from "@/actions/workspaces";
 import { DEFAULT_WORKSPACE_ICON, WORKSPACE_NAME_MAX } from "@/lib/validation";
 
@@ -36,6 +37,7 @@ export function CreateWorkspaceDialog({
 }) {
   const router = useRouter();
   const { run, pending } = useLoadingOverlay();
+  const { handlePlanLimit } = usePlan();
   const [name, setName] = React.useState("");
   const [icon, setIcon] = React.useState(DEFAULT_WORKSPACE_ICON);
 
@@ -67,6 +69,11 @@ export function CreateWorkspaceDialog({
         onCreated?.();
         router.push("/app");
         router.refresh();
+      } else if (res.code === "plan_limit") {
+        // One free workspace per person: explain it in the upgrade dialog
+        // rather than leaving this form up with an error toast.
+        onOpenChange(false);
+        if (!handlePlanLimit(res)) toast.error(res.error);
       } else {
         toast.error(res.error);
       }
