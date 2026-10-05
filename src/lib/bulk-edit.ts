@@ -50,12 +50,18 @@ export function planBulkEdit(row: BulkRowState, change: BulkChange, tagCap: numb
   }
 
   if (change.addTagIds.length > 0 || change.removeTagIds.length > 0) {
-    const remove = new Set(change.removeTagIds);
+    // A tag asked to be both added and removed is added: the request ends
+    // with the row carrying it, and one it already has keeps its place
+    // rather than moving to the end.
+    const adding = new Set(change.addTagIds);
+    const remove = new Set(change.removeTagIds.filter((id) => !adding.has(id)));
     const tags = row.tagIds.filter((id) => !remove.has(id));
     for (const id of change.addTagIds) if (!tags.includes(id)) tags.push(id);
     // All or nothing per row: a row that can't take every added tag keeps the
-    // set it had, rather than an arbitrary prefix of the request.
-    if (tags.length > tagCap) tagsSkipped = true;
+    // set it had, rather than an arbitrary prefix of the request. Only adding
+    // can break the cap — a removal is always allowed, even on a row that is
+    // somehow over it already.
+    if (change.addTagIds.length > 0 && tags.length > tagCap) tagsSkipped = true;
     else next.tagIds = tags;
   }
 

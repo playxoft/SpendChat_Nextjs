@@ -16,6 +16,18 @@ export function useRowSelection<T extends { id: string }>(rows: T[]) {
   const [ids, setIds] = useState<ReadonlySet<string>>(() => new Set());
   const anchor = useRef<string | null>(null);
 
+  // Ids whose row has left the list (deleted, moved out of view, paged away by
+  // a refresh) are dropped, so a row scrolled back in later doesn't come back
+  // already ticked behind the user's back (adjust-state-during-render).
+  const [seenRows, setSeenRows] = useState(rows);
+  if (rows !== seenRows) {
+    setSeenRows(rows);
+    const present = new Set(rows.map((r) => r.id));
+    if ([...ids].some((id) => !present.has(id))) {
+      setIds(new Set([...ids].filter((id) => present.has(id))));
+    }
+  }
+
   const selectedRows = useMemo(() => rows.filter((r) => ids.has(r.id)), [rows, ids]);
 
   const toggle = useCallback(

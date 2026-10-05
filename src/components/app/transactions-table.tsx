@@ -294,7 +294,10 @@ export function TransactionsTable({
             `min-width: totalWidth` forces a scroll once they're wider. */}
         <Table ref={tableRef} className="table-fixed w-full" style={{ minWidth: totalWidth }}>
           <colgroup>
-            {selection ? <col style={{ width: `${SELECT_COLUMN_WIDTH}px` }} /> : null}
+            {/* Zero-width in print, not removed: the select cells stay in the
+                grid (`print:invisible`), so every other column keeps its own
+                width — hiding the cells instead slid each one a column left. */}
+            {selection ? <col className="w-10 print:w-0" /> : null}
             {visible.map((id) => (
               <col
                 key={id}
@@ -308,7 +311,7 @@ export function TransactionsTable({
           <TableHeader>
             <TableRow>
               {selection ? (
-                <TableHead className="print:hidden">
+                <TableHead className="print:invisible print:p-0">
                   <Checkbox
                     aria-label={allSelected ? "Deselect all" : "Select all loaded transactions"}
                     checked={allSelected ? true : selection.count > 0 ? "indeterminate" : false}
@@ -480,7 +483,7 @@ function Row({
           // row, which is what a click anywhere else on it does. Shift extends
           // the selection from the last row picked.
           <TableCell
-            className="print:hidden"
+            className="print:invisible print:p-0"
             onClick={(e) => {
               e.stopPropagation();
               selection.toggle(row.id, e.shiftKey);

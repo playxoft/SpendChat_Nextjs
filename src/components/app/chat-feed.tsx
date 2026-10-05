@@ -95,15 +95,12 @@ export function ChatFeed({
                     today={today}
                     timeLabel={timeLabel(r.createdAt, locale, timeZone)}
                     showAuthor={showAuthor}
-                    selection={
-                      selection
-                        ? {
-                            selected: selection.isSelected(r.id),
-                            selecting: selection.count > 0,
-                            toggle: (range) => selection.toggle(r.id, range),
-                          }
-                        : null
-                    }
+                    // Plain values and one shared `toggle`, so the memoised item
+                    // only re-renders when its own state changes — not every
+                    // bubble on each click.
+                    selected={selection?.isSelected(r.id) ?? false}
+                    selecting={(selection?.count ?? 0) > 0}
+                    onToggleSelect={selection?.toggle}
                   />
                 ))}
               </div>

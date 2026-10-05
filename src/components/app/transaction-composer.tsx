@@ -27,6 +27,7 @@ import { EntryModeToggle, MODE_ROW_DENSE } from "./entry-mode-toggle";
 import { readEntryMode, useEntryMode } from "./entry-mode-store";
 import { cn } from "@/lib/utils";
 import { useContainWheel } from "@/hooks/use-contain-wheel";
+import { useBulkSelecting } from "@/hooks/use-bulk-selecting";
 import { usePendingMessages } from "./pending-messages";
 import { useLoadingOverlay } from "./loading-overlay";
 import { AttachmentDropzone } from "./attachments/attachment-dropzone";
@@ -160,6 +161,9 @@ export function TransactionComposer({
   // True while a profile/workspace switch is in flight — the fields belong to
   // the outgoing profile, so lock the composer until the new one has loaded.
   const { pending: switching } = useLoadingOverlay();
+  // The feed's multi-select takes this spot (its action bar), so the composer
+  // hides and its window-bound shortcuts stand down while it's up.
+  const bulkSelecting = useBulkSelecting();
 
   const titleRef = useRef<HTMLInputElement>(null);
   // The card around both modes. A wheel over it scrolls whatever inside it
@@ -296,7 +300,7 @@ export function TransactionComposer({
   // and didn't touch, and "a" swaps the pane while both toggles are disabled.
   // Any new window-bound shortcut in the composer needs the same guard.
   useShortcut(toggleCombo, () => switchType(), {
-    enabled: mode === "manual" && !switching,
+    enabled: mode === "manual" && !switching && !bulkSelecting,
     allowInInput: true,
     requireNoOverlay: true,
   });
@@ -306,7 +310,7 @@ export function TransactionComposer({
   useShortcut(
     comboFor("tracker.toggle-mode"),
     () => changeMode(mode === "manual" ? "ai" : "manual"),
-    { requireNoOverlay: true, enabled: !switching },
+    { requireNoOverlay: true, enabled: !switching && !bulkSelecting },
   );
 
   /**
@@ -1145,8 +1149,8 @@ export function TransactionComposer({
     // show through the padding around/below the card as they scroll past — same
     // colour as the page, so it reads as the page, not a separate widget.
     // Hidden while the feed has a multi-select up: its action bar takes this
-    // spot (`InfiniteChatFeed` sets the flag on <body>; the two don't share a tree).
-    <div className="sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0 in-data-[bulk-selecting=true]:hidden">
+    // spot (see `useBulkSelecting`).
+    <div className={cn("sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0", bulkSelecting && "hidden")}>
       {/* Every widget lives inside one rounded, floating card, sitting on the
           page background — the tracker list scrolls up behind the strip's top
           edge, never peeking out beneath the card. */}

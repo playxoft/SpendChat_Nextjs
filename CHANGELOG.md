@@ -88,9 +88,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   became "General expense". Titles now come back as written — names, shops,
   apps and spelling intact — with only the amount, currency, `/category`,
   `#tag`, `(description)`, date words and linking words like "spent … on"
-  taken out, and the first letter capitalised. The description is filled only
-  from text in parentheses, and an amount is no longer divided when a note says
-  "split".
+  taken out, and the first letter capitalised. A title longer than the 40
+  characters a title holds breaks at a word, and the rest moves into the
+  description rather than being cut off. The description is otherwise filled
+  only from text in parentheses, and an amount is no longer divided when a note
+  says "split".
 
 ## [0.31.0] — 2026-09-30
 

@@ -37,6 +37,18 @@ type SharedProps = {
 };
 
 /**
+ * A revalidated first page folded into the rows already loaded: the new page
+ * first, then the previously loaded rows past its length that it doesn't
+ * already contain. Offset paging keeps working from the merged length, since
+ * any row that left the list (a delete) left from the loaded part too.
+ */
+function mergeFirstPage(loaded: TransactionRow[], first: TransactionRow[]): TransactionRow[] {
+  if (loaded.length <= first.length) return first;
+  const inFirst = new Set(first.map((r) => r.id));
+  return [...first, ...loaded.slice(first.length).filter((r) => !inFirst.has(r.id))];
+}
+
+/**
  * Wraps the table with scroll-to-load paging: the server renders the first page,
  * and this appends further pages via a server action as a bottom sentinel nears
  * the viewport. No page numbers — the list grows as you scroll.
@@ -86,16 +98,27 @@ export function TransactionsList({
   const [error, setError] = useState(false);
   const [done, setDone] = useState(() => atEnd(initialRows.length));
 
-  // The server streams a fresh first page on every filter/sort change and after
-  // a revalidation (add/edit/delete). Re-sync the accumulated list to match it
-  // (adjust-state-during-render — no effect needed).
-  const [synced, setSynced] = useState(initialRows);
-  if (initialRows !== synced) {
-    setSynced(initialRows);
-    setRows(initialRows);
+  // The server streams a fresh first page after a sort change and after a
+  // revalidation (add, edit, delete, a bulk action). Re-sync the accumulated
+  // list to it (adjust-state-during-render — no effect needed). A filter
+  // change never lands here: the results boundary is keyed by the filters, so
+  // it remounts this list instead.
+  //
+  // A new sort starts over — the loaded tail is in the old order. A
+  // revalidation keeps it: the fresh first page replaces the first page, and
+  // the rows already loaded past it stay, minus any the new page now holds.
+  // Replacing the whole list there dropped every scrolled-to page after a bulk
+  // edit, scroll position and selection with it.
+  const sortKey = `${filters.sort ?? ""}:${filters.dir ?? ""}`;
+  const [synced, setSynced] = useState({ rows: initialRows, sortKey });
+  if (initialRows !== synced.rows) {
+    const next =
+      sortKey === synced.sortKey ? mergeFirstPage(rows, initialRows) : initialRows;
+    setSynced({ rows: initialRows, sortKey });
+    setRows(next);
     setLoading(false);
     setError(false);
-    setDone(atEnd(initialRows.length));
+    setDone(atEnd(next.length));
   }
 
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -104,8 +127,8 @@ export function TransactionsList({
   const { canWrite } = usePermissions();
   const selection = useRowSelection(rows);
   // A bulk result patches the loaded rows straight away; the revalidation that
-  // follows (the actions revalidate the page) then replaces the first page and
-  // re-applies the filters, so a row that stopped matching one leaves then.
+  // follows (the actions revalidate the page) then refreshes the first page —
+  // see `mergeFirstPage` above.
   const onBulkUpdated = useCallback((changed: TransactionRow[]) => {
     const byId = new Map(changed.map((r) => [r.id, r]));
     setRows((prev) => prev.map((r) => byId.get(r.id) ?? r));

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { memo, useRef, useState } from "react";
 import { CircleCheck, CircleX, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -32,15 +32,12 @@ import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 import type { TxnTagDTO } from "@/lib/tags";
 
-/** One bubble's view of the feed's multi-select. */
-export type ItemSelection = {
-  selected: boolean;
-  /** Anything in the feed is selected. */
-  selecting: boolean;
-  toggle: (range: boolean) => void;
-};
-
-export function TransactionItem({
+/**
+ * One message in the feed. Memoised: a multi-select click changes one bubble,
+ * and the feed passes plain values plus a stable `onToggleSelect` so the rest
+ * — each with its menu, dialogs and measured tags — skip the render.
+ */
+export const TransactionItem = memo(function TransactionItem({
   row: serverRow,
   currency,
   locale,
@@ -50,7 +47,9 @@ export function TransactionItem({
   today,
   timeLabel,
   showAuthor = false,
-  selection = null,
+  selected = false,
+  selecting = false,
+  onToggleSelect,
 }: {
   row: TransactionRow;
   currency: string;
@@ -63,12 +62,21 @@ export function TransactionItem({
   timeLabel: string;
   /** Shared workspaces only: label each bubble with its author. */
   showAuthor?: boolean;
-  /** Multi-select, for editors; null leaves the bubble as it was. */
-  selection?: ItemSelection | null;
+  /** Multi-select: this bubble is picked. */
+  selected?: boolean;
+  /** Anything in the feed is picked. */
+  selecting?: boolean;
+  /** The feed's toggle, for editors; absent leaves the bubble as it was (no
+   *  ring, no menu). */
+  onToggleSelect?: (id: string, range: boolean) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  // The card, so focus can go back to it when the delete dialog closes — the
+  // menu item that opened it is gone by then.
+  const cardRef = useRef<HTMLDivElement>(null);
+  const toggle = onToggleSelect ? (range: boolean) => onToggleSelect(row.id, range) : undefined;
   const openViewer = useAttachmentViewer();
   // An edit patches the bubble / a delete hides it in the same commit as the
   // toast, then the server revalidation reconciles.
@@ -118,27 +126,29 @@ export function TransactionItem({
         }
         authorName={showAuthor ? authorDisplayName(row.userName, row.userEmail) : undefined}
         authorColorClass={showAuthor ? authorColorClass(row.userId) : undefined}
-        // While a selection is under way a click picks, like the circle does;
+        // While a selection is under way a click picks, like the ring does;
         // otherwise it opens the row for editing.
-        onActivate={(e) => (selection?.selecting ? selection.toggle(!!e?.shiftKey) : setEditing(true))}
-        selected={selection?.selected}
-        selecting={selection?.selecting}
-        onToggleSelect={selection?.toggle}
+        onActivate={(e) => (selecting && toggle ? toggle(!!e?.shiftKey) : setEditing(true))}
+        selected={selected}
+        selecting={selecting}
+        onToggleSelect={toggle}
         // Right-click (or a long press on a phone — Radix opens the same menu
-        // for a held touch) offers the row's three actions. Editors only:
-        // `selection` is null for a viewer, who keeps the browser's own menu.
+        // for a held touch) offers the row's three actions. Editors only: a
+        // viewer gets no `onToggleSelect`, and keeps the browser's own menu.
         renderCard={
-          selection
+          toggle
             ? (card) => (
                 <ContextMenu>
-                  <ContextMenuTrigger asChild>{card}</ContextMenuTrigger>
+                  <ContextMenuTrigger asChild ref={cardRef}>
+                    {card}
+                  </ContextMenuTrigger>
                   <ContextMenuContent className="w-44">
                     <ContextMenuItem onSelect={() => setEditing(true)}>
                       <Pencil /> Edit
                     </ContextMenuItem>
-                    <ContextMenuItem onSelect={() => selection.toggle(false)}>
-                      {selection.selected ? <CircleX /> : <CircleCheck />}
-                      {selection.selected ? "Deselect" : "Select"}
+                    <ContextMenuItem onSelect={() => toggle(false)}>
+                      {selected ? <CircleX /> : <CircleCheck />}
+                      {selected ? "Deselect" : "Select"}
                     </ContextMenuItem>
                     <ContextMenuSeparator />
                     <ContextMenuItem variant="destructive" onSelect={() => setConfirmingDelete(true)}>
@@ -152,7 +162,12 @@ export function TransactionItem({
       />
 
       <AlertDialog open={confirmingDelete} onOpenChange={(o) => !deleting && setConfirmingDelete(o)}>
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(e) => {
+            e.preventDefault();
+            cardRef.current?.focus();
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this transaction?</AlertDialogTitle>
             <AlertDialogDescription>
@@ -205,4 +220,4 @@ export function TransactionItem({
       />
     </>
   );
-}
+});

@@ -85,15 +85,15 @@ function buildSystemPrompt(
     "",
     "Rules:",
     '1. Split the note into one transaction per distinct item or amount. "200 fruits, 100 vegetables, 1000 electricity" is three transactions.',
-    '2. amount: the positive number only, in the main currency unit, exactly as the note states it. Never negative, never zero, and never divided, multiplied or shared out — "2400 split" is 2400.',
+    '2. amount: the positive number only, in the main currency unit, exactly as the note states it. Never negative, never zero, and never divided or shared out — "2400 split" is 2400. A total the note spells out is fine to work out ("2 × 150" is 300, "100+50" is 150).',
     '3. type: "expense" for money spent (the default) or "income" for money received (salary, refund, sold, paycheck, received, etc.). When unclear, use "expense".',
     // The title is the user's own words, not a label the model writes. Until
-    // 0.31.1 this rule asked for "a short label for the item or merchant (e.g.
+    // 0.32.0 this rule asked for "a short label for the item or merchant (e.g.
     // "Fruits")", and the model did exactly that: "Nive dinner A2B Swiggey 254"
     // came back as "Dinner" with the rest pushed into the description, and
     // "Hello 100" as "General expense". People write names, shops and apps into
     // a note on purpose — they are how the row is found again later.
-    `4. title: the item's words EXACTLY as the user wrote them — same words, same order, same spelling, same capitalisation, including people's names, shop, app and brand names, and typos. Remove only: the amount and its currency ("₹", "Rs", "INR", "$", "rupees"); a /category marker; a #tag marker; a (parenthetical); date words you used for occurredOn ("yesterday", "on 12 Sep"); and filler that only links the amount to the item ("spent 500 on petrol" → "petrol", "paid 300 for groceries" → "groceries", "got 5000 salary" → "salary"). Never shorten, summarise, reorder, rephrase, translate, correct or title-case it; never move any of its words into the description; never replace it with a category name or a generic label such as "Other", "Expense" or "General expense". Examples: "Ravi lunch Saravana Bhavan Zomato 320" → "Ravi lunch Saravana Bhavan Zomato"; "Hello 100" → "Hello"; "200 fruits, 100 veg" → "fruits" and "veg". Only when nothing at all is left (a bare "500") use the chosen category's name. If the words run past ${TRANSACTION_TITLE_MAX} characters, keep them as written anyway — they are cut to fit afterwards.`,
+    `4. title: the item's words EXACTLY as the user wrote them — same words, same order, same spelling, same capitalisation, including people's names, shop, app and brand names, and typos. Remove only: the amount and its currency ("₹", "Rs", "INR", "$", "rupees"); a /category marker; a #tag marker; a (parenthetical); date words you used for occurredOn ("yesterday", "on 12 Sep"); and filler that only links the amount to the item ("spent 500 on petrol" → "petrol", "paid 300 for groceries" → "groceries", "got 5000 salary" → "salary"). Never shorten, summarise, reorder, rephrase, translate, correct or title-case it; never move any of its words into the description; never replace it with a category name or a generic label such as "Other", "Expense" or "General expense". Examples: "Ravi lunch Saravana Bhavan Zomato 320" → "Ravi lunch Saravana Bhavan Zomato"; "Hello 100" → "Hello"; "200 fruits, 100 veg" → "fruits" and "veg". Only when nothing at all is left (a bare "500") use the chosen category's name. If the words run past ${TRANSACTION_TITLE_MAX} characters, keep them as written anyway — the overflow is carried into the description afterwards.`,
     '5. description: ONLY the text inside an item\'s parentheses — "1200 electricity (June bill)" → description "June bill". With no parenthetical, description is null. Never fill it from the rest of the note.',
     "6. categoryName: when an item carries a \"/name\" marker — a slash followed immediately by a letter (e.g. \"500 groceries /Food\") — that is the user's chosen category: match it to the nearest Allowed category of that type and output that exact stored name. A slash between digits is a date or a fraction, never a category (\"paid 12/05\", \"1/2 share\"). With no marker, pick the single best Allowed match. If nothing fits, use null. Never invent a name that is not in the Allowed list below.",
     `7. tagNames: always an array, and always present — output [] rather than dropping the key. Two things go in it. First, every "#name" marker on the item — a hash followed immediately by a letter (e.g. "500 groceries #weekly #home") is the user asking for that tag by name, so match it to the nearest Allowed tag and always include it; a "#" followed by a digit is not a marker ("#1 priority", "flight #204"). Second, any other Allowed tag that clearly fits the item, chosen the same way you choose a category. A tag cuts across categories — a trip, a project, a person, an occasion — so add one only when the item plainly belongs to it, and prefer one or two over a long list. At most ${TAGS_PER_TRANSACTION_MAX} per item. Never invent a name that is not in the Allowed tags list below; when that list is empty, every tagNames is [].`,
@@ -122,16 +122,43 @@ function buildSystemPrompt(
  * Sentence-case the first character, leaving everything after it alone — so
  * "banana" becomes "Banana" but "iPhone case" and "AC repair" survive intact.
  *
- * The model is asked for capitalized titles, but it echoes the note's casing
- * often enough that a lowercase word lands in the review list next to
- * hand-typed rows that always start with a capital. Doing it here (rather than
- * trusting the prompt) is what makes it consistent.
+ * Titles keep the note's own casing (rule 4 tells the model not to touch it),
+ * so a lowercase first word would land in the review list next to hand-typed
+ * rows that always start with a capital. The first letter — and only that —
+ * is capitalised here, where it's consistent, rather than asked of the model.
  */
 function sentenceCase(text: string): string {
   const first = text.charAt(0);
   // Only touch letters that actually have an uppercase form — a leading digit
   // or symbol ("₹500 refund") must pass through untouched.
   return first.toUpperCase() === first ? text : first.toUpperCase() + text.slice(1);
+}
+
+/**
+ * Fit a title into its limit without losing any of the note's words: cut at
+ * the last word boundary that fits (mid-word only when one word is longer
+ * than the limit) and carry the rest to the front of the description.
+ *
+ * Titles are the note's own words now (rule 4), so a long one is a real
+ * possibility, and the 40-character cap used to be a bare `slice` — "Ravi lunch
+ * Saravana Bhavan Zomato with team" saved as "… Zomato with t", the last word
+ * going nowhere.
+ */
+export function fitTitle(
+  title: string,
+  description: string | undefined,
+): { title: string; description: string | undefined } {
+  if (title.length <= TRANSACTION_TITLE_MAX) return { title, description };
+  // One character past the cap, so a word that ends exactly at it still fits.
+  const space = title.slice(0, TRANSACTION_TITLE_MAX + 1).lastIndexOf(" ");
+  const cut = space > 0 ? space : TRANSACTION_TITLE_MAX;
+  const head = title.slice(0, cut).trim();
+  const rest = title.slice(cut).trim();
+  const carried = rest ? (description ? `${rest} — ${description}` : rest) : description;
+  return {
+    title: head,
+    description: carried ? sentenceCase(carried).slice(0, TRANSACTION_DESCRIPTION_MAX).trim() : undefined,
+  };
 }
 
 /** YYYY-MM-DD passthrough, defaulting to and never exceeding `today`. */
@@ -214,12 +241,13 @@ export function draftsFromRawJson(
     // hands the confirm path a title one character over it.
     const titleRaw = typeof o.title === "string" ? o.title.trim() : "";
     if (!titleRaw) continue; // a transaction needs a title, same as the composer
-    const title = sentenceCase(titleRaw).slice(0, TRANSACTION_TITLE_MAX).trim();
-
     const descRaw = typeof o.description === "string" ? o.description.trim() : "";
-    const description = descRaw
-      ? sentenceCase(descRaw).slice(0, TRANSACTION_DESCRIPTION_MAX).trim()
-      : undefined;
+    const fitted = fitTitle(
+      sentenceCase(titleRaw),
+      descRaw ? sentenceCase(descRaw).slice(0, TRANSACTION_DESCRIPTION_MAX).trim() : undefined,
+    );
+    const title = fitted.title;
+    const description = fitted.description;
 
     const rawCat = typeof o.categoryName === "string" ? o.categoryName.trim() : "";
     const categoryName = rawCat ? (canonical.get(`${type}:${rawCat.toLowerCase()}`) ?? null) : null;

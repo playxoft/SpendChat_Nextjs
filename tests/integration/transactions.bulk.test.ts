@@ -122,6 +122,62 @@ describe("deleteTransactions", () => {
   });
 });
 
+/**
+ * The case the per-row skipping exists for: one user, two profiles in the same
+ * workspace, editor on one and only a viewer on the other, with a selection
+ * spanning both. The editable rows go through; the view-only ones are left
+ * exactly as they were — files included — and counted.
+ */
+describe("a selection across an editable and a view-only profile", () => {
+  beforeEach(() => vi.mocked(deleteObjects).mockClear());
+
+  async function mixedAccess() {
+    const a = await owner("a");
+    const viewOnly = await addProfile("a", a.ws, "Household");
+    await bootstrapUser("e");
+    await getTestDb()
+      .insert(profileAccess)
+      .values([
+        { profileId: a.pid, userId: uid("e"), role: "editor" },
+        { profileId: viewOnly, userId: uid("e"), role: "viewer" },
+      ]);
+    const editable = await insertTxn("a", { ...expense, profileId: a.pid });
+    const readOnly = await insertTxn("a", { ...expense, profileId: viewOnly });
+    await attach("a", readOnly, viewOnly, "attachments/x/readonly/1.pdf");
+    return { ws: a.ws, editable, readOnly, viewOnly };
+  }
+
+  it("deletes the editable row and keeps the view-only one and its files", async () => {
+    const { ws, editable, readOnly } = await mixedAccess();
+
+    const res = await deleteTransactions(uid("e"), ws, { ids: [editable, readOnly] });
+
+    expect(res).toEqual({ deletedIds: [editable], skipped: 1 });
+    expect(await txnRow(readOnly)).toBeDefined();
+    expect(swept()).not.toContain("attachments/x/readonly/1.pdf");
+  });
+
+  it("edits the editable row and reports the view-only one", async () => {
+    const { ws, editable, readOnly } = await mixedAccess();
+    const groceries = await categoryId("a", "Groceries", "expense");
+
+    const res = await updateTransactions(uid("e"), ws, { ids: [editable, readOnly], categoryId: groceries });
+
+    expect(res.rows.map((r) => r.id)).toEqual([editable]);
+    expect(res.noAccess).toBe(1);
+    expect((await txnRow(readOnly))!.categoryId).toBeNull();
+  });
+
+  it("refuses to move rows into the view-only profile", async () => {
+    const { ws, editable, viewOnly } = await mixedAccess();
+
+    await expect(updateTransactions(uid("e"), ws, { ids: [editable], profileId: viewOnly })).rejects.toMatchObject({
+      status: 403,
+    });
+    expect((await txnRow(editable))!.profileId).not.toBe(viewOnly);
+  });
+});
+
 describe("deleteTransaction (single)", () => {
   beforeEach(() => vi.mocked(deleteObjects).mockClear());
 
@@ -269,6 +325,58 @@ describe("updateTransactions", () => {
       updateTransactions(a.userId, a.ws, { ids: [row], profileId: b.pid }),
     ).rejects.toMatchObject({ status: 403 });
     expect((await txnRow(row))!.profileId).toBe(a.pid);
+  });
+
+  it("rejects a category from another workspace and writes nothing", async () => {
+    const a = await owner("a");
+    await owner("b");
+    const theirs = await categoryId("b", "Groceries", "expense");
+    const row = await insertTxn("a", expense);
+
+    await expect(updateTransactions(a.userId, a.ws, { ids: [row], categoryId: theirs })).rejects.toMatchObject({
+      status: 422,
+      message: "Invalid category",
+    });
+    expect((await txnRow(row))!.categoryId).toBeNull();
+  });
+
+  it("moves only the rows not already in the target, and only their attachments", async () => {
+    const { userId, ws, pid } = await owner();
+    const business = await addProfile("a", ws, "Business");
+    const moving = await insertTxn("a", { ...expense, profileId: pid });
+    const already = await insertTxn("a", { ...expense, profileId: business });
+    await attach("a", moving, pid, "attachments/x/moving/1.pdf");
+    await attach("a", already, business, "attachments/x/already/1.pdf");
+
+    const res = await updateTransactions(userId, ws, { ids: [moving, already], profileId: business });
+
+    expect(res.rows.map((r) => r.id)).toEqual([moving]);
+    const atts = await getTestDb()
+      .select({ txn: transactionAttachments.transactionId, profileId: transactionAttachments.profileId })
+      .from(transactionAttachments)
+      .where(inArray(transactionAttachments.transactionId, [moving, already]));
+    expect(atts.every((a) => a.profileId === business)).toBe(true);
+  });
+
+  it("applies a move, a category and tags in one call", async () => {
+    const { userId, ws } = await owner();
+    const business = await addProfile("a", ws, "Business");
+    const groceries = await categoryId("a", "Groceries", "expense");
+    const travel = await createTxnTag(userId, ws, { name: "Travel", color: "#ef4444" });
+    const row = await insertTxn("a", expense);
+
+    const res = await updateTransactions(userId, ws, {
+      ids: [row],
+      profileId: business,
+      categoryId: groceries,
+      addTagIds: [travel.id],
+    });
+
+    expect(res.rows).toHaveLength(1);
+    const stored = (await txnRow(row))!;
+    expect(stored.profileId).toBe(business);
+    expect(stored.categoryId).toBe(groceries);
+    expect(stored.tagIds).toEqual([travel.id]);
   });
 
   it("rejects a request that changes nothing", async () => {

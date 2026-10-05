@@ -386,10 +386,13 @@ export async function deleteTransaction(
   if (!(await editableInWorkspace(userId, workspaceId, existing.profileId))) return false;
 
   const { deleted, keys } = await db.transaction(async (tx) => {
+    // Locked on the profile the access check above approved, not just the id:
+    // a row moved into a profile the caller can only view, between that check
+    // and this lock, is no longer theirs to delete.
     const locked = await tx
       .select({ id: transactions.id })
       .from(transactions)
-      .where(eq(transactions.id, id))
+      .where(and(eq(transactions.id, id), eq(transactions.profileId, existing.profileId)))
       .for("update");
     if (locked.length === 0) return { deleted: false, keys: [] as (string | null)[] };
     const stored = await tx
@@ -442,10 +445,13 @@ export async function deleteTransactions(
 
   const db = getDb();
   const { deletedIds, keys } = await db.transaction(async (tx) => {
+    // Locked in id order, whatever plan the scan takes: two overlapping bulk
+    // operations taking their row locks in different orders is a deadlock.
     const doomed = await tx
       .select({ id: transactions.id })
       .from(transactions)
       .where(and(inArray(transactions.id, ids), inArray(transactions.profileId, writable)))
+      .orderBy(asc(transactions.id))
       .for("update");
     if (doomed.length === 0) return { deletedIds: [] as string[], keys: [] as (string | null)[] };
     const doomedIds = doomed.map((r) => r.id);
@@ -540,7 +546,12 @@ export async function updateTransactions(
       })
       .from(transactions)
       .where(and(inArray(transactions.id, ids), inArray(transactions.profileId, writable)))
-      .for("update");
+      // In id order, like the bulk delete, so overlapping bulk operations can't
+      // deadlock. `no key update`: the write never touches the key, and plain
+      // `for update` would also hold off attachment inserts (their foreign key
+      // check) for as long as this transaction is open.
+      .orderBy(asc(transactions.id))
+      .for("no key update");
 
     let wrongKind = 0;
     let tagLimit = 0;

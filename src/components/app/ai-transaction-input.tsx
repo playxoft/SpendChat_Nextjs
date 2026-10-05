@@ -33,6 +33,7 @@ import {
 import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
 import { primaryBcp47 } from "@/lib/voice-languages";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
+import { useBulkSelecting } from "@/hooks/use-bulk-selecting";
 import { hasOpenOverlay, useHoldShortcut, useIsMac } from "@/hooks/use-shortcut";
 import {
   comboFor,
@@ -272,6 +273,9 @@ export function AiTransactionInput({
   // composer is usable — and a note parsed against the old profile would save
   // into the new one.
   const { pending: switching } = useLoadingOverlay();
+  // Hidden behind the feed's multi-select bar: the window-bound voice hold and
+  // Enter-to-save below must not act on a pane nobody can see.
+  const bulkSelecting = useBulkSelecting();
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
   const idRef = useRef(0);
   const nextKey = () => ++idRef.current;
@@ -584,7 +588,7 @@ export function AiTransactionInput({
   // the fieldset can't switch it off. (It does end a hold in progress when
   // `enabled` flips — see the hook. The *pointer* hold is ended by the mic
   // button itself, which watches for being disabled mid-gesture.)
-  const voiceEnabled = mode === "ai" && !rows && !parsing && !switching;
+  const voiceEnabled = mode === "ai" && !rows && !parsing && !switching && !bulkSelecting;
   useHoldShortcut(voiceCombo, voice.start, voice.stop, {
     enabled: voiceEnabled,
     requireNoOverlay: true,
@@ -674,7 +678,7 @@ export function AiTransactionInput({
     // Gated on exactly what the Add button is disabled by, so the key and the
     // click refuse in the same places — otherwise ⌘↵ on a list with nothing
     // valid in it fires an error toast that the button it mirrors won't.
-    if (mode !== "ai" || !reviewing || saving || switching) return;
+    if (mode !== "ai" || !reviewing || saving || switching || bulkSelecting) return;
     if (validRows.length === 0) return;
     function onKeyDown(e: KeyboardEvent) {
       if (normalizeKey(e) !== "enter" || e.repeat) return;
@@ -712,7 +716,7 @@ export function AiTransactionInput({
     }
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [mode, reviewing, saving, switching, validRows.length]);
+  }, [mode, reviewing, saving, switching, bulkSelecting, validRows.length]);
 
   function onTextareaKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // ⌘/Ctrl+Enter parses, whatever is open. Without this the picker branches

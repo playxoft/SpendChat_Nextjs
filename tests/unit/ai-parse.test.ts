@@ -128,6 +128,37 @@ describe("draftsFromRawJson — the untrusted-output validator", () => {
     expect(d!.description).toHaveLength(150);
   });
 
+  it("cuts a long title at a word and carries the rest into the description", () => {
+    const [plain, withDesc] = draftsFromRawJson(
+      wrap([
+        { type: "expense", amount: 320, title: "Ravi lunch Saravana Bhavan Zomato with team", occurredOn: TODAY },
+        {
+          type: "expense",
+          amount: 320,
+          title: "Ravi lunch Saravana Bhavan Zomato with team",
+          description: "office treat",
+          occurredOn: TODAY,
+        },
+      ]),
+      { categories: CATEGORIES, today: TODAY },
+    );
+    expect(plain!.title).toBe("Ravi lunch Saravana Bhavan Zomato with");
+    expect(plain!.description).toBe("Team");
+    expect(withDesc!.title).toBe("Ravi lunch Saravana Bhavan Zomato with");
+    expect(withDesc!.description).toBe("Team — Office treat");
+  });
+
+  it("keeps a title of exactly the cap whole, with nothing carried", () => {
+    const title = "Abcd efgh ijkl mnop qrst uvwx yzab cdefg"; // 40 characters
+    expect(title).toHaveLength(40);
+    const [d] = draftsFromRawJson(wrap([{ type: "expense", amount: 1, title, occurredOn: TODAY }]), {
+      categories: CATEGORIES,
+      today: TODAY,
+    });
+    expect(d!.title).toBe(title);
+    expect(d!.description).toBeUndefined();
+  });
+
   it("clamps after sentence-casing, so a first letter that grows can't push it over", () => {
     // "\u00df".toUpperCase() is "SS": casing a string that was already cut to the
     // cap handed the confirm path a title one character too long for its Zod
@@ -616,7 +647,7 @@ describe("Gemini responseSchema covers every field the prompt asks for", () => {
   });
 
   it("asks for the note's own words as the title, never a label the model writes", async () => {
-    // Lives here for `capturedRequest`. Until 0.31.1 rule 4 asked for "a short
+    // Lives here for `capturedRequest`. Until 0.32.0 rule 4 asked for "a short
     // label for the item or merchant (e.g. "Fruits")", and the live model
     // obliged: "Nive dinner A2B Swiggey 254" → "Dinner", "Hello 100" → "General
     // expense". A string check is a weak guard on a prompt, but it is the one

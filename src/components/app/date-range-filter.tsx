@@ -33,6 +33,13 @@ const PRESETS: { label: string; from: (today: Date) => Date }[] = [
 
 const QUARTERS = [1, 2, 3, 4] as const;
 
+/** The year the month grid opens on: the selected range's, or this one. A
+ *  `from` that isn't a date (a hand-edited URL — the server ignores it) falls
+ *  back to today, rather than a NaN year that disables every month. */
+function gridYear(from: string, today: string): number {
+  return Number((/^\d{4}-\d{2}-\d{2}$/.test(from) ? from : today).slice(0, 4));
+}
+
 /** Shared look for every pickable item in the popover — month, quarter, preset. */
 function itemClass(active: boolean) {
   return cn(
@@ -85,7 +92,7 @@ export function DateRangeFilter({
   const activeQuarter = matchQuarter(from, to);
 
   // The year the month/quarter grid shows: the selected range's, or this one.
-  const [year, setYear] = React.useState(() => Number((from || today).slice(0, 4)));
+  const [year, setYear] = React.useState(() => gridYear(from, today));
   const thisYear = Number(today.slice(0, 4));
   const monthNames = React.useMemo(() => {
     const fmt = new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" });
@@ -127,7 +134,7 @@ export function DateRangeFilter({
       onOpenChange={(next) => {
         // Reopening starts from the selected range's year, not wherever the
         // grid was last stepped to.
-        if (next) setYear(Number((from || today).slice(0, 4)));
+        if (next) setYear(gridYear(from, today));
         setOpen(next);
       }}
     >

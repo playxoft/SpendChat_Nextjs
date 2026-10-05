@@ -79,6 +79,18 @@ describe("planBulkEdit", () => {
     expect(planBulkEdit(row({ tagIds: ["a"] }), change({ addTagIds: ["a"] }), 10).changed).toBe(false);
   });
 
+  it("adds a tag asked to be both added and removed, keeping its place", () => {
+    const plan = planBulkEdit(row({ tagIds: ["a", "b"] }), change({ addTagIds: ["a"], removeTagIds: ["a"] }), 10);
+    expect(plan.next.tagIds).toEqual(["a", "b"]);
+    expect(plan.changed).toBe(false);
+  });
+
+  it("always allows a removal, even on a row over the cap", () => {
+    const plan = planBulkEdit(row({ tagIds: ["a", "b", "c"] }), change({ removeTagIds: ["a"] }), 2);
+    expect(plan.next.tagIds).toEqual(["b", "c"]);
+    expect(plan.tagsSkipped).toBe(false);
+  });
+
   it("doesn't mutate the input row", () => {
     const input = row({ tagIds: ["a"] });
     planBulkEdit(input, change({ addTagIds: ["b"], profileId: "p9" }), 10);

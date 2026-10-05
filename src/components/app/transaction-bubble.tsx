@@ -96,7 +96,9 @@ export function TransactionBubble({
   const heading = title?.trim() || categoryName || "Transaction";
 
   function handleKeyDown(e: React.KeyboardEvent) {
-    if (e.key === "Enter" && onActivate) {
+    // Enter and Space, as a `role="button"` should — Space is how a toggle
+    // button is usually pressed, and the card is one while selecting.
+    if ((e.key === "Enter" || e.key === " ") && onActivate) {
       e.preventDefault();
       onActivate();
     }
@@ -214,8 +216,10 @@ export function TransactionBubble({
               e.stopPropagation();
               onToggleSelect(e.shiftKey);
             }}
+            // One label that names the row, with the state in `aria-pressed` —
+            // not a label that flips text, which reads the state twice.
             aria-pressed={selected}
-            aria-label={selected ? "Deselect transaction" : "Select transaction"}
+            aria-label={`Select ${heading}`}
             className={cn(
               "absolute top-full left-1/2 mt-1.5 flex size-4 -translate-x-1/2 cursor-pointer items-center justify-center rounded-full border-2 outline-none transition-[opacity,background-color,border-color] duration-150",
               "before:absolute before:-inset-2 before:rounded-full before:content-['']",

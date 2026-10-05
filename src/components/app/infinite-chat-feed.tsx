@@ -8,6 +8,7 @@ import { MonthScrollSpy } from "./month-scroll-spy";
 import { BulkActionBar } from "./bulk-action-bar";
 import { usePermissions } from "./permissions";
 import { useRowSelection } from "@/hooks/use-row-selection";
+import { setBulkSelecting } from "@/hooks/use-bulk-selecting";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
 import type { TxnTagDTO } from "@/lib/tags";
@@ -163,13 +164,10 @@ export function InfiniteChatFeed({
 
   // The bar takes the composer's place while a selection is up — you aren't
   // writing while you're picking. The composer lives in another tree, so it
-  // reads this flag off <body> (`in-data-[bulk-selecting=true]:hidden`).
+  // reads this through a shared store (and stands its shortcuts down too).
   useEffect(() => {
-    if (!selecting) return;
-    document.body.dataset.bulkSelecting = "true";
-    return () => {
-      delete document.body.dataset.bulkSelecting;
-    };
+    setBulkSelecting(selecting);
+    return () => setBulkSelecting(false);
   }, [selecting]);
 
   // Bulk results land in the accumulated rows directly: the revalidation that
