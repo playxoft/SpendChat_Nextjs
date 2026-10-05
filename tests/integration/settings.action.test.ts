@@ -67,6 +67,7 @@ describe("deleteAllTransactions", () => {
 
     expect(await deleteAllTransactions("delete", [])).toEqual({
       ok: false,
+      code: "bad_request",
       error: "Type DELETE to confirm",
     });
     expect(await countTxns("a")).toBe(1); // untouched

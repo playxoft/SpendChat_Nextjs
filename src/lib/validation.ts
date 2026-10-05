@@ -298,13 +298,9 @@ export type AttachmentMetaInput = z.infer<typeof attachmentMetaSchema>;
  * not two — raise it in one place and both features follow.
  */
 export const FILE_MAX_BYTES = ATTACHMENT_MAX_BYTES;
-/**
- * Total stored bytes allowed per workspace — vault files *and* transaction
- * attachments together, since both live in R2 under the workspace. One flat
- * quota (no plan tiers today); usage is computed on read from the size columns,
- * never kept as a counter, so it can't drift.
- */
-export const STORAGE_QUOTA_BYTES = 1024 * 1024 * 1024; // 1 GB
+// The per-workspace storage quota is the plan's `storageBytes` (`lib/plans.ts`,
+// enforced by `lib/storage-quota.ts`) — vault files *and* transaction
+// attachments together, computed on read from the size columns so it can't drift.
 /** Display/file name we persist (used in `Content-Disposition` on download). */
 export const FILE_NAME_MAX = 200;
 /** Folder + tag names are deliberately short — they're labels, not documents. */
@@ -674,17 +670,61 @@ export const onboardingPrefsSchema = z.object({
 });
 export type OnboardingPrefs = z.infer<typeof onboardingPrefsSchema>;
 
-const UI_PREFS_DEFAULT = {
-  composer: { density: "normal" },
-  onboarding: { inviteNudgeDismissed: false },
-} as const;
+/**
+ * Most spaces one person can have folded shut in the sidebar. The list spans
+ * every workspace they're in and keeps ids of spaces deleted since, so it's
+ * capped: newest first, the oldest fall off.
+ */
+export const SIDEBAR_COLLAPSED_MAX = 100;
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Clean a collapsed-spaces list: uuid strings only, each once, in order, at
+ * most `SIDEBAR_COLLAPSED_MAX`. Used on read (a hand-edited or older row) and
+ * on write (whatever the client sent), so the stored list stays bounded.
+ */
+export function normalizeCollapsedSpaces(ids: readonly unknown[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const id of ids) {
+    if (typeof id !== "string" || !UUID_RE.test(id)) continue;
+    const key = id.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(key);
+    if (out.length >= SIDEBAR_COLLAPSED_MAX) break;
+  }
+  return out;
+}
+
+/** Sidebar state that follows the user (`ui_prefs.sidebar`): which spaces are folded shut. */
+export const sidebarPrefsSchema = z.object({
+  collapsedSpaces: z.array(z.unknown()).transform(normalizeCollapsedSpaces).catch([]),
+});
+export type SidebarPrefs = z.infer<typeof sidebarPrefsSchema>;
+
+/** What the client sends to save the folded spaces: the whole list, newest first. */
+export const collapsedSpacesInputSchema = z
+  .array(z.string().uuid())
+  .max(SIDEBAR_COLLAPSED_MAX, `Too many spaces (max ${SIDEBAR_COLLAPSED_MAX})`);
+
+/** A fresh default bag each time — the sidebar list is mutable, so never share one. */
+function uiPrefsDefault() {
+  return {
+    composer: { density: "normal" as const },
+    onboarding: { inviteNudgeDismissed: false },
+    sidebar: { collapsedSpaces: [] as string[] },
+  };
+}
 
 export const uiPrefsSchema = z
   .object({
     composer: composerPrefsSchema.catch({ density: "normal" }),
     onboarding: onboardingPrefsSchema.catch({ inviteNudgeDismissed: false }),
+    sidebar: sidebarPrefsSchema.catch(() => ({ collapsedSpaces: [] })),
   })
-  .catch(UI_PREFS_DEFAULT);
+  .catch(() => uiPrefsDefault());
 export type UiPrefs = z.infer<typeof uiPrefsSchema>;
 
 /** Read-side guard for `user_settings.ui_prefs` — see `uiPrefsSchema`. */
@@ -755,6 +795,8 @@ export const profileInputSchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(20, "Name is too long (max 20 characters)"),
   icon: z.string().trim().max(16).optional(),
   color: z.string().trim().max(32).optional(),
+  /** The space to create it in; omitted → the workspace's first space. */
+  spaceId: z.string().uuid().optional(),
 });
 export type ProfileInput = z.infer<typeof profileInputSchema>;
 
@@ -802,6 +844,16 @@ export const WORKSPACE_NAME_MAX = 30;
 /** Emoji a new/blank workspace gets by default (like a profile's `👤`). */
 export const DEFAULT_WORKSPACE_ICON = "🏢";
 
+/** Longest space name — also the `spaces.name` column width. */
+export const SPACE_NAME_MAX = 30;
+
+/** The space every workspace starts with, and the one existing profiles moved into. */
+export const DEFAULT_SPACE_NAME = "Main";
+export const DEFAULT_SPACE_ICON = "🗂️";
+
+/** Longest organisation name. */
+export const ORGANIZATION_NAME_MAX = 40;
+
 export const workspaceNameSchema = z
   .string()
   .trim()
@@ -824,6 +876,79 @@ export const updateWorkspaceSchema = z.object({
 });
 export type UpdateWorkspaceInput = z.infer<typeof updateWorkspaceSchema>;
 
+// ── Spaces & organisations ─────────────────────────────────────────────────
+
+export const spaceNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Space name is required")
+  .max(SPACE_NAME_MAX, `Space name is too long (max ${SPACE_NAME_MAX} characters)`);
+
+/** Emoji for a space — same rule as a workspace/profile icon. */
+export const spaceIconSchema = z.string().trim().max(16);
+
+export const createSpaceSchema = z.object({
+  name: spaceNameSchema,
+  icon: spaceIconSchema.optional(),
+});
+export type CreateSpaceInput = z.infer<typeof createSpaceSchema>;
+
+/** Rename / re-icon a space. `icon` omitted leaves it; "" clears it. */
+export const updateSpaceSchema = z
+  .object({
+    name: spaceNameSchema.optional(),
+    icon: spaceIconSchema.nullish(),
+  })
+  .refine((v) => v.name !== undefined || v.icon !== undefined, "Nothing to update");
+export type UpdateSpaceInput = z.infer<typeof updateSpaceSchema>;
+
+/** The workspace's spaces in their new order (every space, once). */
+export const reorderSpacesSchema = z.object({
+  ids: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(200)
+    .refine((ids) => new Set(ids).size === ids.length, "Duplicate space in order"),
+});
+
+/**
+ * Delete a space. One that still holds profiles needs `moveProfilesTo` — the
+ * space they move into — or the delete is refused; profiles are never deleted
+ * as a side effect of deleting a space.
+ */
+export const deleteSpaceSchema = z.object({
+  moveProfilesTo: z.string().uuid().optional(),
+});
+export type DeleteSpaceInput = z.input<typeof deleteSpaceSchema>;
+
+export const moveProfileToSpaceSchema = z.object({ spaceId: z.string().uuid() });
+
+export const spaceRoleSchema = z.enum(["viewer", "editor"]);
+
+/** Add/update (role) or remove (null) a workspace member in one space. */
+export const setSpaceMemberSchema = z.object({
+  userId: z.string().uuid(),
+  role: spaceRoleSchema.nullable(),
+});
+export type SetSpaceMemberInput = z.infer<typeof setSpaceMemberSchema>;
+
+export const profileAccessLevelSchema = z.enum(["none", "read", "write"]);
+
+/** Set (none/read/write) or clear (null) one member's override on one profile. */
+export const setProfileOverrideSchema = z.object({
+  userId: z.string().uuid(),
+  access: profileAccessLevelSchema.nullable(),
+});
+export type SetProfileOverrideInput = z.infer<typeof setProfileOverrideSchema>;
+
+export const organizationNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Organisation name is required")
+  .max(ORGANIZATION_NAME_MAX, `Organisation name is too long (max ${ORGANIZATION_NAME_MAX} characters)`);
+
+export const renameOrganizationSchema = z.object({ name: organizationNameSchema });
+
 const inviteEmailSchema = z
   .string()
   .trim()
@@ -834,13 +959,31 @@ const inviteEmailSchema = z
 /** Max profiles a single grant/invite may target at once. */
 export const ACCESS_PROFILES_MAX = 50;
 
+/** Max spaces one member/invite can be put into at once. */
+export const ACCESS_SPACES_MAX = 50;
+
 /**
- * How much of a workspace a person can reach. `all` = workspace-wide membership
- * (one role). `profiles` = per-profile grants, each carrying its own role, so a
- * user can be an editor on one profile and a viewer on another.
+ * How much of a workspace a person can reach.
+ *
+ * `all` = workspace membership at one role. An admin sees every space; a
+ * viewer/editor sees the spaces in `spaceIds`, at that role — every space in
+ * the workspace when `spaceIds` is omitted (what "all profiles" meant before
+ * spaces existed). An empty list is allowed: a member who sees no space yet.
+ *
+ * `profiles` = per-profile grants without membership, each carrying its own
+ * role, so a user can be an editor on one profile and a viewer on another.
+ * New ones need a plan with per-profile access.
  */
 export const accessGrantSchema = z.discriminatedUnion("mode", [
-  z.object({ mode: z.literal("all"), role: workspaceRoleSchema }),
+  z.object({
+    mode: z.literal("all"),
+    role: workspaceRoleSchema,
+    spaceIds: z
+      .array(z.string().uuid())
+      .max(ACCESS_SPACES_MAX, `Too many spaces (max ${ACCESS_SPACES_MAX})`)
+      .refine((ids) => new Set(ids).size === ids.length, "Duplicate space in access grant")
+      .optional(),
+  }),
   z.object({
     mode: z.literal("profiles"),
     entries: z

@@ -19,14 +19,14 @@ import {
   updateAttachment,
   type AttachmentUpload,
 } from "@/services/attachments";
-import {
-  ATTACHMENT_MAX_BYTES,
-  ATTACHMENT_MAX_PER_TRANSACTION,
-  STORAGE_QUOTA_BYTES,
-} from "@/lib/validation";
+import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_PER_TRANSACTION } from "@/lib/validation";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { bootstrapUser, firstProfileId, insertTxn, workspaceIdOf } from "./helpers/seed";
 import { uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
+
+/** A new workspace is on Free, so its quota is Free's storage. */
+const STORAGE_QUOTA_BYTES = PLAN_LIMITS.free.storageBytes;
 
 function mkFile(name: string, type: string, size = 8): AttachmentUpload {
   return { fileName: name, contentType: type, bytes: new Uint8Array(size).buffer, size };
@@ -125,7 +125,11 @@ describe("createAttachments", () => {
 
     await expect(
       createAttachments(uid("a"), ws, txn, [mkFile("receipt.pdf", "application/pdf", 8)]),
-    ).rejects.toMatchObject({ status: 413, code: "storage_quota_exceeded" });
+    ).rejects.toMatchObject({
+      status: 413,
+      code: "storage_quota_exceeded",
+      details: { limit: "storage", plan: "free", max: STORAGE_QUOTA_BYTES, upgradeTo: "plus" },
+    });
     expect(uploadObject).not.toHaveBeenCalled();
   });
 

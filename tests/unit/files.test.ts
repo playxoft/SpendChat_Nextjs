@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   BROWSER_PLAYABLE_MEDIA_TYPES,
   FILE_INLINE_TYPES,
-  STORAGE_QUOTA_BYTES,
   createFileShareSchema,
   createFolderSchema,
   createTagSchema,
@@ -28,6 +27,7 @@ import {
   storageUsageTone,
 } from "@/lib/files";
 import { FILE_CATEGORIES } from "@/lib/validation";
+import { PLAN_LIMITS } from "@/lib/plans";
 
 const UUID = "0198f6a2-0000-7000-8000-000000000000";
 const UUID2 = "0198f6a2-0000-7000-8000-000000000001";
@@ -344,10 +344,21 @@ describe("lib/files display helpers", () => {
 });
 
 describe("storageUsageTone — thresholds for the storage ring", () => {
-  const LIMIT = STORAGE_QUOTA_BYTES;
+  // The limit is per plan now; Free's 1 GB is the one most workspaces see.
+  const LIMIT = PLAN_LIMITS.free.storageBytes;
 
-  it("is a flat 1 GB", () => {
-    expect(STORAGE_QUOTA_BYTES).toBe(1_073_741_824);
+  it("measures against the plan's storage: 1 / 5 / 20 GB", () => {
+    expect(PLAN_LIMITS.free.storageBytes).toBe(1_073_741_824);
+    expect(PLAN_LIMITS.plus.storageBytes).toBe(5 * 1_073_741_824);
+    expect(PLAN_LIMITS.pro.storageBytes).toBe(20 * 1_073_741_824);
+  });
+
+  it("scales its thresholds with a bigger plan's limit", () => {
+    const PRO = PLAN_LIMITS.pro.storageBytes;
+    // 1 GB used is full on Free but nowhere near Pro's warning line.
+    expect(storageUsageTone(LIMIT, PRO)).toBe("ok");
+    expect(storageUsageTone(PRO * 0.85, PRO)).toBe("warn");
+    expect(storageUsageTone(PRO, PRO)).toBe("full");
   });
 
   it("stays ok below 85% of the quota", () => {

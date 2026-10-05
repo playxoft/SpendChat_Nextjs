@@ -7,6 +7,7 @@ import { conflict, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { categoryInputSchema, updateCategorySchema } from "@/lib/validation";
 import { requireWorkspaceRole } from "@/lib/workspaces";
+import { assertCanAddCategory } from "@/lib/entitlements";
 import type { Category } from "@/db/schema";
 
 /**
@@ -36,6 +37,8 @@ export async function createCategory(
 ): Promise<Category> {
   const data = parseOrThrow(categoryInputSchema, input);
   await requireWorkspaceRole(userId, workspaceId, "editor");
+  // The plan's category cap (the seeded defaults count; deleting one frees a slot).
+  await assertCanAddCategory(workspaceId);
   const db = getDb();
   try {
     const [row] = await db

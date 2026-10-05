@@ -77,13 +77,22 @@ export function getTestDb(): PgliteDatabase<typeof schema> {
   return db;
 }
 
-/** Wipe every row between tests so each starts from a known-empty state. */
+/**
+ * Wipe every row between tests so each starts from a known-empty state.
+ *
+ * `CASCADE` only follows foreign keys *into* a listed table, so a table that
+ * listed ones point at (organisations — workspaces reference them) and a table
+ * with no foreign key at all (the email/AI logs) must be named. Spaces, space
+ * members and profile overrides would cascade from workspaces/profiles anyway;
+ * they're listed so the reset doesn't depend on that.
+ */
 export async function resetTestDb(): Promise<void> {
   if (!client) return;
   await client.exec(
-    `TRUNCATE TABLE transactions, categories, profiles, user_settings,
-       workspace_invites, profile_access, workspace_members, workspaces,
-       users, email_send_log, ai_usage_log, neon_auth."user"
+    `TRUNCATE TABLE transactions, categories, profile_overrides, profiles,
+       space_members, spaces, user_settings, workspace_invites, profile_access,
+       workspace_members, workspaces, organizations, users, email_send_log,
+       ai_usage_log, neon_auth."user"
      RESTART IDENTITY CASCADE;`,
   );
 }

@@ -30,7 +30,8 @@ Authentication, secrets via Doppler.
   `neon.max_cluster_size` cap (writes fail at the cap with no warning shoulder),
   largest tables, slowest statements. Exits 1 past `--warn-at` (default 80%), so
   it can gate a cron. **It also deletes** `ai_usage_log` / `email_send_log` rows
-  past `--retention-days` (default 30) unless you pass `-- --no-prune`.
+  past `--retention-days` (default 30; `ai_usage_log` never below 62, since the monthly
+  AI allowance is counted from it) unless you pass `-- --no-prune`.
 - `pnpm growth:report:dev` / `growth:report:prod` — read-only signup report:
   per day, per channel (`users.acquisition`, rules in `src/lib/attribution.ts`),
   per "how did you hear about us" answer, with activation (≥1 transaction).
@@ -51,10 +52,26 @@ Authentication, secrets via Doppler.
 - **Ids are UUIDv7** (`uuid` columns, Postgres 18's `uuidv7()` as the DB default). No text
   or v4 ids for anything we mint — including `user_id`: `users.id` is our own uuidv7, and
   the provider's identifier is confined to `users.firebase_uid` (see the auth bullet).
-- **Workspaces + RBAC.** Profiles live in workspaces; every user owns a default
-  workspace ("<name>'s Workspace", created at bootstrap). Access = workspace membership
-  (`workspace_members`) or per-profile grant (`profile_access`); roles viewer < editor < admin,
-  effective role on a profile = max of the two (`src/lib/rbac.ts`, `src/lib/workspaces.ts`).
+- **Organisations → workspaces → spaces → profiles, + RBAC.** Every user owns one personal
+  organisation and a default workspace in it ("<name>'s Workspace", with a "Main" space and a
+  "Personal" profile, created at bootstrap). Profiles live in spaces; spaces in workspaces.
+  Roles viewer < editor < admin. Effective role on a profile (`resolveProfileRole` in
+  `src/lib/rbac.ts`, the same rules in SQL in `accessibleProfileIds` /
+  `getEffectiveProfileRole` in `src/lib/workspaces.ts` — keep them in step): workspace
+  **admin** (`workspace_members.role`; the owner always is one) sees everything; otherwise a
+  member's per-profile **override** (`profile_overrides`: none/read/write — it can *lower*
+  access) decides; otherwise the higher of their **space role** (`space_members`, members
+  only) and any legacy single-profile **grant** (`profile_access`, which only ever adds).
+  Non-admin members see only the spaces they're in. In a single-table Drizzle select a raw
+  `sql` field renders columns unqualified — build correlated subqueries with the query
+  builder, never `` sql`(select … where x = ${table.col})` ``.
+- **Plans are per workspace** (`workspaces.plan`: free | plus | pro). Every number a plan
+  promises lives in `src/lib/plans.ts` (prices in `src/lib/pricing.ts`); the server checks
+  them in `src/lib/entitlements.ts`, which throws 403 `plan_limit` (stable code + `details`
+  for an upgrade prompt). Limits gate *adding* only — over a cap (downgrade, or a
+  `grandfathered` pre-plans workspace) you keep everything and can't add more; nothing is
+  ever deleted. AI actions are a monthly allowance per workspace counted from
+  `ai_usage_log.units`. Until billing exists, `pnpm plan:set:dev` changes a dev workspace's plan.
   Transaction/profile reads scope to accessible profiles in the *current* workspace
   (`user_settings.last_workspace_id`, `X-Workspace-Id` header on the API); `transactions.user_id`
   is attribution, not access. Categories are **per-workspace** (shared by every member;

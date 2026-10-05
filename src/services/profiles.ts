@@ -17,9 +17,12 @@ import { conflict, isForeignKeyViolation, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { deleteObjects } from "@/lib/r2";
 import { collectProfileObjectKeys } from "./storage-keys";
+import { assertCanAddProfilesToSpace } from "@/lib/entitlements";
 import {
   accessibleProfileIds,
+  getDefaultSpaceId,
   requireProfileRole,
+  requireSpaceInWorkspace,
   requireWorkspaceRole,
 } from "@/lib/workspaces";
 import {
@@ -77,6 +80,10 @@ export async function createProfile(
   await ensureBootstrap(userId);
   await requireWorkspaceRole(userId, workspaceId, "admin");
   const db = getDb();
+  const spaceId = data.spaceId
+    ? await requireSpaceInWorkspace(workspaceId, data.spaceId)
+    : await getDefaultSpaceId(workspaceId);
+  await assertCanAddProfilesToSpace(workspaceId, spaceId);
 
   const [{ next }] = await db
     .select({ next: sql<number>`coalesce(max(${profiles.sortOrder}), -1) + 1` })
@@ -89,6 +96,7 @@ export async function createProfile(
       .values({
         userId,
         workspaceId,
+        spaceId,
         name: data.name,
         icon: data.icon || null,
         color: data.color || null,

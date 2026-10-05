@@ -46,6 +46,7 @@ describe("addCategory", () => {
     const res = await addCategory({ name: "Groceries", kind: "expense" });
     expect(res).toEqual({
       ok: false,
+      code: "conflict",
       error: "A category with that name already exists",
     });
   });
@@ -78,6 +79,7 @@ describe("updateCategory", () => {
     const res = await updateCategory({ id, name: "Groceries" }); // already exists
     expect(res).toEqual({
       ok: false,
+      code: "conflict",
       error: "A category with that name already exists",
     });
   });
@@ -100,7 +102,7 @@ describe("deleteCategory", () => {
   it("rejects an invalid id", async () => {
     signInAs("a");
     await bootstrapUser("a");
-    expect(await deleteCategory("nope")).toEqual({ ok: false, error: "Invalid category" });
+    expect(await deleteCategory("nope")).toEqual({ ok: false, code: "validation_error", error: "Invalid category" });
   });
 
   it("deletes the category and nulls referencing transactions", async () => {

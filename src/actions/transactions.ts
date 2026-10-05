@@ -28,8 +28,9 @@ import type { BulkDraft } from "@/lib/bulk-parser";
 import type { TxnTagDTO } from "@/lib/tags";
 import { MAX_INPUT_CHARS, parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
-import { isSupportedAudioType, transcribeVoiceNote } from "@/lib/ai-transcribe";
-import { assertAiRequestAllowed } from "@/lib/ai-quota";
+import { isSupportedAudioType, parseClipDurationMs, transcribeVoiceNote } from "@/lib/ai-transcribe";
+import { chargeAiParse, chargeVoiceTranscribe, withAiCharge } from "@/lib/ai-quota";
+import { assertVoiceAllowed } from "@/lib/entitlements";
 import { getTimeZone } from "@/lib/timezone.server";
 import { todayISO } from "@/lib/dates";
 
@@ -262,10 +263,17 @@ export async function addBulkTransactions(drafts: BulkDraft[]): Promise<ActionRe
  * Unlike a plain read, this one *costs money* on every call, so it's gated twice
  * before anything reaches a provider: the caller needs the editor role (the UI
  * hides AI mode from viewers, but a server action is callable by any signed-in
- * user regardless of what rendered), and then a per-user hourly quota.
+ * user regardless of what rendered), and then the AI charge — the per-user
+ * hourly cap and the workspace's monthly allowance (`ai-quota.ts`).
+ *
+ * A typed note costs one AI action. Pass `source: "voice"` when the note is a
+ * transcript from `transcribeVoiceNoteAction` (edited or not): the clip already
+ * paid for its parse, so this one is free — if the ledger shows an unclaimed
+ * paid transcription by this user; otherwise it's charged like a typed note.
  */
 export async function parseTransactionsWithAI(
   text: string,
+  opts?: { source?: "typed" | "voice" },
 ): Promise<ActionResult<{ drafts: AiParsedDraft[]; tags: TxnTagDTO[] }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
@@ -279,31 +287,37 @@ export async function parseTransactionsWithAI(
       if (note.length > MAX_INPUT_CHARS) {
         throw badRequest(`That's a lot of text — keep it under ${MAX_INPUT_CHARS} characters`);
       }
+      // Anything but an explicit "voice" is a typed note — the cautious default,
+      // since a typed note is the one that's charged.
+      const source = opts?.source === "voice" ? "voice" : "typed";
       if (!(await canWriteInWorkspace(user.id, workspace.id))) {
         throw forbidden("You don't have permission to add transactions in this workspace");
       }
-      await assertAiRequestAllowed(user.id, workspace.id, "transaction_parse");
+      const charge = await chargeAiParse(user.id, workspace.id, { source });
 
-      const [categories, tags, today] = await Promise.all([
-        getCategories(workspace.id),
-        getTags(workspace.id),
-        getTimeZone().then(todayISO),
-      ]);
-      const drafts = await parseTransactionsText({
-        text: note,
-        categories: categories.map((c) => ({ name: c.name, kind: c.kind })),
-        tags: tags.map((t) => t.name),
-        currency: workspace.currency,
-        locale: workspace.locale,
-        today,
+      return withAiCharge(charge, async (onUsage) => {
+        const [categories, tags, today] = await Promise.all([
+          getCategories(workspace.id),
+          getTags(workspace.id),
+          getTimeZone().then(todayISO),
+        ]);
+        const drafts = await parseTransactionsText({
+          text: note,
+          categories: categories.map((c) => ({ name: c.name, kind: c.kind })),
+          tags: tags.map((t) => t.name),
+          currency: workspace.currency,
+          locale: workspace.locale,
+          today,
+          onUsage,
+        });
+        // The tag list the drafts were resolved against goes back with them. The
+        // caller has its own copy from the page render, but that copy can be
+        // older than this one — a tag a teammate added since is in `tags` and not
+        // in theirs — and a name it can't resolve is a tag the user watches
+        // vanish. `/api/v1/ai/parse` already hands mobile the resolved ids for
+        // the same reason; this is the web half of that.
+        return { drafts, tags };
       });
-      // The tag list the drafts were resolved against goes back with them. The
-      // caller has its own copy from the page render, but that copy can be
-      // older than this one — a tag a teammate added since is in `tags` and not
-      // in theirs — and a name it can't resolve is a tag the user watches
-      // vanish. `/api/v1/ai/parse` already hands mobile the resolved ids for
-      // the same reason; this is the web half of that.
-      return { drafts, tags };
     },
     { userId: user.id, workspaceId: workspace.id },
   );
@@ -315,11 +329,17 @@ export async function parseTransactionsWithAI(
  * presses send, which runs the same `parseTransactionsWithAI` path a typed note
  * does. Nothing here writes to the transaction tables.
  *
- * Gated exactly like the parse action, and for the same reason: it costs money
- * per call and a server action is invocable by any signed-in user regardless of
- * what the UI rendered. Cheap local checks first (format, size), then the editor
- * role, then the shared hourly quota — a denied caller must never burn another
- * caller's budget.
+ * Gated like the parse action, and for the same reason: it costs money per
+ * call and a server action is invocable by any signed-in user regardless of
+ * what the UI rendered. Cheap local checks first (format, size, declared
+ * length), then the editor role, then the plan (voice is Pro, or a
+ * grandfathered workspace in its grace period), then the AI charge — a denied
+ * caller must never burn another caller's budget.
+ *
+ * The clip costs one AI action per started minute, which also covers parsing
+ * its transcript (`parseTransactionsWithAI(text, { source: "voice" })`). The
+ * form carries the clip length as `durationMs`; without it the clip is charged
+ * as the longest allowed (see `chargeVoiceTranscribe`).
  *
  * **The recording arrives as `FormData`, not as a base64 argument.** Three
  * reasons, and the first is the one that bites:
@@ -363,23 +383,28 @@ export async function transcribeVoiceNoteAction(
       if (!isSupportedAudioType(mimeType)) {
         throw badRequest("That audio format isn't supported — try recording again.");
       }
+      const durationMs = parseClipDurationMs(formData.get("durationMs"));
 
       if (!(await canWriteInWorkspace(user.id, workspace.id))) {
         throw forbidden("You don't have permission to add transactions in this workspace");
       }
-      await assertAiRequestAllowed(user.id, workspace.id, "voice_transcribe");
+      await assertVoiceAllowed(workspace.id);
+      const charge = await chargeVoiceTranscribe(user.id, workspace.id, { durationMs });
 
-      const [categories, settings] = await Promise.all([
-        getCategories(workspace.id),
-        getUserSettings(user.id),
-      ]);
-      const text = await transcribeVoiceNote({
-        audio: { bytes: new Uint8Array(await audio.arrayBuffer()), mimeType },
-        languages: settings.voiceLanguages,
-        currency: workspace.currency,
-        categoryNames: categories.map((c) => c.name),
+      return withAiCharge(charge, async (onUsage) => {
+        const [categories, settings] = await Promise.all([
+          getCategories(workspace.id),
+          getUserSettings(user.id),
+        ]);
+        const text = await transcribeVoiceNote({
+          audio: { bytes: new Uint8Array(await audio.arrayBuffer()), mimeType },
+          languages: settings.voiceLanguages,
+          currency: workspace.currency,
+          categoryNames: categories.map((c) => c.name),
+          onUsage,
+        });
+        return { text };
       });
-      return { text };
     },
     { userId: user.id, workspaceId: workspace.id },
   );

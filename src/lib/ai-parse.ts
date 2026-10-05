@@ -4,7 +4,7 @@ import { logger } from "@/lib/logger";
 // Shared with the client (the composer caps the textarea at the same length) —
 // see `ai-limits.ts` for why these don't live in this `server-only` module.
 import { MAX_DRAFTS, MAX_INPUT_CHARS } from "@/lib/ai-limits";
-import { aiFailed, callProvider, type ModelConfig } from "@/lib/ai-provider";
+import { aiFailed, callProviderWithUsage, type AiUsage, type ModelConfig } from "@/lib/ai-provider";
 import { resolveModelFromEnv } from "@/lib/ai-model-registry";
 import {
   TAGS_PER_TRANSACTION_MAX,
@@ -31,8 +31,9 @@ import {
  * (unknown → null), so a hallucinated category or bad amount can't leak in.
  *
  * Access + cost are enforced by the caller, not here — the action checks the
- * editor role and the per-user hourly quota (`ai-quota.ts`) *before* calling in,
- * so a denied request never reaches a paid provider.
+ * editor role, then charges the call against the per-user hourly cap and the
+ * workspace's monthly AI allowance (`ai-quota.ts`) *before* calling in, so a
+ * denied request never reaches a paid provider.
  */
 
 export type AiCategory = { name: string; kind: "income" | "expense" };
@@ -293,6 +294,13 @@ export async function parseTransactionsText(opts: {
   currency: string;
   locale: string;
   today: string;
+  /**
+   * Called with the provider's reported usage as soon as the call returns —
+   * before the reply is validated, so a reply that yields no drafts (and
+   * throws) still has its tokens recorded. Not called when the provider
+   * reported nothing. See `withAiCharge` in `ai-quota.ts`.
+   */
+  onUsage?: (usage: AiUsage) => void;
 }): Promise<AiParsedDraft[]> {
   const text = opts.text.trim();
   if (!text) throw badRequest("Type a note for the AI to turn into transactions");
@@ -309,7 +317,8 @@ export async function parseTransactionsText(opts: {
 
   const tagNames = opts.tags ?? [];
   const system = buildSystemPrompt(opts.currency, opts.today, expenseNames, incomeNames, tagNames);
-  const raw = await callProvider(cfg, system, text);
+  const { text: raw, usage } = await callProviderWithUsage(cfg, system, text);
+  if (usage) opts.onUsage?.(usage);
   const drafts = draftsFromRawJson(raw, {
     categories: opts.categories,
     tags: tagNames,

@@ -11,6 +11,7 @@ import {
   updateTxnTagSchema,
 } from "@/lib/validation";
 import { requireWorkspaceRole } from "@/lib/workspaces";
+import { assertCanAddTag } from "@/lib/entitlements";
 import type { Tag } from "@/db/schema";
 
 /**
@@ -81,6 +82,8 @@ export async function createTxnTag(
   const data = parseOrThrow(createTxnTagSchema, input);
   await requireWorkspaceRole(userId, workspaceId, "editor");
   await assertRoomForAnotherTag(workspaceId);
+  // The plan's tag cap (5 / 10 / 20) — below the hard ceiling checked above.
+  await assertCanAddTag(workspaceId);
   const db = getDb();
   try {
     const [row] = await db

@@ -3,6 +3,7 @@ import {
   bigint,
   boolean,
   date,
+  foreignKey,
   index,
   integer,
   jsonb,
@@ -11,6 +12,7 @@ import {
   primaryKey,
   text,
   timestamp,
+  unique,
   uniqueIndex,
   uuid,
   varchar,
@@ -26,12 +28,15 @@ import {
   FILE_NAME_MAX,
   FILE_TAG_MAX,
   FOLDER_NAME_MAX,
+  ORGANIZATION_NAME_MAX,
+  SPACE_NAME_MAX,
   TAG_NAME_MAX,
   TRANSACTION_DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX,
 } from "../lib/validation";
 import type { UiPrefs } from "../lib/validation";
 import type { Acquisition } from "../lib/attribution";
+import { PERSONAL_PLANS } from "../lib/plans";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -46,6 +51,19 @@ export const txnTypeEnum = pgEnum("txn_type", ["income", "expense"]);
  * a user's effective role on a profile is the higher of the two.
  */
 export const workspaceRoleEnum = pgEnum("workspace_role", ["viewer", "editor", "admin"]);
+
+/**
+ * A role inside one space: read (viewer) or read + write (editor). Narrower
+ * than `workspace_role` on purpose — "admin" is a workspace-wide role (admins
+ * see every space), so a space can't grant it.
+ */
+export const spaceRoleEnum = pgEnum("space_role", ["viewer", "editor"]);
+
+/** `personal` = one per account (holds the person's workspaces); `business` comes later. */
+export const organizationKindEnum = pgEnum("organization_kind", ["personal", "business"]);
+
+/** A workspace's plan (`src/lib/plans.ts` holds what each one includes). */
+export const workspacePlanEnum = pgEnum("workspace_plan", PERSONAL_PLANS);
 
 /** Optional preset tag for a transaction attachment (receipt/bill/invoice/other). */
 export const attachmentKindEnum = pgEnum("attachment_kind", ATTACHMENT_KINDS);
@@ -87,8 +105,41 @@ export const users = pgTable(
 );
 
 /**
+ * The top of the hierarchy: organisation → workspace → space → profile.
+ *
+ * Every account owns exactly one `personal` organisation (created at
+ * bootstrap), which holds the workspaces that person creates. Plans and
+ * billing are **per workspace**, not per organisation — the organisation is
+ * the container the Settings page lists them under. `business` organisations
+ * (many per account, all paid) are a later phase; the enum carries the value
+ * now so that phase is a data change, not an enum migration.
+ */
+export const organizations = pgTable(
+  "organizations",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    name: varchar("name", { length: ORGANIZATION_NAME_MAX }).notNull(),
+    // Internal (`users.id`) id of the account that owns it.
+    ownerId: uuid("owner_id").notNull(),
+    kind: organizationKindEnum("kind").notNull().default("personal"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One personal organisation per account — what makes bootstrap's
+    // "find or create" race-safe (`onConflictDoNothing` on this index).
+    uniqueIndex("organizations_personal_owner_uq")
+      .on(t.ownerId)
+      .where(sql`${t.kind} = 'personal'`),
+  ],
+);
+
+/**
  * A workspace groups profiles (threads) and members. Every user gets a default
  * workspace ("<name>'s Workspace") at bootstrap and can create/join more.
+ *
+ * It is also the unit a plan is bought for: `plan` decides the limits every
+ * member of the workspace shares (AI actions, storage, members, spaces…).
  */
 export const workspaces = pgTable(
   "workspaces",
@@ -105,10 +156,84 @@ export const workspaces = pgTable(
     // (Theme and input mode stay per-user in user_settings.)
     currency: text("currency").notNull().default("USD"),
     locale: text("locale").notNull().default("en-US"),
+    // The organisation it belongs to — the owner's personal one today.
+    organizationId: uuid("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "restrict" }),
+    plan: workspacePlanEnum("plan").notNull().default("free"),
+    // True for every workspace that existed before plans did: it keeps what it
+    // had until the grace period ends (`PLAN_GRACE_ENDS_AT` in `lib/plans.ts`).
+    // Anything *new* follows the plan's limits from day one either way.
+    grandfathered: boolean("grandfathered").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("workspaces_owner_idx").on(t.ownerId)],
+  (t) => [
+    index("workspaces_owner_idx").on(t.ownerId),
+    // "Every workspace in this organisation" (Settings → Organisation) and the
+    // organisation FK's restrict check.
+    index("workspaces_organization_idx").on(t.organizationId),
+  ],
+);
+
+/**
+ * A space groups profiles inside a workspace (Notion-style: workspace → space →
+ * profile), and it is the unit of sharing: a non-admin member sees only the
+ * spaces they're added to (`space_members`). Workspace admins see every space —
+ * there are no private spaces.
+ *
+ * Every workspace has at least one; the first is created with the workspace
+ * (`DEFAULT_SPACE_NAME`). `position` orders them in the sidebar.
+ */
+export const spaces = pgTable(
+  "spaces",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: SPACE_NAME_MAX }).notNull(),
+    icon: text("icon"),
+    position: integer("position").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The sidebar's listing, in order; also serves the workspace FK cascade.
+    index("spaces_workspace_position_idx").on(t.workspaceId, t.position),
+    // Names are unique within a workspace, like profile names.
+    uniqueIndex("spaces_workspace_name_uq").on(t.workspaceId, t.name),
+    // The target of `profiles`' composite foreign key, which pins a profile's
+    // space to the profile's own workspace (see `profiles_space_workspace_fk`).
+    unique("spaces_id_workspace_uq").on(t.id, t.workspaceId),
+  ],
+);
+
+/**
+ * Who can open a space, and how: `viewer` reads every profile in it, `editor`
+ * also writes. Members must be workspace members (the service enforces it, and
+ * removing someone from the workspace removes these rows). Workspace admins
+ * never need a row — they see every space.
+ *
+ * On Plus/Pro a per-profile override (`profile_overrides`) can change this for
+ * one profile, in either direction.
+ */
+export const spaceMembers = pgTable(
+  "space_members",
+  {
+    spaceId: uuid("space_id")
+      .notNull()
+      .references(() => spaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull(),
+    role: spaceRoleEnum("role").notNull().default("viewer"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.spaceId, t.userId] }),
+    // "Which spaces am I in?" and the account-deletion sweep.
+    index("space_members_user_idx").on(t.userId),
+  ],
 );
 
 /** Workspace-wide membership: the role applies to every profile in the workspace. */
@@ -151,6 +276,41 @@ export const profileAccess = pgTable(
   ],
 );
 
+/** A per-profile override inside a space: no access, read, or read + write. */
+export const profileAccessLevelEnum = pgEnum("profile_access_level", ["none", "read", "write"]);
+
+/**
+ * Per-profile override for one workspace member (Plus/Pro feature).
+ *
+ * Unlike `profile_access`, which can only ever *add* access, an override
+ * **replaces** whatever the member's space role would give on that one profile —
+ * so it can lower access (`none` hides a profile inside a space they're in) as
+ * well as raise it. Resolution order lives in `resolveProfileRole`
+ * (`lib/rbac.ts`): workspace admin → override → space role / legacy grant.
+ *
+ * Only counted for workspace members, and never for admins (who see
+ * everything). Creating or changing one needs a plan with
+ * `profileLevelAccess`; existing rows keep enforcing after a downgrade, so a
+ * downgrade can never widen anyone's access.
+ */
+export const profileOverrides = pgTable(
+  "profile_overrides",
+  {
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull(),
+    access: profileAccessLevelEnum("access").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.profileId, t.userId] }),
+    // Removing a member sweeps their overrides; account deletion too.
+    index("profile_overrides_user_idx").on(t.userId),
+  ],
+);
+
 /**
  * Pending invite for an email that has no account yet. Accepted
  * (converted to a membership / profile grant) automatically at the invitee's
@@ -176,6 +336,13 @@ export const workspaceInvites = pgTable(
     profileId: uuid("profile_id").references(() => profiles.id, { onDelete: "cascade" }),
     invitedBy: uuid("invited_by").notNull(),
     token: text("token"),
+    // For a workspace-wide (null-profile) invite below admin: the spaces the
+    // person joins on acceptance, at `role`. Resolved to an explicit list when
+    // the invite is written, so a space created later isn't silently included.
+    // Null on per-profile rows, on admin invites (admins see every space), and on
+    // rows written before spaces existed — those join every space, which is what
+    // "workspace-wide" meant when they were sent.
+    spaceIds: uuid("space_ids").array(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -221,12 +388,18 @@ export const emailSendLog = pgTable(
 
 /**
  * AI-request audit log: one row per call that reaches a paid model provider
- * (today only the composer's AI transaction parse). Same rationale as
+ * (the composer's AI parse and voice transcription). Same rationale as
  * `email_send_log` — an authenticated user can otherwise loop a server action
- * that spends the operator's API budget — and it doubles as the usage record.
- * Stores no note text: the input is the user's own financial data and none of it
- * is needed to count requests. Retention is the same as `email_send_log`: only
- * `pnpm db:health:*` ever deletes, past its window.
+ * that spends the operator's API budget — and it is also **the usage record the
+ * monthly AI allowance is counted from** (`units`, per workspace per calendar
+ * month). Stores no note text: the input is the user's own financial data and
+ * none of it is needed to count requests.
+ *
+ * No foreign key to `workspaces`, on purpose: a deleted workspace's rows must
+ * keep counting against its owner's free allowance for the rest of the month
+ * (abuse rule C2). Only `pnpm db:health:*` ever deletes, past its window — which
+ * for this table never drops below `AI_USAGE_RETENTION_DAYS_MIN`, so the
+ * current month is always complete.
  */
 export const aiUsageLog = pgTable(
   "ai_usage_log",
@@ -234,13 +407,30 @@ export const aiUsageLog = pgTable(
     id: uuid("id").primaryKey().default(uuidV7),
     userId: uuid("user_id").notNull(),
     workspaceId: uuid("workspace_id").notNull(),
-    /** Labels the call site ("transaction_parse"); the budget is one pool per user. */
+    /** Labels the call site ("transaction_parse", "voice_transcribe"). */
     kind: text("kind").notNull(),
+    /**
+     * AI actions this call charged against the workspace's monthly allowance:
+     * 1 for a typed note; one per started minute for a voice clip; 0 for the
+     * parse that follows a paid transcription (voice = transcribe + parse).
+     */
+    units: integer("units").notNull().default(1),
+    /** The workspace's owner and plan when the call was made (abuse rule C2). */
+    ownerId: uuid("owner_id"),
+    plan: workspacePlanEnum("plan"),
+    /** Filled from the provider's usage metadata after the call; null if unknown. */
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    audioMs: integer("audio_ms"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     // The rate-limit query: requests by this user in the last hour.
     index("ai_usage_log_user_created_idx").on(t.userId, t.createdAt),
+    // The monthly allowance: this workspace's actions since the 1st.
+    index("ai_usage_log_workspace_created_idx").on(t.workspaceId, t.createdAt),
+    // A free owner's actions across all their free workspaces, deleted ones too.
+    index("ai_usage_log_owner_created_idx").on(t.ownerId, t.createdAt),
   ],
 );
 
@@ -300,10 +490,15 @@ export const profiles = pgTable(
     workspaceId: uuid("workspace_id")
       .notNull()
       .references(() => workspaces.id, { onDelete: "restrict" }),
+    // The space it sits in — which decides who can see it (`space_members`).
+    // Always a space of the profile's own workspace: the composite foreign key
+    // below makes a cross-workspace pointer impossible, because one would hand
+    // the members of a space in workspace A a profile from workspace B.
+    spaceId: uuid("space_id").notNull(),
     name: text("name").notNull(),
     icon: text("icon"),
     color: text("color"),
-    // Manual ordering for the sidebar (drag-to-sort).
+    // Manual ordering for the sidebar (drag-to-sort), within the space.
     sortOrder: integer("sort_order").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -311,8 +506,17 @@ export const profiles = pgTable(
   (t) => [
     index("profiles_user_sort_idx").on(t.userId, t.sortOrder),
     index("profiles_workspace_idx").on(t.workspaceId, t.sortOrder),
+    // Profiles of one space, in sidebar order; also the space FK's restrict check.
+    index("profiles_space_sort_idx").on(t.spaceId, t.sortOrder),
     // Names are unique within a workspace (was per-user pre-workspaces).
     uniqueIndex("profiles_workspace_name_uq").on(t.workspaceId, t.name),
+    // Restrict, not cascade: deleting a space that still holds profiles must
+    // fail — the service moves or deletes them first, deliberately.
+    foreignKey({
+      name: "profiles_space_workspace_fk",
+      columns: [t.spaceId, t.workspaceId],
+      foreignColumns: [spaces.id, spaces.workspaceId],
+    }).onDelete("restrict"),
   ],
 );
 
@@ -786,6 +990,12 @@ export type StoredFile = typeof files.$inferSelect;
 export type NewStoredFile = typeof files.$inferInsert;
 export type FileShare = typeof fileShares.$inferSelect;
 export type NewFileShare = typeof fileShares.$inferInsert;
+export type ProfileOverride = typeof profileOverrides.$inferSelect;
+export type ProfileAccessLevel = (typeof profileAccessLevelEnum.enumValues)[number];
+export type Organization = typeof organizations.$inferSelect;
+export type Space = typeof spaces.$inferSelect;
+export type SpaceMember = typeof spaceMembers.$inferSelect;
+export type SpaceRole = (typeof spaceRoleEnum.enumValues)[number];
 export type Workspace = typeof workspaces.$inferSelect;
 export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type ProfileAccess = typeof profileAccess.$inferSelect;

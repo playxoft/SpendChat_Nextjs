@@ -51,6 +51,41 @@ export function validationError(message: string, details?: unknown): ApiError {
   return new ApiError(422, "validation_error", message, details);
 }
 
+/** What a `plan_limit` error is about — the client picks its upgrade copy from it. */
+export type PlanLimitKey =
+  | "members"
+  | "spaces"
+  | "profilesPerSpace"
+  | "categories"
+  | "tags"
+  | "storage"
+  | "aiActions"
+  | "voice"
+  | "profileLevelAccess"
+  | "freeWorkspaces";
+
+/** `details` of a `plan_limit` error. */
+export type PlanLimitDetails = {
+  limit: PlanLimitKey;
+  /** The workspace's plan right now. */
+  plan: string;
+  /** The cap that was hit, when it's a number. */
+  max?: number;
+  /** How much is in use, when it's a number. */
+  used?: number;
+  /** The cheapest plan that lifts this limit; null when none does ("contact us"). */
+  upgradeTo: string | null;
+};
+
+/**
+ * 403 `plan_limit` — the workspace's plan doesn't allow this (a cap is reached,
+ * or the feature belongs to a higher plan). Stable code + `details` so a client
+ * can show an upgrade prompt instead of a generic "not allowed".
+ */
+export function planLimit(message: string, details: PlanLimitDetails): ApiError {
+  return new ApiError(403, "plan_limit", message, details);
+}
+
 /** 429 — the caller hit a rate limit; try again later. */
 export function tooManyRequests(message = "Too many requests — try again later"): ApiError {
   return new ApiError(429, "rate_limited", message);

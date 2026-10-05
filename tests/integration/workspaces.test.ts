@@ -21,6 +21,7 @@ import {
   countTxns,
   firstProfileId,
   insertTxn,
+  setWorkspacePlan,
   workspaceIdOf,
 } from "./helpers/seed";
 
@@ -178,6 +179,8 @@ describe("per-profile grants", () => {
     // A second profile the grantee should NOT see.
     const { createProfile } = await import("@/services/profiles");
     const hidden = await createProfile(uid("a"), W, { name: "Secret" });
+    // A single-profile grant is per-profile access — Plus or Pro.
+    await setWorkspacePlan(W, "plus");
 
     await ws.addMember(uid("a"), W, {
       email: "b@example.com",
@@ -237,6 +240,8 @@ describe("invites", () => {
     await bootstrapUser("a");
     const W = await workspaceIdOf("a");
     const personal = await firstProfileId("a");
+    // A profile-scoped invite is per-profile access — Plus or Pro.
+    await setWorkspacePlan(W, "plus");
 
     await ws.addMember(uid("a"), W, {
       email: "d@example.com",
@@ -268,6 +273,9 @@ describe("create & switch workspaces", () => {
     signInAs("a");
     await bootstrapUser("a");
     const home = await workspaceIdOf("a");
+    // One free workspace per person (C5): with the first one paid, the user has
+    // no free workspace, so the new one (Free) is allowed.
+    await setWorkspacePlan(home, "plus");
 
     const created = await ws.createWorkspace(uid("a"), { name: "Side project", icon: "🚀" });
     expect(created.role).toBe("admin");
@@ -380,10 +388,15 @@ describe("invite email rate limiting", () => {
     signInAs("a");
     await bootstrapUser("a");
     const W = await workspaceIdOf("a");
+    // The member cap is checked before the email budget, and 20 invitees fit no
+    // plan — so the 20 emails go to five people (re-sending to someone who
+    // already counts adds nobody), on Pro so the 21st *new* address still fits
+    // the cap (owner + 6 ≤ 10) and it's the email budget that refuses it.
+    await setWorkspacePlan(W, "pro");
 
     for (let i = 0; i < 20; i++) {
       const res = await ws.addMember(uid("a"), W, {
-        email: `guest${i}@example.com`,
+        email: `guest${i % 5}@example.com`,
         access: { mode: "all", role: "viewer" },
       });
       expect(res.status).toBe("invited");
@@ -406,6 +419,8 @@ describe("multi-profile access", () => {
     const personal = await firstProfileId("a");
     const { createProfile } = await import("@/services/profiles");
     const business = await createProfile(uid("a"), W, { name: "Business" });
+    // Every scenario here grants or invites per profile — Plus or Pro.
+    await setWorkspacePlan(W, "plus");
     return { W, personal, business: business.id };
   }
 
@@ -590,6 +605,7 @@ describe("canWriteInWorkspace (viewer gate)", () => {
     await bootstrapUser("c");
     const W = await workspaceIdOf("a");
     const personal = await firstProfileId("a");
+    await setWorkspacePlan(W, "plus"); // per-profile grants need Plus or Pro
 
     // A per-profile viewer still can't write.
     await ws.addMember(uid("a"), W, {

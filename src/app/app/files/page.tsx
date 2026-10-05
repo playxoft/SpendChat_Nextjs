@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { resolveWebProfile } from "@/lib/filters";
 import { getProfiles } from "@/lib/queries";
-import { STORAGE_QUOTA_BYTES } from "@/lib/validation";
+import { getStorageLimitBytes } from "@/lib/entitlements";
 import { getVaultWorkingSet } from "@/services/files";
 import { FilesPageClient } from "@/components/app/files/files-page";
 
@@ -48,7 +48,7 @@ export default async function FilesPage({
         locale={workspace.locale}
         filesCapped={filesCapped}
         storageUsedBytes={storageUsedBytes}
-        storageLimitBytes={STORAGE_QUOTA_BYTES}
+        storageLimitBytes={await getStorageLimitBytes(workspace.id)}
       />
     </div>
   );

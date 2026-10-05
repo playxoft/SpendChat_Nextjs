@@ -3,8 +3,9 @@ import { badRequest } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { MAX_AUDIO_BYTES, MAX_TRANSCRIPT_CHARS } from "@/lib/ai-limits";
 import { resolveModelFromEnv } from "@/lib/ai-model-registry";
-import { transcribeProvider, type AudioInput, type ModelConfig } from "@/lib/ai-provider";
+import { transcribeProviderWithUsage, type AiUsage, type AudioInput, type ModelConfig } from "@/lib/ai-provider";
 import { describeVoiceLanguages } from "@/lib/voice-languages";
+import { VOICE } from "@/lib/plans";
 
 /**
  * Voice entry, step one: a recorded voice note becomes clean text. The text then
@@ -60,6 +61,26 @@ export function baseMimeType(mimeType: string): string {
  */
 export function isSupportedAudioType(mimeType: string): boolean {
   return ALLOWED_MIME.has(baseMimeType(mimeType));
+}
+
+/**
+ * The clip length a client declared alongside a recording (the `durationMs`
+ * multipart field), in milliseconds — what the voice charge is computed from
+ * (`chargeVoiceTranscribe`). Absent or blank → null, which that charge treats
+ * as the longest clip allowed. Anything but a finite, non-negative number → 400,
+ * among the cheap checks, so a malformed request never reaches the quota gate.
+ * Clamped to `VOICE.maxClipMs`: a clip past the cap costs what the cap costs.
+ */
+export function parseClipDurationMs(raw: FormDataEntryValue | null): number | null {
+  if (raw === null) return null;
+  if (typeof raw !== "string") throw badRequest("durationMs must be a number of milliseconds");
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const ms = Number(trimmed);
+  if (!Number.isFinite(ms) || ms < 0) {
+    throw badRequest("durationMs must be a number of milliseconds");
+  }
+  return Math.min(Math.round(ms), VOICE.maxClipMs);
 }
 
 /**
@@ -169,15 +190,21 @@ export function cleanTranscript(raw: string): string {
  * 503 when transcription isn't configured, 502 on an upstream failure, 400 when
  * the recording is unusable or contained no speech.
  *
- * Access and the hourly spend quota are enforced by the caller *before* this
- * runs, exactly as for `parseTransactionsText` — a denied request must never
- * reach a paid provider.
+ * Access, the voice plan gate and the AI charge (hourly cap + monthly
+ * allowance) are enforced by the caller *before* this runs, exactly as for
+ * `parseTransactionsText` — a denied request must never reach a paid provider.
  */
 export async function transcribeVoiceNote(opts: {
   audio: AudioInput;
   languages: string[];
   currency: string;
   categoryNames: string[];
+  /**
+   * Called with the provider's reported usage as soon as the call returns, so
+   * an empty transcript (which throws) still has its tokens recorded. Not
+   * called when the provider reported nothing.
+   */
+  onUsage?: (usage: AiUsage) => void;
 }): Promise<string> {
   const mimeType = baseMimeType(opts.audio.mimeType);
   // Re-checked here even though both callers already did: this is the function
@@ -196,7 +223,11 @@ export async function transcribeVoiceNote(opts: {
     categoryNames: opts.categoryNames,
   });
 
-  const raw = await transcribeProvider(cfg, prompt, { bytes: opts.audio.bytes, mimeType });
+  const { text: raw, usage } = await transcribeProviderWithUsage(cfg, prompt, {
+    bytes: opts.audio.bytes,
+    mimeType,
+  });
+  if (usage) opts.onUsage?.(usage);
   const text = cleanTranscript(raw);
   if (!text) {
     // Not an upstream failure — the mic worked, there was just nothing in it.

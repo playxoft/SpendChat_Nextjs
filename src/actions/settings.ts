@@ -168,3 +168,20 @@ export async function dismissInviteNudge(): Promise<ActionResult> {
     { userId: user.id },
   );
 }
+
+/**
+ * Save which sidebar spaces are folded shut (the whole list, newest first). No
+ * revalidation: the sidebar already shows the new state, and the next render of
+ * the layout reads it back from the row.
+ */
+export async function setCollapsedSpaces(ids: string[]): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "setCollapsedSpaces",
+    async () => {
+      await settingsService.updateCollapsedSpaces(user.id, ids);
+      return {};
+    },
+    { userId: user.id },
+  );
+}
