@@ -133,6 +133,8 @@ export async function ensureBootstrap(userId: string) {
       locale: defaults.locale,
       // Names the personal organisation this first workspace creates.
       ownerDisplayName: identity?.name?.trim() || identity?.email?.split("@")[0] || null,
+      // Parallel first requests all reach this branch; only one may create.
+      ifNoneOwned: true,
     });
     if (identity?.email) await acceptPendingInvites(userId, identity.email);
     await sendWelcomeEmailOnce(userId, { currency: defaults.currency, locale: defaults.locale });

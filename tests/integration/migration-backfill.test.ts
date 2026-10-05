@@ -354,7 +354,7 @@ describe("0034 backfill — space members and invites", () => {
 });
 
 describe("0036 backfill — AI usage", () => {
-  it("stamps each row with its workspace's owner and plan, and charges one unit", async () => {
+  it("stamps each row with its workspace's owner and plan, and charges it 0 actions — the allowance starts full", async () => {
     const log = await rows<{
       workspace_id: string;
       owner_id: string | null;
@@ -365,7 +365,7 @@ describe("0036 backfill — AI usage", () => {
     for (const row of log.filter((r) => r.workspace_id !== DELETED_WORKSPACE)) {
       expect(row.owner_id).toBe(U.alice);
       expect(row.plan).toBe("free");
-      expect(row.units).toBe(1);
+      expect(row.units).toBe(0);
     }
   });
 
@@ -374,7 +374,7 @@ describe("0036 backfill — AI usage", () => {
       `select owner_id, plan::text as plan, units from ai_usage_log where workspace_id = $1`,
       [DELETED_WORKSPACE],
     );
-    expect(orphan).toEqual({ owner_id: null, plan: null, units: 1 });
+    expect(orphan).toEqual({ owner_id: null, plan: null, units: 0 });
   });
 });
 

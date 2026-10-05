@@ -49,7 +49,7 @@ workspaces it owns. Everything here is additive.
 | `PUT /spaces/{id}/members` | `{ userId, role: "viewer" \| "editor" \| null }` (admin). |
 | `POST /profiles/{id}/space` | Move a profile to another space `{ spaceId }` (admin). |
 | `GET /profiles/{id}/overrides` | Per-profile overrides on one profile (admin). |
-| `PUT /profiles/{id}/overrides` | `{ userId, access: "none" \| "read" \| "write" \| null }` (admin, **Plus/Pro**). |
+| `PUT /profiles/{id}/overrides` | `{ userId, access: "none" \| "read" \| "write" \| null }` (admin, **Plus/Pro**; on Free an existing override can only be narrowed). |
 | `GET /organization` · `PATCH /organization` | The caller's organisation and its workspaces with their plans; rename `{ name }`. |
 | `GET /usage` | The current workspace's plan, limits and usage (AI actions, storage, members, spaces, categories, tags, per-space profile cap, voice, per-profile access, grace / view-only flags). |
 
@@ -80,6 +80,14 @@ profile there reports `access: "read"`, and writes are refused with
 `403 plan_limit`, `limit: "freeWorkspaces"` — anything inside a profile
 (transactions, attachments, vault files, profile edits) and every add at
 workspace level (profiles, spaces, categories, tags).
+
+**Who can change categories and tags.** Since spaces, a workspace `editor`
+isn't automatically an editor of every profile. `POST /categories` and
+`POST /tags` need edit access to at least one profile; `PATCH`/`DELETE` on
+them (which reach every transaction — a delete clears the category / strips
+the tag everywhere) need workspace admin or edit access to **every** profile.
+Otherwise `403 forbidden`. Existing editors are unaffected: the migration puts
+each in the space that holds every profile.
 
 **AI: a monthly allowance, voice on Pro, longer clips.** Responses are
 unchanged; requests gain two optional fields and the gates gain two errors.

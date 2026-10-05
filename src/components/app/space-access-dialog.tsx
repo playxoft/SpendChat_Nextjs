@@ -23,6 +23,7 @@ import { Switch } from "@/components/ui/switch";
 import { getSpaceAccess, setProfileOverride, setSpaceMember } from "@/actions/spaces";
 import { lowestPlanWith } from "@/lib/plans";
 import { cn } from "@/lib/utils";
+import { accessLevelForRole } from "@/lib/rbac";
 import { UpgradeHint, usePlan } from "./upgrade-dialog";
 
 /**
@@ -64,6 +65,8 @@ const ACCESS_LABEL: Record<AccessLevel, string> = {
   write: "Read + write",
 };
 const DEFAULT = "default";
+/** Narrowest to widest, for the narrow-only choices on plans without per-profile access. */
+const LEVEL_RANK: Record<AccessLevel, number> = { none: 0, read: 1, write: 2 };
 
 function personLabel(m: { name: string | null; email: string | null; userId: string }): string {
   return m.name ?? m.email ?? "Someone";
@@ -250,7 +253,8 @@ export function SpaceAccessDialog({
                   }}
                   className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
                 >
-                  Per-profile access is on Plus and Pro. Settings made earlier keep working.
+                  Per-profile access is on Plus and Pro. Settings made earlier keep working, and
+                  you can still narrow them.
                 </UpgradeHint>
               )}
               {data.profiles.length === 0 ? (
@@ -262,7 +266,7 @@ export function SpaceAccessDialog({
               ) : (
                 <div className={cn("space-y-3", !canEdit && "opacity-70")}>
                   {matrixPeople.map((m) => (
-                    <fieldset key={m.userId} className="rounded-lg border p-3" disabled={!canEdit}>
+                    <fieldset key={m.userId} className="rounded-lg border p-3">
                       <legend className="px-1 text-sm font-medium">{personLabel(m)}</legend>
                       <ul className="space-y-1.5">
                         {data.profiles.map((p) => {
@@ -272,6 +276,24 @@ export function SpaceAccessDialog({
                           const spaceDefault = m.spaceRole
                             ? SPACE_ROLE_LABEL[m.spaceRole]
                             : "No access";
+                          // Without per-profile access (Free) an existing
+                          // override can still be narrowed — to No access, or
+                          // back to the space default when that's no wider —
+                          // so a downgrade never leaves access stuck open.
+                          const current = override?.access ?? null;
+                          const defaultRank = LEVEL_RANK[accessLevelForRole(m.spaceRole)];
+                          const narrowOnly = !canEdit;
+                          const options: { value: string; label: string }[] = [
+                            { value: DEFAULT, label: `Default (${spaceDefault})` },
+                            { value: "none", label: ACCESS_LABEL.none },
+                            { value: "read", label: ACCESS_LABEL.read },
+                            { value: "write", label: ACCESS_LABEL.write },
+                          ].filter((o) => {
+                            if (!narrowOnly || current === null) return true;
+                            if (o.value === current || o.value === "none") return true;
+                            if (o.value === DEFAULT) return defaultRank <= LEVEL_RANK[current];
+                            return LEVEL_RANK[o.value as AccessLevel] <= LEVEL_RANK[current];
+                          });
                           return (
                             <li key={p.id} className="flex items-center justify-between gap-2">
                               <span className="min-w-0 truncate text-sm">
@@ -280,7 +302,7 @@ export function SpaceAccessDialog({
                               </span>
                               <Select
                                 value={override?.access ?? DEFAULT}
-                                disabled={!canEdit || pending}
+                                disabled={pending || (narrowOnly && current === null)}
                                 onValueChange={(v) =>
                                   setOverride(p.id, m.userId, v === DEFAULT ? null : (v as AccessLevel))
                                 }
@@ -292,10 +314,11 @@ export function SpaceAccessDialog({
                                   <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                  <SelectItem value={DEFAULT}>Default ({spaceDefault})</SelectItem>
-                                  <SelectItem value="none">{ACCESS_LABEL.none}</SelectItem>
-                                  <SelectItem value="read">{ACCESS_LABEL.read}</SelectItem>
-                                  <SelectItem value="write">{ACCESS_LABEL.write}</SelectItem>
+                                  {options.map((o) => (
+                                    <SelectItem key={o.value} value={o.value}>
+                                      {o.label}
+                                    </SelectItem>
+                                  ))}
                                 </SelectContent>
                               </Select>
                             </li>

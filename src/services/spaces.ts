@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  profileAccess,
   profileOverrides,
   profiles,
   spaceMembers,
@@ -22,6 +23,7 @@ import {
   getWorkspaceEntitlements,
 } from "@/lib/entitlements";
 import { badRequest, conflict, isUniqueViolation, notFound } from "@/lib/errors";
+import { atLeastRole, resolveProfileRole } from "@/lib/rbac";
 import { logger } from "@/lib/logger";
 import {
   accessibleProfileIds,
@@ -446,9 +448,16 @@ export async function setProfileOverride(
     .limit(1);
   if (!profile) throw notFound("Profile not found");
   await requireWorkspaceRole(userId, profile.workspaceId, "admin");
-  await assertWorkspaceWritable(profile.workspaceId);
-  await assertProfileLevelAccess(profile.workspaceId);
   await requireNonAdminMember(profile.workspaceId, data.userId);
+  // Without per-profile access (Free, e.g. after a downgrade) an override that
+  // already exists can still be *narrowed* — to "none", or cleared when that
+  // doesn't open anything up — so an admin is never stuck with access they
+  // want gone. Creating one, or widening one, needs the plan (that's the
+  // feature), and a view-only workspace refuses it like any other grant.
+  if (!(await narrowsExistingOverride(profile.workspaceId, profileId, data.userId, data.access))) {
+    await assertWorkspaceWritable(profile.workspaceId);
+    await assertProfileLevelAccess(profile.workspaceId);
+  }
 
   if (data.access === null) {
     await db
@@ -470,6 +479,55 @@ export async function setProfileOverride(
     memberId: data.userId,
     access: data.access,
   });
+}
+
+/**
+ * Whether the member already has an override on the profile and changing it to
+ * `next` leaves them with no more access than they have now
+ * (`resolveProfileRole` before vs after).
+ */
+async function narrowsExistingOverride(
+  workspaceId: string,
+  profileId: string,
+  targetUserId: string,
+  next: ProfileAccessLevel | null,
+): Promise<boolean> {
+  const db = getDb();
+  const [[member], [override], [space], [grant]] = await Promise.all([
+    db
+      .select({ role: workspaceMembers.role })
+      .from(workspaceMembers)
+      .where(
+        and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, targetUserId)),
+      )
+      .limit(1),
+    db
+      .select({ access: profileOverrides.access })
+      .from(profileOverrides)
+      .where(and(eq(profileOverrides.profileId, profileId), eq(profileOverrides.userId, targetUserId)))
+      .limit(1),
+    db
+      .select({ role: spaceMembers.role })
+      .from(spaceMembers)
+      .innerJoin(profiles, eq(profiles.spaceId, spaceMembers.spaceId))
+      .where(and(eq(profiles.id, profileId), eq(spaceMembers.userId, targetUserId)))
+      .limit(1),
+    db
+      .select({ role: profileAccess.role })
+      .from(profileAccess)
+      .where(and(eq(profileAccess.profileId, profileId), eq(profileAccess.userId, targetUserId)))
+      .limit(1),
+  ]);
+  const inputs = {
+    workspaceRole: member?.role ?? null,
+    spaceRole: space?.role ?? null,
+    grantRole: grant?.role ?? null,
+  };
+  if (!override) return false;
+  const before = resolveProfileRole({ ...inputs, override: override.access });
+  const after = resolveProfileRole({ ...inputs, override: next });
+  if (after === null) return true;
+  return before !== null && atLeastRole(before, after);
 }
 
 /** Overrides on one profile (admin) — for the API's per-profile view. */

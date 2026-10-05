@@ -78,6 +78,7 @@ export async function createWorkspace(userId: string, input: unknown): Promise<W
   const current = await getCurrentWorkspace(userId);
   const created = await createWorkspaceWithDefaults(userId, name, {
     makeCurrent: true,
+    requireNoFreeWorkspace: true,
     currency: current.currency,
     locale: current.locale,
     // Empty/omitted icon falls back to the default inside the helper.
@@ -353,10 +354,11 @@ async function describeAccessScope(
   access: AccessGrant,
 ): Promise<InviteScope> {
   if (access.mode === "all") {
+    if (access.role === "admin") return { kind: "all", role: access.role };
     // Checked here, with the profiles below, so a stale space id costs an
     // error message before any invite email (or its hourly quota) is spent.
-    if (access.role !== "admin") await resolveGrantSpaces(db, workspaceId, access.spaceIds);
-    return { kind: "all", role: access.role };
+    const ids = await resolveGrantSpaces(db, workspaceId, access.spaceIds);
+    return { kind: "all", role: access.role, spaces: await spaceNamesUnlessAll(db, workspaceId, ids) };
   }
   const ids = access.entries.map((e) => e.profileId);
   const rows = await db
@@ -372,6 +374,26 @@ async function describeAccessScope(
       role: e.role,
     })),
   };
+}
+
+/**
+ * The names of `spaceIds`, in sidebar order — or undefined when they are every
+ * space in the workspace, which the copy calls "all profiles". An invite to one
+ * space must never read as access to everything.
+ */
+async function spaceNamesUnlessAll(
+  db: ReturnType<typeof getDb>,
+  workspaceId: string,
+  spaceIds: string[],
+): Promise<string[] | undefined> {
+  const all = await db
+    .select({ id: spaces.id, name: spaces.name })
+    .from(spaces)
+    .where(eq(spaces.workspaceId, workspaceId))
+    .orderBy(asc(spaces.position), asc(spaces.createdAt));
+  const chosen = new Set(spaceIds);
+  if (all.every((sp) => chosen.has(sp.id))) return undefined;
+  return all.filter((sp) => chosen.has(sp.id)).map((sp) => sp.name);
 }
 
 /** Count-only summary safe for log messages (no profile names — user data). */
@@ -455,6 +477,35 @@ async function setMemberSpaces(
     .select({ id: spaces.id })
     .from(spaces)
     .where(eq(spaces.workspaceId, workspaceId));
+  // Leaving a space takes its per-profile overrides with it, as it does from
+  // the space's own dialog (`setSpaceMember`): otherwise a `write` override on
+  // one of its profiles would keep that profile open — and on Free nobody
+  // could change it. Overrides in spaces they were never in (deliberate
+  // one-profile openings) are left alone.
+  const leaving = await db
+    .select({ spaceId: spaceMembers.spaceId })
+    .from(spaceMembers)
+    .where(
+      and(
+        eq(spaceMembers.userId, targetUserId),
+        inArray(spaceMembers.spaceId, wsSpaces),
+        spaceIds.length > 0 ? notInArray(spaceMembers.spaceId, spaceIds) : undefined,
+      ),
+    );
+  if (leaving.length > 0) {
+    await db.delete(profileOverrides).where(
+      and(
+        eq(profileOverrides.userId, targetUserId),
+        inArray(
+          profileOverrides.profileId,
+          db
+            .select({ id: profiles.id })
+            .from(profiles)
+            .where(inArray(profiles.spaceId, leaving.map((l) => l.spaceId))),
+        ),
+      ),
+    );
+  }
   await db
     .delete(spaceMembers)
     .where(
@@ -771,7 +822,15 @@ export async function getInviteByToken(rawToken: unknown): Promise<InvitePreview
   const inviter = await findUserById(first.invitedBy);
   const wide = rows.find((r) => r.profileId === null);
   const scope: InviteScope = wide
-    ? { kind: "all", role: wide.role }
+    ? {
+        kind: "all",
+        role: wide.role,
+        // Null space ids (an admin invite, or one sent before spaces) cover everything.
+        spaces:
+          wide.role === "admin" || wide.spaceIds === null
+            ? undefined
+            : await spaceNamesUnlessAll(getDb(), first.workspaceId, wide.spaceIds),
+      }
     : {
         kind: "profiles",
         entries: rows.map((r) => ({ name: r.profileName ?? "a profile", role: r.role })),

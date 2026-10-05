@@ -724,9 +724,9 @@ the list.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `GET /categories` | — | 200 `data: Category[]` | The current workspace's list, `kind asc, name asc` (income first). |
-| `POST /categories` | `CategoryInput` `{ name, kind, icon? }` | 201 `data: Category` | Editor+ (403 for viewer). 422; 409 "A category with that name already exists" (unique per workspace+kind); **403 `plan_limit`** `categories` at the plan's cap (20 / 30 / 50 — the seeded defaults count; deleting one frees a slot) |
-| `PATCH /categories/{id}` | `{ name?, icon? }` | 200 `data: Category` | Editor+ (403). 422; 404 "Category not found"; 409 duplicate name |
-| `DELETE /categories/{id}` | — | 200 `data: { id, deleted: true }` | Editor+ (403). Referencing transactions get `categoryId = null`. 422; 404 |
+| `POST /categories` | `CategoryInput` `{ name, kind, icon? }` | 201 `data: Category` | Editor+ with edit access to at least one profile (403 otherwise; 6.5.0). 422; 409 "A category with that name already exists" (unique per workspace+kind); **403 `plan_limit`** `categories` at the plan's cap (20 / 30 / 50 — the seeded defaults count; deleting one frees a slot) |
+| `PATCH /categories/{id}` | `{ name?, icon? }` | 200 `data: Category` | Workspace admin, or an editor with edit access to **every** profile (403 otherwise; 6.5.0 — the change reaches every transaction). 422; 404 "Category not found"; 409 duplicate name |
+| `DELETE /categories/{id}` | — | 200 `data: { id, deleted: true }` | Workspace admin, or an editor with edit access to **every** profile (403 otherwise; 6.5.0 — the change reaches every transaction). Referencing transactions get `categoryId = null`. 422; 404 |
 
 ### Tags (scoped to the current workspace via `X-Workspace-Id`)
 Transaction tags: shared by every member of the workspace. Reads need workspace
@@ -740,9 +740,9 @@ transaction carrying it without touching a transaction.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `GET /tags` | — | 200 `data: Tag[]` | The current workspace's list, ordered by `lower(name)`. |
-| `POST /tags` | `TagInput` `{ name, color }` | 201 `data: Tag` | Editor+ (403 for viewer). 422; 409 "A tag with that name already exists" (unique per workspace, case-insensitive); **403 `plan_limit`** `tags` at the plan's cap (5 / 10 / 20); 409 "This workspace already has 100 tags" (a hard ceiling only a workspace already over its plan can reach) |
-| `PATCH /tags/{id}` | `{ name?, color? }` | 200 `data: Tag` | Editor+ (403). 422 (including an empty body — "Nothing to update"); 404 "Tag not found"; 409 duplicate name |
-| `DELETE /tags/{id}` | — | 200 `data: { id, deleted: true }` | Editor+ (403). Deletes the tag **and** removes its id from every transaction in the workspace, in one database transaction. 422 (non-uuid id); 404 |
+| `POST /tags` | `TagInput` `{ name, color }` | 201 `data: Tag` | Editor+ with edit access to at least one profile (403 otherwise; 6.5.0). 422; 409 "A tag with that name already exists" (unique per workspace, case-insensitive); **403 `plan_limit`** `tags` at the plan's cap (5 / 10 / 20); 409 "This workspace already has 100 tags" (a hard ceiling only a workspace already over its plan can reach) |
+| `PATCH /tags/{id}` | `{ name?, color? }` | 200 `data: Tag` | Workspace admin, or an editor with edit access to **every** profile (403 otherwise; 6.5.0 — the change reaches every transaction). 422 (including an empty body — "Nothing to update"); 404 "Tag not found"; 409 duplicate name |
+| `DELETE /tags/{id}` | — | 200 `data: { id, deleted: true }` | Workspace admin, or an editor with edit access to **every** profile (403 otherwise; 6.5.0 — the change reaches every transaction). Deletes the tag **and** removes its id from every transaction in the workspace, in one database transaction. 422 (non-uuid id); 404 |
 
 ### Profiles (RBAC: 404 = no access, 403 = role too low)
 | Method & path | Body | Success | Notes / errors |
@@ -756,7 +756,7 @@ transaction carrying it without touching a transaction.
 | `POST /profiles/{id}/move` | `{ toProfileId: uuid }` | 200 `data: { moved }` | Requires **editor** on both; same workspace. 422 "Invalid profiles" (bad/equal/cross-workspace ids); 403/404 |
 | `POST /profiles/{id}/space` | `{ spaceId: uuid }` | 200 `data: Profile` | 6.5.0. Move the profile into another space of **its** workspace (path id decides; header ignored). Workspace **admin**. Who sees it follows the new space's members, plus anyone with an override on the profile (overrides move with it). Same space → no-op. **403 `plan_limit`** `profilesPerSpace` when the destination is full; 422 malformed id/`spaceId`; 404 space not in that workspace |
 | `GET /profiles/{id}/overrides` | — | 200 `data: ProfileOverride[]` | 6.5.0. Overrides on this profile, oldest first — non-admin members only (admins see everything). Workspace **admin**. 422 malformed id; 403; 404 |
-| `PUT /profiles/{id}/overrides` | `{ userId, access: "none" \| "read" \| "write" \| null }` | 200 `data: ProfileOverride[]` (after the change) | 6.5.0. Set one member's override, or clear it with `null` (back to their space role). Workspace **admin**; target must be a non-admin member (400 otherwise). **Plus/Pro only** — on Free **403 `plan_limit`** `profileLevelAccess` (existing overrides keep applying after a downgrade; only changing them is gated). 422; 404 |
+| `PUT /profiles/{id}/overrides` | `{ userId, access: "none" \| "read" \| "write" \| null }` | 200 `data: ProfileOverride[]` (after the change) | 6.5.0. Set one member's override, or clear it with `null` (back to their space role). Workspace **admin**; target must be a non-admin member (400 otherwise). **Plus/Pro only** — on Free **403 `plan_limit`** `profileLevelAccess` (existing overrides keep applying after a downgrade; on Free one that exists can still be narrowed — set to `none`, or cleared when that opens nothing up — while creating or widening one is refused). 422; 404 |
 
 ### Spaces (6.5.0 — current workspace via `X-Workspace-Id`)
 Profiles live in spaces; the space is the unit of sharing. Workspace admins see

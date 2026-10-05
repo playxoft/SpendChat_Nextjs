@@ -1823,8 +1823,10 @@ paths:
 
         Changing overrides is a **Plus/Pro** feature: on Free this is
         `403 plan_limit` with `limit: "profileLevelAccess"`. Existing
-        overrides keep applying after a downgrade — only changing them is
-        gated, so a downgrade never widens anyone's access.
+        overrides keep applying after a downgrade, so a downgrade never widens
+        anyone's access — and on Free an override that already exists can
+        still be *narrowed* (set to `none`, or cleared when that doesn't open
+        anything up); creating or widening one is what's refused.
       requestBody:
         required: true
         content:

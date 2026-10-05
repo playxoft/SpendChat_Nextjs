@@ -282,7 +282,7 @@ function workspaceTile(input: {
 }): Block {
   const pills =
     input.scope.kind === "all"
-      ? pill(`${input.scope.role} · all profiles`)
+      ? wideScopeLabels(input.scope).map((l) => pill(l)).join(" ")
       : input.scope.entries.map((e) => pill(`${e.name} · ${e.role}`)).join(" ");
   const by = input.inviterName ? `Invited by ${escapeHtml(input.inviterName)}` : "You're invited";
   const html =
@@ -297,7 +297,7 @@ function workspaceTile(input: {
     `</td></tr></table>`;
   const roles =
     input.scope.kind === "all"
-      ? `${input.scope.role} · all profiles`
+      ? wideScopeLabels(input.scope).join(", ")
       : input.scope.entries.map((e) => `${e.name} · ${e.role}`).join(", ");
   const text = `  [${input.icon || "🏢"}] ${input.name}${input.inviterName ? ` — invited by ${input.inviterName}` : ""} — ${roles}`;
   return { html, text };
@@ -519,8 +519,19 @@ export function welcomeEmail(input: {
 
 /** What an invite or grant covers, resolved to names for the copy. */
 export type InviteScope =
-  | { kind: "all"; role: WorkspaceRole }
+  /**
+   * Workspace membership at `role`. `spaces` names the spaces a non-admin gets
+   * when that's not every space in the workspace — omitted means everything.
+   */
+  | { kind: "all"; role: WorkspaceRole; spaces?: string[] }
   | { kind: "profiles"; entries: { name: string; role: WorkspaceRole }[] };
+
+/** The short scope label of a workspace-wide invite: "editor · all profiles" or per space. */
+function wideScopeLabels(scope: { role: WorkspaceRole; spaces?: string[] }): string[] {
+  if (!scope.spaces) return [`${scope.role} · all profiles`];
+  if (scope.spaces.length === 0) return [`${scope.role} · no spaces yet`];
+  return scope.spaces.map((name) => `${name} · ${scope.role}`);
+}
 
 /** The role, as what it lets you do. */
 export function describeRole(role: WorkspaceRole): string {
@@ -537,7 +548,15 @@ export function describeRole(role: WorkspaceRole): string {
 /** Plain-text description of the scope; the HTML variant escapes it. */
 export function describeScope(workspaceName: string, scope: InviteScope): string {
   if (scope.kind === "all") {
-    return `the workspace “${workspaceName}” as ${describeRole(scope.role)}`;
+    if (!scope.spaces) return `the workspace “${workspaceName}” as ${describeRole(scope.role)}`;
+    if (scope.spaces.length === 0) {
+      return `the workspace “${workspaceName}” as ${describeRole(scope.role)} — an admin will add you to its spaces`;
+    }
+    if (scope.spaces.length === 1) {
+      return `the “${scope.spaces[0]}” space in “${workspaceName}” as ${describeRole(scope.role)}`;
+    }
+    const list = scope.spaces.map((n) => `“${n}”`).join(", ");
+    return `${scope.spaces.length} spaces in “${workspaceName}” (${list}) as ${describeRole(scope.role)}`;
   }
   if (scope.entries.length === 1) {
     const [only] = scope.entries;

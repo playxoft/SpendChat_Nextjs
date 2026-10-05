@@ -643,10 +643,54 @@ export async function createWorkspaceWithDefaults(
     icon?: string | null;
     /** The owner's display name, for naming a brand-new personal organisation. */
     ownerDisplayName?: string | null;
+    /**
+     * Bootstrap's mode: create only if the user owns no workspace yet, else
+     * return their oldest. Checked under the per-user lock below, so two
+     * concurrent first requests create one workspace, not two — a second one
+     * would be an extra *free* workspace, which `readOnlyWorkspaceSql` makes
+     * view-only, and the new user could land in it.
+     */
+    ifNoneOwned?: boolean;
+    /**
+     * The explicit "create workspace" flow: refuse (`plan_limit`) if the user
+     * already owns a free workspace — one free workspace per person (C5),
+     * re-checked under the lock so two concurrent creates can't both pass.
+     */
+    requireNoFreeWorkspace?: boolean;
   } = {},
 ): Promise<WorkspaceSummary> {
   const db = getDb();
   return db.transaction(async (tx) => {
+    // Serializes everything that creates a workspace for this user. Blocking
+    // is fine: it's one person's own create racing itself, held for a few
+    // inserts. Namespace 5 (1 AI, 2 email, 3 invites, 4 AI allowance).
+    await tx.execute(sql`select pg_advisory_xact_lock(5, hashtext(${userId}))`);
+    if (opts.ifNoneOwned) {
+      const [existing] = await tx
+        .select({ ...summaryColumns, role: workspaceMembers.role })
+        .from(workspaces)
+        .leftJoin(
+          workspaceMembers,
+          and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, userId)),
+        )
+        .where(eq(workspaces.ownerId, userId))
+        .orderBy(asc(workspaces.createdAt))
+        .limit(1);
+      if (existing) return existing;
+    }
+    if (opts.requireNoFreeWorkspace) {
+      const [free] = await tx
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(and(eq(workspaces.ownerId, userId), eq(workspaces.plan, "free")))
+        .limit(1);
+      if (free) {
+        throw planLimit(
+          "You already have a free workspace. Each extra workspace needs its own Plus or Pro plan.",
+          { limit: "freeWorkspaces", plan: "free", max: 1, used: 1, upgradeTo: "plus" },
+        );
+      }
+    }
     const organizationId = await ensurePersonalOrganization(userId, opts.ownerDisplayName, tx);
     const [workspace] = await tx
       .insert(workspaces)

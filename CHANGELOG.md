@@ -52,7 +52,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   1,000, refilled on the 1st), on top of the existing hourly cap. A typed note
   costs one action. A voice note costs one action per started minute and that
   covers both hearing it and turning it into entries. If the AI service fails
-  on our side, the action is given back.
+  on our side, the action is given back. AI used before this release doesn't
+  count — every workspace starts this month with its full allowance.
 - **Voice entry is a Pro feature**, and a recording can now run up to two
   minutes (was one); notes can be up to 3,000 characters. Workspaces that
   existed before plans keep voice while plans roll out.
@@ -60,6 +61,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   1 GB. The 5 MB per-file limit is unchanged.
 - **One free workspace per person.** Creating another workspace needs a paid
   plan for it.
+- Renaming or deleting a category or tag — which changes every transaction
+  that uses it — now needs an admin, or someone who can edit every profile in
+  the workspace. Anyone who can edit a profile can still add one.
 - Being over a limit never deletes anything: a workspace that already has more
   than its plan allows (one that existed before plans, or after a downgrade)
   keeps all of it and only stops adding more of that thing. Workspaces that
