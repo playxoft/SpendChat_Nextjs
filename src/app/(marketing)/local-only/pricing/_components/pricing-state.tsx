@@ -8,27 +8,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Briefcase, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   CURRENCIES,
-  PERIODS_FOR,
+  PAID_PERSONAL_PLANS,
+  PERIODS,
   PERIOD_LABEL,
-  PLANS_FOR,
   currencySymbol,
   isCurrency,
-  isPaid,
   pct,
   periodDiscount,
-  type Audience,
   type Currency,
   type Period,
-} from "../_data/pricing";
+} from "@/lib/pricing";
 import { Segmented } from "./segmented";
 
 type PricingState = {
-  audience: Audience;
-  setAudience: (a: Audience) => void;
   period: Period;
   setPeriod: (p: Period) => void;
   currency: Currency;
@@ -38,9 +33,9 @@ type PricingState = {
 const Ctx = createContext<PricingState | null>(null);
 
 /**
- * Audience, period and currency are shared by the plan cards and the
- * comparison chart, so changing one in either place moves the other — the
- * chart never disagrees with the cards above it.
+ * Period and currency are shared by the plan cards and the comparison chart,
+ * so changing one in either place moves the other — the chart never disagrees
+ * with the cards above it.
  */
 export function PricingStateProvider({
   initialCurrency,
@@ -49,20 +44,11 @@ export function PricingStateProvider({
   initialCurrency: Currency;
   children: ReactNode;
 }) {
-  const [audience, setAudienceRaw] = useState<Audience>("personal");
   // Yearly first: it's the best deal, and the price people should anchor on.
   const [period, setPeriod] = useState<Period>("yearly");
   const [currency, setCurrency] = useState<Currency>(initialCurrency);
-
-  // Business has no 3-month option; landing there on one falls back to yearly.
-  function setAudience(next: Audience) {
-    setAudienceRaw(next);
-    if (!PERIODS_FOR[next].includes(period)) setPeriod("yearly");
-  }
   return (
-    <Ctx.Provider value={{ audience, setAudience, period, setPeriod, currency, setCurrency }}>
-      {children}
-    </Ctx.Provider>
+    <Ctx.Provider value={{ period, setPeriod, currency, setCurrency }}>{children}</Ctx.Provider>
   );
 }
 
@@ -73,17 +59,16 @@ export function usePricingState(): PricingState {
 }
 
 /**
- * The one controls row — audience, period, currency — used above the cards and
- * above the comparison chart. All three are 44px tall.
+ * The one controls row — period and currency — used above the cards and above
+ * the comparison chart. Both are 44px tall.
  */
 export function PricingControls({ className }: { className?: string }) {
-  const { audience, setAudience, period, setPeriod, currency, setCurrency } = usePricingState();
-  const paid = PLANS_FOR[audience].filter(isPaid);
+  const { period, setPeriod, currency, setCurrency } = usePricingState();
 
-  // One selector serves every plan in view, so each option shows the best
-  // saving any of them gets; each card then shows its own exact saving.
-  const periodOptions = PERIODS_FOR[audience].map((p) => {
-    const max = Math.max(...paid.map((plan) => periodDiscount(plan, p, currency)));
+  // One selector serves both paid plans, so each option shows the best saving
+  // either of them gets; each card then shows its own exact saving.
+  const periodOptions = PERIODS.map((p) => {
+    const max = Math.max(...PAID_PERSONAL_PLANS.map((plan) => periodDiscount(plan, p, currency)));
     return {
       value: p,
       label: PERIOD_LABEL[p].toggle,
@@ -92,27 +77,16 @@ export function PricingControls({ className }: { className?: string }) {
   });
 
   return (
-    // Audience in the left corner, period centred, currency in the right corner.
+    // Period centred, currency in the right corner; the empty left cell keeps
+    // the period selector on the page's centre line.
     <div
       className={cn(
         "flex w-full flex-wrap items-center justify-center gap-3 md:grid md:grid-cols-[1fr_auto_1fr]",
         className,
       )}
     >
+      <span aria-hidden className="hidden md:block" />
       <Segmented
-        className="md:justify-self-start"
-        label="Who is it for"
-        size="bar"
-        value={audience}
-        onChange={setAudience}
-        options={[
-          { value: "personal", label: <><User className="size-4" /> Personal</> },
-          { value: "business", label: <><Briefcase className="size-4" /> Business</> },
-        ]}
-      />
-      {/* Keyed by audience: the thumb shouldn't animate across a change in option count. */}
-      <Segmented
-        key={audience}
         label="Billing period"
         size="bar"
         value={period}

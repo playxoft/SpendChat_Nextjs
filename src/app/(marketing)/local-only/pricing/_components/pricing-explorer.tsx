@@ -1,21 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Check, Info, Server, Sparkles, Timer, User, Users, Zap } from "lucide-react";
+import { ArrowRight, Check, FileText, Info, Server, Sparkles, Timer, Users, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { siteConfig } from "@/lib/site";
+import { INVOICE_LIMITS, PERSONAL_PLANS, PLAN_NAMES, TOPUP, type PersonalPlan } from "@/lib/plans";
 import {
-  MIN_BUSINESS_SEATS,
   PERIOD_LABEL,
-  PERIOD_MONTHS,
-  PLANS_FOR,
-  PLAN_COPY,
   TRIAL_DAYS,
-  BUSINESS_PAID,
-  divide,
   formatAmount,
-  isPaid,
+  invoiceAddonPrice,
+  isPaidPersonalPlan,
   pct,
   periodDiscount,
   quote,
@@ -23,8 +18,8 @@ import {
   topUpPrice,
   type Currency,
   type Period,
-  type PlanId,
-} from "../_data/pricing";
+} from "@/lib/pricing";
+import { FEATURED_BADGE, FEATURED_PLAN, PLAN_COPY, count, plansWith } from "../_data/plan-copy";
 import { PricingControls, usePricingState } from "./pricing-state";
 
 function track(location: string, label: string) {
@@ -35,8 +30,8 @@ function track(location: string, label: string) {
 }
 
 export function PricingExplorer() {
-  const { audience, period, currency } = usePricingState();
-  const plans = PLANS_FOR[audience];
+  const { period, currency } = usePricingState();
+  const addon = INVOICE_LIMITS.addon;
   return (
     <div>
       {/* ── Controls ───────────────────────────────────────────────── */}
@@ -44,7 +39,8 @@ export function PricingExplorer() {
         <PricingControls />
         <p className="inline-flex items-center gap-1.5 text-center text-xs text-muted-foreground">
           <Info className="size-3.5 shrink-0" />
-          All prices exclude {taxName(currency)}, added at checkout.
+          A plan covers a whole workspace and everyone in it. Prices exclude {taxName(currency)},
+          added at checkout.
         </p>
       </div>
 
@@ -52,24 +48,25 @@ export function PricingExplorer() {
       {/* Always one row. From lg up it's a grid; below that the row scrolls
           sideways with snap, rather than wrapping into a second row. The
           vertical padding leaves room for the featured card's lift and badge. */}
-      <div
-        className={cn(
-          "-mx-4 mt-8 flex snap-x snap-mandatory items-stretch gap-4 overflow-x-auto px-4 py-6 [scrollbar-width:none] lg:mx-auto lg:grid lg:overflow-visible lg:px-0",
-          plans.length === 4 ? "lg:grid-cols-4" : "lg:max-w-6xl lg:grid-cols-3",
-        )}
-      >
-        {plans.map((id) => (
+      <div className="-mx-4 mt-8 flex snap-x snap-mandatory items-stretch gap-4 overflow-x-auto px-4 py-6 [scrollbar-width:none] lg:mx-auto lg:grid lg:max-w-6xl lg:grid-cols-3 lg:overflow-visible lg:px-0">
+        {PERSONAL_PLANS.map((id) => (
           <PlanCard key={id} id={id} period={period} currency={currency} />
         ))}
       </div>
 
-      {/* ── Add-ons: the three ways never to hit a wall ────────────── */}
-      <div className="mt-4 grid gap-5 md:grid-cols-2">
+      {/* ── Add-ons ────────────────────────────────────────────────── */}
+      <div className="mt-4 grid gap-5 md:grid-cols-3">
         <AddOn
           icon={<Zap className="size-4" />}
           title="AI top-up"
-          price={`${formatAmount(topUpPrice(currency), currency)} / 500 actions`}
-          body="On any paid plan. Running out never locks you out — manual entry is never metered."
+          price={`${formatAmount(topUpPrice(currency), currency)} / ${TOPUP.actions} actions`}
+          body={`On ${plansWith("topUps")}, used after the monthly allowance and valid for ${TOPUP.validityMonths} months. Running out never locks you out — typing entries is never metered.`}
+        />
+        <AddOn
+          icon={<FileText className="size-4" />}
+          title="Invoice add-on"
+          price={`${formatAmount(invoiceAddonPrice("monthly", currency), currency)}/mo or ${formatAmount(invoiceAddonPrice("yearly", currency), currency)}/yr`}
+          body={`On any plan, per workspace: ${addon.displayUnlimited ? "unlimited invoices & quotes" : `${count(addon.perMonth)} invoices & quotes a month`}, ${addon.templates}+ templates, no footer, email, reminders, recurring invoices and GST fields.`}
         />
         <AddOn
           icon={<Server className="size-4" />}
@@ -83,41 +80,34 @@ export function PricingExplorer() {
   );
 }
 
-function PlanCard({ id, period, currency }: { id: PlanId; period: Period; currency: Currency }) {
+function PlanCard({ id, period, currency }: { id: PersonalPlan; period: Period; currency: Currency }) {
   const copy = PLAN_COPY[id];
-  const q = isPaid(id) ? quote(id, period, currency) : null;
-  const saving = isPaid(id) ? periodDiscount(id, period, currency) : 0;
-  const inactive = q?.available === false;
-  const featured = !!copy.highlight && !inactive;
-  const perSeat = BUSINESS_PAID.includes(id);
-  let headline = "—";
-  if (id === "free") headline = formatAmount(0, currency);
-  else if (id === "enterprise") headline = "Custom";
-  else if (q?.available) headline = formatAmount(q.perMonth, currency);
+  const q = isPaidPersonalPlan(id) ? quote(id, period, currency) : null;
+  const saving = isPaidPersonalPlan(id) ? periodDiscount(id, period, currency) : 0;
+  const featured = id === FEATURED_PLAN;
+  const headline = formatAmount(q ? q.perMonth : 0, currency);
 
   return (
     <div
-      aria-disabled={inactive || undefined}
       className={cn(
         "relative flex w-[82%] shrink-0 snap-center flex-col rounded-3xl border bg-card p-5 transition-[box-shadow,opacity] sm:w-[46%] lg:w-auto xl:p-6",
         // Featured by weight, not by colour: a stronger edge and a lift.
         featured
           ? "border-foreground/50 shadow-xl ring-1 ring-foreground/15 lg:-my-3 lg:py-8 xl:py-9"
           : "shadow-sm hover:shadow-md",
-        inactive && "opacity-55 saturate-0",
       )}
     >
       {featured ? (
         <span className="absolute -top-3 left-6 inline-flex items-center gap-1 rounded-full border border-foreground/30 bg-card px-3 py-1 text-[11px] font-semibold uppercase tracking-wider shadow-sm">
-          <Sparkles className="size-3" /> {copy.highlight}
+          <Sparkles className="size-3" /> {FEATURED_BADGE}
         </span>
       ) : null}
 
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
-        <h3 className="text-lg font-semibold tracking-tight">{copy.name}</h3>
+        <h3 className="text-lg font-semibold tracking-tight">{PLAN_NAMES[id]}</h3>
         <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
-          {copy.members === "Just you" ? <User className="size-3" /> : <Users className="size-3" />}
-          {copy.members}
+          <Users className="size-3" />
+          {copy.people}
         </span>
       </div>
       <p className="mt-1.5 min-h-10 text-sm text-muted-foreground">{copy.tagline}</p>
@@ -127,23 +117,17 @@ function PlanCard({ id, period, currency }: { id: PlanId; period: Period; curren
         <div key={`${currency}-${period}-${headline}`} className="animate-in fade-in slide-in-from-bottom-1 duration-300">
           <div className="mt-1 flex items-baseline gap-1.5">
             <span className="text-4xl font-semibold tracking-tight tabular-nums xl:text-5xl">{headline}</span>
-            {id === "enterprise" ? null : (
-              <span className="text-sm text-muted-foreground">
-                {id === "free" ? "forever" : perSeat ? "/seat/mo" : "/mo"}
-              </span>
-            )}
+            <span className="text-sm text-muted-foreground">{q ? "/mo" : "forever"}</span>
           </div>
 
           <div className="mt-3 space-y-1.5 text-xs text-muted-foreground">
-            {id === "free" ? <p className="text-sm">No card, no trial clock.</p> : null}
-            {id === "enterprise" ? <p className="text-sm">Priced for your seats, limits and contract.</p> : null}
-            {q?.available ? (
+            {q ? (
               <>
                 <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-base font-medium tabular-nums text-foreground/90">
                   <span>
                     {period === "monthly"
                       ? "Billed monthly, cancel anytime"
-                      : `${formatAmount(q.price, currency)}${perSeat ? " per seat" : ""} ${PERIOD_LABEL[period].billed}`}
+                      : `${formatAmount(q.price, currency)} ${PERIOD_LABEL[period].billed}`}
                   </span>
                   {saving >= 0.01 ? (
                     <span className="rounded-full bg-emerald-500/12 px-2 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-400">
@@ -151,54 +135,30 @@ function PlanCard({ id, period, currency }: { id: PlanId; period: Period; curren
                     </span>
                   ) : null}
                 </p>
-                {id === "family" ? (
-                  <p className="tabular-nums">
-                    {formatAmount(divide(q.perMonth, 6, currency), currency)} per person a month, shared by six
-                  </p>
-                ) : null}
-                {perSeat ? (
-                  <p className="tabular-nums">
-                    {formatAmount(divide(q.price * MIN_BUSINESS_SEATS, PERIOD_MONTHS[period], currency), currency)}/mo
-                    for a team of {MIN_BUSINESS_SEATS}, the minimum
-                  </p>
-                ) : null}
                 <p className="inline-flex items-center gap-1.5 pt-0.5 text-sm font-medium">
                   <Timer className="size-4" /> First {TRIAL_DAYS} days free
                 </p>
               </>
-            ) : null}
+            ) : (
+              <p className="text-sm">No card, no trial clock.</p>
+            )}
           </div>
         </div>
       </div>
 
-      {inactive ? (
-        <Button disabled variant="outline" className="mt-2 h-11 w-full rounded-xl text-sm">
-          Unavailable for this plan
-        </Button>
-      ) : (
-        <Button
-          asChild
-          variant={featured ? "default" : "outline"}
-          className="mt-2 h-11 w-full gap-2 rounded-xl text-sm"
+      <Button
+        asChild
+        variant={featured ? "default" : "outline"}
+        className="mt-2 h-11 w-full gap-2 rounded-xl text-sm"
+      >
+        <Link
+          href="/sign-up"
+          {...track(`pricing_${id}_plan`, q ? `trial_${id}` : "get_started")}
         >
-          {id === "enterprise" ? (
-            <a
-              href={`mailto:${siteConfig.supportEmail}?subject=Enterprise`}
-              {...track("pricing_enterprise_plan", "contact_sales")}
-            >
-              Contact sales <ArrowRight className="size-4" />
-            </a>
-          ) : (
-            <Link
-              href="/sign-up"
-              {...track(`pricing_${id}_plan`, id === "free" ? "get_started" : `trial_${id}`)}
-            >
-              {id === "free" ? "Start for free" : `Start ${TRIAL_DAYS}-day free trial`}
-              <ArrowRight className="size-4" />
-            </Link>
-          )}
-        </Button>
-      )}
+          {q ? `Start ${TRIAL_DAYS}-day free trial` : "Start for free"}
+          <ArrowRight className="size-4" />
+        </Link>
+      </Button>
 
       <div className="my-6 h-px bg-border" />
 
