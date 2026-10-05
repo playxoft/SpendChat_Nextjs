@@ -259,6 +259,11 @@ function assertWritable(ent: WorkspaceEntitlements): void {
   if (ent.readOnly) throw readOnlyWorkspaceError();
 }
 
+/** `assertWritable` for callers that hold only the id — granting access counts as adding. */
+export async function assertWorkspaceWritable(workspaceId: string): Promise<void> {
+  assertWritable(await getWorkspaceEntitlements(workspaceId));
+}
+
 /**
  * Throw `plan_limit` unless the workspace has room for one more person. A
  * person who already counts (a member being re-scoped, an invite being

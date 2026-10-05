@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import {
+  categories,
   profileAccess,
   profileOverrides,
   profiles,
@@ -24,6 +25,8 @@ import {
   requireProfileRole,
 } from "@/lib/workspaces";
 import { listSpaces, setProfileOverride } from "@/services/spaces";
+import { createCategory, deleteCategory } from "@/services/categories";
+import { createTxnTag, deleteTxnTag } from "@/services/tags";
 import {
   createTransaction,
   deleteTransaction,
@@ -485,3 +488,39 @@ describe("removing someone from a workspace", () => {
     expect(await getEffectiveProfileRole(uid("rm"), pW)).toMatchObject({ role: "editor" });
   });
 });
+
+describe("shared lists (categories, tags) since spaces", () => {
+  // Security review: a workspace "editor" is no longer an editor of anything
+  // by itself. Deleting a category clears it on every transaction and deleting
+  // a tag strips it from every one, so those need reach over every profile.
+  it("a workspace editor in no space can't add to the shared lists or delete from them", async () => {
+    const { W } = await build();
+    await expect(
+      createCategory(uid("nsp"), W, { name: "Snacks", kind: "expense" }),
+    ).rejects.toMatchObject({ status: 403 });
+    const [cat] = await db()
+      .select({ id: categories.id })
+      .from(categories)
+      .where(eq(categories.workspaceId, W))
+      .limit(1);
+    await expect(deleteCategory(uid("nsp"), W, cat!.id)).rejects.toMatchObject({ status: 403 });
+    const tag = await createTxnTag(uid("adm"), W, { name: "trip", color: "#ef4444" });
+    await expect(deleteTxnTag(uid("nsp"), W, tag.id)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("an editor of one space can add, but only someone who can edit every profile can delete", async () => {
+    const { W, s2 } = await build();
+    const cat = await createCategory(uid("sed"), W, { name: "Snacks", kind: "expense" });
+    await expect(deleteCategory(uid("sed"), W, cat.id)).rejects.toMatchObject({ status: 403 });
+    // Give them space 2 as well — now every profile is theirs to edit.
+    await db().insert(spaceMembers).values({ spaceId: s2, userId: uid("sed"), role: "editor" });
+    await expect(deleteCategory(uid("sed"), W, cat.id)).resolves.toBeTruthy();
+  });
+
+  it("admins can always rename and delete shared-list entries", async () => {
+    const { W } = await build();
+    const tag = await createTxnTag(uid("adm"), W, { name: "trip", color: "#ef4444" });
+    await expect(deleteTxnTag(uid("adm"), W, tag.id)).resolves.toBeTruthy();
+  });
+});
+

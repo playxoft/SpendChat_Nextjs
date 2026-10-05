@@ -22,6 +22,7 @@ import {
   assertCanAddMember,
   assertCanCreateFreeWorkspace,
   assertProfileLevelAccess,
+  assertWorkspaceWritable,
 } from "@/lib/entitlements";
 import { badRequest, conflict, forbidden, notFound } from "@/lib/errors";
 import { generateInviteToken, invitePath, openWorkspacePath } from "@/lib/invite-links";
@@ -994,6 +995,7 @@ export async function updateMemberRole(
 ): Promise<void> {
   const data = parseOrThrow(updateMemberRoleSchema, input);
   await requireWorkspaceRole(userId, workspaceId, "admin");
+  await assertWorkspaceWritable(workspaceId);
   const db = getDb();
 
   const workspace = await db.query.workspaces.findFirst({

@@ -18,6 +18,7 @@ import {
   assertCanAddProfilesToSpace,
   assertCanAddSpace,
   assertProfileLevelAccess,
+  assertWorkspaceWritable,
   getWorkspaceEntitlements,
 } from "@/lib/entitlements";
 import { badRequest, conflict, isUniqueViolation, notFound } from "@/lib/errors";
@@ -385,6 +386,9 @@ export async function setSpaceMember(userId: string, spaceId: string, input: unk
   const data = parseOrThrow(setSpaceMemberSchema, input);
   const space = await requireSpaceAdmin(userId, spaceId);
   await requireNonAdminMember(space.workspaceId, data.userId);
+  // Taking someone out is cleanup and stays open; putting them in (or raising
+  // them) is adding access, which a view-only workspace refuses.
+  if (data.role !== null) await assertWorkspaceWritable(space.workspaceId);
   const db = getDb();
   if (data.role === null) {
     await db.transaction(async (tx) => {
@@ -442,6 +446,7 @@ export async function setProfileOverride(
     .limit(1);
   if (!profile) throw notFound("Profile not found");
   await requireWorkspaceRole(userId, profile.workspaceId, "admin");
+  await assertWorkspaceWritable(profile.workspaceId);
   await assertProfileLevelAccess(profile.workspaceId);
   await requireNonAdminMember(profile.workspaceId, data.userId);
 

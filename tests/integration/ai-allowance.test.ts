@@ -5,7 +5,12 @@ import { POST as parseRoute } from "@/app/api/v1/ai/parse/route";
 import { POST as transcribeRoute } from "@/app/api/v1/ai/transcribe/route";
 import { parseTransactionsWithAI, transcribeVoiceNoteAction } from "@/actions/transactions";
 import { aiUsageLog } from "@/db/schema";
-import { AI_REQUESTS_PER_HOUR } from "@/lib/ai-quota";
+import {
+  AI_REQUESTS_PER_HOUR,
+  chargeAiParse,
+  chargeVoiceTranscribe,
+  withAiCharge,
+} from "@/lib/ai-quota";
 import { getAiAllowance } from "@/lib/entitlements";
 import { PLAN_LIMITS } from "@/lib/plans";
 import * as ws from "@/services/workspaces";
@@ -484,5 +489,47 @@ describe("voice", () => {
       ["transaction_parse_voice", 0],
     ]);
     expect((await getAiAllowance(W)).used).toBe(1);
+  });
+
+  it("takes back the free parse a clip unlocked when that clip fails afterwards (review: junk audio + instant voice parse)", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+    await setWorkspacePlan(W, "pro");
+    const user = uid("a");
+
+    // The clip is charged before the provider sees it; a voice parse can claim
+    // it while it's still in flight…
+    const clip = await chargeVoiceTranscribe(user, W, { durationMs: 1 });
+    const parseCharge = await chargeAiParse(user, W, { source: "voice" });
+    expect(parseCharge.units).toBe(0);
+    // …and then the clip fails on our side and is refunded.
+    await expect(
+      withAiCharge(clip, async () => {
+        throw new Error("provider rejected the audio");
+      }),
+    ).rejects.toThrow();
+
+    expect((await ledger("a")).map((r) => [r.kind, r.units])).toEqual([
+      ["voice_transcribe_failed", 0],
+      ["transaction_parse", 1],
+    ]);
+    expect((await getAiAllowance(W)).used).toBe(1);
+  });
+
+  it("charges a clip for its measured length when it was longer than declared (review: durationMs is only a claim)", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const W = await workspaceIdOf("a");
+    await setWorkspacePlan(W, "pro");
+
+    const clip = await chargeVoiceTranscribe(uid("a"), W, { durationMs: 1 });
+    expect(clip.units).toBe(1);
+    await withAiCharge(clip, async (onUsage) => {
+      onUsage({ inputTokens: 10, outputTokens: 5, audioMs: 30 * 60_000 + 1 });
+      return "a very long recording";
+    });
+
+    expect((await ledger("a")).map((r) => [r.kind, r.units])).toEqual([["voice_transcribe", 31]]);
   });
 });

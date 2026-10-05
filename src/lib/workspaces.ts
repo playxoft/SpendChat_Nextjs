@@ -477,6 +477,48 @@ export async function requireProfileRole(
   return access;
 }
 
+/**
+ * Gate for adding to a workspace's shared lists (categories, tags): a workspace
+ * member with ≥ editor who can also write at least one profile. Since spaces, a
+ * workspace "editor" isn't automatically an editor of anything — one in no
+ * space (or a viewer in every space) mustn't grow lists everyone shares.
+ */
+export async function requireSharedListAdd(userId: string, workspaceId: string): Promise<void> {
+  const role = await requireWorkspaceRole(userId, workspaceId, "editor");
+  if (role === "admin") return;
+  if (!(await canWriteInWorkspace(userId, workspaceId))) {
+    throw forbidden("You need edit access to a profile here to add to the shared lists");
+  }
+}
+
+/**
+ * Gate for renaming or deleting a shared-list entry (a category or a tag).
+ * Those edits reach every transaction in the workspace — deleting a category
+ * clears it on all of them, deleting a tag strips it from all of them — so
+ * below admin they need write access to *every* profile, the reach a workspace
+ * editor had before spaces existed (and still has after the backfill, which
+ * puts each one in the space holding every profile). A view-only workspace
+ * refuses them too.
+ */
+export async function requireSharedListEdit(userId: string, workspaceId: string): Promise<void> {
+  const role = await requireWorkspaceRole(userId, workspaceId, "editor");
+  const db = getDb();
+  const [ro] = (
+    await db.execute<{ ro: boolean }>(sql`select ${readOnlyWorkspaceSql(workspaceId)} as ro`)
+  ).rows;
+  if (ro?.ro) throw readOnlyWorkspaceError();
+  if (role === "admin") return;
+  const [all, writable] = await Promise.all([
+    db.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
+    accessibleProfileIds(userId, workspaceId, "editor"),
+  ]);
+  if (writable.length < all.length) {
+    throw forbidden(
+      "Only someone who can edit every profile in this workspace can rename or delete its shared categories and tags",
+    );
+  }
+}
+
 /** Throw unless the user is a workspace member with ≥ `minRole`. */
 export async function requireWorkspaceRole(
   userId: string,

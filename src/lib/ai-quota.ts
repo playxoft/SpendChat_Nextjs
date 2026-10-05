@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, eq, gte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { aiUsageLog } from "@/db/schema";
 import { ApiError, planLimit, tooManyRequests, type PlanLimitDetails } from "@/lib/errors";
@@ -65,7 +65,14 @@ const FAILED_SUFFIX = "_failed";
 const DEFAULT_LIMIT_MESSAGE = "That's a lot of AI requests in the last hour — try again later";
 
 /** A charged AI call: its ledger row, and what it cost. */
-export type AiCharge = { id: string; kind: AiKind; units: number };
+export type AiCharge = {
+  id: string;
+  kind: AiKind;
+  units: number;
+  /** Who and where — settling a refunded transcription re-checks the voice pairing. */
+  userId: string;
+  workspaceId: string;
+};
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
@@ -192,7 +199,7 @@ async function chargeUnderLocks(
       .insert(aiUsageLog)
       .values({ userId, workspaceId, kind, units, ownerId: ent.ownerId, plan: ent.plan })
       .returning({ id: aiUsageLog.id });
-    return { id: inserted!.id, kind, units };
+    return { id: inserted!.id, kind, units, userId, workspaceId };
   });
 }
 
@@ -315,6 +322,11 @@ export async function withAiCharge<T>(
   return result;
 }
 
+/** AI actions a clip of `audioMs` really cost — like `voiceActionsFor`, but not capped. */
+function measuredVoiceActions(audioMs: number): number {
+  return Math.max(1, Math.ceil(audioMs / VOICE.msPerAction));
+}
+
 async function settleAiCharge(
   charge: AiCharge,
   usage: AiUsage | null,
@@ -322,19 +334,38 @@ async function settleAiCharge(
 ): Promise<void> {
   if (!usage && !refund) return;
   try {
-    await getDb()
-      .update(aiUsageLog)
-      .set({
-        ...(usage
-          ? {
-              inputTokens: usage.inputTokens,
-              outputTokens: usage.outputTokens,
-              audioMs: usage.audioMs,
-            }
-          : {}),
-        ...(refund ? { units: 0, kind: `${charge.kind}${FAILED_SUFFIX}` } : {}),
-      })
-      .where(eq(aiUsageLog.id, charge.id));
+    if (refund && charge.kind === AI_KIND.transcribe) {
+      await refundTranscription(charge, usage);
+    } else {
+      // The clip length a client declares is only a claim. When the provider
+      // measured the audio (Gemini reports it), a longer clip is charged for
+      // what it really was — a 1 ms declaration can't buy an hour of audio.
+      const measured =
+        !refund && charge.kind === AI_KIND.transcribe && usage?.audioMs != null
+          ? measuredVoiceActions(usage.audioMs)
+          : null;
+      const recharge = measured != null && measured > charge.units ? measured : null;
+      await getDb()
+        .update(aiUsageLog)
+        .set({
+          ...(usage
+            ? {
+                inputTokens: usage.inputTokens,
+                outputTokens: usage.outputTokens,
+                audioMs: usage.audioMs,
+              }
+            : {}),
+          ...(refund ? { units: 0, kind: `${charge.kind}${FAILED_SUFFIX}` } : {}),
+          ...(recharge != null ? { units: recharge } : {}),
+        })
+        .where(eq(aiUsageLog.id, charge.id));
+      if (recharge != null) {
+        logger.info(
+          `Charged ${recharge} AI action(s) for a clip declared as ${charge.units} — the measured audio was longer`,
+          { event: "ai.charge.remeasured", declared: charge.units, units: recharge, chargeId: charge.id },
+        );
+      }
+    }
     if (refund && charge.units > 0) {
       logger.info(`Gave back ${charge.units} AI action(s) after a ${charge.kind} call failed`, {
         event: "ai.charge.refunded",
@@ -351,4 +382,68 @@ async function settleAiCharge(
       refund,
     });
   }
+}
+
+/**
+ * Give a failed transcription's actions back — and with them the free parse it
+ * paid for. A paid transcription row exists from the moment it's charged, so a
+ * voice parse can claim it while the clip is still at the provider; if the clip
+ * then fails, the pairing would be left with a free parse nothing paid for (junk
+ * audio + an instant `source: "voice"` parse = free AI). So after the refund,
+ * if this user's free voice parses in the window now outnumber their paid
+ * clips, the newest one is turned back into an ordinary 1-action parse.
+ *
+ * Runs under the same allowance lock the claim takes (`chargeUnderLocks`), so a
+ * claim and this re-check can't interleave: whichever runs second sees the
+ * other's committed row.
+ */
+async function refundTranscription(charge: AiCharge, usage: AiUsage | null): Promise<void> {
+  const ent = await getWorkspaceEntitlements(charge.workspaceId);
+  await getDb().transaction(async (tx) => {
+    await tx.execute(
+      sql`select pg_advisory_xact_lock(${ALLOWANCE_LOCK_NAMESPACE}, hashtext(${allowanceLockKey(ent)}))`,
+    );
+    await tx
+      .update(aiUsageLog)
+      .set({
+        ...(usage
+          ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, audioMs: usage.audioMs }
+          : {}),
+        units: 0,
+        kind: `${charge.kind}${FAILED_SUFFIX}`,
+      })
+      .where(eq(aiUsageLog.id, charge.id));
+
+    const since = new Date(Date.now() - VOICE_PARSE_WINDOW_MS);
+    const scope = and(
+      eq(aiUsageLog.userId, charge.userId),
+      eq(aiUsageLog.workspaceId, charge.workspaceId),
+      gte(aiUsageLog.createdAt, since),
+    );
+    const [row] = await tx
+      .select({
+        paid: sql<number>`(count(*) filter (where ${aiUsageLog.kind} = ${AI_KIND.transcribe} and ${aiUsageLog.units} > 0))::int`,
+        claimed: sql<number>`(count(*) filter (where ${aiUsageLog.kind} = ${AI_KIND.voiceParse}))::int`,
+      })
+      .from(aiUsageLog)
+      .where(scope);
+    if (Number(row?.claimed ?? 0) <= Number(row?.paid ?? 0)) return;
+
+    const [newest] = await tx
+      .select({ id: aiUsageLog.id })
+      .from(aiUsageLog)
+      .where(and(scope, eq(aiUsageLog.kind, AI_KIND.voiceParse)))
+      .orderBy(desc(aiUsageLog.createdAt), desc(aiUsageLog.id))
+      .limit(1);
+    if (!newest) return;
+    await tx
+      .update(aiUsageLog)
+      .set({ units: 1, kind: AI_KIND.parse })
+      .where(eq(aiUsageLog.id, newest.id));
+    logger.info("Charged a voice parse whose transcription failed afterwards", {
+      event: "ai.charge.voice_parse_recharged",
+      chargeId: newest.id,
+      transcriptionId: charge.id,
+    });
+  });
 }
