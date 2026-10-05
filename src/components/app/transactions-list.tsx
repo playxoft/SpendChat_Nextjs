@@ -5,6 +5,9 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { loadMoreTransactions } from "@/actions/transactions";
 import { TransactionsTable } from "./transactions-table";
+import { BulkActionBar } from "./bulk-action-bar";
+import { usePermissions } from "./permissions";
+import { useRowSelection } from "@/hooks/use-row-selection";
 import { cn } from "@/lib/utils";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
@@ -97,6 +100,21 @@ export function TransactionsList({
 
   const sentinelRef = useRef<HTMLDivElement>(null);
 
+  // Picking rows for the bulk actions — editors only; the server re-checks.
+  const { canWrite } = usePermissions();
+  const selection = useRowSelection(rows);
+  // A bulk result patches the loaded rows straight away; the revalidation that
+  // follows (the actions revalidate the page) then replaces the first page and
+  // re-applies the filters, so a row that stopped matching one leaves then.
+  const onBulkUpdated = useCallback((changed: TransactionRow[]) => {
+    const byId = new Map(changed.map((r) => [r.id, r]));
+    setRows((prev) => prev.map((r) => byId.get(r.id) ?? r));
+  }, []);
+  const onBulkDeleted = useCallback((ids: string[]) => {
+    const gone = new Set(ids);
+    setRows((prev) => prev.filter((r) => !gone.has(r.id)));
+  }, []);
+
   const loadMore = useCallback(async () => {
     setError(false);
     setLoading(true);
@@ -131,7 +149,9 @@ export function TransactionsList({
   // While a sort is in flight, keep the (stale) rows on screen but dim them and
   // block interaction, with a spinner overlay — no jarring empty skeleton.
   return (
-    <div className="relative">
+    // Room under the last row for the bulk bar while it's up, so it never sits
+    // on top of the rows you'd scroll down to pick.
+    <div className={cn("relative", selection.count > 0 && "pb-24")}>
       <div
         aria-busy={sortPending}
         className={cn(
@@ -144,6 +164,7 @@ export function TransactionsList({
           activeSort={activeSort}
           activeDir={activeDir}
           onSort={onSort}
+          selection={canWrite ? selection : null}
           {...shared}
         />
         {!done && (
@@ -168,6 +189,20 @@ export function TransactionsList({
           </div>
         )}
       </div>
+
+      {canWrite ? (
+        <BulkActionBar
+          selected={selection.selectedRows}
+          categories={shared.categories}
+          profiles={shared.profiles}
+          tags={shared.tags}
+          totalLoaded={rows.length}
+          onSelectAll={selection.selectAll}
+          onClear={selection.clear}
+          onDeleted={onBulkDeleted}
+          onUpdated={onBulkUpdated}
+        />
+      ) : null}
 
       {sortPending && (
         // `sticky top-1/2` keeps the spinner centered in the viewport even when

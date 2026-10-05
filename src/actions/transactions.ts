@@ -21,6 +21,7 @@ import {
 import {
   TAGS_PER_TRANSACTION_MAX,
   updateTransactionSchema,
+  type BulkUpdateTransactionsInput,
   type TransactionInput,
 } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
@@ -134,6 +135,52 @@ export async function deleteTransaction(id: string): Promise<ActionResult> {
       return {};
     },
     { userId: user.id, transactionId: id },
+  );
+}
+
+/**
+ * Delete the selected transactions (the tracker's and the table's multi-select).
+ * Rows the caller can't edit are skipped and counted, not failed — see
+ * `services/transactions.deleteTransactions`.
+ */
+export async function deleteTransactions(
+  ids: string[],
+): Promise<ActionResult<{ deletedIds: string[]; skipped: number }>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "deleteTransactions",
+    async () => {
+      const result = await txns.deleteTransactions(user.id, workspace.id, { ids });
+      revalidateApp();
+      return result;
+    },
+    { userId: user.id, workspaceId: workspace.id, count: Array.isArray(ids) ? ids.length : 0 },
+  );
+}
+
+/**
+ * Apply one change — move profile, set category, add/remove tags — to the
+ * selected transactions. Returns the changed rows (for the list to patch in
+ * place) and how many rows couldn't take the change, by reason.
+ */
+export async function updateTransactions(
+  input: BulkUpdateTransactionsInput,
+): Promise<ActionResult<txns.BulkUpdateResult>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "updateTransactions",
+    async () => {
+      const result = await txns.updateTransactions(user.id, workspace.id, input);
+      revalidateApp();
+      return result;
+    },
+    {
+      userId: user.id,
+      workspaceId: workspace.id,
+      count: Array.isArray(input?.ids) ? input.ids.length : 0,
+    },
   );
 }
 

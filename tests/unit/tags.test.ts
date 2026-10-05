@@ -7,6 +7,7 @@ import {
   sortTagsByName,
   stepPickerIndex,
   markerPickerModel,
+  tagsThatFit,
 } from "@/lib/tags";
 import { mergeCreatedTags } from "@/components/app/tags/use-created-tags";
 import { VAULT_COLORS } from "@/lib/files";
@@ -373,5 +374,44 @@ describe("markerPickerModel drives the category picker too", () => {
     const m = markerPickerModel({ options: categories, query: "", rawIndex: 0 });
     expect(m.results).toHaveLength(2);
     expect(m.creatable).toBe(false);
+  });
+});
+
+describe("tagsThatFit", () => {
+  // Three 40px chips with 4px gaps: 128px in all. The counter is 24px.
+  const chips = [40, 40, 40];
+
+  it("shows every chip when they all fit, without reserving the counter", () => {
+    expect(tagsThatFit(chips, 24, 4, 128)).toBe(3);
+    expect(tagsThatFit(chips, 24, 4, 300)).toBe(3);
+  });
+
+  it("forgives sub-pixel rounding at the exact edge", () => {
+    expect(tagsThatFit(chips, 24, 4, 127.6)).toBe(3);
+    expect(tagsThatFit(chips, 24, 4, 127)).toBeLessThan(3);
+  });
+
+  it("keeps the longest prefix that leaves room for the counter", () => {
+    // 40 + 4 + 40 + 4 + 24 = 112: two chips and "+1".
+    expect(tagsThatFit(chips, 24, 4, 112)).toBe(2);
+    expect(tagsThatFit(chips, 24, 4, 111)).toBe(1);
+    // 40 + 4 + 24 = 68: one chip and "+2".
+    expect(tagsThatFit(chips, 24, 4, 68)).toBe(1);
+  });
+
+  it("shows the counter alone rather than a clipped chip", () => {
+    expect(tagsThatFit(chips, 24, 4, 60)).toBe(0);
+    expect(tagsThatFit(chips, 24, 4, 0)).toBe(0);
+  });
+
+  it("stops at the first chip that doesn't fit, keeping the order", () => {
+    // A long second tag doesn't let a short third one jump ahead of it.
+    expect(tagsThatFit([30, 100, 30], 24, 4, 100)).toBe(1);
+  });
+
+  it("handles one tag and none", () => {
+    expect(tagsThatFit([50], 24, 4, 50)).toBe(1);
+    expect(tagsThatFit([50], 24, 4, 30)).toBe(0);
+    expect(tagsThatFit([], 24, 4, 0)).toBe(0);
   });
 });

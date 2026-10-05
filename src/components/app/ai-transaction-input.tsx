@@ -1245,72 +1245,15 @@ export function AiTransactionInput({
                     className="h-8 w-full pl-6 tabular-nums"
                   />
                 </div>
-                {/* Not an `<Input>`: a shell holding the text, the row's tags
-                    and its "#" button as siblings — the manual composer's title
-                    field has the same three, and tags belong to the title you
-                    are reading rather than to a strip under it. Focus moves to
-                    `focus-within` so the shell lights up with the caret. */}
-                <div
-                  className={cn(
-                    "flex h-8 w-full min-w-0 items-center gap-1 rounded-lg border border-input bg-transparent pr-0.5 pl-2.5 transition-colors dark:bg-input/30",
-                    // Destructive *replaces* the focus ring rather than layering
-                    // under it, the rule the composer's combined field already
-                    // documents: `focus-within:` carries a pseudo-class, so a
-                    // plain `border-destructive` loses to it and an empty title
-                    // would read blue for exactly as long as the caret is in it.
-                    !r.title.trim()
-                      ? "border-destructive ring-3 ring-destructive/20 dark:border-destructive/50 dark:ring-destructive/40"
-                      : "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
-                  )}
-                >
-                  <input
-                    value={r.title}
-                    onChange={(e) => patch(r.key, { title: e.target.value })}
-                    placeholder="Title"
-                    aria-label="Title"
-                    // On the input, not the shell: a screen reader reports the
-                    // invalid state of the widget that takes focus, and a plain
-                    // <div> has no role to carry it.
-                    aria-invalid={!r.title.trim() || undefined}
-                    maxLength={TITLE_MAX}
-                    // 16px under `md`, like every other field here: iOS Safari
-                    // zooms the viewport in on a focused input below that, and
-                    // the amount beside it doesn't — so a phone would zoom on
-                    // some fields of the same row and not others.
-                    className="h-full min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground md:text-sm"
-                  />
-                  <TagsInField
-                    visible={1}
-                    tags={tagsOf(r.tagIds)}
-                    onRemove={(id) =>
-                      patch(r.key, { tagIds: r.tagIds.filter((t) => t !== id) })
-                    }
-                    onOverflowClick={() => setOpenTagRow(r.key)}
-                  />
-                  {/* Editable, not read-only. The note is no longer the only
-                      source of these: the model infers tags as well as reading
-                      "#" markers, so the review is where a wrong guess gets
-                      dropped — and re-parsing to fix one tag costs a model call
-                      and re-does every other edit on the list. */}
-                  <TagSelect
-                    compact
-                    // Sized and stripped for life *inside* a field: the strip's
-                    // `size-8` overflows this shell's 30px content box onto its
-                    // own border, and the count badge floats outside the field
-                    // entirely — where it only repeats what the chips beside it
-                    // already say.
-                    className="size-7"
-                    showCount={false}
-                    tags={knownTags}
-                    value={r.tagIds}
-                    onChange={(ids) => patch(r.key, { tagIds: ids })}
-                    onCreated={createdTags.add}
-                    canCreate
-                    align="end"
-                    open={openTagRow === r.key}
-                    onOpenChange={(o) => setOpenTagRow(o ? r.key : null)}
-                  />
-                </div>
+                <Input
+                  value={r.title}
+                  onChange={(e) => patch(r.key, { title: e.target.value })}
+                  placeholder="Title"
+                  aria-label="Title"
+                  aria-invalid={!r.title.trim() || undefined}
+                  maxLength={TITLE_MAX}
+                  className="h-8 w-full"
+                />
                 <Select
                   value={r.categoryName || NONE}
                   onValueChange={(v) => patch(r.key, { categoryName: v === NONE ? "" : v })}
@@ -1345,6 +1288,44 @@ export function AiTransactionInput({
                 >
                   <Trash2 className="size-3.5" />
                 </Button>
+                {/* The row's tags open its second line, in the corner under the
+                    type toggle and the amount — the title stays the title, and
+                    the tags read with the description beside them rather than
+                    crowding the one field a wrong parse most needs fixed.
+                    Editable, not read-only: the model infers tags as well as
+                    reading "#" markers, so the review is where a wrong guess
+                    gets dropped — and re-parsing to fix one tag costs a model
+                    call and re-does every other edit on the list. */}
+                <div className="col-span-2 col-start-1 flex min-w-0 items-center gap-1">
+                  <TagSelect
+                    compact
+                    // The type toggle's height, so the "#" sits under it as one
+                    // more control in the row's left column. The count badge is
+                    // off because the chips beside it already say it.
+                    className="size-7"
+                    showCount={false}
+                    tags={knownTags}
+                    value={r.tagIds}
+                    onChange={(ids) => patch(r.key, { tagIds: ids })}
+                    onCreated={createdTags.add}
+                    canCreate
+                    align="start"
+                    open={openTagRow === r.key}
+                    onOpenChange={(o) => setOpenTagRow(o ? r.key : null)}
+                  />
+                  <TagsInField
+                    visible={1}
+                    tags={tagsOf(r.tagIds)}
+                    onRemove={(id) =>
+                      patch(r.key, { tagIds: r.tagIds.filter((t) => t !== id) })
+                    }
+                    onOverflowClick={() => setOpenTagRow(r.key)}
+                    // The "#" button's height (size-7), so the chips line up
+                    // with it instead of floating as small pills beside it.
+                    chipClassName="h-7"
+                    className="min-w-0"
+                  />
+                </div>
                 {/* Description on its own line, aligned under the title column —
                     click-to-edit so it can be added or fixed after the parse. */}
                 <DescriptionCell

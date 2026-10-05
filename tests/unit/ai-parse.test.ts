@@ -615,6 +615,19 @@ describe("Gemini responseSchema covers every field the prompt asks for", () => {
     expect(schemaKeys).toEqual(promptKeys);
   });
 
+  it("asks for the note's own words as the title, never a label the model writes", async () => {
+    // Lives here for `capturedRequest`. Until 0.31.1 rule 4 asked for "a short
+    // label for the item or merchant (e.g. "Fruits")", and the live model
+    // obliged: "Nive dinner A2B Swiggey 254" → "Dinner", "Hello 100" → "General
+    // expense". A string check is a weak guard on a prompt, but it is the one
+    // that stops that wording from being written back in.
+    const system = (await capturedRequest()).systemInstruction.parts[0].text;
+    expect(system).toMatch(/title: the item's words EXACTLY as the user wrote them/);
+    expect(system).toMatch(/never replace it with a category name or a generic label/);
+    expect(system).toMatch(/description: ONLY the text inside an item's parentheses/);
+    expect(system).not.toMatch(/short label/i);
+  });
+
   it("carries a tag the model returned all the way to the draft", async () => {
     // The one assertion that would have gone red in 6.3.0. Everything else here
     // checks the *request*; this checks the round trip, so a tag lost anywhere

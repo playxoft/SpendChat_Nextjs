@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { Search, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
+import { useFilterNavigate } from "@/components/app/filter-transition";
 import { TypeFilterOptions } from "@/components/app/type-filter-options";
 import {
   Select,
@@ -31,7 +32,8 @@ export function TransactionFilters({
   today: string;
   locale: string;
 }) {
-  const router = useRouter();
+  // The provider's navigate, so the results can show they're loading.
+  const navigate = useFilterNavigate();
   const pathname = usePathname();
   const sp = useSearchParams();
 
@@ -93,7 +95,7 @@ export function TransactionFilters({
     }
     params.delete("page");
     const qs = params.toString();
-    router.push(qs ? `${pathname}?${qs}` : pathname);
+    navigate(qs ? `${pathname}?${qs}` : pathname);
   }
 
   // Debounced search.
@@ -210,7 +212,7 @@ export function TransactionFilters({
             setQ("");
             setTagIds([]);
             setPushedTags("");
-            router.push(pathname);
+            navigate(pathname);
           }}
         >
           <X className="size-4" /> Clear

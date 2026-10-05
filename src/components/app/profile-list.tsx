@@ -156,7 +156,15 @@ export function ProfileList({
       </div>
 
       <div className="min-h-0 flex-1 space-y-0.5 overflow-y-auto px-2 pb-2">
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+        {/* An explicit id, as every DndContext needs: without one dnd-kit numbers
+            its aria-describedby from a module-wide counter, which the server
+            and the browser don't share — a hydration mismatch on every load. */}
+        <DndContext
+          id="sidebar-profiles"
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+        >
           <SortableContext items={items.map((p) => p.id)} strategy={verticalListSortingStrategy}>
             {items.map((p, index) => (
               <ProfileRow

@@ -26,11 +26,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TransactionDialog } from "./transaction-dialog";
 import { amountToneClass } from "./transaction-bubble";
 import { AttachmentSquares } from "./attachments/attachment-squares";
-import { TagList } from "./tags/tag-list";
+import { FittedTagList } from "./tags/fitted-tag-list";
 import { useAttachmentViewer } from "./attachments/attachment-viewer";
 import {
   COLUMN_LABELS,
@@ -43,6 +44,7 @@ import {
   type ColumnId,
 } from "./transaction-columns-store";
 import { useOptimisticRow } from "@/hooks/use-optimistic-row";
+import type { RowSelection } from "@/hooks/use-row-selection";
 import { authorColorClass, authorDisplayName } from "@/lib/author-color";
 import { formatMoney, minorToInputString, signedMinor } from "@/lib/money";
 import { formatDateLabel } from "@/lib/dates";
@@ -63,6 +65,10 @@ type SharedProps = {
 };
 
 type CellContext = { currency: string; locale: string };
+
+/** The selection column's width. Outside the column store on purpose: it isn't
+ *  a column you reorder, hide or resize — it's how rows are picked. */
+const SELECT_COLUMN_WIDTH = 40;
 
 type ColumnDef = {
   cellClassName?: string | ((row: TransactionRow) => string);
@@ -113,10 +119,9 @@ const COLUMNS: Record<ColumnId, ColumnDef> = {
     // Not sortable: the server sorts the five documented columns, and "sort by
     // tags" has no obvious meaning for a row carrying several of them.
     sortable: false,
-    // Two, not the component's default of three: the column starts at 200px
-    // and three chips there each shrink to about 60px, ellipsing "Reimbursable"
-    // to "Rei…". Two chips and a "+N" that names the rest says more.
-    render: (row) => <TagList tags={row.tags} max={2} />,
+    // As many as the column's width holds, measured — the column is resizable,
+    // so a fixed count was either clipping chips or wasting the room.
+    render: (row) => <FittedTagList tags={row.tags} chipClassName="text-xs" className="w-full" />,
   },
   attachments: {
     sortable: false,
@@ -203,16 +208,22 @@ export function TransactionsTable({
   activeSort,
   activeDir,
   onSort,
+  selection,
   ...shared
 }: SharedProps & {
   rows: TransactionRow[];
   activeSort: string | null;
   activeDir: "asc" | "desc";
   onSort: (id: ColumnId) => void;
+  /** Row picking for the bulk actions; null for a viewer, who has none. */
+  selection: RowSelection | null;
 }) {
   const layout = useColumnLayout();
   const visible = getVisibleColumns(layout);
-  const totalWidth = visible.reduce((sum, id) => sum + (layout.widths[id] ?? DEFAULT_WIDTHS[id]), 0);
+  const totalWidth =
+    visible.reduce((sum, id) => sum + (layout.widths[id] ?? DEFAULT_WIDTHS[id]), 0) +
+    (selection ? SELECT_COLUMN_WIDTH : 0);
+  const allSelected = selection != null && rows.length > 0 && selection.count === rows.length;
 
   // Live width during a resize drag is applied straight to the <col> (and the
   // <table>) elements so the 50 body rows don't re-render on every pointer move;
@@ -283,6 +294,7 @@ export function TransactionsTable({
             `min-width: totalWidth` forces a scroll once they're wider. */}
         <Table ref={tableRef} className="table-fixed w-full" style={{ minWidth: totalWidth }}>
           <colgroup>
+            {selection ? <col style={{ width: `${SELECT_COLUMN_WIDTH}px` }} /> : null}
             {visible.map((id) => (
               <col
                 key={id}
@@ -295,6 +307,15 @@ export function TransactionsTable({
           </colgroup>
           <TableHeader>
             <TableRow>
+              {selection ? (
+                <TableHead className="print:hidden">
+                  <Checkbox
+                    aria-label={allSelected ? "Deselect all" : "Select all loaded transactions"}
+                    checked={allSelected ? true : selection.count > 0 ? "indeterminate" : false}
+                    onCheckedChange={() => (allSelected ? selection.clear() : selection.selectAll())}
+                  />
+                </TableHead>
+              ) : null}
               <SortableContext items={visible} strategy={horizontalListSortingStrategy}>
                 {visible.map((id) => (
                   <SortableHeader
@@ -311,7 +332,7 @@ export function TransactionsTable({
           </TableHeader>
           <TableBody>
             {rows.map((r) => (
-              <Row key={r.id} row={r} columns={visible} {...shared} />
+              <Row key={r.id} row={r} columns={visible} selection={selection} {...shared} />
             ))}
           </TableBody>
         </Table>
@@ -427,13 +448,14 @@ function SortableHeader({
 function Row({
   row: serverRow,
   columns,
+  selection,
   currency,
   locale,
   categories,
   profiles,
   tags,
   today,
-}: SharedProps & { row: TransactionRow; columns: ColumnId[] }) {
+}: SharedProps & { row: TransactionRow; columns: ColumnId[]; selection: RowSelection | null }) {
   const [editing, setEditing] = useState(false);
   // An edit patches the cells / a delete hides the row in the same commit as the
   // toast, then the server revalidation reconciles.
@@ -448,10 +470,34 @@ function Row({
         onClick={() => setEditing(true)}
         className="cursor-pointer"
         tabIndex={0}
+        data-state={selection?.isSelected(row.id) ? "selected" : undefined}
         onKeyDown={(e) => {
-          if (e.key === "Enter") setEditing(true);
+          if (e.key === "Enter" && e.target === e.currentTarget) setEditing(true);
         }}
       >
+        {selection ? (
+          // The whole cell picks, not just the 16px box — and never opens the
+          // row, which is what a click anywhere else on it does. Shift extends
+          // the selection from the last row picked.
+          <TableCell
+            className="print:hidden"
+            onClick={(e) => {
+              e.stopPropagation();
+              selection.toggle(row.id, e.shiftKey);
+            }}
+          >
+            <Checkbox
+              aria-label={`Select ${row.title || "transaction"}`}
+              checked={selection.isSelected(row.id)}
+              // The cell does the toggling (it has the shift key); the box only
+              // reflects it, and its own click must not toggle a second time.
+              onClick={(e) => {
+                e.stopPropagation();
+                selection.toggle(row.id, e.shiftKey);
+              }}
+            />
+          </TableCell>
+        ) : null}
         {columns.map((id) => {
           const column = COLUMNS[id];
           const cellClassName =

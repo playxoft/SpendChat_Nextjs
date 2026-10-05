@@ -27,6 +27,7 @@ import { formatMoney } from "@/lib/money";
 import { siteConfig } from "@/lib/site";
 import { Button } from "@/components/ui/button";
 import { TransactionFilters } from "@/components/app/transaction-filters";
+import { FilterPendingRegion, FilterTransitionProvider } from "@/components/app/filter-transition";
 import { TransactionsList } from "@/components/app/transactions-list";
 import { TransactionsResultsSkeleton } from "@/components/app/transactions-skeleton";
 import { TransactionsActions } from "@/components/app/transactions-actions";
@@ -164,32 +165,36 @@ export default async function TransactionsPage({
 
       {!canWrite && <ViewerNotice className="mt-4 print:hidden" />}
 
-      <div className="mt-4">
-        <Suspense fallback={null}>
-          <TransactionFilters
-            categories={categories}
-            tags={tags}
-            today={today}
-            locale={locale}
-          />
-        </Suspense>
-      </div>
+      {/* One transition spans the filter row and the results, so a filter change
+          can show it's loading on the results it's about to replace. */}
+      <FilterTransitionProvider>
+        <div className="mt-4">
+          <Suspense fallback={null}>
+            <TransactionFilters
+              categories={categories}
+              tags={tags}
+              today={today}
+              locale={locale}
+            />
+          </Suspense>
+        </div>
 
-      <div className="mt-4">
-        <Suspense key={streamKey} fallback={<TransactionsResultsSkeleton />}>
-          <TransactionsData
-            userId={user.id}
-            workspaceId={workspace.id}
-            filters={filters}
-            currency={currency}
-            locale={locale}
-            categories={categories}
-            profiles={profiles}
-            tags={tags}
-            today={today}
-          />
-        </Suspense>
-      </div>
+        <FilterPendingRegion className="mt-4">
+          <Suspense key={streamKey} fallback={<TransactionsResultsSkeleton />}>
+            <TransactionsData
+              userId={user.id}
+              workspaceId={workspace.id}
+              filters={filters}
+              currency={currency}
+              locale={locale}
+              categories={categories}
+              profiles={profiles}
+              tags={tags}
+              today={today}
+            />
+          </Suspense>
+        </FilterPendingRegion>
+      </FilterTransitionProvider>
 
       {/* Print-only marketing footer. */}
       <div className="mt-6 hidden border-t pt-3 text-center text-xs text-muted-foreground print:block">
