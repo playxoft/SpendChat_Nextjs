@@ -519,6 +519,30 @@ export async function requireSharedListEdit(userId: string, workspaceId: string)
   }
 }
 
+/**
+ * What the shared-list screens (Settings → Categories / Tags) should offer —
+ * the same rules as `requireSharedListAdd` / `requireSharedListEdit`, as
+ * booleans, so the page never shows a button the server will refuse.
+ */
+export async function sharedListAccess(
+  userId: string,
+  workspaceId: string,
+): Promise<{ canAdd: boolean; canEdit: boolean }> {
+  const role = await getWorkspaceRole(userId, workspaceId);
+  if (!atLeastRole(role, "editor")) return { canAdd: false, canEdit: false };
+  const db = getDb();
+  const [[ro], all, writable] = await Promise.all([
+    db
+      .execute<{ ro: boolean }>(sql`select ${readOnlyWorkspaceSql(workspaceId)} as ro`)
+      .then((r) => r.rows),
+    db.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
+    accessibleProfileIds(userId, workspaceId, "editor"),
+  ]);
+  if (ro?.ro) return { canAdd: false, canEdit: false };
+  if (role === "admin") return { canAdd: true, canEdit: true };
+  return { canAdd: writable.length > 0, canEdit: writable.length >= all.length };
+}
+
 /** Throw unless the user is a workspace member with ≥ `minRole`. */
 export async function requireWorkspaceRole(
   userId: string,

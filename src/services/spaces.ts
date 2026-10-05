@@ -380,18 +380,27 @@ async function requireNonAdminMember(workspaceId: string, targetUserId: string):
 
 /**
  * Put a workspace member in this space at `role`, change their role, or take
- * them out (`role: null`). Taking someone out also clears their overrides on
- * this space's profiles, so "removed from the space" means no access to it —
- * a leftover override can't keep one profile visible.
+ * them out (`role: null`). Taking someone out also clears their opening
+ * overrides (read/write) on this space's profiles, so "removed from the space"
+ * means no access to it — a leftover override can't keep one profile visible.
  */
 export async function setSpaceMember(userId: string, spaceId: string, input: unknown): Promise<void> {
   const data = parseOrThrow(setSpaceMemberSchema, input);
   const space = await requireSpaceAdmin(userId, spaceId);
   await requireNonAdminMember(space.workspaceId, data.userId);
-  // Taking someone out is cleanup and stays open; putting them in (or raising
-  // them) is adding access, which a view-only workspace refuses.
-  if (data.role !== null) await assertWorkspaceWritable(space.workspaceId);
   const db = getDb();
+  // Taking someone out, or lowering them, is cleanup and stays open; putting
+  // them in or raising them is adding access, which a view-only workspace
+  // refuses.
+  if (data.role !== null) {
+    const [current] = await db
+      .select({ role: spaceMembers.role })
+      .from(spaceMembers)
+      .where(and(eq(spaceMembers.spaceId, space.id), eq(spaceMembers.userId, data.userId)))
+      .limit(1);
+    const widens = !current || (current.role === "viewer" && data.role === "editor");
+    if (widens) await assertWorkspaceWritable(space.workspaceId);
+  }
   if (data.role === null) {
     await db.transaction(async (tx) => {
       await tx
@@ -402,6 +411,9 @@ export async function setSpaceMember(userId: string, spaceId: string, input: unk
         .where(
           and(
             eq(profileOverrides.userId, data.userId),
+            // Opening overrides only — a `none` may be hiding a profile from a
+            // legacy single-profile grant, and must outlive the membership.
+            inArray(profileOverrides.access, ["read", "write"]),
             inArray(
               profileOverrides.profileId,
               tx.select({ id: profiles.id }).from(profiles).where(eq(profiles.spaceId, space.id)),

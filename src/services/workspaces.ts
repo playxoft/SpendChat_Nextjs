@@ -26,6 +26,7 @@ import {
 } from "@/lib/entitlements";
 import { badRequest, conflict, forbidden, notFound } from "@/lib/errors";
 import { generateInviteToken, invitePath, openWorkspacePath } from "@/lib/invite-links";
+import { atLeastRole } from "@/lib/rbac";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
 import {
@@ -477,10 +478,10 @@ async function setMemberSpaces(
     .select({ id: spaces.id })
     .from(spaces)
     .where(eq(spaces.workspaceId, workspaceId));
-  // Leaving a space takes its per-profile overrides with it, as it does from
-  // the space's own dialog (`setSpaceMember`): otherwise a `write` override on
-  // one of its profiles would keep that profile open — and on Free nobody
-  // could change it. Overrides in spaces they were never in (deliberate
+  // Leaving a space takes its opening overrides (read/write) with it, as it
+  // does from the space's own dialog (`setSpaceMember`): otherwise a `write`
+  // override on one of its profiles would keep that profile open — and on Free
+  // nobody could change it. Overrides in spaces they were never in (deliberate
   // one-profile openings) are left alone.
   const leaving = await db
     .select({ spaceId: spaceMembers.spaceId })
@@ -496,6 +497,10 @@ async function setMemberSpaces(
     await db.delete(profileOverrides).where(
       and(
         eq(profileOverrides.userId, targetUserId),
+        // Only the overrides that *open* something. A `none` stays: it may be
+        // what's hiding a profile from a legacy single-profile grant, and
+        // deleting it would widen access on the way out.
+        inArray(profileOverrides.access, ["read", "write"]),
         inArray(
           profileOverrides.profileId,
           db
@@ -1054,7 +1059,10 @@ export async function updateMemberRole(
 ): Promise<void> {
   const data = parseOrThrow(updateMemberRoleSchema, input);
   await requireWorkspaceRole(userId, workspaceId, "admin");
-  await assertWorkspaceWritable(workspaceId);
+  // A view-only workspace refuses widening access (a promotion), never
+  // narrowing it — an owner must always be able to take access away.
+  const currentRole = await getWorkspaceRole(data.userId, workspaceId);
+  if (currentRole && !atLeastRole(currentRole, data.role)) await assertWorkspaceWritable(workspaceId);
   const db = getDb();
 
   const workspace = await db.query.workspaces.findFirst({

@@ -23,12 +23,16 @@ export type ManagedTag = TxnTagDTO & { usage: number };
  */
 export function TagManager({
   tags,
+  canAdd,
   canEdit,
 }: {
   tags: ManagedTag[];
-  /** Editors and admins can add/rename/delete; viewers see it read-only. */
+  /** Can add a tag (defaults to `canEdit`). */
+  canAdd?: boolean;
+  /** Can rename / recolor / delete — changes that reach every transaction. */
   canEdit: boolean;
 }) {
+  const mayAdd = canAdd ?? canEdit;
   // One dialog, two modes — mounted once and re-seeded on open (see
   // `TagFormDialog`), so `null` closes it and the shape says which mode it is.
   const [dialog, setDialog] = useState<
@@ -43,7 +47,7 @@ export function TagManager({
           {tags.length} tag{tags.length === 1 ? "" : "s"} · shared with everyone in this
           workspace
         </p>
-        {canEdit && (
+        {mayAdd && (
           <Button
             type="button"
             onClick={() => setDialog({ mode: "create" })}
@@ -93,7 +97,7 @@ export function TagManager({
         </ul>
       )}
 
-      {canEdit && (
+      {(mayAdd || canEdit) && (
         <TagFormDialog
           open={dialog !== null}
           onOpenChange={(v) => {

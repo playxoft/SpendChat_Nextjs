@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, desc, eq, gte, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, gte, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { aiUsageLog } from "@/db/schema";
 import { ApiError, planLimit, tooManyRequests, type PlanLimitDetails } from "@/lib/errors";
@@ -322,9 +322,18 @@ export async function withAiCharge<T>(
   return result;
 }
 
+/**
+ * Slack for the provider's measurement. The recorder stops itself at exactly
+ * `VOICE.maxClipMs`, and the encoded audio routinely measures a few tens of
+ * milliseconds longer — that must not tip a two-minute clip into a third
+ * action. Two seconds also covers a clip that ends a moment after a minute
+ * boundary the client honestly declared under.
+ */
+const MEASURE_TOLERANCE_MS = 2_000;
+
 /** AI actions a clip of `audioMs` really cost — like `voiceActionsFor`, but not capped. */
-function measuredVoiceActions(audioMs: number): number {
-  return Math.max(1, Math.ceil(audioMs / VOICE.msPerAction));
+export function measuredVoiceActions(audioMs: number): number {
+  return Math.max(1, Math.ceil(Math.max(0, audioMs - MEASURE_TOLERANCE_MS) / VOICE.msPerAction));
 }
 
 async function settleAiCharge(
@@ -414,28 +423,42 @@ async function refundTranscription(charge: AiCharge, usage: AiUsage | null): Pro
       })
       .where(eq(aiUsageLog.id, charge.id));
 
-    const since = new Date(Date.now() - VOICE_PARSE_WINDOW_MS);
-    const scope = and(
+    // Only a voice parse made *after* this clip could have leaned on it (a
+    // parse claims an earlier clip). Judge the newest such parse in its own
+    // claim window — the one the claim was decided in — so an older, properly
+    // paired clip/parse that straddles a window edge can't make it look unpaid.
+    const [clip] = await tx
+      .select({ createdAt: aiUsageLog.createdAt })
+      .from(aiUsageLog)
+      .where(eq(aiUsageLog.id, charge.id))
+      .limit(1);
+    if (!clip) return;
+    const mine = and(
       eq(aiUsageLog.userId, charge.userId),
       eq(aiUsageLog.workspaceId, charge.workspaceId),
-      gte(aiUsageLog.createdAt, since),
     );
+    const [newest] = await tx
+      .select({ id: aiUsageLog.id, createdAt: aiUsageLog.createdAt })
+      .from(aiUsageLog)
+      .where(and(mine, eq(aiUsageLog.kind, AI_KIND.voiceParse), gt(aiUsageLog.createdAt, clip.createdAt)))
+      .orderBy(desc(aiUsageLog.createdAt), desc(aiUsageLog.id))
+      .limit(1);
+    if (!newest) return;
     const [row] = await tx
       .select({
         paid: sql<number>`(count(*) filter (where ${aiUsageLog.kind} = ${AI_KIND.transcribe} and ${aiUsageLog.units} > 0))::int`,
         claimed: sql<number>`(count(*) filter (where ${aiUsageLog.kind} = ${AI_KIND.voiceParse}))::int`,
       })
       .from(aiUsageLog)
-      .where(scope);
+      .where(
+        and(
+          mine,
+          gte(aiUsageLog.createdAt, new Date(newest.createdAt.getTime() - VOICE_PARSE_WINDOW_MS)),
+          lte(aiUsageLog.createdAt, newest.createdAt),
+        ),
+      );
     if (Number(row?.claimed ?? 0) <= Number(row?.paid ?? 0)) return;
 
-    const [newest] = await tx
-      .select({ id: aiUsageLog.id })
-      .from(aiUsageLog)
-      .where(and(scope, eq(aiUsageLog.kind, AI_KIND.voiceParse)))
-      .orderBy(desc(aiUsageLog.createdAt), desc(aiUsageLog.id))
-      .limit(1);
-    if (!newest) return;
     await tx
       .update(aiUsageLog)
       .set({ units: 1, kind: AI_KIND.parse })

@@ -526,10 +526,11 @@ describe("voice", () => {
     const clip = await chargeVoiceTranscribe(uid("a"), W, { durationMs: 1 });
     expect(clip.units).toBe(1);
     await withAiCharge(clip, async (onUsage) => {
-      onUsage({ inputTokens: 10, outputTokens: 5, audioMs: 30 * 60_000 + 1 });
+      onUsage({ inputTokens: 10, outputTokens: 5, audioMs: 30 * 60_000 + 2_001 });
       return "a very long recording";
     });
 
+    // 30 minutes and a bit, past the 2 s measuring slack → 31 started minutes.
     expect((await ledger("a")).map((r) => [r.kind, r.units])).toEqual([["voice_transcribe", 31]]);
   });
 });
