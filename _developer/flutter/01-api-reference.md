@@ -59,7 +59,7 @@ Every JSON response uses one of two shapes:
 | `validation_error` | 422 | Zod validation failed (`details` = field→message) |
 | `rate_limited` | 429 | Over a **per-person rate limit** for the plan (since 6.6.0, any endpoint — see § Rate limits). `Retry-After` header = seconds to wait; `details` = `{ bucket, window, retryAfterSeconds }` |
 | `payload_too_large` | 413 | An uploaded attachment file exceeds 5 MB, or the whole request body is larger than the endpoint's limits could ever allow (rejected from `Content-Length`, before the body is read) |
-| `storage_quota_exceeded` | 413 | The upload would push the workspace past its plan's storage — 1 / 5 / 20 GB on Free / Plus / Pro (message says how much space remains — displayable as-is; since 6.5.0 `details` is a `PlanLimitDetails` with `limit: "storage"`) |
+| `storage_quota_exceeded` | 413 | The upload would push the workspace past its plan's storage — 1 / 5 / 20 GB on Free / Plus / Pro (message says how much space remains — displayable as-is; since 6.5.0 `details` is a `PlanLimitDetails` with `limit: "storage"`; `used` includes the trash, and since 6.7.0 `details.trashBytes` says how much of it emptying the trash would free) |
 | `ai_failed` | 502 | The upstream AI model provider errored — retry is reasonable |
 | `ai_unavailable` | 503 | That AI feature's model isn't configured on the server (feature off) |
 | `storage_unavailable` | 503 | File storage (R2) isn't configured on the server (attachments off) |
@@ -462,7 +462,8 @@ rather than from the workspace `role`.
   "name": "Main",              // ≤ 30 chars, unique per workspace
   "icon": "🗂️" | null,
   "position": 0,               // order within the workspace
-  "profileCount": 1,           // every profile in the space (what the per-space cap counts)
+  "profileCount": 1,           // every live profile in the space (what the per-space cap counts)
+  "trashedProfileCount": 0,    // 6.7.0: its profiles in the trash — admins only (0 otherwise)
   "role": "admin" | "editor" | "viewer" | null
 }
 ```
@@ -541,14 +542,16 @@ can't add more until it's back under.
 // TrashedFolder
 { "id", "profileId", "profileName", "profileIcon", "name", "color",
   "folders": 1, "files": 3, "sizeBytes": 1048576,   // what went with it
-  "deletedAt", "deletedByName", "purgeAt", "canRestore" }
+  "deletedAt", "deletedBy": { "id", "name" }, "purgeAt", "canRestore" }
 // TrashedFile
 { "id", "profileId", "profileName", "profileIcon", "folderId", "name",
-  "contentType", "sizeBytes", "deletedAt", "deletedByName", "purgeAt", "canRestore" }
+  "contentType", "sizeBytes", "deletedAt", "deletedBy": { "id", "name" }, "purgeAt", "canRestore" }
 // TrashedProfile (admins)
 { "id", "name", "icon", "color", "spaceId", "spaceName",
-  "transactions": 120, "files": 3, "sizeBytes": 1048576,   // live contents
-  "deletedAt", "deletedByName", "purgeAt" }
+  "transactions": 120, "files": 3,   // live contents — what a restore brings back into view
+  "sizeBytes": 1048576,              // every byte stored under it, trash included: what deleting it for good frees
+  "deletedAt", "deletedBy": { "id", "name" }, "purgeAt" }
+// deletedBy is the same shape on all four trash items; name is null when the account is gone.
 ```
 
 ### Settings
@@ -812,7 +815,7 @@ transaction carrying it without touching a transaction.
 | `GET /profiles` | — | 200 `data: Profile[]` | Accessible profiles in workspace, `sortOrder asc, createdAt asc`. Each carries `spaceId` and the caller's `access` (6.5.0). |
 | `POST /profiles` | `ProfileInput` `{ name, icon?, color?, spaceId? }` | 201 `data: Profile` | Requires **admin**. `spaceId` (6.5.0) = a space of the current workspace (404 otherwise); omitted → the first space. **403 `plan_limit`** `profilesPerSpace` when that space is full (3 / 5 / 10). 422; 409 duplicate name; 403/404 |
 | `PATCH /profiles/{id}` | `{ name?, icon?, color? }` | 200 `data: Profile` | Requires **admin** on the profile. 422; 404; 409; 403 (`plan_limit` `freeWorkspaces` in a view-only workspace) |
-| `DELETE /profiles/{id}?transactions=&to=` | — | 200 `data: { id, deleted: true, trashed: true }` | Requires admin. **The profile goes to the trash as one unit** (6.7.0) — restorable for 30 days by a workspace admin with `POST /trash/restore` (`profileIds`), everything in it coming back with it. `transactions` = `delete` (they go to the trash with the profile), `move` (re-file live **and** trashed ones, plus the vault, under `to` first; the empty profile then goes to the trash), or **`reject`, the default** — 409 "Move this profile's transactions to another profile first" while any **live** ones remain. An **empty value is treated as absent** (`?transactions=` = the default; `&to=` = not given). 422 when `transactions=move` without `to`. Always **409 "You need at least one profile"** for the last live one. **The vault**: `move` re-files its files, folders, tags and share links under `to`; on `delete` it stays with the trashed profile on **Plus/Pro** and is **deleted for good on Free** (`deletion-impact` → `filesRecoverable`). A destination tag whose name matches one being moved is **merged** into it (the moved tag's id disappears). A trashed profile's name is free to reuse at once. 404 (also for a profile already in the trash); 403 |
+| `DELETE /profiles/{id}?transactions=&to=` | — | 200 `data: { id, deleted: true, trashed: true }` | Requires admin. **The profile goes to the trash as one unit** (6.7.0) — restorable for 30 days by a workspace admin with `POST /trash/restore` (`profileIds`), everything in it coming back with it. `transactions` = `delete` (they go to the trash with the profile), `move` (re-file live **and** trashed ones, plus the vault, under `to` first; the empty profile then goes to the trash), or **`reject`, the default** — 409 "Move this profile's transactions to another profile first" while any **live** ones remain, and on **Free** 409 while any live vault files remain (they'd be deleted for good — send `delete` to confirm, or `move`). An **empty value is treated as absent** (`?transactions=` = the default; `&to=` = not given). 422 when `transactions=move` without `to`. Always **409 "You need at least one profile"** for the last live one. **The vault**: `move` re-files its files, folders, tags and share links under `to`; on `delete` it stays with the trashed profile on **Plus/Pro** and is **deleted for good on Free** (`deletion-impact` → `filesRecoverable`). A destination tag whose name matches one being moved is **merged** into it (the moved tag's id disappears). A trashed profile's name is free to reuse at once. 404 (also for a profile already in the trash); 403 |
 | `GET /profiles/{id}/deletion-impact` | — | 200 `data: { transactions, files, attachments, filesRecoverable }` | Requires admin. Counts for the confirm step (live rows only — anything already in the trash goes along silently): `transactions` is what `?transactions=` decides the fate of; `attachments` are the receipts on those transactions and `files` the vault. `filesRecoverable` (6.7.0) is false on Free, where `delete` removes the vault for good — word the warning from it. Offer the choice whenever `transactions > 0` **or** `files > 0`. 422; 404; 403 |
 | `POST /profiles/reorder` | `{ ids: uuid[] }` (1–200, full list — 6.5.0 raised it from 100: Pro allows 15 spaces × 10 profiles) | 200 `data: Profile[]` | Requires **admin** (like all profile management). 422; 403/404 |
 | `POST /profiles/{id}/move` | `{ toProfileId: uuid }` | 200 `data: { moved }` | Requires **editor** on both; same workspace. 422 "Invalid profiles" (bad/equal/cross-workspace ids); 403/404 |
@@ -831,7 +834,7 @@ the workspace **admin** role (403 otherwise).
 | `GET /spaces` | — | 200 `data: Space[]` | Visible spaces in `position` order. Admins: every space (`role: "admin"`). Others: their spaces at their space role, plus any space holding a profile they reach via an override/grant (`role: null`). |
 | `POST /spaces` | `{ name, icon? }` | 201 `data: Space` | Appended at the end. 409 duplicate name; **403 `plan_limit`** `spaces` at the plan's cap (2 / 6 / 15, the default space included); 422 |
 | `PATCH /spaces/{id}` | `{ name?, icon? }` (≥ 1; `icon: ""`/`null` clears) | 200 `data: Space` | 409 duplicate name; 422 |
-| `DELETE /spaces/{id}?moveProfilesTo=` | optional JSON `{ moveProfilesTo }` | 200 `data: { id, deleted: true }` | **Profiles are never deleted with a space.** Empty space → deleted. With profiles → needs `moveProfilesTo` (another space of this workspace; query param or body — the body wins; a blank `?moveProfilesTo=` = absent), else **409** "This space still has profiles — move them to another space first". The move and the delete commit together; the destination must have room (**403 `plan_limit`** `profilesPerSpace`). The **last** space → 409. Membership rows go with it. 400 same space / bad JSON; 404 destination not in this workspace |
+| `DELETE /spaces/{id}?moveProfilesTo=` | optional JSON `{ moveProfilesTo }` | 200 `data: { id, deleted: true }` | **Profiles are never deleted with a space.** Empty space → deleted. With profiles — **profiles in the trash included** (6.7.0, `trashedProfileCount`: restored, a profile shows to whoever is in its space, so the admin picks where they go) → needs `moveProfilesTo` (another space of this workspace; query param or body — the body wins; a blank `?moveProfilesTo=` = absent), else **409** "This space still has profiles — move them to another space first" (or, trashed ones only, "…choose a space for them first…"). The move and the delete commit together; the destination must have room for the **live** ones (**403 `plan_limit`** `profilesPerSpace`). The **last** space → 409. Membership rows go with it. 400 same space / bad JSON; 404 destination not in this workspace |
 | `POST /spaces/reorder` | `{ ids: uuid[] }` (full ordered list, no duplicates) | 200 `data: Space[]` | 400 an id that isn't a space of this workspace; 422 duplicates |
 | `GET /spaces/{id}/access` | — | 200 `data: SpaceAccess` | Members (with their space role), the space's profiles, overrides on them, and `canEditOverrides` (Plus/Pro). |
 | `PUT /spaces/{id}/members` | `{ userId, role: "viewer" \| "editor" \| null }` | 200 `data: SpaceAccess` (after the change) | Add a workspace member to the space, change their role, or take them out (`null` — also clears their overrides on this space's profiles). Target must be a non-admin member (400 "Add them to the workspace first" / "Admins already see every space"). 422 |
@@ -856,7 +859,7 @@ are **skipped and counted** (`skipped`), never an error.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `GET /trash/transactions?limit=&cursor=` | — | 200 `data: TrashedTransaction[]`, `meta: { nextCursor, currency }` | Most recently deleted first. **Keyset-paged**: `limit` 1–200 (default 50); pass `meta.nextCursor` back as `cursor` (opaque string; `null` on the last page). 422 malformed cursor. Rows of a trashed profile aren't listed (the profile is). |
-| `GET /trash/files` | — | 200 `data: { folders: TrashedFolder[], files: TrashedFile[] }` | A folder carries everything that went to the trash with it (`folders`, `files`, `sizeBytes`) — those aren't listed on their own. `files` are files deleted by themselves (≤ 500, newest first). Empty on Free unless the workspace was downgraded with files still in it. |
+| `GET /trash/files` | — | 200 `data: { folders: TrashedFolder[], files: TrashedFile[], filesCapped }` | A folder carries everything that went to the trash with it (`folders`, `files`, `sizeBytes`) — those aren't listed on their own. `files` are files deleted by themselves (≤ 500, newest first); `filesCapped: true` → there are more. Empty on Free unless the workspace was downgraded with files still in it. |
 | `GET /trash/profiles` | — | 200 `data: TrashedProfile[]` | Workspace **admins**; anyone else gets `[]`. |
 | `POST /trash/restore` | `{ transactionIds?, fileIds?, folderIds?, profileIds? }` (each ≤ 500, ≥ 1 id overall) | 200 `data: { restored: { transactions, files, folders, profiles }, skipped }` | A transaction comes back as it was — a category or tag deleted meanwhile stays gone. A file goes back into its folder if that folder is live, else to the top level; a folder brings back what went to the trash *with* it (a parent still in the trash → top level; a taken name → "Name (restored)"). A profile brings back everything in it; it must fit its space's `profilesPerSpace` and the people it brings back must fit `members` — else **403 `plan_limit`**, checked before anything else in the request is restored (a taken name → "Name (restored)"). 422 empty/malformed selection. |
 | `POST /trash/delete` | same as restore | 200 `data: { deleted: { … }, skipped }` | **Deletes for good** — rows and stored files; can't be undone. A folder takes everything under it. |

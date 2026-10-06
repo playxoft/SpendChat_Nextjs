@@ -1697,7 +1697,10 @@ paths:
         under `to`, then the empty profile goes to the trash; `reject` — the
         default, so a client that sends nothing behaves exactly as before —
         refuses with 409 while any **live** ones remain ("Move this profile's
-        transactions to another profile first"). 409 for the last live profile
+        transactions to another profile first") — and, on **Free**, while any
+        live vault files remain, since deleting the profile would delete them
+        for good ("This profile's files would be deleted for good — …"; send
+        `delete` to confirm, or `move`). 409 for the last live profile
         ("You need at least one profile") whatever the mode. Its name is free to
         reuse at once.
 
@@ -2092,12 +2095,15 @@ paths:
         malformed id). Requires the workspace **admin** role.
 
         **Profiles are never deleted with a space.** An empty space just goes.
-        One that still holds profiles needs a destination — `moveProfilesTo`,
-        another space of the same workspace — or the delete is refused with
-        409 ("This space still has profiles — move them to another space
-        first"); the move and the delete commit together. The destination must
-        have room under the plan's per-space cap (`403 plan_limit`,
-        `limit: "profilesPerSpace"`). The workspace's **last** space can't be
+        One that still holds profiles — **including profiles in the trash**
+        (6.7.0, `Space.trashedProfileCount`) — needs a destination —
+        `moveProfilesTo`, another space of the same workspace — or the delete
+        is refused with 409 ("This space still has profiles — move them to
+        another space first", or for trashed ones only: "…choose a space for
+        them first. If they're restored, the people in that space will see
+        them."); the move and the delete commit together. The destination must
+        have room under the plan's per-space cap for the **live** ones
+        (`403 plan_limit`, `limit: "profilesPerSpace"`). The workspace's **last** space can't be
         deleted (409). Membership rows go with the space.
 
         Send the destination either as the `moveProfilesTo` query parameter or
@@ -2335,7 +2341,13 @@ paths:
                     properties:
                       folders: { type: array, items: { $ref: "#/components/schemas/TrashedFolder" } }
                       files: { type: array, items: { $ref: "#/components/schemas/TrashedFile" } }
-                    required: [folders, files]
+                      filesCapped:
+                        type: boolean
+                        description: >
+                          More files were deleted on their own than `files`
+                          holds (500, most recent first) — restore or delete
+                          some to see the rest.
+                    required: [folders, files, filesCapped]
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -2974,7 +2986,9 @@ components:
         past its plan's storage (1 / 5 / 20 GB — `storage_quota_exceeded`;
         the message says how much space remains and is safe to display as-is,
         and `details` is a `PlanLimitDetails` with `limit: "storage"`, `max`
-        = the quota in bytes and `used` = bytes already stored).
+        = the quota in bytes and `used` = bytes already stored — the trash
+        included — plus, since 6.7.0, `trashBytes`: how much of `used` is in
+        the trash, i.e. what emptying it would free).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -2986,7 +3000,7 @@ components:
                 error:
                   code: storage_quota_exceeded
                   message: "Not enough storage left — this upload needs 3.2 MB but only 1.1 MB of the 1.0 GB remains. Upgrade to Plus for 5.0 GB."
-                  details: { limit: storage, plan: free, max: 1073741824, used: 1072578560, upgradeTo: plus }
+                  details: { limit: storage, plan: free, max: 1073741824, used: 1072578560, upgradeTo: plus, trashBytes: 0 }
 
   schemas:
     Error:
@@ -3533,8 +3547,15 @@ components:
         profileCount:
           type: integer
           description: >
-            Every profile in the space — what the per-space cap counts — not
-            just the ones the caller can see.
+            Every live profile in the space — what the per-space cap counts —
+            not just the ones the caller can see. A profile in the trash counts
+            again only when it's restored.
+        trashedProfileCount:
+          type: integer
+          description: >
+            6.7.0. The space's profiles in the trash — workspace admins only (0
+            for anyone else). Deleting the space needs a `moveProfilesTo` for
+            these too: restored, a profile shows to whoever is in its space.
         role:
           description: >
             The caller's role here: `admin` for workspace admins (they see
@@ -3545,7 +3566,7 @@ components:
             - type: "null"
             - type: string
               enum: [viewer, editor, admin]
-      required: [id, name, icon, position, profileCount, role]
+      required: [id, name, icon, position, profileCount, trashedProfileCount, role]
 
     SpaceInput:
       type: object
@@ -3801,6 +3822,16 @@ components:
         trashed: { type: boolean }
       required: [id, deleted, trashed]
 
+    TrashActor:
+      type: object
+      description: >
+        Who sent an item to the trash — the same shape on every trash item.
+        `name` is null when the account is gone.
+      properties:
+        id: { type: [string, "null"], format: uuid }
+        name: { type: [string, "null"] }
+      required: [id, name]
+
     TrashCounts:
       type: object
       properties:
@@ -3828,12 +3859,7 @@ components:
         - type: object
           properties:
             deletedAt: { type: string, format: date-time }
-            deletedBy:
-              type: object
-              properties:
-                id: { type: [string, "null"], format: uuid }
-                name: { type: [string, "null"] }
-              required: [id, name]
+            deletedBy: { $ref: "#/components/schemas/TrashActor" }
             purgeAt:
               type: string
               format: date-time
@@ -3859,11 +3885,11 @@ components:
         files: { type: integer, description: Files that went with it. }
         sizeBytes: { type: integer, format: int64 }
         deletedAt: { type: string, format: date-time }
-        deletedByName: { type: [string, "null"] }
+        deletedBy: { $ref: "#/components/schemas/TrashActor" }
         purgeAt: { type: string, format: date-time }
         canRestore: { type: boolean }
       required: [id, profileId, profileName, profileIcon, name, color, folders, files,
-                 sizeBytes, deletedAt, deletedByName, purgeAt, canRestore]
+                 sizeBytes, deletedAt, deletedBy, purgeAt, canRestore]
 
     TrashedFile:
       type: object
@@ -3878,11 +3904,11 @@ components:
         contentType: { type: string }
         sizeBytes: { type: integer, format: int64 }
         deletedAt: { type: string, format: date-time }
-        deletedByName: { type: [string, "null"] }
+        deletedBy: { $ref: "#/components/schemas/TrashActor" }
         purgeAt: { type: string, format: date-time }
         canRestore: { type: boolean }
       required: [id, profileId, profileName, profileIcon, folderId, name, contentType,
-                 sizeBytes, deletedAt, deletedByName, purgeAt, canRestore]
+                 sizeBytes, deletedAt, deletedBy, purgeAt, canRestore]
 
     TrashedProfile:
       type: object
@@ -3894,14 +3920,20 @@ components:
         color: { type: [string, "null"] }
         spaceId: { type: string, format: uuid }
         spaceName: { type: [string, "null"] }
-        transactions: { type: integer, description: Live transactions inside it. }
+        transactions: { type: integer, description: Live transactions inside it — what a restore brings back into view. }
         files: { type: integer, description: Live vault files inside it. }
-        sizeBytes: { type: integer, format: int64 }
+        sizeBytes:
+          type: integer
+          format: int64
+          description: >
+            Every byte stored under it — vault files and the receipts of its
+            transactions, including anything already in the trash on its own:
+            what it holds in storage, and what deleting it for good frees.
         deletedAt: { type: string, format: date-time }
-        deletedByName: { type: [string, "null"] }
+        deletedBy: { $ref: "#/components/schemas/TrashActor" }
         purgeAt: { type: string, format: date-time }
       required: [id, name, icon, color, spaceId, spaceName, transactions, files,
-                 sizeBytes, deletedAt, deletedByName, purgeAt]
+                 sizeBytes, deletedAt, deletedBy, purgeAt]
 
     Attachment:
       type: object

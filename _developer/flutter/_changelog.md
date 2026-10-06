@@ -48,6 +48,8 @@ delete *means* changed, so read the behaviour notes.
 | `POST /transactions/delete-all` | `data` gains `trashed: true` — the rows go to the trash. |
 | `GET /profiles/{id}/deletion-impact` | gains `filesRecoverable` (false on Free: the vault is deleted for good). Counts are live rows only. |
 | `GET /usage` | `storage.trashBytes` — the part of `usedBytes` sitting in the trash. |
+| `413 storage_quota_exceeded` | `details.trashBytes` — how much of `used` is in the trash (what emptying it frees). |
+| `Space` (`GET /spaces`, …) | `trashedProfileCount` — the space's profiles in the trash (admins; 0 otherwise). |
 
 **Behaviour**
 
@@ -63,9 +65,24 @@ delete *means* changed, so read the behaviour notes.
   it's restored.
 - A trashed profile no longer counts toward `profilesPerSpace`, and people who
   could only reach the workspace through it stop counting toward `members` — a
-  restore pays both caps again.
+  restore pays both caps again, checked for every profile in the request
+  together before any is restored.
+- `DELETE /spaces/{id}` now needs `moveProfilesTo` while the space holds
+  profiles **in the trash** too (409 otherwise): restored, a profile shows to
+  whoever is in its space, so the admin picks where they go.
+- `DELETE /profiles/{id}` with the default `reject` now also refuses (409) on
+  **Free** while live vault files remain — they'd be deleted for good. Send
+  `transactions=delete` to confirm.
+- Trash items name their deleter the same way everywhere:
+  `deletedBy: { id, name }`. `GET /trash/files` adds `filesCapped`.
+  `TrashedProfile.sizeBytes` is everything stored under the profile (vault
+  files and receipts, trash included) — what deleting it for good frees.
 
-**Flutter impact:** optional, nothing breaks. To offer recovery: after a
+**Flutter impact:** mostly optional. Two places can now answer **409** where
+they didn't: deleting a space that has profiles only in the trash (send
+`moveProfilesTo`; show the message), and, on Free, deleting a profile that has
+files without choosing `transactions=delete` (ask, then send `delete`). To offer
+recovery: after a
 transaction delete, show an **Undo** (`POST /trash/restore` with the id); add a
 **Trash** screen (the three `GET /trash/*` lists, restore / delete forever /
 empty, the `purgeAt` countdown). Word file-delete and profile-delete

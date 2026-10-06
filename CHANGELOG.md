@@ -26,8 +26,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   there for 30 days, then it's gone for good. Open **Trash** from the account
   menu to see what's there, who deleted it and how long it has left, and to
   restore it or delete it for good — one item, a selection, or the whole trash.
-- **Undo.** Deleting a transaction (one or a selection), a file, a folder or a
-  profile shows an **Undo** right in the confirmation, so a slip costs one tap.
+- **Undo.** Deleting a transaction (one or a selection), a file, a folder, a
+  profile — or clearing transactions in Settings — shows an **Undo** right in
+  the confirmation, so a slip costs one tap; the rows come back where they
+  were, even far down a long list. **Restore all** in the trash brings back
+  every deleted transaction at once.
 - **Your storage, explained.** The trash keeps counting toward storage until
   it's emptied or purged — the files page's storage popover and the "storage
   full" message now say how much of it is in the trash, with a link to empty
@@ -45,6 +48,12 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   it's restored, which checks the limits again.
 - A share link to something in the trash stops working, and works again if it's
   restored.
+- Deleting a space that has profiles in the trash asks where they should go —
+  and says that whoever is in that space will see them if they're restored —
+  instead of moving them somewhere on its own.
+- On Free, deleting a profile that still has files asks you to choose: the
+  files can't go to the trash on Free, so they're never deleted without you
+  saying so.
 
 ### Fixed
 - Clearing transactions from Settings used to leave their receipts' files in
