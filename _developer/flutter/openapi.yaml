@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.5.0"
+  version: "6.8.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -184,6 +184,7 @@ tags:
   - name: Spaces
   - name: Organization
   - name: Usage
+  - name: Budgets
   - name: Settings
   - name: Analytics
   - name: AI
@@ -1515,6 +1516,128 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
+  /api/v1/budgets:
+    get:
+      tags: [Budgets]
+      summary: List budgets with a month's progress
+      description: |
+        The budgets the caller can see in the current workspace — the whole
+        workspace first, then profiles, then categories — each with `month`'s
+        spending. `month` defaults to the current **UTC** month; send the
+        device's own month, since around midnight on the 1st the two differ.
+        In-app alerts come from `status`; the server emails admins and the
+        budget's creator once per budget, per threshold, per month.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - $ref: "#/components/parameters/budgetMonth"
+      responses:
+        "200":
+          description: The visible budgets.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Budget" }
+                  meta:
+                    type: object
+                    properties:
+                      month: { type: string }
+                      currency: { $ref: "#/components/schemas/CurrencyMeta" }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    post:
+      tags: [Budgets]
+      summary: Add a monthly budget
+      description: |
+        One budget per scope (409 otherwise). Needs write access to every
+        profile it covers — the whole workspace and a category cover all of
+        them (403). The plan caps budgets at 5 / 20 on Free / Plus; Pro shows
+        "Unlimited" with a safety cap of 200: past the cap this is
+        `403 plan_limit` with `limit: "budgets"` (`upgradeTo: null` on Pro →
+        "Contact us"). A view-only workspace answers `403 plan_limit`
+        (`freeWorkspaces`). 422 for an income category, or a profile/category
+        that isn't in this workspace or that the caller can't read.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - $ref: "#/components/parameters/budgetMonth"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BudgetInput" }
+      responses:
+        "201":
+          description: The created budget, with `month`'s progress.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Budget" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/budgets/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    patch:
+      tags: [Budgets]
+      summary: Change a budget's amount or email alerts
+      description: |
+        404 when the caller can't see the budget, 403 when they can see but not
+        manage it. A new amount re-arms this month's alerts it no longer
+        reaches. A view-only workspace answers `403 plan_limit`.
+      parameters:
+        - $ref: "#/components/parameters/budgetMonth"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/BudgetUpdate" }
+      responses:
+        "200":
+          description: The updated budget.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Budget" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Budgets]
+      summary: Delete a budget
+      description: |
+        Its alert history goes with it. 404 / 403 as for PATCH; an admin can
+        delete one in a view-only workspace.
+      responses:
+        "200":
+          description: Deletion acknowledged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
   /api/v1/profiles:
     get:
       tags: [Profiles]
@@ -2485,6 +2608,14 @@ components:
         uses the user's lastWorkspaceId, else the first accessible workspace.
         An unknown id → 404.
       schema: { type: string, format: uuid }
+    budgetMonth:
+      name: month
+      in: query
+      required: false
+      description: >
+        The calendar month (YYYY-MM) to report spending for. Defaults to the
+        current UTC month — send the device's own month. 422 if malformed.
+      schema: { type: string, pattern: "^\\d{4}-(0[1-9]|1[0-2])$", example: "2026-10" }
     clientPlatformHeader:
       name: X-Client-Platform
       in: header
@@ -2709,8 +2840,10 @@ components:
         monthly AI allowance. `voice`: voice entry isn't on this plan.
         `profileLevelAccess`: per-profile overrides need Plus/Pro.
         `freeWorkspaces`: one free workspace per person — creating another, or
-        writing into an extra one that is view-only.
-      enum: [members, spaces, profilesPerSpace, categories, tags, storage,
+        writing into an extra one that is view-only. `budgets` (6.8.0): the
+        workspace's budget cap (5 / 20; Pro's 200 is a safety cap with
+        `upgradeTo: null` — show "Contact us").
+      enum: [members, spaces, profilesPerSpace, categories, tags, budgets, storage,
              aiActions, voice, profileLevelAccess, freeWorkspaces]
 
     PlanLimitDetails:
@@ -3397,13 +3530,77 @@ components:
         tags:
           description: The 2 seeded default tags count.
           allOf: [{ $ref: "#/components/schemas/Meter" }]
+        budgets:
+          type: object
+          description: >
+            Budgets in the workspace (6.8.0). `unlimited: true` (Pro) → show
+            "Unlimited" rather than `limit`, which is only a safety cap there.
+          properties:
+            used: { type: integer }
+            limit: { type: integer }
+            unlimited: { type: boolean }
+          required: [used, limit, unlimited]
         profilesPerSpace:
           type: integer
           description: The per-space profile cap (compare with each `Space.profileCount`).
         voice: { type: boolean, description: Whether voice entry (`POST /ai/transcribe`) is available. }
         profileLevelAccess: { type: boolean, description: Whether per-profile overrides can be changed (Plus/Pro). }
       required: [plan, readOnly, ai, storage, members, spaces,
-                 categories, tags, profilesPerSpace, voice, profileLevelAccess]
+                 categories, tags, budgets, profilesPerSpace, voice, profileLevelAccess]
+
+    Budget:
+      type: object
+      description: >
+        A monthly spending limit (6.8.0) with one month's progress. Spending is
+        expenses only (income never offsets), in the calendar month of each
+        transaction's `occurredOn`, across every profile the budget covers — a
+        category budget covers that category in all profiles. Listed only to
+        admins and to people who can read every profile it covers, so the
+        number is the same for everyone who sees it.
+      properties:
+        id: { type: string, format: uuid }
+        scope: { type: string, enum: [workspace, profile, category] }
+        profileId: { type: [string, "null"], format: uuid, description: Set when `scope` is `profile`. }
+        categoryId: { type: [string, "null"], format: uuid, description: Set when `scope` is `category` (an expense category). }
+        label: { type: string, description: '"Whole workspace", or the profile''s / category''s name.' }
+        icon: { type: [string, "null"], description: The profile's / category's emoji. }
+        period: { type: string, enum: [monthly] }
+        amountMinor: { type: integer, format: int64, description: The monthly limit, minor units. }
+        emailAlerts: { type: boolean, description: Admins and the creator are emailed at 80% and 100%. }
+        month: { type: string, pattern: "^\\d{4}-\\d{2}$", description: The month `spentMinor` is for. }
+        spentMinor: { type: integer, format: int64 }
+        percent: { type: integer, description: "floor(spent × 100 / amount); can pass 100." }
+        status:
+          type: string
+          enum: [ok, warn, over]
+          description: "`warn` at 80% or more, `over` at 100% or more — the in-app alert."
+        canManage: { type: boolean, description: The caller can change or delete it. }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, scope, profileId, categoryId, label, icon, period, amountMinor, emailAlerts,
+                 month, spentMinor, percent, status, canManage, createdBy, createdAt, updatedAt]
+
+    BudgetInput:
+      type: object
+      description: >
+        A new budget. `profileId` is required for `scope: profile`,
+        `categoryId` (an expense category) for `scope: category`. `amount` is
+        major units, with the same rules as a transaction's.
+      properties:
+        scope: { type: string, enum: [workspace, profile, category] }
+        profileId: { type: string, format: uuid }
+        categoryId: { type: string, format: uuid }
+        amount: { type: number, exclusiveMinimum: 0, maximum: 999999999.99 }
+        emailAlerts: { type: boolean, default: true }
+      required: [scope, amount]
+
+    BudgetUpdate:
+      type: object
+      description: At least one field. What a budget covers can't change.
+      properties:
+        amount: { type: number, exclusiveMinimum: 0, maximum: 999999999.99 }
+        emailAlerts: { type: boolean }
 
     Summary:
       type: object

@@ -86,6 +86,20 @@ Authentication, secrets via Doppler.
   (pure, unit-tested, one shared layout: neutral, no images, plain-text twin); the one-time
   welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. ZeptoMail is
   transactional-only — don't add newsletters or drip campaigns to this pipe.
+- **Budgets** — monthly spending limits for the whole workspace, one profile, or one expense
+  category (across every profile); one per scope; capped per plan (`PLAN_LIMITS.budgets`). Rules
+  are pure in `src/lib/budgets.ts`, CRUD in `src/services/budgets.ts`. **Every budget number comes
+  from `getMonthExpenseMatrix` (`src/lib/budget-spend.ts`)** — its one `where` decides which
+  transactions count (expenses only, the calendar month of `occurred_on`, every profile of the
+  workspace, trashed rows excluded); never sum spending for a budget anywhere else. A budget is
+  shown only to admins and people who can read **every** profile it covers; managing it needs edit
+  access to every covered profile. **Every transaction write that can raise spending calls
+  `scheduleBudgetCheck` after it writes** (`src/services/budget-alerts.ts`; in the service layer,
+  so web and API are both covered) — a new write path (restore, import, "add my share") must too.
+  The check runs after the response through `afterResponse` (`src/lib/defer.ts`: Next's `after()`,
+  `ctx.waitUntil` on Workers) and claims each email once per budget × threshold × month in
+  `budget_alerts`; in-app alerts are computed live, there is no notifications table. Put any other
+  post-response DB work through `afterResponse` too.
 - **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,
   mutations in `src/actions/*` (server actions), both validated with Zod (`src/lib/validation.ts`).
 - **Auth: Firebase Authentication** (Google + email/password). Sign-in happens in the browser

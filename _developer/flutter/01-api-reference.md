@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.5.0.** Every API change bumps this version and is logged
+**API spec version: 6.8.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -103,6 +103,7 @@ action would go past one, the server answers **403** with
 | `profilesPerSpace` | 3 / 5 / 10 per space | `POST /profiles`, `POST /profiles/{id}/space`, `DELETE /spaces/{id}` with a move |
 | `categories` | 20 / 30 / 50 (the 10 seeded defaults count) | `POST /categories` |
 | `tags` | 5 / 10 / 20 (the 2 seeded defaults count) | `POST /tags` |
+| `budgets` | 5 / 20 / "Unlimited" (Pro's safety cap is 200 → `upgradeTo: null`, show "Contact us") — since 6.8.0 | `POST /budgets` |
 | `storage` | 1 / 5 / 20 GB | **413 `storage_quota_exceeded`** (not 403) on `POST /files` and `POST /transactions/{id}/attachments` — same `details` |
 | `aiActions` | 50 / 300 / 1,000 per UTC calendar month | `POST /ai/parse`, `POST /ai/transcribe` |
 | `voice` | Pro only | `POST /ai/transcribe` |
@@ -480,6 +481,7 @@ inside their space; `read` / `write` open it even in a space they're not in.
   "spaces":     { "used": 1, "limit": 2 },
   "categories": { "used": 10, "limit": 20 }, // the 10 seeded defaults count
   "tags":       { "used": 2, "limit": 5 },   // the 2 seeded defaults count
+  "budgets":    { "used": 1, "limit": 5, "unlimited": false }, // 6.8.0; Pro: unlimited → show "Unlimited"
   "profilesPerSpace": 3,       // compare with each Space.profileCount
   "voice": false,              // POST /ai/transcribe available
   "profileLevelAccess": false  // per-profile overrides can be changed
@@ -487,6 +489,35 @@ inside their space; `read` / `write` open it even in a space they're not in.
 ```
 `used` can exceed `limit` (a downgraded workspace keeps what it has) — it just
 can't add more until it's back under.
+
+### Budget (6.8.0, from `/budgets`)
+```jsonc
+{
+  "id": "uuid",
+  "scope": "workspace" | "profile" | "category",
+  "profileId": "uuid" | null,     // set when scope = profile
+  "categoryId": "uuid" | null,    // set when scope = category (an expense category)
+  "label": "Groceries",           // "Whole workspace", or the profile's / category's name
+  "icon": "🛒" | null,            // the profile's / category's emoji
+  "period": "monthly",
+  "amountMinor": 500000,          // the monthly limit, minor units
+  "emailAlerts": true,            // email admins + the creator at 80% / 100%
+  "month": "2026-10",             // the month spentMinor is for
+  "spentMinor": 412000,           // that month's expenses in scope (income never offsets)
+  "percent": 82,                  // floor(spent × 100 / amount); can pass 100
+  "status": "ok" | "warn" | "over",  // warn ≥ 80%, over ≥ 100% — draw your alert from this
+  "canManage": true,              // the caller can PATCH / DELETE it
+  "createdBy": "uuid",
+  "createdAt": "2026-10-06T10:00:00.000Z",
+  "updatedAt": "2026-10-06T10:00:00.000Z"
+}
+```
+Spending counts **expenses only**, in the calendar month of each transaction's
+`occurredOn`, across **every** profile the budget covers (a category budget
+covers that category in all profiles). A budget is listed only to admins and to
+people who can **read every profile it covers** — the same number for everyone
+who sees it. Alerts in the app are yours to draw from `status`; the server
+emails admins and the budget's creator once per budget, per threshold, per month.
 
 ### Settings
 User-level settings that follow the user across every workspace. **Currency and
@@ -627,7 +658,15 @@ the debug/about screen so a bug report names the exact deploy, and link
 ### Usage (6.5.0 — current workspace via `X-Workspace-Id`)
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /usage` | — | 200 `data: Usage` | The workspace's plan, every limit and how much is used (AI actions this month, storage, members, spaces, categories, tags), the per-space profile cap, and the `voice` / `profileLevelAccess` feature flags. `readOnly: true` → render the workspace view-only. Readable by anyone who can open the workspace. |
+| `GET /usage` | — | 200 `data: Usage` | The workspace's plan, every limit and how much is used (AI actions this month, storage, members, spaces, categories, tags, budgets), the per-space profile cap, and the `voice` / `profileLevelAccess` feature flags. `readOnly: true` → render the workspace view-only. Readable by anyone who can open the workspace. |
+
+### Budgets (6.8.0 — current workspace via `X-Workspace-Id`)
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `GET /budgets?month=YYYY-MM` | — | 200 `data: Budget[]`, `meta: { month, currency }` | The budgets the caller can see, the whole workspace first, then profiles, then categories. `month` defaults to the current **UTC** month — send the device's own month. 422 bad `month`. |
+| `POST /budgets` | `BudgetInput` | 201 `data: Budget` | One per scope → **409**. **403 `plan_limit`** (`limit: "budgets"`) past the plan's cap; **403** without write access to every profile it covers; **403 `plan_limit` `freeWorkspaces`** in a view-only workspace. 422 income category, a profile/category not in this workspace (or one you can't read), bad amount. Accepts `?month=` for the returned progress. |
+| `PATCH /budgets/{id}` | `{ amount?, emailAlerts? }` (≥1) | 200 `data: Budget` | What it covers is fixed. 404 when the caller can't see it; 403 when they can see but not manage it. A new amount re-arms this month's alerts it no longer reaches. Accepts `?month=`. |
+| `DELETE /budgets/{id}` | — | 200 `data: { id, deleted: true }` | 404 / 403 as above. Allowed for an admin in a view-only workspace. |
 
 ### Transactions
 | Method & path | Body | Success | Notes / errors |
@@ -788,6 +827,14 @@ the workspace **admin** role (403 otherwise).
 ---
 
 ## 8. Request body validation (mirror these client-side)
+
+`BudgetInput` (6.8.0):
+- `scope` — `workspace | profile | category`, **required**.
+- `profileId` — uuid, **required** when `scope = profile`; `categoryId` — uuid of
+  an **expense** category, **required** when `scope = category`.
+- `amount` — the monthly limit, same rules as a transaction's `amount` (major
+  units, `> 0`, `≤ 999,999,999.99`), **required**.
+- `emailAlerts` — boolean, optional (default `true`).
 
 `TransactionInput`:
 - `type` — `income | expense`, **required**.
