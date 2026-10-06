@@ -26,6 +26,25 @@ export function invitePath(token: string): string {
   return `/invite/${encodeURIComponent(token)}`;
 }
 
+/**
+ * The join page for a split-group invite. A static `split` segment beside
+ * `/invite/<token>`, so the two never collide and `robots.ts`'s `/invite/`
+ * disallow covers both.
+ */
+export function splitInvitePath(token: string): string {
+  return `/invite/split/${encodeURIComponent(token)}`;
+}
+
+/**
+ * The same page as the split invite email links to it: tagged so a sign-up
+ * that starts there shows up as the `split_invite` channel in
+ * `growth:report` (when the browser had no earlier first touch). The server
+ * also records it independently, at sign-up (`lib/split-signup.ts`).
+ */
+export function splitInviteEmailPath(token: string): string {
+  return `${splitInvitePath(token)}?utm_source=split_invite&utm_medium=email`;
+}
+
 /** Query param the tracker reads to switch the current workspace on arrival. */
 export const OPEN_WORKSPACE_PARAM = "workspace";
 

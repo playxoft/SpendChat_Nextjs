@@ -36,6 +36,8 @@ ignores `X-Workspace-Id`. Everything here is additive.
 | `GET/POST /split/groups/{id}/expenses`, `GET/PUT/DELETE …/expenses/{expenseId}` | Expenses split `equal` / `exact` / `percent`; the server computes every share |
 | `GET/POST /split/groups/{id}/settlements`, `DELETE …/settlements/{settlementId}` | "Mark as paid" — record that one person paid another |
 | `GET /split/invitations`, `POST /split/invitations/{memberId}/accept` / `decline` | Groups waiting for you to join |
+| `POST /split/groups/{id}/members/{memberId}/invite-email` | Send someone their one invite email later (creator) — when the daily cap kept it from going |
+| `POST /split/groups/{id}/expenses/{expenseId}/add-to-workspace` | "Add my share to my workspace" — one expense in the current workspace (reads `X-Workspace-Id`) |
 
 **Rules worth mirroring in the UI**
 - Only a **joined** member can see a group; everyone else (invitees included)
@@ -48,13 +50,25 @@ ignores `X-Workspace-Id`. Everything here is additive.
 - Every amount is in the group's `currency` (`…Minor` + string). Leftover
   minor units go to the payer first, then by join order — don't recompute
   shares client-side for display; read `shares`.
+- Someone without an account gets **one** invite email per group, ever
+  (`SplitAddedPerson.delivery: "email"`); past the creator's daily cap they're
+  still added (`delivery: "link"`) and the creator shares `SplitMember.inviteLink`
+  (creator only; it works only for the invited email).
+- Add-to-workspace: same currency → the share is the amount; different → ask
+  the user what it cost them in the workspace's currency and send `amount`
+  (422 `amount_required` otherwise). `myShare.added` flips to true; a second
+  add is 409.
 
-**New error codes:** `split_group_full` (409), `settle_first` (409).
+**New error codes:** `split_group_full` (409), `settle_first` (409),
+`amount_required` (422).
 
 **Flutter impact:** additive — nothing breaks. To ship Split in the app, add a
 Split tab outside the workspace switcher (don't send `X-Workspace-Id` there),
-the models in § Split models, and an invitations list/badge from
-`GET /split/invitations`.
+the models in § Split models, an invitations list/badge from
+`GET /split/invitations`, and an "Add to my workspace" sheet (profile picker
+from `GET /profiles` filtered to `access` write/admin; an amount field only
+when the currencies differ). A non-user who signs up in the app sees their
+invitations there — there's no token endpoint for the app.
 
 ---
 

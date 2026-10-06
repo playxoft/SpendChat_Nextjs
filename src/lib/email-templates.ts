@@ -668,3 +668,86 @@ export function inviteEmail(input: InviteEmailInput): RenderedEmail {
     footer: `This message was sent to ${recipientEmail} because a ${name} workspace admin ${recipientHasAccount ? "shared a workspace with" : "invited"} that address. It isn't a newsletter.`,
   });
 }
+
+/* ------------------------------------------------------------------------- */
+/* Split invite (abuse rule D1: one per group per address, ever)              */
+/* ------------------------------------------------------------------------- */
+
+export type SplitInviteEmailInput = {
+  groupName: string;
+  /** The group's emoji; the default receipt when null. */
+  groupIcon?: string | null;
+  /** What the group calls whoever added them; null when unknown. */
+  inviterName: string | null;
+  /** People in the group (invited + joined), the recipient included. */
+  peopleCount: number;
+  /** The group's currency code, shown as a pill. */
+  currency: string;
+  /** The `/invite/split/<token>` page. */
+  joinUrl: string;
+  /** The address it's going to — the only account that can join with the link. */
+  recipientEmail: string;
+};
+
+/** The group as the invite shows it: emoji tile, name, who added you, people + currency pills. */
+function groupTile(input: SplitInviteEmailInput): Block {
+  const people = `${input.peopleCount} ${input.peopleCount === 1 ? "person" : "people"}`;
+  const by = input.inviterName ? `Added by ${escapeHtml(input.inviterName)}` : "You're invited";
+  const html =
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:4px 0 20px;background:${COLOR_SURFACE};border:1px solid ${COLOR_BORDER};border-radius:12px;">` +
+    `<tr>` +
+    `<td style="padding:14px 0 14px 14px;width:44px;vertical-align:top;">` +
+    `<span style="display:inline-block;width:44px;height:44px;line-height:44px;text-align:center;border-radius:12px;background:${COLOR_CARD};border:1px solid ${COLOR_BORDER};font-size:22px;">${escapeHtml(input.groupIcon || "🧾")}</span></td>` +
+    `<td style="padding:13px 14px 12px 12px;vertical-align:top;">` +
+    `<div style="font-size:15px;font-weight:600;line-height:1.4;color:${COLOR_TEXT};">${escapeHtml(input.groupName)}</div>` +
+    `<div style="margin-top:2px;font-size:12px;line-height:1.5;color:${COLOR_MUTED};">${by}</div>` +
+    `<div style="margin-top:8px;">${pill(people)} ${pill(input.currency)}</div>` +
+    `</td></tr></table>`;
+  const text = `  [${input.groupIcon || "🧾"}] ${input.groupName}${input.inviterName ? ` — added by ${input.inviterName}` : ""} — ${people}, ${input.currency}`;
+  return { html, text };
+}
+
+/**
+ * The one email a person without an account gets when they're added to a
+ * split group. It says so ("you won't get another email about this group"),
+ * names the address the link is bound to, and carries no amounts — the group's
+ * money is for its members, and the reader isn't one yet.
+ */
+export function splitInviteEmail(input: SplitInviteEmailInput): RenderedEmail {
+  const { groupName, joinUrl, recipientEmail } = input;
+  const who = input.inviterName?.trim() || null;
+  const name = siteConfig.name;
+  const others = Math.max(0, input.peopleCount - 1);
+
+  const subject = who
+    ? `${who} added you to “${groupName}” on ${name}`
+    : `You're invited to split costs in “${groupName}” on ${name}`;
+  const withWhom = others > 0 ? ` with ${others} ${others === 1 ? "other person" : "other people"}` : "";
+  const leadText = `${who ?? "Someone"} added you to “${groupName}” to share costs${withWhom}.`;
+  const leadHtml = `${who ? `<b>${escapeHtml(who)}</b>` : "Someone"} added you to “${escapeHtml(groupName)}” to share costs${withWhom}.`;
+
+  const blocks: Block[] = [
+    groupTile(input),
+    richParagraph(leadHtml, leadText),
+    paragraph(
+      `${name} keeps the tab for you: everyone adds what they paid, and it works out who owes whom — and the fewest payments to settle up. No spreadsheets, no "who paid for the cab?".`,
+    ),
+    button(`See ${groupName}`, joinUrl),
+    richParagraph(
+      `Joining needs a free ${escapeHtml(name)} account with <b>${escapeHtml(recipientEmail)}</b> — the link walks you through creating one (Google, or email and a password). Nothing to install, no bank connection.`,
+      `Joining needs a free ${name} account with ${recipientEmail} — the link walks you through creating one (Google, or email and a password). Nothing to install, no bank connection.`,
+    ),
+    ...(() => {
+      const text = `If you weren't expecting this, ignore it. You won't get another email about this group, and the link only works for ${recipientEmail}.`;
+      return [richParagraph(escapeHtml(text), text, { muted: true })];
+    })(),
+  ];
+
+  return render({
+    subject,
+    preheader: `${who ?? "Someone"} wants to split costs with you in ${groupName}.`,
+    title: `Join ${groupName}`,
+    blocks,
+    footer: `This message was sent to ${recipientEmail} because someone added that address to a ${name} split group. It's the only email you'll get about it, and it isn't a newsletter.`,
+  });
+}

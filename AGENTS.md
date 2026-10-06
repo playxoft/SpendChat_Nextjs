@@ -84,7 +84,11 @@ Authentication, secrets via Doppler.
   bootstrap *or* from the `/invite/<token>` join page (`acceptInviteByToken`), which binds
   acceptance to the invited email. Email bodies are built only in `src/lib/email-templates.ts`
   (pure, unit-tested, one shared layout: neutral, no images, plain-text twin); the one-time
-  welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. ZeptoMail is
+  welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. Split
+  invites (`src/services/split-invites.ts`) email only people **without** an account, **once per
+  group per address, ever** (claimed on `split_members.invite_emailed_at`), inside a per-person
+  daily cap (`SPLIT_INVITE_EMAILS_PER_DAY`, reserved with `reserveEmailSends`) and only after the
+  add itself succeeded; account holders get an in-app invitation instead. ZeptoMail is
   transactional-only — don't add newsletters or drip campaigns to this pipe.
 - **Split groups live outside workspaces.** `split_groups` and everything under them
   are user-scoped: no `workspace_id`, no plan (50 people per group, the creator included,

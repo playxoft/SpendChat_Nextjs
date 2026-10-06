@@ -22,6 +22,9 @@ import { DELETE as deleteSettlement } from "@/app/api/v1/split/groups/[id]/settl
 import { GET as listInvitations } from "@/app/api/v1/split/invitations/route";
 import { POST as acceptInvitation } from "@/app/api/v1/split/invitations/[memberId]/accept/route";
 import { POST as declineInvitation } from "@/app/api/v1/split/invitations/[memberId]/decline/route";
+import { POST as sendInviteEmail } from "@/app/api/v1/split/groups/[id]/members/[memberId]/invite-email/route";
+import { POST as addToWorkspace } from "@/app/api/v1/split/groups/[id]/expenses/[expenseId]/add-to-workspace/route";
+import { firstProfileId, workspaceIdOf } from "../helpers/seed";
 import { setSession, signInAs } from "../helpers/session";
 import { bootstrapUser } from "../helpers/seed";
 import { apiReq, ctx, jsonBody } from "./helpers";
@@ -32,7 +35,7 @@ async function json<T>(res: Response): Promise<{ status: number; body: Envelope<
   return { status: res.status, body: (await res.json()) as Envelope<T> };
 }
 
-type Member = { id: string; name: string; email: string | null; status: string; isYou: boolean; balanceMinor: number; balance: string; invitedByEmail: boolean | null };
+type Member = { id: string; name: string; email: string | null; status: string; isYou: boolean; balanceMinor: number; balance: string; invitedByEmail: boolean | null; inviteLink: string | null; canSendInviteEmail: boolean | null };
 type Detail = { id: string; name: string; currency: string; me: { memberId: string; isCreator: boolean }; members: Member[]; suggestions: { fromMemberId: string; toMemberId: string; amountMinor: number; amount: string }[]; peopleCount: number; maxPeople: number };
 type Added = { memberId: string; email: string; delivery: string };
 
@@ -277,5 +280,81 @@ describe("/api/v1/split", () => {
     const again = await declineInvitation(apiReq("/x", { method: "POST" }), ctx({ memberId: body.data.added[0]!.memberId }));
     expect(again.status).toBe(404);
     setSession(null);
+  });
+
+  it("invite links and the invite email are the creator's; add-to-workspace writes one transaction", async () => {
+    const { group } = await newGroup([{ email: "zoe@example.com", name: "Zoe" }]);
+    const zoe = group.members.find((m) => m.name === "Zoe")!;
+    expect(zoe.inviteLink).toMatch(/\/invite\/split\/[A-Za-z0-9_-]{32}$/);
+    expect(zoe.invitedByEmail).toBe(true);
+    expect(zoe.canSendInviteEmail).toBe(false);
+
+    const again = await json<unknown>(
+      await sendInviteEmail(apiReq("/x", { method: "POST" }), ctx({ id: group.id, memberId: zoe.id })),
+    );
+    expect(again.status).toBe(409);
+
+    // Asha joins; she sees no links, no flags, no emails but her own.
+    await bootstrapUser("asha");
+    signInAs("o");
+    const { body } = await json<{ added: Added[] }>(
+      await addMembers(
+        apiReq("/x", { method: "POST", body: jsonBody({ members: [{ email: "asha@example.com", name: "Asha" }] }) }),
+        ctx({ id: group.id }),
+      ),
+    );
+    const ashaId = body.data.added[0]!.memberId;
+    signInAs("asha");
+    const joined = await json<Detail>(await acceptInvitation(apiReq("/x", { method: "POST" }), ctx({ memberId: ashaId })));
+    for (const m of joined.body.data.members) {
+      expect(m.inviteLink).toBeNull();
+      expect(m.canSendInviteEmail).toBeNull();
+    }
+    const notCreator = await sendInviteEmail(apiReq("/x", { method: "POST" }), ctx({ id: group.id, memberId: zoe.id }));
+    expect(notCreator.status).toBe(403);
+
+    // A JPY group, a USD workspace: the amount has to be confirmed.
+    const created = await json<{ id: string }>(
+      await createExpense(
+        apiReq("/x", {
+          method: "POST",
+          body: jsonBody({
+            title: "Sushi",
+            amount: 3000,
+            paidBy: group.me.memberId,
+            occurredOn: "2026-10-01",
+            splitType: "equal",
+            memberIds: [group.me.memberId, ashaId],
+          }),
+        }),
+        ctx({ id: group.id }),
+      ),
+    );
+    const workspaceId = await workspaceIdOf("asha");
+    const profileId = await firstProfileId("asha");
+    const headers = { "x-workspace-id": workspaceId };
+    const missing = await json<unknown>(
+      await addToWorkspace(
+        apiReq("/x", { method: "POST", headers, body: jsonBody({ profileId }) }),
+        ctx({ id: group.id, expenseId: created.body.data.id }),
+      ),
+    );
+    expect(missing.status).toBe(422);
+    expect(missing.body.error!.code).toBe("amount_required");
+
+    const added = await json<{ amountMinor: number; type: string; profile: { id: string } }>(
+      await addToWorkspace(
+        apiReq("/x", { method: "POST", headers, body: jsonBody({ profileId, amount: 9.85 }) }),
+        ctx({ id: group.id, expenseId: created.body.data.id }),
+      ),
+    );
+    expect(added.status).toBe(201);
+    expect(added.body.data).toMatchObject({ amountMinor: 985, type: "expense", profile: { id: profileId } });
+
+    const twice = await addToWorkspace(
+      apiReq("/x", { method: "POST", headers, body: jsonBody({ profileId, amount: 9.85 }) }),
+      ctx({ id: group.id, expenseId: created.body.data.id }),
+    );
+    expect(twice.status).toBe(409);
   });
 });

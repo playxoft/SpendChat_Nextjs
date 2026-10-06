@@ -18,6 +18,7 @@ import type { SessionUser } from "@/lib/auth";
 import { findUserById } from "@/lib/directory";
 import { ApiError, badRequest, conflict, forbidden, isUniqueViolation, notFound } from "@/lib/errors";
 import { generateInviteToken } from "@/lib/invite-links";
+import { emailNewInvitees } from "@/services/split-invites";
 import { logger } from "@/lib/logger";
 import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import {
@@ -281,6 +282,11 @@ export type SplitMemberView = {
   inviteToken: string | null;
   /** Creator only: whether this person was sent their one invite email. */
   invitedByEmail: boolean | null;
+  /**
+   * Creator only: whether "Send invite email" applies — still invited, no
+   * account (account holders see an in-app invitation), never emailed.
+   */
+  canSendInviteEmail: boolean | null;
 };
 
 export type SplitGroupDetail = {
@@ -323,6 +329,9 @@ export function viewMembers(
         netMinor: net.get(m.id) ?? 0,
         inviteToken: creatorView && m.status === "invited" ? m.inviteToken : null,
         invitedByEmail: creatorView ? m.inviteEmailedAt !== null : null,
+        canSendInviteEmail: creatorView
+          ? m.status === "invited" && m.userId === null && m.inviteEmailedAt === null
+          : null,
       };
     })
     .filter((m) => m.status !== "left" || m.netMinor !== 0);
@@ -476,6 +485,20 @@ function creatorLabel(name: string | null | undefined): string {
 export type AddPeopleResult = { added: AddedPerson[]; pendingIds: string[] };
 
 /**
+ * After an add has committed — so a refused add never spends email quota —
+ * send the new no-account people their one invite email (abuse rule D1,
+ * `services/split-invites.ts`) and report who got one.
+ */
+async function deliverInvites(
+  senderId: string,
+  groupId: string,
+  result: AddPeopleResult,
+): Promise<AddedPerson[]> {
+  const emailed = await emailNewInvitees(senderId, groupId, result.pendingIds);
+  return result.added.map((a) => (emailed.has(a.memberId) ? { ...a, delivery: "email" as const } : a));
+}
+
+/**
  * Create a group with the caller as its creator (a `joined` row) and,
  * optionally, the first people to invite. Returns the new group's id and what
  * happened to each person.
@@ -511,12 +534,13 @@ export async function createGroup(
       return { id: group!.id, ...people };
     })
     .catch(rethrowAlreadyMember);
+  const added = await deliverInvites(user.id, result.id, result);
   logger.info(`Split group created with ${result.added.length} people invited`, {
     event: "split.group_created",
     groupId: result.id,
     invited: result.added.length,
   });
-  return result;
+  return { ...result, added };
 }
 
 /** Add people to a group (creator only). The cap is checked under the group's row lock. */
@@ -535,33 +559,40 @@ export async function addMembers(
       return { groupId: group.id, ...(await insertPeople(tx, group, me.email, data.members, userId)) };
     })
     .catch(rethrowAlreadyMember);
+  const added = await deliverInvites(userId, result.groupId, result);
   logger.info(`Split group gained ${result.added.filter((a) => a.delivery !== "already").length} people`, {
     event: "split.members_added",
     groupId: result.groupId,
     added: result.added.filter((a) => a.delivery !== "already").length,
   });
-  return result;
+  return { ...result, added };
 }
 
-/** Rename / re-icon, or change the currency while the group is still empty (creator). */
+/**
+ * Rename / re-icon, or change the currency while the group is still empty
+ * (creator). The group row is locked first, so an expense can't land in the
+ * old currency between the emptiness check and the change.
+ */
 export async function updateGroup(userId: string, rawGroupId: unknown, input: unknown): Promise<void> {
   const data = parseOrThrow(updateSplitGroupSchema, input);
   const db = getDb();
-  const { group } = await requireCreator(userId, rawGroupId, db);
-  if (data.currency !== undefined && data.currency !== group.currency) {
-    if (await hasActivity(group.id, db)) {
-      throw conflict("The currency can't change once the group has expenses or payments");
+  await db.transaction(async (tx) => {
+    const { group } = await requireCreator(userId, rawGroupId, tx, "update");
+    if (data.currency !== undefined && data.currency !== group.currency) {
+      if (await hasActivity(group.id, tx)) {
+        throw conflict("The currency can't change once the group has expenses or payments");
+      }
     }
-  }
-  await db
-    .update(splitGroups)
-    .set({
-      ...(data.name !== undefined ? { name: data.name } : {}),
-      ...(data.icon !== undefined ? { icon: data.icon?.trim() ? data.icon.trim() : null } : {}),
-      ...(data.currency !== undefined ? { currency: data.currency } : {}),
-      updatedAt: new Date(),
-    })
-    .where(eq(splitGroups.id, group.id));
+    await tx
+      .update(splitGroups)
+      .set({
+        ...(data.name !== undefined ? { name: data.name } : {}),
+        ...(data.icon !== undefined ? { icon: data.icon?.trim() ? data.icon.trim() : null } : {}),
+        ...(data.currency !== undefined ? { currency: data.currency } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(splitGroups.id, group.id));
+  });
 }
 
 /**
@@ -659,6 +690,33 @@ export async function leaveGroup(userId: string, rawGroupId: unknown): Promise<v
     return group.id;
   });
   logger.info("Split group member left", { event: "split.member_left", groupId });
+}
+
+/**
+ * Send someone their one invite email later — when the daily cap kept it from
+ * going at add time (creator only). Only for a pending person without an
+ * account who was never emailed: 409 otherwise, because D1 allows one email
+ * per group per address, ever.
+ */
+export async function sendInviteEmail(
+  userId: string,
+  rawGroupId: unknown,
+  rawMemberId: unknown,
+): Promise<{ emailed: boolean }> {
+  const memberId = parseSplitId(rawMemberId, "That person isn't in this group");
+  const db = getDb();
+  const { group } = await requireCreator(userId, rawGroupId, db);
+  const [row] = await db
+    .select()
+    .from(splitMembers)
+    .where(and(eq(splitMembers.id, memberId), eq(splitMembers.groupId, group.id)));
+  if (!row || row.status !== "invited") throw notFound("That person isn't waiting to join");
+  if (row.userId !== null) {
+    throw conflict("They already have an account — they'll see the invitation in the app");
+  }
+  if (row.inviteEmailedAt !== null) throw conflict("They've already had their invite email");
+  const emailed = await emailNewInvitees(userId, group.id, [row.id]);
+  return { emailed: emailed.has(row.id) };
 }
 
 /* ------------------------------------------------------------------------- */

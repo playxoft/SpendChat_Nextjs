@@ -12,7 +12,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { addSplitMembers, removeSplitMember } from "@/actions/split";
+import { addSplitMembers, removeSplitMember, sendSplitInviteEmail } from "@/actions/split";
+import { splitInvitePath } from "@/lib/invite-links";
 import type { SplitMemberView } from "@/services/split";
 import { BalanceText } from "./balance-text";
 import { EMPTY_PERSON, filledPeople, PeopleFields, type PersonDraft } from "./people-fields";
@@ -68,6 +69,30 @@ export function MembersDialog({
     router.refresh();
   }
 
+  async function copyLink(m: SplitMemberView) {
+    if (!m.inviteToken) return;
+    const url = `${window.location.origin}${splitInvitePath(m.inviteToken)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success(`Invite link copied — it only works for ${m.name}'s email`);
+    } catch {
+      toast.error("Couldn't copy the link");
+    }
+  }
+
+  async function sendEmail(m: SplitMemberView) {
+    setPending(true);
+    const res = await sendSplitInviteEmail(groupId, m.id);
+    setPending(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    if (res.emailed) toast.success(`We emailed ${m.name} an invite`);
+    else toast.error("You've sent today's invite emails — share their link instead, or try tomorrow");
+    router.refresh();
+  }
+
   async function remove(m: SplitMemberView) {
     setPending(true);
     const res = await removeSplitMember(groupId, m.id);
@@ -103,6 +128,29 @@ export function MembersDialog({
                   {m.status === "left" && <Badge variant="outline">Left</Badge>}
                 </p>
                 {m.email && <p className="truncate text-xs text-muted-foreground">{m.email}</p>}
+                {isCreator && m.status === "invited" && (
+                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
+                    {m.inviteToken && (
+                      <button type="button" className="underline-offset-4 hover:underline" onClick={() => copyLink(m)}>
+                        Copy invite link
+                      </button>
+                    )}
+                    {m.canSendInviteEmail ? (
+                      <button
+                        type="button"
+                        className="underline-offset-4 hover:underline disabled:opacity-50"
+                        disabled={pending}
+                        onClick={() => sendEmail(m)}
+                      >
+                        Send invite email
+                      </button>
+                    ) : m.invitedByEmail ? (
+                      <span className="text-muted-foreground">Invite emailed</span>
+                    ) : (
+                      <span className="text-muted-foreground">Sees it in the app</span>
+                    )}
+                  </div>
+                )}
               </div>
               <BalanceText netMinor={m.netMinor} currency={currency} locale={locale} className="text-xs" />
               {isCreator && !m.isYou && m.status !== "left" && (

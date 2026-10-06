@@ -19,8 +19,9 @@ import { getLogContext, runWithLogContext } from "@/lib/log-context";
  * because the notification couldn't be sent.
  *
  * What we send (all built in `email-templates.ts`): a one-time welcome note on
- * an account's first bootstrap (`welcome-email.ts`), and the workspace invite /
- * access-granted notices (`services/workspaces.ts`). ZeptoMail is a
+ * an account's first bootstrap (`welcome-email.ts`), the workspace invite /
+ * access-granted notices (`services/workspaces.ts`), and the one split invite
+ * a person without an account gets per group (`services/split-invites.ts`). ZeptoMail is a
  * transactional service — every message here is triggered by something the
  * recipient or an admin just did, sent once, and none is a newsletter.
  *

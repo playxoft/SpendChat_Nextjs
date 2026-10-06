@@ -38,8 +38,22 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   removes people, and can delete it. Everyone else adds expenses, edits the
   ones they added, and records payments they made or received. Only the
   creator sees people's email addresses.
+- **Invite anyone by email.** Someone without an account gets one email with a
+  link to join — it only works for the address you invited, and they never get
+  a second email about that group. Every group's People list has a **Copy
+  invite link** for anyone still invited, ready for WhatsApp.
+- **Add my share to my workspace.** One tap puts your share of an expense into
+  a profile in your current workspace as an ordinary expense. If the group
+  uses another currency, you enter what it cost you in yours. Each share can
+  only be added once.
 - Mobile API 6.9.0: `/api/v1/split/*` (groups, people, expenses, payments,
-  invitations).
+  invitations, invite emails, add to workspace).
+
+### Security
+- Invite emails to people without an account are capped at 30 a day per
+  person (on top of the existing 20 an hour), at most one per group per
+  address, and only sent after the add itself was allowed — so Split can't be
+  used to send bulk email from our domain.
 
 ## [0.33.0] — 2026-10-06
 

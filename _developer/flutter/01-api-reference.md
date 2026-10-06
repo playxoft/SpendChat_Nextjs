@@ -65,6 +65,7 @@ Every JSON response uses one of two shapes:
 | `storage_unavailable` | 503 | File storage (R2) isn't configured on the server (attachments off) |
 | `split_group_full` | 409 | A split group already holds 50 people (the creator included) — the same on every plan, so no upgrade helps. `details: { max, used }`. Since 6.9.0. |
 | `settle_first` | 409 | Removing someone from (or leaving) a split group while they still owe or are owed. Since 6.9.0. |
+| `amount_required` | 422 | "Add my share to my workspace" when the group's currency differs from the workspace's and no `amount` (in the workspace's currency) was sent. Since 6.9.0. |
 | `internal_error` | 500 | Unhandled server error (generic message; no internals leaked) |
 
 > **`forbidden` (403)** and the `workspace` object on `/me` are **not** in the
@@ -510,7 +511,9 @@ negative when they **owe**.
       "status": "invited" | "joined" | "left",
       "isCreator": true, "isYou": false,
       "balanceMinor": 6666, "balance": "66.66",
-      "invitedByEmail": true | false | null }   // creator only (null for everyone else)
+      "invitedByEmail": true | false | null,    // creator only (null for everyone else)
+      "inviteLink": "https://…/invite/split/<token>" | null,  // creator only, while invited; works only for that email
+      "canSendInviteEmail": true | false | null } // creator only: POST …/invite-email applies
   ],
   "suggestions": [                              // payments that square everyone, biggest first
     { "fromMemberId": "uuid", "toMemberId": "uuid", "amountMinor": 3333, "amount": "33.33" }
@@ -860,6 +863,8 @@ records payments. Ids in paths are uuids; a malformed one is a 404.
 | `GET /split/invitations` | — | 200 `data: SplitInvitation[]` | Includes invitations sent to your email before you had an account |
 | `POST /split/invitations/{memberId}/accept` | — | 200 `data: SplitGroupDetail` | 404 not yours / no longer open |
 | `POST /split/invitations/{memberId}/decline` | — | 200 `data: { declined: true }` | Always allowed |
+| `POST /split/groups/{id}/members/{memberId}/invite-email` | — | 200 `data: { emailed }` | Creator only. Someone without an account whose one invite email didn't go at add time (the daily cap). `emailed: false` while today's cap is spent — share `inviteLink` instead. **409** when they were already emailed (one email per group, ever) or have an account (in-app invitation) |
+| `POST /split/groups/{id}/expenses/{expenseId}/add-to-workspace` | `{ profileId, categoryId?, title?, occurredOn?, amount? }` | 201 `data: Transaction` | **Reads `X-Workspace-Id`** (the current workspace). Your share as one expense in a profile you can write to (403; `plan_limit` in a view-only workspace). Same currency → the share is the amount; different → `amount` in the workspace's currency is required (**422 `amount_required`**). **409** when this share is already in a workspace — it can be added again only after that transaction is permanently deleted. 404 no share in it |
 
 ### Settings
 | Method & path | Body | Success | Notes / errors |
@@ -960,6 +965,8 @@ what the group sees) }`.
 memberId, percent (0–100, ≤ 2 decimals) }` for `percent`. Nobody twice.
 `SplitSettlementInput` — `{ fromMemberId, toMemberId (different), amount (> 0),
 settledOn }`.
+`SplitShareToWorkspaceInput` — `{ profileId (uuid), categoryId? (uuid, nullable),
+title? (≤ 40), occurredOn? (YYYY-MM-DD), amount? (> 0, workspace currency) }`.
 
 ---
 

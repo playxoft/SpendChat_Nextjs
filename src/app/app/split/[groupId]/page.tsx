@@ -5,8 +5,9 @@ import { todayISO } from "@/lib/dates";
 import { ApiError } from "@/lib/errors";
 import { getTimeZone } from "@/lib/timezone.server";
 import { SPLIT_EXPENSES_PAGE } from "@/lib/validation";
+import { getCategories } from "@/lib/queries";
 import { getGroupDetail } from "@/services/split";
-import { listExpenses, listSettlements } from "@/services/split-ledger";
+import { listExpenses, listSettlements, writableProfiles } from "@/services/split-ledger";
 import { SplitGroupView } from "@/components/app/split/split-group-view";
 
 export const dynamic = "force-dynamic";
@@ -37,6 +38,12 @@ export default async function SplitGroupPage({
     throw err;
   });
   const [detail, expenses, payments] = data;
+  // Where "Add to my workspace" writes: the current workspace's writable
+  // profiles and expense categories.
+  const [profiles, categories] = await Promise.all([
+    writableProfiles(user.id, workspace.id),
+    getCategories(workspace.id),
+  ]);
   return (
     <SplitGroupView
       detail={detail}
@@ -46,6 +53,15 @@ export default async function SplitGroupPage({
       userId={user.id}
       locale={workspace.locale}
       today={todayISO(timeZone)}
+      workspace={{
+        name: workspace.name,
+        currency: workspace.currency,
+        locale: workspace.locale,
+        profiles,
+        categories: categories
+          .filter((c) => c.kind === "expense")
+          .map((c) => ({ id: c.id, name: c.name, icon: c.icon })),
+      }}
     />
   );
 }

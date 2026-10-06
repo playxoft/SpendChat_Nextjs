@@ -19,6 +19,8 @@ import type {
 import type { SplitExpenseView, SplitSettlementView } from "@/services/split-ledger";
 import type { SettlementSuggestion } from "@/lib/split-math";
 import { fromBasisPoints } from "@/lib/split-math";
+import { splitInvitePath } from "@/lib/invite-links";
+import { siteConfig } from "@/lib/site";
 import type {
   Category,
   Profile,
@@ -417,6 +419,13 @@ export type ApiSplitMember = {
   balance: string;
   /** Creator only (null for everyone else): whether their one invite email went. */
   invitedByEmail: boolean | null;
+  /**
+   * Creator only, for someone still invited: their join link — works only for
+   * the invited email, so it's safe to share in a chat. Null otherwise.
+   */
+  inviteLink: string | null;
+  /** Creator only (null otherwise): "Send invite email" applies — no account, never emailed. */
+  canSendInviteEmail: boolean | null;
 };
 
 export function serializeSplitMember(m: SplitMemberView, currency: string): ApiSplitMember {
@@ -430,6 +439,8 @@ export function serializeSplitMember(m: SplitMemberView, currency: string): ApiS
     balanceMinor: m.netMinor,
     balance: majorString(m.netMinor, currency),
     invitedByEmail: m.invitedByEmail,
+    inviteLink: m.inviteToken ? `${siteConfig.url}${splitInvitePath(m.inviteToken)}` : null,
+    canSendInviteEmail: m.canSendInviteEmail,
   };
 }
 

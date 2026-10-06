@@ -1,7 +1,8 @@
 import "server-only";
-import { and, count, desc, eq, inArray, notInArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNull, notInArray } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  profiles,
   splitExpenses,
   splitMembers,
   splitSettlements,
@@ -10,9 +11,9 @@ import {
   type SplitType,
 } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
-import { forbidden, notFound, validationError } from "@/lib/errors";
+import { ApiError, conflict, forbidden, notFound, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import { formatMoney, toMinorUnits } from "@/lib/money";
+import { formatMoney, fromMinorUnits, toMinorUnits } from "@/lib/money";
 import {
   canDeleteSettlement,
   canEditExpense,
@@ -26,7 +27,13 @@ import {
   type ShareAmount,
   type ShareSpec,
 } from "@/lib/split-math";
-import { splitExpenseSchema, splitSettlementSchema } from "@/lib/validation";
+import {
+  addSplitShareToWorkspaceSchema,
+  splitExpenseSchema,
+  splitSettlementSchema,
+} from "@/lib/validation";
+import { accessibleProfileIds } from "@/lib/workspaces";
+import { createTransactionId } from "@/services/transactions";
 import { groupMembers, parseSplitId, requireJoined, type JoinedContext } from "@/services/split";
 import { z } from "zod";
 
@@ -492,4 +499,115 @@ export async function deleteSettlement(
     await tx.delete(splitSettlements).where(eq(splitSettlements.id, row.id));
   });
   logger.info("Split payment undone", { event: "split.settlement_deleted", settlementId });
+}
+
+/* ------------------------------------------------------------------------- */
+/* "Add my share to my workspace"                                             */
+/* ------------------------------------------------------------------------- */
+
+/** The workspace a share is being added to, as the caller already resolved it. */
+export type ShareTargetWorkspace = { id: string; currency: string; locale: string };
+
+/** Profiles in a workspace the caller can write to — the picker's list. */
+export async function writableProfiles(
+  userId: string,
+  workspaceId: string,
+): Promise<{ id: string; name: string; icon: string | null }[]> {
+  const db = getDb();
+  return db
+    .select({ id: profiles.id, name: profiles.name, icon: profiles.icon })
+    .from(profiles)
+    .where(inArray(profiles.id, accessibleProfileIds(userId, workspaceId, "editor")))
+    .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt));
+}
+
+const ALREADY_ADDED = "Your share of this expense is already in your workspace";
+
+/**
+ * Write the caller's share of an expense into their own books: one ordinary
+ * expense transaction in a profile they can write to, in the given
+ * (current) workspace. Goes through `createTransactionId`, so every rule a
+ * normal add has applies — profile access (strictly: the named profile or a
+ * 403), a view-only workspace, the category belonging to the workspace.
+ *
+ * **Currency.** Transactions stay in the workspace's one currency. When the
+ * group's currency is the same, the amount is the share exactly (anything
+ * sent is ignored). When it differs, the person confirms what it cost them in
+ * the workspace's currency — 422 `amount_required` without it. Same rule as
+ * invoices' "Mark as paid".
+ *
+ * **Never twice.** The insert and the marker (`split_shares.transaction_id`,
+ * set only `WHERE transaction_id IS NULL`) commit together; a second add — a
+ * double click, another tab, the app and the web at once — blocks on the
+ * share row, finds it taken, and rolls its own insert back (409). The marker
+ * clears itself only when that transaction is permanently deleted.
+ */
+export async function addShareToWorkspace(
+  userId: string,
+  workspace: ShareTargetWorkspace,
+  rawGroupId: unknown,
+  rawExpenseId: unknown,
+  input: unknown,
+): Promise<{ transactionId: string }> {
+  const data = parseOrThrow(addSplitShareToWorkspaceSchema, input);
+  const db = getDb();
+  const ctx = await requireJoined(userId, rawGroupId, db);
+  const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
+  const [row] = await db
+    .select({ expense: splitExpenses, share: splitShares })
+    .from(splitExpenses)
+    .innerJoin(
+      splitShares,
+      and(eq(splitShares.expenseId, splitExpenses.id), eq(splitShares.memberId, ctx.me.id)),
+    )
+    .where(and(eq(splitExpenses.id, expenseId), eq(splitExpenses.groupId, ctx.group.id)));
+  if (!row || row.share.amountMinor <= 0) throw notFound("You don't have a share in this expense");
+  if (row.share.transactionId !== null) throw conflict(ALREADY_ADDED);
+
+  const sameCurrency = ctx.group.currency === workspace.currency;
+  if (!sameCurrency && data.amount === undefined) {
+    throw new ApiError(
+      422,
+      "amount_required",
+      `Enter what your share cost in ${workspace.currency} — this workspace keeps its books in ${workspace.currency}`,
+    );
+  }
+  const amount = sameCurrency
+    ? fromMinorUnits(row.share.amountMinor, workspace.currency)
+    : data.amount!;
+
+  const { id: transactionId } = await createTransactionId(
+    userId,
+    workspace.id,
+    {
+      type: "expense",
+      amount,
+      profileId: data.profileId,
+      categoryId: data.categoryId ?? null,
+      title: data.title?.trim() || row.expense.title,
+      description: `Split: ${ctx.group.name}`,
+      occurredOn: data.occurredOn ?? row.expense.occurredOn,
+    },
+    { currency: workspace.currency, locale: workspace.locale },
+    {
+      strictProfile: true,
+      // Same database transaction as the insert: the marker is set only if
+      // nobody set it first, and otherwise the insert rolls back.
+      withinInsert: async (tx, id) => {
+        const [claimed] = await tx
+          .update(splitShares)
+          .set({ transactionId: id, addedAt: new Date() })
+          .where(and(eq(splitShares.id, row.share.id), isNull(splitShares.transactionId)))
+          .returning({ id: splitShares.id });
+        if (!claimed) throw conflict(ALREADY_ADDED);
+      },
+    },
+  );
+  logger.info("Split share added to a workspace", {
+    event: "split.share_added",
+    expenseId,
+    transactionId,
+    sameCurrency,
+  });
+  return { transactionId };
 }

@@ -15,6 +15,7 @@ import { REFRESH_COOKIE, SESSION_COOKIE } from "@/lib/session-cookie";
 import { detectSettingsDefaults } from "./geo.server";
 import { findUserById } from "./directory";
 import { sendWelcomeEmailOnce } from "./welcome-email";
+import { bindSplitInvitesOnSignup } from "./split-signup";
 import {
   acceptPendingInvites,
   createWorkspaceWithDefaults,
@@ -136,7 +137,12 @@ export async function ensureBootstrap(userId: string) {
       // Parallel first requests all reach this branch; only one may create.
       ifNoneOwned: true,
     });
-    if (identity?.email) await acceptPendingInvites(userId, identity.email);
+    if (identity?.email) {
+      await acceptPendingInvites(userId, identity.email);
+      // Split invitations waiting for this email become in-app invitations,
+      // and the sign-up is tagged as invited (growth report).
+      await bindSplitInvitesOnSignup(userId, identity.email);
+    }
     await sendWelcomeEmailOnce(userId, { currency: defaults.currency, locale: defaults.locale });
   }
 }

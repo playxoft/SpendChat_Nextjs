@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/auth";
+import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import {
   SPLIT_EXPENSES_PAGE,
@@ -10,9 +10,11 @@ import {
   type SplitExpenseInput,
   type SplitSettlementInput,
   type UpdateSplitGroupInput,
+  type AddSplitShareToWorkspaceInput,
 } from "@/lib/validation";
 import * as split from "@/services/split";
 import * as ledger from "@/services/split-ledger";
+import * as invites from "@/services/split-invites";
 import type { AddedPerson } from "@/services/split";
 import type { SplitExpenseView } from "@/services/split-ledger";
 
@@ -237,5 +239,62 @@ export async function deleteSplitSettlement(
       return {};
     },
     { userId: user.id, groupId, settlementId },
+  );
+}
+
+/** Join from an invite link (`/invite/split/<token>`) — bound to the invited email. */
+export async function acceptSplitInvite(token: string): Promise<ActionResult<{ groupId: string }>> {
+  const user = await requireUser();
+  return runAction(
+    "acceptSplitInvite",
+    async () => {
+      const { groupId } = await invites.acceptSplitInviteByToken(user, token);
+      revalidateApp();
+      return { groupId };
+    },
+    { userId: user.id },
+  );
+}
+
+/** The one invite email, for someone the daily cap skipped at add time (creator). */
+export async function sendSplitInviteEmail(
+  groupId: string,
+  memberId: string,
+): Promise<ActionResult<{ emailed: boolean }>> {
+  const user = await requireUser();
+  return runAction(
+    "sendSplitInviteEmail",
+    async () => {
+      const { emailed } = await split.sendInviteEmail(user.id, groupId, memberId);
+      revalidateSplit();
+      return { emailed };
+    },
+    { userId: user.id, groupId, memberId },
+  );
+}
+
+/** Put your share of an expense in the current workspace, as one expense. */
+export async function addSplitShareToWorkspace(
+  groupId: string,
+  expenseId: string,
+  input: AddSplitShareToWorkspaceInput,
+): Promise<ActionResult<{ transactionId: string }>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "addSplitShareToWorkspace",
+    async () => {
+      const { transactionId } = await ledger.addShareToWorkspace(
+        user.id,
+        { id: workspace.id, currency: workspace.currency, locale: workspace.locale },
+        groupId,
+        expenseId,
+        input,
+      );
+      // The tracker and the transaction list now hold one more row.
+      revalidateApp();
+      return { transactionId };
+    },
+    { userId: user.id, workspaceId: workspace.id, groupId, expenseId },
   );
 }

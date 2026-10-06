@@ -4,7 +4,7 @@ import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ArrowLeft, MoreHorizontal, Pencil, Plus, Trash2, Users } from "lucide-react";
+import { ArrowLeft, Check, MoreHorizontal, Pencil, Plus, Trash2, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -34,6 +34,7 @@ import { formatMoney } from "@/lib/money";
 import { canRecordSettlement, type SplitViewer } from "@/lib/split-access";
 import type { SplitGroupDetail } from "@/services/split";
 import type { SplitExpenseView, SplitSettlementView } from "@/services/split-ledger";
+import { AddToWorkspaceDialog, type ShareWorkspace } from "./add-to-workspace-dialog";
 import { BalanceText } from "./balance-text";
 import { ExpenseDialog, type ExpenseMember } from "./expense-dialog";
 import { GroupSettingsDialog } from "./group-settings-dialog";
@@ -59,6 +60,7 @@ export function SplitGroupView({
   userId,
   locale,
   today,
+  workspace,
 }: {
   detail: SplitGroupDetail;
   expenses: SplitExpenseView[];
@@ -67,6 +69,8 @@ export function SplitGroupView({
   userId: string;
   locale: string;
   today: string;
+  /** The current workspace — where "Add to my workspace" writes. */
+  workspace: ShareWorkspace;
 }) {
   const router = useRouter();
   const { group, me } = detail;
@@ -89,6 +93,7 @@ export function SplitGroupView({
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<SplitExpenseView | null>(null);
   const [settle, setSettle] = React.useState<SettleTarget | null>(null);
+  const [addingShare, setAddingShare] = React.useState<SplitExpenseView | null>(null);
   const [peopleOpen, setPeopleOpen] = React.useState(false);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
   const [confirm, setConfirm] = React.useState<Confirm | null>(null);
@@ -303,6 +308,17 @@ export function SplitGroupView({
                     <span className="text-muted-foreground">
                       Your share <span className="font-medium text-foreground tabular-nums">{fmt(e.myShare.amountMinor)}</span>
                     </span>
+                    {e.myShare.added ? (
+                      <span className="inline-flex items-center gap-1 text-muted-foreground">
+                        <Check className="size-3.5" /> In your workspace
+                      </span>
+                    ) : (
+                      e.myShare.amountMinor > 0 && (
+                        <Button size="xs" variant="outline" onClick={() => setAddingShare(e)}>
+                          Add to my workspace
+                        </Button>
+                      )
+                    )}
                   </div>
                 )}
               </li>
@@ -364,6 +380,13 @@ export function SplitGroupView({
         members={expenseMembers(editing)}
         meMemberId={me.memberId}
         expense={editing}
+      />
+      <AddToWorkspaceDialog
+        expense={addingShare}
+        onOpenChange={(open) => !open && setAddingShare(null)}
+        groupId={group.id}
+        groupCurrency={currency}
+        workspace={workspace}
       />
       <SettleDialog
         target={settle}

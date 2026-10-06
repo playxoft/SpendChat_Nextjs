@@ -2833,6 +2833,81 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/split/groups/{id}/members/{memberId}/invite-email:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: memberId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Split]
+      summary: Send someone their one invite email (creator only)
+      description: |
+        For a person without an account whose email didn't go at add time
+        (the creator's daily invite-email cap). A group emails an address at
+        most **once, ever** — 409 when they were already emailed, or when they
+        have an account (they see an in-app invitation instead). `emailed:
+        false` when today's cap is still spent: share `inviteLink` instead.
+      responses:
+        "200":
+          description: Whether the email went.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { emailed: { type: boolean } }
+                    required: [emailed]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/split/groups/{id}/expenses/{expenseId}/add-to-workspace:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: expenseId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Split]
+      summary: Add my share to my workspace
+      description: |
+        Writes your share of this expense into the **current workspace** —
+        the one Split endpoint that reads `X-Workspace-Id` — as one expense
+        transaction in a profile you can write to (403 otherwise; `plan_limit`
+        in a view-only workspace). When the group's currency matches the
+        workspace's, the share is the amount; when it differs, send `amount`
+        in the workspace's currency (422 `amount_required` without it). A
+        share goes into a workspace once: 409 when it's already there (it can
+        be added again only after that transaction is permanently deleted).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SplitShareToWorkspaceInput" }
+      responses:
+        "201":
+          description: The transaction it created.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Transaction" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
   /api/v1/split/groups/{id}/settlements:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -3198,7 +3273,7 @@ components:
                      conflict, validation_error, rate_limited, payload_too_large,
                      storage_quota_exceeded, ai_unavailable, ai_failed,
                      storage_unavailable, split_group_full, settle_first,
-                     internal_error]
+                     amount_required, internal_error]
             message: { type: string }
             details:
               description: >
@@ -4361,7 +4436,19 @@ components:
         invitedByEmail:
           type: [boolean, "null"]
           description: Creator only (null otherwise) — whether this person was sent their one invite email.
-      required: [id, name, email, status, isCreator, isYou, balanceMinor, balance, invitedByEmail]
+        inviteLink:
+          type: [string, "null"]
+          format: uri
+          description: |
+            Creator only, while the person is still `invited`: their join link
+            (`/invite/split/<token>`). It only works for the invited email, so
+            it's safe to share in a chat. Null otherwise.
+        canSendInviteEmail:
+          type: [boolean, "null"]
+          description: |
+            Creator only (null otherwise): `POST …/members/{memberId}/invite-email`
+            applies — still invited, no account, never emailed.
+      required: [id, name, email, status, isCreator, isYou, balanceMinor, balance, invitedByEmail, inviteLink, canSendInviteEmail]
 
     SplitSuggestion:
       type: object
@@ -4557,3 +4644,19 @@ components:
         peopleCount: { type: integer }
         invitedAt: { type: string, format: date-time }
       required: [memberId, groupId, groupName, groupIcon, currency, inviterName, peopleCount, invitedAt]
+
+    SplitShareToWorkspaceInput:
+      type: object
+      properties:
+        profileId: { type: string, format: uuid, description: A profile you can write to in the current workspace. }
+        categoryId: { type: [string, "null"], format: uuid }
+        title: { type: string, maxLength: 40, description: Defaults to the expense's title. }
+        occurredOn: { type: string, format: date, description: Defaults to the expense's date. }
+        amount:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 999999999.99
+          description: |
+            In the **workspace's** currency. Required only when it differs from
+            the group's; ignored otherwise (the share is the amount).
+      required: [profileId]
