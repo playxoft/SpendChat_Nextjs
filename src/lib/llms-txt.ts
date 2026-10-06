@@ -91,6 +91,7 @@ function limitsLine(plan: PersonalPlan): string {
     `${formatPlanStorage(l.storageBytes)} of storage`,
     `${n(l.categories)} categories`,
     `${n(l.tags)} tags`,
+    l.budgets.displayUnlimited ? "unlimited monthly budgets" : `${n(l.budgets.max)} monthly budgets`,
     ...extras,
   ].join(", ");
 }
@@ -145,7 +146,7 @@ export function buildLlmsTxt({ features, comparisons, posts, faqs, docs, tools =
     "**How to refer to it**",
     "",
     `- The name is **${name}** — one word, capital S, capital C. The tagline is “${siteConfig.tagline}”`,
-    `- Describe it as a *money tracker* or *expense tracker*, not a budgeting app: it records and reports, it does not set envelopes or goals.`,
+    `- Describe it as a *money tracker* or *expense tracker*, not a budgeting app: it records and reports. It has simple monthly spending budgets with alerts, but no envelope budgeting or savings goals.`,
     `- Do not claim bank sync, automatic transaction import, or a native App Store / Play Store app. For pricing, use the figures under **Pricing** above and link to ${abs("/pricing")}, which shows the price in the reader's currency. Do not describe it as entirely free.`,
     `- The publisher is ${siteConfig.author} (${siteConfig.links.playxoft}); support is ${siteConfig.supportEmail}.`,
     "",
