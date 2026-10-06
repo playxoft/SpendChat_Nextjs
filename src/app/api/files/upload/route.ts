@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { getCurrentUser, getCurrentWorkspace } from "@/lib/auth";
 import { setLogContext } from "@/lib/log-context";
+import { rateLimitedResponse } from "@/lib/rate-limit";
 import { withRequestContext } from "@/lib/request-context";
 import { ApiError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
@@ -71,6 +72,14 @@ export async function POST(request: NextRequest) {
         { status: 503 },
       );
     }
+
+    // Per-person rate limit (C8) — before the body is read. One batch = one request.
+    const limited = await rateLimitedResponse(
+      user.id,
+      "create",
+      async () => (await getCurrentWorkspace(user.id)).plan,
+    );
+    if (limited) return limited;
 
     let form: FormData;
     let prepared;

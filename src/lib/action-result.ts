@@ -1,8 +1,11 @@
-import { ApiError } from "@/lib/errors";
+import { getBestPlanForUser, getWorkspaceEntitlements } from "@/lib/entitlements";
+import { ApiError, isRateLimitRefusal } from "@/lib/errors";
 import { describeError, logger, type LogMeta } from "@/lib/logger";
 import { setLogContext } from "@/lib/log-context";
+import { startRateLimit, type PlanResolver } from "@/lib/rate-limit";
+import { bucketOfAction } from "@/lib/rate-limit/classify";
 import { withRequestContext } from "@/lib/request-context";
-import { getTimingScope, summarizeTimingScope, withTiming } from "@/lib/timing";
+import { getTimingScope, summarizeTimingScope, time, withTiming } from "@/lib/timing";
 
 /**
  * Bridges the shared service layer to the web server actions. Services throw
@@ -15,6 +18,13 @@ import { getTimingScope, summarizeTimingScope, withTiming } from "@/lib/timing";
  * duration), `warn` on an expected `ApiError` rejection (returned to the user),
  * and `error` on an unexpected failure (which still propagates so Next renders
  * its error boundary).
+ *
+ * Every call is also **rate limited per person** (abuse rule C8, `lib/rate-limit`)
+ * before `fn` runs: `meta.userId` names the person (every action authenticates
+ * before calling this), `meta.rateLimit` the bucket — `"create"` unless the
+ * action says `"read"` (read-only, or the person's own UI preferences) or
+ * `"ai"`. A refusal comes back as `{ ok: false, code: "rate_limited", details:
+ * { bucket, window, retryAfterSeconds } }` like any other rejection.
  */
 export type ActionOk<T> = { ok: true } & T;
 /**
@@ -56,6 +66,12 @@ async function runActionInner<T extends object>(
   startedAt: number,
 ): Promise<ActionResult<T>> {
   try {
+    if (typeof meta.userId === "string") {
+      const userId = meta.userId;
+      await time("rateLimit", () =>
+        startRateLimit(userId, bucketOfAction(meta)).enforce(actionPlan(userId, meta)),
+      );
+    }
     const extra = await fn();
     const durationMs = Date.now() - startedAt;
     // Append the DB + per-step breakdown so one row shows where the time went:
@@ -73,7 +89,10 @@ async function runActionInner<T extends object>(
   } catch (err) {
     const durationMs = Date.now() - startedAt;
     if (err instanceof ApiError) {
-      logger.warn(`Action ${action} rejected: ${err.message}`, {
+      // The limiter already logged this person's block once; a looping script
+      // must not turn every refused call into a shipped warning.
+      const log = isRateLimitRefusal(err) ? logger.debug : logger.warn;
+      log(`Action ${action} rejected: ${err.message}`, {
         event: "action.rejected",
         action,
         ...meta,
@@ -99,4 +118,17 @@ async function runActionInner<T extends object>(
     });
     throw err;
   }
+}
+
+/**
+ * The plan an action is rate-limited by — looked up only when the person is
+ * over Free's numbers (see `lib/rate-limit`). The workspace in `meta` when there
+ * is one (the same memoized read the action's own limit checks use); for an
+ * account-level action, the best plan among the person's workspaces.
+ */
+function actionPlan(userId: string, meta: LogMeta): PlanResolver {
+  return async () =>
+    typeof meta.workspaceId === "string"
+      ? (await getWorkspaceEntitlements(meta.workspaceId)).plan
+      : getBestPlanForUser(userId);
 }

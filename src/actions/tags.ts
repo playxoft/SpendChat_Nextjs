@@ -102,6 +102,6 @@ export async function countTransactionsForTag(
   return runAction(
     "countTransactionsForTag",
     async () => ({ count: await tagService.countTransactionsForTxnTag(workspace.id, id) }),
-    { userId: user.id, workspaceId: workspace.id, tagId: id },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id, tagId: id },
   );
 }
