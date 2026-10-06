@@ -53,20 +53,24 @@ function RoleSelect({
   ariaLabel,
   className,
   disabled,
+  max,
 }: {
   value: MemberRole;
   onChange: (role: MemberRole) => void;
   ariaLabel: string;
   className?: string;
   disabled?: boolean;
+  /** Offer no role above this one (narrow-only editing). */
+  max?: MemberRole;
 }) {
+  const roles = max ? ROLE_ORDER.slice(0, ROLE_ORDER.indexOf(max) + 1) : ROLE_ORDER;
   return (
     <Select value={value} onValueChange={(v) => onChange(v as MemberRole)} disabled={disabled}>
       <SelectTrigger className={cn("h-8", className)} aria-label={ariaLabel}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {ROLE_ORDER.map((r) => (
+        {roles.map((r) => (
           <SelectItem key={r} value={r}>
             {ROLE_NAMES[r]} — {ROLE_ABILITIES[r]}
           </SelectItem>
@@ -81,7 +85,10 @@ function ScopeEditor({
   onChange,
   spaces,
   profiles,
+  original,
 }: {
+  /** What the person has now — on a plan without per-profile access, the most they can keep. */
+  original?: AccessValue;
   value: AccessValue;
   onChange: (v: AccessValue) => void;
   spaces: NamedOption[];
@@ -92,6 +99,13 @@ function ScopeEditor({
   const isAll = value.mode === "all";
   const profilesLocked = !profileLevelAccess;
   const profilesLock = profilesLocked ? profileAccessLock(plan) : null;
+  // Without per-profile access an existing per-profile share can still be
+  // narrowed — profiles dropped, roles lowered — never widened; the server
+  // applies the same rule.
+  const ceiling =
+    profilesLocked && original?.mode === "profiles"
+      ? new Map(original.entries.map((e) => [e.profileId, e.role]))
+      : null;
 
   // Role to carry across a mode switch.
   const seedRole: MemberRole = isAll ? value.role : (value.entries[0]?.role ?? "viewer");
@@ -141,7 +155,13 @@ function ScopeEditor({
         })}
       </div>
 
-      {profilesLock && <UpgradeHint info={profilesLock.info}>{profilesLock.reason}</UpgradeHint>}
+      {profilesLock && (
+        <UpgradeHint info={profilesLock.info}>
+          {ceiling
+            ? `${profilesLock.reason} You can still remove profiles or lower roles here.`
+            : profilesLock.reason}
+        </UpgradeHint>
+      )}
 
       {value.mode === "all" ? (
         <div className="space-y-3">
@@ -171,7 +191,8 @@ function ScopeEditor({
           entries={value.entries}
           profiles={profiles}
           seedRole={seedRole}
-          disabled={profilesLocked}
+          disabled={profilesLocked && !ceiling}
+          ceiling={ceiling}
           onChange={(entries) => onChange({ mode: "profiles", entries })}
         />
       )}
@@ -241,12 +262,15 @@ function ProfilePicker({
   profiles,
   seedRole,
   disabled,
+  ceiling,
   onChange,
 }: {
   entries: { profileId: string; role: MemberRole }[];
   profiles: NamedOption[];
   seedRole: MemberRole;
   disabled: boolean;
+  /** Narrow-only: the profiles (and highest roles) that may stay; null = unrestricted. */
+  ceiling?: Map<string, MemberRole> | null;
   onChange: (entries: { profileId: string; role: MemberRole }[]) => void;
 }) {
   const roleOf = (id: string) => entries.find((e) => e.profileId === id)?.role;
@@ -263,7 +287,7 @@ function ProfilePicker({
           >
             <Checkbox
               checked={checked}
-              disabled={disabled}
+              disabled={disabled || (ceiling != null && !ceiling.has(p.id))}
               onCheckedChange={(c) =>
                 onChange(
                   c === true
@@ -278,6 +302,7 @@ function ProfilePicker({
               <RoleSelect
                 value={role}
                 disabled={disabled}
+                max={ceiling?.get(p.id)}
                 onChange={(r) =>
                   onChange(entries.map((e) => (e.profileId === p.id ? { ...e, role: r } : e)))
                 }
@@ -369,7 +394,13 @@ export function AccessEditor({
         </Button>
       </PopoverTrigger>
       <PopoverContent align="end" closeOnOutsideClick className="w-80">
-        <ScopeEditor value={draft} onChange={setDraft} spaces={spaces} profiles={profiles} />
+        <ScopeEditor
+          value={draft}
+          onChange={setDraft}
+          spaces={spaces}
+          profiles={profiles}
+          original={current}
+        />
         <div className="flex justify-end gap-2 pt-3">
           <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
             Cancel

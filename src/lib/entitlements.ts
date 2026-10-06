@@ -270,9 +270,12 @@ export async function assertCanAddMember(
   workspaceId: string,
   who: { userId?: string | null; email?: string | null },
 ): Promise<void> {
+  // Re-scoping someone who already counts adds nobody — and must stay open in
+  // a view-only workspace, so an admin can always narrow access. (Widening a
+  // role there changes nothing: every role is capped at viewer while view-only.)
+  if (await alreadyCounted(workspaceId, who)) return;
   const ent = await getWorkspaceEntitlements(workspaceId);
   assertWritable(ent);
-  if (await alreadyCounted(workspaceId, who)) return;
   const used = await countMembers(workspaceId);
   if (used + 1 > ent.limits.members) throw capError(ent, "members", "members", "member", used);
 }

@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   profileAccess,
@@ -395,6 +395,22 @@ async function spaceNamesUnlessAll(
   const chosen = new Set(spaceIds);
   if (all.every((sp) => chosen.has(sp.id))) return undefined;
   return all.filter((sp) => chosen.has(sp.id)).map((sp) => sp.name);
+}
+
+/**
+ * Whether per-profile `next` only takes access away from `existing`: every
+ * entry is a profile they already have, at the same or a lower role. Such a
+ * change needs no plan feature.
+ */
+function onlyNarrows(
+  existing: { profileId: string; role: WorkspaceRole }[],
+  next: { profileId: string; role: WorkspaceRole }[],
+): boolean {
+  const had = new Map(existing.map((e) => [e.profileId, e.role]));
+  return next.every((e) => {
+    const before = had.get(e.profileId);
+    return before !== undefined && atLeastRole(before, e.role);
+  });
 }
 
 /** Count-only summary safe for log messages (no profile names — user data). */
@@ -931,7 +947,17 @@ export async function setMemberAccess(
   if (data.userId === workspace.ownerId) {
     throw conflict("The workspace owner always has full access");
   }
-  if (data.access.mode === "profiles") await assertProfileLevelAccess(workspaceId);
+  // Per-profile access is a Plus/Pro feature — but narrowing what someone
+  // already has (dropping a profile, lowering a role) never needs the plan, so
+  // an admin on Free is never stuck with a share they want smaller.
+  if (data.access.mode === "profiles") {
+    const existing = await db
+      .select({ profileId: profileAccess.profileId, role: profileAccess.role })
+      .from(profileAccess)
+      .innerJoin(profiles, eq(profiles.id, profileAccess.profileId))
+      .where(and(eq(profiles.workspaceId, workspaceId), eq(profileAccess.userId, data.userId)));
+    if (!onlyNarrows(existing, data.access.entries)) await assertProfileLevelAccess(workspaceId);
+  }
   // Meant for re-scoping someone who already has access (who always fits), but
   // it upserts — so a user id that isn't here yet is an add, and pays the cap.
   await assertCanAddMember(workspaceId, { userId: data.userId });
@@ -959,7 +985,21 @@ export async function setInviteAccess(
     columns: { id: true },
   });
   if (!workspace) throw notFound("Workspace not found");
-  if (data.access.mode === "profiles") await assertProfileLevelAccess(workspaceId);
+  // As in `setMemberAccess`: narrowing a pending per-profile invite is free.
+  if (data.access.mode === "profiles") {
+    const existing = await db
+      .select({ profileId: workspaceInvites.profileId, role: workspaceInvites.role })
+      .from(workspaceInvites)
+      .where(
+        and(
+          eq(workspaceInvites.workspaceId, workspaceId),
+          eq(workspaceInvites.email, data.email),
+          isNotNull(workspaceInvites.profileId),
+        ),
+      );
+    const rows = existing.flatMap((r) => (r.profileId ? [{ profileId: r.profileId, role: r.role }] : []));
+    if (!onlyNarrows(rows, data.access.entries)) await assertProfileLevelAccess(workspaceId);
+  }
   // Same as `setMemberAccess`: an email with no invite yet is a new person.
   await assertCanAddMember(workspaceId, { email: data.email });
   await applyInviteAccess(db, workspaceId, data.email, data.access, userId);

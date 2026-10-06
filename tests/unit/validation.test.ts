@@ -178,11 +178,12 @@ describe("profile schemas", () => {
     expect(updateProfileSchema.safeParse({ id: UUID, color: null }).success).toBe(true);
     expect(updateProfileSchema.safeParse({ id: "bad" }).success).toBe(false);
   });
-  it("reorder accepts 1..100 UUIDs", () => {
+  it("reorder accepts 1..200 UUIDs (a Pro workspace holds up to 15 × 10 profiles)", () => {
     expect(reorderProfilesSchema.safeParse({ ids: [UUID] }).success).toBe(true);
     expect(reorderProfilesSchema.safeParse({ ids: [] }).success).toBe(false);
+    expect(reorderProfilesSchema.safeParse({ ids: Array(200).fill(UUID) }).success).toBe(true);
     expect(
-      reorderProfilesSchema.safeParse({ ids: Array(101).fill(UUID) }).success,
+      reorderProfilesSchema.safeParse({ ids: Array(201).fill(UUID) }).success,
     ).toBe(false);
     expect(reorderProfilesSchema.safeParse({ ids: ["nope"] }).success).toBe(false);
   });

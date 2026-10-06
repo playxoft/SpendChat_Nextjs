@@ -257,3 +257,116 @@ describe("second review round", () => {
   });
 });
 
+
+describe("third review round (PR #89)", () => {
+  /** "a" on Free with Personal + Kids (both in Main); "g" holds legacy editor grants on both. */
+  async function legacyGrants() {
+    await bootstrapUser("a");
+    await registerUser("g");
+    const W = await workspaceIdOf("a");
+    const main = await defaultSpaceIdOf(W);
+    const personal = await firstProfileId("a");
+    const [kids] = await db()
+      .insert(profiles)
+      .values({ userId: uid("a"), workspaceId: W, spaceId: main, name: "Kids", sortOrder: 1 })
+      .returning({ id: profiles.id });
+    await db().insert(profileAccess).values([
+      { profileId: personal, userId: uid("g"), role: "editor" },
+      { profileId: kids!.id, userId: uid("g"), role: "editor" },
+    ]);
+    return { W, personal, kids: kids!.id };
+  }
+
+  it("on Free an admin can still narrow an existing per-profile share — drop a profile, lower a role", async () => {
+    const { W, personal, kids } = await legacyGrants();
+    await ws.setMemberAccess(uid("a"), W, {
+      userId: uid("g"),
+      access: { mode: "profiles", entries: [{ profileId: personal, role: "viewer" }] },
+    });
+    expect((await getEffectiveProfileRole(uid("g"), personal))?.role).toBe("viewer");
+    expect(await getEffectiveProfileRole(uid("g"), kids)).toBeNull();
+  });
+
+  it("on Free widening a per-profile share is still the paid feature", async () => {
+    const { W, personal, kids } = await legacyGrants();
+    // Raising a role…
+    await expect(
+      ws.setMemberAccess(uid("a"), W, {
+        userId: uid("g"),
+        access: { mode: "profiles", entries: [{ profileId: personal, role: "admin" }] },
+      }),
+    ).rejects.toMatchObject({ code: "plan_limit" });
+    // …or adding a profile they didn't have.
+    await db().delete(profileAccess).where(eq(profileAccess.profileId, kids));
+    await expect(
+      ws.setMemberAccess(uid("a"), W, {
+        userId: uid("g"),
+        access: {
+          mode: "profiles",
+          entries: [
+            { profileId: personal, role: "editor" },
+            { profileId: kids, role: "viewer" },
+          ],
+        },
+      }),
+    ).rejects.toMatchObject({ code: "plan_limit" });
+  });
+
+  it("on Free a pending per-profile invite can be narrowed, not widened", async () => {
+    const { W, personal, kids } = await legacyGrants();
+    await setWorkspacePlan(W, "plus");
+    await ws.setInviteAccess(uid("a"), W, {
+      email: "later@example.com",
+      access: {
+        mode: "profiles",
+        entries: [
+          { profileId: personal, role: "editor" },
+          { profileId: kids, role: "editor" },
+        ],
+      },
+    });
+    await setWorkspacePlan(W, "free");
+    await expect(
+      ws.setInviteAccess(uid("a"), W, {
+        email: "later@example.com",
+        access: { mode: "profiles", entries: [{ profileId: kids, role: "viewer" }] },
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      ws.setInviteAccess(uid("a"), W, {
+        email: "later@example.com",
+        access: { mode: "profiles", entries: [{ profileId: personal, role: "viewer" }] },
+      }),
+    ).rejects.toMatchObject({ code: "plan_limit" });
+  });
+
+  it("a view-only workspace still lets an admin re-scope an existing member through the People list", async () => {
+    await bootstrapUser("o");
+    await setWorkspacePlan(await workspaceIdOf("o"), "free");
+    const extra = await createWorkspaceWithDefaults(uid("o"), "Extra");
+    await registerUser("n");
+    const space = await defaultSpaceIdOf(extra.id);
+    await db().insert(workspaceMembers).values({ workspaceId: extra.id, userId: uid("n"), role: "editor" });
+    await db().insert(spaceMembers).values({ spaceId: space, userId: uid("n"), role: "editor" });
+    await expect(
+      ws.setMemberAccess(uid("o"), extra.id, {
+        userId: uid("n"),
+        access: { mode: "all", role: "viewer", spaceIds: [] },
+      }),
+    ).resolves.toBeUndefined();
+    // But nobody new joins a view-only workspace.
+    await registerUser("x");
+    await expect(
+      ws.setMemberAccess(uid("o"), extra.id, {
+        userId: uid("x"),
+        access: { mode: "all", role: "viewer" },
+      }),
+    ).rejects.toMatchObject({ code: "plan_limit" });
+  });
+
+  it("reordering accepts a Pro-sized workspace's full profile list", async () => {
+    const { reorderProfilesSchema } = await import("@/lib/validation");
+    const ids = Array.from({ length: 150 }, () => crypto.randomUUID());
+    expect(reorderProfilesSchema.safeParse({ ids }).success).toBe(true);
+  });
+});
