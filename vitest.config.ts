@@ -70,8 +70,9 @@ export default defineConfig({
         // Only the transport lives here — the parsing/validation it feeds
         // (`ai-parse.ts`) is pure and stays under the gate.
         "src/lib/ai-provider.ts",
-        // Per-user AI request quota — a DB round-trip and a counter, exercised
-        // by the integration suite rather than unit tests (like `email-quota.ts`).
+        // The AI charges — the per-user hourly cap and the workspace's monthly
+        // allowance, both DB round-trips under advisory locks — exercised by the
+        // integration suite rather than unit tests (like `email-quota.ts`).
         "src/lib/ai-quota.ts",
         // MDX-backed; covered behaviourally, not held to the branch gate
         // (the `isProd` draft filter short-circuits and can't both-branch).

@@ -4,7 +4,7 @@ import * as React from "react";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { ChevronDown, LogOut, Plus, Trash2, UserPlus } from "lucide-react";
+import { LogOut, Plus, Trash2, UserPlus } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,22 +26,15 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { cn } from "@/lib/utils";
 import { CreateWorkspaceDialog } from "./create-workspace-dialog";
+import { AccessBadge, AccessEditor, AccessPicker } from "./member-access-editor";
 import { usePermissions } from "./permissions";
+import { usePlan } from "./upgrade-dialog";
+import { UsagePanel, type UsageData } from "./usage-panel";
 import {
   addWorkspaceMember,
   cancelWorkspaceInvite,
@@ -51,15 +44,9 @@ import {
   updateWorkspace,
 } from "@/actions/workspaces";
 import { DEFAULT_WORKSPACE_ICON, WORKSPACE_NAME_MAX } from "@/lib/validation";
+import type { AccessValue, NamedOption } from "@/lib/member-access";
 import type { WorkspaceRole } from "@/db/schema";
 
-/** Editable access value — mirrors the server `AccessGrant` (ids + roles only;
- *  profile names come from the `profiles` prop). */
-type AccessValue =
-  | { mode: "all"; role: WorkspaceRole }
-  | { mode: "profiles"; entries: { profileId: string; role: WorkspaceRole }[] };
-
-type ProfileOption = { id: string; name: string; icon: string | null };
 type Collaborator = {
   userId: string;
   name: string | null;
@@ -68,254 +55,6 @@ type Collaborator = {
   access: AccessValue;
 };
 type PendingInvite = { email: string; access: AccessValue };
-
-const ROLES: { value: WorkspaceRole; label: string }[] = [
-  { value: "viewer", label: "Viewer" },
-  { value: "editor", label: "Editor" },
-  { value: "admin", label: "Admin" },
-];
-
-function RoleSelect({
-  value,
-  onChange,
-  disabled,
-  ariaLabel,
-  className,
-}: {
-  value: WorkspaceRole;
-  onChange: (role: WorkspaceRole) => void;
-  disabled?: boolean;
-  ariaLabel?: string;
-  className?: string;
-}) {
-  return (
-    <Select value={value} onValueChange={(v) => onChange(v as WorkspaceRole)} disabled={disabled}>
-      <SelectTrigger className={cn("h-8 w-28", className)} aria-label={ariaLabel ?? "Role"}>
-        <SelectValue />
-      </SelectTrigger>
-      <SelectContent>
-        {ROLES.map((r) => (
-          <SelectItem key={r.value} value={r.value}>
-            {r.label}
-          </SelectItem>
-        ))}
-      </SelectContent>
-    </Select>
-  );
-}
-
-// ---- access helpers ----
-
-function profileLabel(p: ProfileOption): string {
-  return `${p.icon ? `${p.icon} ` : ""}${p.name}`;
-}
-
-/** Short human summary of an access value (for the popover trigger / badges). */
-function accessSummary(access: AccessValue, profiles: ProfileOption[]): string {
-  if (access.mode === "all") return "All profiles";
-  if (access.entries.length === 0) return "No profiles";
-  if (access.entries.length === 1) {
-    const p = profiles.find((x) => x.id === access.entries[0]!.profileId);
-    return p ? profileLabel(p) : "1 profile";
-  }
-  return `${access.entries.length} profiles`;
-}
-
-function accessEqual(a: AccessValue, b: AccessValue): boolean {
-  if (a.mode === "all" && b.mode === "all") return a.role === b.role;
-  if (a.mode === "profiles" && b.mode === "profiles") {
-    if (a.entries.length !== b.entries.length) return false;
-    const bByProfile = new Map(b.entries.map((e) => [e.profileId, e.role]));
-    return a.entries.every((e) => bByProfile.get(e.profileId) === e.role);
-  }
-  return false;
-}
-
-/** Checkbox list: "All profiles" (one role) or a set of profiles each at its own role. */
-function ProfileScopeEditor({
-  value,
-  onChange,
-  profiles,
-}: {
-  value: AccessValue;
-  onChange: (v: AccessValue) => void;
-  profiles: ProfileOption[];
-}) {
-  const isAll = value.mode === "all";
-  const entries = value.mode === "profiles" ? value.entries : [];
-  const roleOf = (id: string) => entries.find((e) => e.profileId === id)?.role;
-  // Role to seed a newly-ticked profile with (carry the current one along).
-  const seedRole: WorkspaceRole = isAll ? value.role : (entries[0]?.role ?? "viewer");
-
-  function toggleProfile(id: string, checked: boolean) {
-    const next = checked
-      ? [...entries.filter((e) => e.profileId !== id), { profileId: id, role: seedRole }]
-      : entries.filter((e) => e.profileId !== id);
-    onChange({ mode: "profiles", entries: next });
-  }
-
-  return (
-    <div className="space-y-1">
-      <label className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-accent">
-        <Checkbox
-          checked={isAll}
-          onCheckedChange={(c) => c && onChange({ mode: "all", role: seedRole })}
-          aria-label="All profiles"
-        />
-        <span className="flex-1 text-sm font-medium">All profiles</span>
-        {isAll && (
-          <RoleSelect
-            value={value.role}
-            onChange={(r) => onChange({ mode: "all", role: r })}
-            className="h-7 w-[5.5rem]"
-            ariaLabel="Role for all profiles"
-          />
-        )}
-      </label>
-      <Separator />
-      <div className="max-h-56 space-y-0.5 overflow-y-auto">
-        {profiles.map((p) => {
-          const checked = !isAll && roleOf(p.id) !== undefined;
-          return (
-            <label
-              key={p.id}
-              className="flex cursor-pointer items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-accent"
-            >
-              <Checkbox
-                checked={checked}
-                onCheckedChange={(c) => toggleProfile(p.id, c === true)}
-                aria-label={p.name}
-              />
-              <span
-                className={cn("min-w-0 flex-1 truncate text-sm", isAll && "text-muted-foreground")}
-              >
-                {profileLabel(p)}
-              </span>
-              {checked && (
-                <RoleSelect
-                  value={roleOf(p.id)!}
-                  onChange={(r) =>
-                    onChange({
-                      mode: "profiles",
-                      entries: entries.map((e) => (e.profileId === p.id ? { ...e, role: r } : e)),
-                    })
-                  }
-                  className="h-7 w-[5.5rem]"
-                  ariaLabel={`Role for ${p.name}`}
-                />
-              )}
-            </label>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/** Popover used in the invite form — a controlled scope picker, no Save (the
- *  form's Add button commits). */
-function AccessPicker({
-  value,
-  onChange,
-  profiles,
-  className,
-}: {
-  value: AccessValue;
-  onChange: (v: AccessValue) => void;
-  profiles: ProfileOption[];
-  className?: string;
-}) {
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className={cn("h-8 justify-between gap-2 font-normal", className)}
-        >
-          <span className="truncate">{accessSummary(value, profiles)}</span>
-          <ChevronDown className="size-3.5 shrink-0 opacity-60" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" closeOnOutsideClick className="w-72">
-        <ProfileScopeEditor value={value} onChange={onChange} profiles={profiles} />
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-/** Popover used on a person/invite row — edits a draft and commits on Save. */
-function AccessEditor({
-  current,
-  profiles,
-  pending,
-  onSave,
-}: {
-  current: AccessValue;
-  profiles: ProfileOption[];
-  pending: boolean;
-  onSave: (v: AccessValue) => void;
-}) {
-  const [open, setOpen] = React.useState(false);
-  const [draft, setDraft] = React.useState<AccessValue>(current);
-  const changed = !accessEqual(draft, current);
-  const invalid = draft.mode === "profiles" && draft.entries.length === 0;
-
-  return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) setDraft(current); // seed the draft fresh each time it opens
-      }}
-    >
-      <PopoverTrigger asChild>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={pending}
-          className="h-8 max-w-[10rem] justify-between gap-1.5 font-normal"
-        >
-          <span className="truncate">{accessSummary(current, profiles)}</span>
-          <ChevronDown className="size-3.5 shrink-0 opacity-60" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" closeOnOutsideClick className="w-72">
-        <ProfileScopeEditor value={draft} onChange={setDraft} profiles={profiles} />
-        <div className="flex justify-end gap-2 pt-1">
-          <Button type="button" variant="ghost" size="sm" onClick={() => setOpen(false)}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={pending || !changed || invalid}
-            onClick={() => {
-              onSave(draft);
-              setOpen(false);
-            }}
-          >
-            Save
-          </Button>
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-/** Read-only access display (owner, and non-admin members). */
-function AccessBadges({ access, profiles }: { access: AccessValue; profiles: ProfileOption[] }) {
-  if (access.mode === "all") {
-    return (
-      <Badge variant="outline" className="capitalize">
-        {access.role}
-      </Badge>
-    );
-  }
-  return <Badge variant="outline">{accessSummary(access, profiles)}</Badge>;
-}
 
 /** Wraps a trigger in a destructive confirmation dialog before running `onConfirm`. */
 function ConfirmAction({
@@ -358,17 +97,24 @@ export function WorkspaceSettings({
   currentUserId,
   collaborators,
   invites,
+  spaces,
   profiles,
+  usage,
 }: {
   workspace: { id: string; name: string; icon: string | null; role: WorkspaceRole | null };
   currentUserId: string;
   collaborators: Collaborator[];
   invites: PendingInvite[];
-  profiles: ProfileOption[];
+  /** The workspace's spaces, in sidebar order (every space, for admins). */
+  spaces: NamedOption[];
+  profiles: NamedOption[];
+  /** `getUsage(workspaceId)` — the plan & usage card, shown to everyone. */
+  usage: UsageData;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const { canWrite } = usePermissions();
+  const { reportFailure } = usePlan();
   const isAdmin = workspace.role === "admin";
   const isMember = workspace.role !== null;
 
@@ -376,18 +122,28 @@ export function WorkspaceSettings({
   const [icon, setIcon] = React.useState(workspace.icon ?? DEFAULT_WORKSPACE_ICON);
   const [createOpen, setCreateOpen] = React.useState(false);
 
-  // Invite form state.
+  // Invite form state. A new person starts as a viewer in every space.
+  const freshAccess = (): AccessValue => ({
+    mode: "all",
+    role: "viewer",
+    spaceIds: spaces.map((s) => s.id),
+  });
   const [email, setEmail] = React.useState("");
-  const [draftAccess, setDraftAccess] = React.useState<AccessValue>({ mode: "all", role: "viewer" });
+  const [draftAccess, setDraftAccess] = React.useState<AccessValue>(freshAccess);
 
-  function run(fn: () => Promise<{ ok: boolean; error?: string }>, okMessage?: string) {
+  function run(
+    fn: () => Promise<{ ok: boolean; error?: string; code?: string; details?: unknown }>,
+    okMessage?: string,
+  ) {
     startTransition(async () => {
       const res = await fn();
       if (res.ok) {
         if (okMessage) toast.success(okMessage);
         router.refresh();
       } else {
-        toast.error(res.error ?? "Something went wrong");
+        // A plan limit (member cap, per-profile access on Free) opens the
+        // upgrade dialog; anything else toasts.
+        reportFailure(res);
       }
     });
   }
@@ -423,10 +179,10 @@ export function WorkspaceSettings({
             : "Invite sent — access unlocks when they sign up",
         );
         setEmail("");
-        setDraftAccess({ mode: "all", role: "viewer" });
+        setDraftAccess(freshAccess());
         router.refresh();
       } else {
-        toast.error(res.error);
+        reportFailure(res);
       }
     });
   }
@@ -493,14 +249,16 @@ export function WorkspaceSettings({
         </CardContent>
       </Card>
 
+      <UsagePanel usage={usage} />
+
       {isMember && (
         <Card>
           <CardHeader>
             <CardTitle>People with access</CardTitle>
             <CardDescription>
-              Who can open this workspace, and what they can reach. Give access to every profile,
-              or pick specific profiles — each at its own role (viewer reads, editor writes
-              transactions, admin manages everything).
+              Who can open this workspace, and what they can reach. Viewers read, editors read and
+              write, admins manage everything and see every space. Give viewers and editors the
+              spaces they need — on Plus and Pro you can also share single profiles.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -526,8 +284,9 @@ export function WorkspaceSettings({
                   <AccessPicker
                     value={draftAccess}
                     onChange={setDraftAccess}
+                    spaces={spaces}
                     profiles={profiles}
-                    className="w-full lg:w-48"
+                    className="w-full lg:w-52"
                   />
                 </div>
                 <Button
@@ -560,6 +319,7 @@ export function WorkspaceSettings({
                   {isAdmin && !c.isOwner ? (
                     <AccessEditor
                       current={c.access}
+                      spaces={spaces}
                       profiles={profiles}
                       pending={pending}
                       onSave={(v) =>
@@ -567,7 +327,7 @@ export function WorkspaceSettings({
                       }
                     />
                   ) : (
-                    <AccessBadges access={c.access} profiles={profiles} />
+                    <AccessBadge access={c.access} spaces={spaces} profiles={profiles} />
                   )}
                   {/* Only admins can remove people — including themselves (never the owner). */}
                   {isAdmin && !c.isOwner && (
@@ -637,6 +397,7 @@ export function WorkspaceSettings({
                       </div>
                       <AccessEditor
                         current={i.access}
+                        spaces={spaces}
                         profiles={profiles}
                         pending={pending}
                         onSave={(v) =>

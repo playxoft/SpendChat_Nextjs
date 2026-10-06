@@ -55,8 +55,10 @@ const TEMPERATURE = 0;
 const REQUEST_TIMEOUT_MS = 20_000;
 
 // Transcription is heavier than a text completion: it uploads the audio and the
-// model processes up to a minute of speech, so it gets a longer ceiling than the
-// 20s parse budget. Still bounded, so a stalled provider can't hang the request.
+// model processes up to two minutes of speech (`VOICE.maxClipMs`), so it gets a
+// longer ceiling than the 20s parse budget. Models transcribe well faster than
+// real time, so 45s still has headroom at the longer clip. Still bounded, so a
+// stalled provider can't hang the request.
 const TRANSCRIBE_TIMEOUT_MS = 45_000;
 
 /** Config missing / misconfigured — user-facing, distinct from an upstream failure. */
@@ -108,17 +110,125 @@ type GeminiResponse = {
     finishReason?: string;
   }>;
   promptFeedback?: { blockReason?: string };
+  usageMetadata?: {
+    promptTokenCount?: number;
+    candidatesTokenCount?: number;
+    /** Reasoning tokens, billed at the output rate — absent when thinking is off. */
+    thoughtsTokenCount?: number;
+    promptTokensDetails?: Array<{ modality?: string; tokenCount?: number }>;
+  };
 };
 type OpenAiResponse = {
   choices?: Array<{
     message?: { content?: string | null; refusal?: string | null };
     finish_reason?: string;
   }>;
+  usage?: { prompt_tokens?: number; completion_tokens?: number };
 };
 type AnthropicResponse = {
   content?: Array<{ type?: string; text?: string }>;
   stop_reason?: string;
+  usage?: { input_tokens?: number; output_tokens?: number };
 };
+/**
+ * `/audio/transcriptions` in `json` mode. `usage` is newer and host-dependent:
+ * the token-billed models report `{ type: "tokens", input_tokens, output_tokens }`,
+ * Whisper reports `{ type: "duration", seconds }`, and some hosts send neither.
+ */
+type OpenAiTranscriptionResponse = {
+  text?: string;
+  usage?: { type?: string; input_tokens?: number; output_tokens?: number; seconds?: number };
+};
+
+// ── Usage metadata ──────────────────────────────────────────────────────────
+
+/**
+ * What one provider call consumed, read from the provider's own usage metadata
+ * and recorded on the call's `ai_usage_log` row (see `withAiCharge` in
+ * `ai-quota.ts`), so the pricing plan's cost estimates can be replaced with
+ * measured numbers. A field the provider doesn't report is null — a missing
+ * number is never guessed.
+ *
+ * `outputTokens` includes reasoning ("thinking") tokens where the provider
+ * reports them separately, since they're billed at the output rate.
+ * `audioMs` is the audio the *provider* measured, not what the client claimed,
+ * which is what makes a client that under-declares its clip length visible.
+ */
+export type AiUsage = {
+  inputTokens: number | null;
+  outputTokens: number | null;
+  audioMs: number | null;
+};
+
+/** A provider's reply text plus whatever usage it reported. */
+export type ProviderReply = { text: string; usage: AiUsage | null };
+
+/** Gemini bills audio at a flat 32 tokens per second of input. */
+const GEMINI_AUDIO_TOKENS_PER_SECOND = 32;
+
+/** A count from untrusted JSON: a finite, non-negative number, else null. */
+function tokenCount(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.round(value) : null;
+}
+
+/** `a + b`, treating a missing side as 0 — null only when both are missing. */
+function sumCounts(a: number | null, b: number | null): number | null {
+  return a === null && b === null ? null : (a ?? 0) + (b ?? 0);
+}
+
+/** null when every field is null, so "the provider told us nothing" stays one value. */
+function usageOrNull(usage: AiUsage): AiUsage | null {
+  return usage.inputTokens === null && usage.outputTokens === null && usage.audioMs === null
+    ? null
+    : usage;
+}
+
+function geminiUsage(json: GeminiResponse): AiUsage | null {
+  const meta = json.usageMetadata;
+  if (!meta || typeof meta !== "object") return null;
+  const audioTokens = Array.isArray(meta.promptTokensDetails)
+    ? meta.promptTokensDetails
+        .filter((d) => d?.modality === "AUDIO")
+        .reduce<number | null>((sum, d) => sumCounts(sum, tokenCount(d.tokenCount)), null)
+    : null;
+  return usageOrNull({
+    inputTokens: tokenCount(meta.promptTokenCount),
+    outputTokens: sumCounts(tokenCount(meta.candidatesTokenCount), tokenCount(meta.thoughtsTokenCount)),
+    audioMs:
+      audioTokens === null ? null : Math.round((audioTokens / GEMINI_AUDIO_TOKENS_PER_SECOND) * 1000),
+  });
+}
+
+function openAiUsage(json: OpenAiResponse): AiUsage | null {
+  const u = json.usage;
+  if (!u || typeof u !== "object") return null;
+  return usageOrNull({
+    inputTokens: tokenCount(u.prompt_tokens),
+    outputTokens: tokenCount(u.completion_tokens),
+    audioMs: null,
+  });
+}
+
+function anthropicUsage(json: AnthropicResponse): AiUsage | null {
+  const u = json.usage;
+  if (!u || typeof u !== "object") return null;
+  return usageOrNull({
+    inputTokens: tokenCount(u.input_tokens),
+    outputTokens: tokenCount(u.output_tokens),
+    audioMs: null,
+  });
+}
+
+function openAiTranscriptionUsage(json: OpenAiTranscriptionResponse): AiUsage | null {
+  const u = json.usage;
+  if (!u || typeof u !== "object") return null;
+  const seconds = typeof u.seconds === "number" && Number.isFinite(u.seconds) && u.seconds >= 0 ? u.seconds : null;
+  return usageOrNull({
+    inputTokens: tokenCount(u.input_tokens),
+    outputTokens: tokenCount(u.output_tokens),
+    audioMs: seconds === null ? null : Math.round(seconds * 1000),
+  });
+}
 
 /** Which caller a request belongs to — names the log event, nothing more. */
 type Feature = "parse" | "transcribe";
@@ -205,7 +315,7 @@ function noContent(
   throw aiFailed();
 }
 
-async function callGemini(cfg: ModelConfig, system: string, userText: string): Promise<string> {
+async function callGemini(cfg: ModelConfig, system: string, userText: string): Promise<ProviderReply> {
   const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
   const json = (await post(
     `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`,
@@ -238,10 +348,10 @@ async function callGemini(cfg: ModelConfig, system: string, userText: string): P
       blockReason: json.promptFeedback?.blockReason ?? null,
     });
   }
-  return text;
+  return { text, usage: geminiUsage(json) };
 }
 
-async function callOpenAI(cfg: ModelConfig, system: string, userText: string): Promise<string> {
+async function callOpenAI(cfg: ModelConfig, system: string, userText: string): Promise<ProviderReply> {
   // OpenAI Chat-Completions shape — also serves DeepSeek / Llama hosts / any
   // OpenAI-compatible endpoint via cfg.baseUrl. `json_object` mode is the most
   // portable structured output across those providers; the exact shape is
@@ -276,10 +386,10 @@ async function callOpenAI(cfg: ModelConfig, system: string, userText: string): P
       finishReason: choice?.finish_reason ?? null,
     });
   }
-  return message.content;
+  return { text: message.content, usage: openAiUsage(json) };
 }
 
-async function callAnthropic(cfg: ModelConfig, system: string, userText: string): Promise<string> {
+async function callAnthropic(cfg: ModelConfig, system: string, userText: string): Promise<ProviderReply> {
   const base = cfg.baseUrl || "https://api.anthropic.com/v1";
   const json = (await post(
     `${base.replace(/\/$/, "")}/messages`,
@@ -299,7 +409,7 @@ async function callAnthropic(cfg: ModelConfig, system: string, userText: string)
     .map((b) => b.text)
     .join("");
   if (!text.trim()) noContent("anthropic", "parse", { stopReason: json.stop_reason ?? null });
-  return text;
+  return { text, usage: anthropicUsage(json) };
 }
 
 /** Dispatch to the adapter for this config's protocol, normalizing failures. */
@@ -308,6 +418,18 @@ export async function callProvider(
   system: string,
   userText: string,
 ): Promise<string> {
+  return (await callProviderWithUsage(cfg, system, userText)).text;
+}
+
+/**
+ * `callProvider`, plus the usage the provider reported for the call — what the
+ * parse path records against the charged `ai_usage_log` row.
+ */
+export async function callProviderWithUsage(
+  cfg: ModelConfig,
+  system: string,
+  userText: string,
+): Promise<ProviderReply> {
   try {
     switch (cfg.provider) {
       case "openai":
@@ -352,7 +474,7 @@ export type AudioInput = { bytes: Uint8Array; mimeType: string };
  * `thinkingBudget` with `thinkingLevel` and reject the old field outright, and
  * transcription has no reasoning worth suppressing anyway.
  */
-async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<string> {
+async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<ProviderReply> {
   const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
   const json = (await post(
     `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`,
@@ -393,7 +515,7 @@ async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioIn
       blockReason: json.promptFeedback?.blockReason ?? null,
     });
   }
-  return parts.map((p) => p.text ?? "").join("");
+  return { text: parts.map((p) => p.text ?? "").join(""), usage: geminiUsage(json) };
 }
 
 /**
@@ -406,7 +528,7 @@ async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioIn
  * don't send — forcing one language on code-mixed speech transliterates the rest
  * into that script, so auto-detect wins). See `ai-transcribe.ts`.
  */
-async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<string> {
+async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<ProviderReply> {
   const base = cfg.baseUrl || "https://api.openai.com/v1";
   const form = new FormData();
   form.append("model", cfg.model);
@@ -426,11 +548,11 @@ async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioIn
     "openai",
     "transcribe",
     TRANSCRIBE_TIMEOUT_MS,
-  )) as { text?: string };
+  )) as OpenAiTranscriptionResponse;
 
   // As with Gemini: an empty transcript means "no speech", not "call failed".
   if (typeof json.text !== "string") noContent("openai", "transcribe");
-  return json.text;
+  return { text: json.text, usage: openAiTranscriptionUsage(json) };
 }
 
 /**
@@ -477,6 +599,15 @@ export async function transcribeProvider(
   prompt: string,
   audio: AudioInput,
 ): Promise<string> {
+  return (await transcribeProviderWithUsage(cfg, prompt, audio)).text;
+}
+
+/** `transcribeProvider`, plus the usage the provider reported for the call. */
+export async function transcribeProviderWithUsage(
+  cfg: ModelConfig,
+  prompt: string,
+  audio: AudioInput,
+): Promise<ProviderReply> {
   if (cfg.provider === "anthropic") {
     logger.error("AI transcribe misconfigured — Anthropic has no speech-to-text model", {
       event: "ai.transcribe.bad_config",

@@ -34,7 +34,7 @@ import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
 import { primaryBcp47 } from "@/lib/voice-languages";
 import { useVoiceRecorder } from "@/hooks/use-voice-recorder";
 import { useBulkSelecting } from "@/hooks/use-bulk-selecting";
-import { hasOpenOverlay, useHoldShortcut, useIsMac } from "@/hooks/use-shortcut";
+import { hasOpenOverlay, useHoldShortcut, useIsMac, useShortcut } from "@/hooks/use-shortcut";
 import {
   comboFor,
   describeShortcut,
@@ -44,6 +44,9 @@ import {
 } from "@/lib/shortcuts";
 import { VoiceListeningStrip, VoiceMicButton } from "./voice-mic";
 import { useLoadingOverlay } from "./loading-overlay";
+import { usePlan } from "./upgrade-dialog";
+import { PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
+import type { PlanLimitInfo } from "@/lib/plan-limit";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
@@ -276,6 +279,12 @@ export function AiTransactionInput({
   // Hidden behind the feed's multi-select bar: the window-bound voice hold and
   // Enter-to-save below must not act on a pane nobody can see.
   const bulkSelecting = useBulkSelecting();
+  // Voice entry is a Pro feature (grandfathered workspaces keep it during
+  // grace). Without it the mic and the hold-M hint are hidden, and M opens the
+  // upgrade dialog instead of recording. Plan-limit failures from the model
+  // calls below open the same dialog.
+  const { voiceAllowed, plan, showUpgrade, reportFailure } = usePlan();
+  const voiceUpgrade: PlanLimitInfo = { limit: "voice", plan, upgradeTo: lowestPlanWith("voice") };
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
   const idRef = useRef(0);
   const nextKey = () => ++idRef.current;
@@ -287,6 +296,9 @@ export function AiTransactionInput({
 
   // "/" category autocomplete over the note textarea.
   const taRef = useRef<HTMLTextAreaElement>(null);
+  // Whether a dictated clip went into the current note since its last parse —
+  // decides the parse's `source` (see `handleParse`).
+  const dictatedRef = useRef(false);
   const [caret, setCaret] = useState(0);
   const [categoryDismissed, setCategoryDismissed] = useState(false);
   const [categoryIndex, setCategoryIndex] = useState(0);
@@ -405,6 +417,7 @@ export function AiTransactionInput({
     setRows(null);
     setCaret(0);
     setCategoryDismissed(false);
+    dictatedRef.current = false;
   }
 
   // Replace the "/query" before the caret with the picked category name.
@@ -502,12 +515,19 @@ export function AiTransactionInput({
       toast.error("Type a note first");
       return;
     }
+    // A note with a dictated clip in it parses as "voice": the clip's charge
+    // already covered one parse (one action per started minute for transcribe
+    // + parse together). Only the first parse after a clip — a re-parse of the
+    // same note is a typed one, and the server pairs each voice parse with a
+    // transcribe anyway.
+    const source = dictatedRef.current ? "voice" : "typed";
     startParse(async () => {
-      const res = await parseTransactionsWithAI(note);
+      const res = await parseTransactionsWithAI(note, { source });
       if (!res.ok) {
-        toast.error(res.error);
+        reportFailure(res);
         return;
       }
+      dictatedRef.current = false;
       // Resolve against the list that came back with the drafts, not against
       // `knownTags`. The server resolved these names live; this page's copy can
       // be older (a teammate added a tag since it rendered), and a name it
@@ -547,9 +567,12 @@ export function AiTransactionInput({
       const body = new FormData();
       body.append("audio", audio.blob, "voice-note");
       body.append("mimeType", audio.mimeType);
+      // The clip's length is what it's charged by (one AI action per started
+      // minute); without it the server charges the longest allowed clip.
+      body.append("durationMs", String(Math.round(audio.durationMs)));
       const res = await transcribeVoiceNoteAction(body);
       if (!res.ok) {
-        toast.error(res.error);
+        reportFailure(res);
         return;
       }
       // Read the note off the textarea rather than through a `setText` updater:
@@ -566,6 +589,7 @@ export function AiTransactionInput({
         toast.warning("Your note is full — the end of that recording was cut off.");
       }
       setText(joined.slice(0, MAX_INPUT_CHARS));
+      dictatedRef.current = true;
       setCategoryDismissed(true);
       requestAnimationFrame(() => {
         const node = taRef.current;
@@ -590,7 +614,12 @@ export function AiTransactionInput({
   // button itself, which watches for being disabled mid-gesture.)
   const voiceEnabled = mode === "ai" && !rows && !parsing && !switching && !bulkSelecting;
   useHoldShortcut(voiceCombo, voice.start, voice.stop, {
-    enabled: voiceEnabled,
+    enabled: voiceEnabled && voiceAllowed,
+    requireNoOverlay: true,
+  });
+  // Without voice on this plan, the same key explains why instead of recording.
+  useShortcut(voiceCombo, () => showUpgrade(voiceUpgrade), {
+    enabled: voiceEnabled && !voiceAllowed,
     requireNoOverlay: true,
   });
 
@@ -625,7 +654,7 @@ export function AiTransactionInput({
         toast.success(`Added ${res.count} transaction${res.count === 1 ? "" : "s"}`);
         reset();
       } else {
-        toast.error(res.error);
+        reportFailure(res);
       }
     });
   }
@@ -1054,8 +1083,11 @@ export function AiTransactionInput({
               "flex-1 resize-none md:text-base",
               mode === "ai" ? "field-sizing-content" : "field-sizing-fixed",
               dense
-                ? "min-h-[4.625rem] pr-20 pb-10 placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap"
-                : "min-h-[6.125rem] pr-24 pb-10",
+                ? "min-h-[4.625rem] pb-10 placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap"
+                : "min-h-[6.125rem] pb-10",
+              // Room for the mic + send pair, or for send alone when this plan
+              // has no voice entry.
+              voiceAllowed ? (dense ? "pr-20" : "pr-24") : dense ? "pr-11" : "pr-12",
             )}
             disabled={parsing}
           />
@@ -1064,15 +1096,17 @@ export function AiTransactionInput({
               this cluster, so every pixel it gives back is a pixel off the card —
               which both modes share. */}
           <div className="absolute right-1.5 bottom-1 flex items-center gap-1">
-            <VoiceMicButton
-              state={voice.state}
-              level={voice.level}
-              disabled={parsing}
-              onStart={voice.start}
-              onStop={voice.stop}
-              hint={voiceHint ? `hold ${voiceHint}` : undefined}
-              dense={dense}
-            />
+            {voiceAllowed && (
+              <VoiceMicButton
+                state={voice.state}
+                level={voice.level}
+                disabled={parsing}
+                onStart={voice.start}
+                onStop={voice.stop}
+                hint={voiceHint ? `hold ${voiceHint}` : undefined}
+                dense={dense}
+              />
+            )}
             <Button
               type="button"
               onClick={handleParse}
@@ -1100,11 +1134,29 @@ export function AiTransactionInput({
             {/* `describe`: the chip is the subject of this sentence, and the
                 glyphs are `aria-hidden`, so without it the line read aloud as
                 "Type or hold to speak". */}
-            Type or hold{" "}
-            <Kbd combo={voiceCombo} className="align-middle" describe /> to speak — use{" "}
+            {voiceAllowed ? (
+              <>
+                Type or hold{" "}
+                <Kbd combo={voiceCombo} className="align-middle" describe /> to speak — use{" "}
+              </>
+            ) : (
+              <>Type a note — use </>
+            )}
             <span className="font-mono text-foreground">/</span> for a category,{" "}
             <span className="font-mono text-foreground">#</span> for tags and{" "}
             <span className="font-mono text-foreground">( )</span> for a note.
+            {!voiceAllowed && (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  onClick={() => showUpgrade(voiceUpgrade)}
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  Voice entry is on {PLAN_NAMES[voiceUpgrade.upgradeTo ?? "pro"]}
+                </button>
+              </>
+            )}
           </p>
         )}
 

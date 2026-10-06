@@ -169,6 +169,7 @@ describe("addProfile", () => {
     await addProfile({ name: "Work" });
     expect(await addProfile({ name: "Work" })).toEqual({
       ok: false,
+      code: "conflict",
       error: "A profile with that name already exists",
     });
   });
@@ -198,6 +199,7 @@ describe("updateProfile", () => {
     expect((await updateProfile({ id: "bad" })).ok).toBe(false);
     expect(await updateProfile({ id: work.id, name: "Personal" })).toEqual({
       ok: false,
+      code: "conflict",
       error: "A profile with that name already exists",
     });
   });
@@ -207,7 +209,7 @@ describe("deleteProfile", () => {
   it("rejects an invalid id", async () => {
     signInAs("a");
     await bootstrapUser("a");
-    expect(await deleteProfile("nope")).toEqual({ ok: false, error: "Invalid profile" });
+    expect(await deleteProfile("nope")).toEqual({ ok: false, code: "validation_error", error: "Invalid profile" });
   });
 
   it("refuses to delete the only profile", async () => {
@@ -216,6 +218,7 @@ describe("deleteProfile", () => {
     const id = await firstProfileId("a");
     expect(await deleteProfile(id)).toEqual({
       ok: false,
+      code: "conflict",
       error: "You need at least one profile",
     });
   });
@@ -233,6 +236,7 @@ describe("deleteProfile", () => {
     });
     expect(await deleteProfile(work.id)).toEqual({
       ok: false,
+      code: "conflict",
       error: "Move this profile's transactions to another profile first",
     });
   });
@@ -547,6 +551,7 @@ describe("deleteProfile", () => {
 
     expect(result).toEqual({
       ok: false,
+      code: "conflict",
       error: "Something was added to this profile while it was being deleted — try again",
     });
     // Everything is exactly as it was: the profile, its transaction, and the
@@ -621,6 +626,7 @@ describe("getProfileDeletionImpact", () => {
     await bootstrapUser("a");
     expect(await getProfileDeletionImpact("nope")).toEqual({
       ok: false,
+      code: "validation_error",
       error: "Invalid profile",
     });
   });
@@ -655,6 +661,7 @@ describe("moveProfileTransactions", () => {
     expect((await moveProfileTransactions("x", "y")).ok).toBe(false);
     expect(await moveProfileTransactions(personal, personal)).toEqual({
       ok: false,
+      code: "validation_error",
       error: "Invalid profiles",
     });
   });
@@ -667,6 +674,7 @@ describe("moveProfileTransactions", () => {
     const foreign = await firstProfileId("b");
     expect(await moveProfileTransactions(personal, foreign)).toEqual({
       ok: false,
+      code: "not_found",
       error: "Profile not found",
     });
   });

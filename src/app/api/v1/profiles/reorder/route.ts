@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { getApiContext } from "@/lib/api-auth";
 import { apiOk, handle, readJson } from "@/lib/api-response";
 import { serializeProfile } from "@/lib/api-serializers";
+import { profileRolesFor } from "@/lib/workspaces";
 import { reorderProfiles, listProfiles } from "@/services/profiles";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +17,10 @@ export async function POST(request: NextRequest) {
     const { user, workspace } = await getApiContext(request);
     const body = (await readJson(request)) as { ids?: string[] };
     await reorderProfiles(user.id, workspace.id, body?.ids ?? []);
-    const rows = await listProfiles(user.id, workspace.id);
-    return apiOk(rows.map(serializeProfile));
+    const [rows, roles] = await Promise.all([
+      listProfiles(user.id, workspace.id),
+      profileRolesFor(user.id, workspace.id),
+    ]);
+    return apiOk(rows.map((p) => serializeProfile(p, roles.get(p.id) ?? "viewer")));
   });
 }

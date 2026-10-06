@@ -37,7 +37,17 @@ function isCrossSite(request: NextRequest): boolean {
 
 function fail(err: unknown): Response {
   if (err instanceof ApiError) {
-    return Response.json({ error: err.message }, { status: err.status });
+    // `code` + `details` let the uploader tell a full plan quota
+    // (`storage_quota_exceeded`, with the plan in `details`) from other errors
+    // and offer the upgrade.
+    return Response.json(
+      {
+        error: err.message,
+        code: err.code,
+        ...(err.details !== undefined ? { details: err.details } : {}),
+      },
+      { status: err.status },
+    );
   }
   logger.error(`Vault upload failed: ${describeError(err)}`, {
     event: "vault.upload_failed",

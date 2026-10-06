@@ -101,8 +101,9 @@ export function defaultWorkspaceName(name?: string | null, email?: string | null
  * current request (`onConflictDoNothing` means detection only ever applies to
  * a first sign-in — an existing user's currency is never silently changed).
  *
- * Every user owns a default workspace ("<name>'s Workspace", named from the
- * `users` row) with an admin membership and a "Personal" profile.
+ * Every user owns a personal organisation and a default workspace in it
+ * ("<name>'s Workspace", named from the `users` row) with an admin membership,
+ * a "Main" space and a "Personal" profile.
  * On that first bootstrap, pending email invites are converted into
  * memberships/profile grants — invites only ever exist for emails that had no
  * account when they were invited (known accounts are added directly) — and the
@@ -130,6 +131,10 @@ export async function ensureBootstrap(userId: string) {
     await createWorkspaceWithDefaults(userId, defaultWorkspaceName(identity?.name, identity?.email), {
       currency: defaults.currency,
       locale: defaults.locale,
+      // Names the personal organisation this first workspace creates.
+      ownerDisplayName: identity?.name?.trim() || identity?.email?.split("@")[0] || null,
+      // Parallel first requests all reach this branch; only one may create.
+      ifNoneOwned: true,
     });
     if (identity?.email) await acceptPendingInvites(userId, identity.email);
     await sendWelcomeEmailOnce(userId, { currency: defaults.currency, locale: defaults.locale });

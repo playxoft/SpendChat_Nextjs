@@ -1,9 +1,12 @@
 import "server-only";
-import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   profileAccess,
+  profileOverrides,
   profiles,
+  spaceMembers,
+  spaces,
   userSettings,
   workspaceInvites,
   workspaceMembers,
@@ -15,12 +18,20 @@ import { findUserByEmail, findUserById, findUsersByIds } from "@/lib/directory";
 import { redactEmail, sendEmail } from "@/lib/email";
 import { inviteEmail, siteUrl, type InviteScope } from "@/lib/email-templates";
 import { assertEmailSendAllowed } from "@/lib/email-quota";
+import {
+  assertCanAddMember,
+  assertCanCreateFreeWorkspace,
+  assertProfileLevelAccess,
+  assertWorkspaceWritable,
+} from "@/lib/entitlements";
 import { badRequest, conflict, forbidden, notFound } from "@/lib/errors";
 import { generateInviteToken, invitePath, openWorkspacePath } from "@/lib/invite-links";
+import { atLeastRole } from "@/lib/rbac";
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
 import {
   convertInvites,
+  convertibleInviteColumns,
   createWorkspaceWithDefaults,
   getWorkspaceRole,
   listUserWorkspaces,
@@ -61,11 +72,14 @@ export async function listWorkspaces(userId: string): Promise<WorkspaceSummary[]
 export async function createWorkspace(userId: string, input: unknown): Promise<WorkspaceSummary> {
   const { name, icon } = parseOrThrow(createWorkspaceSchema, input);
   await ensureBootstrap(userId);
+  // One free workspace per person (abuse rule C5); more need a paid plan each.
+  await assertCanCreateFreeWorkspace(userId);
   // A new workspace inherits the creator's current currency/number format, so a
   // non-USD user doesn't land on a USD workspace by default.
   const current = await getCurrentWorkspace(userId);
   const created = await createWorkspaceWithDefaults(userId, name, {
     makeCurrent: true,
+    requireNoFreeWorkspace: true,
     currency: current.currency,
     locale: current.locale,
     // Empty/omitted icon falls back to the default inside the helper.
@@ -164,7 +178,8 @@ export async function listMembers(userId: string, workspaceId: string): Promise<
 
 /** A person's resolved access — workspace-wide, or a set of profiles with roles. */
 export type CollaboratorAccess =
-  | { mode: "all"; role: WorkspaceRole }
+  /** A workspace member. `spaceIds`: the spaces a non-admin is in (admins see all). */
+  | { mode: "all"; role: WorkspaceRole; spaceIds?: string[] }
   | {
       mode: "profiles";
       entries: {
@@ -195,7 +210,7 @@ export async function listCollaborators(
   await requireWorkspaceRole(userId, workspaceId, "admin");
   const db = getDb();
 
-  const [workspace, members, grants] = await Promise.all([
+  const [workspace, members, memberSpaces, grants] = await Promise.all([
     db.query.workspaces.findFirst({
       where: eq(workspaces.id, workspaceId),
       columns: { ownerId: true },
@@ -205,6 +220,12 @@ export async function listCollaborators(
       .from(workspaceMembers)
       .where(eq(workspaceMembers.workspaceId, workspaceId))
       .orderBy(asc(workspaceMembers.createdAt)),
+    db
+      .select({ userId: spaceMembers.userId, spaceId: spaceMembers.spaceId })
+      .from(spaceMembers)
+      .innerJoin(spaces, eq(spaceMembers.spaceId, spaces.id))
+      .where(eq(spaces.workspaceId, workspaceId))
+      .orderBy(asc(spaces.position), asc(spaces.createdAt)),
     db
       .select({
         userId: profileAccess.userId,
@@ -242,12 +263,21 @@ export async function listCollaborators(
     email: directory.get(id)?.email ?? null,
   });
 
+  const spacesByUser = new Map<string, string[]>();
+  for (const r of memberSpaces) {
+    const list = spacesByUser.get(r.userId);
+    if (list) list.push(r.spaceId);
+    else spacesByUser.set(r.userId, [r.spaceId]);
+  }
+
   const rows: CollaboratorRow[] = [
     ...members.map((m) => ({
       userId: m.userId,
       ...named(m.userId),
       isOwner: m.userId === workspace?.ownerId,
-      access: { mode: "all", role: m.role } as CollaboratorAccess,
+      access: (m.role === "admin"
+        ? { mode: "all", role: m.role }
+        : { mode: "all", role: m.role, spaceIds: spacesByUser.get(m.userId) ?? [] }) as CollaboratorAccess,
     })),
     ...[...grantsByUser.entries()].map(([id, access]) => ({
       userId: id,
@@ -279,6 +309,7 @@ export async function listPendingInvites(
       email: workspaceInvites.email,
       role: workspaceInvites.role,
       profileId: workspaceInvites.profileId,
+      spaceIds: workspaceInvites.spaceIds,
       profileName: profiles.name,
       icon: profiles.icon,
     })
@@ -291,7 +322,13 @@ export async function listPendingInvites(
   for (const r of rows) {
     const cur = byEmail.get(r.email);
     if (r.profileId === null) {
-      byEmail.set(r.email, { email: r.email, access: { mode: "all", role: r.role } });
+      byEmail.set(r.email, {
+        email: r.email,
+        access:
+          r.role === "admin" || r.spaceIds === null
+            ? { mode: "all", role: r.role }
+            : { mode: "all", role: r.role, spaceIds: r.spaceIds },
+      });
       continue;
     }
     if (cur?.access.mode === "all") continue; // workspace-wide invite wins
@@ -317,7 +354,13 @@ async function describeAccessScope(
   workspaceId: string,
   access: AccessGrant,
 ): Promise<InviteScope> {
-  if (access.mode === "all") return { kind: "all", role: access.role };
+  if (access.mode === "all") {
+    if (access.role === "admin") return { kind: "all", role: access.role };
+    // Checked here, with the profiles below, so a stale space id costs an
+    // error message before any invite email (or its hourly quota) is spent.
+    const ids = await resolveGrantSpaces(db, workspaceId, access.spaceIds);
+    return { kind: "all", role: access.role, spaces: await spaceNamesUnlessAll(db, workspaceId, ids) };
+  }
   const ids = access.entries.map((e) => e.profileId);
   const rows = await db
     .select({ id: profiles.id, name: profiles.name })
@@ -334,6 +377,42 @@ async function describeAccessScope(
   };
 }
 
+/**
+ * The names of `spaceIds`, in sidebar order — or undefined when they are every
+ * space in the workspace, which the copy calls "all profiles". An invite to one
+ * space must never read as access to everything.
+ */
+async function spaceNamesUnlessAll(
+  db: ReturnType<typeof getDb>,
+  workspaceId: string,
+  spaceIds: string[],
+): Promise<string[] | undefined> {
+  const all = await db
+    .select({ id: spaces.id, name: spaces.name })
+    .from(spaces)
+    .where(eq(spaces.workspaceId, workspaceId))
+    .orderBy(asc(spaces.position), asc(spaces.createdAt));
+  const chosen = new Set(spaceIds);
+  if (all.every((sp) => chosen.has(sp.id))) return undefined;
+  return all.filter((sp) => chosen.has(sp.id)).map((sp) => sp.name);
+}
+
+/**
+ * Whether per-profile `next` only takes access away from `existing`: every
+ * entry is a profile they already have, at the same or a lower role. Such a
+ * change needs no plan feature.
+ */
+function onlyNarrows(
+  existing: { profileId: string; role: WorkspaceRole }[],
+  next: { profileId: string; role: WorkspaceRole }[],
+): boolean {
+  const had = new Map(existing.map((e) => [e.profileId, e.role]));
+  return next.every((e) => {
+    const before = had.get(e.profileId);
+    return before !== undefined && atLeastRole(before, e.role);
+  });
+}
+
 /** Count-only summary safe for log messages (no profile names — user data). */
 function accessLogSummary(access: AccessGrant): string {
   if (access.mode === "all") return "all profiles";
@@ -341,11 +420,140 @@ function accessLogSummary(access: AccessGrant): string {
 }
 
 /**
+ * The space ids an `all` grant puts a non-admin into: the listed ones (checked
+ * to belong to this workspace), or every space when the grant names none.
+ * Throws before anything is written, so a stale id costs an error message
+ * rather than half-applied access.
+ */
+async function resolveGrantSpaces(
+  db: ReturnType<typeof getDb>,
+  workspaceId: string,
+  spaceIds: string[] | undefined,
+): Promise<string[]> {
+  const all = await db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(eq(spaces.workspaceId, workspaceId))
+    .orderBy(asc(spaces.position), asc(spaces.createdAt));
+  if (spaceIds === undefined) return all.map((r) => r.id);
+  const allowed = new Set(all.map((r) => r.id));
+  for (const id of spaceIds) {
+    if (!allowed.has(id)) throw badRequest("Space is not in this workspace");
+  }
+  return spaceIds;
+}
+
+/**
+ * Remove a person's space memberships and per-profile overrides in one
+ * workspace — what leaving the workspace (or dropping to per-profile grants)
+ * must take with it, so a stale row can never grant access later.
+ */
+async function clearSpaceAccess(
+  db: ReturnType<typeof getDb>,
+  workspaceId: string,
+  targetUserId: string,
+): Promise<void> {
+  await db
+    .delete(spaceMembers)
+    .where(
+      and(
+        eq(spaceMembers.userId, targetUserId),
+        inArray(
+          spaceMembers.spaceId,
+          db.select({ id: spaces.id }).from(spaces).where(eq(spaces.workspaceId, workspaceId)),
+        ),
+      ),
+    );
+  await db
+    .delete(profileOverrides)
+    .where(
+      and(
+        eq(profileOverrides.userId, targetUserId),
+        inArray(
+          profileOverrides.profileId,
+          db.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
+        ),
+      ),
+    );
+}
+
+/**
+ * Put a workspace member into exactly `spaceIds` at `role` (viewer/editor),
+ * removing them from the workspace's other spaces. The role is applied to every
+ * listed space — the members list edits "role + which spaces" as one setting;
+ * per-space differences are made in the space's own dialog.
+ */
+async function setMemberSpaces(
+  db: ReturnType<typeof getDb>,
+  workspaceId: string,
+  targetUserId: string,
+  role: "viewer" | "editor",
+  spaceIds: string[],
+): Promise<void> {
+  const wsSpaces = db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(eq(spaces.workspaceId, workspaceId));
+  // Leaving a space takes its opening overrides (read/write) with it, as it
+  // does from the space's own dialog (`setSpaceMember`): otherwise a `write`
+  // override on one of its profiles would keep that profile open — and on Free
+  // nobody could change it. Overrides in spaces they were never in (deliberate
+  // one-profile openings) are left alone.
+  const leaving = await db
+    .select({ spaceId: spaceMembers.spaceId })
+    .from(spaceMembers)
+    .where(
+      and(
+        eq(spaceMembers.userId, targetUserId),
+        inArray(spaceMembers.spaceId, wsSpaces),
+        spaceIds.length > 0 ? notInArray(spaceMembers.spaceId, spaceIds) : undefined,
+      ),
+    );
+  if (leaving.length > 0) {
+    await db.delete(profileOverrides).where(
+      and(
+        eq(profileOverrides.userId, targetUserId),
+        // Only the overrides that *open* something. A `none` stays: it may be
+        // what's hiding a profile from a legacy single-profile grant, and
+        // deleting it would widen access on the way out.
+        inArray(profileOverrides.access, ["read", "write"]),
+        inArray(
+          profileOverrides.profileId,
+          db
+            .select({ id: profiles.id })
+            .from(profiles)
+            .where(inArray(profiles.spaceId, leaving.map((l) => l.spaceId))),
+        ),
+      ),
+    );
+  }
+  await db
+    .delete(spaceMembers)
+    .where(
+      and(
+        eq(spaceMembers.userId, targetUserId),
+        inArray(spaceMembers.spaceId, wsSpaces),
+        spaceIds.length > 0 ? notInArray(spaceMembers.spaceId, spaceIds) : undefined,
+      ),
+    );
+  if (spaceIds.length === 0) return;
+  await db
+    .insert(spaceMembers)
+    .values(spaceIds.map((spaceId) => ({ spaceId, userId: targetUserId, role })))
+    .onConflictDoUpdate({
+      target: [spaceMembers.spaceId, spaceMembers.userId],
+      set: { role, updatedAt: new Date() },
+    });
+}
+
+/**
  * Reconcile a *registered* user's access to exactly what `access` describes.
- * `all` → a workspace-wide membership (and drop any now-redundant per-profile
- * grants). `profiles` → per-profile grants at each entry's role, removing the
- * workspace membership and any grants for profiles no longer selected. The
- * caller is responsible for permission checks and the owner guard.
+ * `all` → a workspace membership (dropping any now-redundant per-profile
+ * grants) plus, below admin, the spaces it names at that role. `profiles` →
+ * per-profile grants at each entry's role, removing the workspace membership
+ * (and with it their spaces and overrides) and any grants for profiles no
+ * longer selected. The caller is responsible for permission checks, plan
+ * limits and the owner guard.
  */
 async function applyMemberAccess(
   db: ReturnType<typeof getDb>,
@@ -360,6 +568,8 @@ async function applyMemberAccess(
   const wsProfileIds = wsProfiles.map((p) => p.id);
 
   if (access.mode === "all") {
+    const spaceIds =
+      access.role === "admin" ? [] : await resolveGrantSpaces(db, workspaceId, access.spaceIds);
     await db
       .insert(workspaceMembers)
       .values({ workspaceId, userId: targetUserId, role: access.role })
@@ -367,6 +577,12 @@ async function applyMemberAccess(
         target: [workspaceMembers.workspaceId, workspaceMembers.userId],
         set: { role: access.role, updatedAt: new Date() },
       });
+    if (access.role === "admin") {
+      // Admins see every space; leftover rows would only resurface on a demotion.
+      await clearSpaceAccess(db, workspaceId, targetUserId);
+    } else {
+      await setMemberSpaces(db, workspaceId, targetUserId, access.role, spaceIds);
+    }
     if (wsProfileIds.length > 0) {
       await db
         .delete(profileAccess)
@@ -390,6 +606,7 @@ async function applyMemberAccess(
     .where(
       and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, targetUserId)),
     );
+  await clearSpaceAccess(db, workspaceId, targetUserId);
   for (const entry of access.entries) {
     await db
       .insert(profileAccess)
@@ -447,6 +664,12 @@ async function applyInviteAccess(
       if (!allowed.has(entry.profileId)) throw badRequest("Profile is not in this workspace");
     }
   }
+  // Resolved to an explicit list now, so a space created after the invite was
+  // sent isn't silently included when it's accepted. Admins see every space.
+  const spaceIds =
+    access.mode === "all" && access.role !== "admin"
+      ? await resolveGrantSpaces(db, workspaceId, access.spaceIds)
+      : null;
 
   return db.transaction(async (tx) => {
     await tx.execute(
@@ -461,7 +684,7 @@ async function applyInviteAccess(
     if (access.mode === "all") {
       await tx
         .insert(workspaceInvites)
-        .values({ workspaceId, email, role: access.role, profileId: null, invitedBy, token });
+        .values({ workspaceId, email, role: access.role, profileId: null, invitedBy, token, spaceIds });
       return token;
     }
     await tx.insert(workspaceInvites).values(
@@ -512,14 +735,21 @@ export async function addMember(
 
   // Validate the scope (and get profile names for the email) before touching quota.
   const scope = await describeAccessScope(db, workspaceId, data.access);
-
-  // Both branches below send an email to a caller-chosen address.
-  await assertInviteEmailAllowed(userId);
+  // A new single-profile grant is per-profile access (Plus/Pro).
+  if (data.access.mode === "profiles") await assertProfileLevelAccess(workspaceId);
 
   const [existing, inviter] = await Promise.all([
     findUserByEmail(data.email),
     findUserById(userId),
   ]);
+
+  // The plan's member cap, before any email quota is spent. Someone who
+  // already has access (or a pending invite) is being re-scoped, not added,
+  // and always fits.
+  await assertCanAddMember(workspaceId, { userId: existing?.id, email: data.email });
+
+  // Both branches below send an email to a caller-chosen address.
+  await assertInviteEmailAllowed(userId);
   const emailBase = {
     workspaceName: workspace.name,
     workspaceIcon: workspace.icon,
@@ -584,11 +814,8 @@ async function loadInviteGroup(token: string) {
   const db = getDb();
   return db
     .select({
-      id: workspaceInvites.id,
-      workspaceId: workspaceInvites.workspaceId,
+      ...convertibleInviteColumns,
       email: workspaceInvites.email,
-      role: workspaceInvites.role,
-      profileId: workspaceInvites.profileId,
       invitedBy: workspaceInvites.invitedBy,
       profileName: profiles.name,
       workspaceName: workspaces.name,
@@ -616,7 +843,15 @@ export async function getInviteByToken(rawToken: unknown): Promise<InvitePreview
   const inviter = await findUserById(first.invitedBy);
   const wide = rows.find((r) => r.profileId === null);
   const scope: InviteScope = wide
-    ? { kind: "all", role: wide.role }
+    ? {
+        kind: "all",
+        role: wide.role,
+        // Null space ids (an admin invite, or one sent before spaces) cover everything.
+        spaces:
+          wide.role === "admin" || wide.spaceIds === null
+            ? undefined
+            : await spaceNamesUnlessAll(getDb(), first.workspaceId, wide.spaceIds),
+      }
     : {
         kind: "profiles",
         entries: rows.map((r) => ({ name: r.profileName ?? "a profile", role: r.role })),
@@ -712,6 +947,20 @@ export async function setMemberAccess(
   if (data.userId === workspace.ownerId) {
     throw conflict("The workspace owner always has full access");
   }
+  // Per-profile access is a Plus/Pro feature — but narrowing what someone
+  // already has (dropping a profile, lowering a role) never needs the plan, so
+  // an admin on Free is never stuck with a share they want smaller.
+  if (data.access.mode === "profiles") {
+    const existing = await db
+      .select({ profileId: profileAccess.profileId, role: profileAccess.role })
+      .from(profileAccess)
+      .innerJoin(profiles, eq(profiles.id, profileAccess.profileId))
+      .where(and(eq(profiles.workspaceId, workspaceId), eq(profileAccess.userId, data.userId)));
+    if (!onlyNarrows(existing, data.access.entries)) await assertProfileLevelAccess(workspaceId);
+  }
+  // Meant for re-scoping someone who already has access (who always fits), but
+  // it upserts — so a user id that isn't here yet is an add, and pays the cap.
+  await assertCanAddMember(workspaceId, { userId: data.userId });
   await applyMemberAccess(db, workspaceId, data.userId, data.access);
   logger.info(`Member access updated (${accessLogSummary(data.access)})`, {
     event: "workspace.member_access_updated",
@@ -736,6 +985,23 @@ export async function setInviteAccess(
     columns: { id: true },
   });
   if (!workspace) throw notFound("Workspace not found");
+  // As in `setMemberAccess`: narrowing a pending per-profile invite is free.
+  if (data.access.mode === "profiles") {
+    const existing = await db
+      .select({ profileId: workspaceInvites.profileId, role: workspaceInvites.role })
+      .from(workspaceInvites)
+      .where(
+        and(
+          eq(workspaceInvites.workspaceId, workspaceId),
+          eq(workspaceInvites.email, data.email),
+          isNotNull(workspaceInvites.profileId),
+        ),
+      );
+    const rows = existing.flatMap((r) => (r.profileId ? [{ profileId: r.profileId, role: r.role }] : []));
+    if (!onlyNarrows(rows, data.access.entries)) await assertProfileLevelAccess(workspaceId);
+  }
+  // Same as `setMemberAccess`: an email with no invite yet is a new person.
+  await assertCanAddMember(workspaceId, { email: data.email });
   await applyInviteAccess(db, workspaceId, data.email, data.access, userId);
   logger.info(
     `Invite access updated for ${redactEmail(data.email)} (${accessLogSummary(data.access)})`,
@@ -777,6 +1043,7 @@ export async function removeCollaborator(
     .where(
       and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, targetUserId)),
     );
+  await clearSpaceAccess(db, workspaceId, targetUserId);
   await db.delete(profileAccess).where(
     and(
       eq(profileAccess.userId, targetUserId),
@@ -832,6 +1099,10 @@ export async function updateMemberRole(
 ): Promise<void> {
   const data = parseOrThrow(updateMemberRoleSchema, input);
   await requireWorkspaceRole(userId, workspaceId, "admin");
+  // A view-only workspace refuses widening access (a promotion), never
+  // narrowing it — an owner must always be able to take access away.
+  const currentRole = await getWorkspaceRole(data.userId, workspaceId);
+  if (currentRole && !atLeastRole(currentRole, data.role)) await assertWorkspaceWritable(workspaceId);
   const db = getDb();
 
   const workspace = await db.query.workspaces.findFirst({
@@ -853,6 +1124,22 @@ export async function updateMemberRole(
     )
     .returning({ userId: workspaceMembers.userId });
   if (updated.length === 0) throw notFound("Member not found");
+  if (data.role === "admin") {
+    await clearSpaceAccess(db, workspaceId, data.userId);
+  } else {
+    // The role applies to the spaces they're in; someone with none (a demoted
+    // admin) gets every space, which is what a workspace-wide role meant.
+    const current = await db
+      .select({ spaceId: spaceMembers.spaceId })
+      .from(spaceMembers)
+      .innerJoin(spaces, eq(spaceMembers.spaceId, spaces.id))
+      .where(and(eq(spaces.workspaceId, workspaceId), eq(spaceMembers.userId, data.userId)));
+    const spaceIds =
+      current.length > 0
+        ? current.map((r) => r.spaceId)
+        : await resolveGrantSpaces(db, workspaceId, undefined);
+    await setMemberSpaces(db, workspaceId, data.userId, data.role, spaceIds);
+  }
   logger.info(`Workspace member role changed to ${data.role}`, {
     event: "workspace.member_role_changed",
     workspaceId,
@@ -888,6 +1175,7 @@ export async function removeMember(
     )
     .returning({ userId: workspaceMembers.userId });
   if (removed.length === 0) throw notFound("Member not found");
+  await clearSpaceAccess(db, workspaceId, memberId);
 
   // Don't leave them staring at a workspace they can no longer open.
   await db

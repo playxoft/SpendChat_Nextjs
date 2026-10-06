@@ -305,8 +305,9 @@ explains the note syntax.
 **Compose → parse → review → save.** Nothing is written until the final step:
 
 1. **Note field.** Placeholder: `"Describe your spending — e.g. 200 fruits,
-   1000 electricity (June bill) /Bills, got 5000 salary"`. Max **2000** chars
-   (cap the field client-side; the server 400s past it). Syntax the parser
+   1000 electricity (June bill) /Bills, got 5000 salary"`. Max **3000** chars
+   (2000 before spec 6.5.0 — cap the field client-side; the server 400s past
+   it). Syntax the parser
    honours — surface these in a help sheet:
    - one transaction per item/amount ("200 fruits, 100 veg" = two rows);
    - `/CategoryName` picks a category (a slash followed by a letter; a slash
@@ -320,11 +321,16 @@ explains the note syntax.
    - income words ("got 5000 salary", "refund") flip the type;
    - relative dates ("yesterday", "last Friday") resolve against the device
      timezone.
-2. **Send** → `POST /ai/parse { text, timezone: <device IANA zone> }` with a
-   loading state on the gradient button. Errors, mapped for the user:
+2. **Send** → `POST /ai/parse { text, timezone: <device IANA zone>, source }`
+   with a loading state on the gradient button. `source` is `"voice"` when the
+   note came from a transcription (that clip already paid for this parse —
+   spec 6.5.0), else `"typed"` (or omit it). Errors, mapped for the user:
    400 nothing-parseable (show the server message — it's written for users),
-   429 quota ("try again later"), 503 feature-off (hide/disable AI mode with a
-   notice), 502 retry.
+   429 quota ("try again later"), **403 `plan_limit`** with
+   `details.limit == "aiActions"` (the workspace's monthly AI allowance is spent
+   — show the message and an upgrade prompt for `details.upgradeTo`; it refills
+   at `GET /usage` → `ai.resetsAt`), 503 feature-off (hide/disable AI mode with
+   a notice), 502 retry.
 3. **Review grid** (replaces the note in the composer): one editable row per
    draft — compact type toggle, amount, title, **tags**, **description** (pencil
    toggles an edit field), category select (options of the row's type; "" =
@@ -356,23 +362,32 @@ style — on web it's hold the button or hold `M`):
   elapsed/level indicator. Optionally show live interim text from the
   platform's on-device speech recognizer (`speech_to_text`) as a grey preview —
   it's cosmetic only; the real transcript comes from the server.
-- **Auto-stop at 60 s** (the server rejects > 4 MB).
+- **Auto-stop at 120 s** (60 s before spec 6.5.0; the server rejects > 4 MB).
 - On release: upload as **multipart** to `POST /ai/transcribe` (`audio` field;
-  set the part's content type, e.g. `audio/mp4` for m4a). Show a transcribing
+  set the part's content type, e.g. `audio/mp4` for m4a) **with `durationMs`**,
+  the clip length in ms. A clip costs one AI action per started minute — omit
+  `durationMs` and it's billed as a full two minutes. Show a transcribing
   spinner on the mic.
+- **Voice is a Pro feature** (spec 6.5.0; grandfathered workspaces keep it
+  during their grace period). Read `GET /usage` → `voice`: when false, show the
+  mic as an upsell (or hide it) instead of letting the hold fail; the server
+  answers `403 plan_limit` with `details.limit == "voice"`.
 - The returned `text` is **inserted into the note field** (append to whatever's
   typed) — the user reads it, fixes a misheard merchant, and presses send.
   Voice never creates transactions directly; it feeds the same parse→review
-  path.
+  path — send that parse with `source: "voice"` so it isn't charged again.
 - Errors: 400 "couldn't hear anything" → toast + let them retry; 503 → hide the
-  mic (transcription not configured); 429/502 as above. Ask for the microphone
+  mic (transcription not configured); 403 `plan_limit` (`voice` or
+  `aiActions`) → upgrade prompt; 429/502 as above. Ask for the microphone
   permission on first hold, not at app start.
 - The languages the model expects come from `settings.voiceLanguages`
   (Settings → Voice, see [08](./08-settings.md)) — code-mixed speech works
   because the list can name several.
 
 **Gating recap:** AI mode (toggle + mic) is hidden for viewers; both endpoints
-also enforce editor + a shared 30-requests/hour per-user quota server-side.
+also enforce editor + a shared 30-requests/hour per-user quota server-side, and
+(spec 6.5.0) the workspace's monthly AI allowance (50 / 300 / 1,000 actions on
+Free / Plus / Pro). Voice additionally needs Pro.
 
 ---
 

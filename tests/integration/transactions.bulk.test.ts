@@ -17,7 +17,15 @@ import { createTxnTag } from "@/services/tags";
 import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 import { uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
-import { bootstrapUser, categoryId, firstProfileId, insertTxn, workspaceIdOf } from "./helpers/seed";
+import {
+  bootstrapUser,
+  categoryId,
+  defaultSpaceIdOf,
+  firstProfileId,
+  insertTxn,
+  setWorkspacePlan,
+  workspaceIdOf,
+} from "./helpers/seed";
 
 /**
  * The multi-select's two writes. Both act on rows the user picked by hand from
@@ -40,7 +48,14 @@ async function owner(alias = "a") {
 async function addProfile(alias: string, ws: string, name: string) {
   const [row] = await getTestDb()
     .insert(profiles)
-    .values({ userId: uid(alias), workspaceId: ws, name, icon: "💼", sortOrder: 5 })
+    .values({
+      userId: uid(alias),
+      workspaceId: ws,
+      spaceId: await defaultSpaceIdOf(ws),
+      name,
+      icon: "💼",
+      sortOrder: 5,
+    })
     .returning({ id: profiles.id });
   return row!.id;
 }
@@ -272,6 +287,9 @@ describe("updateTransactions", () => {
 
   it("leaves a row's tags alone when adding would pass the cap", async () => {
     const { userId, ws } = await owner();
+    // A row's cap is 10 tags, so the scenario needs 11 in the workspace — past
+    // Free's 5 and Plus's 10. Pro allows 20.
+    await setWorkspacePlan(ws, "pro");
     const made = [];
     for (let i = 0; i <= TAGS_PER_TRANSACTION_MAX; i++) {
       made.push(await createTxnTag(userId, ws, { name: `t${i}`, color: "#ef4444" }));

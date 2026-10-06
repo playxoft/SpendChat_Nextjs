@@ -8,6 +8,7 @@ import {
   Mic,
   Hash,
   Info,
+  Landmark,
   Palette,
   Tags,
   TextCursorInput,
@@ -18,6 +19,8 @@ import { hrefWithProfile } from "./nav-items";
 
 export const SETTINGS_SECTIONS = [
   { href: "/app/settings/account", label: "Account", icon: UserRound },
+  // Organisation → workspace, top of the hierarchy first.
+  { href: "/app/settings/organization", label: "Organisation", icon: Landmark },
   { href: "/app/settings/workspace", label: "Workspace", icon: Building2 },
   { href: "/app/settings/theme", label: "Theme", icon: Palette },
   { href: "/app/settings/input", label: "Input", icon: TextCursorInput },
@@ -45,7 +48,7 @@ export function SettingsNav() {
       // `scrollbar-slim`, not `no-scrollbar`: hiding the bar is right for the
       // category strip because every chip is also one tap away in the picker
       // beside it. There is no second way to reach a settings section — about
-      // three of the nine fit on a narrow phone — so the bar is the only thing
+      // three of the ten fit on a narrow phone — so the bar is the only thing
       // saying the rest are there.
       className="scrollbar-slim flex gap-1 overflow-x-auto pb-2 lg:w-44 lg:shrink-0 lg:flex-col lg:overflow-visible lg:pb-0"
     >

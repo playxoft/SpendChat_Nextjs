@@ -28,7 +28,7 @@ const BAR_COUNT = 9;
  * matter where the pointer travelled, so sliding a finger off mid-recording and
  * releasing elsewhere still stops the mic. Without it, that release goes to
  * whatever element is under the pointer and nothing here ever fires — the mic
- * would run to the recorder's 60s auto-stop and upload a minute of audio.
+ * would run to the recorder's two-minute auto-stop and upload all of it.
  *
  * `onLostPointerCapture` is the backstop: it fires exactly once per captured
  * gesture, however it ended (up, cancel, or the button unmounting). Every
@@ -37,7 +37,7 @@ const BAR_COUNT = 9;
  * One ending none of those cover: this button being **disabled while still
  * held**. A disabled control dispatches no pointer events, and disabling
  * doesn't release the capture (only leaving the document does), so not one
- * handler above fires and the mic runs to the recorder's 60s auto-stop with the
+ * handler above fires and the mic runs to the recorder's two-minute auto-stop with the
  * OS recording indicator lit. That happens on two different paths — the
  * `disabled` prop flipping (a parse started mid-hold), and an ancestor
  * `<fieldset disabled>` locking the pane during a profile switch, which changes

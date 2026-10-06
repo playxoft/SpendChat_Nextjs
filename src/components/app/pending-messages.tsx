@@ -15,7 +15,12 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { TransactionBubble, bubbleAmountLabel } from "./transaction-bubble";
 import { addTransaction } from "@/actions/transactions";
-import { uploadStagedAttachments, type StagedInput } from "./attachments/upload-client";
+import {
+  UploadError,
+  uploadStagedAttachments,
+  type StagedInput,
+} from "./attachments/upload-client";
+import { usePlan } from "./upgrade-dialog";
 import { authorColorClass, authorDisplayName } from "@/lib/author-color";
 import { cn } from "@/lib/utils";
 import { resolveAttachmentType, type TransactionInput } from "@/lib/validation";
@@ -89,6 +94,7 @@ export function PendingMessagesProvider({ children }: { children: ReactNode }) {
   // Keeps the RSC revalidation that `addTransaction` triggers off the main thread.
   const [, startTransition] = useTransition();
   const router = useRouter();
+  const { handlePlanLimit } = usePlan();
 
   const run = useCallback(
     (tempId: string, input: TransactionInput, attachments?: StagedInput[]) => {
@@ -123,13 +129,16 @@ export function PendingMessagesProvider({ children }: { children: ReactNode }) {
           try {
             await uploadStagedAttachments(res.id, attachments);
             router.refresh();
-          } catch {
-            toast.error("Some files couldn't be attached to that transaction");
+          } catch (err) {
+            // A full storage quota opens the upgrade dialog; anything else toasts.
+            if (!(err instanceof UploadError && handlePlanLimit(err.asFailure()))) {
+              toast.error("Some files couldn't be attached to that transaction");
+            }
           }
         }
       });
     },
-    [startTransition, router],
+    [startTransition, router, handlePlanLimit],
   );
 
   const send = useCallback(

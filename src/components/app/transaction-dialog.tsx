@@ -55,7 +55,8 @@ import { TagSelect } from "./tags/tag-select";
 import { useCreatedTags } from "./tags/use-created-tags";
 import { StagedAttachmentList, useStagedAttachments } from "./attachments/staged-attachments";
 import { TransactionAttachments } from "./attachments/transaction-attachments";
-import { uploadStagedAttachments } from "./attachments/upload-client";
+import { UploadError, uploadStagedAttachments } from "./attachments/upload-client";
+import { usePlan } from "./upgrade-dialog";
 import type { AttachmentDTO } from "@/lib/attachments";
 import { sameTagSet, sortTagsByName, type TxnTagDTO } from "@/lib/tags";
 import type { TransactionRow } from "@/lib/queries";
@@ -145,6 +146,7 @@ export function TransactionDialog({
   const [values, setValues] = useState<TransactionValues>(defaultValues ?? emptyValues);
   const [pending, startTransition] = useTransition();
   const [deletePending, startDeleteTransition] = useTransition();
+  const { handlePlanLimit } = usePlan();
   // Tags created from the picker inside this dialog, until the server prop
   // catches up — without them the chip for a tag you just made can't be
   // resolved, so it would be applied but invisible.
@@ -255,9 +257,13 @@ export function TransactionDialog({
           try {
             await uploadStagedAttachments(res.id, staged.toInputs());
           } catch (err) {
-            toast.error(
-              err instanceof Error ? err.message : "Some files couldn't be attached",
-            );
+            // The transaction is saved either way; a full storage quota says
+            // why its files didn't fit in the upgrade dialog.
+            if (!(err instanceof UploadError && handlePlanLimit(err.asFailure()))) {
+              toast.error(
+                err instanceof Error ? err.message : "Some files couldn't be attached",
+              );
+            }
           } finally {
             setUploading(false);
           }

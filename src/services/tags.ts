@@ -10,7 +10,8 @@ import {
   createTxnTagSchema,
   updateTxnTagSchema,
 } from "@/lib/validation";
-import { requireWorkspaceRole } from "@/lib/workspaces";
+import { requireSharedListAdd, requireSharedListEdit } from "@/lib/workspaces";
+import { assertCanAddTag } from "@/lib/entitlements";
 import type { Tag } from "@/db/schema";
 
 /**
@@ -29,9 +30,12 @@ import type { Tag } from "@/db/schema";
  * are settled before anything depends on them.
  *
  * Tags are workspace-scoped, exactly like categories: everyone in a workspace
- * shares one list, reads need workspace access (already checked upstream when
- * the workspace was resolved) and writes need the editor role. `userId` on a
- * write is the author, never the access key.
+ * shares one list, and reads need workspace access (already checked upstream
+ * when the workspace was resolved). Adding needs editor plus write access to
+ * some profile; renaming or deleting needs admin or write access to every
+ * profile (`requireSharedListAdd` / `requireSharedListEdit`), since a delete
+ * sweeps every transaction. `userId` on a write is the author, never the
+ * access key.
  *
  * The one thing this file does that `services/categories.ts` doesn't is sweep
  * `transactions.tag_ids` on delete. That column carries no foreign key — it is a
@@ -79,8 +83,10 @@ export async function createTxnTag(
   input: unknown,
 ): Promise<Tag> {
   const data = parseOrThrow(createTxnTagSchema, input);
-  await requireWorkspaceRole(userId, workspaceId, "editor");
+  await requireSharedListAdd(userId, workspaceId);
   await assertRoomForAnotherTag(workspaceId);
+  // The plan's tag cap (5 / 10 / 20) — below the hard ceiling checked above.
+  await assertCanAddTag(workspaceId);
   const db = getDb();
   try {
     const [row] = await db
@@ -118,7 +124,7 @@ export async function updateTxnTag(
   input: unknown,
 ): Promise<Tag | null> {
   const data = parseOrThrow(updateTxnTagSchema, withId(input, id));
-  await requireWorkspaceRole(userId, workspaceId, "editor");
+  await requireSharedListEdit(userId, workspaceId);
 
   const patch: Record<string, unknown> = {};
   if (data.name !== undefined) patch.name = data.name;
@@ -170,7 +176,7 @@ export async function deleteTxnTag(
   if (!z.string().uuid().safeParse(id).success) {
     throw validationError("Invalid tag");
   }
-  await requireWorkspaceRole(userId, workspaceId, "editor");
+  await requireSharedListEdit(userId, workspaceId);
   const db = getDb();
 
   return db.transaction(async (tx) => {

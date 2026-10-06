@@ -247,7 +247,7 @@ describe("updateTransaction", () => {
       amount: 999,
       occurredOn: "2026-06-02",
     });
-    expect(res).toEqual({ ok: false, error: "Transaction not found" });
+    expect(res).toEqual({ ok: false, code: "not_found", error: "Transaction not found" });
     const [row] = await rows("b");
     expect(row.amountMinor).toBe(500); // unchanged
     expect(row.type).toBe("expense");
@@ -271,7 +271,7 @@ describe("deleteTransaction", () => {
     signInAs("a");
     await bootstrapUser("a");
     const res = await deleteTransaction("nope");
-    expect(res).toEqual({ ok: false, error: "Invalid transaction" });
+    expect(res).toEqual({ ok: false, code: "validation_error", error: "Invalid transaction" });
   });
 
   it("cannot delete another user's transaction", async () => {
@@ -303,11 +303,13 @@ describe("addBulkTransactions", () => {
     await bootstrapUser("a");
     expect(await addBulkTransactions([])).toEqual({
       ok: false,
+      code: "bad_request",
       error: "Nothing to import",
     });
     // @ts-expect-error — exercising the runtime guard
     expect(await addBulkTransactions(null)).toEqual({
       ok: false,
+      code: "bad_request",
       error: "Nothing to import",
     });
   });
@@ -316,7 +318,7 @@ describe("addBulkTransactions", () => {
     signInAs("a");
     await bootstrapUser("a");
     const res = await addBulkTransactions(Array.from({ length: 501 }, () => draft()));
-    expect(res).toEqual({ ok: false, error: "Too many rows (max 500 at a time)" });
+    expect(res).toEqual({ ok: false, code: "bad_request", error: "Too many rows (max 500 at a time)" });
   });
 
   it("imports valid rows, resolving category names and skipping invalid ones", async () => {
@@ -358,7 +360,7 @@ describe("addBulkTransactions", () => {
     signInAs("a");
     await bootstrapUser("a");
     const res = await addBulkTransactions([draft({ amount: -1 }), draft({ amount: 0 })]);
-    expect(res).toEqual({ ok: false, error: "No valid rows to import" });
+    expect(res).toEqual({ ok: false, code: "bad_request", error: "No valid rows to import" });
   });
 });
 
@@ -719,6 +721,7 @@ describe("parseTransactionsWithAI — gates before the model is ever called", ()
     const res = await parseTransactionsWithAI("200 fruits");
     expect(res).toEqual({
       ok: false,
+      code: "forbidden",
       error: "You don't have permission to add transactions in this workspace",
     });
     // A denied caller must not burn quota either.
@@ -763,7 +766,7 @@ describe("parseTransactionsWithAI — gates before the model is ever called", ()
     await bootstrapUser("a");
 
     const res = await parseTransactionsWithAI("200 fruits");
-    expect(res).toEqual({ ok: false, error: "AI-assisted input isn't available right now." });
+    expect(res).toEqual({ ok: false, code: "ai_unavailable", error: "AI-assisted input isn't available right now." });
     // It got past the quota gate, so the attempt was recorded.
     expect(await aiUsageCount("a")).toBe(1);
   });

@@ -1,6 +1,7 @@
 import "server-only";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
+import { getWorkspaceEntitlements } from "@/lib/entitlements";
 import { categories, profiles, tags, transactionAttachments, transactions } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { badRequest, forbidden, validationError } from "@/lib/errors";
@@ -20,7 +21,9 @@ import { parseOrThrow, withId } from "@/lib/api-response";
 import { rolesAtLeast } from "@/lib/rbac";
 import {
   accessibleProfileIds,
+  getDefaultSpaceId,
   getEffectiveProfileRole,
+  readOnlyWorkspaceError,
   getWorkspaceMoneyFormat,
   getWorkspaceRole,
   requireProfileRole,
@@ -107,11 +110,17 @@ async function resolveProfileId(
   if (writable[0]) return writable[0];
 
   const role = await getWorkspaceRole(userId, workspaceId);
+  // Nothing writable may mean the workspace is view-only (an extra free
+  // workspace past its grace period) — then say so, and never self-heal a
+  // profile into it.
+  const { readOnly } = await getWorkspaceEntitlements(workspaceId);
+  if (readOnly) throw readOnlyWorkspaceError();
   if (role === "admin") {
     const db = getDb();
+    const spaceId = await getDefaultSpaceId(workspaceId);
     const [row] = await db
       .insert(profiles)
-      .values({ userId, workspaceId, name: "Personal", icon: "👤", sortOrder: 0 })
+      .values({ userId, workspaceId, spaceId, name: "Personal", icon: "👤", sortOrder: 0 })
       .onConflictDoNothing()
       .returning({ id: profiles.id });
     if (row) {
@@ -241,6 +250,7 @@ async function editableInWorkspace(
   const access = await getEffectiveProfileRole(userId, profileId);
   if (!access || access.workspaceId !== workspaceId) return false;
   if (!rolesAtLeast("editor").includes(access.role)) {
+    if (access.readOnly) throw readOnlyWorkspaceError();
     throw forbidden("You don't have permission to do that");
   }
   setLogContext({ profileId }); // the profile this single-row op touches

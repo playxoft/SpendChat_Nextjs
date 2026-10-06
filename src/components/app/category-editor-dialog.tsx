@@ -17,6 +17,7 @@ import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { CATEGORY_NAME_MAX } from "@/lib/validation";
 import { addCategory, deleteCategory } from "@/actions/categories";
 import { useCategoryRename } from "@/hooks/use-category-rename";
+import { usePlan } from "./upgrade-dialog";
 import { cn } from "@/lib/utils";
 import type { Category } from "@/db/schema";
 
@@ -48,6 +49,7 @@ export function CategoryEditorDialog({
   const [name, setName] = React.useState(initialName);
   const [icon, setIcon] = React.useState("🏷️");
   const [pending, startTransition] = useTransition();
+  const { reportFailure } = usePlan();
 
   // Reset the active tab to the composer's type each time the dialog opens, and
   // re-seed the name: this is mounted once and reused, so without it a second
@@ -86,7 +88,8 @@ export function CategoryEditorDialog({
           onOpenChange(false);
         }
       } else {
-        toast.error(res.error);
+        // The plan's category cap opens the upgrade dialog; anything else toasts.
+        reportFailure(res);
       }
     });
   }

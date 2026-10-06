@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
-import { STUDENT_DISCOUNT, TRIAL_DAYS } from "../pricing/_data/pricing";
+import { STUDENT_DISCOUNT, TRIAL_DAYS } from "@/lib/pricing";
 
 /**
  * Draft billing & refund policy that goes with the draft pricing page. Local

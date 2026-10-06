@@ -197,9 +197,12 @@ generic per-action fallback. Composer validation toasts are listed in
 16. **Bulk limit is 500 items** per request; transactions export caps at 5000
     rows.
 17. **AI endpoints are extra-gated.** Editor role + a shared **30 calls/hour**
-    per-user quota across `/ai/parse` and `/ai/transcribe`. Handle 429 (quota),
-    502 (retry), and 503 (feature not configured — hide/disable the AI UI, like
-    the web) as *distinct* cases; a bare error toast for all three feels broken.
+    per-user quota across `/ai/parse` and `/ai/transcribe`, plus (spec 6.5.0)
+    the workspace's **monthly AI allowance** and, for voice, a Pro plan. Handle
+    429 (quota), 403 `plan_limit` (allowance spent / voice not on this plan —
+    upgrade prompt from `details`), 502 (retry), and 503 (feature not
+    configured — hide/disable the AI UI, like the web) as *distinct* cases; a
+    bare error toast for all of them feels broken.
 18. **Presigned attachment URLs must be fetched WITHOUT the Authorization
     header.** Your global auth interceptor will happily attach the bearer to the
     R2 URL — some S3-compatible hosts then reject the request (two credentials).
@@ -208,9 +211,11 @@ generic per-action fallback. Composer validation toasts are listed in
 19. **AI drafts are suggestions, not writes.** `/ai/parse` (and voice
     transcription) never create rows. The review step is the product: always
     show the drafts for edit before `POST /transactions/bulk`.
-20. **Voice recordings: ≤ 60 s / ≤ 4 MB, and set the part's content type**
-    (e.g. `audio/mp4` for m4a). A part without a content type falls back to the
-    `mimeType` form field — send it too if your client strips types.
+20. **Voice recordings: ≤ 120 s / ≤ 4 MB, send `durationMs`, and set the
+    part's content type** (e.g. `audio/mp4` for m4a). A part without a content
+    type falls back to the `mimeType` form field — send it too if your client
+    strips types. A clip costs one AI action per started minute of `durationMs`;
+    without it the server bills the full two minutes.
 21. **`voiceLanguages` is normalized, not validated.** Unknown codes are
     silently dropped (empty → `["en"]`), so update local state from the PATCH
     *response*, not from what you sent.

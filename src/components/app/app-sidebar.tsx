@@ -7,20 +7,23 @@ import { Logo } from "@/components/logo";
 import { ThemeCapsule } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
 import { Kbd } from "@/components/ui/kbd";
-import { ProfileList } from "./profile-list";
+import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-list";
 import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
 import { hrefWithProfile, isActive, navItems } from "./nav-items";
-import type { Profile } from "@/db/schema";
 
 export function AppSidebar({
   email,
   profiles,
+  spaces,
+  collapsedSpaces,
   workspaces,
   currentWorkspaceId,
 }: {
   email: string | null;
-  profiles: Pick<Profile, "id" | "name" | "icon">[];
+  profiles: SidebarProfile[];
+  spaces: SidebarSpace[];
+  collapsedSpaces: string[];
   workspaces: WorkspaceOption[];
   currentWorkspaceId: string;
 }) {
@@ -43,8 +46,13 @@ export function AppSidebar({
         />
       </div>
 
-      {/* Profiles are the primary content — they fill the sidebar. */}
-      <ProfileList profiles={profiles} enableShortcuts />
+      {/* Spaces and their profiles are the primary content — they fill the sidebar. */}
+      <ProfileList
+        profiles={profiles}
+        spaces={spaces}
+        collapsedSpaces={collapsedSpaces}
+        enableShortcuts
+      />
 
       <Separator className="my-1" />
       <nav className="shrink-0 space-y-1 px-3 py-2">

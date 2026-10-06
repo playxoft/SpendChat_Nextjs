@@ -3,7 +3,7 @@ import { GET, POST } from "@/app/api/v1/workspaces/route";
 import { GET as getMe } from "@/app/api/v1/me/route";
 import * as ws from "@/services/workspaces";
 import { setSession, signInAs, uid } from "../helpers/session";
-import { bootstrapUser, firstProfileId, workspaceIdOf } from "../helpers/seed";
+import { bootstrapUser, firstProfileId, setWorkspacePlan, workspaceIdOf } from "../helpers/seed";
 import { apiReq, jsonBody } from "./helpers";
 
 type WorkspaceItem = { id: string; name: string; icon: string | null; role: string | null };
@@ -53,6 +53,8 @@ describe("GET /api/v1/workspaces", () => {
     const Wa = await workspaceIdOf("a");
     const Wc = await workspaceIdOf("c");
     const aProfile = await firstProfileId("a");
+    // A new single-profile grant is per-profile access — Plus or Pro.
+    await setWorkspacePlan(Wa, "plus");
     // c gets a per-profile grant on a's profile — no workspace membership.
     await ws.addMember(uid("a"), Wa, {
       email: "c@example.com",
@@ -83,6 +85,26 @@ describe("GET /api/v1/workspaces", () => {
     expect(data).toHaveLength(1);
     expect(data[0].role).toBe("admin");
   });
+
+  it("carries each workspace's plan, organisation and grandfathered flag (6.5.0)", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const Wa = await workspaceIdOf("a");
+
+    const list = (await (await GET(apiReq("/api/v1/workspaces"))).json()).data;
+    expect(list).toEqual([
+      expect.objectContaining({
+        id: Wa,
+        plan: "free",
+        organizationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        grandfathered: false,
+      }),
+    ]);
+
+    await setWorkspacePlan(Wa, "plus");
+    const me = (await (await getMe(apiReq("/api/v1/me"))).json()).data;
+    expect(me.workspace).toMatchObject({ id: Wa, plan: "plus", organizationId: list[0].organizationId });
+  });
 });
 
 describe("POST /api/v1/workspaces", () => {
@@ -103,6 +125,8 @@ describe("POST /api/v1/workspaces", () => {
   it("creates a workspace, returns it with role admin, and makes it current", async () => {
     signInAs("a");
     await bootstrapUser("a");
+    // One free workspace per person: with the first one paid, a second fits.
+    await setWorkspacePlan(await workspaceIdOf("a"), "plus");
     const res = await POST(
       apiReq("/api/v1/workspaces", { method: "POST", body: jsonBody({ name: "Trip", icon: "🏝️" }) }),
     );
@@ -123,6 +147,25 @@ describe("POST /api/v1/workspaces", () => {
     const listRes = await GET(apiReq("/api/v1/workspaces"));
     const list = (await listRes.json()) as { data: WorkspaceItem[] };
     expect(list.data.map((w) => w.id)).toContain(data.id);
+  });
+
+  it("403s plan_limit for a second free workspace (abuse rule C5)", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const res = await POST(
+      apiReq("/api/v1/workspaces", { method: "POST", body: jsonBody({ name: "Trip" }) }),
+    );
+    expect(res.status).toBe(403);
+    const body = await res.json();
+    expect(body.error).toMatchObject({
+      code: "plan_limit",
+      details: { limit: "freeWorkspaces", plan: "free", max: 1, upgradeTo: "plus" },
+    });
+    // Nothing was created.
+    const list = (await (await GET(apiReq("/api/v1/workspaces"))).json()) as {
+      data: WorkspaceItem[];
+    };
+    expect(list.data).toHaveLength(1);
   });
 
   it("422s on a blank name", async () => {

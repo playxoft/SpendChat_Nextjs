@@ -19,6 +19,7 @@ import { TAG_NAME_MAX } from "@/lib/validation";
 import { defaultTagColor, type TxnTagDTO } from "@/lib/tags";
 import { ColorSwatch } from "./color-swatch";
 import { TagChip } from "./tag-chip";
+import { usePlan } from "../upgrade-dialog";
 
 /**
  * Create or edit a transaction tag: a name and one of twenty colors, with
@@ -51,6 +52,7 @@ export function TagFormDialog({
   const [color, setColor] = useState(tag?.color ?? defaultTagColor(initialName));
   const [usage, setUsage] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
+  const { reportFailure } = usePlan();
 
   // The color follows the name only while the user hasn't chosen one, and only
   // in create mode: typing further into "trav" → "travel" should keep moving
@@ -122,7 +124,8 @@ export function TagFormDialog({
       } else {
         const res = await addTag({ name: trimmed, color });
         if (!res.ok) {
-          toast.error(res.error);
+          // The plan's tag cap opens the upgrade dialog; anything else toasts.
+          reportFailure(res);
           return;
         }
         toast.success("Tag created");

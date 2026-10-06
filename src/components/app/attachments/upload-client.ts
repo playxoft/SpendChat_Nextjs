@@ -56,6 +56,27 @@ export function pickAcceptedFiles(files: File[], remaining: number): FilePick {
  * file also uploads a client-generated thumbnail under `thumb_<index>` when one
  * could be rendered (images, CSV/text, PDF); other types skip it and show an icon.
  */
+/**
+ * A rejected upload, carrying the server's error `code` and `details` when it
+ * sent them — `storage_quota_exceeded` comes with the plan fields, so the
+ * caller can open the upgrade dialog instead of only showing the message.
+ */
+export class UploadError extends Error {
+  readonly code?: string;
+  readonly details?: unknown;
+  constructor(message: string, code?: string, details?: unknown) {
+    super(message);
+    this.name = "UploadError";
+    this.code = code;
+    this.details = details;
+  }
+
+  /** The `{ ok: false, … }` shape `usePlan().handlePlanLimit` reads. */
+  asFailure() {
+    return { ok: false as const, error: this.message, code: this.code, details: this.details };
+  }
+}
+
 export async function uploadAttachments(
   transactionId: string,
   files: File[],
@@ -74,9 +95,11 @@ export async function uploadAttachments(
   const data = (await res.json().catch(() => ({}))) as {
     attachments?: AttachmentDTO[];
     error?: string;
+    code?: string;
+    details?: unknown;
   };
   if (!res.ok || !data.attachments) {
-    throw new Error(data.error ?? "Upload failed. Please try again.");
+    throw new UploadError(data.error ?? "Upload failed. Please try again.", data.code, data.details);
   }
   return data.attachments;
 }

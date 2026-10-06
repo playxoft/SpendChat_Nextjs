@@ -18,7 +18,8 @@ import { buttonVariants } from "@/components/ui/button";
 import { AttachmentBox } from "./attachment-box";
 import { AttachmentTile } from "./attachment-tile";
 import { useAttachmentViewer } from "./attachment-viewer";
-import { uploadAttachments } from "./upload-client";
+import { UploadError, uploadAttachments } from "./upload-client";
+import { usePlan } from "../upgrade-dialog";
 import {
   deleteAttachment as deleteAttachmentAction,
   updateAttachment as updateAttachmentAction,
@@ -44,6 +45,7 @@ export function TransactionAttachments({
 }) {
   const router = useRouter();
   const openViewer = useAttachmentViewer();
+  const { handlePlanLimit } = usePlan();
   const [items, setItems] = useState<AttachmentDTO[]>(initialAttachments);
   const [uploading, setUploading] = useState(false);
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -58,6 +60,8 @@ export function TransactionAttachments({
       setItems((prev) => [...prev, ...created]);
       router.refresh(); // keep the feed/table chips in sync
     } catch (err) {
+      // A full storage quota opens the upgrade dialog; anything else toasts.
+      if (err instanceof UploadError && handlePlanLimit(err.asFailure())) return;
       toast.error(err instanceof Error ? err.message : "Upload failed. Please try again.");
     } finally {
       setUploading(false);

@@ -17,7 +17,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     const body = await readJson(request);
     const updated = await updateProfile(user.id, id, body);
     if (!updated) throw notFound("Profile not found");
-    return apiOk(serializeProfile(updated));
+    // The update requires admin on the profile, so that is the caller's access.
+    return apiOk(serializeProfile(updated, "admin"));
   });
 }
 

@@ -8,8 +8,9 @@
  * threshold so it can gate a cron or a CI job.
  *
  * It also prunes the two append-only rate-limit logs. `ai_usage_log` and
- * `email_send_log` are read by the quota checks over a one-hour window, but
- * nothing else deletes from them, so without this they grow forever. Pruning
+ * `email_send_log` are read by the quota checks over a one-hour window (and
+ * `ai_usage_log` by the monthly AI allowance, so it is kept at least 62 days),
+ * but nothing else deletes from them, so without this they grow forever. Pruning
  * caps that growth; it does not hand the space back — see the note above the
  * VACUUM below.
  *
@@ -90,6 +91,8 @@ const number = (name) => {
 
 const PRUNE = !args.includes("--no-prune") && !args.includes("--dry-run");
 const RETENTION_DAYS = number("retention-days") ?? 30;
+/** Floor for `ai_usage_log`, which the monthly AI allowance is counted from. */
+const AI_USAGE_RETENTION_DAYS_MIN = 62;
 const WARN_AT = number("warn-at") ?? 80;
 
 const url = process.env.NEON_POSTGRES_DATABASE_URL;
@@ -205,13 +208,22 @@ async function main() {
     // tables are small and capped per user, this runs by hand or on a cron, and
     // a second index would cost a write on every AI call and every email send.
     for (const table of ["ai_usage_log", "email_send_log"]) {
+      // `ai_usage_log` is also the monthly AI allowance's ledger: pruning a row
+      // from the current calendar month would hand that workspace its actions
+      // back. So it never goes below AI_USAGE_RETENTION_DAYS_MIN, whatever
+      // --retention-days says (two months: the current one is always whole).
+      const days =
+        table === "ai_usage_log"
+          ? Math.max(RETENTION_DAYS, AI_USAGE_RETENTION_DAYS_MIN)
+          : RETENTION_DAYS;
+      const tableCutoff = `${days} days`;
       const { rowCount } = await client.query(
         `delete from ${table} where created_at < now() - $1::interval`,
-        [cutoff],
+        [tableCutoff],
       );
       const removed = rowCount ?? 0;
       total += removed;
-      console.log(`pruned          ${table}: ${removed} row(s) older than ${cutoff}`);
+      console.log(`pruned          ${table}: ${removed} row(s) older than ${tableCutoff}`);
       // DELETE only marks tuples dead. VACUUM makes their space reusable by
       // future inserts, which is what stops these tables growing without bound.
       // It does *not* hand the space back to the branch — these are append-only

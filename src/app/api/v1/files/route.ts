@@ -7,7 +7,8 @@ import { isR2Configured } from "@/lib/r2";
 import { VAULT_FILES_LIMIT } from "@/lib/queries";
 import { readUploadForm } from "@/lib/upload-form";
 import { getVaultWorkingSet, uploadVaultFiles } from "@/services/files";
-import { FILE_MAX_BYTES, FILE_MAX_PER_UPLOAD, STORAGE_QUOTA_BYTES } from "@/lib/validation";
+import { FILE_MAX_BYTES, FILE_MAX_PER_UPLOAD } from "@/lib/validation";
+import { getStorageLimitBytes } from "@/lib/entitlements";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
  * the cap was hit. Also lazily materializes each profile's "Transaction
  * attachments" system folder, exactly like the web page. `meta.storage` is the
  * workspace-wide usage (vault files + transaction attachments) against the
- * flat quota — workspace-wide even when `?profile=` scopes the list.
+ * workspace plan's storage — workspace-wide even when `?profile=` scopes the list.
  */
 export async function GET(request: NextRequest) {
   return handle(async () => {
@@ -36,7 +37,7 @@ export async function GET(request: NextRequest) {
       {
         filesCapped,
         filesLimit: VAULT_FILES_LIMIT,
-        storage: { usedBytes: storageUsedBytes, limitBytes: STORAGE_QUOTA_BYTES },
+        storage: { usedBytes: storageUsedBytes, limitBytes: await getStorageLimitBytes(workspace.id) },
       },
     );
   });

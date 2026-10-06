@@ -174,6 +174,28 @@ describe("describeRole / describeScope", () => {
       }),
     ).toBe("2 profiles in “Family”: “Home” (viewer), “Car” (editor)");
   });
+
+  it("names the spaces of an invite that doesn't cover every space — never 'all profiles'", () => {
+    expect(describeScope("Family", { kind: "all", role: "viewer", spaces: ["Kids"] })).toBe(
+      "the “Kids” space in “Family” as viewer (read-only)",
+    );
+    expect(describeScope("Family", { kind: "all", role: "editor", spaces: ["Kids", "House"] })).toBe(
+      "2 spaces in “Family” (“Kids”, “House”) as editor (add and edit transactions)",
+    );
+    expect(describeScope("Family", { kind: "all", role: "viewer", spaces: [] })).toContain(
+      "an admin will add you to its spaces",
+    );
+    const mail = inviteEmail({
+      workspaceName: "Family",
+      inviterName: null,
+      scope: { kind: "all", role: "viewer", spaces: ["Kids"] },
+      joinUrl: `${siteConfig.url}/invite/tok_abcdefghijklmnopqrstuvwxyz0123`,
+      recipientEmail: "sam@example.com",
+    });
+    expect(mail.text).toContain("Kids · viewer");
+    expect(mail.text).not.toContain("all profiles");
+    expect(mail.html).not.toContain("all profiles");
+  });
 });
 
 describe("inviteEmail", () => {

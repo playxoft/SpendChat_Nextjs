@@ -4,9 +4,11 @@ import {
   baseMimeType,
   buildTranscribePrompt,
   cleanTranscript,
+  parseClipDurationMs,
   resolveTranscribeModel,
   transcribeVoiceNote,
 } from "@/lib/ai-transcribe";
+import { VOICE } from "@/lib/plans";
 import { ApiError } from "@/lib/errors";
 
 /** Tiny but non-empty audio bytes — content is irrelevant, size isn't. */
@@ -46,6 +48,30 @@ describe("baseMimeType", () => {
 
   it("passes a bare type through", () => {
     expect(baseMimeType("audio/wav")).toBe("audio/wav");
+  });
+});
+
+describe("parseClipDurationMs — the declared clip length", () => {
+  it("is null when the client didn't send one (charged as the longest clip)", () => {
+    expect(parseClipDurationMs(null)).toBeNull();
+    expect(parseClipDurationMs("  ")).toBeNull();
+  });
+
+  it("reads milliseconds, rounding a fractional value", () => {
+    expect(parseClipDurationMs("61000")).toBe(61_000);
+    expect(parseClipDurationMs("1500.6")).toBe(1501);
+    expect(parseClipDurationMs("0")).toBe(0);
+  });
+
+  it("clamps to the two-minute clip cap", () => {
+    expect(parseClipDurationMs("600000")).toBe(VOICE.maxClipMs);
+  });
+
+  it("400s anything that isn't a non-negative number", () => {
+    for (const bad of ["abc", "-1", "Infinity", "NaN", "1e400"]) {
+      expect(caught(() => parseClipDurationMs(bad)).status).toBe(400);
+    }
+    expect(caught(() => parseClipDurationMs(new File(["x"], "x.txt"))).status).toBe(400);
   });
 });
 
@@ -363,6 +389,65 @@ describe("transcribeVoiceNote — provider wiring", () => {
       })),
     );
     await expect(transcribeVoiceNote(OPTS)).rejects.toMatchObject({ status: 502 });
+  });
+
+  it("reports Gemini's tokens and the audio length it measured", async () => {
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "200 fruits" }] } }],
+          usageMetadata: {
+            promptTokenCount: 2200,
+            candidatesTokenCount: 40,
+            // 61 s of audio at Gemini's 32 tokens/s, plus the text prompt.
+            promptTokensDetails: [
+              { modality: "TEXT", tokenCount: 248 },
+              { modality: "AUDIO", tokenCount: 1952 },
+            ],
+          },
+        }),
+        text: async () => "",
+      })),
+    );
+    const onUsage = vi.fn();
+    await transcribeVoiceNote({ ...OPTS, onUsage });
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 2200, outputTokens: 40, audioMs: 61_000 });
+  });
+
+  it("reports a Whisper host's billed duration", async () => {
+    setModel({ model_id: "whisper-1", api_key: "k" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ text: "200 fruits", usage: { type: "duration", seconds: 12.5 } }),
+        text: async () => "",
+      })),
+    );
+    const onUsage = vi.fn();
+    await transcribeVoiceNote({ ...OPTS, onUsage });
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: null, outputTokens: null, audioMs: 12_500 });
+  });
+
+  it("reports usage even when the clip held no speech", async () => {
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({
+          candidates: [{ content: { parts: [{ text: "" }] } }],
+          usageMetadata: { promptTokenCount: 300, candidatesTokenCount: 0 },
+        }),
+        text: async () => "",
+      })),
+    );
+    const onUsage = vi.fn();
+    await expect(transcribeVoiceNote({ ...OPTS, onUsage })).rejects.toMatchObject({ status: 400 });
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 300, outputTokens: 0, audioMs: null });
   });
 
   it("reports 502 when the network itself errors", async () => {

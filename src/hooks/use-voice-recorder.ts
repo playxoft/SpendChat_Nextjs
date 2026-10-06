@@ -74,8 +74,8 @@ const MIN_RECORDING_MS = 400;
 
 /**
  * Pin the recording bitrate. Speech is perfectly intelligible at 32 kbps, and
- * capping it keeps a full-minute clip small and predictable (~240 KB → ~320 KB
- * base64) — well within the server-action body limit, rather than letting the
+ * capping it keeps a full two-minute clip small and predictable (~480 KB →
+ * ~640 KB base64) — well within the server-action body limit, rather than letting the
  * browser default to a rate that could push a long recording over it. A hint
  * only: Safari's AAC path may ignore it, which is why the server still enforces
  * `MAX_AUDIO_BYTES` and the config raises the action body limit to match.
@@ -132,7 +132,7 @@ export function useVoiceRecorder({
    * `Blob` itself — the caller posts it as multipart, so the audio is never
    * base64-encoded on this side (see `transcribeVoiceNoteAction`).
    */
-  onTranscribe: (audio: { blob: Blob; mimeType: string }) => Promise<void>;
+  onTranscribe: (audio: { blob: Blob; mimeType: string; durationMs: number }) => Promise<void>;
   onError: (message: string) => void;
 }) {
   const [state, setState] = useState<VoiceState>("idle");
@@ -289,7 +289,13 @@ export function useVoiceRecorder({
 
       setState("transcribing");
       try {
-        await onTranscribeRef.current({ blob, mimeType: type });
+        // The clip's length, for what it's charged (one AI action per started
+        // minute). Capped at the auto-stop: a held key can't make it longer.
+        await onTranscribeRef.current({
+          blob,
+          mimeType: type,
+          durationMs: Math.min(heldMs, MAX_RECORDING_MS),
+        });
       } finally {
         setState("idle");
       }

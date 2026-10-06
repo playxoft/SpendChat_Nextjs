@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getAppContext } from "@/lib/auth";
 import { getTagsWithUsage } from "@/lib/queries";
-import { atLeastRole } from "@/lib/rbac";
+import { sharedListAccess } from "@/lib/workspaces";
 import {
   Card,
   CardContent,
@@ -19,10 +19,11 @@ export const metadata: Metadata = {
 };
 
 export default async function TagSettingsPage() {
-  const { workspace } = await getAppContext();
+  const { user, workspace } = await getAppContext();
   const tags = await getTagsWithUsage(workspace.id);
-  // Editors and admins manage the shared list; viewers see it read-only.
-  const canEdit = atLeastRole(workspace.role, "editor");
+  // Adding needs edit access to some profile; renaming or deleting (which
+  // reaches every transaction) needs admin or edit access to every profile.
+  const { canAdd, canEdit } = await sharedListAccess(user.id, workspace.id);
 
   return (
     <Card>
@@ -34,7 +35,7 @@ export default async function TagSettingsPage() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <TagManager tags={tags} canEdit={canEdit} />
+        <TagManager tags={tags} canAdd={canAdd} canEdit={canEdit} />
       </CardContent>
     </Card>
   );

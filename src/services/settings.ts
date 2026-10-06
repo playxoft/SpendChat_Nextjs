@@ -2,8 +2,11 @@ import "server-only";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  organizations,
   profileAccess,
+  profileOverrides,
   profiles,
+  spaceMembers,
   transactionAttachments,
   transactions,
   users,
@@ -23,7 +26,9 @@ import { badRequest, conflict, isForeignKeyViolation, validationError } from "@/
 import { logger } from "@/lib/logger";
 import { parseOrThrow } from "@/lib/api-response";
 import {
+  collapsedSpacesInputSchema,
   composerDensitySchema,
+  normalizeCollapsedSpaces,
   patchSettingsSchema,
   inputModeSchema,
   updateAccountNameSchema,
@@ -270,7 +275,11 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
         // Members/invites cascade with the workspace rows.
         await tx.delete(workspaces).where(inArray(workspaces.id, ownedIds));
       }
+      // Their personal organisation, now empty (its workspaces went above).
+      await tx.delete(organizations).where(eq(organizations.ownerId, userId));
       await tx.delete(workspaceMembers).where(eq(workspaceMembers.userId, userId));
+      await tx.delete(spaceMembers).where(eq(spaceMembers.userId, userId));
+      await tx.delete(profileOverrides).where(eq(profileOverrides.userId, userId));
       await tx.delete(profileAccess).where(eq(profileAccess.userId, userId));
       await tx.delete(userSettings).where(eq(userSettings.userId, userId));
       // The identity row last (the Firebase credential is deleted client-side).
@@ -452,4 +461,33 @@ export async function dismissInviteNudge(userId: string): Promise<void> {
       updatedAt: new Date(),
     })
     .where(eq(userSettings.userId, userId));
+}
+
+/**
+ * Save which spaces the user has folded shut in the sidebar
+ * (`ui_prefs.sidebar.collapsedSpaces`). The client sends the whole list —
+ * newest first, across every workspace — and it's cleaned and capped here
+ * (`normalizeCollapsedSpaces`), so the stored list stays bounded. Same nested
+ * `||` merge as `updateComposerDensity`: sibling namespaces, and any sidebar
+ * key this build doesn't know, survive the write.
+ */
+export async function updateCollapsedSpaces(userId: string, ids: unknown): Promise<string[]> {
+  const parsed = collapsedSpacesInputSchema.safeParse(ids);
+  if (!parsed.success) throw validationError("Invalid sidebar state");
+  const list = normalizeCollapsedSpaces(parsed.data);
+  await ensureBootstrap(userId);
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({
+      uiPrefs: sql`
+        ${userSettings.uiPrefs} || jsonb_build_object(
+          'sidebar',
+          coalesce(${userSettings.uiPrefs} -> 'sidebar', '{}'::jsonb)
+            || jsonb_build_object('collapsedSpaces', ${JSON.stringify(list)}::jsonb)
+        )`,
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userId, userId));
+  return list;
 }

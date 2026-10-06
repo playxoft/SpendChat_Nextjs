@@ -17,7 +17,14 @@ import { getTimingScope, summarizeTimingScope, withTiming } from "@/lib/timing";
  * its error boundary).
  */
 export type ActionOk<T> = { ok: true } & T;
-export type ActionResult<T = Record<never, never>> = ActionOk<T> | { ok: false; error: string };
+/**
+ * A rejected action. `code` is the `ApiError` code (`plan_limit`,
+ * `storage_quota_exceeded`, `forbidden`…) and `details` its payload, so the UI
+ * can react to *why* — e.g. open the upgrade dialog for a plan limit — rather
+ * than only showing the message.
+ */
+export type ActionFailure = { ok: false; error: string; code?: string; details?: unknown };
+export type ActionResult<T = Record<never, never>> = ActionOk<T> | ActionFailure;
 
 export async function runAction<T extends object = Record<never, never>>(
   action: string,
@@ -74,7 +81,12 @@ async function runActionInner<T extends object>(
         error: err.message,
         durationMs,
       });
-      return { ok: false, error: err.message };
+      return {
+        ok: false,
+        error: err.message,
+        code: err.code,
+        ...(err.details !== undefined ? { details: err.details } : {}),
+      };
     }
     // Non-Error throws are stringified so raw objects (which could carry query
     // values or other internals) never ship to the log vendor as-is.

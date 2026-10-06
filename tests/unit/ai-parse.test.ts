@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/errors";
 import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
+import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
 import {
   draftsFromRawJson,
   parseTransactionsText,
@@ -422,7 +423,9 @@ describe("parseTransactionsText — provider wiring", () => {
   it("rejects an over-long note before any request", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    await expect(parseTransactionsText({ ...OPTS, text: "x".repeat(2001) })).rejects.toMatchObject({ status: 400 });
+    await expect(
+      parseTransactionsText({ ...OPTS, text: "x".repeat(MAX_INPUT_CHARS + 1) }),
+    ).rejects.toMatchObject({ status: 400 });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -485,6 +488,98 @@ describe("parseTransactionsText — provider wiring", () => {
       vi.fn(async () => ({ ok: false, status: 500, json: async () => ({}), text: async () => "boom" })),
     );
     await expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({ status: 502 });
+  });
+});
+
+describe("parseTransactionsText — usage metadata for the AI ledger", () => {
+  const OPTS = { categories: CATEGORIES, currency: "INR", locale: "en-IN", today: TODAY };
+  const okBody = wrap([{ type: "expense", amount: 200, title: "Fruits", occurredOn: TODAY }]);
+  const reply = (json: unknown) =>
+    vi.fn(async () => ({ ok: true, json: async () => json, text: async () => "" }));
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
+
+  it("reports Gemini's prompt and output tokens, thinking included", async () => {
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    vi.stubGlobal(
+      "fetch",
+      reply({
+        candidates: [{ content: { parts: [{ text: okBody }] } }],
+        usageMetadata: { promptTokenCount: 1180, candidatesTokenCount: 210, thoughtsTokenCount: 15 },
+      }),
+    );
+    const onUsage = vi.fn();
+    await parseTransactionsText({ ...OPTS, text: "200 fruits", onUsage });
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 1180, outputTokens: 225, audioMs: null });
+  });
+
+  it("reports OpenAI-shaped usage", async () => {
+    setModel({ model_id: "gpt-x", api_key: "k" });
+    vi.stubGlobal(
+      "fetch",
+      reply({
+        choices: [{ message: { content: okBody } }],
+        usage: { prompt_tokens: 900, completion_tokens: 80 },
+      }),
+    );
+    const onUsage = vi.fn();
+    await parseTransactionsText({ ...OPTS, text: "200 fruits", onUsage });
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 900, outputTokens: 80, audioMs: null });
+  });
+
+  it("reports Anthropic usage", async () => {
+    setModel({ model_id: "claude-x", api_key: "k" });
+    vi.stubGlobal(
+      "fetch",
+      reply({
+        content: [{ type: "text", text: okBody }],
+        usage: { input_tokens: 1000, output_tokens: 90 },
+      }),
+    );
+    const onUsage = vi.fn();
+    await parseTransactionsText({ ...OPTS, text: "200 fruits", onUsage });
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 1000, outputTokens: 90, audioMs: null });
+  });
+
+  it("stays silent when the provider reports no usage, rather than inventing zeros", async () => {
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    vi.stubGlobal("fetch", reply({ candidates: [{ content: { parts: [{ text: okBody }] } }] }));
+    const onUsage = vi.fn();
+    await parseTransactionsText({ ...OPTS, text: "200 fruits", onUsage });
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+
+  it("ignores junk counts from an untrusted reply", async () => {
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    vi.stubGlobal(
+      "fetch",
+      reply({
+        candidates: [{ content: { parts: [{ text: okBody }] } }],
+        usageMetadata: { promptTokenCount: "lots", candidatesTokenCount: -4 },
+      }),
+    );
+    const onUsage = vi.fn();
+    await parseTransactionsText({ ...OPTS, text: "200 fruits", onUsage });
+    expect(onUsage).not.toHaveBeenCalled();
+  });
+
+  it("reports usage even when the reply yields no drafts — the tokens were still spent", async () => {
+    setModel({ model_id: "gemini-x", api_key: "k" });
+    vi.stubGlobal(
+      "fetch",
+      reply({
+        candidates: [{ content: { parts: [{ text: wrap([]) }] } }],
+        usageMetadata: { promptTokenCount: 1100, candidatesTokenCount: 12 },
+      }),
+    );
+    const onUsage = vi.fn();
+    await expect(parseTransactionsText({ ...OPTS, text: "hello", onUsage })).rejects.toMatchObject({
+      status: 400,
+    });
+    expect(onUsage).toHaveBeenCalledWith({ inputTokens: 1100, outputTokens: 12, audioMs: null });
   });
 });
 

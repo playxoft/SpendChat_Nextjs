@@ -5,7 +5,14 @@ import { GET as deletionImpact } from "@/app/api/v1/profiles/[id]/deletion-impac
 import { POST as reorder } from "@/app/api/v1/profiles/reorder/route";
 import { POST as moveTxns } from "@/app/api/v1/profiles/[id]/move/route";
 import { signInAs } from "../helpers/session";
-import { bootstrapUser, countTxns, firstProfileId, insertTxn } from "../helpers/seed";
+import {
+  bootstrapUser,
+  countTxns,
+  defaultSpaceIdOf,
+  firstProfileId,
+  insertTxn,
+  workspaceIdOf,
+} from "../helpers/seed";
 import { apiReq, jsonBody, ctx } from "./helpers";
 
 async function createNamed(name: string): Promise<string> {
@@ -22,6 +29,35 @@ describe("/api/v1/profiles", () => {
     const { data } = await res.json();
     expect(data).toHaveLength(1);
     expect(data[0].name).toBe("Personal");
+  });
+
+  it("tags every profile with its spaceId and the caller's access (6.5.0)", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    const space = await defaultSpaceIdOf(await workspaceIdOf("a"));
+
+    const list = (await (await listProfilesRoute(apiReq("/api/v1/profiles"))).json()).data;
+    expect(list).toEqual([expect.objectContaining({ name: "Personal", spaceId: space, access: "admin" })]);
+
+    const created = await createProfile(
+      apiReq("/api/v1/profiles", { method: "POST", body: jsonBody({ name: "Work", spaceId: space }) }),
+    );
+    expect(created.status).toBe(201);
+    expect((await created.json()).data).toMatchObject({ name: "Work", spaceId: space, access: "admin" });
+
+    const patched = await patchProfile(
+      apiReq(`/api/v1/profiles/${list[0].id}`, { method: "PATCH", body: jsonBody({ icon: "🙂" }) }),
+      ctx({ id: list[0].id }),
+    );
+    expect((await patched.json()).data).toMatchObject({ spaceId: space, access: "admin" });
+
+    // A space from another workspace is not one to create into.
+    signInAs("b");
+    await bootstrapUser("b");
+    const foreign = await createProfile(
+      apiReq("/api/v1/profiles", { method: "POST", body: jsonBody({ name: "Sneaky", spaceId: space }) }),
+    );
+    expect(foreign.status).toBe(404);
   });
 
   it("creates, updates, reorders and blocks deleting the last profile", async () => {

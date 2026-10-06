@@ -1,6 +1,7 @@
 import { and, asc, eq } from "drizzle-orm";
-import { categories, profiles, transactions, users, workspaces } from "@/db/schema";
+import { categories, profiles, spaces, transactions, users, workspaces } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
+import type { PersonalPlan } from "@/lib/plans";
 import { getTestDb } from "./test-db";
 import { uid } from "./session";
 
@@ -46,6 +47,38 @@ export async function workspaceIdOf(userId: string): Promise<string> {
     .from(workspaces)
     .where(eq(workspaces.ownerId, uid(userId)))
     .orderBy(asc(workspaces.createdAt))
+    .limit(1);
+  return row!.id;
+}
+
+/**
+ * Put a workspace on a plan — what checkout will do (personal phase 9). Tests
+ * use it to give a scenario the plan it needs (per-profile grants need Plus, a
+ * second workspace needs the first to be paid, …). Optionally flips
+ * `grandfathered` too, for the grace-period / read-only scenarios.
+ */
+export async function setWorkspacePlan(
+  workspaceId: string,
+  plan: PersonalPlan,
+  opts: { grandfathered?: boolean } = {},
+): Promise<void> {
+  await getTestDb()
+    .update(workspaces)
+    .set({
+      plan,
+      ...(opts.grandfathered === undefined ? {} : { grandfathered: opts.grandfathered }),
+    })
+    .where(eq(workspaces.id, workspaceId));
+}
+
+/** A workspace's first (default) space id — where profiles go when none is named. */
+export async function defaultSpaceIdOf(workspaceId: string): Promise<string> {
+  const db = getTestDb();
+  const [row] = await db
+    .select({ id: spaces.id })
+    .from(spaces)
+    .where(eq(spaces.workspaceId, workspaceId))
+    .orderBy(asc(spaces.position), asc(spaces.createdAt))
     .limit(1);
   return row!.id;
 }

@@ -49,7 +49,10 @@ closest Material equivalent).
 
 Profiles are chat "threads" (Personal, Work, Home…) that **scope** the
 tracker/transactions/analytics data. A profile has: `name`, `icon` (emoji),
-`color` (unused), `sortOrder`.
+`color` (unused), `sortOrder`, and (spec 6.5.0) `spaceId` — the space it lives
+in — and `access` (`read` / `write` / `admin`), the caller's effective access
+on it. If the drawer groups profiles, group them by `spaceId` under the names
+and order from `GET /spaces`.
 
 - **On the tracker header (mobile):** a dropdown showing the active profile's
   emoji + name + a subtitle (`"Transactions this month"` for a single profile,
@@ -99,7 +102,13 @@ currencyDetail }`).
 - Respect the effective **role**: `viewer` = read-only (hide add/edit/delete),
   `editor` = can write transactions, `admin` = can manage profiles. `role: null`
   means access via a per-profile grant (treat like a viewer at workspace level,
-  but individual profiles may grant more).
+  but individual profiles may grant more). Since spec 6.5.0 each profile also
+  carries `access` — prefer it for per-profile actions, since space roles and
+  overrides can make it differ from the workspace role.
+- The workspace object also carries its **plan** (`free` / `plus` / `pro`,
+  spec 6.5.0). A plan badge in the switcher is optional; `GET /usage` →
+  `readOnly: true` means the workspace is view-only (an extra free one) —
+  render it read-only.
 
 ---
 

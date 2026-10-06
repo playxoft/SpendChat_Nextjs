@@ -14,12 +14,16 @@ import type { Category } from "@/db/schema";
 
 export function CategoryManager({
   categories,
+  canAdd,
   canEdit,
 }: {
   categories: Category[];
-  /** Editors and admins can add/rename/delete; viewers see the list read-only. */
+  /** Can add a category (defaults to `canEdit`). */
+  canAdd?: boolean;
+  /** Can rename / re-icon / delete — changes that reach every transaction. */
   canEdit: boolean;
 }) {
+  const mayAdd = canAdd ?? canEdit;
   const [editorOpen, setEditorOpen] = useState(false);
   const [pending, startTransition] = useTransition();
 
@@ -48,14 +52,14 @@ export function CategoryManager({
           {categories.length} categor{categories.length === 1 ? "y" : "ies"} · shared with
           everyone in this workspace
         </p>
-        {canEdit && (
+        {mayAdd && (
           <Button type="button" onClick={() => setEditorOpen(true)}>
             <Plus className="size-4" /> Add category
           </Button>
         )}
       </div>
 
-      {canEdit && (
+      {mayAdd && (
         <CategoryEditorDialog
           open={editorOpen}
           onOpenChange={setEditorOpen}

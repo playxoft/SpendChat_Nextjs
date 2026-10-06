@@ -260,7 +260,18 @@ max of the two).
 **In scope since spec 1.3.0:** **creating workspaces** — Settings has a "New
 workspace" dialog backed by `POST /api/v1/workspaces` (name ≤30, optional emoji
 icon; the caller becomes admin, gets a default "Personal" profile, and the app
-switches to the new workspace).
+switches to the new workspace). Since spec 6.5.0 a person gets **one free
+workspace**: a second is `403 plan_limit` (`details.limit == "freeWorkspaces"`)
+— show the message with an upgrade prompt.
+
+**Plans, organisation, spaces (spec 6.5.0, optional for v1):** each workspace
+has a plan (`workspace.plan`); `GET /usage` reports its limits and usage
+(AI actions, storage, members, spaces, categories, tags) for a plan screen, and
+`GET /organization` lists the account's workspaces with their plans (rename
+with `PATCH /organization`). Space management (`/spaces`, membership, overrides)
+is admin-only and can stay on the web like member management. Handle
+`403 plan_limit` anywhere a create can hit a cap (categories, tags, profiles) —
+see [01](./01-api-reference.md) §1 · Plan limits.
 
 **Likely out of scope for v1 (admin web flows):** renaming workspaces, inviting/
 removing members, changing roles, cancelling invites, per-profile sharing

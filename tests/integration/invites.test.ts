@@ -9,7 +9,13 @@ import { sendWelcomeEmailOnce } from "@/lib/welcome-email";
 import * as ws from "@/services/workspaces";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
-import { bootstrapUser, firstProfileId, registerUser, workspaceIdOf } from "./helpers/seed";
+import {
+  bootstrapUser,
+  firstProfileId,
+  registerUser,
+  setWorkspacePlan,
+  workspaceIdOf,
+} from "./helpers/seed";
 
 const db = () => getTestDb();
 const sent = () => vi.mocked(sendEmail).mock.calls.map((c) => c[0]);
@@ -90,6 +96,7 @@ describe("invite join links", () => {
   it("stamps one shared token on the invite rows and emails a join link to a new person", async () => {
     const W = await setup();
     const p1 = await firstProfileId("a");
+    await setWorkspacePlan(W, "plus"); // a profile-scoped invite needs Plus or Pro
     const res = await ws.addMember(uid("a"), W, {
       email: "new@example.com",
       access: { mode: "profiles", entries: [{ profileId: p1, role: "editor" }] },
@@ -148,6 +155,7 @@ describe("invite join links", () => {
   it("previews a multi-profile invite with every profile and its role", async () => {
     const W = await setup();
     const p1 = await firstProfileId("a");
+    await setWorkspacePlan(W, "plus"); // a profile-scoped invite needs Plus or Pro
     await ws.addMember(uid("a"), W, {
       email: "d@example.com",
       access: { mode: "profiles", entries: [{ profileId: p1, role: "viewer" }] },
@@ -160,6 +168,7 @@ describe("invite join links", () => {
   it("keeps the token when an admin re-scopes the invite, so the emailed link survives", async () => {
     const W = await setup();
     const p1 = await firstProfileId("a");
+    await setWorkspacePlan(W, "plus"); // re-scoping to one profile needs Plus or Pro
     await ws.addMember(uid("a"), W, { email: "e@example.com", access: { mode: "all", role: "viewer" } });
     const [{ token: before }] = await inviteRows("e@example.com");
 
@@ -180,6 +189,8 @@ describe("invite join links", () => {
     const W = await setup();
     await bootstrapUser("b");
     const foreign = await firstProfileId("b"); // b's Personal — not in a's workspace
+    // On Plus, so it's the profile check that refuses — not the plan gate.
+    await setWorkspacePlan(W, "plus");
     await ws.addMember(uid("a"), W, { email: "e2@example.com", access: { mode: "all", role: "viewer" } });
     const [{ token }] = await inviteRows("e2@example.com");
 
@@ -245,6 +256,7 @@ describe("acceptInviteByToken", () => {
     await bootstrapUser("a");
     const W = await workspaceIdOf("a");
     const p1 = await firstProfileId("a");
+    await setWorkspacePlan(W, "plus"); // a profile-scoped invite needs Plus or Pro
     await ws.addMember(uid("a"), W, {
       email: "i@example.com",
       access: { mode: "profiles", entries: [{ profileId: p1, role: "viewer" }] },

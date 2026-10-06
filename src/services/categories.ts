@@ -6,15 +6,19 @@ import { categories } from "@/db/schema";
 import { conflict, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { categoryInputSchema, updateCategorySchema } from "@/lib/validation";
-import { requireWorkspaceRole } from "@/lib/workspaces";
+import { requireSharedListAdd, requireSharedListEdit } from "@/lib/workspaces";
+import { assertCanAddCategory } from "@/lib/entitlements";
 import type { Category } from "@/db/schema";
 
 /**
  * Category business logic shared by the web actions and the REST API. Categories
  * are workspace-scoped — everyone in a workspace shares one list. Reads only
- * need workspace access (checked upstream when the workspace was resolved);
- * writes require the editor role. A unique-name violation surfaces as a 409 with
- * the same message the web app shows. `userId` on a write is the author.
+ * need workspace access (checked upstream when the workspace was resolved).
+ * Adding needs editor plus write access to some profile; renaming or deleting
+ * needs admin or write access to every profile (`requireSharedListAdd` /
+ * `requireSharedListEdit`), since those edits reach every transaction. A
+ * unique-name violation surfaces as a 409 with the same message the web app
+ * shows. `userId` on a write is the author.
  */
 
 const DUPLICATE = "A category with that name already exists";
@@ -35,7 +39,9 @@ export async function createCategory(
   input: unknown,
 ): Promise<Category> {
   const data = parseOrThrow(categoryInputSchema, input);
-  await requireWorkspaceRole(userId, workspaceId, "editor");
+  await requireSharedListAdd(userId, workspaceId);
+  // The plan's category cap (the seeded defaults count; deleting one frees a slot).
+  await assertCanAddCategory(workspaceId);
   const db = getDb();
   try {
     const [row] = await db
@@ -62,7 +68,7 @@ export async function updateCategory(
   input: unknown,
 ): Promise<Category | null> {
   const data = parseOrThrow(updateCategorySchema, withId(input, id));
-  await requireWorkspaceRole(userId, workspaceId, "editor");
+  await requireSharedListEdit(userId, workspaceId);
   const patch: Record<string, unknown> = { updatedAt: new Date() };
   if (data.name !== undefined) patch.name = data.name;
   if (data.icon !== undefined) patch.icon = data.icon || null;
@@ -92,7 +98,7 @@ export async function deleteCategory(
   if (!z.string().uuid().safeParse(id).success) {
     throw validationError("Invalid category");
   }
-  await requireWorkspaceRole(userId, workspaceId, "editor");
+  await requireSharedListEdit(userId, workspaceId);
   const db = getDb();
   const deleted = await db
     .delete(categories)
