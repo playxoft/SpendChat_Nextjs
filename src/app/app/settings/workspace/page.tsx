@@ -82,8 +82,6 @@ export default async function WorkspaceSettingsPage() {
       profiles={profiles.map((p) => ({ id: p.id, name: p.name, icon: p.icon }))}
       usage={{
         plan: usage.plan,
-        grandfathered: usage.grandfathered,
-        inGrace: usage.inGrace,
         readOnly: usage.readOnly,
         ai: {
           used: usage.ai.used,

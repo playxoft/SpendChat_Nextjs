@@ -17,13 +17,16 @@ import { Label } from "@/components/ui/label";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { useLoadingOverlay } from "./loading-overlay";
 import { usePlan } from "./upgrade-dialog";
+import { LimitPanel, LockedButton, useAddLock } from "./limit-lock";
 import { createWorkspace } from "@/actions/workspaces";
 import { DEFAULT_WORKSPACE_ICON, WORKSPACE_NAME_MAX } from "@/lib/validation";
 
 /**
- * Modal for creating a new workspace. Reused by the sidebar workspace switcher
- * and the workspace settings page. An outside click never dismisses it (the
- * dialog's app-wide default), so a stray click can't lose a half-typed name.
+ * Modal for creating a new workspace. Reused by the sidebar workspace switcher,
+ * the workspace settings page and the organisation page. An outside click never
+ * dismisses it (the dialog's app-wide default), so a stray click can't lose a
+ * half-typed name. Someone who already owns a free workspace sees why up front
+ * (one free workspace per person) and can't submit.
  */
 export function CreateWorkspaceDialog({
   open,
@@ -37,7 +40,8 @@ export function CreateWorkspaceDialog({
 }) {
   const router = useRouter();
   const { run, pending } = useLoadingOverlay();
-  const { handlePlanLimit } = usePlan();
+  const { handlePlanLimit, showUpgrade } = usePlan();
+  const lock = useAddLock("workspaces");
   const [name, setName] = React.useState("");
   const [icon, setIcon] = React.useState(DEFAULT_WORKSPACE_ICON);
 
@@ -53,6 +57,7 @@ export function CreateWorkspaceDialog({
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
+    if (lock) return showUpgrade(lock.info);
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error("Enter a workspace name");
@@ -91,6 +96,7 @@ export function CreateWorkspaceDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleCreate} className="space-y-4">
+          <LimitPanel lock={lock} />
           <div className="space-y-1.5">
             <Label htmlFor="workspace-name">Name & icon</Label>
             <div className="flex items-center gap-2">
@@ -117,9 +123,9 @@ export function CreateWorkspaceDialog({
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={pending}>
+            <LockedButton type="submit" lock={lock} disabled={pending}>
               Create
-            </Button>
+            </LockedButton>
           </DialogFooter>
         </form>
       </DialogContent>

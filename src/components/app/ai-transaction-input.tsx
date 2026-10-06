@@ -45,6 +45,7 @@ import {
 import { VoiceListeningStrip, VoiceMicButton } from "./voice-mic";
 import { useLoadingOverlay } from "./loading-overlay";
 import { usePlan } from "./upgrade-dialog";
+import { LockGlyph, useAddLock } from "./limit-lock";
 import { PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
 import type { PlanLimitInfo } from "@/lib/plan-limit";
 import {
@@ -279,10 +280,9 @@ export function AiTransactionInput({
   // Hidden behind the feed's multi-select bar: the window-bound voice hold and
   // Enter-to-save below must not act on a pane nobody can see.
   const bulkSelecting = useBulkSelecting();
-  // Voice entry is a Pro feature (grandfathered workspaces keep it during
-  // grace). Without it the mic and the hold-M hint are hidden, and M opens the
-  // upgrade dialog instead of recording. Plan-limit failures from the model
-  // calls below open the same dialog.
+  // Voice entry is a Pro feature. Without it the mic and the hold-M hint are
+  // hidden, and M opens the upgrade dialog instead of recording. Plan-limit
+  // failures from the model calls below open the same dialog.
   const { voiceAllowed, plan, showUpgrade, reportFailure } = usePlan();
   const voiceUpgrade: PlanLimitInfo = { limit: "voice", plan, upgradeTo: lowestPlanWith("voice") };
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
@@ -349,6 +349,9 @@ export function AiTransactionInput({
   const tagQuery = tagMatch?.[1] ?? "";
   const tagActive = !!tagMatch && !tagDismissed && !parsing;
   const knownTags = createdTags.known;
+  // Plan caps: the Create rows show a lock; the forms they open explain it.
+  const tagLock = useAddLock("tags", { used: knownTags.length });
+  const categoryLock = useAddLock("categories", { used: categories.length });
   // Rows hold ids, and the save sends ids — an id survives a rename of the tag
   // while the review list is open, where a name would quietly stop matching and
   // the row would save without the tag it is showing. Names are crossed to ids
@@ -904,6 +907,7 @@ export function AiTransactionInput({
             ) : (
               <span className="truncate text-muted-foreground">New category</span>
             )}
+            {categoryLock && <LockGlyph className="ml-auto" />}
           </button>
         </li>
       </ul>
@@ -968,6 +972,7 @@ export function AiTransactionInput({
               <TagChip
                 tag={{ name: tagQuery.trim(), color: defaultTagColor(tagQuery.trim()) }}
               />
+              {tagLock && <LockGlyph className="ml-auto" />}
             </button>
           </li>
         )}

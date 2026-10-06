@@ -7,6 +7,7 @@ import {
   FeatureSteps,
 } from "@/components/marketing/feature-page";
 import { featureLink, getFeature } from "@/lib/features";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { createMetadata } from "@/lib/seo";
 
 const SLUG = "multiple-profiles";
@@ -25,7 +26,7 @@ const faqs = [
   },
   {
     q: "How many profiles can I have?",
-    a: "As many as you need. Most people settle on two or three — Personal, Home, and one for freelance or business — but nothing stops you adding a profile for a trip, a renovation, or a side project. There is no archive: when one is finished you either leave it where it is, which costs nothing but a line in the sidebar, drag it to the bottom of the list, or delete it and say whether its transactions should move to another profile or go with it.",
+    a: `Profiles sit in spaces, and the workspace's plan sets the room: ${PLAN_LIMITS.free.spaces} spaces with up to ${PLAN_LIMITS.free.profilesPerSpace} profiles in each on Free, ${PLAN_LIMITS.plus.spaces} with ${PLAN_LIMITS.plus.profilesPerSpace} each on Plus, and ${PLAN_LIMITS.pro.spaces} with ${PLAN_LIMITS.pro.profilesPerSpace} each on Pro. Most people settle on two or three — Personal, Home, and one for freelance or business — which fits on Free. There is no archive: when one is finished you either leave it where it is, drag it to the bottom of the list, or delete it to free its place and say whether its transactions should move to another profile or go with it.`,
   },
   {
     q: "What's the difference between a profile and a workspace?",

@@ -1,4 +1,11 @@
+import { PLAN_LIMITS, PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
+import { formatPlanStorage } from "@/lib/plan-limit";
+
 export type Faq = { q: string; a: string };
+
+const L = PLAN_LIMITS;
+const n = (v: number) => v.toLocaleString("en-US");
+const storage = (plan: keyof typeof PLAN_LIMITS) => formatPlanStorage(L[plan].storageBytes);
 
 /**
  * The shared FAQ, in priority order.
@@ -13,7 +20,7 @@ export type Faq = { q: string; a: string };
 export const faqs: Faq[] = [
   {
     q: "Is SpendChat free to use?",
-    a: "Yes. SpendChat is completely free for personal use — add unlimited income and expense transactions, filter them, and export or print whenever you like.",
+    a: `Yes. The Free plan has no time limit and no ads: unlimited income and expense transactions, filters, CSV and PDF export, and ${n(L.free.aiActionsPerMonth)} AI actions a month. Paid plans — Plus and Pro, opening soon — add more AI, voice entry, storage and room for more people. A plan covers a whole workspace.`,
   },
   {
     q: "How do I add a transaction?",
@@ -53,7 +60,7 @@ export const faqs: Faq[] = [
   },
   {
     q: "Can I add expenses by speaking?",
-    a: "Yes. Hold M and say what you spent; the recording is transcribed and turned into drafts for you to check. You pick which languages to expect in Settings, and because several can be named at once, sentences that mix two languages are transcribed as spoken.",
+    a: `Yes, on the ${PLAN_NAMES[lowestPlanWith("voice")]} plan. Hold M and say what you spent; the recording is transcribed and turned into drafts for you to check. You pick which languages to expect in Settings, and because several can be named at once, sentences that mix two languages are transcribed as spoken.`,
   },
   {
     q: "Can I keep business and personal expenses separate?",
@@ -61,11 +68,11 @@ export const faqs: Faq[] = [
   },
   {
     q: "Can I share my expenses with my partner or accountant?",
-    a: "Yes. Invite them to a workspace and choose what they can do — view, edit, or administer. Access can be granted for a whole workspace or for a single profile, so an accountant can see your business books and nothing else.",
+    a: `Yes. Invite them to a workspace and choose what they can do — view, edit, or administer. Access can cover the whole workspace or only some spaces, so an accountant can see your business books and nothing else; on Plus and Pro you can also set it for a single profile. A workspace holds ${n(L.free.members)} people on Free, ${n(L.plus.members)} on Plus and ${n(L.pro.members)} on Pro.`,
   },
   {
     q: "Can I attach receipts to a transaction?",
-    a: "Yes. Attach receipts, bills or invoices to any transaction, or keep them in a Drive-style vault with folders, colour tags and share links. Every workspace gets 1 GB of storage.",
+    a: `Yes. Attach receipts, bills or invoices to any transaction, or keep them in a Drive-style vault with folders, colour tags and share links. A workspace gets ${storage("free")} of storage on Free, ${storage("plus")} on Plus and ${storage("pro")} on Pro.`,
   },
   {
     q: "Does SpendChat work offline or as an installed app?",

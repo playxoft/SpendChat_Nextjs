@@ -138,7 +138,8 @@ export default function AboutPage() {
         to your account and shown only to you. Every database query is scoped to the
         authenticated user, input is validated on the server, and the app ships with
         strict security headers. There are no ads and no selling of your information —
-        the app is free to use.
+        there&apos;s a free plan, and paid plans for more AI, storage and people pay
+        for the hosting.
       </p>
 
       {/* How it's built */}

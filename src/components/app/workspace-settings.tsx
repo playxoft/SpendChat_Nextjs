@@ -34,6 +34,7 @@ import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { AccessBadge, AccessEditor, AccessPicker } from "./member-access-editor";
 import { usePermissions } from "./permissions";
 import { usePlan } from "./upgrade-dialog";
+import { LimitPanel, LimitTooltip, LockGlyph, LockedButton, useAddLock } from "./limit-lock";
 import { UsagePanel, type UsageData } from "./usage-panel";
 import {
   addWorkspaceMember,
@@ -114,7 +115,10 @@ export function WorkspaceSettings({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const { canWrite } = usePermissions();
-  const { reportFailure } = usePlan();
+  const { reportFailure, showUpgrade } = usePlan();
+  // Shown up front; the server still enforces both.
+  const createLock = useAddLock("workspaces");
+  const memberLock = useAddLock("members");
   const isAdmin = workspace.role === "admin";
   const isMember = workspace.role !== null;
 
@@ -159,6 +163,7 @@ export function WorkspaceSettings({
 
   function handleInvite(e: React.FormEvent) {
     e.preventDefault();
+    if (memberLock) return showUpgrade(memberLock.info);
     if (!email.trim()) {
       toast.error("Enter an email address");
       return;
@@ -199,10 +204,13 @@ export function WorkspaceSettings({
           </CardDescription>
           {canWrite && (
             <CardAction>
-              <Button variant="secondary" size="sm" onClick={() => setCreateOpen(true)}>
-                <Plus className="size-4" />
-                Create workspace
-              </Button>
+              <LimitTooltip lock={createLock}>
+                <Button variant="secondary" size="sm" onClick={() => setCreateOpen(true)}>
+                  <Plus className="size-4" />
+                  Create workspace
+                  {createLock && <LockGlyph />}
+                </Button>
+              </LimitTooltip>
             </CardAction>
           )}
         </CardHeader>
@@ -262,6 +270,7 @@ export function WorkspaceSettings({
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            {isAdmin && <LimitPanel lock={memberLock} />}
             {isAdmin && (
               <form
                 onSubmit={handleInvite}
@@ -289,15 +298,16 @@ export function WorkspaceSettings({
                     className="w-full lg:w-52"
                   />
                 </div>
-                <Button
+                <LockedButton
                   type="submit"
                   size="sm"
+                  lock={memberLock}
                   disabled={pending}
                   className="w-full lg:w-auto lg:shrink-0"
                 >
-                  <UserPlus className="size-4" />
+                  {!memberLock && <UserPlus className="size-4" />}
                   Add
-                </Button>
+                </LockedButton>
               </form>
             )}
 

@@ -5,6 +5,7 @@ import { Pencil, Plus } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TagChip } from "./tags/tag-chip";
 import { TagFormDialog } from "./tags/tag-form-dialog";
+import { LimitTooltip, LockGlyph, useAddLock } from "./limit-lock";
 import { TAGS_PER_WORKSPACE_MAX } from "@/lib/validation";
 import type { TxnTagDTO } from "@/lib/tags";
 
@@ -39,6 +40,8 @@ export function TagManager({
     { mode: "create" } | { mode: "edit"; tag: ManagedTag } | null
   >(null);
   const full = tags.length >= TAGS_PER_WORKSPACE_MAX;
+  // The plan's cap: the button still opens the form, which explains and locks.
+  const planLock = useAddLock("tags", { used: tags.length });
 
   return (
     <div className="space-y-4">
@@ -48,16 +51,19 @@ export function TagManager({
           workspace
         </p>
         {mayAdd && (
-          <Button
-            type="button"
-            onClick={() => setDialog({ mode: "create" })}
-            // The server rejects the create anyway; refusing here means the
-            // form never opens on a request that can't succeed.
-            disabled={full}
-            title={full ? `This workspace already has ${TAGS_PER_WORKSPACE_MAX} tags` : undefined}
-          >
-            <Plus className="size-4" /> Add tag
-          </Button>
+          <LimitTooltip lock={full ? null : planLock}>
+            <Button
+              type="button"
+              onClick={() => setDialog({ mode: "create" })}
+              // The server rejects the create anyway; refusing here means the
+              // form never opens on a request that can't succeed.
+              disabled={full}
+              title={full ? `This workspace already has ${TAGS_PER_WORKSPACE_MAX} tags` : undefined}
+            >
+              <Plus className="size-4" /> Add tag
+              {planLock && !full && <LockGlyph />}
+            </Button>
+          </LimitTooltip>
         )}
       </div>
 

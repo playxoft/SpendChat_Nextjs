@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
-import { LogOut, Settings as SettingsIcon } from "lucide-react";
+import { Gem, LogOut, Settings as SettingsIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -67,6 +67,11 @@ export function UserMenu({
         <DropdownMenuItem asChild>
           <Link href={hrefWithProfile("/app/settings", profile)} className="cursor-pointer">
             <SettingsIcon className="size-4" /> Settings
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href={hrefWithProfile("/app/upgrade", profile)} className="cursor-pointer">
+            <Gem className="size-4" /> Upgrade
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem

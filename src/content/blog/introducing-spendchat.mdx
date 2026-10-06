@@ -7,13 +7,13 @@ export const meta = {
   readingMinutes: 7,
   tag: "Product",
   excerpt:
-    "A free money tracker with no bank connection, no ads and no paid tier. Here are the six decisions it's built on, and the ones we deliberately didn't make.",
+    "A free money tracker with no bank connection and no ads. Here are the six decisions it's built on, and the ones we deliberately didn't make.",
   image: "/blog/introducing-spendchat.png",
   imageAlt: "Cover card for the post introducing SpendChat.",
   faqs: [
     {
       q: "Is SpendChat free?",
-      a: "Yes, today, with no paid tier holding features back and no ads. Pricing hasn't been settled and any change would be announced on the pricing page in advance. Whatever happens to the hosted app, it's open source under the AGPL, so running your own copy stays free.",
+      a: "Yes. There's a Free plan with no time limit and no ads, and transactions and export are unlimited on it. Paid plans — Plus and Pro, priced per workspace — add more AI, voice entry, storage and room for more people; the pricing page has the details. Whatever happens to the hosted app, it's open source under the AGPL, so running your own copy stays free.",
     },
     {
       q: "Do I have to connect my bank account?",
@@ -29,7 +29,7 @@ export const meta = {
     },
     {
       q: "What happens to my data if I stop using it?",
-      a: "You take it with you. Filter the transactions table to whatever you want and download it as CSV, or print it as a PDF — no paid tier, no watermark, no limit on how often. Two mechanical caps are worth knowing: a CSV holds 5,000 rows, so a longer history goes out a year at a time, and printing captures the rows the table has loaded, so press Load more until the range is complete first. You can also delete your account and everything in it from Settings, without emailing anyone.",
+      a: "You take it with you. Filter the transactions table to whatever you want and download it as CSV, or print it as a PDF — on every plan, with no watermark and no limit on how often. Two mechanical caps are worth knowing: a CSV holds 5,000 rows, so a longer history goes out a year at a time, and printing captures the rows the table has loaded, so press Load more until the range is complete first. You can also delete your account and everything in it from Settings, without emailing anyone.",
     },
     {
       q: "Which currency does it use?",
@@ -66,7 +66,7 @@ So the first decision was to make entry feel like sending a message rather than 
 
 **4. The AI drafts; you decide.** Both AI and voice entry stop at a review step. The model splits your sentence into rows with an amount, a date, a type and a category chosen from *your* list — and then waits. Nothing is written until you press the button. A model that files straight into your records is a model that quietly corrupts them, and you'd never find out.
 
-**5. Your data leaves as easily as it arrives.** Filter the [transactions table](/features/transactions) to what you want, press CSV, and the file is the view you were looking at rather than a dump to trim. Or print, and the page reformats into a report your browser saves as a PDF. No paid tier and no watermark — the only ceilings are mechanical: 5,000 rows to a file, and a print carries the rows you have loaded. [What's in the file, and both caps in detail.](/blog/export-expenses-to-csv-for-taxes)
+**5. Your data leaves as easily as it arrives.** Filter the [transactions table](/features/transactions) to what you want, press CSV, and the file is the view you were looking at rather than a dump to trim. Or print, and the page reformats into a report your browser saves as a PDF. The same on every plan, with no watermark — the only ceilings are mechanical: 5,000 rows to a file, and a print carries the rows you have loaded. [What's in the file, and both caps in detail.](/blog/export-expenses-to-csv-for-taxes)
 
 **6. Open source, so the claims are checkable.** All of it is on GitHub under the AGPL-3.0 — the auth checks, the queries, the AI prompts, the exporter. "We don't sell your data" is a promise; "there is no bank integration in this repository" is something you can verify in a minute. [How to audit any of it.](/blog/open-source-expense-tracker)
 

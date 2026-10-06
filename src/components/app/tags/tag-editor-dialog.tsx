@@ -15,6 +15,7 @@ import { TAGS_PER_WORKSPACE_MAX } from "@/lib/validation";
 import type { TxnTagDTO } from "@/lib/tags";
 import { TagChip } from "./tag-chip";
 import { TagFormDialog } from "./tag-form-dialog";
+import { LimitTooltip, LockGlyph, useAddLock } from "../limit-lock";
 
 /**
  * Manage the workspace's tags without leaving what you were typing.
@@ -42,6 +43,8 @@ export function TagEditorDialog({
   // One form, two modes — `null` is closed, a tag is edit, `""` is create.
   const [form, setForm] = useState<TxnTagDTO | "" | null>(null);
   const full = tags.length >= TAGS_PER_WORKSPACE_MAX;
+  // The plan's cap: "Add tag" still opens the form, which explains and locks.
+  const planLock = useAddLock("tags", { used: tags.length });
 
   return (
     <>
@@ -83,14 +86,17 @@ export function TagEditorDialog({
           )}
 
           <DialogFooter className="sm:justify-between">
-            <Button
-              type="button"
-              onClick={() => setForm("")}
-              disabled={full}
-              title={full ? `This workspace already has ${TAGS_PER_WORKSPACE_MAX} tags` : undefined}
-            >
-              <Plus className="size-4" /> Add tag
-            </Button>
+            <LimitTooltip lock={full ? null : planLock}>
+              <Button
+                type="button"
+                onClick={() => setForm("")}
+                disabled={full}
+                title={full ? `This workspace already has ${TAGS_PER_WORKSPACE_MAX} tags` : undefined}
+              >
+                <Plus className="size-4" /> Add tag
+                {planLock && !full && <LockGlyph />}
+              </Button>
+            </LimitTooltip>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Done
             </Button>

@@ -9,8 +9,8 @@ import {
 } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { canWriteInWorkspace } from "@/lib/workspaces";
-import { getCategories, getProfiles } from "@/lib/queries";
-import { DEFAULT_CATEGORIES } from "@/lib/categories";
+import { getCategories, getProfiles, getTags } from "@/lib/queries";
+import { DEFAULT_CATEGORIES, DEFAULT_TAGS } from "@/lib/categories";
 import { deleteAllTransactions } from "@/services/settings";
 import { createTransaction, deleteTransaction } from "@/services/transactions";
 import * as ws from "@/services/workspaces";
@@ -296,6 +296,10 @@ describe("create & switch workspaces", () => {
     expect(newCats).toHaveLength(DEFAULT_CATEGORIES.length);
     expect(new Set(newCats.map((c) => `${c.kind}:${c.name}`))).toEqual(
       new Set(DEFAULT_CATEGORIES.map((c) => `${c.kind}:${c.name}`)),
+    );
+    // ...and its own default tags.
+    expect((await getTags(created.id)).map((t) => t.name).sort()).toEqual(
+      DEFAULT_TAGS.map((t) => t.name).sort(),
     );
 
     await ws.switchWorkspace(uid("a"), home);

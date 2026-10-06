@@ -1,0 +1,157 @@
+import { describe, expect, it } from "vitest";
+import { PLAN_LIMITS, type PersonalPlan } from "@/lib/plans";
+import {
+  addLock,
+  profileAccessLock,
+  readOnlyLock,
+  spaceHasRoom,
+  type AddLimitsData,
+  type AddMeter,
+} from "@/lib/add-limits";
+import { upgradeCopy } from "@/lib/plan-limit";
+
+/**
+ * The locks the "new …" buttons and create forms show before anything is
+ * submitted. The numbers must match `PLAN_LIMITS` (what the server enforces),
+ * a view-only workspace locks every create, and no data locks nothing.
+ */
+
+function meter(used: number, limit: number, readOnly = false): AddMeter {
+  return { used, limit, reached: readOnly || used >= limit };
+}
+
+function limitsFor(
+  plan: PersonalPlan,
+  used: Partial<Record<"spaces" | "categories" | "tags" | "members", number>> = {},
+  extra: Partial<AddLimitsData> = {},
+): AddLimitsData {
+  const l = PLAN_LIMITS[plan];
+  const readOnly = extra.readOnly ?? false;
+  return {
+    plan,
+    readOnly,
+    spaces: meter(used.spaces ?? 1, l.spaces, readOnly),
+    categories: meter(used.categories ?? 15, l.categories, readOnly),
+    tags: meter(used.tags ?? 0, l.tags, readOnly),
+    members: meter(used.members ?? 1, l.members, readOnly),
+    profilesPerSpace: l.profilesPerSpace,
+    canCreateFreeWorkspace: true,
+    profileLevelAccess: l.profileLevelAccess,
+    voice: l.voice,
+    ...extra,
+  };
+}
+
+describe("addLock", () => {
+  it("locks nothing without data (outside the app layout)", () => {
+    expect(addLock(null, "spaces")).toBeNull();
+    expect(addLock(undefined, "workspaces")).toBeNull();
+    expect(spaceHasRoom(null, 999)).toBe(true);
+  });
+
+  it("is open under the cap and locked at it, with the next plan's number", () => {
+    expect(addLock(limitsFor("free", { spaces: 1 }), "spaces")).toBeNull();
+    const lock = addLock(limitsFor("free", { spaces: 2 }), "spaces");
+    expect(lock).toEqual({
+      title: "Space limit reached",
+      reason: "Free includes 2 spaces — upgrade to Plus for 6.",
+      cta: "Upgrade",
+      info: { limit: "spaces", plan: "free", max: 2, used: 2, upgradeTo: "plus" },
+    });
+  });
+
+  it("words each counted limit from PLAN_LIMITS", () => {
+    const free = limitsFor("free", { categories: 20, tags: 5, members: 3 });
+    expect(addLock(free, "categories")?.reason).toBe(
+      "Free includes 20 categories — upgrade to Plus for 30.",
+    );
+    expect(addLock(free, "tags")?.reason).toBe("Free includes 5 tags — upgrade to Plus for 10.");
+    expect(addLock(free, "members")?.reason).toBe(
+      "Free includes 3 members — upgrade to Plus for 5.",
+    );
+    expect(addLock(free, "members")?.title).toBe("Member limit reached");
+  });
+
+  it("says contact us when no plan lifts the cap", () => {
+    const lock = addLock(limitsFor("pro", { spaces: PLAN_LIMITS.pro.spaces }), "spaces");
+    expect(lock?.reason).toBe("Pro includes 15 spaces — contact us if you need more.");
+    expect(lock?.cta).toBe("Contact us");
+    expect(lock?.info.upgradeTo).toBeNull();
+  });
+
+  it("uses a fresher local count when it's higher than the layout's", () => {
+    const limits = limitsFor("free", { tags: 4 });
+    expect(addLock(limits, "tags")).toBeNull();
+    expect(addLock(limits, "tags", { used: 5 })?.info.used).toBe(5);
+    // A lower local count never unlocks what the server says is full.
+    expect(addLock(limitsFor("free", { tags: 5 }), "tags", { used: 2 })).not.toBeNull();
+  });
+
+  it("checks profiles against the target space's count", () => {
+    const limits = limitsFor("free");
+    expect(addLock(limits, "profiles", { profileCount: 2 })).toBeNull();
+    const full = addLock(limits, "profiles", { profileCount: 3 });
+    expect(full?.title).toBe("This space is full");
+    expect(full?.reason).toBe("Free holds 3 profiles in each space — upgrade to Plus for 5.");
+    expect(full?.info).toEqual({
+      limit: "profilesPerSpace",
+      plan: "free",
+      max: 3,
+      used: 3,
+      upgradeTo: "plus",
+    });
+    // Moving several in needs room for all of them.
+    expect(spaceHasRoom(limits, 1, 2)).toBe(true);
+    expect(spaceHasRoom(limits, 2, 2)).toBe(false);
+  });
+
+  it("locks every create in a view-only workspace", () => {
+    const limits = limitsFor("free", {}, { readOnly: true });
+    for (const kind of ["spaces", "categories", "tags", "members", "profiles"] as const) {
+      expect(addLock(limits, kind)).toEqual(readOnlyLock("free"));
+    }
+    expect(spaceHasRoom(limits, 0)).toBe(false);
+    expect(readOnlyLock("free").reason).toBe(
+      "This workspace is view-only — upgrade it to add more.",
+    );
+  });
+
+  it("gates a new workspace on the one-free-workspace rule, not on this workspace", () => {
+    expect(addLock(limitsFor("free"), "workspaces")).toBeNull();
+    // A view-only workspace doesn't stop someone creating their first free one.
+    expect(addLock(limitsFor("free", {}, { readOnly: true }), "workspaces")).toBeNull();
+    const lock = addLock(limitsFor("pro", {}, { canCreateFreeWorkspace: false }), "workspaces");
+    expect(lock?.reason).toBe(
+      "You already have a free workspace — each extra workspace needs Plus or Pro.",
+    );
+    expect(lock?.info).toMatchObject({ limit: "freeWorkspaces", plan: "free", upgradeTo: "plus" });
+  });
+
+  it("locks per-profile access below Plus only", () => {
+    expect(addLock(limitsFor("plus"), "profileLevelAccess")).toBeNull();
+    const lock = addLock(limitsFor("free"), "profileLevelAccess");
+    expect(lock).toEqual(profileAccessLock("free"));
+    expect(lock?.reason).toBe(
+      "Per-profile access is on Plus and Pro — choose who sees which profile.",
+    );
+    expect(lock?.info).toEqual({ limit: "profileLevelAccess", plan: "free", upgradeTo: "plus" });
+  });
+
+  it("hands the upgrade dialog info it can explain", () => {
+    const limits = limitsFor("free", { spaces: 2, categories: 20, tags: 5, members: 3 });
+    for (const kind of ["spaces", "categories", "tags", "members", "profileLevelAccess"] as const) {
+      const lock = addLock(limits, kind);
+      expect(lock).not.toBeNull();
+      expect(upgradeCopy(lock!.info).upgradeTo).toBe("plus");
+    }
+  });
+
+  it("never mentions grace periods or deleting anything", () => {
+    const limits = limitsFor("free", { spaces: 2, categories: 20, tags: 5, members: 3 });
+    const texts = (["spaces", "categories", "tags", "members", "profileLevelAccess"] as const)
+      .map((k) => addLock(limits, k))
+      .concat(readOnlyLock("free"), addLock({ ...limits, canCreateFreeWorkspace: false }, "workspaces"))
+      .flatMap((l) => (l ? [l.title, l.reason] : []));
+    for (const t of texts) expect(t).not.toMatch(/grace|grandfather|delet/i);
+  });
+});

@@ -54,21 +54,10 @@ export async function workspaceIdOf(userId: string): Promise<string> {
 /**
  * Put a workspace on a plan — what checkout will do (personal phase 9). Tests
  * use it to give a scenario the plan it needs (per-profile grants need Plus, a
- * second workspace needs the first to be paid, …). Optionally flips
- * `grandfathered` too, for the grace-period / read-only scenarios.
+ * second workspace needs the first to be paid, …).
  */
-export async function setWorkspacePlan(
-  workspaceId: string,
-  plan: PersonalPlan,
-  opts: { grandfathered?: boolean } = {},
-): Promise<void> {
-  await getTestDb()
-    .update(workspaces)
-    .set({
-      plan,
-      ...(opts.grandfathered === undefined ? {} : { grandfathered: opts.grandfathered }),
-    })
-    .where(eq(workspaces.id, workspaceId));
+export async function setWorkspacePlan(workspaceId: string, plan: PersonalPlan): Promise<void> {
+  await getTestDb().update(workspaces).set({ plan }).where(eq(workspaces.id, workspaceId));
 }
 
 /** A workspace's first (default) space id — where profiles go when none is named. */

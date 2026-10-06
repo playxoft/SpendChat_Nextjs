@@ -29,8 +29,8 @@ import { usePlan } from "./upgrade-dialog";
  * since the limits are shared. Data is `getUsage(workspaceId)`, read on the
  * server and passed in (this component never fetches).
  *
- * Over a limit is never framed as a threat: a grandfathered or downgraded
- * workspace keeps everything, and only adding more is blocked.
+ * Over a limit is never framed as a threat: a downgraded workspace keeps
+ * everything, and only adding more is blocked.
  */
 
 type Meter = { used: number; limit: number };
@@ -38,8 +38,6 @@ type Meter = { used: number; limit: number };
 /** The shape `getUsage` returns (kept structural — entitlements are server-only). */
 export type UsageData = {
   plan: PersonalPlan;
-  grandfathered: boolean;
-  inGrace: boolean;
   readOnly: boolean;
   ai: { used: number; limit: number; remaining: number; resetsAt: string };
   storage: { usedBytes: number; limitBytes: number };
@@ -80,11 +78,6 @@ export function UsagePanel({ usage }: { usage: UsageData }) {
         </CardAction>
       </CardHeader>
       <CardContent className="space-y-5">
-        {usage.grandfathered && usage.inGrace && (
-          <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            Your workspace keeps everything it had while plans roll out.
-          </p>
-        )}
         {usage.readOnly && (
           <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
             This workspace is view-only — you can have one free workspace. Everything in it is

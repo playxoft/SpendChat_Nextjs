@@ -7,6 +7,7 @@ import {
   FeatureSteps,
 } from "@/components/marketing/feature-page";
 import { featureLink, getFeature } from "@/lib/features";
+import { PLAN_LIMITS, PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
 import { createMetadata } from "@/lib/seo";
 
 const SLUG = "workspaces";
@@ -18,6 +19,9 @@ export const metadata = createMetadata({
   path: `/features/${SLUG}`,
 });
 
+const members = (plan: keyof typeof PLAN_LIMITS) => PLAN_LIMITS[plan].members;
+const perProfilePlans = `${PLAN_NAMES[lowestPlanWith("profileLevelAccess")]} and ${PLAN_NAMES.pro}`;
+
 const faqs = [
   {
     q: "How do I share expenses with my partner?",
@@ -25,11 +29,15 @@ const faqs = [
   },
   {
     q: "Can my accountant see only my business profile?",
-    a: "Yes. Instead of adding them to the workspace, grant access to the Business profile alone. They'll open the app and see that one set of books — not your groceries, not the household bills — and you can revoke it the moment the filing is done.",
+    a: `Yes. Put the Business profile in its own space and give them access to that space alone — on ${perProfilePlans} you can also grant a single profile directly. They'll open the app and see that one set of books — not your groceries, not the household bills — and you can revoke it the moment the filing is done.`,
   },
   {
     q: "What can a viewer, an editor and an admin each do?",
     a: "A viewer reads: the feed, the transactions table, the reports. An editor also adds, edits and deletes transactions and attaches receipts. An admin does all of that plus manages profiles, categories, the workspace currency, and who else has access. Someone who can only view sees the composer replaced by a read-only notice rather than a button that fails.",
+  },
+  {
+    q: "How many people can share a workspace?",
+    a: `${members("free")} on the Free plan, ${members("plus")} on Plus and ${members("pro")} on Pro — you included, and pending invites count too. The plan belongs to the workspace, so everyone in it shares the same limits.`,
   },
   {
     q: "What happens if I invite someone who doesn't have an account yet?",
@@ -37,7 +45,7 @@ const faqs = [
   },
   {
     q: "Can I have more than one workspace?",
-    a: "Yes. Everyone starts with one — named after you, created the first time you sign in — and you can create more. A household workspace and a company workspace are a common pair, since they usually have different people in them. Switching is a keystroke, and a new workspace inherits the currency and number format of the one you're in.",
+    a: "Yes. Everyone gets one free workspace — named after you, created the first time you sign in. Each workspace has its own plan, so an extra one you create needs Plus or Pro (paid plans open soon). You can also be a member of other people's workspaces. A household workspace and a company workspace are a common pair, since they usually have different people in them. Switching is a keystroke, and a new workspace inherits the currency and number format of the one you're in.",
   },
   {
     q: "Do all the profiles in a workspace share categories and currency?",
@@ -76,7 +84,7 @@ export default function WorkspacesPage() {
           },
           {
             title: "Choose how much they see",
-            body: "Everything in the workspace, or a grant on the one profile that concerns them — each at its own role.",
+            body: "Everything in the workspace, only the spaces that concern them, or — on Plus and Pro — single profiles, each at its own role.",
           },
           {
             title: "Change it whenever",
@@ -122,7 +130,9 @@ export default function WorkspacesPage() {
           they just have a key to one room.
         </p>
         <p>
-          When both apply to the same profile, the higher role wins. A partner
+          Per-profile grants are part of the Plus and Pro plans; on Free,
+          people share whole spaces. When both apply to the same profile, the
+          higher role wins. A partner
           who is a viewer of the whole workspace and an editor on Home can read
           everything and write to Home. That single rule is what lets one
           workspace hold books with genuinely different audiences: shared
@@ -223,7 +233,7 @@ export default function WorkspacesPage() {
           },
           {
             title: "Freelancers with an accountant",
-            body: "Grant access to the business profile alone, at viewer, for as long as the work takes — then take it back without touching anything else.",
+            body: "Give them viewer access to the business books alone, for as long as the work takes — then take it back without touching anything else.",
           },
           {
             title: "Small teams and clubs",

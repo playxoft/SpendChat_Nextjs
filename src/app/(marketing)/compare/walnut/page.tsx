@@ -42,7 +42,7 @@ const rows: CompareRow[] = [
   },
   {
     label: "Price",
-    spendchat: "Free. No paid tier, no ads.",
+    spendchat: "Free plan with no ads. Paid plans add more AI, voice entry, storage and people.",
     competitor:
       "Free. The app also sells pay-later credit, personal loans and fixed deposits.",
   },

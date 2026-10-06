@@ -272,7 +272,7 @@ export type MeterState = {
   tone: "ok" | "warn" | "full";
   /** At or past the limit: adding is blocked. */
   full: boolean;
-  /** Past the limit (grandfathered, or after a downgrade). Nothing is removed. */
+  /** Past the limit (after a downgrade). Nothing is removed. */
   over: boolean;
 };
 

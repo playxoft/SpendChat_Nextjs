@@ -33,7 +33,7 @@ workspaces it owns. Everything here is additive.
 |---|---|---|
 | `Profile` (every profile response) | `spaceId` | The space the profile lives in. |
 | `Profile` | `access` | The caller's effective access on it: `read` (viewer), `write` (editor), `admin`. In a view-only workspace every profile reads `read`. Use it to show/hide add, edit and manage actions per profile instead of deriving them from the workspace role. |
-| `WorkspaceSummary` (`/me`, `/workspaces`) | `plan`, `organizationId`, `grandfathered` | `grandfathered` = the workspace existed before plans and keeps what it had during the grace period. |
+| `WorkspaceSummary` (`/me`, `/workspaces`) | `plan`, `organizationId` | The workspace's plan and the organisation that holds it. |
 | `ProfileInput` (`POST /profiles`) | `spaceId?` | Create into that space; omitted → the workspace's first space. |
 
 **New endpoints**
@@ -51,7 +51,7 @@ workspaces it owns. Everything here is additive.
 | `GET /profiles/{id}/overrides` | Per-profile overrides on one profile (admin). |
 | `PUT /profiles/{id}/overrides` | `{ userId, access: "none" \| "read" \| "write" \| null }` (admin, **Plus/Pro**; on Free an existing override can only be narrowed). |
 | `GET /organization` · `PATCH /organization` | The caller's organisation and its workspaces with their plans; rename `{ name }`. |
-| `GET /usage` | The current workspace's plan, limits and usage (AI actions, storage, members, spaces, categories, tags, per-space profile cap, voice, per-profile access, grace / view-only flags). |
+| `GET /usage` | The current workspace's plan, limits and usage (AI actions, storage, members, spaces, categories, tags, per-space profile cap, voice, per-profile access, view-only flag). |
 
 Space item endpoints are scoped to the current workspace (`X-Workspace-Id`):
 a space id from another workspace is a 404, like a single transaction.
@@ -74,9 +74,11 @@ invite flow only — v1 has no member endpoints. Uploads keep their
 rather than a flat 1 GB — `GET /files` `meta.storage.limitBytes` reports it.
 
 **View-only workspaces.** A person gets one free workspace; an extra free one
-turns view-only once its grace period is over. `GET /usage` → `readOnly: true`
-(and `GET /organization` → `workspaces[].readOnly`) says so up front, every
-profile there reports `access: "read"`, and writes are refused with
+(its owner has an older free workspace) is view-only. Limits apply to every
+workspace from the day plans ship — nothing keeps a pre-plan allowance.
+`GET /usage` → `readOnly: true` (and `GET /organization` →
+`workspaces[].readOnly`) says so up front, every profile there reports
+`access: "read"`, and writes are refused with
 `403 plan_limit`, `limit: "freeWorkspaces"` — anything inside a profile
 (transactions, attachments, vault files, profile edits) and every add at
 workspace level (profiles, spaces, categories, tags).
@@ -89,6 +91,12 @@ the tag everywhere) need workspace admin or edit access to **every** profile.
 Otherwise `403 forbidden`. Existing editors are unaffected: the migration puts
 each in the space that holds every profile.
 
+**New workspaces' defaults.** A new workspace (`POST /workspaces`, or the
+default one created at first sign-in) is seeded with **10** default categories
+(7 expense + 3 income; was 15) and **2** default tags, "Recurring" and
+"Reimbursable" (was none). Both count toward the plan's caps (20 categories and
+5 tags on Free). Existing workspaces keep what they have.
+
 **AI: a monthly allowance, voice on Pro, longer clips.** Responses are
 unchanged; requests gain two optional fields and the gates gain two errors.
 
@@ -97,11 +105,11 @@ unchanged; requests gain two optional fields and the gates gain two errors.
 | `POST /ai/parse` | New optional body field `source: "typed" \| "voice"` (default `typed`; anything else → 422). A parse costs one AI action, except a `source: "voice"` parse that follows a paid transcription by the same user in the same workspace within 15 minutes, which costs nothing (each paid clip covers one such parse). The note cap rises from 2000 to **3000** characters. |
 | `POST /ai/transcribe` | New optional multipart field `durationMs` (integer milliseconds, clamped to 120000; malformed or negative → 400). A clip costs **one AI action per started minute** (61 s → 2); a request without `durationMs` is charged as a full two-minute clip. Recordings may now be up to **2 minutes** (was 60 s; the 4 MB cap is unchanged) and the transcript cap rises from 1200 to **2400** characters. |
 | both | `403 plan_limit`, `limit: "aiActions"`, once the workspace's monthly allowance is spent — 50 / 300 / 1,000 actions on Free / Plus / Pro per UTC calendar month (`GET /usage` → `ai`, refilling at `ai.resetsAt`). The hourly `429 rate_limited` is still checked first. A call that fails on our side (502/503) gives its actions back. |
-| `POST /ai/transcribe` | `403 plan_limit`, `limit: "voice"`, unless the workspace is on **Pro** (or is grandfathered and inside its grace period — `GET /usage` → `voice`). |
+| `POST /ai/transcribe` | `403 plan_limit`, `limit: "voice"`, unless the workspace is on **Pro** (`GET /usage` → `voice`). |
 
 **Flutter impact:** additive — nothing breaks. Add `spaceId` + `access` to
-the `Profile` model and `plan` / `organizationId` / `grandfathered` to the
-workspace model (all always present). Handle `403` with
+the `Profile` model and `plan` / `organizationId` to the workspace model
+(all always present). Handle `403` with
 `error.code == "plan_limit"` distinctly from `forbidden`: show an upgrade
 prompt built from `details` (or "contact us" when `upgradeTo` is null) rather
 than "ask an admin", and read `details` on a `413 storage_quota_exceeded` the
@@ -113,7 +121,7 @@ isn't charged twice. Optionally read `GET /usage` for a plan/usage screen and
 to render a `readOnly` workspace view-only, and drive per-profile actions
 from `access`. Space management can stay web-only for v1; if the app groups
 profiles in its drawer, group them by `spaceId`, using `GET /spaces` for
-names and order.
+names and order. Don't assume a new workspace's tag list is empty.
 
 ---
 

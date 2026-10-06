@@ -149,7 +149,7 @@ export const FEATURES: Feature[] = [
     title: "Receipt Storage for Bills and Invoices",
     h1: "Keep the receipt with the expense",
     description:
-      "Attach receipts, bills and invoices to any transaction, or keep them in a Drive-style vault with folders, colour tags and share links. 1 GB per workspace.",
+      "Attach receipts, bills and invoices to any transaction, or keep them in a Drive-style vault with folders, colour tags and share links. 1 GB free per workspace.",
     blurb: "Attach receipts to transactions; keep the rest in a tagged vault.",
     icon: "Paperclip",
     group: "understand",
@@ -162,7 +162,7 @@ export const FEATURES: Feature[] = [
     title: "Export Expenses to CSV, or Print a Report",
     h1: "Your data leaves as easily as it arrives",
     description:
-      "Download the view you're looking at as a CSV, or print a clean report and save it as a PDF. No paid tier, no watermark, no lock-in.",
+      "Download the view you're looking at as a CSV, or print a clean report and save it as a PDF. Same on every plan, no watermark, no lock-in.",
     blurb: "CSV of the filtered view, or a print-ready PDF report.",
     icon: "Download",
     group: "understand",

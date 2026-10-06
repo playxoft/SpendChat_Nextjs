@@ -24,8 +24,7 @@ export type OrganizationWorkspace = {
   name: string;
   icon: string | null;
   plan: PersonalPlan;
-  grandfathered: boolean;
-  /** An extra free workspace past its grace period — view-only until upgraded. */
+  /** An extra free workspace (the owner has an older free one) — view-only until upgraded. */
   readOnly: boolean;
   /** Whether the viewer can open it (they own the org, so: always, unless removed). */
   canOpen: boolean;
@@ -57,7 +56,6 @@ export async function getMyOrganization(userId: string): Promise<OrganizationOve
         name: workspaces.name,
         icon: workspaces.icon,
         plan: workspaces.plan,
-        grandfathered: workspaces.grandfathered,
         // Qualified by hand: see `readOnlyWorkspaceSql` on bare columns.
         readOnly: readOnlyWorkspaceSql(sql`${workspaces}."id"`),
       })

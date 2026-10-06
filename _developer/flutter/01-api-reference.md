@@ -101,22 +101,23 @@ action would go past one, the server answers **403** with
 | `members` | 3 / 5 / 10 people (invites count) | The web's invite flow — v1 has no member endpoints |
 | `spaces` | 2 / 6 / 15 (the default space counts) | `POST /spaces` |
 | `profilesPerSpace` | 3 / 5 / 10 per space | `POST /profiles`, `POST /profiles/{id}/space`, `DELETE /spaces/{id}` with a move |
-| `categories` | 20 / 30 / 50 (the seeded defaults count) | `POST /categories` |
-| `tags` | 5 / 10 / 20 | `POST /tags` |
+| `categories` | 20 / 30 / 50 (the 10 seeded defaults count) | `POST /categories` |
+| `tags` | 5 / 10 / 20 (the 2 seeded defaults count) | `POST /tags` |
 | `storage` | 1 / 5 / 20 GB | **413 `storage_quota_exceeded`** (not 403) on `POST /files` and `POST /transactions/{id}/attachments` — same `details` |
 | `aiActions` | 50 / 300 / 1,000 per UTC calendar month | `POST /ai/parse`, `POST /ai/transcribe` |
-| `voice` | Pro only (and grandfathered workspaces in their grace period) | `POST /ai/transcribe` |
+| `voice` | Pro only | `POST /ai/transcribe` |
 | `profileLevelAccess` | Plus / Pro | `PUT /profiles/{id}/overrides` |
 | `freeWorkspaces` | one free workspace per person | `POST /workspaces`; writes into a view-only workspace — any endpoint that adds or edits data (below) |
 
-Limits gate **adding**, never existing data: a workspace over a cap (it was
-grandfathered, or it downgraded) keeps everything and just can't add another
-until it's back under. `GET /usage` reports every limit and how much of it is
-used, so the app can show the upgrade before the server has to refuse.
+Limits apply to every workspace from the day plans ship, and they gate
+**adding**, never existing data: a workspace over a cap (after a downgrade)
+keeps everything and just can't add another until it's back under.
+`GET /usage` reports every limit and how much of it is used, so the app can
+show the upgrade before the server has to refuse.
 
 **View-only workspaces.** A person gets one free workspace. An extra free one
-(left over from before plans, or after a downgrade) turns **view-only** once its
-grace period ends: `GET /usage` → `readOnly: true` (and
+(a Free workspace whose owner has an older Free workspace, e.g. after a
+downgrade) is **view-only**: `GET /usage` → `readOnly: true` (and
 `GET /organization` → `workspaces[].readOnly`), every profile in it reports
 `access: "read"`, and writes are refused with `403 plan_limit`,
 `limit: "freeWorkspaces"` — anything inside a profile (transactions,
@@ -460,8 +461,8 @@ inside their space; `read` / `write` open it even in a space they're not in.
   "owner": { "id": "uuid", "name": "Ada" | null, "email": "a@b.com" | null },
   "workspaces": [                        // the workspaces in it, oldest first
     { "id": "uuid", "name": "Ada's Workspace", "icon": "🏢" | null,
-      "plan": "free" | "plus" | "pro", "grandfathered": false,
-      "readOnly": false,                 // an extra free workspace past its grace period
+      "plan": "free" | "plus" | "pro",
+      "readOnly": false,                 // an extra free workspace (owner has an older free one)
       "canOpen": true }                  // the caller can open it (send as X-Workspace-Id)
   ]
 }
@@ -471,23 +472,21 @@ inside their space; `read` / `write` open it even in a space they're not in.
 ```jsonc
 {
   "plan": "free" | "plus" | "pro",
-  "grandfathered": false,      // existed before plans
-  "inGrace": false,            // grandfathered and still inside the grace period
   "readOnly": false,           // view-only (extra free workspace) — render read-only
   "ai": { "used": 12, "limit": 50, "remaining": 38, "topUpRemaining": 0,
           "resetsAt": "2026-11-01T00:00:00.000Z" },   // first instant of next month, UTC
   "storage": { "usedBytes": 52428800, "limitBytes": 1073741824 },
   "members":    { "used": 1, "limit": 3 },   // people incl. pending invites
   "spaces":     { "used": 1, "limit": 2 },
-  "categories": { "used": 15, "limit": 20 }, // seeded defaults count
-  "tags":       { "used": 0, "limit": 5 },
+  "categories": { "used": 10, "limit": 20 }, // the 10 seeded defaults count
+  "tags":       { "used": 2, "limit": 5 },   // the 2 seeded defaults count
   "profilesPerSpace": 3,       // compare with each Space.profileCount
   "voice": false,              // POST /ai/transcribe available
   "profileLevelAccess": false  // per-profile overrides can be changed
 }
 ```
-`used` can exceed `limit` (a grandfathered or downgraded workspace keeps what
-it has) — it just can't add more until it's back under.
+`used` can exceed `limit` (a downgraded workspace keeps what it has) — it just
+can't add more until it's back under.
 
 ### Settings
 User-level settings that follow the user across every workspace. **Currency and
@@ -515,8 +514,7 @@ once — that's what makes code-mixed speech ("groceries-க்கு 500 rupees
   "locale": "en-US",
   "currencyDetail": { "code": "USD", "symbol": "$", "decimals": 2 },
   "plan": "free" | "plus" | "pro",     // 6.5.0 — limits are per workspace (GET /usage)
-  "organizationId": "uuid",            // 6.5.0 — the organisation holding it
-  "grandfathered": false               // 6.5.0 — existed before plans; keeps what it had during the grace period
+  "organizationId": "uuid"             // 6.5.0 — the organisation holding it
 }
 ```
 
@@ -616,14 +614,14 @@ the debug/about screen so a bug report names the exact deploy, and link
 ### Workspaces
 | Method & path | Body | Success | Notes |
 |---|---|---|---|
-| `GET /workspaces` | — | 200 `data: WorkspaceSummary[]` | Every workspace the user can open (for a switcher). **Ignores `X-Workspace-Id`; never 404s.** Memberships first (`createdAt asc`), then grant-only (`role: null`). Always ≥1. Item shape = the `Workspace` object (`{ id, name, icon, role, currency, locale, currencyDetail, plan, organizationId, grandfathered }`, same as `/me`'s `workspace`). |
-| `POST /workspaces` | `WorkspaceInput` `{ name, icon? }` | 201 `data: WorkspaceSummary` | Caller becomes **admin** (`role` always `"admin"`); seeds a default "Personal" profile + the default category list; inherits the creator's current currency/number format; becomes the current workspace (server persists `lastWorkspaceId`). `icon` is an optional emoji (omitted/empty → default 🏢). Ignores `X-Workspace-Id`. Starts on **Free**; a caller who already owns a free workspace gets **403 `plan_limit`** (`freeWorkspaces`, `max: 1`, `upgradeTo: "plus"`) and nothing is created. 400 bad JSON; 422 blank/long name. |
+| `GET /workspaces` | — | 200 `data: WorkspaceSummary[]` | Every workspace the user can open (for a switcher). **Ignores `X-Workspace-Id`; never 404s.** Memberships first (`createdAt asc`), then grant-only (`role: null`). Always ≥1. Item shape = the `Workspace` object (`{ id, name, icon, role, currency, locale, currencyDetail, plan, organizationId }`, same as `/me`'s `workspace`). |
+| `POST /workspaces` | `WorkspaceInput` `{ name, icon? }` | 201 `data: WorkspaceSummary` | Caller becomes **admin** (`role` always `"admin"`); seeds a default "Personal" profile + the default category list (10) and tag list (2); inherits the creator's current currency/number format; becomes the current workspace (server persists `lastWorkspaceId`). `icon` is an optional emoji (omitted/empty → default 🏢). Ignores `X-Workspace-Id`. Starts on **Free**; a caller who already owns a free workspace gets **403 `plan_limit`** (`freeWorkspaces`, `max: 1`, `upgradeTo: "plus"`) and nothing is created. 400 bad JSON; 422 blank/long name. |
 | `PATCH /workspaces/{id}` | `WorkspaceCurrencyPatch` `{ currency, locale }` | 200 `data: WorkspaceSummary` | Set the workspace's currency + number format (every member sees it). **Admin only** → 403 otherwise. Uses the path `id`, not `X-Workspace-Id`. 400; 404; 422 unsupported currency. |
 
 ### Organization (6.5.0 — ignores `X-Workspace-Id`)
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /organization` | — | 200 `data: Organization` | The caller's personal organisation (every account has exactly one, created at first sign-in): name, owner, and every workspace in it with its `plan`, `grandfathered`, `readOnly` and `canOpen`. |
+| `GET /organization` | — | 200 `data: Organization` | The caller's personal organisation (every account has exactly one, created at first sign-in): name, owner, and every workspace in it with its `plan`, `readOnly` and `canOpen`. |
 | `PATCH /organization` | `{ name }` (1–40, trimmed) | 200 `data: Organization` | Rename it (the caller owns it by definition). 400 bad JSON; 422 blank/long name. |
 
 ### Usage (6.5.0 — current workspace via `X-Workspace-Id`)
@@ -706,9 +704,8 @@ per-user quota of **30 calls/hour** (429 `rate_limited`, checked first). Since
 `ai`); once it's spent the call is **403 `plan_limit`**, `limit: "aiActions"`,
 until `ai.resetsAt`. A typed parse costs one action; a transcription costs one
 per started minute of the clip and also pays for parsing its transcript (send
-that parse with `source: "voice"`). Voice entry is **Pro** (and grandfathered
-workspaces in their grace period) — elsewhere transcribe is **403
-`plan_limit`**, `limit: "voice"`. `503 ai_unavailable` = that feature's model
+that parse with `source: "voice"`). Voice entry is **Pro** only — elsewhere
+transcribe is **403 `plan_limit`**, `limit: "voice"`. `503 ai_unavailable` = that feature's model
 isn't configured (treat as feature-off, like the web); `502 ai_failed` =
 provider hiccup, offer retry — a call that fails on our side gives its actions
 back. Neither writes any user data.
@@ -724,15 +721,16 @@ the list.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `GET /categories` | — | 200 `data: Category[]` | The current workspace's list, `kind asc, name asc` (income first). |
-| `POST /categories` | `CategoryInput` `{ name, kind, icon? }` | 201 `data: Category` | Editor+ with edit access to at least one profile (403 otherwise; 6.5.0). 422; 409 "A category with that name already exists" (unique per workspace+kind); **403 `plan_limit`** `categories` at the plan's cap (20 / 30 / 50 — the seeded defaults count; deleting one frees a slot) |
+| `POST /categories` | `CategoryInput` `{ name, kind, icon? }` | 201 `data: Category` | Editor+ with edit access to at least one profile (403 otherwise; 6.5.0). 422; 409 "A category with that name already exists" (unique per workspace+kind); **403 `plan_limit`** `categories` at the plan's cap (20 / 30 / 50 — the 10 seeded defaults count; deleting one frees a slot) |
 | `PATCH /categories/{id}` | `{ name?, icon? }` | 200 `data: Category` | Workspace admin, or an editor with edit access to **every** profile (403 otherwise; 6.5.0 — the change reaches every transaction). 422; 404 "Category not found"; 409 duplicate name |
 | `DELETE /categories/{id}` | — | 200 `data: { id, deleted: true }` | Workspace admin, or an editor with edit access to **every** profile (403 otherwise; 6.5.0 — the change reaches every transaction). Referencing transactions get `categoryId = null`. 422; 404 |
 
 ### Tags (scoped to the current workspace via `X-Workspace-Id`)
 Transaction tags: shared by every member of the workspace. Reads need workspace
 access; writes require the **editor** role (viewer → 403). A new workspace
-starts with **no** tags (unlike categories, which are seeded). The plan caps
-tags per workspace (5 / 10 / 20 on Free / Plus / Pro).
+is seeded with two tags, "Recurring" and "Reimbursable" (since 6.5.0; it
+started with none before). The plan caps tags per workspace (5 / 10 / 20 on
+Free / Plus / Pro; the seeded defaults count).
 
 Transactions reference tags by id, so a rename or recolor here shows on every
 transaction carrying it without touching a transaction.

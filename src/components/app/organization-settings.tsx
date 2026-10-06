@@ -4,11 +4,12 @@ import * as React from "react";
 import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Building2 } from "lucide-react";
+import { Building2, Plus } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
+  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -20,6 +21,8 @@ import { renameOrganization } from "@/actions/organizations";
 import { switchWorkspace } from "@/actions/workspaces";
 import { ORGANIZATION_NAME_MAX } from "@/lib/validation";
 import type { PersonalPlan } from "@/lib/plans";
+import { CreateWorkspaceDialog } from "./create-workspace-dialog";
+import { LimitTooltip, LockGlyph, useAddLock } from "./limit-lock";
 import { useLoadingOverlay } from "./loading-overlay";
 import { PlanBadge } from "./plan-badge";
 import { usePlan } from "./upgrade-dialog";
@@ -28,7 +31,8 @@ import { usePlan } from "./upgrade-dialog";
  * Settings → Organisation: the top of organisation → workspace → space →
  * profile. Every account has one personal organisation holding the workspaces
  * it owns; plans belong to each workspace, so this page is mostly a list —
- * each workspace with its plan, whether it's view-only, and a way to open it.
+ * each workspace with its plan, whether it's view-only, and a way to open it —
+ * plus "Create workspace", locked (with the reason) once a free one exists.
  */
 
 /** The shape `getMyOrganization` returns (kept structural — services are server-only). */
@@ -41,7 +45,6 @@ export type OrganizationData = {
     name: string;
     icon: string | null;
     plan: PersonalPlan;
-    grandfathered: boolean;
     readOnly: boolean;
     canOpen: boolean;
   }[];
@@ -59,6 +62,8 @@ export function OrganizationSettings({
   const { reportFailure, showUpgrade } = usePlan();
   const [pending, startTransition] = useTransition();
   const [name, setName] = React.useState(organization.name);
+  const [createOpen, setCreateOpen] = React.useState(false);
+  const createLock = useAddLock("workspaces");
   const changed = name.trim() !== organization.name && name.trim().length > 0;
 
   function handleRename(e: React.FormEvent) {
@@ -140,6 +145,15 @@ export function OrganizationSettings({
             You can have one free workspace. Each extra one needs its own Plus or Pro plan —
             until then it&apos;s view-only, and nothing in it is deleted.
           </CardDescription>
+          <CardAction>
+            <LimitTooltip lock={createLock}>
+              <Button variant="secondary" size="sm" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" />
+                Create workspace
+                {createLock && <LockGlyph />}
+              </Button>
+            </LimitTooltip>
+          </CardAction>
         </CardHeader>
         <CardContent>
           {organization.workspaces.length === 0 ? (
@@ -187,10 +201,6 @@ export function OrganizationSettings({
                             See what&apos;s included
                           </button>
                         </p>
-                      ) : w.grandfathered ? (
-                        <p className="text-xs text-muted-foreground">
-                          Grandfathered — it keeps everything it had while plans roll out.
-                        </p>
                       ) : null}
                     </div>
                     {w.canOpen && (
@@ -211,6 +221,8 @@ export function OrganizationSettings({
           )}
         </CardContent>
       </Card>
+
+      <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
     </>
   );
 }

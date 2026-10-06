@@ -31,6 +31,8 @@ import { faqJsonLd } from "@/lib/seo";
 import { comboFor } from "@/lib/shortcuts";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
+import { PLAN_LIMITS } from "@/lib/plans";
+import { formatPlanStorage } from "@/lib/plan-limit";
 
 /** How many FAQs the homepage shows before sending people to `/faq`. */
 const HOME_FAQ_COUNT = 6;
@@ -52,7 +54,7 @@ const trustPoints = [
   {
     icon: Wallet,
     label: "Free to use",
-    body: "No ads, no paid tier holding features back.",
+    body: "A free plan with no ads. Pay only for more AI, voice and room.",
     href: "/pricing",
   },
   {
@@ -78,7 +80,7 @@ const fileFacts = [
   "Grid, list or column view",
   "Drag files in from your desktop",
   "A revocable share link per file",
-  "1 GB per workspace, 5 MB per file",
+  `${formatPlanStorage(PLAN_LIMITS.free.storageBytes)} free per workspace, 5 MB per file`,
   "Attachments live on the transaction too",
 ];
 
@@ -104,7 +106,7 @@ const comparison: {
 const steps = [
   {
     title: "Create your free account",
-    body: "Sign up with your email or Google in seconds. No credit card, ever.",
+    body: "Sign up with your email or Google in seconds. No credit card needed.",
   },
   {
     title: "Add however suits you",
@@ -389,8 +391,8 @@ export default function LandingPage() {
             <h2 className="mt-4 text-xl font-medium">Shared on your terms</h2>
             <p className="mt-2 leading-relaxed text-muted-foreground">
               Invite your partner, family or accountant to a workspace and pick
-              what each of them can do — view, edit, or administer. Access can be
-              granted for one profile rather than everything.
+              what each of them can do — view, edit, or administer. Share a whole
+              space, or on Plus and Pro, just one profile.
             </p>
             <Link
               href={featureLink("workspaces")}
@@ -667,7 +669,7 @@ export default function LandingPage() {
             Start tracking your money today
           </h2>
           <p className="mx-auto mt-3 max-w-md text-muted-foreground">
-            It&apos;s free, private, and takes less than a minute to set up.
+            The Free plan costs nothing, it&apos;s private, and it takes less than a minute to set up.
           </p>
           <div className="mt-8 flex flex-wrap justify-center gap-3">
             <Button asChild className={marketingCta}>

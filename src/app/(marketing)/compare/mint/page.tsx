@@ -36,7 +36,7 @@ const rows: CompareRow[] = [
   },
   {
     label: "Price",
-    spendchat: "Free. No paid tier, no ads.",
+    spendchat: "Free plan with no ads. Paid plans add more AI, voice entry, storage and people.",
     competitor:
       "Mint was free with ads. The apps people moved to are mostly paid: YNAB $109 a year or $14.99 a month, Copilot $95 a year or $13 a month, PocketGuard Plus $74.99 a year with a free core plan.",
   },
@@ -75,7 +75,7 @@ const faqs = [
   },
   {
     q: "What free alternatives to Mint exist?",
-    a: "Fewer than there were. Most of the well-known successors, YNAB, Copilot and Monarch Money, are subscriptions, and PocketGuard keeps a free core plan alongside its paid tier. SpendChat is free with no paid tier, but it makes a different trade: there is no bank connection, so you enter transactions yourself.",
+    a: "Fewer than there were. Most of the well-known successors, YNAB, Copilot and Monarch Money, are subscriptions, and PocketGuard keeps a free core plan alongside its paid tier. SpendChat has a free plan with no ads, but it makes a different trade: there is no bank connection, so you enter transactions yourself.",
   },
   {
     q: "Why would anyone give up automatic bank import?",
@@ -170,7 +170,7 @@ export default function MintComparisonPage() {
           "Recurring charges and subscriptions detected for you.",
         ]}
         ours={[
-          "Free, with no aggregator, no bank login and no ads.",
+          "A free plan, with no aggregator, no bank login and no ads.",
           "Cash and the reason behind a purchase recorded, not just the transfer.",
           "Works in any country, shares a feed with family, exports everything, and the code is public.",
         ]}

@@ -86,7 +86,7 @@ describe("GET /api/v1/workspaces", () => {
     expect(data[0].role).toBe("admin");
   });
 
-  it("carries each workspace's plan, organisation and grandfathered flag (6.5.0)", async () => {
+  it("carries each workspace's plan and organisation (6.5.0) — and no grandfathered flag", async () => {
     signInAs("a");
     await bootstrapUser("a");
     const Wa = await workspaceIdOf("a");
@@ -97,9 +97,9 @@ describe("GET /api/v1/workspaces", () => {
         id: Wa,
         plan: "free",
         organizationId: expect.stringMatching(/^[0-9a-f-]{36}$/),
-        grandfathered: false,
       }),
     ]);
+    expect(list[0]).not.toHaveProperty("grandfathered");
 
     await setWorkspacePlan(Wa, "plus");
     const me = (await (await getMe(apiReq("/api/v1/me"))).json()).data;

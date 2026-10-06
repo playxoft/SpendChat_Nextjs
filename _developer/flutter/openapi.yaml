@@ -74,11 +74,10 @@ info:
     allowance** from its plan — 50 / 300 / 1,000 AI actions per UTC calendar
     month on Free / Plus / Pro (`403 plan_limit`, `limit: "aiActions"` once
     it's spent — see `GET /usage` → `ai`), voice entry for transcription
-    (Pro, or a grandfathered workspace in its grace period — otherwise
-    `403 plan_limit`, `limit: "voice"`), `503 ai_unavailable` when the
-    operator hasn't configured that feature's model, and `502 ai_failed` when
-    the provider errors (a call that fails on our side gives its AI action
-    back). A typed parse costs one AI action; a transcription costs one per
+    (Pro only — otherwise `403 plan_limit`, `limit: "voice"`),
+    `503 ai_unavailable` when the operator hasn't configured that feature's
+    model, and `502 ai_failed` when the provider errors (a call that fails on
+    our side gives its AI action back). A typed parse costs one AI action; a transcription costs one per
     started minute of the clip and also covers parsing its transcript (send
     that parse with `source: "voice"`). Neither endpoint writes anything: parse output is reviewed by the
     user and committed via `POST /transactions/bulk`; transcribe output is
@@ -148,12 +147,13 @@ info:
     which is about role) and `details` = `PlanLimitDetails`
     (`{ limit, plan, max?, used?, upgradeTo }`). Show an upgrade prompt for
     `upgradeTo`, or "contact us" when it is `null`. The message is safe to
-    display as-is. Limits gate *adding*, never existing data: a workspace over
-    a cap keeps everything and just can't add another.
+    display as-is. Limits apply to every workspace from the day plans ship,
+    and they gate *adding*, never existing data: a workspace over a cap (after
+    a downgrade) keeps everything and just can't add another.
 
     **View-only workspaces.** One free workspace per person: creating another
-    is `403 plan_limit` (`freeWorkspaces`), and an extra free workspace that
-    already exists turns view-only once its grace period ends —
+    is `403 plan_limit` (`freeWorkspaces`), and an extra free workspace (its
+    owner has an older free one) is view-only —
     `GET /usage` → `readOnly: true`, every profile reads `access: "read"`, and
     writes are refused with `403 plan_limit`, `limit: "freeWorkspaces"` —
     anything inside a profile (transactions, attachments, vault files, profile
@@ -279,8 +279,9 @@ paths:
       summary: Create a workspace
       description: |
         Creates a workspace; the caller becomes its **admin**. The server seeds
-        an admin membership plus a default "Personal" profile, and makes the
-        new workspace the caller's current one (persists `lastWorkspaceId`) —
+        an admin membership, a default "Personal" profile, the default
+        category list (10) and tag list (2: "Recurring", "Reimbursable"), and
+        makes the new workspace the caller's current one (persists `lastWorkspaceId`) —
         pin the returned id as `X-Workspace-Id` on subsequent requests. The
         `X-Workspace-Id` request header is ignored here (creation is not
         scoped to the current workspace).
@@ -1316,7 +1317,7 @@ paths:
         the **editor** role or higher — a viewer gets 403.
 
         The workspace's plan caps its categories (20 / 30 / 50 on Free / Plus /
-        Pro; the seeded defaults count, and deleting one frees a slot). At the
+        Pro; the 10 seeded defaults count, and deleting one frees a slot). At the
         cap this is `403 plan_limit` with `limit: "categories"`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
@@ -1400,8 +1401,9 @@ paths:
         Every member sees the same tags, and a transaction references them by
         id — so a rename here changes every transaction carrying the tag.
 
-        Unlike categories, a new workspace is seeded with **no** tags: the list
-        starts empty.
+        A new workspace is seeded with two tags, "Recurring" and
+        "Reimbursable" (6.5.0; it started empty before). They count toward the
+        plan's tag cap.
 
         These are transaction tags. The vault's per-profile file tags are a
         different entity with its own endpoints (`/api/v1/file-tags`).
@@ -2092,8 +2094,7 @@ paths:
         The caller's personal organisation — every account has exactly one,
         created at first sign-in — with its owner and every workspace in it
         (the ones the caller owns), each with its plan, whether it's
-        grandfathered, whether it's view-only, and whether the caller can open
-        it. Not scoped to one workspace: `X-Workspace-Id` is ignored.
+        view-only, and whether the caller can open it. Not scoped to one workspace: `X-Workspace-Id` is ignored.
       responses:
         "200":
           description: The organisation.
@@ -2140,9 +2141,9 @@ paths:
         the server has to refuse: AI actions this month, storage, members,
         spaces, categories and tags (each `{ used, limit }`), the per-space
         profile cap, and the feature flags (`voice`, `profileLevelAccess`).
-        `readOnly: true` means the workspace is an extra free one past its
-        grace period — render it view-only. Readable by anyone who can open
-        the workspace.
+        `readOnly: true` means the workspace is an extra free one (its owner
+        has an older free workspace) — render it view-only. Readable by anyone
+        who can open the workspace.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       responses:
@@ -2399,9 +2400,8 @@ paths:
         transcribed as spoken (never translated), guided by the user's
         `voiceLanguages` setting.
 
-        **Plan and cost (6.5.0).** Voice entry is a **Pro** feature (and keeps
-        working for a grandfathered workspace during its grace period —
-        `GET /usage` → `voice`); elsewhere this is `403 plan_limit` with
+        **Plan and cost (6.5.0).** Voice entry is a **Pro** feature
+        (`GET /usage` → `voice`); elsewhere this is `403 plan_limit` with
         `limit: "voice"`. A clip costs **one AI action per started minute** of
         `durationMs` (clamped to 120000), so a 61-second clip costs two; a
         request without `durationMs` is charged as a full two-minute clip, so
@@ -2569,8 +2569,8 @@ components:
     Forbidden:
       description: >
         Email not verified, or RBAC role too low for the action. A write into
-        a view-only workspace (an extra free workspace past its grace period)
-        is answered with code `plan_limit` and `details.limit:
+        a view-only workspace (an extra free workspace whose owner has an
+        older free one) is answered with code `plan_limit` and `details.limit:
         "freeWorkspaces"` instead — see `ForbiddenOrPlanLimit`.
       content:
         application/json:
@@ -2830,13 +2830,8 @@ components:
           type: string
           format: uuid
           description: The organisation that holds the workspace (6.5.0).
-        grandfathered:
-          type: boolean
-          description: >
-            The workspace existed before plans did, so it keeps what it had
-            until the grace period ends (6.5.0).
       required: [id, name, icon, role, currency, locale, currencyDetail, plan,
-                 organizationId, grandfathered]
+                 organizationId]
 
     WorkspaceInput:
       type: object
@@ -3338,14 +3333,13 @@ components:
               name: { type: string }
               icon: { type: [string, "null"] }
               plan: { $ref: "#/components/schemas/Plan" }
-              grandfathered: { type: boolean }
               readOnly:
                 type: boolean
-                description: An extra free workspace past its grace period — view-only until it upgrades.
+                description: An extra free workspace (the owner has an older free one) — view-only until it upgrades.
               canOpen:
                 type: boolean
                 description: Whether the caller can open it (send it as `X-Workspace-Id`).
-            required: [id, name, icon, plan, grandfathered, readOnly, canOpen]
+            required: [id, name, icon, plan, readOnly, canOpen]
       required: [id, name, kind, owner, workspaces]
 
     OrganizationPatch:
@@ -3366,21 +3360,16 @@ components:
       type: object
       description: >
         The current workspace's plan, limits and usage (6.5.0). Limits gate
-        adding, never existing data, so `used` can exceed `limit` (a
-        grandfathered workspace, or one after a downgrade) — it just can't add
-        more until it's back under.
+        adding, never existing data, so `used` can exceed `limit` (after a
+        downgrade) — it just can't add more until it's back under.
       properties:
         plan: { $ref: "#/components/schemas/Plan" }
-        grandfathered: { type: boolean, description: Existed before plans. }
-        inGrace:
-          type: boolean
-          description: A grandfathered workspace still inside its grace period (keeps features like voice running).
         readOnly:
           type: boolean
           description: >
-            An extra free workspace past its grace period: view-only. Writes
-            inside a profile and adds of profiles, spaces, categories and tags
-            get `403 plan_limit` (`freeWorkspaces`).
+            An extra free workspace (its owner has an older free one):
+            view-only. Writes inside a profile and adds of profiles, spaces,
+            categories and tags get `403 plan_limit` (`freeWorkspaces`).
         ai:
           type: object
           description: The monthly AI allowance (parse + transcribe), shared by the workspace.
@@ -3403,15 +3392,17 @@ components:
           allOf: [{ $ref: "#/components/schemas/Meter" }]
         spaces: { $ref: "#/components/schemas/Meter" }
         categories:
-          description: The seeded defaults count.
+          description: The 10 seeded default categories count.
           allOf: [{ $ref: "#/components/schemas/Meter" }]
-        tags: { $ref: "#/components/schemas/Meter" }
+        tags:
+          description: The 2 seeded default tags count.
+          allOf: [{ $ref: "#/components/schemas/Meter" }]
         profilesPerSpace:
           type: integer
           description: The per-space profile cap (compare with each `Space.profileCount`).
         voice: { type: boolean, description: Whether voice entry (`POST /ai/transcribe`) is available. }
         profileLevelAccess: { type: boolean, description: Whether per-profile overrides can be changed (Plus/Pro). }
-      required: [plan, grandfathered, inGrace, readOnly, ai, storage, members, spaces,
+      required: [plan, readOnly, ai, storage, members, spaces,
                  categories, tags, profilesPerSpace, voice, profileLevelAccess]
 
     Summary:

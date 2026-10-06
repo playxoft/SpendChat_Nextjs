@@ -219,8 +219,10 @@ export default function PrivacyAndSecurityPage() {
         <p>
           We keep one row per AI request, and it&apos;s worth knowing what&apos;s
           in it: a user id, a workspace id, a label saying which feature called,
-          and a timestamp. Four columns, none of them your note. It exists to
-          enforce an hourly limit so one account can&apos;t run up the bill. The
+          how many AI actions it used, the workspace&apos;s owner and plan, and a
+          timestamp — none of them your note. It exists to count the
+          workspace&apos;s monthly AI allowance and to enforce an hourly limit so
+          one account can&apos;t run up the bill. The
           application logs follow the same rule — ids, counts and durations,
           never the text of what you wrote — and receipts aren&apos;t read at
           all, because there is no OCR step and no vision step anywhere in the
@@ -232,12 +234,14 @@ export default function PrivacyAndSecurityPage() {
         <p>
           There are no ads in SpendChat and no plans for any. We don&apos;t sell
           personal data and we don&apos;t use it for advertising — easier to mean
-          when the business model isn&apos;t attention. The app is free today and
-          open source, so a copy of it outlives whatever we decide about{" "}
+          when the business model isn&apos;t attention: there&apos;s a free
+          plan, and{" "}
           <Link href="/pricing" className="underline underline-offset-4">
-            pricing
+            paid plans
           </Link>{" "}
-          later.
+          for more AI, storage and people are what pay for the hosting. The app
+          is also open source, so a copy of it outlives any decision we make
+          about pricing.
         </p>
         <p>
           Analytics deserve their own paragraph, because &ldquo;we respect your
@@ -261,7 +265,7 @@ export default function PrivacyAndSecurityPage() {
             download your transactions as CSV
           </Link>{" "}
           — the exact view you&apos;re looking at, as often as you like, with
-          no paid tier gating it and up to 5,000 transactions per file — or
+          the same on every plan and up to 5,000 transactions per file — or
           print a report. From Settings you can clear
           transactions and keep the account, or delete the account outright,
           which removes your transactions, the workspaces you own and everything

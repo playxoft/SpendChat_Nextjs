@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Building2,
+  Gem,
   Keyboard,
   Mic,
   Hash,
@@ -22,6 +23,8 @@ export const SETTINGS_SECTIONS = [
   // Organisation → workspace, top of the hierarchy first.
   { href: "/app/settings/organization", label: "Organisation", icon: Landmark },
   { href: "/app/settings/workspace", label: "Workspace", icon: Building2 },
+  // The workspace's plan lives outside Settings (it's where upgrade prompts land).
+  { href: "/app/upgrade", label: "Upgrade", icon: Gem },
   { href: "/app/settings/theme", label: "Theme", icon: Palette },
   { href: "/app/settings/input", label: "Input", icon: TextCursorInput },
   { href: "/app/settings/voice", label: "Voice", icon: Mic },

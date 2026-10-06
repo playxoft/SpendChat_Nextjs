@@ -181,7 +181,7 @@ export default async function BlogPostPage({ params }: Params) {
           Start tracking your money
         </h2>
         <p className="mx-auto mt-2 max-w-sm text-muted-foreground">
-          It&apos;s free, private, and open source. Set up takes under a minute.
+          Start on the free plan. It&apos;s private and open source, and set up takes under a minute.
         </p>
         <Button asChild className={`mt-6 ${marketingCta}`}>
           <Link href="/sign-up">

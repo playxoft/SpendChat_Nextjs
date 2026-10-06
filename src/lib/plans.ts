@@ -135,28 +135,6 @@ export const TRASH_DAYS = 30;
 /** People in one split group, the creator included — the same on every plan. */
 export const SPLIT_GROUP_MAX_PEOPLE = 50;
 
-/**
- * Existing workspaces keep everything they had for this long after pricing
- * launches (D4). Nothing is ever deleted; past the grace period anything over
- * a Free limit turns view-only until the workspace upgrades or cleans up.
- */
-export const PLAN_GRACE_DAYS = 90;
-
-/**
- * When the grace period for `workspaces.grandfathered` ends, as an ISO date —
- * launch day + `PLAN_GRACE_DAYS`. `null` until pricing launches, which keeps
- * every pre-existing workspace exactly as it was. Set it in the launch PR
- * (personal phase 14), never earlier.
- */
-export const PLAN_GRACE_ENDS_AT: string | null = null;
-
-/** Whether a grandfathered workspace is still inside its grace period at `now`. */
-export function inGracePeriod(grandfathered: boolean, now: Date = new Date()): boolean {
-  if (!grandfathered) return false;
-  if (PLAN_GRACE_ENDS_AT === null) return true;
-  return now.getTime() < new Date(PLAN_GRACE_ENDS_AT).getTime();
-}
-
 // ── Invoices ───────────────────────────────────────────────────────────────
 
 export type InvoiceTier = "free" | "addon";

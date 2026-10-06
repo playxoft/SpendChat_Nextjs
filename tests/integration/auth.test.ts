@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { eq } from "drizzle-orm";
-import { categories, profiles, userSettings, workspaces } from "@/db/schema";
+import { asc, eq } from "drizzle-orm";
+import { categories, profiles, tags, userSettings, workspaces } from "@/db/schema";
 import {
   getCurrentUser,
   requireUser,
@@ -11,7 +11,10 @@ import {
 import { setSession, signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 
-const count = async (table: typeof categories | typeof profiles, userId: string) => {
+const count = async (
+  table: typeof categories | typeof profiles | typeof tags,
+  userId: string,
+) => {
   const rows = await getTestDb()
     .select({ id: table.id })
     .from(table)
@@ -53,9 +56,10 @@ describe("requireUser", () => {
 });
 
 describe("ensureBootstrap", () => {
-  it("seeds settings, 15 default categories, and a Personal profile", async () => {
+  it("seeds settings, 10 default categories, 2 default tags, and a Personal profile", async () => {
     await ensureBootstrap(uid("u1"));
-    expect(await count(categories, "u1")).toBe(15);
+    expect(await count(categories, "u1")).toBe(10);
+    expect(await count(tags, "u1")).toBe(2);
     expect(await count(profiles, "u1")).toBe(1);
 
     const [settings] = await getTestDb()
@@ -79,10 +83,46 @@ describe("ensureBootstrap", () => {
     expect(profile.name).toBe("Personal");
   });
 
+  it("seeds exactly the default categories (7 expense + 3 income) and tags into the new workspace", async () => {
+    await ensureBootstrap(uid("u1"));
+    const [workspace] = await getTestDb()
+      .select({ id: workspaces.id })
+      .from(workspaces)
+      .where(eq(workspaces.ownerId, uid("u1")));
+
+    const cats = await getTestDb()
+      .select({ name: categories.name, kind: categories.kind })
+      .from(categories)
+      .where(eq(categories.workspaceId, workspace.id));
+    expect(cats.map((c) => [c.kind, c.name]).sort()).toEqual([
+      ["expense", "Bills & Utilities"],
+      ["expense", "Food & Dining"],
+      ["expense", "Groceries"],
+      ["expense", "Health"],
+      ["expense", "Housing"],
+      ["expense", "Shopping"],
+      ["expense", "Transport"],
+      ["income", "Freelance"],
+      ["income", "Investments"],
+      ["income", "Salary"],
+    ]);
+
+    const seededTags = await getTestDb()
+      .select({ name: tags.name, color: tags.color })
+      .from(tags)
+      .where(eq(tags.workspaceId, workspace.id))
+      .orderBy(asc(tags.name));
+    expect(seededTags).toEqual([
+      { name: "Recurring", color: "#3b82f6" },
+      { name: "Reimbursable", color: "#f59e0b" },
+    ]);
+  });
+
   it("is idempotent (no duplicates on a second call)", async () => {
     await ensureBootstrap(uid("u1"));
     await ensureBootstrap(uid("u1"));
-    expect(await count(categories, "u1")).toBe(15);
+    expect(await count(categories, "u1")).toBe(10);
+    expect(await count(tags, "u1")).toBe(2);
     expect(await count(profiles, "u1")).toBe(1);
   });
 });
@@ -98,7 +138,8 @@ describe("getUserSettings", () => {
     await ensureBootstrap(uid("u1"));
     const settings = await getUserSettings(uid("u1"));
     expect(settings.theme).toBe("system");
-    expect(await count(categories, "u1")).toBe(15); // unchanged
+    expect(await count(categories, "u1")).toBe(10); // unchanged
+    expect(await count(tags, "u1")).toBe(2);
   });
 });
 

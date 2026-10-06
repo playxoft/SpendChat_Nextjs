@@ -1,0 +1,361 @@
+import { formatFileSize } from "@/lib/attachments";
+import {
+  formatPlanStorage,
+  formatResetDate,
+  nextMonthStartUtc,
+  type PlanLimitInfo,
+  type PlanLimitKey,
+} from "@/lib/plan-limit";
+import {
+  PERSONAL_PLANS,
+  PLAN_LIMITS,
+  PLAN_NAMES,
+  TOPUP,
+  VOICE,
+  type PersonalPlan,
+  type PlanLimits,
+} from "@/lib/plans";
+import { STUDENT_DISCOUNT, TRIAL_DAYS, isCurrency, pct, type Currency } from "@/lib/pricing";
+import type { Faq } from "@/lib/seo";
+import { siteConfig } from "@/lib/site";
+
+/**
+ * Every word we use to sell a plan — the public pricing page, the in-app
+ * upgrade page and the upgrade dialog all read from here, so the three can't
+ * tell different stories. Pure and client-safe.
+ *
+ * The register: lead with the problem the plan removes and what life looks
+ * like after, and let the numbers come in as proof, not as the pitch. Plain
+ * English — many readers use English as a second language — no guilt, no fake
+ * urgency, no exclamation marks. Every number is read from `PLAN_LIMITS` /
+ * `pricing.ts`, never typed out, so the copy can't promise what the app
+ * doesn't enforce.
+ *
+ * Billing isn't live yet: nothing here may imply that someone can pay today.
+ */
+
+// ── Small formatters ───────────────────────────────────────────────────────
+
+/** "1,000". */
+export function count(n: number): string {
+  return new Intl.NumberFormat("en-US").format(n);
+}
+
+type BooleanFeature = keyof {
+  [K in keyof PlanLimits as PlanLimits[K] extends boolean ? K : never]: true;
+};
+
+/** "Plus and Pro" — the plans that include a boolean feature, by name. */
+export function plansWith(feature: BooleanFeature): string {
+  const names = PERSONAL_PLANS.filter((p) => PLAN_LIMITS[p][feature]).map((p) => PLAN_NAMES[p]);
+  return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
+}
+
+const voiceClipMinutes = VOICE.maxClipMs / 60_000;
+const minutes = (n: number) => `${n} ${n === 1 ? "minute" : "minutes"}`;
+
+/**
+ * The currency a workspace's prices are shown in: its own, when we sell in it,
+ * else US dollars. (A workspace can keep its books in any currency; we only
+ * price in six.)
+ */
+export function pricingCurrencyFor(code: string | null | undefined): Currency {
+  return code && isCurrency(code) ? code : "USD";
+}
+
+// ── Plans ──────────────────────────────────────────────────────────────────
+
+export type PlanPitch = {
+  /** Who the plan is for, in one line. */
+  audience: string;
+  /** The problem it removes → what it's like after. The card's headline. */
+  headline: string;
+  /** Two sentences of the same story, for wider layouts. */
+  story: string;
+  /** The badge beside the plan's name. */
+  people: string;
+  /** What the outcome list builds on: "Everything in Free, and". */
+  lead: string;
+  /** Three to five outcomes. Numbers appear as proof, not as the point. */
+  outcomes: string[];
+};
+
+const L = PLAN_LIMITS;
+const people = (plan: PersonalPlan) => `Up to ${count(L[plan].members)} people`;
+
+export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
+  free: {
+    audience: "For getting started — on your own, or with a partner.",
+    headline: "Know where this month's money went",
+    story:
+      "Most people can't say where last month's money went. Write it down as it happens, like a message, and the answer is always one look away.",
+    people: people("free"),
+    lead: "Includes",
+    outcomes: [
+      "Every expense and income in one feed, with a running balance — no limit on transactions",
+      `Write one line about your day and let AI fill in the rows — ${count(L.free.aiActionsPerMonth)} times a month`,
+      `Track together with up to ${count(L.free.members)} people, in ${count(L.free.spaces)} spaces`,
+      `Keep the receipt with the spend — ${formatPlanStorage(L.free.storageBytes)} of storage`,
+      "Export to CSV or PDF any time. Your data is always yours.",
+    ],
+  },
+  plus: {
+    audience: "For families and couples who share the spending.",
+    headline: "Your family's money, in one place everyone can see",
+    story:
+      "In most homes one person knows where the money went, and everyone else finds out at the end of the month. With Plus, everyone adds their own spending and everyone sees the same numbers.",
+    people: people("plus"),
+    lead: "Everything in Free, and",
+    outcomes: [
+      `Everyone adds their own spending — room for ${count(L.plus.members)} people`,
+      `Home, kids, a side business and the next trip, each kept apart — ${count(L.plus.spaces)} spaces, ${count(L.plus.profilesPerSpace)} profiles in each`,
+      "Choose who sees what — keep one profile private, let someone only read another",
+      `Stop typing every entry — ${count(L.plus.aiActionsPerMonth)} AI actions a month, and top-ups if you run out`,
+      `Bills and warranties kept with the spend, not lost in your gallery — ${formatPlanStorage(L.plus.storageBytes)}`,
+    ],
+  },
+  pro: {
+    audience: "For freelancers, small businesses and big families with a lot to track.",
+    headline: "Stop re-typing receipts at midnight",
+    story:
+      "When you track for clients, staff and family, the typing never ends. With Pro you say what you spent as it happens, in any mix of languages, and check the rows when you have a minute.",
+    people: people("pro"),
+    lead: "Everything in Plus, and",
+    outcomes: [
+      `Say it instead of typing it — voice entry that understands mixed languages, up to ${minutes(voiceClipMinutes)} a clip`,
+      `Never run out in the middle of the month — ${count(L.pro.aiActionsPerMonth)} AI actions, and top-ups if you need more`,
+      `Room for a team or a joint family — ${count(L.pro.members)} people, ${count(L.pro.spaces)} spaces, ${count(L.pro.profilesPerSpace)} profiles in each`,
+      `Years of receipts and invoices, kept — ${formatPlanStorage(L.pro.storageBytes)}`,
+      `Sort it your way — ${count(L.pro.categories)} categories and ${count(L.pro.tags)} tags`,
+    ],
+  },
+};
+
+/** The card that gets the lift and the badge, and the shaded table column. */
+export const FEATURED_PLAN: PersonalPlan = "pro";
+/** Pro has ~3× Plus's AI actions for 1.5× the price — "best value" is arithmetic, not hype. */
+export const FEATURED_BADGE = "Best value";
+
+// ── Billing status ─────────────────────────────────────────────────────────
+
+/** Checkout isn't open yet. Every paid CTA says so instead of pretending. */
+export const PAID_PLANS_STATUS = {
+  button: "Opens soon",
+  short: "Paid plans open soon.",
+  long: "Plus and Pro open soon. Nobody can be charged today — start on Free, and your workspace keeps everything when you upgrade.",
+  notifyLabel: "Tell me when it opens",
+} as const;
+
+/** A mailto that asks to hear when `plan` opens — the honest stand-in for a checkout. */
+export function notifyMeHref(plan: PersonalPlan): string {
+  const subject = `Tell me when ${PLAN_NAMES[plan]} opens`;
+  return `mailto:${siteConfig.supportEmail}?subject=${encodeURIComponent(subject)}`;
+}
+
+// ── Page heroes ────────────────────────────────────────────────────────────
+
+export const PRICING_HERO = {
+  eyebrow: "Pricing",
+  title: "Free to start. Pay only when it saves you time.",
+  body: "Track every expense and income for free. Upgrade a workspace when the family joins in, the typing piles up, or the receipts outgrow the drawer.",
+  perWorkspace: "A plan covers one workspace and everyone in it.",
+} as const;
+
+export function upgradeHero(workspaceName: string) {
+  return {
+    title: `Plans for ${workspaceName}`,
+    body: `Plans belong to a workspace, not a person. Everyone in ${workspaceName} shares its plan — the members, the spaces, the AI actions and the storage.`,
+  };
+}
+
+// ── Limits: the upgrade dialog ─────────────────────────────────────────────
+
+type LimitContext = {
+  info: PlanLimitInfo;
+  /** The workspace's plan, by name. */
+  current: string;
+  /** The cap that was hit (from the error, else the plan's own number). */
+  max: number;
+  now: Date;
+};
+
+type UpgradeContext = LimitContext & { next: string; nextLimits: PlanLimits };
+
+type LimitPitchDef = {
+  /** The dialog's title: the outcome, not the error. */
+  headline: string;
+  /** What happened, as plain fact. */
+  status: (c: LimitContext) => string;
+  /** What the plan that lifts the limit changes, in one line. */
+  pitch: (c: UpgradeContext) => string;
+  /** The cap for this limit on `plan`, when the error didn't say. */
+  cap?: (plan: PersonalPlan) => number;
+};
+
+export const LIMIT_PITCH: Record<PlanLimitKey, LimitPitchDef> = {
+  aiActions: {
+    headline: "Don't go back to typing every entry",
+    cap: (p) => L[p].aiActionsPerMonth,
+    status: ({ max, now }) =>
+      `This workspace has used all ${count(max)} AI actions for this month. They come back on ${formatResetDate(nextMonthStartUtc(now))}, and typing entries by hand works as always.`,
+    pitch: ({ next, nextLimits }) =>
+      `${next} gives the workspace ${count(nextLimits.aiActionsPerMonth)} a month, so the AI keeps doing the typing until the month is over.`,
+  },
+  voice: {
+    headline: "Say it instead of typing it",
+    status: () =>
+      "Voice entry isn't part of this workspace's plan. You can still type or paste a note for the AI.",
+    pitch: ({ next }) =>
+      `With ${next}, hold M and say what you spent — in English, Hindi, Tamil or a mix — and check the rows it writes. Clips can be up to ${minutes(voiceClipMinutes)}.`,
+  },
+  members: {
+    headline: "Bring everyone who spends into one place",
+    cap: (p) => L[p].members,
+    status: ({ max }) =>
+      `This workspace has room for ${count(max)} people, and every place is taken. Pending invites count too.`,
+    pitch: ({ next, nextLimits }) =>
+      `${next} has room for ${count(nextLimits.members)}, so the person who paid adds it themselves — no more "tell me later".`,
+  },
+  spaces: {
+    headline: "Keep home, work and trips apart",
+    cap: (p) => L[p].spaces,
+    status: ({ max }) => `This workspace has ${count(max)} spaces, and they're all in use.`,
+    pitch: ({ next, nextLimits }) =>
+      `${next} gives you ${count(nextLimits.spaces)}, so the side business never gets mixed up with the groceries.`,
+  },
+  profilesPerSpace: {
+    headline: "Give everyone their own profile",
+    cap: (p) => L[p].profilesPerSpace,
+    status: ({ max, current }) =>
+      `On ${current}, each space holds ${count(max)} profiles, and this one is full. You can put the new profile in another space.`,
+    pitch: ({ next, nextLimits }) =>
+      `${next} allows ${count(nextLimits.profilesPerSpace)} in each space, so every person, card or project gets its own.`,
+  },
+  categories: {
+    headline: "Sort spending the way you think about it",
+    cap: (p) => L[p].categories,
+    status: ({ max }) =>
+      `This workspace has ${count(max)} categories, counting the starter ones. Deleting one you don't use frees a place.`,
+    pitch: ({ next, nextLimits }) =>
+      `${next} gives you ${count(nextLimits.categories)}, so nothing important hides in a catch-all.`,
+  },
+  tags: {
+    headline: "Tag it once, find it in seconds",
+    cap: (p) => L[p].tags,
+    status: ({ max }) =>
+      `This workspace has ${count(max)} tags. Deleting one you don't use frees a place.`,
+    pitch: ({ next, nextLimits }) =>
+      `${next} gives you ${count(nextLimits.tags)} — enough for every trip, client and tax claim.`,
+  },
+  storage: {
+    headline: "Keep every receipt where you can find it",
+    cap: (p) => L[p].storageBytes,
+    status: ({ max, info }) =>
+      info.used !== undefined
+        ? `This workspace's ${formatPlanStorage(max)} is full (${formatFileSize(Math.min(info.used, max))} used), so this file doesn't fit.`
+        : `This workspace's ${formatPlanStorage(max)} is full, so this file doesn't fit.`,
+    pitch: ({ next, nextLimits }) =>
+      `${next} has ${formatPlanStorage(nextLimits.storageBytes)}, so bills and warranties stay with the spend instead of in your gallery.`,
+  },
+  profileLevelAccess: {
+    headline: "Share the money, not every detail",
+    status: ({ current }) =>
+      `On ${current}, people get access to a whole space at a time.`,
+    pitch: ({ next }) =>
+      `${next} lets you set it for each profile — your accountant reads only the business, and a personal profile stays private.`,
+  },
+  freeWorkspaces: {
+    headline: "Give this workspace its own plan",
+    status: () =>
+      "Everyone gets one free workspace. This one is extra, so it's view-only for now — nothing in it is deleted.",
+    pitch: ({ next }) =>
+      `With ${next}, it works like your first one: add, edit and invite.`,
+  },
+};
+
+export type LimitPitch = {
+  headline: string;
+  status: string;
+  /** null when no plan lifts the limit — the dialog offers "Contact us". */
+  pitch: string | null;
+  upgradeTo: PersonalPlan | null;
+};
+
+/** The upgrade dialog's words for a plan-limit failure. */
+export function limitPitch(info: PlanLimitInfo, now: Date = new Date()): LimitPitch {
+  const def = LIMIT_PITCH[info.limit];
+  const ctx: LimitContext = {
+    info,
+    current: PLAN_NAMES[info.plan],
+    max: info.max ?? def.cap?.(info.plan) ?? 0,
+    now,
+  };
+  const target = info.upgradeTo;
+  return {
+    headline: def.headline,
+    status: def.status(ctx),
+    pitch: target
+      ? def.pitch({ ...ctx, next: PLAN_NAMES[target], nextLimits: L[target] })
+      : null,
+    upgradeTo: target,
+  };
+}
+
+/** What the dialog says when no plan lifts the limit. */
+export const BIGGEST_PLAN_LINE =
+  "This workspace is already on our biggest plan. Write to us and we'll work out what you need.";
+
+/** The reassurance every limit message ends on. */
+export const NOTHING_DELETED_LINE =
+  "Nothing you already have is affected — a limit only stops adding new things.";
+
+// ── FAQ ────────────────────────────────────────────────────────────────────
+
+/**
+ * The pricing questions, shared by `/pricing` (which also marks them up as
+ * `FAQPage`) and the in-app `/app/upgrade`. `selfHost` adds the open-source
+ * question, which only the public page needs.
+ */
+export function pricingFaqs({ selfHost = false }: { selfHost?: boolean } = {}): Faq[] {
+  const faqs: Faq[] = [
+    {
+      q: "When can I buy Plus or Pro?",
+      a: "Soon. Checkout isn't open yet, so nobody can be charged today. Start on Free now — when paid plans open, upgrading keeps every transaction, file and member your workspace already has.",
+    },
+    {
+      q: "Is a plan for me, or for a workspace?",
+      a: "For a workspace. Everyone in it shares the plan: its members, spaces, AI actions and storage. If you're in two workspaces, each has its own plan. Your first workspace is free; each extra workspace needs Plus or Pro, and until then it's view-only.",
+    },
+    {
+      q: "What happens when we reach a limit?",
+      a: "Nothing is deleted and nothing is locked away. You just can't add more of that one thing — another member, space or file — until you upgrade or make room. Transactions are unlimited on every plan.",
+    },
+    {
+      q: "What counts as an AI action?",
+      a: `One note or receipt that the AI turns into transactions. A voice clip uses one per started minute, up to ${minutes(voiceClipMinutes)} a clip. The allowance is shared by the whole workspace and comes back on the 1st of each month. Typing or bulk-adding entries yourself never uses one. On ${plansWith("topUps")}, a top-up adds ${count(TOPUP.actions)} more, valid for ${TOPUP.validityMonths} months.`,
+    },
+    {
+      q: "How does the free trial work?",
+      a: `Every paid plan starts with ${TRIAL_DAYS} days free, with everything in that plan. Cancel before the trial ends and you pay nothing.`,
+    },
+    {
+      q: "Is there a student discount?",
+      a: `Yes — ${pct(STUDENT_DISCOUNT)} off Plus and Pro. We check it by hand: email ${siteConfig.supportEmail} from your college email, or with a photo of your student ID.`,
+    },
+    {
+      q: "I already use SpendChat for free. What changes?",
+      a: "Your workspace is on Free. If it already has more than Free allows — say, four members — you keep all of it. You just can't add more of that thing until you upgrade or tidy up.",
+    },
+    {
+      q: "Can I take my data with me?",
+      a: "Always. CSV and PDF export are on every plan and will never be a paid feature. If a paid plan ends, the workspace goes back to Free and keeps everything in it.",
+    },
+  ];
+  if (selfHost) {
+    faqs.push({
+      q: "Is self-hosting still free?",
+      a: `Yes. ${siteConfig.name} is open source under ${siteConfig.license}. Run every feature on your own server, with your own AI keys, at no cost.`,
+    });
+  }
+  return faqs;
+}

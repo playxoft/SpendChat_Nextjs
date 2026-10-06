@@ -68,15 +68,17 @@ Authentication, secrets via Doppler.
 - **Plans are per workspace** (`workspaces.plan`: free | plus | pro). Every number a plan
   promises lives in `src/lib/plans.ts` (prices in `src/lib/pricing.ts`); the server checks
   them in `src/lib/entitlements.ts`, which throws 403 `plan_limit` (stable code + `details`
-  for an upgrade prompt). Limits gate *adding* only — over a cap (downgrade, or a
-  `grandfathered` pre-plans workspace) you keep everything and can't add more; nothing is
-  ever deleted. AI actions are a monthly allowance per workspace counted from
+  for an upgrade prompt). Limits gate *adding* only — over a cap (after a downgrade) you
+  keep everything and can't add more; nothing is ever deleted. They apply from the day plans
+  ship — there is no grace period. The UI reads `getAddLimits` to show a limit *before* a
+  create form is submitted. AI actions are a monthly allowance per workspace counted from
   `ai_usage_log.units`. Until billing exists, `pnpm plan:set:dev` changes a dev workspace's plan.
   Transaction/profile reads scope to accessible profiles in the *current* workspace
   (`user_settings.last_workspace_id`, `X-Workspace-Id` header on the API); `transactions.user_id`
-  is attribution, not access. Categories are **per-workspace** (shared by every member;
-  `categories.workspace_id`, seeded from `DEFAULT_CATEGORIES` when a workspace is created);
-  reads need workspace access, writes need the editor role. Member invites go through ZeptoMail
+  is attribution, not access. Categories and tags are **per-workspace** (shared by every member;
+  seeded from `DEFAULT_CATEGORIES` — 7 expense + 3 income — and `DEFAULT_TAGS` — 2 — when a
+  workspace is created); reads need workspace access; adding needs edit access to some profile,
+  renaming/deleting needs admin or edit access to every profile. Member invites go through ZeptoMail
   (`src/lib/email.ts`, `ZEPTOMAIL_TOKEN`/`MAIL_FROM_ADDRESS` in Doppler); unknown emails become
   `workspace_invites` rows — carrying a shared secret `token` — accepted at the invitee's first
   bootstrap *or* from the `/invite/<token>` join page (`acceptInviteByToken`), which binds

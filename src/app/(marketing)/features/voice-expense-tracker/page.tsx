@@ -8,6 +8,7 @@ import {
 } from "@/components/marketing/feature-page";
 import { featureLink, getFeature } from "@/lib/features";
 import { createMetadata } from "@/lib/seo";
+import { PERSONAL_PLANS, PLAN_LIMITS, PLAN_NAMES, VOICE, lowestPlanWith } from "@/lib/plans";
 import { MAX_VOICE_LANGUAGES, VOICE_LANGUAGES } from "@/lib/voice-languages";
 
 const SLUG = "voice-expense-tracker";
@@ -19,10 +20,19 @@ export const metadata = createMetadata({
   path: `/features/${SLUG}`,
 });
 
+const voicePlan = PLAN_NAMES[lowestPlanWith("voice")];
+const plansWithoutVoice = PERSONAL_PLANS.filter((p) => !PLAN_LIMITS[p].voice)
+  .map((p) => PLAN_NAMES[p])
+  .join(" and ");
+
 const faqs = [
   {
     q: "How does voice expense tracking work?",
     a: "Hold the M key (or the mic button) and say what you spent. When you let go, the recording is transcribed, the text is dropped into the AI note, and the parsed transactions appear as drafts for you to check. You confirm, and they're in.",
+  },
+  {
+    q: "Which plan includes voice entry?",
+    a: `${voicePlan}. A clip can be up to ${VOICE.maxClipMs / 60_000} minutes long, and each started minute uses one AI action from the workspace's monthly allowance. On ${plansWithoutVoice} you can still type or paste a note for the AI to turn into drafts.`,
   },
   {
     q: "Which languages does it understand?",

@@ -51,6 +51,8 @@ import {
   publishedFeatures,
 } from "@/lib/features";
 import { bento } from "@/lib/grid-fill";
+import { PLAN_LIMITS, PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
+import { formatPlanStorage } from "@/lib/plan-limit";
 import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
@@ -129,9 +131,9 @@ const principlesBento: BentoItem[] = [
     visual: <GlyphMock icon={GithubIcon} />,
   },
   {
-    label: "Free, with no locked tier",
+    label: "A free plan worth using",
     body:
-      "No ads, and no feature held back behind a plan. What you see on this page is what you get.",
+      "No ads, and unlimited transactions and export on every plan. Paid plans add more AI, voice entry, storage and room for more people.",
     visual: <GlyphMock icon={Wallet} />,
   },
   {
@@ -167,7 +169,7 @@ const groups = [
       {
         icon: Mic,
         title: "Voice entry",
-        body: "Hold M and say what you spent. The recording is transcribed and dropped into the AI note for you to check. You name the languages you speak in Settings, and because the model is told all of them at once, sentences that switch mid-way still come out right.",
+        body: `Hold M and say what you spent. The recording is transcribed and dropped into the AI note for you to check. You name the languages you speak in Settings, and because the model is told all of them at once, sentences that switch mid-way still come out right. Part of the ${PLAN_NAMES[lowestPlanWith("voice")]} plan.`,
       },
       {
         icon: ListPlus,
@@ -193,7 +195,7 @@ const groups = [
       {
         icon: Paperclip,
         title: "Receipts & files",
-        body: "Attach a receipt, bill or invoice to any transaction, and keep everything else in a Drive-style vault with folders, colour tags, drag-and-drop and share links. Every workspace gets 1 GB.",
+        body: `Attach a receipt, bill or invoice to any transaction, and keep everything else in a Drive-style vault with folders, colour tags, drag-and-drop and share links. ${formatPlanStorage(PLAN_LIMITS.free.storageBytes)} per workspace on Free, more on Plus and Pro.`,
       },
       {
         icon: Search,
@@ -235,7 +237,7 @@ const groups = [
       {
         icon: Download,
         title: "CSV download",
-        body: "Export the current, filtered view to a clean CSV in one click. Perfect for backups, spreadsheets, or sharing with an accountant. No paid tier gating it, and no watermark.",
+        body: "Export the current, filtered view to a clean CSV in one click. Perfect for backups, spreadsheets, or sharing with an accountant. The same on every plan, and no watermark.",
       },
       {
         icon: Printer,

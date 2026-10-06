@@ -7,6 +7,8 @@ import {
   FeatureSteps,
 } from "@/components/marketing/feature-page";
 import { featureLink, getFeature } from "@/lib/features";
+import { PLAN_LIMITS } from "@/lib/plans";
+import { formatPlanStorage } from "@/lib/plan-limit";
 import { createMetadata } from "@/lib/seo";
 
 const SLUG = "receipts-and-files";
@@ -17,6 +19,8 @@ export const metadata = createMetadata({
   description: feature.description,
   path: `/features/${SLUG}`,
 });
+
+const storage = (plan: keyof typeof PLAN_LIMITS) => formatPlanStorage(PLAN_LIMITS[plan].storageBytes);
 
 const faqs = [
   {
@@ -29,7 +33,7 @@ const faqs = [
   },
   {
     q: "How much storage do I get?",
-    a: "1 GB per workspace, included. The toolbar shows a ring with how much is used, and it changes colour as you approach the limit rather than surprising you at it.",
+    a: `It depends on the workspace's plan: ${storage("free")} on Free, ${storage("plus")} on Plus and ${storage("pro")} on Pro, shared by everyone in the workspace. The toolbar shows a ring with how much is used, and it changes colour as you approach the limit rather than surprising you at it.`,
   },
   {
     q: "Can I share a file with someone who doesn't have an account?",
@@ -138,11 +142,12 @@ export default function ReceiptsAndFilesPage() {
         </p>
       </FeatureSection>
 
-      <FeatureSection title="1 GB, and you can see it">
+      <FeatureSection title={`${storage("free")} free, and you can see it`}>
         <p>
-          Every workspace includes a gigabyte. In practice that&apos;s several
-          thousand receipt photos, which is more than most people accumulate in
-          years — but the point of the toolbar gauge is that you never have to
+          Every workspace includes {storage("free")} on the Free plan,{" "}
+          {storage("plus")} on Plus and {storage("pro")} on Pro. Even{" "}
+          {storage("free")} is several thousand receipt photos, which is more
+          than most people accumulate in years — but the point of the toolbar gauge is that you never have to
           wonder. It shows what&apos;s used against the limit, and shifts colour
           as you approach it rather than letting an upload fail without warning.
         </p>

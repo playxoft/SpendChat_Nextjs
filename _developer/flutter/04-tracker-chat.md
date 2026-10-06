@@ -368,10 +368,9 @@ style — on web it's hold the button or hold `M`):
   the clip length in ms. A clip costs one AI action per started minute — omit
   `durationMs` and it's billed as a full two minutes. Show a transcribing
   spinner on the mic.
-- **Voice is a Pro feature** (spec 6.5.0; grandfathered workspaces keep it
-  during their grace period). Read `GET /usage` → `voice`: when false, show the
-  mic as an upsell (or hide it) instead of letting the hold fail; the server
-  answers `403 plan_limit` with `details.limit == "voice"`.
+- **Voice is a Pro feature** (spec 6.5.0). Read `GET /usage` → `voice`: when
+  false, show the mic as an upsell (or hide it) instead of letting the hold
+  fail; the server answers `403 plan_limit` with `details.limit == "voice"`.
 - The returned `text` is **inserted into the note field** (append to whatever's
   typed) — the user reads it, fixes a misheard merchant, and presses send.
   Voice never creates transactions directly; it feeds the same parse→review

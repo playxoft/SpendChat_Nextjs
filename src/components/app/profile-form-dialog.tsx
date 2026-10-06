@@ -23,10 +23,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { addProfile, updateProfile } from "@/actions/profiles";
+import { addLock, spaceHasRoom } from "@/lib/add-limits";
 import { usePlan } from "./upgrade-dialog";
+import { LimitPanel, LockedButton, useAddLimits } from "./limit-lock";
+import { SpacePickLabel, type SpaceOption } from "./space-dialogs";
 import type { Profile } from "@/db/schema";
-
-type SpaceOption = { id: string; name: string; icon: string | null };
 
 export function ProfileFormDialog({
   mode,
@@ -42,16 +43,30 @@ export function ProfileFormDialog({
   onOpenChange: (v: boolean) => void;
   /** Add mode: the spaces it can go in, in sidebar order. A picker shows when there's a choice. */
   spaces?: SpaceOption[];
-  /** Add mode: the space whose "+" was clicked; else the first space. */
+  /** Add mode: the space whose "+" was clicked; else the first space with room. */
   defaultSpaceId?: string;
 }) {
-  const { reportFailure } = usePlan();
+  const { reportFailure, showUpgrade } = usePlan();
+  const addLimits = useAddLimits();
   const [name, setName] = React.useState(profile?.name ?? "");
   const [icon, setIcon] = React.useState(profile?.icon ?? "👤");
+  const fits = (s: SpaceOption) => spaceHasRoom(addLimits, s.profileCount ?? 0);
+  // The clicked space even when it's full (the panel then says so); otherwise
+  // the first space that can take another profile.
   const initialSpace = () =>
-    (defaultSpaceId && spaces.some((s) => s.id === defaultSpaceId) ? defaultSpaceId : spaces[0]?.id) ?? "";
+    (defaultSpaceId && spaces.some((s) => s.id === defaultSpaceId)
+      ? defaultSpaceId
+      : (spaces.find(fits) ?? spaces[0])?.id) ?? "";
   const [spaceId, setSpaceId] = React.useState(initialSpace);
   const [pending, startTransition] = useTransition();
+
+  // Only adding is limited — editing a profile never is.
+  const selected = spaces.find((s) => s.id === spaceId);
+  const lock =
+    mode === "add"
+      ? addLock(addLimits, "profiles", { profileCount: selected?.profileCount ?? 0 })
+      : null;
+  const otherHasRoom = !!lock && !addLimits?.readOnly && spaces.some((s) => s.id !== spaceId && fits(s));
 
   // Reset fields each time the dialog opens.
   const [wasOpen, setWasOpen] = React.useState(open);
@@ -66,6 +81,7 @@ export function ProfileFormDialog({
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (lock) return showUpgrade(lock.info);
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error("Enter a profile name");
@@ -97,6 +113,10 @@ export function ProfileFormDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <LimitPanel
+            lock={lock}
+            hint={otherHasRoom ? "You can put it in another space instead." : undefined}
+          />
           <div className="space-y-1.5">
             <Label>Name & icon</Label>
             <div className="flex items-center gap-2">
@@ -127,9 +147,8 @@ export function ProfileFormDialog({
                 </SelectTrigger>
                 <SelectContent>
                   {spaces.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.icon ? `${s.icon} ` : ""}
-                      {s.name}
+                    <SelectItem key={s.id} value={s.id} disabled={!fits(s)}>
+                      <SpacePickLabel space={s} locked={!fits(s)} readOnly={addLimits?.readOnly} />
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -137,9 +156,9 @@ export function ProfileFormDialog({
             </div>
           )}
           <DialogFooter>
-            <Button type="submit" disabled={pending}>
+            <LockedButton type="submit" lock={lock} disabled={pending}>
               {mode === "edit" ? "Save changes" : "Add profile"}
-            </Button>
+            </LockedButton>
           </DialogFooter>
         </form>
       </DialogContent>

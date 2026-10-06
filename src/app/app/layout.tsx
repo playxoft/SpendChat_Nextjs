@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import { getAppContext, getUserWorkspaces } from "@/lib/auth";
 import { canWriteInWorkspace } from "@/lib/workspaces";
-import { getWorkspaceEntitlements, voiceAllowed } from "@/lib/entitlements";
+import { getAddLimits, getWorkspaceEntitlements, voiceAllowed } from "@/lib/entitlements";
 import { getCategories, getProfiles, getTags } from "@/lib/queries";
 import { normalizeUiPrefs } from "@/lib/validation";
 import { listSpaces } from "@/services/spaces";
@@ -27,7 +27,7 @@ export default async function AppLayout({
   const { user, settings, workspace } = await getAppContext();
   const email = user.email;
   const timeZone = await getTimeZone();
-  const [profiles, spaces, categories, tags, workspaces, canWrite, entitlements] =
+  const [profiles, spaces, categories, tags, workspaces, canWrite, entitlements, addLimits] =
     await Promise.all([
       getProfiles(user.id, workspace.id),
       // The sidebar's groups: every space for admins, a member's own spaces otherwise.
@@ -39,6 +39,9 @@ export default async function AppLayout({
       getUserWorkspaces(user.id),
       canWriteInWorkspace(user.id, workspace.id),
       getWorkspaceEntitlements(workspace.id),
+      // What can still be added (spaces, categories, tags, members, a new
+      // workspace) — so the "new …" buttons show a lock before a form is filled in.
+      getAddLimits(workspace.id, user.id),
     ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
   const canManage = workspace.role === "admin";
@@ -49,11 +52,11 @@ export default async function AppLayout({
     <PermissionsProvider canWrite={canWrite} canManage={canManage}>
     <PlanProvider
       plan={entitlements.plan}
-      grandfathered={entitlements.grandfathered}
-      inGrace={entitlements.inGrace}
       readOnly={entitlements.readOnly}
       voiceAllowed={voiceAllowed(entitlements)}
       profileLevelAccess={entitlements.limits.profileLevelAccess}
+      addLimits={addLimits}
+      currency={workspace.currency}
     >
     <AttachmentViewerProvider>
     <div className="flex min-h-svh">

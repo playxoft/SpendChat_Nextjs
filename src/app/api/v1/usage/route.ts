@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
  * of each is in use: AI actions this month, storage, members, spaces,
  * categories and tags, plus the per-space profile cap and the feature flags
  * (voice, per-profile access). `readOnly: true` means the workspace is an
- * extra free one past its grace period — render it view-only. Readable by
+ * extra free one (its owner has an older free workspace) — render it view-only. Readable by
  * anyone who can open the workspace.
  */
 export async function GET(request: NextRequest) {

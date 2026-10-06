@@ -41,7 +41,7 @@ const faqs = [
   },
   {
     q: "Is the chat expense tracker free?",
-    a: "Yes, and there is no paid tier holding features back. SpendChat is open source under the AGPL, has no ads, and does not sell data.",
+    a: "Yes. Chat-style entry is part of the Free plan, with unlimited transactions and no ads. Paid plans add more AI, voice entry and room for more people — the tracker itself is the same on every plan. SpendChat is open source under the AGPL and does not sell data.",
   },
 ];
 
