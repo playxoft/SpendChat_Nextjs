@@ -27,10 +27,12 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   doesn't offset spending — and every budget starts again on the 1st.
 - **Alerts at 80% and 100%.** A budget that needs a look shows a badge on the
   Budgets nav item and a banner on the page, worked out live from this month's
-  spending. Admins and whoever set the budget also get one email per budget at
-  80% and one at 100% each month (several budgets crossed at once arrive as one
-  email); each budget has a switch to turn its emails off. The check runs after
-  the entry is saved, so adding a transaction is no slower.
+  spending. Admins and whoever set the budget (while they can still change it)
+  also get one email per budget at 80% and one at 100% each month — again only
+  if its amount is raised — with several budgets crossed at once arriving as
+  one email, and at most 30 alert emails a month per workspace. Each budget has
+  a switch to turn its emails off. The check runs after the entry is saved, so
+  adding a transaction is no slower.
 - **Budgets in analytics.** When the range is this month, analytics shows each
   budget's progress — all of them for "All profiles", the profile's own budget
   when one is selected.

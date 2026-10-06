@@ -506,7 +506,8 @@ can't add more until it's back under.
   "spentMinor": 412000,           // that month's expenses in scope (income never offsets)
   "percent": 82,                  // floor(spent × 100 / amount); can pass 100
   "status": "ok" | "warn" | "over",  // warn ≥ 80%, over ≥ 100% — draw your alert from this
-  "canManage": true,              // the caller can PATCH / DELETE it
+  "canManage": true,              // the caller can PATCH it (false in a view-only workspace)
+  "canDelete": true,              // the caller can DELETE it (an admin can, even view-only)
   "createdBy": "uuid",
   "createdAt": "2026-10-06T10:00:00.000Z",
   "updatedAt": "2026-10-06T10:00:00.000Z"
@@ -517,7 +518,9 @@ Spending counts **expenses only**, in the calendar month of each transaction's
 covers that category in all profiles). A budget is listed only to admins and to
 people who can **read every profile it covers** — the same number for everyone
 who sees it. Alerts in the app are yours to draw from `status`; the server
-emails admins and the budget's creator once per budget, per threshold, per month.
+emails admins and the budget's creator (while they can manage it) once per
+budget, per threshold, per month — again only if the amount is raised past the
+one it fired at — within a workspace pool of 30 alert emails a month.
 
 ### Settings
 User-level settings that follow the user across every workspace. **Currency and

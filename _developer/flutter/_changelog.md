@@ -37,14 +37,17 @@ Alert *emails* are sent by the server; there is nothing to poll. Additive.
 
 **New model: `Budget`** — `id, scope, profileId, categoryId, label, icon,
 period ("monthly"), amountMinor, emailAlerts, month, spentMinor, percent,
-status ("ok" | "warn" (≥ 80%) | "over" (≥ 100%)), canManage, createdBy,
-createdAt, updatedAt`. Spending is expenses only (income never offsets) in the
+status ("ok" | "warn" (≥ 80%) | "over" (≥ 100%)), canManage, canDelete,
+createdBy, createdAt, updatedAt`. Spending is expenses only (income never offsets) in the
 calendar month of each transaction's `occurredOn`.
 
 **Who sees and manages:** a budget is listed only to admins and to people who
 can read **every** profile it covers (the workspace and category scopes cover
 all profiles); anything else is a 404. Adding or changing one needs write
-access to every profile it covers (`canManage`); viewers only read.
+access to every profile it covers (`canManage`); viewers only read. `canDelete`
+is the same except in a view-only workspace, where an admin can still delete.
+Alert emails go once per budget, threshold and month (again only if the amount
+is raised past the one it fired at), within 30 a month per workspace.
 
 **New fields**
 

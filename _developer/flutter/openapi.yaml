@@ -1526,7 +1526,9 @@ paths:
         spending. `month` defaults to the current **UTC** month; send the
         device's own month, since around midnight on the 1st the two differ.
         In-app alerts come from `status`; the server emails admins and the
-        budget's creator once per budget, per threshold, per month.
+        budget's creator (while they can manage it) once per budget, per
+        threshold, per month — again only if the amount is raised past the one
+        it fired at — within a workspace pool of 30 alert emails a month.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/budgetMonth"
@@ -2615,7 +2617,7 @@ components:
       description: >
         The calendar month (YYYY-MM) to report spending for. Defaults to the
         current UTC month — send the device's own month. 422 if malformed.
-      schema: { type: string, pattern: "^\\d{4}-(0[1-9]|1[0-2])$", example: "2026-10" }
+      schema: { type: string, pattern: "^(19[7-9]\\d|2\\d{3})-(0[1-9]|1[0-2])$", example: "2026-10" }
     clientPlatformHeader:
       name: X-Client-Platform
       in: header
@@ -3574,12 +3576,13 @@ components:
           type: string
           enum: [ok, warn, over]
           description: "`warn` at 80% or more, `over` at 100% or more — the in-app alert."
-        canManage: { type: boolean, description: The caller can change or delete it. }
+        canManage: { type: boolean, description: The caller can change it (never in a view-only workspace). }
+        canDelete: { type: boolean, description: "The caller can delete it — like `canManage`, but still true for an admin of a view-only workspace." }
         createdBy: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
       required: [id, scope, profileId, categoryId, label, icon, period, amountMinor, emailAlerts,
-                 month, spentMinor, percent, status, canManage, createdBy, createdAt, updatedAt]
+                 month, spentMinor, percent, status, canManage, canDelete, createdBy, createdAt, updatedAt]
 
     BudgetInput:
       type: object
