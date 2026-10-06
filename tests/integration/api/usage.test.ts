@@ -53,6 +53,7 @@ describe("GET /api/v1/usage", () => {
       spaces: { used: 1, limit: free.spaces },
       categories: { used: DEFAULT_CATEGORIES.length, limit: free.categories },
       tags: { used: DEFAULT_TAGS.length, limit: free.tags },
+      budgets: { used: 0, limit: free.budgets.max, unlimited: false },
       profilesPerSpace: free.profilesPerSpace,
       voice: false,
       profileLevelAccess: false,

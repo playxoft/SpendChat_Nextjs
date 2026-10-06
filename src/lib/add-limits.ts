@@ -1,5 +1,12 @@
 import { PERSONAL_PLANS, PLAN_LIMITS, PLAN_NAMES, planAtLeast, type PersonalPlan } from "@/lib/plans";
-import { nextPlanFor, quantity, type NumericPlanLimit, type PlanLimitInfo } from "@/lib/plan-limit";
+import {
+  budgetsAllowance,
+  nextPlanFor,
+  nextPlanForBudgets,
+  quantity,
+  type NumericPlanLimit,
+  type PlanLimitInfo,
+} from "@/lib/plan-limit";
 
 /**
  * The "can I add one more?" side of the plan limits, for the UI to show *before*
@@ -24,6 +31,12 @@ export type AddLimitsData = {
   categories: AddMeter;
   tags: AddMeter;
   members: AddMeter;
+  /**
+   * Budgets in the workspace. `unlimited`: the plan shows "Unlimited" (Pro),
+   * and its safety cap says "Contact us". Optional so older callers/tests fit;
+   * absent = no lock.
+   */
+  budgets?: AddMeter & { unlimited: boolean };
   profilesPerSpace: number;
   /** This user can create one more workspace on Free (they don't own a free one yet). */
   canCreateFreeWorkspace: boolean;
@@ -45,6 +58,7 @@ export type AddLockKind =
   | "categories"
   | "tags"
   | "members"
+  | "budgets"
   /** A new workspace — the one-free-workspace-per-person rule. */
   | "workspaces"
   | "profileLevelAccess";
@@ -148,6 +162,28 @@ export function profileAccessLock(plan: PersonalPlan): AddLock {
   };
 }
 
+/**
+ * The budget lock. Free and Plus name their number and the plan above ("Free
+ * includes 5 budgets — upgrade to Plus for 20."); Pro never shows its number
+ * until the safety cap, and then it's "Contact us".
+ */
+export function budgetLock(plan: PersonalPlan, max: number, used: number): AddLock {
+  const upgradeTo = nextPlanForBudgets(plan);
+  let reason = `This workspace has ${quantity(max, "budget")} — contact us if you need more.`;
+  if (upgradeTo) {
+    // "for 20", like the other locks — but "for unlimited budgets", never "for 200".
+    const next = PLAN_LIMITS[upgradeTo].budgets;
+    const more = next.displayUnlimited ? budgetsAllowance(upgradeTo) : next.max.toLocaleString("en-US");
+    reason = `${PLAN_NAMES[plan]} includes ${quantity(max, "budget")} — upgrade to ${PLAN_NAMES[upgradeTo]} for ${more}.`;
+  }
+  return {
+    title: "Budget limit reached",
+    reason,
+    cta: cta(upgradeTo),
+    info: { limit: "budgets", plan, max, used, upgradeTo },
+  };
+}
+
 /** "Free includes 2 spaces — upgrade to Plus for 6." */
 function capLock(
   plan: PersonalPlan,
@@ -205,6 +241,14 @@ export function addLock(
   }
 
   if (limits.readOnly) return readOnlyLock(plan);
+
+  if (kind === "budgets") {
+    const meter = limits.budgets;
+    if (!meter) return null;
+    const used = Math.max(meter.used, opts.used ?? 0);
+    if (!meter.reached && used < meter.limit) return null;
+    return budgetLock(plan, meter.limit, used);
+  }
 
   if (kind === "profiles") {
     const max = limits.profilesPerSpace;

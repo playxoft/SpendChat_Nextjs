@@ -3,6 +3,7 @@ import { and, count, eq, gte, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   aiUsageLog,
+  budgets,
   categories,
   profileAccess,
   profiles,
@@ -22,6 +23,7 @@ import {
   type PersonalPlan,
   type PlanLimits,
 } from "@/lib/plans";
+import { budgetsAllowance, nextPlanForBudgets } from "@/lib/plan-limit";
 import { getWorkspaceStorageUsage } from "@/lib/queries";
 import { forgetForRequest, memoizeForRequest } from "@/lib/request-cache";
 import { readOnlyWorkspaceError, readOnlyWorkspaceSql } from "@/lib/workspaces";
@@ -236,6 +238,14 @@ export async function countCategories(workspaceId: string): Promise<number> {
   return row?.n ?? 0;
 }
 
+export async function countBudgets(workspaceId: string): Promise<number> {
+  const [row] = await getDb()
+    .select({ n: count() })
+    .from(budgets)
+    .where(eq(budgets.workspaceId, workspaceId));
+  return row?.n ?? 0;
+}
+
 export async function countTags(workspaceId: string): Promise<number> {
   const [row] = await getDb()
     .select({ n: count() })
@@ -316,6 +326,34 @@ export async function assertCanAddTag(workspaceId: string): Promise<void> {
   assertWritable(ent);
   const used = await countTags(workspaceId);
   if (used + 1 > ent.limits.tags) throw capError(ent, "tags", "tags", "tag", used);
+}
+
+/**
+ * Room for one more budget. Budgets are the object-shaped limit: Free and Plus
+ * name their number and the plan above; Pro shows "Unlimited", and its safety
+ * cap (200) answers "contact us" (`upgradeTo: null`) rather than "upgrade".
+ */
+export async function assertCanAddBudget(workspaceId: string): Promise<void> {
+  const ent = await getWorkspaceEntitlements(workspaceId);
+  assertWritable(ent);
+  const used = await countBudgets(workspaceId);
+  const max = ent.limits.budgets.max;
+  if (used + 1 <= max) return;
+  throw planLimit(budgetCapMessage(ent.plan, max), {
+    limit: "budgets",
+    plan: ent.plan,
+    max,
+    used,
+    upgradeTo: nextPlanForBudgets(ent.plan),
+  });
+}
+
+/** The words for a full budget allowance, from the plan catalogue. */
+export function budgetCapMessage(plan: PersonalPlan, max: number): string {
+  const upgradeTo = nextPlanForBudgets(plan);
+  // No plan above (Pro): its cap is a safety net, so the number is all we say.
+  if (!upgradeTo) return `This workspace has ${quantity(max, "budget")} — contact us if you need more.`;
+  return `This workspace's ${PLAN_NAMES[plan]} plan includes ${quantity(max, "budget")}. Upgrade to ${PLAN_NAMES[upgradeTo]} for ${budgetsAllowance(upgradeTo)}.`;
 }
 
 /**
@@ -494,6 +532,8 @@ export type AddLimits = {
   categories: AddMeter;
   tags: AddMeter;
   members: AddMeter;
+  /** `unlimited`: the plan shows its budget cap as "Unlimited" (Pro). */
+  budgets: AddMeter & { unlimited: boolean };
   profilesPerSpace: number;
   /** This user can create one more workspace on Free (they don't own a free one yet). */
   canCreateFreeWorkspace: boolean;
@@ -516,6 +556,7 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
       categories: string;
       tags: string;
       members: string;
+      budgets: string;
       free_owned: string;
     }>(sql`
       select
@@ -523,6 +564,7 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
         (select count(*) from ${categories} where ${categories.workspaceId} = ${workspaceId})::text as categories,
         (select count(*) from ${tags} where ${tags.workspaceId} = ${workspaceId})::text as tags,
         ${membersCountSql(workspaceId)}::text as members,
+        (select count(*) from ${budgets} where ${budgets.workspaceId} = ${workspaceId})::text as budgets,
         (select count(*) from ${workspaces}
           where ${workspaces.ownerId} = ${userId} and ${workspaces.plan} = 'free')::text as free_owned
     `),
@@ -541,6 +583,10 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
     categories: meter(Number(row?.categories ?? 0), ent.limits.categories),
     tags: meter(Number(row?.tags ?? 0), ent.limits.tags),
     members: meter(Number(row?.members ?? 0), ent.limits.members),
+    budgets: {
+      ...meter(Number(row?.budgets ?? 0), ent.limits.budgets.max),
+      unlimited: ent.limits.budgets.displayUnlimited,
+    },
     profilesPerSpace: ent.limits.profilesPerSpace,
     canCreateFreeWorkspace: freeOwned === 0,
     freeSlotHere: ent.plan === "free" && ent.ownerId === userId && freeOwned === 1,
@@ -563,6 +609,8 @@ export type WorkspaceUsage = {
   spaces: Meter;
   categories: Meter;
   tags: Meter;
+  /** `unlimited`: show "Unlimited" instead of `limit` (Pro's cap is a safety net). */
+  budgets: Meter & { unlimited: boolean };
   /** Per-space profile cap (shown beside each space, not summed). */
   profilesPerSpace: number;
   voice: boolean;
@@ -572,14 +620,16 @@ export type WorkspaceUsage = {
 /** Everything the usage panel shows, in one call. */
 export async function getUsage(workspaceId: string): Promise<WorkspaceUsage> {
   const ent = await getWorkspaceEntitlements(workspaceId);
-  const [ai, storageUsed, members, spaceCount, categoryCount, tagCount] = await Promise.all([
-    getAiAllowance(workspaceId),
-    getWorkspaceStorageUsage(workspaceId),
-    countMembers(workspaceId),
-    countSpaces(workspaceId),
-    countCategories(workspaceId),
-    countTags(workspaceId),
-  ]);
+  const [ai, storageUsed, members, spaceCount, categoryCount, tagCount, budgetCount] =
+    await Promise.all([
+      getAiAllowance(workspaceId),
+      getWorkspaceStorageUsage(workspaceId),
+      countMembers(workspaceId),
+      countSpaces(workspaceId),
+      countCategories(workspaceId),
+      countTags(workspaceId),
+      countBudgets(workspaceId),
+    ]);
   return {
     plan: ent.plan,
     readOnly: ent.readOnly,
@@ -589,6 +639,11 @@ export async function getUsage(workspaceId: string): Promise<WorkspaceUsage> {
     spaces: { used: spaceCount, limit: ent.limits.spaces },
     categories: { used: categoryCount, limit: ent.limits.categories },
     tags: { used: tagCount, limit: ent.limits.tags },
+    budgets: {
+      used: budgetCount,
+      limit: ent.limits.budgets.max,
+      unlimited: ent.limits.budgets.displayUnlimited,
+    },
     profilesPerSpace: ent.limits.profilesPerSpace,
     voice: voiceAllowed(ent),
     profileLevelAccess: ent.limits.profileLevelAccess,

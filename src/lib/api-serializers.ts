@@ -7,6 +7,7 @@ import type { TransactionRow } from "@/lib/queries";
 import type { WorkspaceSummary } from "@/lib/workspaces";
 import type { WorkspaceUsage } from "@/lib/entitlements";
 import type { PersonalPlan } from "@/lib/plans";
+import type { BudgetView } from "@/services/budgets";
 import type { OrganizationOverview } from "@/services/organizations";
 import type { SpaceAccess, SpaceSummary } from "@/services/spaces";
 import type {
@@ -331,6 +332,8 @@ export type ApiUsage = {
   spaces: ApiMeter;
   categories: ApiMeter;
   tags: ApiMeter;
+  /** `unlimited`: show "Unlimited" instead of `limit` (Pro). Since 6.8.0. */
+  budgets: ApiMeter & { unlimited: boolean };
   profilesPerSpace: number;
   voice: boolean;
   profileLevelAccess: boolean;
@@ -353,8 +356,53 @@ export function serializeUsage(u: WorkspaceUsage): ApiUsage {
     spaces: meter(u.spaces),
     categories: meter(u.categories),
     tags: meter(u.tags),
+    budgets: { ...meter(u.budgets), unlimited: u.budgets.unlimited },
     profilesPerSpace: u.profilesPerSpace,
     voice: u.voice,
     profileLevelAccess: u.profileLevelAccess,
+  };
+}
+
+/** A budget with one month's progress (`GET /budgets`, since 6.8.0). */
+export type ApiBudget = {
+  id: string;
+  scope: "workspace" | "profile" | "category";
+  profileId: string | null;
+  categoryId: string | null;
+  label: string;
+  icon: string | null;
+  period: "monthly";
+  amountMinor: number;
+  emailAlerts: boolean;
+  /** The month `spentMinor` is for, "YYYY-MM". */
+  month: string;
+  spentMinor: number;
+  percent: number;
+  status: "ok" | "warn" | "over";
+  canManage: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function serializeApiBudget(b: BudgetView): ApiBudget {
+  return {
+    id: b.id,
+    scope: b.scope,
+    profileId: b.profileId,
+    categoryId: b.categoryId,
+    label: b.label,
+    icon: b.icon,
+    period: b.period,
+    amountMinor: b.amountMinor,
+    emailAlerts: b.emailAlerts,
+    month: b.month,
+    spentMinor: b.spentMinor,
+    percent: b.percent,
+    status: b.status,
+    canManage: b.canManage,
+    createdBy: b.createdBy,
+    createdAt: b.createdAt.toISOString(),
+    updatedAt: b.updatedAt.toISOString(),
   };
 }

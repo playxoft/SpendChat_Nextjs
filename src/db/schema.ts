@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   date,
   foreignKey,
   index,
@@ -10,6 +11,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -37,6 +39,7 @@ import {
 import type { UiPrefs } from "../lib/validation";
 import type { Acquisition } from "../lib/attribution";
 import { PERSONAL_PLANS } from "../lib/plans";
+import { BUDGET_PERIODS, BUDGET_SCOPES } from "../lib/budgets";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -67,6 +70,12 @@ export const workspacePlanEnum = pgEnum("workspace_plan", PERSONAL_PLANS);
 
 /** Optional preset tag for a transaction attachment (receipt/bill/invoice/other). */
 export const attachmentKindEnum = pgEnum("attachment_kind", ATTACHMENT_KINDS);
+
+/** What a budget covers: the whole workspace, one profile, or one expense category. */
+export const budgetScopeEnum = pgEnum("budget_scope", BUDGET_SCOPES);
+
+/** How often a budget resets. Monthly only today; the enum leaves room for more. */
+export const budgetPeriodEnum = pgEnum("budget_period", BUDGET_PERIODS);
 
 /**
  * Application identity. `id` is our own uuidv7 — the value stored in every
@@ -702,6 +711,88 @@ export const transactions = pgTable(
 );
 
 /**
+ * A monthly spending limit (`src/lib/budgets.ts` holds the rules). It covers
+ * the whole workspace, one profile, or one expense category across every
+ * profile — `scope` says which, and exactly one of `profile_id` / `category_id`
+ * is set for the last two (the check constraint below). Typed foreign keys
+ * rather than one polymorphic id, so deleting a profile or a category takes its
+ * budget with it instead of leaving one that points at nothing.
+ *
+ * One budget per scope (the unique constraint treats the nulls as equal, so a
+ * second whole-workspace budget collides too). `amount_minor` is in the
+ * workspace's currency, like every amount. `created_by` is attribution and an
+ * alert recipient, never the access key — who can see or manage a budget is
+ * decided by the profiles it covers (`canSeeBudget` / `canManageBudget`).
+ * How many a workspace may have is its plan's `budgets` limit.
+ */
+export const budgets = pgTable(
+  "budgets",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    scope: budgetScopeEnum("scope").notNull(),
+    profileId: uuid("profile_id").references(() => profiles.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id").references(() => categories.id, { onDelete: "cascade" }),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+    period: budgetPeriodEnum("period").notNull().default("monthly"),
+    // Email the 80% / 100% alerts (in-app alerts always show). Per budget, set
+    // by whoever manages it.
+    emailAlerts: boolean("email_alerts").notNull().default(true),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One budget per scope and period. Leads with `workspace_id`, so it also
+    // serves "this workspace's budgets" and the workspace FK cascade.
+    unique("budgets_workspace_scope_uq")
+      .on(t.workspaceId, t.scope, t.period, t.profileId, t.categoryId)
+      .nullsNotDistinct(),
+    // FK maintenance: profile / category delete cascades.
+    index("budgets_profile_idx").on(t.profileId),
+    index("budgets_category_idx").on(t.categoryId),
+    check(
+      "budgets_scope_target_ck",
+      sql`(${t.scope} = 'workspace' and ${t.profileId} is null and ${t.categoryId} is null)
+        or (${t.scope} = 'profile' and ${t.profileId} is not null and ${t.categoryId} is null)
+        or (${t.scope} = 'category' and ${t.categoryId} is not null and ${t.profileId} is null)`,
+    ),
+    check("budgets_amount_positive_ck", sql`${t.amountMinor} > 0`),
+  ],
+);
+
+/**
+ * The alert log: one row per budget × month × threshold that has fired. The
+ * primary key *is* the "once per budget, per threshold, per month" rule — an
+ * alert is claimed with `insert … on conflict do nothing returning`, so of two
+ * writes that cross 80% at the same moment exactly one gets the row and sends
+ * the email (`src/lib/budget-alerts.ts`). In-app alerts don't read this; they
+ * are computed live from the month's spending.
+ *
+ * Tiny and bounded (≤ budgets × 2 a month), and it goes with its budget.
+ */
+export const budgetAlerts = pgTable(
+  "budget_alerts",
+  {
+    budgetId: uuid("budget_id")
+      .notNull()
+      .references(() => budgets.id, { onDelete: "cascade" }),
+    // The first day of the calendar month the alert is about.
+    month: date("month").notNull(),
+    // 80 or 100 (`BUDGET_THRESHOLDS`).
+    threshold: smallint("threshold").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.budgetId, t.month, t.threshold] }),
+    check("budget_alerts_threshold_ck", sql`${t.threshold} in (80, 100)`),
+    check("budget_alerts_month_ck", sql`extract(day from ${t.month}) = 1`),
+  ],
+);
+
+/**
  * A file (receipt / bill / invoice / any document) attached to a transaction.
  * Access is inherited from the transaction's profile — `profileId` and
  * `workspaceId` are denormalized from the parent so attachment reads scope the
@@ -999,3 +1090,6 @@ export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type ProfileAccess = typeof profileAccess.$inferSelect;
 export type WorkspaceInvite = typeof workspaceInvites.$inferSelect;
 export type WorkspaceRole = (typeof workspaceRoleEnum.enumValues)[number];
+export type Budget = typeof budgets.$inferSelect;
+export type NewBudget = typeof budgets.$inferInsert;
+export type BudgetAlert = typeof budgetAlerts.$inferSelect;

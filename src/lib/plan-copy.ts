@@ -1,5 +1,6 @@
 import { formatFileSize } from "@/lib/attachments";
 import {
+  budgetsLimitLabel,
   formatPlanStorage,
   formatResetDate,
   nextMonthStartUtc,
@@ -261,6 +262,9 @@ export function planChanges(from: PersonalPlan, to: PersonalPlan): PlanChange[] 
   num("Profiles in each space", a.profilesPerSpace, b.profilesPerSpace);
   num("Categories", a.categories, b.categories);
   num("Tags", a.tags, b.tags);
+  if (b.budgets.max > a.budgets.max) {
+    out.push({ label: "Budgets", from: budgetsLimitLabel(from), to: budgetsLimitLabel(to) });
+  }
   flag("Voice entry", a.voice, b.voice);
   flag("Access per profile", a.profileLevelAccess, b.profileLevelAccess);
   flag("AI top-ups", a.topUps, b.topUps);
@@ -362,6 +366,16 @@ export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
       `This workspace has ${count(max)} tags. Deleting one you don't use frees a place.`,
     pitch: ({ next, nextLimits }) =>
       `${next} gives you ${count(nextLimits.tags)} — enough for every trip, client and tax claim.`,
+  },
+  budgets: {
+    headline: "See it coming before the month runs out",
+    cap: (p) => L[p].budgets.max,
+    status: ({ max }) =>
+      `This workspace has ${count(max)} budgets, and they're all in use. Deleting one you don't need frees a place.`,
+    pitch: ({ next, nextLimits }) =>
+      nextLimits.budgets.displayUnlimited
+        ? `${next} takes the limit off, so every category that matters gets its own budget and its own alert.`
+        : `${next} gives you ${count(nextLimits.budgets.max)}, so every category that matters gets its own budget and its own alert.`,
   },
   storage: {
     headline: "Keep every receipt where you can find it",

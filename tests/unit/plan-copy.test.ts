@@ -138,6 +138,18 @@ describe("LIMIT_PITCH / limitPitch", () => {
     expect(fromPro.pitch).toMatch(/^Upgrade your free workspace to Plus/);
   });
 
+  it("pitches budgets with the next plan's number, Pro as no limit, and contact at Pro's cap", () => {
+    const free = limitPitch({ limit: "budgets", plan: "free", max: 5, used: 5, upgradeTo: "plus" });
+    expect(free.status).toContain("5 budgets");
+    expect(free.pitch).toContain("Plus gives you 20");
+    const plus = limitPitch({ limit: "budgets", plan: "plus", max: 20, used: 20, upgradeTo: "pro" });
+    expect(plus.pitch).toContain("Pro takes the limit off");
+    expect(plus.pitch).not.toMatch(/200/);
+    const pro = limitPitch({ limit: "budgets", plan: "pro", used: 200, upgradeTo: null });
+    expect(pro.status).toContain("200 budgets");
+    expect(pro.pitch).toBeNull();
+  });
+
   it("shows storage used, capped at the limit", () => {
     const gb = 1024 ** 3;
     const copy = limitPitch({ limit: "storage", plan: "free", max: gb, used: 2 * gb, upgradeTo: "plus" });
@@ -274,6 +286,19 @@ describe("planChanges", () => {
     });
     expect(changes.find((c) => c.label === "Storage")?.to).toBe(formatPlanStorage(PLAN_LIMITS.plus.storageBytes));
     expect(changes.some((c) => c.label === "Voice entry")).toBe(PLAN_LIMITS.plus.voice);
+  });
+
+  it("shows budgets going up — and Pro's as Unlimited, never its safety cap", () => {
+    expect(planChanges("free", "plus").find((c) => c.label === "Budgets")).toEqual({
+      label: "Budgets",
+      from: "5",
+      to: "20",
+    });
+    expect(planChanges("plus", "pro").find((c) => c.label === "Budgets")).toEqual({
+      label: "Budgets",
+      from: "20",
+      to: "Unlimited",
+    });
   });
 
   it("adds voice on the way to Pro, and nothing when the plan doesn't change", () => {
