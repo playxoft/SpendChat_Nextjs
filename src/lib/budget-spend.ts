@@ -3,6 +3,7 @@ import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { profiles, transactions } from "@/db/schema";
 import { monthBounds, type SpendCell } from "@/lib/budgets";
+import { notTrashed } from "@/lib/trash-scope";
 
 /**
  * A month's expenses in a workspace, grouped by profile × category — the one
@@ -11,13 +12,13 @@ import { monthBounds, type SpendCell } from "@/lib/budgets";
  * budget's total with `spentFor` (`lib/budgets.ts`), so a rule about which
  * transactions count lives in exactly one `where`:
  *
- *  - **every profile of the workspace** — a budget's number is the same for
- *    everyone who can see it; who may see it is `canSeeBudget`'s job;
+ *  - **every live profile of the workspace** — a budget's number is the same
+ *    for everyone who can see it; who may see it is `canSeeBudget`'s job;
  *  - **expenses only** — income never offsets spending;
  *  - **the calendar month of `occurred_on`**, the transaction's own date.
  *
- * Trashed transactions don't count: when `transactions.deleted_at` exists, its
- * filter belongs in this `where` and nowhere else.
+ *  - **nothing in the trash** — neither a trashed transaction nor anything in
+ *   a trashed profile (`notTrashed`, here and nowhere else).
  *
  * `profile_id in (…)` with the month range lets the planner walk
  * `transactions_profile_date_idx` once per profile, the way the feed does.
@@ -37,9 +38,13 @@ export async function getMonthExpenseMatrix(
     .from(transactions)
     .where(
       and(
+        notTrashed(transactions),
         inArray(
           transactions.profileId,
-          db.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
+          db
+            .select({ id: profiles.id })
+            .from(profiles)
+            .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles))),
         ),
         eq(transactions.type, "expense"),
         gte(transactions.occurredOn, first),

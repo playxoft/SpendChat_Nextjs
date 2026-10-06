@@ -29,6 +29,7 @@ import {
 } from "@/services/budgets";
 import { deleteCategory } from "@/services/categories";
 import { deleteProfile } from "@/services/profiles";
+import { deleteFromTrash } from "@/services/trash";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import {
@@ -242,12 +243,17 @@ describe("budgets — create, change, delete", () => {
     expect(await deleteBudget(uid("adm"), f.W, id)).toBe(false);
   });
 
-  it("goes with its profile or category when that is deleted", async () => {
+  it("goes with its category when that is deleted, and with its profile once that leaves the trash for good", async () => {
     const f = await build();
     await createBudget(uid("adm"), f.W, { scope: "profile", profileId: f.p2, amount: 100 });
     await createBudget(uid("adm"), f.W, { scope: "category", categoryId: f.groceries, amount: 100 });
-    await deleteProfile(uid("adm"), f.p2);
     await deleteCategory(uid("adm"), f.W, f.groceries);
+    // A deleted profile goes to the trash: its budget is hidden, not deleted…
+    await deleteProfile(uid("adm"), f.p2);
+    expect(await listBudgets(uid("adm"), f.W, MONTH)).toEqual([]);
+    expect(await db().select().from(budgets).where(eq(budgets.workspaceId, f.W))).toHaveLength(1);
+    // …and deleting it for good takes the budget with it.
+    await deleteFromTrash(uid("adm"), f.W, { profileIds: [f.p2] });
     expect(await db().select().from(budgets).where(eq(budgets.workspaceId, f.W))).toEqual([]);
   });
 

@@ -26,6 +26,7 @@ import {
 import { assertCanAddBudget, getWorkspaceEntitlements } from "@/lib/entitlements";
 import { conflict, forbidden, isUniqueViolation, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
+import { notTrashed } from "@/lib/trash-scope";
 import { getCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
 import { createBudgetSchema, updateBudgetSchema } from "@/lib/validation";
@@ -98,7 +99,8 @@ export async function budgetAccess(userId: string, workspaceId: string): Promise
     accessibleProfileIds(userId, workspaceId, "editor"),
     db.execute<{ total: string; ro: boolean }>(sql`
       select
-        (select count(*) from ${profiles} where ${profiles.workspaceId} = ${workspaceId})::text as total,
+        (select count(*) from ${profiles}
+          where ${profiles.workspaceId} = ${workspaceId} and ${profiles.deletedAt} is null)::text as total,
         ${readOnlyWorkspaceSql(workspaceId)} as ro
     `),
   ]);
@@ -129,14 +131,23 @@ const budgetColumns = {
   categoryIcon: categories.icon,
 };
 
-/** Every budget of a workspace with the names it's labelled by — no access filter. */
+/**
+ * Every live budget of a workspace with the names it's labelled by — no access
+ * filter. A budget on a profile in the trash is left out: it's hidden (from
+ * admins too), spends nothing and alerts nobody until the profile is restored,
+ * and goes with the profile when the trash is emptied.
+ */
 export async function loadWorkspaceBudgets(workspaceId: string) {
-  return getDb()
-    .select(budgetColumns)
-    .from(budgets)
-    .leftJoin(profiles, eq(profiles.id, budgets.profileId))
-    .leftJoin(categories, eq(categories.id, budgets.categoryId))
-    .where(eq(budgets.workspaceId, workspaceId));
+  return (
+    getDb()
+      .select(budgetColumns)
+      .from(budgets)
+      .leftJoin(profiles, eq(profiles.id, budgets.profileId))
+      .leftJoin(categories, eq(categories.id, budgets.categoryId))
+      // Null for a workspace or category budget (no profile joined), so only a
+      // trashed profile's budget drops out.
+      .where(and(eq(budgets.workspaceId, workspaceId), notTrashed(profiles)))
+  );
 }
 
 export type BudgetRow = Awaited<ReturnType<typeof loadWorkspaceBudgets>>[number];

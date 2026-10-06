@@ -92,9 +92,14 @@ const viewer = (v: Partial<BudgetViewer>): BudgetViewer => ({
 });
 
 describe("canSeeBudget — only people who can read every profile it covers", () => {
-  it("admins see everything", () => {
-    const admin = viewer({ isAdmin: true });
+  it("admins see everything that's live", () => {
+    const admin = viewer({ isAdmin: true, readable: new Set(["p1", "p2"]) });
     for (const t of [WS, P1, FOOD]) expect(canSeeBudget(t, admin)).toBe(true);
+  });
+  it("a profile budget whose profile can't be read — it's in the trash — is hidden, even from admins", () => {
+    const admin = viewer({ isAdmin: true, readable: new Set(["p2"]), totalProfiles: 1 });
+    expect(canSeeBudget(P1, admin)).toBe(false);
+    expect(canSeeBudget(WS, admin)).toBe(true);
   });
   it("a reader of every profile sees the workspace and category budgets", () => {
     const all = viewer({ readable: new Set(["p1", "p2"]) });

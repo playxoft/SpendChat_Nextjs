@@ -101,19 +101,21 @@ export type BudgetViewer = {
   readable: ReadonlySet<string>;
   /** Profiles the caller can write (empty in a view-only workspace). */
   writable: ReadonlySet<string>;
-  /** Every profile in the workspace, whoever can see it. */
+  /** Every live profile in the workspace (none in the trash), whoever can see it. */
   totalProfiles: number;
 };
 
 /**
  * A budget is shown only to people who can read **every** profile it covers —
  * otherwise its total would reveal spending they can't see. The whole
- * workspace and a category both cover every profile; a profile budget covers
- * one. Admins always see it.
+ * workspace and a category both cover every live profile; a profile budget
+ * covers one, and shows to whoever can read that profile — which an admin
+ * always can, unless it's in the trash (then nobody sees the budget until it's
+ * restored). Admins see every workspace and category budget.
  */
 export function canSeeBudget(target: BudgetTarget, viewer: BudgetViewer): boolean {
-  if (viewer.isAdmin) return true;
   if (target.scope === "profile") return target.profileId != null && viewer.readable.has(target.profileId);
+  if (viewer.isAdmin) return true;
   return viewer.readable.size >= viewer.totalProfiles;
 }
 

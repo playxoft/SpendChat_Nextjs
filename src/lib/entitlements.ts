@@ -1,5 +1,5 @@
 import "server-only";
-import { and, count, eq, gte, or, sql } from "drizzle-orm";
+import { and, count, eq, exists, gte, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   aiUsageLog,
@@ -297,6 +297,11 @@ export async function countCategories(workspaceId: string): Promise<number> {
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
+/**
+ * Budgets that count toward the plan: all but those on a profile in the trash,
+ * which are hidden until it's restored (like a trashed profile itself, which
+ * doesn't count toward its space).
+ */
 export async function countBudgets(
   workspaceId: string,
   db: Pick<ReturnType<typeof getDb>, "select"> = getDb(),
@@ -304,7 +309,20 @@ export async function countBudgets(
   const [row] = await db
     .select({ n: count() })
     .from(budgets)
-    .where(eq(budgets.workspaceId, workspaceId));
+    .where(
+      and(
+        eq(budgets.workspaceId, workspaceId),
+        or(
+          isNull(budgets.profileId),
+          exists(
+            db
+              .select({ one: sql`1` })
+              .from(profiles)
+              .where(and(eq(profiles.id, budgets.profileId), notTrashed(profiles))),
+          ),
+        ),
+      ),
+    );
   return row?.n ?? 0;
 }
 
@@ -705,7 +723,10 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
         (select count(*) from ${categories} where ${categories.workspaceId} = ${workspaceId})::text as categories,
         (select count(*) from ${tags} where ${tags.workspaceId} = ${workspaceId})::text as tags,
         ${membersCountSql(workspaceId)}::text as members,
-        (select count(*) from ${budgets} where ${budgets.workspaceId} = ${workspaceId})::text as budgets,
+        (select count(*) from ${budgets} where ${budgets.workspaceId} = ${workspaceId}
+          and (${budgets.profileId} is null or exists (
+            select 1 from ${profiles} where ${profiles.id} = ${budgets.profileId} and ${profiles.deletedAt} is null
+          )))::text as budgets,
         (select count(*) from ${workspaces}
           where ${workspaces.ownerId} = ${userId} and ${workspaces.plan} = 'free')::text as free_owned
     `),
