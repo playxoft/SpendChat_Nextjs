@@ -24,7 +24,7 @@ import {
 } from "@/lib/plans";
 import { getWorkspaceStorageUsage } from "@/lib/queries";
 import { forgetForRequest, memoizeForRequest } from "@/lib/request-cache";
-import { readOnlyWorkspaceError, readOnlyWorkspaceSql } from "@/lib/workspaces";
+import { listUserWorkspaces, readOnlyWorkspaceError, readOnlyWorkspaceSql } from "@/lib/workspaces";
 
 /**
  * What a workspace's plan allows, and the checks that enforce it — the server
@@ -92,6 +92,20 @@ export function forgetEntitlements(workspaceId: string): void {
 /** The workspace's plan (memoized per request). */
 export async function getWorkspacePlan(workspaceId: string): Promise<PersonalPlan> {
   return (await getWorkspaceEntitlements(workspaceId)).plan;
+}
+
+/**
+ * The highest plan among every workspace the person can open (memoized per
+ * request). What a request with no workspace in context — account settings,
+ * the workspace list, the organisation — is rate-limited by (`lib/rate-limit`),
+ * so a paid member isn't held to Free's numbers there. Read only when such a
+ * request is over Free's numbers, so it's off the hot path.
+ */
+export function getBestPlanForUser(userId: string): Promise<PersonalPlan> {
+  return memoizeForRequest(`best-plan:${userId}`, async () => {
+    const list = await listUserWorkspaces(userId);
+    return list.reduce<PersonalPlan>((best, w) => (planAtLeast(w.plan, best) ? w.plan : best), "free");
+  });
 }
 
 // ── Errors ─────────────────────────────────────────────────────────────────

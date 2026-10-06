@@ -185,15 +185,25 @@ export const INVOICE_LIMITS: Record<
 /** The invoice add-on, per workspace, in rupee minor units (paise). */
 export const INVOICE_ADDON_PRICE = { monthly: 19900, yearly: 99900 } as const;
 
-// ── Rate limits (enforced in personal phase 6) ─────────────────────────────
+// ── Rate limits ────────────────────────────────────────────────────────────
 
-export type RateBucket = "create" | "read" | "ai";
+/**
+ * What a request counts against: adding or editing entries, viewing and
+ * searching, or a call to a paid AI model. Enforced per person at the two
+ * request seams (`lib/rate-limit`) — see AGENTS.md § Rate limits.
+ */
+export const RATE_BUCKETS = ["create", "read", "ai"] as const;
+export type RateBucket = (typeof RATE_BUCKETS)[number];
 
-/** Requests per person per window: 1 minute / 5 minutes / 1 hour. A bulk add counts once. */
-export const RATE_LIMITS: Record<
-  PersonalPlan,
-  Record<RateBucket, { perMinute: number; per5Minutes: number; perHour: number }>
-> = {
+export type RateLimitNumbers = { perMinute: number; per5Minutes: number; perHour: number };
+
+/**
+ * Requests per person per window: 1 minute / 5 minutes / 1 hour. A bulk add
+ * counts once. Every paid number must stay at least Free's: the limiter checks
+ * Free's numbers first and only looks the plan up when a request is over them
+ * (`tests/unit/plans.test.ts` guards it).
+ */
+export const RATE_LIMITS: Record<PersonalPlan, Record<RateBucket, RateLimitNumbers>> = {
   free: {
     create: { perMinute: 20, per5Minutes: 60, perHour: 300 },
     read: { perMinute: 120, per5Minutes: 400, perHour: 2000 },
