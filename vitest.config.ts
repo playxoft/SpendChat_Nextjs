@@ -10,6 +10,10 @@ export default defineConfig({
       // `server-only` throws when imported outside an RSC graph. In tests we run
       // those modules directly under Node, so swap it for an empty module.
       "server-only": r("tests/stubs/server-only.ts"),
+      // The Worker runtime's module, which only exists inside workerd. The
+      // rate-limit Durable Object extends its `DurableObject`; the stub is a
+      // bare base class so the object can be unit-tested over a fake storage.
+      "cloudflare:workers": r("tests/stubs/cloudflare-workers.ts"),
     },
   },
   test: {
@@ -70,8 +74,8 @@ export default defineConfig({
         // Only the transport lives here — the parsing/validation it feeds
         // (`ai-parse.ts`) is pure and stays under the gate.
         "src/lib/ai-provider.ts",
-        // The AI charges — the per-user hourly cap and the workspace's monthly
-        // allowance, both DB round-trips under advisory locks — exercised by the
+        // The AI charges — the workspace's monthly allowance and the per-user
+        // charge lock, DB round-trips under advisory locks — exercised by the
         // integration suite rather than unit tests (like `email-quota.ts`).
         "src/lib/ai-quota.ts",
         // MDX-backed; covered behaviourally, not held to the branch gate

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
-import { Gem, LogOut, Settings as SettingsIcon } from "lucide-react";
+import { Gem, LogOut, Settings as SettingsIcon, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -67,6 +67,14 @@ export function UserMenu({
         <DropdownMenuItem asChild>
           <Link href={hrefWithProfile("/app/settings", profile)} className="cursor-pointer">
             <SettingsIcon className="size-4" /> Settings
+          </Link>
+        </DropdownMenuItem>
+        {/* The trash sits beside Settings for the same reason Settings is here:
+            it's on every screen in both layouts, and it's a place people go to
+            rarely — not worth a slot in the main nav. */}
+        <DropdownMenuItem asChild>
+          <Link href={hrefWithProfile("/app/trash", profile)} className="cursor-pointer">
+            <Trash2 className="size-4" /> Trash
           </Link>
         </DropdownMenuItem>
         <DropdownMenuItem asChild>

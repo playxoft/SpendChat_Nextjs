@@ -57,7 +57,8 @@ info:
       `GET`/`POST /workspaces`) can return `403` (email not verified) and
       `404` (unknown/inaccessible `X-Workspace-Id`) — both are listed per
       path. Any endpoint that reads a JSON body can return `400` (malformed
-      JSON). The account-linking `409` above can surface on any endpoint.
+      JSON). The account-linking `409` above can surface on any endpoint, and
+      so can `429 rate_limited` (see Rate limits).
     - **Money** is integer minor units (`amountMinor`). Each transaction also
       returns `amount` (major-unit string). One currency **per workspace**;
       `meta.currency`/`workspace.currencyDetail` give the `decimals`.
@@ -68,9 +69,9 @@ info:
     `POST /ai/parse` (free text → reviewable transaction drafts) and
     `POST /ai/transcribe` (voice recording → note text) call a paid model
     provider, so they carry extra gates the CRUD endpoints don't:
-    the **editor** role in the current workspace (403 otherwise), a shared
-    per-user quota of **30 AI calls per hour** across both endpoints
-    (`429 rate_limited`, checked first), the workspace's monthly **AI
+    the **editor** role in the current workspace (403 otherwise), the
+    per-person **AI rate limit** shared by both endpoints (`429
+    rate_limited`, checked first — see Rate limits), the workspace's monthly **AI
     allowance** from its plan — 50 / 300 / 1,000 AI actions per UTC calendar
     month on Free / Plus / Pro (`403 plan_limit`, `limit: "aiActions"` once
     it's spent — see `GET /usage` → `ai`), voice entry for transcription
@@ -83,6 +84,40 @@ info:
     user and committed via `POST /transactions/bulk`; transcribe output is
     reviewed and then sent to `/ai/parse`. Audio is transcribed and discarded —
     never stored.
+
+    ## Rate limits
+    Every authenticated request counts against a **per-person** rate limit
+    (since 6.6.0), over three sliding windows at once — 1 minute, 5 minutes
+    and 1 hour — in one of three buckets picked from the request:
+    `/ai/*` → **ai**; any other `GET`/`HEAD` → **read**; every other method
+    → **create**. A bulk call (`POST /transactions/bulk`, a multi-file upload)
+    is one request; a CSV export (`GET /transactions/export`, up to 5,000
+    rows) counts as **20 reads**. The numbers come from the plan of the workspace in
+    context (`X-Workspace-Id`, else the current one); for the endpoints with
+    no workspace (`GET`/`POST /workspaces`, `/organization`) they come from
+    the best plan among the caller's workspaces.
+
+    | per person (1 min / 5 min / 1 hour) | Free | Plus | Pro |
+    |---|---|---|---|
+    | create | 20 / 60 / 300 | 30 / 100 / 500 | 40 / 150 / 800 |
+    | read | 120 / 400 / 2,000 | 180 / 600 / 3,000 | 240 / 900 / 5,000 |
+    | ai | 3 / 6 / 10 | 5 / 15 / 30 | 6 / 20 / 60 |
+
+    Over a limit the server answers **`429 rate_limited`** with a
+    **`Retry-After`** header (whole seconds) and the same number in
+    `error.details.retryAfterSeconds`, plus the `bucket` and the full
+    `window` (`1m`/`5m`/`1h`). Wait that long before retrying — a retry
+    sooner is refused again, and refused requests don't count. Show
+    `error.message`; it already says how long to wait. A minted file URL
+    (`GET /files/{id}/url`, `GET /attachments/{id}/url`) is a read, so mint
+    one per view and reuse it for its lifetime rather than re-minting per
+    frame. `GET /version` is never limited.
+
+    Two `429`s on `/ai/*` carry no `window`: a second AI call sent while the
+    caller's previous one is still being charged (`retryAfterSeconds: 1`),
+    and AI paused because the server can't check the limit right now
+    (`retryAfterSeconds: 5` — AI is refused rather than allowed unchecked).
+    Both are temporary; wait and retry once.
 
     ## Attachments
     Transactions can carry up to **2 attached files** (receipt/bill/invoice —
@@ -185,6 +220,7 @@ tags:
   - name: Organization
   - name: Usage
   - name: Budgets
+  - name: Trash
   - name: Settings
   - name: Analytics
   - name: AI
@@ -250,6 +286,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/workspaces:
     get:
@@ -275,6 +312,7 @@ paths:
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Workspaces]
       summary: Create a workspace
@@ -309,6 +347,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/workspaces/{id}:
     parameters:
@@ -339,6 +378,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions:
     get:
@@ -384,6 +424,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Transactions]
       summary: Create a transaction
@@ -408,6 +449,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/{id}:
     parameters:
@@ -431,6 +473,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     patch:
       tags: [Transactions]
       summary: Update a transaction (full replacement of mutable fields)
@@ -456,25 +499,29 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Transactions]
-      summary: Delete a transaction
+      summary: Move a transaction to the trash
       description: >
-        Scoped to the current workspace — a transaction in another workspace is
-        a 404.
+        Moves it to the trash (6.7.0): out of every read, restorable for 30 days
+        with `POST /trash/restore`; its attachments stay with it. Scoped to the
+        current workspace — a transaction in another workspace (or one already
+        in the trash) is a 404.
       responses:
         "200":
-          description: Deletion acknowledged.
+          description: Moved to the trash (`trashed` is always true here).
           content:
             application/json:
               schema:
                 type: object
-                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                properties: { data: { $ref: "#/components/schemas/TrashedResult" } }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/bulk:
     post:
@@ -513,6 +560,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/export:
     get:
@@ -555,15 +603,17 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/delete-all:
     post:
       tags: [Transactions]
       summary: Clear transactions in the current workspace, per profile (danger zone, admin only)
       description: >
-        **Workspace admins only** (a non-admin caller gets 403). Permanently
-        deletes **every** transaction (regardless of who authored it) in the
-        selected profiles of the **current workspace**. `profileIds` omitted or
+        **Workspace admins only** (a non-admin caller gets 403). Moves **every**
+        live transaction (regardless of who authored it) in the selected
+        profiles of the **current workspace** to the trash (6.7.0), where it
+        stays restorable for 30 days. `profileIds` omitted or
         empty clears every profile in the workspace; otherwise only the listed
         profiles are cleared (ids not in the current workspace are ignored).
         Categories and settings are kept.
@@ -589,7 +639,7 @@ paths:
               required: [confirm]
       responses:
         "200":
-          description: How many transactions were removed.
+          description: How many transactions went to the trash.
           content:
             application/json:
               schema:
@@ -597,13 +647,16 @@ paths:
                 properties:
                   data:
                     type: object
-                    properties: { deleted: { type: integer } }
-                    required: [deleted]
+                    properties:
+                      deleted: { type: integer }
+                      trashed: { type: boolean, enum: [true], description: "6.7.0: they're in the trash, not gone." }
+                    required: [deleted, trashed]
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/{id}/attachments:
     parameters:
@@ -666,6 +719,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/StorageUnavailable" }
 
   /api/v1/attachments/{id}:
@@ -694,6 +748,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Attachments]
       summary: Delete an attachment (editor only)
@@ -711,6 +766,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/attachments/{id}/url:
     parameters:
@@ -753,6 +809,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/StorageUnavailable" }
 
   /api/v1/files:
@@ -824,6 +881,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Files]
       summary: Upload files into the vault (multipart, editor only)
@@ -892,6 +950,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/StorageUnavailable" }
 
   /api/v1/files/{id}:
@@ -920,23 +979,30 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Files]
       summary: Delete a vault file (editor only)
-      description: Removes the metadata row, the stored object, and any share links to the file.
+      description: >
+        **Plus/Pro** (6.7.0): moves the file to the trash for 30 days —
+        `trashed: true`; the bytes stay (and keep counting toward storage) and
+        its share links stop working until it's restored. **Free**: removes the
+        metadata row, the stored object and any share links for good —
+        `trashed: false`.
       responses:
         "200":
-          description: Deletion acknowledged.
+          description: Deleted — to the trash, or for good (`trashed`).
           content:
             application/json:
               schema:
                 type: object
-                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                properties: { data: { $ref: "#/components/schemas/TrashedResult" } }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/files/{id}/url:
     parameters:
@@ -1001,6 +1067,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/StorageUnavailable" }
 
   /api/v1/folders:
@@ -1034,6 +1101,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/folders/{id}:
     parameters:
@@ -1067,13 +1135,16 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Files]
       summary: Delete a folder and everything inside it (editor only)
       description: |
-        Removes the folder, every nested folder and file (including their
-        stored objects), and any share links into the subtree. The predefined
-        folder can't be deleted (400).
+        **Plus/Pro** (6.7.0): the folder and everything inside it go to the
+        trash as one item (`trashed: true`), restorable together for 30 days.
+        **Free**: removes the folder, every nested folder and file (including
+        their stored objects), and any share links into the subtree for good
+        (`trashed: false`). The predefined folder can't be deleted (400).
       responses:
         "200":
           description: Deletion acknowledged.
@@ -1081,13 +1152,14 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                properties: { data: { $ref: "#/components/schemas/TrashedResult" } }
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/file-tags:
     get:
@@ -1116,6 +1188,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Files]
       summary: Create a vault tag (editor only)
@@ -1142,6 +1215,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/file-tags/{id}:
     parameters:
@@ -1171,6 +1245,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Files]
       summary: Delete a tag (editor only)
@@ -1188,6 +1263,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/file-shares:
     get:
@@ -1228,6 +1304,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Files]
       summary: Create a public share link for one file or folder (editor only)
@@ -1263,6 +1340,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/file-shares/{id}:
     parameters:
@@ -1285,6 +1363,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/categories:
     get:
@@ -1310,6 +1389,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Categories]
       summary: Create a category
@@ -1342,6 +1422,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/categories/{id}:
     parameters:
@@ -1373,6 +1454,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Categories]
       summary: Delete a category (referencing transactions keep their data; category set to null)
@@ -1392,6 +1474,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/tags:
     get:
@@ -1425,6 +1508,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Tags]
       summary: Create a tag
@@ -1461,6 +1545,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/tags/{id}:
     parameters:
@@ -1495,6 +1580,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Tags]
       summary: Delete a tag (and detach it from every transaction)
@@ -1515,6 +1601,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/budgets:
     get:
@@ -1661,6 +1748,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Profiles]
       summary: Create a profile (admin only)
@@ -1693,6 +1781,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}:
     parameters:
@@ -1720,22 +1809,31 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Profiles]
-      summary: Delete a profile (admin only)
+      summary: Move a profile to the trash (admin only)
       description: >
-        `transactions` decides what happens to the transactions filed under the
-        profile: `delete` removes them (and their attachments) with it, `move`
-        re-files them under `to` first, and `reject` — the default, so a client
-        that sends nothing behaves exactly as before — refuses with 409 while
-        any remain ("Move this profile's transactions to another profile
-        first"). 409 for the last remaining profile ("You need at least one
-        profile") whatever the mode.
+        **The profile goes to the trash as one unit** (6.7.0), restorable for 30
+        days by a workspace admin (`POST /trash/restore` with `profileIds`) —
+        everything in it comes back with it. `transactions` decides what
+        happens to the transactions filed under it first: `delete` — they go to
+        the trash with the profile; `move` — live and trashed ones are re-filed
+        under `to`, then the empty profile goes to the trash; `reject` — the
+        default, so a client that sends nothing behaves exactly as before —
+        refuses with 409 while any **live** ones remain ("Move this profile's
+        transactions to another profile first") — and, on **Free**, while any
+        live vault files remain, since deleting the profile would delete them
+        for good ("This profile's files would be deleted for good — …"; send
+        `delete` to confirm, or `move`). 409 for the last live profile
+        ("You need at least one profile") whatever the mode. Its name is free to
+        reuse at once.
 
 
-        The profile's **vault** (files, folders, tags and share links)
-        follows the same choice: `move` re-files it under `to`, `delete`
-        destroys it. Two collisions resolve automatically — a file-tag whose
+        The profile's **vault** (files, folders, tags and share links): `move`
+        re-files it under `to`; on `delete` it stays with the trashed profile on
+        Plus/Pro and is deleted for good on Free (`deletion-impact` →
+        `filesRecoverable`). Two collisions resolve automatically — a file-tag whose
         name already exists in the destination is merged into it, so the moved
         tag's id disappears, and the source's predefined "Transaction
         attachments" folder is dropped once its contents are re-parented into
@@ -1765,13 +1863,14 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                properties: { data: { $ref: "#/components/schemas/TrashedResult" } }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/reorder:
     post:
@@ -1810,6 +1909,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}/deletion-impact:
     parameters:
@@ -1818,11 +1918,12 @@ paths:
       tags: [Profiles]
       summary: What deleting this profile would take with it (admin only)
       description: >
-        Counts for the delete confirmation. `transactions` is the number whose
+        Counts for the delete confirmation (live rows only — anything already
+        in the trash goes along silently). `transactions` is the number whose
         fate the caller chooses (`?transactions=` on DELETE); `attachments` are
-        the receipts on those transactions and `files` the profile's vault. All
-        three follow the disposal — destroyed on `delete`, moved on `move` — so
-        offer the choice whenever `transactions` or `files` is above zero.
+        the receipts on those transactions and `files` the profile's vault.
+        Offer the choice whenever `transactions` or `files` is above zero, and
+        word the vault warning from `filesRecoverable` (6.7.0).
       responses:
         "200":
           description: The counts.
@@ -1837,6 +1938,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}/move:
     parameters:
@@ -1871,6 +1973,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}/space:
     parameters:
@@ -1908,6 +2011,7 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}/overrides:
     parameters:
@@ -1938,6 +2042,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     put:
       tags: [Profiles]
       summary: Set or clear one member's override on this profile (admin, Plus/Pro)
@@ -1976,6 +2081,7 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces:
     get:
@@ -2004,6 +2110,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Spaces]
       summary: Create a space (admin only)
@@ -2035,6 +2142,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces/reorder:
     post:
@@ -2069,6 +2177,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces/{id}:
     parameters:
@@ -2102,6 +2211,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Spaces]
       summary: Delete a space (admin only)
@@ -2110,12 +2220,15 @@ paths:
         malformed id). Requires the workspace **admin** role.
 
         **Profiles are never deleted with a space.** An empty space just goes.
-        One that still holds profiles needs a destination — `moveProfilesTo`,
-        another space of the same workspace — or the delete is refused with
-        409 ("This space still has profiles — move them to another space
-        first"); the move and the delete commit together. The destination must
-        have room under the plan's per-space cap (`403 plan_limit`,
-        `limit: "profilesPerSpace"`). The workspace's **last** space can't be
+        One that still holds profiles — **including profiles in the trash**
+        (6.7.0, `Space.trashedProfileCount`) — needs a destination —
+        `moveProfilesTo`, another space of the same workspace — or the delete
+        is refused with 409 ("This space still has profiles — move them to
+        another space first", or for trashed ones only: "…choose a space for
+        them first. If they're restored, the people in that space will see
+        them."); the move and the delete commit together. The destination must
+        have room under the plan's per-space cap for the **live** ones
+        (`403 plan_limit`, `limit: "profilesPerSpace"`). The workspace's **last** space can't be
         deleted (409). Membership rows go with the space.
 
         Send the destination either as the `moveProfilesTo` query parameter or
@@ -2147,6 +2260,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces/{id}/access:
     parameters:
@@ -2175,6 +2289,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces/{id}/members:
     parameters:
@@ -2210,6 +2325,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/organization:
     get:
@@ -2231,6 +2347,7 @@ paths:
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     patch:
       tags: [Organization]
       summary: Rename the caller's organisation
@@ -2255,6 +2372,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/usage:
     get:
@@ -2283,6 +2401,199 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
+  /api/v1/trash/transactions:
+    get:
+      tags: [Trash]
+      summary: Trashed transactions, most recently deleted first (6.7.0)
+      description: >
+        Trashed transactions on profiles the caller can view, keyset-paged:
+        pass `meta.nextCursor` back as `cursor` (`null` on the last page). Rows
+        inside a trashed profile aren't listed — the profile is
+        (`GET /trash/profiles`).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque — the previous page's `meta.nextCursor`.
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of the trash.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/TrashedTransaction" }
+                  meta:
+                    type: object
+                    properties:
+                      nextCursor: { type: [string, "null"] }
+                      currency: { $ref: "#/components/schemas/CurrencyCode" }
+                    required: [nextCursor]
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/trash/files:
+    get:
+      tags: [Trash]
+      summary: The vault's trash — folders and files (6.7.0)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: >
+            Trashed folders (each with what went to the trash with it) and
+            files deleted on their own (≤ 500).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      folders: { type: array, items: { $ref: "#/components/schemas/TrashedFolder" } }
+                      files: { type: array, items: { $ref: "#/components/schemas/TrashedFile" } }
+                      filesCapped:
+                        type: boolean
+                        description: >
+                          More files were deleted on their own than `files`
+                          holds (500, most recent first) — restore or delete
+                          some to see the rest.
+                    required: [folders, files, filesCapped]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/trash/profiles:
+    get:
+      tags: [Trash]
+      summary: Trashed profiles (workspace admins; others get an empty list) (6.7.0)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: The workspace's trashed profiles.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/TrashedProfile" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/trash/restore:
+    post:
+      tags: [Trash]
+      summary: Restore from the trash (6.7.0)
+      description: >
+        Restores what the caller can (editor on the item's profile; admins for
+        profiles); the rest is counted in `skipped`. A profile whose restore
+        would break its space's `profilesPerSpace` or the `members` cap is
+        refused with 403 `plan_limit` before anything else in the request is
+        restored. A name taken meanwhile is restored as "Name (restored)".
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TrashSelection" }
+      responses:
+        "200":
+          description: What came back.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      restored: { $ref: "#/components/schemas/TrashCounts" }
+                      skipped: { type: integer }
+                    required: [restored, skipped]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/trash/delete:
+    post:
+      tags: [Trash]
+      summary: Delete from the trash for good (6.7.0)
+      description: >
+        Rows and stored files, permanently. Same access as restore; a folder
+        takes everything under it.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TrashSelection" }
+      responses:
+        "200":
+          description: What was deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted: { $ref: "#/components/schemas/TrashCounts" }
+                      skipped: { type: integer }
+                    required: [deleted, skipped]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/trash/empty:
+    post:
+      tags: [Trash]
+      summary: Empty the trash (6.7.0)
+      description: >
+        Deletes for good everything in the trash the caller can edit (and, for
+        admins, trashed profiles). Bounded per request — call again while
+        `remaining > 0`. 403 when the caller can edit nothing here.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: What was deleted, and how much is left.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted: { $ref: "#/components/schemas/TrashCounts" }
+                      remaining: { type: integer }
+                    required: [deleted, remaining]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/settings:
     get:
@@ -2300,6 +2611,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     patch:
       tags: [Settings]
       summary: Update settings (partial; at least one field)
@@ -2322,6 +2634,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/analytics/summary:
     get:
@@ -2352,6 +2665,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/analytics/categories:
     get:
@@ -2387,6 +2701,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/analytics/monthly:
     get:
@@ -2420,6 +2735,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/ai/parse:
     post:
@@ -2458,9 +2774,10 @@ paths:
         such parse), and is charged like a typed note otherwise. `source`
         omitted means `typed`; any other value is a 422.
 
-        Gates, in order: 422 (bad `source`), 400 (empty or > 3000-char note,
+        Gates, in order: 429 (the per-person `ai` rate limit — see Rate
+        limits), 422 (bad `source`), 400 (empty or > 3000-char note,
         bad timezone), 403 `forbidden` (viewer in this workspace),
-        429 (shared 30/hour AI quota), 403 `plan_limit` with
+        403 `plan_limit` with
         `limit: "aiActions"` once the workspace's monthly allowance is spent
         (`max` = the allowance, `used` = actions counted this month; it
         refills on `GET /usage` → `ai.resetsAt`), 503 (parse model not
@@ -2533,11 +2850,12 @@ paths:
         always send it. That charge also covers parsing the transcript — send
         it to `/ai/parse` with `source: "voice"` within 15 minutes.
 
-        Gates, in order: 413 (the request body's `Content-Length` alone is past
+        Gates, in order: 429 (the per-person `ai` rate limit — see Rate
+        limits), 413 (the request body's `Content-Length` alone is past
         the 4 MB cap — refused before the body is read), 400 (missing/empty/
         oversized/unsupported audio, a malformed or negative `durationMs`, or
         no speech heard), 403 `forbidden` (viewer in this workspace),
-        403 `plan_limit` `voice`, 429 (shared 30/hour AI quota), 403
+        403 `plan_limit` `voice`, 403
         `plan_limit` `aiActions` (monthly allowance spent), 503 (transcribe
         model not configured), 502 (provider failed — the actions are given
         back).
@@ -2756,11 +3074,26 @@ components:
               message: "Amount must be greater than 0"
               details: { amount: "Amount must be greater than 0" }
     RateLimited:
-      description: The caller spent the shared per-user AI quota (30 calls/hour).
+      description: >
+        The caller is over a per-person rate limit for their plan (see Rate
+        limits in the description). `Retry-After` and
+        `error.details.retryAfterSeconds` give the wait in seconds. (On
+        `/ai/*` the same 429, without `window`, also answers a second AI call
+        sent while the caller's previous one is still being charged — retry
+        after a second — and AI paused while the limit can't be checked —
+        retry after 5 seconds.)
+      headers:
+        Retry-After:
+          description: Whole seconds until a retry would pass.
+          schema: { type: integer, minimum: 1 }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
-          example: { error: { code: rate_limited, message: "That's a lot of AI requests in the last hour — try again later" } }
+          example:
+            error:
+              code: rate_limited
+              message: "That's a lot of changes in a short time. Try again in 40 seconds."
+              details: { bucket: create, window: 1m, retryAfterSeconds: 40 }
     AiUnavailable:
       description: This AI feature's model isn't configured on the server (feature is off).
       content:
@@ -2786,7 +3119,9 @@ components:
         past its plan's storage (1 / 5 / 20 GB — `storage_quota_exceeded`;
         the message says how much space remains and is safe to display as-is,
         and `details` is a `PlanLimitDetails` with `limit: "storage"`, `max`
-        = the quota in bytes and `used` = bytes already stored).
+        = the quota in bytes and `used` = bytes already stored — the trash
+        included — plus, since 6.7.0, `trashBytes`: how much of `used` is in
+        the trash, i.e. what emptying it would free).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -2798,7 +3133,7 @@ components:
                 error:
                   code: storage_quota_exceeded
                   message: "Not enough storage left — this upload needs 3.2 MB but only 1.1 MB of the 1.0 GB remains. Upgrade to Plus for 5.0 GB."
-                  details: { limit: storage, plan: free, max: 1073741824, used: 1072578560, upgradeTo: plus }
+                  details: { limit: storage, plan: free, max: 1073741824, used: 1072578560, upgradeTo: plus, trashBytes: 0 }
 
   schemas:
     Error:
@@ -2818,11 +3153,13 @@ components:
               description: >
                 Optional. For `validation_error`, a flat `{ field: message }`
                 map. For `plan_limit` and `storage_quota_exceeded`, a
-                `PlanLimitDetails` object.
+                `PlanLimitDetails` object. For `rate_limited`, a
+                `RateLimitedDetails` object.
               oneOf:
                 - type: object
                   additionalProperties: { type: string }
                 - $ref: "#/components/schemas/PlanLimitDetails"
+                - $ref: "#/components/schemas/RateLimitedDetails"
           required: [code, message]
       required: [error]
 
@@ -2847,6 +3184,19 @@ components:
         `upgradeTo: null` — show "Contact us").
       enum: [members, spaces, profilesPerSpace, categories, tags, budgets, storage,
              aiActions, voice, profileLevelAccess, freeWorkspaces]
+
+    RateLimitedDetails:
+      type: object
+      description: >
+        `details` of a `429 rate_limited` (since 6.6.0). `window` is absent
+        when the refusal isn't about a full window: an AI call sent while the
+        previous one is still being charged, or AI paused while the limit
+        can't be checked.
+      properties:
+        bucket: { type: string, enum: [create, read, ai] }
+        window: { type: string, enum: [1m, 5m, 1h] }
+        retryAfterSeconds: { type: integer, minimum: 1, description: Same as the Retry-After header. }
+      required: [bucket, retryAfterSeconds]
 
     PlanLimitDetails:
       type: object
@@ -3278,7 +3628,13 @@ components:
             can hold no vault files and dozens of receipts, or no transactions
             and a full vault, so a dialog that reads only one of the three
             under-reports what it is about to act on.
-      required: [transactions, files, attachments]
+        filesRecoverable:
+          type: boolean
+          description: >
+            6.7.0. Whether the vault goes to the trash with the profile
+            (Plus/Pro) — false on Free, where `transactions=delete` removes the
+            profile's files for good.
+      required: [transactions, files, attachments, filesRecoverable]
 
     ProfileSpaceMove:
       type: object
@@ -3326,8 +3682,15 @@ components:
         profileCount:
           type: integer
           description: >
-            Every profile in the space — what the per-space cap counts — not
-            just the ones the caller can see.
+            Every live profile in the space — what the per-space cap counts —
+            not just the ones the caller can see. A profile in the trash counts
+            again only when it's restored.
+        trashedProfileCount:
+          type: integer
+          description: >
+            6.7.0. The space's profiles in the trash — workspace admins only (0
+            for anyone else). Deleting the space needs a `moveProfilesTo` for
+            these too: restored, a profile shows to whoever is in its space.
         role:
           description: >
             The caller's role here: `admin` for workspace admins (they see
@@ -3338,7 +3701,7 @@ components:
             - type: "null"
             - type: string
               enum: [viewer, editor, admin]
-      required: [id, name, icon, position, profileCount, role]
+      required: [id, name, icon, position, profileCount, trashedProfileCount, role]
 
     SpaceInput:
       type: object
@@ -3517,11 +3880,20 @@ components:
           required: [used, limit, remaining, topUpRemaining, resetsAt]
         storage:
           type: object
-          description: Vault files + transaction attachments, workspace-wide (same as `GET /files` → `meta.storage`).
+          description: >
+            Vault files + transaction attachments, workspace-wide (same as `GET
+            /files` → `meta.storage`). The trash counts until purged.
           properties:
             usedBytes: { type: integer, format: int64 }
             limitBytes: { type: integer, format: int64 }
-          required: [usedBytes, limitBytes]
+            trashBytes:
+              type: integer
+              format: int64
+              description: >
+                6.7.0. The part of `usedBytes` in the trash (trashed files, the
+                receipts of trashed transactions, everything in a trashed
+                profile) — freed by emptying the trash or the 30-day purge.
+          required: [usedBytes, limitBytes, trashBytes]
         members:
           description: People with access, the owner and pending invites included.
           allOf: [{ $ref: "#/components/schemas/Meter" }]
@@ -3637,6 +4009,131 @@ components:
         id: { type: string, format: uuid }
         deleted: { type: boolean, enum: [true] }
       required: [id, deleted]
+
+    TrashedResult:
+      type: object
+      description: >
+        6.7.0. A delete that may go to the trash: `trashed: true` — restorable
+        for 30 days (`POST /trash/restore`); `trashed: false` — gone for good
+        (vault deletes on Free).
+      properties:
+        id: { type: string, format: uuid }
+        deleted: { type: boolean, enum: [true] }
+        trashed: { type: boolean }
+      required: [id, deleted, trashed]
+
+    TrashActor:
+      type: object
+      description: >
+        Who sent an item to the trash — the same shape on every trash item.
+        `name` is null when the account is gone.
+      properties:
+        id: { type: [string, "null"], format: uuid }
+        name: { type: [string, "null"] }
+      required: [id, name]
+
+    TrashCounts:
+      type: object
+      properties:
+        transactions: { type: integer }
+        files: { type: integer }
+        folders: { type: integer }
+        profiles: { type: integer }
+      required: [transactions, files, folders, profiles]
+
+    TrashSelection:
+      type: object
+      description: >
+        What to restore or delete for good. Each list ≤ 500 ids; at least one
+        id overall (422 otherwise). Ids the caller can't act on are skipped.
+      properties:
+        transactionIds: { type: array, items: { type: string, format: uuid }, maxItems: 500 }
+        fileIds: { type: array, items: { type: string, format: uuid }, maxItems: 500 }
+        folderIds: { type: array, items: { type: string, format: uuid }, maxItems: 500 }
+        profileIds: { type: array, items: { type: string, format: uuid }, maxItems: 500 }
+
+    TrashedTransaction:
+      description: A transaction in the trash (6.7.0).
+      allOf:
+        - $ref: "#/components/schemas/Transaction"
+        - type: object
+          properties:
+            deletedAt: { type: string, format: date-time }
+            deletedBy: { $ref: "#/components/schemas/TrashActor" }
+            purgeAt:
+              type: string
+              format: date-time
+              description: deletedAt + 30 days — the earliest the daily purge removes it.
+            canRestore:
+              type: boolean
+              description: The caller can restore or delete it (editor on its profile).
+          required: [deletedAt, deletedBy, purgeAt, canRestore]
+
+    TrashedFolder:
+      type: object
+      description: >
+        A folder in the trash (6.7.0), with everything that went to the trash
+        with it — restored with it, not listed separately.
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        profileName: { type: [string, "null"] }
+        profileIcon: { type: [string, "null"] }
+        name: { type: string }
+        color: { type: [string, "null"] }
+        folders: { type: integer, description: Subfolders that went with it. }
+        files: { type: integer, description: Files that went with it. }
+        sizeBytes: { type: integer, format: int64 }
+        deletedAt: { type: string, format: date-time }
+        deletedBy: { $ref: "#/components/schemas/TrashActor" }
+        purgeAt: { type: string, format: date-time }
+        canRestore: { type: boolean }
+      required: [id, profileId, profileName, profileIcon, name, color, folders, files,
+                 sizeBytes, deletedAt, deletedBy, purgeAt, canRestore]
+
+    TrashedFile:
+      type: object
+      description: A vault file deleted on its own (6.7.0).
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        profileName: { type: [string, "null"] }
+        profileIcon: { type: [string, "null"] }
+        folderId: { type: [string, "null"], format: uuid }
+        name: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer, format: int64 }
+        deletedAt: { type: string, format: date-time }
+        deletedBy: { $ref: "#/components/schemas/TrashActor" }
+        purgeAt: { type: string, format: date-time }
+        canRestore: { type: boolean }
+      required: [id, profileId, profileName, profileIcon, folderId, name, contentType,
+                 sizeBytes, deletedAt, deletedBy, purgeAt, canRestore]
+
+    TrashedProfile:
+      type: object
+      description: A profile in the trash (6.7.0, admins). Restoring it brings back everything in it.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        icon: { type: [string, "null"] }
+        color: { type: [string, "null"] }
+        spaceId: { type: string, format: uuid }
+        spaceName: { type: [string, "null"] }
+        transactions: { type: integer, description: Live transactions inside it — what a restore brings back into view. }
+        files: { type: integer, description: Live vault files inside it. }
+        sizeBytes:
+          type: integer
+          format: int64
+          description: >
+            Every byte stored under it — vault files and the receipts of its
+            transactions, including anything already in the trash on its own:
+            what it holds in storage, and what deleting it for good frees.
+        deletedAt: { type: string, format: date-time }
+        deletedBy: { $ref: "#/components/schemas/TrashActor" }
+        purgeAt: { type: string, format: date-time }
+      required: [id, name, icon, color, spaceId, spaceName, transactions, files,
+                 sizeBytes, deletedAt, deletedBy, purgeAt]
 
     Attachment:
       type: object

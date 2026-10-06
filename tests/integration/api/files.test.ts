@@ -6,10 +6,11 @@ vi.mock("@/lib/r2", () => ({
   isR2Configured: () => true,
   uploadObject: vi.fn(async () => {}),
   deleteObject: vi.fn(async () => {}),
+  deleteObjects: vi.fn(async () => {}),
   signedGetUrl: vi.fn(async () => "https://signed.example/object"),
 }));
 
-import { deleteObject, signedGetUrl, uploadObject } from "@/lib/r2";
+import { deleteObject, deleteObjects, signedGetUrl, uploadObject } from "@/lib/r2";
 import { GET as getVault, POST as uploadFiles } from "@/app/api/v1/files/route";
 import { PATCH as patchFile, DELETE as deleteFile } from "@/app/api/v1/files/[id]/route";
 import { GET as fileUrl } from "@/app/api/v1/files/[id]/url/route";
@@ -423,14 +424,19 @@ describe("file upload + lifecycle", () => {
     }));
 
     vi.mocked(deleteObject).mockClear();
+    vi.mocked(deleteObjects).mockClear();
     const del = await deleteFolder(
       apiReq(`/api/v1/folders/${parent.id}`, { method: "DELETE" }),
       ctx({ id: parent.id }),
     );
     expect(del.status).toBe(200);
-    // One original + one preview, from a file two levels down.
-    expect(vi.mocked(deleteObject)).toHaveBeenCalledTimes(2);
-    const keys = vi.mocked(deleteObject).mock.calls.map((c) => c[0]);
+    // One original + one preview, from a file two levels down — swept in one
+    // batch, from the keys of the rows the delete actually removed.
+    const keys = [
+      ...vi.mocked(deleteObject).mock.calls.map((c) => c[0]),
+      ...vi.mocked(deleteObjects).mock.calls.flatMap((c) => [...(c[0] ?? [])]),
+    ].filter((k): k is string => !!k);
+    expect(keys).toHaveLength(2);
     expect(keys.some((k) => k.endsWith("_thumb.webp"))).toBe(true);
   });
 

@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import { transactionAttachments, transactions } from "@/db/schema";
@@ -10,6 +10,7 @@ import { rolesAtLeast } from "@/lib/rbac";
 import { getEffectiveProfileRole } from "@/lib/workspaces";
 import { deleteObject, uploadObject } from "@/lib/r2";
 import { assertStorageQuota } from "@/lib/storage-quota";
+import { notTrashed } from "@/lib/trash-scope";
 import {
   getAttachmentById,
   listTransactionAttachments,
@@ -80,8 +81,9 @@ async function requireTransactionEditable(
 ): Promise<string> {
   if (!isUuid(transactionId)) throw validationError("Invalid transaction");
   const db = getDb();
+  // A transaction in the trash takes no new receipts — it reads as absent.
   const existing = await db.query.transactions.findFirst({
-    where: eq(transactions.id, transactionId),
+    where: and(eq(transactions.id, transactionId), notTrashed(transactions)),
     columns: { id: true, profileId: true },
   });
   if (!existing) throw notFound("Transaction not found");

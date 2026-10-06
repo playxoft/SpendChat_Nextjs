@@ -1,5 +1,5 @@
 {
-  "id": "bffca6b8-bbec-446c-9093-82cf60365c93",
+  "id": "a3c6c27c-ceb0-4966-9278-af0e2da20156",
   "prevId": "f98709f2-32fa-4963-80ef-350d83a9cedf",
   "version": "7",
   "dialect": "postgresql",
@@ -149,335 +149,6 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.budget_alert_emails": {
-      "name": "budget_alert_emails",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuidv7()"
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "budget_alert_emails_workspace_created_idx": {
-          "name": "budget_alert_emails_workspace_created_idx",
-          "columns": [
-            {
-              "expression": "workspace_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "budget_alert_emails_workspace_id_workspaces_id_fk": {
-          "name": "budget_alert_emails_workspace_id_workspaces_id_fk",
-          "tableFrom": "budget_alert_emails",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.budget_alerts": {
-      "name": "budget_alerts",
-      "schema": "",
-      "columns": {
-        "budget_id": {
-          "name": "budget_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "month": {
-          "name": "month",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "threshold": {
-          "name": "threshold",
-          "type": "smallint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "amount_minor": {
-          "name": "amount_minor",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "notified_at": {
-          "name": "notified_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "budget_alerts_budget_id_budgets_id_fk": {
-          "name": "budget_alerts_budget_id_budgets_id_fk",
-          "tableFrom": "budget_alerts",
-          "tableTo": "budgets",
-          "columnsFrom": [
-            "budget_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "budget_alerts_budget_id_month_threshold_pk": {
-          "name": "budget_alerts_budget_id_month_threshold_pk",
-          "columns": [
-            "budget_id",
-            "month",
-            "threshold"
-          ]
-        }
-      },
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "budget_alerts_threshold_ck": {
-          "name": "budget_alerts_threshold_ck",
-          "value": "\"budget_alerts\".\"threshold\" in (80, 100)"
-        },
-        "budget_alerts_month_ck": {
-          "name": "budget_alerts_month_ck",
-          "value": "extract(day from \"budget_alerts\".\"month\") = 1"
-        }
-      },
-      "isRLSEnabled": false
-    },
-    "public.budgets": {
-      "name": "budgets",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "uuidv7()"
-        },
-        "workspace_id": {
-          "name": "workspace_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "scope": {
-          "name": "scope",
-          "type": "budget_scope",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "profile_id": {
-          "name": "profile_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "category_id": {
-          "name": "category_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "amount_minor": {
-          "name": "amount_minor",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "period": {
-          "name": "period",
-          "type": "budget_period",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'monthly'"
-        },
-        "email_alerts": {
-          "name": "email_alerts",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "budgets_profile_idx": {
-          "name": "budgets_profile_idx",
-          "columns": [
-            {
-              "expression": "profile_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "budgets_category_idx": {
-          "name": "budgets_category_idx",
-          "columns": [
-            {
-              "expression": "category_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "budgets_workspace_id_workspaces_id_fk": {
-          "name": "budgets_workspace_id_workspaces_id_fk",
-          "tableFrom": "budgets",
-          "tableTo": "workspaces",
-          "columnsFrom": [
-            "workspace_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "budgets_profile_id_profiles_id_fk": {
-          "name": "budgets_profile_id_profiles_id_fk",
-          "tableFrom": "budgets",
-          "tableTo": "profiles",
-          "columnsFrom": [
-            "profile_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "budgets_category_id_categories_id_fk": {
-          "name": "budgets_category_id_categories_id_fk",
-          "tableFrom": "budgets",
-          "tableTo": "categories",
-          "columnsFrom": [
-            "category_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "budgets_workspace_scope_uq": {
-          "name": "budgets_workspace_scope_uq",
-          "nullsNotDistinct": true,
-          "columns": [
-            "workspace_id",
-            "scope",
-            "period",
-            "profile_id",
-            "category_id"
-          ]
-        }
-      },
-      "policies": {},
-      "checkConstraints": {
-        "budgets_scope_target_ck": {
-          "name": "budgets_scope_target_ck",
-          "value": "(\"budgets\".\"scope\" = 'workspace' and \"budgets\".\"profile_id\" is null and \"budgets\".\"category_id\" is null)\n        or (\"budgets\".\"scope\" = 'profile' and \"budgets\".\"profile_id\" is not null and \"budgets\".\"category_id\" is null)\n        or (\"budgets\".\"scope\" = 'category' and \"budgets\".\"category_id\" is not null and \"budgets\".\"profile_id\" is null)"
-        },
-        "budgets_amount_positive_ck": {
-          "name": "budgets_amount_positive_ck",
-          "value": "\"budgets\".\"amount_minor\" > 0"
-        }
-      },
       "isRLSEnabled": false
     },
     "public.categories": {
@@ -1080,6 +751,18 @@
           "notNull": true,
           "default": "'{}'::uuid[]"
         },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_by": {
+          "name": "deleted_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1149,6 +832,34 @@
             }
           ],
           "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "files_trash_idx": {
+          "name": "files_trash_idx",
+          "columns": [
+            {
+              "expression": "profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "deleted_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "first"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "first"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"files\".\"deleted_at\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -1260,6 +971,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::uuid[]"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_by": {
+          "name": "deleted_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",
@@ -1692,6 +1415,18 @@
           "notNull": true,
           "default": 0
         },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_by": {
+          "name": "deleted_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -1788,6 +1523,7 @@
             }
           ],
           "isUnique": true,
+          "where": "\"profiles\".\"deleted_at\" is null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -2432,6 +2168,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp (3) with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted_by": {
+          "name": "deleted_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -2464,6 +2212,50 @@
             }
           ],
           "isUnique": false,
+          "where": "\"transactions\".\"deleted_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_profile_idx": {
+          "name": "transactions_profile_idx",
+          "columns": [
+            {
+              "expression": "profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "transactions_trash_idx": {
+          "name": "transactions_trash_idx",
+          "columns": [
+            {
+              "expression": "profile_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "deleted_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "first"
+            },
+            {
+              "expression": "id",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "first"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"transactions\".\"deleted_at\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -3106,22 +2898,6 @@
         "bill",
         "invoice",
         "other"
-      ]
-    },
-    "public.budget_period": {
-      "name": "budget_period",
-      "schema": "public",
-      "values": [
-        "monthly"
-      ]
-    },
-    "public.budget_scope": {
-      "name": "budget_scope",
-      "schema": "public",
-      "values": [
-        "workspace",
-        "profile",
-        "category"
       ]
     },
     "public.organization_kind": {

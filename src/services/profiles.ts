@@ -13,12 +13,13 @@ import {
   transactions,
 } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
-import { conflict, isForeignKeyViolation, validationError } from "@/lib/errors";
+import { conflict, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { deleteObjects } from "@/lib/r2";
-import { collectProfileObjectKeys } from "./storage-keys";
+import { logger } from "@/lib/logger";
+import { notTrashed } from "@/lib/trash-scope";
+import { assertCanAddProfilesToSpace, getWorkspaceEntitlements } from "@/lib/entitlements";
 import { scheduleBudgetCheck } from "./budget-alerts";
-import { assertCanAddProfilesToSpace } from "@/lib/entitlements";
 import {
   accessibleProfileIds,
   getDefaultSpaceId,
@@ -89,6 +90,7 @@ export async function createProfile(
   const [{ next }] = await db
     .select({ next: sql<number>`coalesce(max(${profiles.sortOrder}), -1) + 1` })
     .from(profiles)
+    // trash: trashed profiles keep their slot, so a restore never collides.
     .where(eq(profiles.workspaceId, workspaceId));
 
   try {
@@ -145,6 +147,12 @@ export type ProfileDeletionImpact = {
   files: number;
   /** Receipts on those transactions. They follow the transactions' fate. */
   attachments: number;
+  /**
+   * Whether the vault goes to the trash with the profile (Plus/Pro) — false on
+   * Free, where deleting the profile deletes its files for good. The confirm
+   * step words its warning from this.
+   */
+  filesRecoverable: boolean;
 };
 
 /**
@@ -170,22 +178,32 @@ export async function getProfileDeletionImpact(
   if (!z.string().uuid().safeParse(id).success) {
     throw validationError("Invalid profile");
   }
-  await requireProfileRole(userId, id, "admin");
+  const { workspaceId } = await requireProfileRole(userId, id, "admin");
   const db = getDb();
 
-  const [[txns], [vault], [atts]] = await Promise.all([
-    db.select({ total: count() }).from(transactions).where(eq(transactions.profileId, id)),
-    db.select({ total: count() }).from(files).where(eq(files.profileId, id)),
+  // Live counts — what the user sees in the profile. Anything already in the
+  // trash goes along with the profile silently (and comes back with it).
+  const [[txns], [vault], [atts], ent] = await Promise.all([
+    db
+      .select({ total: count() })
+      .from(transactions)
+      .where(and(eq(transactions.profileId, id), notTrashed(transactions))),
+    db
+      .select({ total: count() })
+      .from(files)
+      .where(and(eq(files.profileId, id), notTrashed(files))),
     db
       .select({ total: count() })
       .from(transactionAttachments)
       .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
-      .where(eq(transactions.profileId, id)),
+      .where(and(eq(transactions.profileId, id), notTrashed(transactions))),
+    getWorkspaceEntitlements(workspaceId),
   ]);
   return {
     transactions: txns?.total ?? 0,
     files: vault?.total ?? 0,
     attachments: atts?.total ?? 0,
+    filesRecoverable: ent.limits.fileTrash,
   };
 }
 
@@ -203,6 +221,9 @@ export async function getProfileDeletionImpact(
  * longer lives in and being destroyed with it.
  */
 async function reprofileTransactions(tx: Tx, fromId: string, toId: string): Promise<number> {
+  // trash: every row moves, trashed ones included — they stay restorable, now
+  // into the destination. The count returned is the live ones (what moved, as
+  // far as the user can see).
   await tx
     .update(transactionAttachments)
     .set({ profileId: toId })
@@ -217,8 +238,8 @@ async function reprofileTransactions(tx: Tx, fromId: string, toId: string): Prom
     .update(transactions)
     .set({ profileId: toId, updatedAt: new Date() })
     .where(eq(transactions.profileId, fromId))
-    .returning({ id: transactions.id });
-  return moved.length;
+    .returning({ id: transactions.id, deletedAt: transactions.deletedAt });
+  return moved.filter((r) => r.deletedAt === null).length;
 }
 
 /**
@@ -282,11 +303,13 @@ async function reprofileVault(tx: Tx, fromId: string, toId: string): Promise<voi
   // under it is re-parented FIRST: `files.folder_id` and `folders.parent_id`
   // are both ON DELETE cascade, so deleting it with children still attached
   // would destroy exactly the documents this move exists to preserve.
+  // trash: the system folder is never trashed, so any row counts.
   const [srcSystem] = await tx
     .select({ id: folders.id })
     .from(folders)
     .where(and(eq(folders.profileId, fromId), isNotNull(folders.systemKey)))
     .limit(1);
+  // trash: as above.
   const [dstSystem] = await tx
     .select({ id: folders.id })
     .from(folders)
@@ -323,6 +346,8 @@ async function reprofileVault(tx: Tx, fromId: string, toId: string): Promise<voi
  * transaction, whether or not the backfill migration has been applied.
  */
 async function healStrandedAttachments(tx: Tx, profileId: string): Promise<void> {
+  // trash: trashed transactions' receipts must be healed too — they're
+  // restorable, and the profile's eventual destruction cascades on this column.
   await tx
     .update(transactionAttachments)
     .set({ profileId: sql`${transactions.profileId}` })
@@ -337,30 +362,57 @@ async function healStrandedAttachments(tx: Tx, profileId: string): Promise<void>
 }
 
 /**
- * Delete a profile (requires admin on it), with the caller deciding what
- * happens to the transactions filed under it — `delete`, `move` to another
- * profile, or `reject` (the default: refuse while any remain). Throws for a
- * non-UUID id or the workspace's last remaining profile. Returns whether a row
- * was removed.
+ * Delete every vault row of a profile for good — files, folders, file tags and
+ * share links — and return the stored objects to sweep once the caller's
+ * transaction commits. Only Free's profile delete uses it (no file trash on
+ * that plan); everything else about the profile goes to the trash.
  *
- * The profile's **vault** follows the same choice as its transactions: `move`
- * re-files the `files` / `folders` / `file_tags` / `file_shares` rows under the
- * destination (see `reprofileVault`), and anything left filed under the profile
- * when it goes cascades away with it. The R2 objects behind those rows don't —
- * nothing cascades in object storage — so every key still belonging to the
- * profile is read *before* the delete and swept after: once the rows are gone
- * the bytes are unreachable and would bill forever. On `move` that read finds
- * nothing, which is exactly right — those files still have owners.
+ * trash: all states — on a workspace that was downgraded to Free the profile
+ * may still hold trashed files, and they go with the rest.
+ */
+async function destroyProfileVault(tx: Tx, profileId: string): Promise<(string | null)[]> {
+  // trash: all states, as the doc says.
+  const doomed = await tx
+    .select({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey })
+    .from(files)
+    .where(eq(files.profileId, profileId));
+  await tx.delete(fileShares).where(eq(fileShares.profileId, profileId));
+  await tx.delete(files).where(eq(files.profileId, profileId));
+  // Folders cascade their own subtree; deleting every one by profile is the same.
+  await tx.delete(folders).where(eq(folders.profileId, profileId));
+  await tx.delete(fileTags).where(eq(fileTags.profileId, profileId));
+  return doomed.flatMap((f) => [f.r2Key, f.thumbnailKey]);
+}
+
+/**
+ * Delete a profile (requires admin on it): **the profile goes to the trash**,
+ * as one unit, with the caller deciding what happens to its transactions first
+ * — `delete` (they go with it), `move` to another profile, or `reject` (the
+ * default: refuse while any *live* ones remain). Throws for a non-UUID id or
+ * the workspace's last live profile. Returns whether a profile was trashed.
  *
- * **The whole database half runs in one transaction**, because it is several
- * statements that are only safe together. `transactions.profile_id` is ON
- * DELETE restrict, so emptying the profile and deleting it are separate
- * statements; autocommitted, an editor who files one transaction into the
- * profile while a bulk delete of 50k rows is in flight makes the profile delete
- * violate the foreign key — leaving the 50k rows destroyed, the profile intact,
- * the sweep skipped (so their objects orphan forever) and the caller told the
- * operation failed. Rolled back together, that same race costs nothing but a
- * retry. The sweep runs only after the commit, since deleting bytes is the one
+ * It has to be the profile that goes to the trash, not just its rows:
+ * `transactions.profile_id` is ON DELETE restrict, so a trashed transaction
+ * can't outlive its profile row — and re-filing them under another profile
+ * would show them to that profile's members. The profile row stays, stamped
+ * `deleted_at`; the access layer hides it and everything in it from every
+ * read; restoring it brings back exactly what it had (rows that were already
+ * in the trash on their own stay there). The daily purge destroys it after
+ * `TRASH_DAYS`.
+ *
+ * - `delete` — transactions and receipts stay with the profile. The **vault**
+ *   does too on Plus/Pro; on **Free** (no file trash) it is deleted for good
+ *   now, rows in this transaction and the stored objects after it commits.
+ * - `move` — live *and* trashed transactions, receipts and the vault are
+ *   re-filed under the destination first (unchanged from before), then the
+ *   empty profile goes to the trash like any other — no user request ever
+ *   hard-deletes a profile any more.
+ * - `reject` — a 409 while live transactions remain; a profile holding only
+ *   trashed ones proceeds like `delete`.
+ *
+ * **One transaction**, for the reason it always had: these statements are only
+ * safe together, and a failure part-way must leave nothing half-done. Object
+ * storage is touched only after the commit, since deleting bytes is the one
  * step no rollback can undo.
  */
 export async function deleteProfile(
@@ -382,6 +434,7 @@ export async function deleteProfile(
     const to = await requireProfileRole(userId, toId, "editor");
     if (to.workspaceId !== workspaceId) throw validationError("Invalid profiles");
   }
+  const { limits } = await getWorkspaceEntitlements(workspaceId);
 
   const db = getDb();
   let doomedKeys: (string | null)[];
@@ -390,61 +443,61 @@ export async function deleteProfile(
       const [{ total }] = await tx
         .select({ total: count() })
         .from(profiles)
-        .where(eq(profiles.workspaceId, workspaceId));
+        .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles)));
       if (total <= 1) throw conflict("You need at least one profile");
 
       if (disposal.transactions === "move") {
         await reprofileTransactions(tx, id, disposal.toProfileId!);
         // The vault goes with them. Deleting a profile is not a decision to
-        // discard its documents, and the sweep below reads what is still filed
-        // under the profile — so once these rows point elsewhere, nothing of
-        // theirs is collected and none of their objects are touched.
+        // discard its documents.
         await reprofileVault(tx, id, disposal.toProfileId!);
       } else if (disposal.transactions === "reject") {
         const [{ used }] = await tx
           .select({ used: count() })
           .from(transactions)
-          .where(eq(transactions.profileId, id));
+          .where(and(eq(transactions.profileId, id), notTrashed(transactions)));
         if (used > 0) {
           throw conflict("Move this profile's transactions to another profile first");
         }
+        // `reject` is the default a client gets by saying nothing, so it must
+        // never destroy anything. On Free the vault has no trash — deleting the
+        // profile would delete its files for good — so it refuses while any
+        // live files remain, and the caller has to ask for `delete` (or `move`).
+        if (!limits.fileTrash) {
+          const [{ stored }] = await tx
+            .select({ stored: count() })
+            .from(files)
+            .where(and(eq(files.profileId, id), notTrashed(files)));
+          if (stored > 0) {
+            throw conflict(
+              "This profile's files would be deleted for good — move them to another profile, or choose to delete them",
+            );
+          }
+        }
       }
 
+      // Receipts whose denormalized `profile_id` drifted from their transaction
+      // are re-pointed now, so the profile's eventual destruction (which
+      // cascades on that column) can't take a live transaction's receipt.
       await healStrandedAttachments(tx, id);
 
-      // Keys to sweep, read while the rows are still there. Attachments are
-      // selected **through their parent transaction** rather than through their
-      // own `profile_id`: that column is denormalized and can be stale, and a
-      // sweep keyed on it deletes the bytes behind a transaction that is still
-      // alive in another profile. Joined to the parent it is exact in all three
-      // modes — after `move` the transactions are already re-filed so nothing
-      // matches, on `delete` they are still here and every key is collected,
-      // and `reject` only gets this far when there were none.
-      const doomed = await collectProfileObjectKeys(tx, [id]);
+      // Free has no file trash: the vault is deleted for good, now. On `move`
+      // there is nothing left to delete — it was re-filed above.
+      const doomed =
+        disposal.transactions !== "move" && !limits.fileTrash
+          ? await destroyProfileVault(tx, id)
+          : [];
 
-      // `transactions.profile_id` is ON DELETE restrict — the rows have to go
-      // explicitly (their attachment rows cascade off them), or the delete below
-      // fails. Only reachable on the `delete` path; the others left none behind.
-      if (disposal.transactions === "delete") {
-        await tx.delete(transactions).where(eq(transactions.profileId, id));
-      }
-
-      const deleted = await tx
-        .delete(profiles)
-        .where(eq(profiles.id, id))
+      const trashed = await tx
+        .update(profiles)
+        .set({ deletedAt: sql`now()`, deletedBy: userId })
+        .where(and(eq(profiles.id, id), notTrashed(profiles)))
         .returning({ id: profiles.id });
-      if (deleted.length === 0) throw new ProfileGone();
-
+      if (trashed.length === 0) throw new ProfileGone();
       return doomed;
     });
   } catch (err) {
     if (err instanceof ProfileGone) return false;
-    // The profile only still has referencing rows if something was written to
-    // it after this transaction counted them. Nothing was lost — the rollback
-    // saw to that — so say what happened instead of a 500.
-    if (isForeignKeyViolation(err)) {
-      throw conflict("Something was added to this profile while it was being deleted — try again");
-    }
     throw err;
   }
 
@@ -453,6 +506,12 @@ export async function deleteProfile(
   if (disposal.transactions === "move") {
     scheduleBudgetCheck({ workspaceId, userId, dates: "current" });
   }
+  logger.info(`Profile moved to the trash (${disposal.transactions} disposal)`, {
+    event: "trash.profile_moved",
+    profileId: id,
+    disposal: disposal.transactions,
+    vaultDeleted: doomedKeys.length > 0,
+  });
   return true;
 }
 

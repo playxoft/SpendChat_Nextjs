@@ -9,12 +9,14 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /**
  * GET /api/v1/profiles/:id/deletion-impact — what deleting this profile would
- * take with it: `{ transactions, files }`. Requires admin on the profile, the
- * same role the delete does.
+ * take with it: `{ transactions, files, attachments, filesRecoverable }` (live
+ * counts — anything already in the trash goes along silently). Requires admin
+ * on the profile, the same role the delete does.
  *
  * Meant for the confirmation step: `transactions` is the count the caller is
  * choosing the fate of (`?transactions=delete|move` on the DELETE), while
- * `files` is the profile's vault, which goes with it either way.
+ * `files` is the profile's vault. `filesRecoverable` is false on Free, where
+ * deleting the profile deletes its files for good — word the warning from it.
  */
 export async function GET(request: NextRequest, ctx: Ctx) {
   return handle(async () => {

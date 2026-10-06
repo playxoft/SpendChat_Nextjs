@@ -48,7 +48,7 @@ describe("GET /api/v1/usage", () => {
         topUpRemaining: 0,
         resetsAt: expect.stringMatching(/^\d{4}-\d{2}-01T00:00:00\.000Z$/),
       },
-      storage: { usedBytes: 0, limitBytes: free.storageBytes },
+      storage: { usedBytes: 0, limitBytes: free.storageBytes, trashBytes: 0 },
       members: { used: 1, limit: free.members },
       spaces: { used: 1, limit: free.spaces },
       categories: { used: DEFAULT_CATEGORIES.length, limit: free.categories },

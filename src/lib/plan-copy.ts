@@ -402,6 +402,14 @@ export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
     pitch: ({ next }) =>
       `With ${next}, it works like your first one: add, edit and invite.`,
   },
+  // Client-only: the trash's Files tab on a plan without a file trash.
+  fileTrash: {
+    headline: "Get a deleted file back",
+    status: ({ current }) =>
+      `On ${current}, deleting a file or folder is final. Deleted transactions still go to the trash for ${TRASH_DAYS} days.`,
+    pitch: ({ next }) =>
+      `${next} keeps deleted files and folders in the trash for ${TRASH_DAYS} days, so one wrong click never costs you a contract or a warranty.`,
+  },
   // "New workspace", when the person already has their free one.
   newWorkspace: {
     headline: "Make room for another workspace",

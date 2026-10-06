@@ -18,7 +18,7 @@ import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import {
   bootstrapUser,
-  countTxns,
+  countLiveTxns,
   firstProfileId,
   insertTxn,
   setWorkspacePlan,
@@ -356,11 +356,11 @@ describe("deleteAllTransactions (admin, profile-scoped)", () => {
 
     // Admin clears just the shared profile: BOTH authors' rows go (2), and the
     // `other` profile is untouched.
-    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [sharedProfile])).toEqual({
+    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [sharedProfile])).toMatchObject({
       deleted: 2,
     });
-    expect(await countTxns("a")).toBe(1); // a's row in `other` survives
-    expect(await countTxns("b")).toBe(0); // b's shared-profile row is gone
+    expect(await countLiveTxns("a")).toBe(1); // a's row in `other` survives
+    expect(await countLiveTxns("b")).toBe(0); // b's shared-profile row is in the trash
   });
 
   it("empty profileIds clears every profile in the workspace", async () => {
@@ -373,8 +373,8 @@ describe("deleteAllTransactions (admin, profile-scoped)", () => {
     await insertTxn("a", { type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: p1 });
     await insertTxn("a", { type: "expense", amountMinor: 200, occurredOn: "2026-06-01", profileId: p2.id });
 
-    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [])).toEqual({ deleted: 2 });
-    expect(await countTxns("a")).toBe(0);
+    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [])).toMatchObject({ deleted: 2 });
+    expect(await countLiveTxns("a")).toBe(0);
   });
 
   it("rejects a wrong confirmation string", async () => {

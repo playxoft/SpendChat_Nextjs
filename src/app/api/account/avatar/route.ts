@@ -1,5 +1,7 @@
 import type { NextRequest } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
+import { getBestPlanForUser } from "@/lib/entitlements";
+import { rateLimitedResponse } from "@/lib/rate-limit";
 import { setLogContext } from "@/lib/log-context";
 import { assertUploadBodySize } from "@/lib/upload-form";
 import { withRequestContext } from "@/lib/request-context";
@@ -59,6 +61,9 @@ export async function POST(request: NextRequest) {
     const user = await getCurrentUser();
     if (!user) return Response.json({ error: "Authentication required" }, { status: 401 });
     setLogContext({ userId: user.id });
+    // Per-person rate limit (C8). The avatar belongs to the account, not a workspace.
+    const limited = await rateLimitedResponse(user.id, "create", () => getBestPlanForUser(user.id));
+    if (limited) return limited;
 
     if (!isR2Configured()) {
       return Response.json(
@@ -123,6 +128,9 @@ export async function DELETE(request: NextRequest) {
     const user = await getCurrentUser();
     if (!user) return Response.json({ error: "Authentication required" }, { status: 401 });
     setLogContext({ userId: user.id });
+    // Per-person rate limit (C8). The avatar belongs to the account, not a workspace.
+    const limited = await rateLimitedResponse(user.id, "create", () => getBestPlanForUser(user.id));
+    if (limited) return limited;
 
     const { previousUrl } = await setUserImage(user.id, null);
     if (previousUrl) {

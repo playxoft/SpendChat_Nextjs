@@ -22,7 +22,7 @@ export async function patchSettings(input: Record<string, unknown>): Promise<Act
       revalidateAll();
       return {};
     },
-    { userId: user.id },
+    { userId: user.id, rateLimit: "read" },
   );
 }
 
@@ -69,7 +69,7 @@ export async function updateInputMode(mode: string): Promise<ActionResult> {
       revalidatePath("/app/settings");
       return {};
     },
-    { userId: user.id },
+    { userId: user.id, rateLimit: "read" },
   );
 }
 
@@ -84,7 +84,7 @@ export async function updateComposerDensity(density: string): Promise<ActionResu
       revalidatePath("/app/settings");
       return {};
     },
-    { userId: user.id },
+    { userId: user.id, rateLimit: "read" },
   );
 }
 
@@ -99,7 +99,7 @@ export async function updateVoiceLanguages(languages: string[]): Promise<ActionR
       revalidatePath("/app/settings");
       return {};
     },
-    { userId: user.id },
+    { userId: user.id, rateLimit: "read" },
   );
 }
 
@@ -120,7 +120,7 @@ export async function deleteAccount(confirm: string): Promise<ActionResult> {
 export async function deleteAllTransactions(
   confirm: string,
   profileIds: string[],
-): Promise<ActionResult<{ deleted?: number }>> {
+): Promise<ActionResult<{ deleted?: number; deletedAt?: string | null; profileIds?: string[] }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
@@ -135,7 +135,7 @@ export async function deleteAllTransactions(
       revalidatePath("/app");
       revalidatePath("/app/transactions");
       revalidatePath("/app/analytics");
-      return { deleted: res.deleted };
+      return { deleted: res.deleted, deletedAt: res.deletedAt, profileIds };
     },
     { userId: user.id, workspaceId: workspace.id },
   );
@@ -151,7 +151,7 @@ export async function recordHeardFrom(choice: string, other?: string): Promise<A
       revalidatePath("/app");
       return {};
     },
-    { userId: user.id },
+    { userId: user.id, rateLimit: "read" },
   );
 }
 
@@ -165,7 +165,7 @@ export async function dismissInviteNudge(): Promise<ActionResult> {
       revalidatePath("/app");
       return {};
     },
-    { userId: user.id },
+    { userId: user.id, rateLimit: "read" },
   );
 }
 
@@ -182,6 +182,6 @@ export async function setCollapsedSpaces(ids: string[]): Promise<ActionResult> {
       await settingsService.updateCollapsedSpaces(user.id, ids);
       return {};
     },
-    { userId: user.id },
+    { userId: user.id, rateLimit: "read" },
   );
 }

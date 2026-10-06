@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { categories, profiles, spaces, transactions, users, workspaces } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import type { PersonalPlan } from "@/lib/plans";
@@ -135,12 +135,33 @@ export async function insertTxn(userId: string, t: TxnSeed): Promise<string> {
   return row!.id;
 }
 
-/** Count a user's transactions (optionally scoped to a profile). */
+/** Every transaction row the user authored, trashed or not. */
 export async function countTxns(userId: string): Promise<number> {
   const db = getTestDb();
   const rows = await db
     .select({ id: transactions.id })
     .from(transactions)
     .where(eq(transactions.userId, uid(userId)));
+  return rows.length;
+}
+
+/**
+ * The user's transactions anyone could still see: not in the trash, and not in
+ * a profile that is in the trash. What "deleted" means since the trash — the
+ * rows are still there (`countTxns`), just out of every read.
+ */
+export async function countLiveTxns(userId: string): Promise<number> {
+  const db = getTestDb();
+  const rows = await db
+    .select({ id: transactions.id })
+    .from(transactions)
+    .innerJoin(profiles, eq(profiles.id, transactions.profileId))
+    .where(
+      and(
+        eq(transactions.userId, uid(userId)),
+        isNull(transactions.deletedAt),
+        isNull(profiles.deletedAt),
+      ),
+    );
   return rows.length;
 }

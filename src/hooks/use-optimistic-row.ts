@@ -9,7 +9,10 @@ import type { TransactionRow } from "@/lib/queries";
  * revalidation (which is why the toast used to land before the row updated).
  *
  * - `patch(fields)` merges fields onto the displayed row (optimistic edit).
- * - `remove()` hides the row (optimistic delete).
+ * - `remove()` hides the row (optimistic delete); `unremove()` shows it again —
+ *   the Undo on a delete. A row scrolled back past the latest page is never
+ *   re-rendered by the revalidation, so without this it would stay hidden
+ *   after a restore that said "Restored".
  *
  * The patch is dropped the moment a fresh server row object arrives (a
  * revalidation landed), at which point the server data is authoritative — so a
@@ -34,5 +37,6 @@ export function useOptimisticRow(row: TransactionRow) {
     removed,
     patch: (fields: Partial<TransactionRow>) => setPatch(fields),
     remove: () => setRemoved(true),
+    unremove: () => setRemoved(false),
   };
 }

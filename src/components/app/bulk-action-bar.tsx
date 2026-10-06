@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check, ChevronDown, FolderInput, Hash, Loader2, Minus, Shapes, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -24,6 +25,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { deleteTransactions, updateTransactions } from "@/actions/transactions";
+import { toastMovedToTrash } from "./trash/trash-toast";
+import { TRASH_DAYS } from "@/lib/trash";
 import {
   BULK_TRANSACTIONS_MAX,
   TAGS_PER_TRANSACTION_MAX,
@@ -70,6 +73,7 @@ export function BulkActionBar({
   onClear,
   onDeleted,
   onUpdated,
+  onRestored,
 }: {
   selected: TransactionRow[];
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
@@ -81,11 +85,14 @@ export function BulkActionBar({
   onClear: () => void;
   onDeleted: (ids: string[]) => void;
   onUpdated: (rows: TransactionRow[]) => void;
+  /** The delete was undone: these came back — put the ones on screen back. */
+  onRestored?: (ids: string[]) => void;
 }) {
   // Busy for the request only — not a transition, which would also wait out
   // the page refresh the action's revalidation triggers. The rows are already
   // patched from the result by then, so there's nothing left to wait for.
   const [pending, setPending] = useState(false);
+  const router = useRouter();
   async function run(task: () => Promise<void>) {
     setPending(true);
     try {
@@ -167,11 +174,23 @@ export function BulkActionBar({
         skipped += res.skipped;
       }
       onDeleted(deletedIds);
-      toast.success(
-        `Deleted ${plural(deletedIds.length, "transaction")}`,
-        skipped > 0
-          ? { description: `${plural(skipped, "transaction")} you can't delete ${skipped === 1 ? "was" : "were"} kept` }
-          : undefined,
+      // Nothing moved (every row was someone else's to delete): say so, with no
+      // Undo — `toastMovedToTrash` offers none for an empty selection.
+      toastMovedToTrash(
+        deletedIds.length > 0
+          ? `Moved ${plural(deletedIds.length, "transaction")} to trash`
+          : "Nothing was deleted",
+        { transactionIds: deletedIds },
+        {
+          description:
+            skipped > 0
+              ? `${plural(skipped, "transaction")} you can't delete ${skipped === 1 ? "was" : "were"} kept.${deletedIds.length > 0 ? ` You can restore the rest from the trash for ${TRASH_DAYS} days.` : ""}`
+              : `You can restore ${deletedIds.length === 1 ? "it" : "them"} from the trash for ${TRASH_DAYS} days.`,
+          onRestored: ({ transactionIds }) => {
+            onRestored?.(transactionIds);
+            router.refresh();
+          },
+        },
       );
     });
   }
@@ -338,8 +357,8 @@ export function BulkActionBar({
                 <AlertDialogHeader>
                   <AlertDialogTitle>Delete {plural(count, "transaction")}?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    They’re removed for good, along with any files attached to them, and your balance
-                    updates. This can’t be undone.
+                    They move to the trash with any files attached to them, and your balance
+                    updates. You can restore them for {TRASH_DAYS} days.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

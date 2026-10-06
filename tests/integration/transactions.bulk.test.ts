@@ -13,6 +13,7 @@ import { eq, inArray } from "drizzle-orm";
 import { deleteObjects } from "@/lib/r2";
 import { profileAccess, profiles, transactionAttachments, transactions } from "@/db/schema";
 import { deleteTransaction, deleteTransactions, updateTransactions } from "@/services/transactions";
+import { deleteFromTrash } from "@/services/trash";
 import { createTxnTag } from "@/services/tags";
 import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 import { uid } from "./helpers/session";
@@ -79,10 +80,14 @@ async function attach(alias: string, txnId: string, profileId: string, key: stri
 const txnRow = async (id: string) =>
   (await getTestDb().select().from(transactions).where(eq(transactions.id, id)))[0];
 
+/** Live = present and not in the trash. A delete now moves a row to the trash. */
+const isLive = async (id: string) => (await txnRow(id))?.deletedAt === null;
+const isTrashed = async (id: string) => (await txnRow(id))?.deletedAt instanceof Date;
+
 describe("deleteTransactions", () => {
   beforeEach(() => vi.mocked(deleteObjects).mockClear());
 
-  it("deletes the selected rows, leaves the rest, and sweeps their stored files", async () => {
+  it("moves the selected rows to the trash, leaves the rest, and keeps every stored file", async () => {
     const { userId, ws, pid } = await owner();
     const a = await insertTxn("a", expense);
     const b = await insertTxn("a", expense);
@@ -94,10 +99,16 @@ describe("deleteTransactions", () => {
 
     expect(res.deletedIds.sort()).toEqual([a, b].sort());
     expect(res.skipped).toBe(0);
+    expect(await isTrashed(a)).toBe(true);
+    expect(await isTrashed(b)).toBe(true);
+    expect(await isLive(keep)).toBe(true);
+    // One statement stamps the whole batch with the same instant.
+    expect((await txnRow(a))!.deletedAt!.getTime()).toBe((await txnRow(b))!.deletedAt!.getTime());
+    expect((await txnRow(a))!.deletedBy).toBe(userId);
+    // Nothing leaves the bucket until the row is deleted for good — then only its.
+    expect(swept()).toHaveLength(0);
+    await deleteFromTrash(userId, ws, { transactionIds: [a] });
     expect(await txnRow(a)).toBeUndefined();
-    expect(await txnRow(b)).toBeUndefined();
-    expect(await txnRow(keep)).toBeDefined();
-    // The deleted row's original and thumbnail go; the survivor's stay.
     expect(swept()).toEqual(
       expect.arrayContaining(["attachments/x/a/1.pdf", "attachments/x/a/1.pdf_thumb"]),
     );
@@ -115,7 +126,7 @@ describe("deleteTransactions", () => {
 
     expect(res.deletedIds).toEqual([mine]);
     expect(res.skipped).toBe(1);
-    expect(await txnRow(theirs)).toBeDefined();
+    expect(await isLive(theirs)).toBe(true);
     expect(swept()).not.toContain("attachments/y/theirs/1.pdf");
   });
 
@@ -127,7 +138,7 @@ describe("deleteTransactions", () => {
 
     // A viewer has no profile they can write to here at all.
     await expect(deleteTransactions(uid("v"), a.ws, { ids: [row] })).rejects.toMatchObject({ status: 403 });
-    expect(await txnRow(row)).toBeDefined();
+    expect(await isLive(row)).toBe(true);
   });
 
   it("rejects an empty selection and non-uuid ids", async () => {
@@ -162,13 +173,14 @@ describe("a selection across an editable and a view-only profile", () => {
     return { ws: a.ws, editable, readOnly, viewOnly };
   }
 
-  it("deletes the editable row and keeps the view-only one and its files", async () => {
+  it("trashes the editable row and keeps the view-only one and its files", async () => {
     const { ws, editable, readOnly } = await mixedAccess();
 
     const res = await deleteTransactions(uid("e"), ws, { ids: [editable, readOnly] });
 
     expect(res).toEqual({ deletedIds: [editable], skipped: 1 });
-    expect(await txnRow(readOnly)).toBeDefined();
+    expect(await isTrashed(editable)).toBe(true);
+    expect(await isLive(readOnly)).toBe(true);
     expect(swept()).not.toContain("attachments/x/readonly/1.pdf");
   });
 
@@ -196,7 +208,7 @@ describe("a selection across an editable and a view-only profile", () => {
 describe("deleteTransaction (single)", () => {
   beforeEach(() => vi.mocked(deleteObjects).mockClear());
 
-  it("sweeps the deleted row's stored files, and only its", async () => {
+  it("trashes the row and keeps its files; deleting it for good sweeps them, and only its", async () => {
     const { userId, ws, pid } = await owner();
     const doomed = await insertTxn("a", expense);
     const keep = await insertTxn("a", expense);
@@ -204,7 +216,12 @@ describe("deleteTransaction (single)", () => {
     await attach("a", keep, pid, "attachments/x/keep/1.pdf");
 
     expect(await deleteTransaction(userId, ws, doomed)).toBe(true);
+    expect(await isTrashed(doomed)).toBe(true);
+    expect(swept()).toHaveLength(0);
+    // Already in the trash: a second delete finds nothing to delete.
+    expect(await deleteTransaction(userId, ws, doomed)).toBe(false);
 
+    await deleteFromTrash(userId, ws, { transactionIds: [doomed] });
     expect(await txnRow(doomed)).toBeUndefined();
     expect(swept()).toEqual(
       expect.arrayContaining(["attachments/x/doomed/1.pdf", "attachments/x/doomed/1.pdf_thumb"]),
@@ -219,7 +236,7 @@ describe("deleteTransaction (single)", () => {
     await attach("b", theirs, b.pid, "attachments/y/theirs/1.pdf");
 
     expect(await deleteTransaction(a.userId, a.ws, theirs)).toBe(false);
-    expect(await txnRow(theirs)).toBeDefined();
+    expect(await isLive(theirs)).toBe(true);
     expect(deleteObjects).not.toHaveBeenCalled();
   });
 });

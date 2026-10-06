@@ -100,7 +100,7 @@ const NOUNS = {
 type MeterKind = keyof typeof NOUNS;
 
 /** "Plus and Pro" / "Plus or Pro" — the paid plans, named from the catalogue. */
-function paidPlans(join: "and" | "or", feature?: "profileLevelAccess"): string {
+function paidPlans(join: "and" | "or", feature?: "profileLevelAccess" | "fileTrash"): string {
   const names = PERSONAL_PLANS.filter((p) =>
     feature ? PLAN_LIMITS[p][feature] : p !== "free",
   ).map((p) => PLAN_NAMES[p]);
@@ -181,6 +181,19 @@ export function budgetLock(plan: PersonalPlan, max: number, used: number): AddLo
     reason,
     cta: cta(upgradeTo),
     info: { limit: "budgets", plan, max, used, upgradeTo },
+  };
+}
+
+/** The trash for files and folders (the trash page's Files tab on Free). */
+export function fileTrashLock(plan: PersonalPlan): AddLock {
+  const upgradeTo =
+    PERSONAL_PLANS.find((p) => planAtLeast(p, plan) && PLAN_LIMITS[p].fileTrash) ?? null;
+  const on = paidPlans("and", "fileTrash");
+  return {
+    title: `Deleted files wait in the trash on ${on}`,
+    reason: `On ${PLAN_NAMES[plan]}, deleting a file or folder is final. ${on} keep them in the trash for 30 days.`,
+    cta: cta(upgradeTo),
+    info: { limit: "fileTrash", plan, upgradeTo },
   };
 }
 

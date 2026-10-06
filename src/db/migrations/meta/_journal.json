@@ -271,8 +271,15 @@
     {
       "idx": 38,
       "version": "7",
-      "when": 1791312805522,
-      "tag": "0038_budgets",
+      "when": 1791310203009,
+      "tag": "0038_trash",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1791316755915,
+      "tag": "0039_budgets",
       "breakpoints": true
     }
   ]

@@ -39,6 +39,7 @@ import {
   requireWorkspaceRole,
   type WorkspaceSummary,
 } from "@/lib/workspaces";
+import { notTrashed } from "@/lib/trash-scope";
 import {
   addMemberSchema,
   createWorkspaceSchema,
@@ -236,7 +237,8 @@ export async function listCollaborators(
       })
       .from(profileAccess)
       .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
-      .where(eq(profiles.workspaceId, workspaceId))
+      // Grants on live profiles: one on a trashed profile opens nothing today.
+      .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles)))
       .orderBy(asc(profiles.sortOrder), asc(profileAccess.createdAt)),
   ]);
 
@@ -314,6 +316,8 @@ export async function listPendingInvites(
       icon: profiles.icon,
     })
     .from(workspaceInvites)
+    // trash: display join — a pending invite to a trashed profile is still a
+    // pending invite (it counts toward members until withdrawn).
     .leftJoin(profiles, eq(workspaceInvites.profileId, profiles.id))
     .where(eq(workspaceInvites.workspaceId, workspaceId))
     .orderBy(asc(profiles.sortOrder), asc(workspaceInvites.createdAt));
@@ -365,7 +369,7 @@ async function describeAccessScope(
   const rows = await db
     .select({ id: profiles.id, name: profiles.name })
     .from(profiles)
-    .where(and(eq(profiles.workspaceId, workspaceId), inArray(profiles.id, ids)));
+    .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles), inArray(profiles.id, ids)));
   if (rows.length !== new Set(ids).size) throw badRequest("Profile is not in this workspace");
   const byId = new Map(rows.map((r) => [r.id, r.name]));
   return {
@@ -471,6 +475,8 @@ async function clearSpaceAccess(
         eq(profileOverrides.userId, targetUserId),
         inArray(
           profileOverrides.profileId,
+          // trash: every profile, trashed too — a restore must not bring back
+          // access someone lost while it was in the trash.
           db.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
         ),
       ),
@@ -519,6 +525,7 @@ async function setMemberSpaces(
         inArray(profileOverrides.access, ["read", "write"]),
         inArray(
           profileOverrides.profileId,
+          // trash: trashed profiles too (see `clearSpaceAccess`).
           db
             .select({ id: profiles.id })
             .from(profiles)
@@ -561,11 +568,14 @@ async function applyMemberAccess(
   targetUserId: string,
   access: AccessGrant,
 ): Promise<void> {
+  // trash: every profile for the sweeps below (a restore must not revive a
+  // grant that was replaced); only live ones may be granted.
   const wsProfiles = await db
-    .select({ id: profiles.id })
+    .select({ id: profiles.id, deletedAt: profiles.deletedAt })
     .from(profiles)
     .where(eq(profiles.workspaceId, workspaceId));
   const wsProfileIds = wsProfiles.map((p) => p.id);
+  const liveProfileIds = wsProfiles.filter((p) => p.deletedAt === null).map((p) => p.id);
 
   if (access.mode === "all") {
     const spaceIds =
@@ -596,7 +606,7 @@ async function applyMemberAccess(
     return;
   }
 
-  const allowed = new Set(wsProfileIds);
+  const allowed = new Set(liveProfileIds);
   for (const entry of access.entries) {
     if (!allowed.has(entry.profileId)) throw badRequest("Profile is not in this workspace");
   }
@@ -658,7 +668,7 @@ async function applyInviteAccess(
     const wsProfiles = await db
       .select({ id: profiles.id })
       .from(profiles)
-      .where(eq(profiles.workspaceId, workspaceId));
+      .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles)));
     const allowed = new Set(wsProfiles.map((p) => p.id));
     for (const entry of access.entries) {
       if (!allowed.has(entry.profileId)) throw badRequest("Profile is not in this workspace");
@@ -823,6 +833,8 @@ async function loadInviteGroup(token: string) {
     })
     .from(workspaceInvites)
     .innerJoin(workspaces, eq(workspaceInvites.workspaceId, workspaces.id))
+    // trash: display join for the join page; access is resolved later through
+    // the access layer, which hides a trashed profile anyway.
     .leftJoin(profiles, eq(workspaceInvites.profileId, profiles.id))
     .where(eq(workspaceInvites.token, token))
     .orderBy(asc(profiles.sortOrder), asc(workspaceInvites.createdAt));
@@ -954,6 +966,8 @@ export async function setMemberAccess(
     const existing = await db
       .select({ profileId: profileAccess.profileId, role: profileAccess.role })
       .from(profileAccess)
+      // trash: all of their grants — dropping one on a trashed profile is still
+      // a narrowing, never a widening.
       .innerJoin(profiles, eq(profiles.id, profileAccess.profileId))
       .where(and(eq(profiles.workspaceId, workspaceId), eq(profileAccess.userId, data.userId)));
     if (!onlyNarrows(existing, data.access.entries)) await assertProfileLevelAccess(workspaceId);
@@ -1049,6 +1063,7 @@ export async function removeCollaborator(
       eq(profileAccess.userId, targetUserId),
       inArray(
         profileAccess.profileId,
+        // trash: trashed profiles too — removal must survive a restore.
         db.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
       ),
     ),
@@ -1234,7 +1249,7 @@ export async function listWorkspaceProfileGrants(
     })
     .from(profileAccess)
     .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
-    .where(eq(profiles.workspaceId, workspaceId))
+    .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles)))
     .orderBy(asc(profiles.sortOrder), asc(profileAccess.createdAt));
   const directory = await findUsersByIds(rows.map((r) => r.userId));
   return rows.map((r) => ({

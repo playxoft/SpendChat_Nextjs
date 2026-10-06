@@ -11,6 +11,7 @@ import {
   updateTxnTagSchema,
 } from "@/lib/validation";
 import { requireSharedListAdd, requireSharedListEdit } from "@/lib/workspaces";
+import { notTrashed } from "@/lib/trash-scope";
 import { assertCanAddTag } from "@/lib/entitlements";
 import type { Tag } from "@/db/schema";
 
@@ -193,6 +194,8 @@ export async function deleteTxnTag(
     // `enable_seqscan = off`, the `= any` form has no index path at all (the
     // planner keeps the sequential scan and marks it disabled) while `@>` takes
     // a Bitmap Index Scan. The two read the same; only one uses the index.
+    // trash: every row, trashed ones too — a restored row must not come back
+    // carrying the id of a tag that no longer exists.
     await tx
       .update(transactions)
       .set({ tagIds: sql`array_remove(${transactions.tagIds}, ${id}::uuid)` })
@@ -200,6 +203,7 @@ export async function deleteTxnTag(
         and(
           inArray(
             transactions.profileId,
+            // trash: trashed profiles' rows too (see above).
             tx.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
           ),
           sql`${transactions.tagIds} @> array[${id}::uuid]`,
@@ -227,6 +231,9 @@ export async function countTransactionsForTxnTag(
     .where(
       and(
         eq(profiles.workspaceId, workspaceId),
+        // Live rows in live profiles — the number people read as "used on N".
+        notTrashed(transactions),
+        notTrashed(profiles),
         // `@>`, not `= any(...)` — see the sweep in `deleteTxnTag`. This one backs
         // an interactive read (the "used on N transactions" line), so a
         // sequential scan of the workspace would be felt directly.

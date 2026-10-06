@@ -1,28 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// The per-person rate limiter fails open without a Durable Object binding;
+// the C8 test below installs an in-memory one.
+const limiter = vi.hoisted(() => ({
+  current: null as import("./helpers/memory-rate-limiter").MemoryRateLimiter | null,
+}));
+vi.mock("@/lib/rate-limit/binding", () => ({
+  getRateLimiterStub: (id: string) => limiter.current?.stubFor(id) ?? null,
+}));
 import { asc, eq } from "drizzle-orm";
 import type { NextRequest } from "next/server";
 import { POST as parseRoute } from "@/app/api/v1/ai/parse/route";
 import { POST as transcribeRoute } from "@/app/api/v1/ai/transcribe/route";
 import { parseTransactionsWithAI, transcribeVoiceNoteAction } from "@/actions/transactions";
 import { aiUsageLog } from "@/db/schema";
-import {
-  AI_REQUESTS_PER_HOUR,
-  chargeAiParse,
-  chargeVoiceTranscribe,
-  withAiCharge,
-} from "@/lib/ai-quota";
+import { chargeAiParse, chargeVoiceTranscribe, withAiCharge } from "@/lib/ai-quota";
 import { getAiAllowance } from "@/lib/entitlements";
 import { PLAN_LIMITS } from "@/lib/plans";
+import { resetRateLimitState } from "@/lib/rate-limit";
 import * as ws from "@/services/workspaces";
 import { signInAs, uid } from "./helpers/session";
 import { bootstrapUser, setWorkspacePlan, workspaceIdOf } from "./helpers/seed";
 import { getTestDb } from "./helpers/test-db";
+import { createMemoryRateLimiter } from "./helpers/memory-rate-limiter";
 import { apiReq, jsonBody } from "./api/helpers";
 
 /**
  * The monthly AI allowance (personal phase 5): AI actions per workspace per
- * UTC calendar month, charged in `ai_usage_log.units` under the same lock as the
- * hourly cap. A typed note is one action; a voice clip is one per started
+ * UTC calendar month, charged in `ai_usage_log.units` under a per-user lock and
+ * an allowance lock. A typed note is one action; a voice clip is one per started
  * minute and covers the parse of its transcript; voice itself is Pro-only.
  *
  * Unlike `api/ai.test.ts` (which proves the gates stop a request *before* the
@@ -111,7 +117,7 @@ async function ledger(alias: string) {
     .orderBy(asc(aiUsageLog.createdAt), asc(aiUsageLog.id));
 }
 
-/** Pre-spend `units` actions this month in one ledger row (one row = one hourly slot). */
+/** Pre-spend `units` actions this month in one ledger row. */
 async function spend(
   alias: string,
   units: number,
@@ -189,14 +195,14 @@ describe("monthly AI allowance", () => {
     expect(await ledger("a")).toHaveLength(1);
   });
 
-  it("gives the action back when the AI fails on our side — the hourly slot stays spent", async () => {
+  it("gives the action back when the AI fails on our side — the row stays for the audit trail", async () => {
     stubGemini({ fail: true });
     signInAs("a");
     await bootstrapUser("a");
     const W = await workspaceIdOf("a");
 
     expect((await parse({ text: "200 fruits" })).status).toBe(502);
-    // Still a provider call, so still a row for the hourly cap — but no longer an action.
+    // Still a provider call, so still a row — but no longer an action.
     expect(await ledger("a")).toMatchObject([{ kind: "transaction_parse_failed", units: 0 }]);
     expect((await getAiAllowance(W)).used).toBe(0);
   });
@@ -255,23 +261,56 @@ describe("monthly AI allowance", () => {
     expect((await errorOf(res)).code).toBe("plan_limit");
   });
 
-  it("checks the hourly cap first — still 429 at 30 calls, even with the allowance spent too", async () => {
+  it("C8: the AI rate limit answers before the allowance — \"slow down\", not \"upgrade\"", async () => {
+    const fetchSpy = stubGemini();
+    limiter.current = createMemoryRateLimiter();
+    try {
+      signInAs("a");
+      await bootstrapUser("a");
+      const W = await workspaceIdOf("a");
+
+      // Free allows 3 AI requests a minute: three go through…
+      for (let i = 0; i < 3; i++) expect((await parse({ text: "200 fruits" })).status).toBe(200);
+      // …and the fourth is told to wait, with the wait in the header.
+      const res = await parse({ text: "200 fruits" });
+      expect(res.status).toBe(429);
+      expect(Number(res.headers.get("Retry-After"))).toBeGreaterThan(0);
+      expect(await errorOf(res)).toMatchObject({ code: "rate_limited", details: { bucket: "ai" } });
+
+      // With the allowance also gone, the answer is still "slow down".
+      await spend("a", 50, { workspaceId: W, plan: "free" });
+      expect((await parse({ text: "200 fruits" })).status).toBe(429);
+      expect(fetchSpy).toHaveBeenCalledTimes(3);
+      expect((await getAiAllowance(W)).used).toBe(53);
+    } finally {
+      limiter.current = null;
+      resetRateLimitState();
+    }
+  });
+
+  it("never overspends the allowance when a burst arrives at once", async () => {
+    // Read what this does and does not prove. The charge takes a namespaced
+    // per-user `pg_try_advisory_xact_lock`, then the allowance lock, and only
+    // then sums and inserts, so a concurrent second caller is refused outright.
+    // But PGlite is a single in-process connection and serializes every query,
+    // so this harness **cannot stage the true race** — the serialization
+    // guarantee lives in the locks and is verified by reading them. What this
+    // does guard is the arithmetic: exactly one caller is admitted to the last
+    // action, and the ledger ends on the cap rather than past it.
     const fetchSpy = stubGemini();
     signInAs("a");
     await bootstrapUser("a");
     const W = await workspaceIdOf("a");
+    await spend("a", PLAN_LIMITS.free.aiActionsPerMonth - 1, { workspaceId: W, plan: "free" });
 
-    // 29 earlier calls this hour (0 actions each), then the 30th goes through…
-    for (let i = 0; i < AI_REQUESTS_PER_HOUR - 1; i++) {
-      await spend("a", 0, { workspaceId: W, plan: "free" });
-    }
-    expect((await parse({ text: "200 fruits" })).status).toBe(200);
-    // …and the 31st doesn't.
-    expect((await parse({ text: "200 fruits" })).status).toBe(429);
+    const statuses = (
+      await Promise.all(Array.from({ length: 12 }, () => parse({ text: "200 fruits" })))
+    ).map((r) => r.status);
 
-    // With the allowance also gone, the answer is still "slow down", not "upgrade".
-    await spend("a", 50, { workspaceId: W, plan: "free" });
-    expect((await parse({ text: "200 fruits" })).status).toBe(429);
+    expect(statuses.filter((s) => s === 200)).toHaveLength(1);
+    // Everyone else: out of allowance (403) or refused while the winner held the lock (429).
+    expect(statuses.filter((s) => s !== 200).every((s) => s === 403 || s === 429)).toBe(true);
+    expect((await getAiAllowance(W)).used).toBe(PLAN_LIMITS.free.aiActionsPerMonth);
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
 });
