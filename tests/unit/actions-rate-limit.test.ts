@@ -164,10 +164,12 @@ describe("every server action is rate limited", () => {
         "countTransactionsForTag",
         "getProfileDeletionImpact",
         "getSpaceAccess",
+        "getTrashCounts",
         "listAttachments",
         "listFileShares",
         "loadMoreTransactions",
         "loadOlderFeed",
+        "listTrashPage",
         // the person's own UI preferences
         "dismissInviteNudge",
         "patchSettings",

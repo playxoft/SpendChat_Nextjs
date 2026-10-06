@@ -39,7 +39,7 @@ export async function listTrashPage(cursor?: string | null): Promise<ActionResul
         nextCursor: page.nextCursor ? encodeTrashCursor(page.nextCursor) : null,
       };
     },
-    { userId: user.id, workspaceId: workspace.id },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
   );
 }
 
@@ -50,7 +50,7 @@ export async function getTrashCounts(): Promise<ActionResult<{ counts: TrashCoun
   return runAction(
     "getTrashCounts",
     async () => ({ counts: await trash.countTrash(user.id, workspace.id) }),
-    { userId: user.id, workspaceId: workspace.id },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
   );
 }
 

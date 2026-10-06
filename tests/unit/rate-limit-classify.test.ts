@@ -36,6 +36,15 @@ describe("classifyApiRequest", () => {
     expect(classifyApiRequest("GET", "/api/v1/details/ai/x")).toBe("read");
   });
 
+  it("C8: the trash's routes — listing is a read, restoring or deleting is a create", () => {
+    for (const path of ["/api/v1/trash/transactions", "/api/v1/trash/files", "/api/v1/trash/profiles"]) {
+      expect(rateOfApiRequest("GET", path)).toEqual({ bucket: "read", weight: 1 });
+    }
+    for (const path of ["/api/v1/trash/restore", "/api/v1/trash/delete", "/api/v1/trash/empty"]) {
+      expect(classifyApiRequest("POST", path)).toBe("create");
+    }
+  });
+
   it("reads method and path off a Request", () => {
     expect(rateOfRequest(new Request("http://x/api/v1/ai/parse?y=1", { method: "POST" }))).toEqual({
       bucket: "ai",
