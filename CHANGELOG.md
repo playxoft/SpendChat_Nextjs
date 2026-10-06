@@ -27,9 +27,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   plan of the workspace you're in (Free: 20 changes, 120 views and 3 AI
   requests a minute; Plus and Pro allow more). It's there to stop scripts and
   runaway loops, not people: a bulk add counts once, and folding the sidebar
-  or switching workspaces never eats into your adding budget. Over the limit
-  you're told how long to wait ("Try again in 40 seconds"); the mobile API
-  answers `429` with a `Retry-After` header.
+  or switching workspaces never eats into your adding budget. A CSV export —
+  up to 5,000 rows — counts as 20 views. Over the limit you're told how long
+  to wait ("Try again in 40 seconds"); the mobile API answers `429` with a
+  `Retry-After` header. If the limit ever can't be checked, AI pauses for a
+  few seconds rather than running unchecked; everything else carries on.
 
 ### Changed
 - The flat 30-an-hour cap on AI requests is replaced by the AI rate limit

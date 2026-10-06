@@ -97,12 +97,16 @@ Authentication, secrets via Doppler.
   - The REST API: the check runs in `getApiContext` / `requireApiUser`. `/api/v1/ai/*` → ai,
     `GET`/`HEAD` → read, else create.
   - A cookie-auth route handler outside both seams calls `rateLimitedResponse()`.
+  - A heavy read can weigh more than one request: a CSV export counts as `EXPORT_WEIGHT` (20)
+    reads, on the API (`rateOfApiRequest`) and the web route alike.
   - Over the limit: 429 `rate_limited`, with `Retry-After` on the API and
     `details.retryAfterSeconds` from an action.
   - The counts live in one SQLite-backed Durable Object per user (`src/lib/rate-limit/`). It's
     exported from the Worker entry **`worker.ts`** (`main` in wrangler.toml) and bound as
-    `RATE_LIMITER` in each env, not at the top level, which `next dev` reads. The limiter **fails
-    open** when the binding is missing (`next dev`, tests) or the object errors.
+    `RATE_LIMITER` in each env, not at the top level, which `next dev` reads.
+  - The limiter **fails open** when the binding is missing (`next dev`, tests), and when the
+    object errors or is slow — **except for AI**, which then fails closed (429, retry in 5 s):
+    nothing else bounds paid provider calls.
   - After a `wrangler.toml` change, run `pnpm cf-typegen`: `cloudflare-env.d.ts` is generated
     and gitignored, and typecheck needs the new binding types.
 - **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,

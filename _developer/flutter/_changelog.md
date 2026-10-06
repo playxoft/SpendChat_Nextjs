@@ -27,7 +27,8 @@ Per-person rate limits. Every authenticated endpoint can now answer
 (any other `GET`/`HEAD`), `create` (every other method) — against the numbers
 of the workspace's plan (Free / Plus / Pro; the table is in
 [01-api-reference.md](./01-api-reference.md) § Rate limits). A bulk call counts
-once. `GET /version` is never limited.
+once; a CSV export (`GET /transactions/export`) counts as 20 reads.
+`GET /version` is never limited.
 
 **What a 429 looks like**
 
@@ -41,7 +42,7 @@ once. `GET /version` is never limited.
 
 | Endpoint | Before | Now |
 |---|---|---|
-| `POST /ai/parse`, `POST /ai/transcribe` | 429 after a shared 30 calls/hour per user, checked after the role | 429 from the per-person `ai` rate limit (3 a minute on Free, 6 on Pro …), checked **first**; the 30/hour quota is gone. A second AI call sent while the previous one is still being charged is also a 429, with `retryAfterSeconds: 1` and no `window`. |
+| `POST /ai/parse`, `POST /ai/transcribe` | 429 after a shared 30 calls/hour per user, checked after the role | 429 from the per-person `ai` rate limit (3 a minute on Free, 6 on Pro …), checked **first**; the 30/hour quota is gone. Two 429s here carry no `window`: a second AI call sent while the previous one is still being charged (`retryAfterSeconds: 1`), and AI paused while the server can't check the limit (`retryAfterSeconds: 5`). |
 | every other authenticated endpoint | never 429 | may 429 (see above) |
 
 **Flutter impact:** treat `429 rate_limited` as possible on **any** endpoint.

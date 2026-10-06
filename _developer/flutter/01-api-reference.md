@@ -147,7 +147,9 @@ buckets picked from the request itself:
   the current one). `GET`/`POST /workspaces` and `/organization` have no
   workspace in context: they use the best plan among the caller's workspaces.
 - **A bulk call is one request** — `POST /transactions/bulk` with 500 rows, or
-  a multi-file upload, counts once.
+  a multi-file upload, counts once. A **CSV export** (`GET /transactions/export`,
+  up to 5,000 rows) is the exception the other way: it counts as **20 reads**
+  (6 a minute on Free).
 - Over a limit → **`429 rate_limited`** with a **`Retry-After`** header (whole
   seconds) and
   `error.details = { bucket: "create" | "read" | "ai", window: "1m" | "5m" | "1h", retryAfterSeconds }`.
@@ -158,8 +160,10 @@ buckets picked from the request itself:
 - Minting a file URL (`GET /files/{id}/url`, `GET /attachments/{id}/url`) is a
   read — mint per view and reuse the URL for its lifetime (`expiresInSeconds`)
   instead of re-minting while scrolling a grid.
-- On `/ai/*` the same 429 (without `window`, `retryAfterSeconds: 1`) also
-  answers a second AI call sent while your previous one is still being charged.
+- On `/ai/*` two 429s come without `window`: a second AI call sent while your
+  previous one is still being charged (`retryAfterSeconds: 1`), and AI paused
+  because the server can't check the limit right now (`retryAfterSeconds: 5`
+  — AI is refused rather than allowed unchecked; other endpoints carry on).
 - `GET /version` is never limited.
 
 ---

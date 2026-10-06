@@ -91,7 +91,8 @@ info:
     and 1 hour — in one of three buckets picked from the request:
     `/ai/*` → **ai**; any other `GET`/`HEAD` → **read**; every other method
     → **create**. A bulk call (`POST /transactions/bulk`, a multi-file upload)
-    is one request. The numbers come from the plan of the workspace in
+    is one request; a CSV export (`GET /transactions/export`, up to 5,000
+    rows) counts as **20 reads**. The numbers come from the plan of the workspace in
     context (`X-Workspace-Id`, else the current one); for the endpoints with
     no workspace (`GET`/`POST /workspaces`, `/organization`) they come from
     the best plan among the caller's workspaces.
@@ -111,6 +112,12 @@ info:
     (`GET /files/{id}/url`, `GET /attachments/{id}/url`) is a read, so mint
     one per view and reuse it for its lifetime rather than re-minting per
     frame. `GET /version` is never limited.
+
+    Two `429`s on `/ai/*` carry no `window`: a second AI call sent while the
+    caller's previous one is still being charged (`retryAfterSeconds: 1`),
+    and AI paused because the server can't check the limit right now
+    (`retryAfterSeconds: 5` — AI is refused rather than allowed unchecked).
+    Both are temporary; wait and retry once.
 
     ## Attachments
     Transactions can carry up to **2 attached files** (receipt/bill/invoice —
@@ -2721,8 +2728,10 @@ components:
         The caller is over a per-person rate limit for their plan (see Rate
         limits in the description). `Retry-After` and
         `error.details.retryAfterSeconds` give the wait in seconds. (On
-        `/ai/*` the same 429 also answers a second AI call sent while the
-        caller's previous one is still being charged — retry after a second.)
+        `/ai/*` the same 429, without `window`, also answers a second AI call
+        sent while the caller's previous one is still being charged — retry
+        after a second — and AI paused while the limit can't be checked —
+        retry after 5 seconds.)
       headers:
         Retry-After:
           description: Whole seconds until a retry would pass.
@@ -2825,9 +2834,10 @@ components:
     RateLimitedDetails:
       type: object
       description: >
-        `details` of a `429 rate_limited` (since 6.6.0). `window` is absent on
-        the one-off refusal of an AI call sent while the previous one is still
-        being charged.
+        `details` of a `429 rate_limited` (since 6.6.0). `window` is absent
+        when the refusal isn't about a full window: an AI call sent while the
+        previous one is still being charged, or AI paused while the limit
+        can't be checked.
       properties:
         bucket: { type: string, enum: [create, read, ai] }
         window: { type: string, enum: [1m, 5m, 1h] }
