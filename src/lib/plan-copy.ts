@@ -11,11 +11,22 @@ import {
   PLAN_LIMITS,
   PLAN_NAMES,
   TOPUP,
+  TRASH_DAYS,
   VOICE,
   type PersonalPlan,
   type PlanLimits,
 } from "@/lib/plans";
-import { STUDENT_DISCOUNT, TRIAL_DAYS, isCurrency, pct, type Currency } from "@/lib/pricing";
+import { trialDaysFor, type CheckoutRefusal } from "@/lib/checkout";
+import {
+  PERIOD_LABEL,
+  STUDENT_DISCOUNT,
+  TRIAL_DAYS,
+  isCurrency,
+  pct,
+  type Currency,
+  type PaidPersonalPlan,
+  type Period,
+} from "@/lib/pricing";
 import type { Faq } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
@@ -31,7 +42,9 @@ import { siteConfig } from "@/lib/site";
  * `pricing.ts`, never typed out, so the copy can't promise what the app
  * doesn't enforce.
  *
- * Billing isn't live yet: nothing here may imply that someone can pay today.
+ * Plans are bought per workspace, and every paid CTA is a purchase CTA: it
+ * links into checkout through `lib/checkout.ts` (`checkoutPath` /
+ * `topUpCheckoutPath`), and the words on it come from `PURCHASE` below.
  */
 
 // ── Small formatters ───────────────────────────────────────────────────────
@@ -136,19 +149,89 @@ export const FEATURED_PLAN: PersonalPlan = "pro";
 /** Pro has ~3× Plus's AI actions for 1.5× the price — "best value" is arithmetic, not hype. */
 export const FEATURED_BADGE = "Best value";
 
-// ── Billing status ─────────────────────────────────────────────────────────
+// ── Buying ─────────────────────────────────────────────────────────────────
 
-/** Checkout isn't open yet. Every paid CTA says so instead of pretending. */
-export const PAID_PLANS_STATUS = {
-  button: "Opens soon",
-  short: "Paid plans open soon.",
-  notifyLabel: "Tell me when it opens",
+/** The words on every buy button and the lines around them. */
+export const PURCHASE = {
+  /** A paid plan bought from Free — it starts with the trial. */
+  trialCta: `Start ${TRIAL_DAYS}-day free trial`,
+  topUpCta: `Buy ${count(TOPUP.actions)} AI actions`,
+  /** Under a buy button. */
+  ctaNote: "Card or UPI. Cancel any time.",
+  /** Under the plan cards, and on the checkout page. */
+  billing:
+    "Billed per workspace. Card or UPI. Cancel any time — the plan runs to the end of what you paid for.",
+  keepsEverything: "Your transactions, files and members stay exactly as they are.",
 } as const;
 
-/** A mailto that asks to hear when `plan` opens — the honest stand-in for a checkout. */
-export function notifyMeHref(plan: PersonalPlan): string {
-  const subject = `Tell me when ${PLAN_NAMES[plan]} opens`;
-  return `mailto:${siteConfig.supportEmail}?subject=${encodeURIComponent(subject)}`;
+/** A paid plan's button: the trial from Free, a straight upgrade from a paid plan. */
+export function planCta(plan: PaidPersonalPlan, currentPlan: PersonalPlan = "free"): string {
+  return trialDaysFor(currentPlan) > 0 ? PURCHASE.trialCta : `Upgrade to ${PLAN_NAMES[plan]}`;
+}
+
+/** "21 days free, then ₹1,299 billed yearly" — or just the price when there's no trial. */
+export function chargeLine(price: string, period: Period, trialDays: number): string {
+  const billed = `${price} ${PERIOD_LABEL[period].billed}`;
+  return trialDays > 0 ? `${trialDays} days free, then ${billed}` : `${billed}, starting today`;
+}
+
+/** The invoice line the payment provider prints: "SpendChat Pro · 1 year · Workspace: Home". */
+export function checkoutDescription(
+  item: { kind: "plan"; plan: PaidPersonalPlan; period: Period } | { kind: "topup" },
+  workspaceName: string,
+): string {
+  const what =
+    item.kind === "plan"
+      ? `${siteConfig.name} ${PLAN_NAMES[item.plan]} · ${PERIOD_LABEL[item.period].toggle}`
+      : `${siteConfig.name} AI top-up · ${count(TOPUP.actions)} actions`;
+  return `${what} · Workspace: ${workspaceName}`;
+}
+
+/** Why checkout can't sell this — shown on the checkout page and returned by the server. */
+export function checkoutRefusalMessage(
+  reason: CheckoutRefusal,
+  current: PersonalPlan,
+  wanted?: PersonalPlan,
+): string {
+  switch (reason) {
+    case "samePlan":
+      return `This workspace is already on ${PLAN_NAMES[current]}.`;
+    case "downgrade":
+      return `This workspace is on ${PLAN_NAMES[current]}, which already includes everything in ${PLAN_NAMES[wanted ?? current]}.`;
+    case "topUpNeedsPlan":
+      return `Top-ups are for ${plansWith("topUps")} workspaces. Upgrade this one first — its monthly AI actions go up too.`;
+  }
+}
+
+export type PlanChange = { label: string; from?: string; to: string };
+
+/**
+ * What a move from `from` to `to` changes the moment it happens — only what
+ * goes up, read straight from `PLAN_LIMITS`. Numbers show "3 → 5"; a feature
+ * the plan adds shows "Included".
+ */
+export function planChanges(from: PersonalPlan, to: PersonalPlan): PlanChange[] {
+  const a = L[from];
+  const b = L[to];
+  const out: PlanChange[] = [];
+  const num = (label: string, x: number, y: number, fmt: (n: number) => string = count) => {
+    if (y > x) out.push({ label, from: fmt(x), to: fmt(y) });
+  };
+  const flag = (label: string, x: boolean, y: boolean) => {
+    if (y && !x) out.push({ label, to: "Included" });
+  };
+  num("People in the workspace", a.members, b.members);
+  num("AI actions a month", a.aiActionsPerMonth, b.aiActionsPerMonth);
+  num("Storage", a.storageBytes, b.storageBytes, formatPlanStorage);
+  num("Spaces", a.spaces, b.spaces);
+  num("Profiles in each space", a.profilesPerSpace, b.profilesPerSpace);
+  num("Categories", a.categories, b.categories);
+  num("Tags", a.tags, b.tags);
+  flag("Voice entry", a.voice, b.voice);
+  flag("Access per profile", a.profileLevelAccess, b.profileLevelAccess);
+  flag("AI top-ups", a.topUps, b.topUps);
+  flag(`Trash for files (${TRASH_DAYS} days)`, a.fileTrash, b.fileTrash);
+  return out;
 }
 
 // ── Page heroes ────────────────────────────────────────────────────────────
@@ -318,8 +401,8 @@ export const NOTHING_DELETED_LINE =
 export function pricingFaqs({ selfHost = false }: { selfHost?: boolean } = {}): Faq[] {
   const faqs: Faq[] = [
     {
-      q: "When can I buy Plus or Pro?",
-      a: "Soon. Checkout isn't open yet, so nobody can be charged today. Start on Free now — when paid plans open, upgrading keeps every transaction, file and member your workspace already has.",
+      q: "How does billing work?",
+      a: `You buy a plan for a workspace, from Plans in the app. Pay every month, every 3 months or once a year, by card or UPI. A workspace's first paid plan starts with a ${TRIAL_DAYS}-day free trial. Upgrading keeps every transaction, file and member the workspace already has. Cancel or move to a smaller plan any time: the change takes effect at renewal, the plan runs to the end of what you paid for, and nothing is ever deleted.`,
     },
     {
       q: "Is a plan for me, or for a workspace?",
@@ -335,7 +418,7 @@ export function pricingFaqs({ selfHost = false }: { selfHost?: boolean } = {}): 
     },
     {
       q: "How does the free trial work?",
-      a: `Every paid plan starts with ${TRIAL_DAYS} days free, with everything in that plan. Cancel before the trial ends and you pay nothing.`,
+      a: `A workspace's first paid plan starts with ${TRIAL_DAYS} days free, with everything in that plan. You add a card or UPI to start it, and if you cancel before the trial ends you pay nothing. Each workspace gets one trial.`,
     },
     {
       q: "Is there a student discount?",

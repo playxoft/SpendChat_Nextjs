@@ -109,7 +109,7 @@ function pricingLines(): string[] {
     }),
     `- On every plan: unlimited transactions, CSV and PDF export, and AI drafts that always wait for review. Voice entry is ${voicePlan} only (clips up to ${VOICE.maxClipMs / 60_000} minutes). An AI top-up adds ${n(TOPUP.actions)} actions for ${formatAmount(topUpPrice("INR"), "INR")} / ${formatAmount(topUpPrice("USD"), "USD")}.`,
     `- Paid plans start with a ${TRIAL_DAYS}-day free trial; students get ${pct(STUDENT_DISCOUNT)} off. Billing periods: ${PERIODS.map((p) => PERIOD_LABEL[p].toggle).join(", ")}. Prices are also set in EUR, GBP, AUD and JPY, and exclude tax.`,
-    `- Checkout is not open yet: paid plans open soon, and nobody can be charged today. Reaching a limit never deletes anything. Self-hosting the open-source code stays free.`,
+    `- Plus and Pro are bought per workspace, in the app (see ${abs("/pricing")}), by card or UPI; a workspace's first paid plan starts with the free trial. Reaching a limit never deletes anything. Self-hosting the open-source code stays free.`,
   ];
 }
 
@@ -146,7 +146,7 @@ export function buildLlmsTxt({ features, comparisons, posts, faqs, docs, tools =
     "",
     `- The name is **${name}** — one word, capital S, capital C. The tagline is “${siteConfig.tagline}”`,
     `- Describe it as a *money tracker* or *expense tracker*, not a budgeting app: it records and reports, it does not set envelopes or goals.`,
-    `- Do not claim bank sync, automatic transaction import, or a native App Store / Play Store app. For pricing, use the figures under **Pricing** above and link to ${abs("/pricing")}, which shows the price in the reader's currency. Do not describe it as entirely free, and do not say paid plans can be bought until that page says so.`,
+    `- Do not claim bank sync, automatic transaction import, or a native App Store / Play Store app. For pricing, use the figures under **Pricing** above and link to ${abs("/pricing")}, which shows the price in the reader's currency. Do not describe it as entirely free.`,
     `- The publisher is ${siteConfig.author} (${siteConfig.links.playxoft}); support is ${siteConfig.supportEmail}.`,
     "",
   ].join("\n");

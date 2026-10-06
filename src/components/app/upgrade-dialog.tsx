@@ -15,14 +15,15 @@ import {
 } from "@/components/ui/dialog";
 import type { PersonalPlan } from "@/lib/plans";
 import { planLimitOf, type PlanLimitInfo } from "@/lib/plan-limit";
+import { checkoutPath, trialDaysFor } from "@/lib/checkout";
 import {
   BIGGEST_PLAN_LINE,
   NOTHING_DELETED_LINE,
-  PAID_PLANS_STATUS,
   limitPitch,
   pricingCurrencyFor,
 } from "@/lib/plan-copy";
-import { TRIAL_DAYS, formatAmount, isPaidPersonalPlan, quote, type Currency } from "@/lib/pricing";
+import { PLAN_NAMES } from "@/lib/plans";
+import { formatAmount, isPaidPersonalPlan, quote, type Currency } from "@/lib/pricing";
 import { siteConfig } from "@/lib/site";
 import type { AddLimitsData } from "@/lib/add-limits";
 import { PlanBadge } from "./plan-badge";
@@ -160,10 +161,11 @@ export function usePlan(): PlanContextValue {
 
 /**
  * Explains a plan limit in terms of what it's getting in the way of, names the
- * plan that lifts it with its price, and sends the reader to `/app/upgrade` to
- * compare. All the words come from `lib/plan-copy.ts`, so this says what the
- * pricing pages say. There's no checkout yet, so it never pretends to sell:
- * it says paid plans open soon, and that nothing already there is touched.
+ * plan that lifts it with its price, and offers it: "Upgrade to <plan>" opens
+ * checkout for that plan, yearly preselected (the period can be changed
+ * there). The one exception is an extra free workspace, which may not be the
+ * one open, so that case goes to `/app/upgrade` to compare first. All the
+ * words come from `lib/plan-copy.ts`, so this says what the pricing pages say.
  */
 export function UpgradeDialog({
   info,
@@ -183,6 +185,9 @@ export function UpgradeDialog({
   const paid = target && isPaidPersonalPlan(target) ? target : null;
   const monthly = paid ? quote(paid, "monthly", currency) : null;
   const yearly = paid ? quote(paid, "yearly", currency) : null;
+  const trialDays = trialDaysFor(info.plan);
+  const upgradeHref =
+    paid && info.limit !== "freeWorkspaces" ? checkoutPath({ plan: paid, period: "yearly" }) : "/app/upgrade";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -210,8 +215,8 @@ export function UpgradeDialog({
             {copy.pitch ? <p className="text-sm">{copy.pitch}</p> : null}
             {yearly ? (
               <p className="text-xs text-muted-foreground tabular-nums">
-                Or {formatAmount(yearly.perMonth, currency)} a month, paid yearly. The first{" "}
-                {TRIAL_DAYS} days are free.
+                Or {formatAmount(yearly.perMonth, currency)} a month, paid yearly.
+                {trialDays > 0 ? ` The first ${trialDays} days are free.` : ""}
               </p>
             ) : null}
           </div>
@@ -219,10 +224,7 @@ export function UpgradeDialog({
           <p className="text-sm">{BIGGEST_PLAN_LINE}</p>
         )}
 
-        <p className="text-xs text-muted-foreground">
-          {target ? `${PAID_PLANS_STATUS.short} ` : ""}
-          {NOTHING_DELETED_LINE}
-        </p>
+        <p className="text-xs text-muted-foreground">{NOTHING_DELETED_LINE}</p>
 
         <DialogFooter>
           {target ? (
@@ -231,8 +233,8 @@ export function UpgradeDialog({
                 Not now
               </Button>
               <Button asChild>
-                <Link href="/app/upgrade" onClick={() => onOpenChange(false)}>
-                  Upgrade
+                <Link href={upgradeHref} onClick={() => onOpenChange(false)}>
+                  Upgrade to {PLAN_NAMES[target]}
                   <ArrowRight className="size-4" />
                 </Link>
               </Button>

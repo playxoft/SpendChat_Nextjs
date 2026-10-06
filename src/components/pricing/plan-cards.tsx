@@ -1,17 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, Check, Info, Mail, Server, Sparkles, Timer, Users, Zap } from "lucide-react";
+import { ArrowRight, Check, Info, Server, ShieldCheck, Sparkles, Timer, Users, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { PERSONAL_PLANS, PLAN_NAMES, TOPUP, planAtLeast, type PersonalPlan } from "@/lib/plans";
+import { PERSONAL_PLANS, PLAN_LIMITS, PLAN_NAMES, TOPUP, planAtLeast, type PersonalPlan } from "@/lib/plans";
+import { checkoutPath, topUpCheckoutPath } from "@/lib/checkout";
+import { withNext } from "@/lib/next-path";
 import {
   FEATURED_BADGE,
   FEATURED_PLAN,
-  PAID_PLANS_STATUS,
   PLAN_PITCH,
+  PURCHASE,
   count,
-  notifyMeHref,
+  planCta,
   plansWith,
 } from "@/lib/plan-copy";
 import {
@@ -35,8 +37,9 @@ import { PricingControls, usePricingState } from "./pricing-state";
  * up) and the in-app `/app/upgrade` page (`currentPlan` set: that card is
  * marked, and nothing offers a downgrade).
  *
- * Checkout isn't open yet, so a paid card never pretends to sell: its button
- * says the plan opens soon, and the one live action is asking to be told when.
+ * A paid card's button buys that plan for the period and currency on screen:
+ * in the app it goes straight to checkout (`checkoutPath`); on the public page
+ * it goes through sign-up, which hands the visitor on to the same checkout.
  */
 export function PlanCards({ currentPlan }: { currentPlan?: PersonalPlan }) {
   const { period, currency } = usePricingState();
@@ -58,6 +61,11 @@ export function PlanCards({ currentPlan }: { currentPlan?: PersonalPlan }) {
           <PlanCard key={id} id={id} period={period} currency={currency} currentPlan={currentPlan} />
         ))}
       </div>
+
+      <p className="mx-auto flex max-w-xl items-start justify-center gap-1.5 text-center text-xs text-muted-foreground">
+        <ShieldCheck className="mt-px size-3.5 shrink-0" />
+        {PURCHASE.billing}
+      </p>
     </div>
   );
 }
@@ -142,7 +150,7 @@ function PlanCard({
         </div>
       </div>
 
-      <PlanAction id={id} currentPlan={currentPlan} featured={featured} />
+      <PlanAction id={id} period={period} currency={currency} currentPlan={currentPlan} featured={featured} />
 
       <div className="my-6 h-px bg-border" />
 
@@ -164,10 +172,14 @@ const ctaClass = "h-11 w-full gap-2 rounded-xl text-sm";
 /** The card's button — the only place a plan card can be acted on. */
 function PlanAction({
   id,
+  period,
+  currency,
   currentPlan,
   featured,
 }: {
   id: PersonalPlan;
+  period: Period;
+  currency: Currency;
   currentPlan?: PersonalPlan;
   featured: boolean;
 }) {
@@ -183,7 +195,7 @@ function PlanAction({
     );
   }
 
-  // Public Free card: the one real sign-up on the page.
+  // Public Free card: the one plain sign-up on the page.
   if (!isPaidPersonalPlan(id)) {
     return (
       <div className="mt-2">
@@ -201,32 +213,46 @@ function PlanAction({
     );
   }
 
-  // A paid plan, before checkout exists: say so, and offer the one honest action.
+  // A paid plan: buy it. In the app, straight to checkout for this workspace;
+  // on the public page, through sign-up (a signed-in visitor is sent straight on).
+  const checkout = checkoutPath({ plan: id, period, currency });
+  const href = currentPlan ? checkout : withNext("/sign-up", checkout);
   return (
     <div className="mt-2">
-      <Button type="button" variant={featured ? "default" : "outline"} disabled className={ctaClass}>
-        {PAID_PLANS_STATUS.button}
-      </Button>
-      <p className="mt-2 min-h-5 text-center text-xs">
-        <a
-          href={notifyMeHref(id)}
-          className="inline-flex items-center gap-1 text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+      <Button asChild variant={featured ? "default" : "outline"} className={ctaClass}>
+        <Link
+          href={href}
           data-track-event="cta_click"
-          data-track-params={JSON.stringify({ location: `pricing_${id}_plan`, label: "notify_me" })}
+          data-track-params={JSON.stringify({ location: `pricing_${id}_plan`, label: "checkout", period })}
         >
-          <Mail className="size-3" /> {PAID_PLANS_STATUS.notifyLabel}
-        </a>
-      </p>
+          {planCta(id, currentPlan)} <ArrowRight className="size-4" />
+        </Link>
+      </Button>
+      <p className="mt-2 min-h-5 text-center text-xs text-muted-foreground">{PURCHASE.ctaNote}</p>
     </div>
   );
 }
 
 /**
  * The extras under the cards: AI top-ups (paid plans) and, on the public page,
- * self-hosting.
+ * self-hosting. The top-up is bought from checkout too — in the app when the
+ * workspace's plan includes top-ups (`currentPlan`), and on the public page
+ * through sign-in, since whoever buys one already has a paid workspace.
  */
-export function PricingExtras({ selfHost = false }: { selfHost?: boolean }) {
+export function PricingExtras({
+  selfHost = false,
+  currentPlan,
+}: {
+  selfHost?: boolean;
+  /** Set in the app: the workspace's plan, which decides whether a top-up can be bought. */
+  currentPlan?: PersonalPlan;
+}) {
   const { currency } = usePricingState();
+  const topUpHref = currentPlan
+    ? PLAN_LIMITS[currentPlan].topUps
+      ? topUpCheckoutPath({ currency })
+      : null
+    : withNext("/sign-in", topUpCheckoutPath({ currency }));
   return (
     <div className={cn("mx-auto mt-4 grid max-w-6xl gap-5", selfHost && "md:grid-cols-2")}>
       <Extra
@@ -234,6 +260,19 @@ export function PricingExtras({ selfHost = false }: { selfHost?: boolean }) {
         title="AI top-up"
         price={`${formatAmount(topUpPrice(currency), currency)} for ${count(TOPUP.actions)} more AI actions`}
         body={`Ran out on the 12th? On ${plansWith("topUps")}, a top-up carries you to the end of the month and stays valid for ${TOPUP.validityMonths} months. Typing entries yourself is never counted.`}
+        action={
+          topUpHref ? (
+            <Button asChild variant="outline" size="sm" className="mt-4 gap-1.5 rounded-lg">
+              <Link
+                href={topUpHref}
+                data-track-event="cta_click"
+                data-track-params={JSON.stringify({ location: "pricing_topup", label: "checkout" })}
+              >
+                {PURCHASE.topUpCta} <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
+          ) : null
+        }
       />
       {selfHost ? (
         <Extra
@@ -254,12 +293,15 @@ function Extra({
   price,
   body,
   href,
+  action,
 }: {
   icon: React.ReactNode;
   title: string;
   price: string;
   body: string;
   href?: string;
+  /** A button under the text; only on a box that isn't itself a link. */
+  action?: React.ReactNode;
 }) {
   const inner = (
     <>
@@ -274,6 +316,7 @@ function Extra({
       </div>
       <p className="mt-3 text-sm font-medium tabular-nums">{price}</p>
       <p className="mt-1 text-sm text-muted-foreground">{body}</p>
+      {href ? null : action}
     </>
   );
   const cls = "group rounded-2xl border bg-card p-5 transition-colors";

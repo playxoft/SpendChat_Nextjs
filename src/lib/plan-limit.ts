@@ -15,9 +15,8 @@ import {
  * `PLAN_LIMITS` the server enforces, so the dialog can't promise something the
  * plan doesn't include.
  *
- * Billing doesn't exist yet, so nothing here links to a checkout: the dialog
- * explains the limit, names the plan that lifts it, and says paid plans are
- * coming soon.
+ * The dialog explains the limit, names the plan that lifts it, and links to
+ * checkout for that plan (`lib/checkout.ts`).
  */
 
 /** Mirrors `PlanLimitKey` in `lib/errors.ts` (kept here so this file stays client-safe). */

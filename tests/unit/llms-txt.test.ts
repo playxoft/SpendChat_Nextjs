@@ -155,7 +155,8 @@ describe("buildLlmsTxt", () => {
     expect(out).toContain(`${PLAN_LIMITS.free.aiActionsPerMonth} AI actions a month`);
     expect(out).toContain("Plans belong to a **workspace**");
     expect(out).toContain("Voice entry is Pro only");
-    expect(out).toContain("Checkout is not open yet");
+    expect(out).toContain("bought per workspace, in the app");
+    expect(out).not.toMatch(/\bsoon\b|not open yet|can be charged/i);
     expect(out).not.toMatch(/say it is free/i);
     expect(out).not.toMatch(/no paid tier/i);
   });

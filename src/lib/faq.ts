@@ -1,5 +1,6 @@
 import { PLAN_LIMITS, PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
 import { formatPlanStorage } from "@/lib/plan-limit";
+import { TRIAL_DAYS } from "@/lib/pricing";
 
 export type Faq = { q: string; a: string };
 
@@ -20,7 +21,7 @@ const storage = (plan: keyof typeof PLAN_LIMITS) => formatPlanStorage(L[plan].st
 export const faqs: Faq[] = [
   {
     q: "Is SpendChat free to use?",
-    a: `Yes. The Free plan has no time limit and no ads: unlimited income and expense transactions, filters, CSV and PDF export, and ${n(L.free.aiActionsPerMonth)} AI actions a month. Paid plans — Plus and Pro, opening soon — add more AI, voice entry, storage and room for more people. A plan covers a whole workspace.`,
+    a: `Yes. The Free plan has no time limit and no ads: unlimited income and expense transactions, filters, CSV and PDF export, and ${n(L.free.aiActionsPerMonth)} AI actions a month. Paid plans — Plus and Pro, each with a ${TRIAL_DAYS}-day free trial — add more AI, voice entry, storage and room for more people. A plan covers a whole workspace.`,
   },
   {
     q: "How do I add a transaction?",

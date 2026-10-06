@@ -22,7 +22,8 @@ export const metadata: Metadata = {
  * used, and what Plus and Pro would change — the place every upgrade prompt
  * ("Upgrade") lands. Same cards, table and words as the public `/pricing`
  * (`components/pricing`, `lib/plan-copy`), priced in the workspace's currency
- * when we sell in it. Checkout isn't open yet, so nothing here takes money.
+ * when we sell in it. Each paid card's button opens checkout for this
+ * workspace (`/app/upgrade/checkout`).
  */
 export default async function UpgradePage() {
   const { workspace } = await getAppContext();
@@ -60,7 +61,7 @@ export default async function UpgradePage() {
           ) : null}
           <div className="mt-6">
             <PlanCards currentPlan={plan} />
-            <PricingExtras />
+            <PricingExtras currentPlan={plan} />
           </div>
         </section>
 

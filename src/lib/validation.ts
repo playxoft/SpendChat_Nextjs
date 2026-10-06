@@ -1,5 +1,13 @@
 import { z } from "zod";
 import { CURRENCY_CODES } from "./currencies";
+import {
+  CURRENCIES,
+  PAID_PERSONAL_PLANS,
+  PERIODS,
+  type Currency,
+  type PaidPersonalPlan,
+  type Period,
+} from "./pricing";
 
 export const txnTypeSchema = z.enum(["income", "expense"]);
 
@@ -186,12 +194,12 @@ export type BulkUpdateTransactionsInput = z.input<typeof bulkUpdateTransactionsS
 
 /**
  * Per-file size cap and per-transaction count cap — the single source of truth,
- * enforced on both the upload route and the client dropzone. Deliberately not
- * plan-gated (the app has no paid tier today); keeping them as named constants
- * means a future plan could raise them in one place.
+ * enforced on both the upload route and the client dropzone. Deliberately the
+ * same on every plan; keeping them as named constants means a plan could raise
+ * them in one place.
  */
 export const ATTACHMENT_MAX_BYTES = 5 * 1024 * 1024; // 5 MB
-// 2 today; a future paid plan would raise this (it's read everywhere from here).
+// 2 on every plan; a plan that raised it would do so here (it's read everywhere from here).
 export const ATTACHMENT_MAX_PER_TRANSACTION = 2;
 /** Optional per-file display name/label. Not mandatory; falls back to fileName. */
 export const ATTACHMENT_LABEL_MAX = 80;
@@ -1028,3 +1036,22 @@ export const inviteTokenSchema = z
   .string()
   .regex(/^[A-Za-z0-9_-]{16,128}$/, "That invite link isn't valid");
 
+
+/**
+ * What `startCheckout` (`services/billing.ts`) is asked to sell: a Plus or Pro
+ * plan for a billing period, or one AI top-up. Never a price — the server reads
+ * that from `lib/pricing.ts`. `currency` only picks which price list.
+ */
+export const startCheckoutSchema = z.discriminatedUnion("item", [
+  z.object({
+    item: z.literal("plan"),
+    plan: z.enum(PAID_PERSONAL_PLANS as readonly [PaidPersonalPlan, ...PaidPersonalPlan[]]),
+    period: z.enum(PERIODS as readonly [Period, ...Period[]]),
+    currency: z.enum(CURRENCIES.map((c) => c.code) as [Currency, ...Currency[]]).optional(),
+  }),
+  z.object({
+    item: z.literal("topup"),
+    currency: z.enum(CURRENCIES.map((c) => c.code) as [Currency, ...Currency[]]).optional(),
+  }),
+]);
+export type StartCheckoutInput = z.infer<typeof startCheckoutSchema>;

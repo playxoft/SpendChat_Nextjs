@@ -2,19 +2,27 @@ import { describe, it, expect } from "vitest";
 import {
   LIMIT_PITCH,
   PLAN_PITCH,
+  PURCHASE,
+  chargeLine,
+  checkoutDescription,
+  checkoutRefusalMessage,
   count,
   limitPitch,
-  notifyMeHref,
+  planChanges,
+  planCta,
   plansWith,
   pricingCurrencyFor,
   pricingFaqs,
 } from "@/lib/plan-copy";
 import { PLAN_LIMIT_KEYS, formatPlanStorage, type PlanLimitInfo } from "@/lib/plan-limit";
-import { PERSONAL_PLANS, PLAN_LIMITS, PLAN_NAMES, planAtLeast, type PersonalPlan } from "@/lib/plans";
-import { siteConfig } from "@/lib/site";
+import { PERSONAL_PLANS, PLAN_LIMITS, PLAN_NAMES, TOPUP, planAtLeast } from "@/lib/plans";
+import { TRIAL_DAYS } from "@/lib/pricing";
 
 /** The words the copy must never use: guilt, fake urgency, or a checkout that doesn't exist. */
 const BANNED = [/!/, /\bhurry\b/i, /\blimited time\b/i, /\bbuy now\b/i, /\bfree forever\b/i, /\beverything included\b/i];
+
+/** Paid plans are on sale: nothing may say they're coming, or that nobody can pay. */
+const NOT_YET = [/\bsoon\b/i, /not open yet/i, /isn't open/i, /can be charged/i, /tell me when/i, /not on sale/i, /isn't live/i];
 
 function allStrings(value: unknown): string[] {
   if (typeof value === "string") return [value];
@@ -120,7 +128,18 @@ describe("pricingFaqs", () => {
     expect(text).toMatch(/nothing is deleted/i);
     expect(text).toMatch(/trial/i);
     expect(text).toMatch(/student/i);
-    expect(text).toMatch(/checkout isn't open yet/i);
+    expect(text).toMatch(/how does billing work/i);
+    expect(text).toMatch(/card or UPI/i);
+    expect(text).toContain(`${TRIAL_DAYS}-day free trial`);
+  });
+
+  it("talks about paid plans as on sale today", () => {
+    for (const f of pricingFaqs({ selfHost: true })) {
+      for (const re of NOT_YET) {
+        expect(f.q).not.toMatch(re);
+        expect(f.a).not.toMatch(re);
+      }
+    }
   });
 
   it("adds the self-hosting question only when asked", () => {
@@ -144,9 +163,58 @@ describe("helpers", () => {
     expect(plansWith("profileLevelAccess")).toBe("Plus and Pro");
   });
 
-  it("builds a notify-me mailto to support, never a checkout link", () => {
-    const href = notifyMeHref("plus" as PersonalPlan);
-    expect(href.startsWith(`mailto:${siteConfig.supportEmail}?subject=`)).toBe(true);
-    expect(decodeURIComponent(href)).toContain("Plus");
+});
+
+describe("purchase copy", () => {
+  it("never says paid plans are coming, and stays in the agreed register", () => {
+    for (const str of allStrings(PURCHASE)) {
+      for (const re of [...NOT_YET, ...BANNED]) expect(str).not.toMatch(re);
+    }
+  });
+
+  it("offers the trial from Free and a straight upgrade from a paid plan", () => {
+    expect(planCta("plus")).toBe(`Start ${TRIAL_DAYS}-day free trial`);
+    expect(planCta("pro", "free")).toBe(`Start ${TRIAL_DAYS}-day free trial`);
+    expect(planCta("pro", "plus")).toBe("Upgrade to Pro");
+    expect(PURCHASE.topUpCta).toContain(count(TOPUP.actions));
+  });
+
+  it("says what is charged and when", () => {
+    expect(chargeLine("₹1,299", "yearly", TRIAL_DAYS)).toBe(`${TRIAL_DAYS} days free, then ₹1,299 billed yearly`);
+    expect(chargeLine("$5.99", "monthly", 0)).toBe("$5.99 billed monthly, starting today");
+  });
+
+  it("names the plan, the period and the workspace on the invoice line", () => {
+    const d = checkoutDescription({ kind: "plan", plan: "pro", period: "yearly" }, "Home");
+    expect(d).toContain("Pro");
+    expect(d).toContain("1 year");
+    expect(d).toContain("Workspace: Home");
+    expect(checkoutDescription({ kind: "topup" }, "Shop")).toContain(count(TOPUP.actions));
+  });
+
+  it("explains each refusal in words", () => {
+    expect(checkoutRefusalMessage("samePlan", "plus")).toContain("already on Plus");
+    expect(checkoutRefusalMessage("downgrade", "pro", "plus")).toContain("everything in Plus");
+    expect(checkoutRefusalMessage("topUpNeedsPlan", "free")).toContain(plansWith("topUps"));
+  });
+});
+
+describe("planChanges", () => {
+  it("lists only what goes up, read from PLAN_LIMITS", () => {
+    const changes = planChanges("free", "plus");
+    const members = changes.find((c) => c.label === "People in the workspace");
+    expect(members).toEqual({
+      label: "People in the workspace",
+      from: count(PLAN_LIMITS.free.members),
+      to: count(PLAN_LIMITS.plus.members),
+    });
+    expect(changes.find((c) => c.label === "Storage")?.to).toBe(formatPlanStorage(PLAN_LIMITS.plus.storageBytes));
+    expect(changes.some((c) => c.label === "Voice entry")).toBe(PLAN_LIMITS.plus.voice);
+  });
+
+  it("adds voice on the way to Pro, and nothing when the plan doesn't change", () => {
+    expect(planChanges("plus", "pro").some((c) => c.label === "Voice entry")).toBe(true);
+    expect(planChanges("pro", "pro")).toEqual([]);
+    expect(planChanges("pro", "free")).toEqual([]);
   });
 });

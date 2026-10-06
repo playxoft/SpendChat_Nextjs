@@ -17,11 +17,11 @@ import { createMetadata, faqJsonLd } from "@/lib/seo";
 /**
  * The pricing page — Free, Plus and Pro, priced per workspace. Limits come
  * from `@/lib/plans`, prices from `@/lib/pricing` and every sentence from
- * `@/lib/plan-copy`, the same files the app enforces, will charge from, and
+ * `@/lib/plan-copy`, the same files the app enforces, charges from, and
  * uses in its own upgrade page — so the three can't disagree.
  *
- * Checkout isn't open yet: the paid cards say so, and nothing on the page
- * takes money.
+ * Each paid card's button starts that plan's trial: it goes through sign-up
+ * to checkout in the app, where the price is charged from the same list.
  */
 export const metadata = createMetadata({
   title: "Pricing — Free Expense Tracker, Plus and Pro Plans",

@@ -38,7 +38,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   and its limits are shared by everyone in it: members (3 / 5 / 10), spaces
   (2 / 6 / 15), profiles per space (3 / 5 / 10), categories (20 / 30 / 50,
   the starters included), tags (5 / 10 / 20), storage (1 / 5 / 20 GB) and AI
-  actions a month (50 / 300 / 1,000). Paid plans aren't on sale yet.
+  actions a month (50 / 300 / 1,000). Upgrade any workspace from the app, with
+  a 21-day free trial.
 - **You see a limit before you hit it.** A "New space", "New profile", "Add
   tag", "Add category", "Create workspace" or "Invite" control that's at its
   limit carries a lock; hover it for what's full and which plan lifts it. Its
@@ -46,8 +47,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   in a form only to be refused. Renaming and editing are never locked.
 - **Upgrade page** in the app (user menu or Settings → Upgrade): your
   workspace's plan, what's used, and the three plans side by side for 1 month,
-  3 months or a year. Paid plans open soon — the page says so plainly and
-  offers to tell you when.
+  3 months or a year, each one a click from checkout. A checkout page sums up
+  the order — the workspace, the plan, the price and the free trial — before
+  you pay.
 - **Pricing page** at /pricing with real prices in your currency, what each
   plan solves, a full comparison and the FAQ.
 - **Plan & usage** card in workspace settings: AI actions used this month and

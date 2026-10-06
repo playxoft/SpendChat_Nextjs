@@ -341,8 +341,8 @@ export async function assertVoiceAllowed(workspaceId: string): Promise<void> {
 
 /**
  * One free workspace per person (abuse rule C5). Creating another workspace
- * needs a paid plan for it — until checkout exists (personal phase 9) that
- * means the request is refused with an upgrade prompt.
+ * needs a paid plan for it, so the request is refused with an upgrade prompt
+ * that leads to the plans and checkout.
  */
 export async function assertCanCreateFreeWorkspace(userId: string): Promise<void> {
   const db = getDb();
