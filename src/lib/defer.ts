@@ -31,9 +31,11 @@ import { runWithRequestCache } from "@/lib/request-cache";
  * Every error is caught and logged — the write it follows has already
  * succeeded and must stay that way.
  *
- * Outside a request (`after()` throws: tests, scripts) the task is queued and
- * runs when `settleDeferred()` is called. The integration suite drains the
- * queue after every test; nothing else in the app writes outside a request.
+ * When `after()` isn't available (it throws outside a request scope) the task
+ * is **dropped**, with a `defer.unavailable` warning — never queued somewhere
+ * nobody drains. The one exception is the test runner (`VITEST`, and no
+ * Cloudflare context), where it queues and runs when `settleDeferred()` is
+ * called; the integration suite drains the queue after every test.
  */
 
 const queue: (() => Promise<void>)[] = [];
@@ -71,12 +73,19 @@ export function afterResponse(name: string, task: () => Promise<void>): void {
   };
   try {
     after(run);
-  } catch {
-    queue.push(run);
+  } catch (err) {
+    if (process.env.VITEST && !hadCloudflare) {
+      queue.push(run);
+      return;
+    }
+    logger.warn(`The ${name} was dropped because after() isn't available here: ${describeError(err)}`, {
+      event: "defer.unavailable",
+      task: name,
+    });
   }
 }
 
-/** Run every task queued outside a request, in order — for tests and scripts. */
+/** Run every task queued outside a request, in order — the test runner only. */
 export async function settleDeferred(): Promise<void> {
   while (queue.length > 0) {
     await queue.shift()!();

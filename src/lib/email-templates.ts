@@ -759,7 +759,7 @@ export function budgetAlertEmail(input: BudgetAlertEmailInput): RenderedEmail {
     ),
     button("Open budgets", href),
     paragraph(
-      "You'll hear about each budget at most twice a month: once at 80% and once at 100%.",
+      "You hear about each budget once at 80% and once at 100% each month — again only if its amount is raised.",
       { muted: true },
     ),
   ];

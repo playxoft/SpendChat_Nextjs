@@ -238,8 +238,13 @@ export async function countCategories(workspaceId: string): Promise<number> {
   return row?.n ?? 0;
 }
 
-export async function countBudgets(workspaceId: string): Promise<number> {
-  const [row] = await getDb()
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+export async function countBudgets(
+  workspaceId: string,
+  db: Pick<ReturnType<typeof getDb>, "select"> = getDb(),
+): Promise<number> {
+  const [row] = await db
     .select({ n: count() })
     .from(budgets)
     .where(eq(budgets.workspaceId, workspaceId));
@@ -329,14 +334,28 @@ export async function assertCanAddTag(workspaceId: string): Promise<void> {
 }
 
 /**
- * Room for one more budget. Budgets are the object-shaped limit: Free and Plus
- * name their number and the plan above; Pro shows "Unlimited", and its safety
- * cap (200) answers "contact us" (`upgradeTo: null`) rather than "upgrade".
+ * Advisory-lock namespace for adding a budget — distinct from every other one
+ * (the list is beside `BUDGET_ALERT_LOCK_NAMESPACE` in `email-quota.ts`).
  */
-export async function assertCanAddBudget(workspaceId: string): Promise<void> {
-  const ent = await getWorkspaceEntitlements(workspaceId);
+const BUDGET_ADD_LOCK_NAMESPACE = 80;
+
+/**
+ * Room for one more budget, inside the caller's transaction and under a
+ * per-workspace lock, so two adds racing for the last place can't both take it
+ * (the other caps accept overshooting by one; this one is cheap to make exact,
+ * since an add is rare and the lock is held for one count and one insert).
+ * `ent` is read by the caller *before* its transaction opens.
+ *
+ * Budgets are the object-shaped limit: Free and Plus name their number and the
+ * plan above; Pro shows "Unlimited", and its safety cap (200) answers "contact
+ * us" (`upgradeTo: null`) rather than "upgrade".
+ */
+export async function assertCanAddBudget(tx: Tx, ent: WorkspaceEntitlements): Promise<void> {
   assertWritable(ent);
-  const used = await countBudgets(workspaceId);
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(${BUDGET_ADD_LOCK_NAMESPACE}, hashtext(${ent.workspaceId}))`,
+  );
+  const used = await countBudgets(ent.workspaceId, tx);
   const max = ent.limits.budgets.max;
   if (used + 1 <= max) return;
   throw planLimit(budgetCapMessage(ent.plan, max), {

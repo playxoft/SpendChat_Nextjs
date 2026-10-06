@@ -1,9 +1,9 @@
 import "server-only";
 import { cache } from "react";
-import { and, eq, notInArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { budgetAlerts, budgets, categories, profiles } from "@/db/schema";
+import { budgets, categories, profiles } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
 import { getMonthExpenseMatrix } from "@/lib/budget-spend";
 import {
@@ -13,12 +13,9 @@ import {
   canSeeBudget,
   compareBudgets,
   countAlerts,
-  currentMonthKeys,
   manageableScopes,
-  monthBounds,
   percentUsed,
   spentFor,
-  thresholdsMet,
   type BudgetPeriod,
   type BudgetScope,
   type BudgetStatus,
@@ -26,9 +23,10 @@ import {
   type BudgetViewer,
   type ManageableScopes,
 } from "@/lib/budgets";
-import { assertCanAddBudget } from "@/lib/entitlements";
+import { assertCanAddBudget, getWorkspaceEntitlements } from "@/lib/entitlements";
 import { conflict, forbidden, isUniqueViolation, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
+import { getCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
 import { createBudgetSchema, updateBudgetSchema } from "@/lib/validation";
 import {
@@ -74,8 +72,13 @@ export type BudgetView = {
   /** Whole percent used, rounded down; can pass 100. */
   percent: number;
   status: BudgetStatus;
-  /** The caller can change or delete it. */
+  /** The caller can change it (never in a view-only workspace). */
   canManage: boolean;
+  /**
+   * The caller can delete it — like `canManage`, but still true in a view-only
+   * workspace, where removing stays open.
+   */
+  canDelete: boolean;
 };
 
 export type BudgetAccess = BudgetViewer & {
@@ -191,6 +194,7 @@ async function listBudgetsUncached(
         percent: percentUsed(spentMinor, row.amountMinor),
         status: budgetStatus(spentMinor, row.amountMinor),
         canManage: !access.readOnly && canManageBudget(row, access),
+        canDelete: canManageBudget(row, access),
       };
     })
     .sort(compareBudgets);
@@ -236,6 +240,20 @@ function manageError(target: BudgetTarget) {
   );
 }
 
+/**
+ * The amount in the workspace's minor units — refused when it rounds to
+ * nothing (0.001, or 0.4 in yen), which the schema's `> 0` would otherwise
+ * turn into a 500.
+ */
+function budgetMinorUnits(amount: number, money: { currency: string; locale: string }): number {
+  const minor = toMinorUnits(amount, money.currency, money.locale);
+  if (minor <= 0) {
+    const smallest = 1 / 10 ** getCurrency(money.currency).decimals;
+    throw validationError(`The amount must be at least ${smallest} ${money.currency}`);
+  }
+  return minor;
+}
+
 const SCOPE_TAKEN: Record<BudgetScope, string> = {
   workspace: "This workspace already has a budget for all its spending — change that one instead",
   profile: "This profile already has a budget — change that one instead",
@@ -246,7 +264,8 @@ const SCOPE_TAKEN: Record<BudgetScope, string> = {
  * Add a budget. In order: the input; what it covers belongs to this workspace
  * (a profile the caller can't see reads as invalid, like a stranger's); the
  * workspace isn't view-only; the caller may manage that scope; the plan has
- * room (`assertCanAddBudget`); and nothing covers that scope yet.
+ * room (`assertCanAddBudget`, under a lock, in the insert's transaction); and
+ * nothing covers that scope yet.
  */
 export async function createBudget(
   userId: string,
@@ -260,10 +279,12 @@ export async function createBudget(
     categoryId: data.scope === "category" ? data.categoryId : null,
   };
   const db = getDb();
-  const [access, money] = await Promise.all([
+  const [access, money, ent] = await Promise.all([
     budgetAccess(userId, workspaceId),
     getWorkspaceMoneyFormat(workspaceId),
+    getWorkspaceEntitlements(workspaceId),
   ]);
+  const amountMinor = budgetMinorUnits(data.amount, money);
 
   // `readable` only ever holds this workspace's profiles, so this is also the
   // "same workspace" check.
@@ -282,27 +303,30 @@ export async function createBudget(
   }
   if (access.readOnly) throw readOnlyWorkspaceError();
   if (!canManageBudget(target, access)) throw manageError(target);
-  await assertCanAddBudget(workspaceId);
 
   try {
-    const [row] = await db
-      .insert(budgets)
-      .values({
-        workspaceId,
-        scope: target.scope,
-        profileId: target.profileId,
-        categoryId: target.categoryId,
-        amountMinor: toMinorUnits(data.amount, money.currency, money.locale),
-        emailAlerts: data.emailAlerts ?? true,
-        createdBy: userId,
-      })
-      .returning({ id: budgets.id });
+    const id = await db.transaction(async (tx) => {
+      await assertCanAddBudget(tx, ent);
+      const [row] = await tx
+        .insert(budgets)
+        .values({
+          workspaceId,
+          scope: target.scope,
+          profileId: target.profileId,
+          categoryId: target.categoryId,
+          amountMinor,
+          emailAlerts: data.emailAlerts ?? true,
+          createdBy: userId,
+        })
+        .returning({ id: budgets.id });
+      return row!.id;
+    });
     logger.info(`Budget added for a ${target.scope} scope`, {
       event: "budget.created",
-      budgetId: row!.id,
+      budgetId: id,
       scope: target.scope,
     });
-    return { id: row!.id };
+    return { id };
   } catch (err) {
     if (isUniqueViolation(err)) throw conflict(SCOPE_TAKEN[target.scope]);
     throw err;
@@ -326,9 +350,9 @@ async function visibleBudget(userId: string, workspaceId: string, id: string) {
  * Change a budget's amount or its email alerts. Returns false when there's no
  * such budget the caller can see (callers answer 404).
  *
- * A new amount re-arms this month's alerts that it no longer meets: a budget
- * that alerted at 100% and is then raised to sit at 60% alerts again when it
- * passes 80% of the new amount.
+ * The alert log is left alone: a threshold that already fired this month
+ * fires again only once the amount is *above* the one it fired at
+ * (`checkBudgetAlerts`), so lowering and raising an amount can't re-send it.
  */
 export async function updateBudget(
   userId: string,
@@ -345,38 +369,12 @@ export async function updateBudget(
 
   const patch: Partial<typeof budgets.$inferInsert> = { updatedAt: new Date() };
   if (data.amount !== undefined) {
-    const money = await getWorkspaceMoneyFormat(workspaceId);
-    patch.amountMinor = toMinorUnits(data.amount, money.currency, money.locale);
+    patch.amountMinor = budgetMinorUnits(data.amount, await getWorkspaceMoneyFormat(workspaceId));
   }
   if (data.emailAlerts !== undefined) patch.emailAlerts = data.emailAlerts;
 
-  const db = getDb();
-  await db.update(budgets).set(patch).where(eq(budgets.id, id));
-  if (patch.amountMinor !== undefined && patch.amountMinor !== row.amountMinor) {
-    await rearmAlerts(workspaceId, row, patch.amountMinor);
-  }
+  await getDb().update(budgets).set(patch).where(eq(budgets.id, id));
   return true;
-}
-
-/** Forget this month's claimed alerts that `amountMinor` no longer reaches. */
-async function rearmAlerts(
-  workspaceId: string,
-  target: BudgetTarget & { id: string },
-  amountMinor: number,
-): Promise<void> {
-  const db = getDb();
-  for (const month of currentMonthKeys()) {
-    const spent = spentFor(target, await getMonthExpenseMatrix(workspaceId, month));
-    await db
-      .delete(budgetAlerts)
-      .where(
-        and(
-          eq(budgetAlerts.budgetId, target.id),
-          eq(budgetAlerts.month, monthBounds(month).first),
-          notInArray(budgetAlerts.threshold, thresholdsMet(spent, amountMinor)),
-        ),
-      );
-  }
 }
 
 /**

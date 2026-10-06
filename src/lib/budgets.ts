@@ -143,9 +143,13 @@ export function canAddAnyBudget(scopes: ManageableScopes): boolean {
 
 // ── Months ─────────────────────────────────────────────────────────────────
 
-const MONTH_KEY = /^\d{4}-(0[1-9]|1[0-2])$/;
+/**
+ * Years 1970–2999 only: a month key becomes a date in SQL, and a year below
+ * 1000 isn't four digits there (`99-01-01`), which Postgres refuses.
+ */
+const MONTH_KEY = /^(19[7-9]\d|2\d{3})-(0[1-9]|1[0-2])$/;
 
-/** "2026-10". */
+/** "2026-10" — a real month between 1970 and 2999. */
 export function isMonthKey(value: unknown): value is string {
   return typeof value === "string" && MONTH_KEY.test(value);
 }

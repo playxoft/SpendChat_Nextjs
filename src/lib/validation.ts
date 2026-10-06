@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BUDGET_SCOPES } from "./budgets";
+import { BUDGET_SCOPES, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
 import {
   CURRENCIES,
@@ -1064,10 +1064,10 @@ export type StartCheckoutInput = z.infer<typeof startCheckoutSchema>;
 
 export const budgetScopeSchema = z.enum(BUDGET_SCOPES);
 
-/** A calendar month, "2026-10". */
+/** A calendar month, "2026-10", between 1970 and 2999. */
 export const budgetMonthSchema = z
   .string()
-  .regex(/^\d{4}-(0[1-9]|1[0-2])$/, "Month must be YYYY-MM");
+  .refine(isMonthKey, "Month must be YYYY-MM, between 1970 and 2999");
 
 const budgetEmailAlertsSchema = z.boolean().optional();
 

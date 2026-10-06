@@ -199,6 +199,37 @@ describe("budgets — create, change, delete", () => {
     await expectApiError(createBudget(uid("adm"), f.W, { scope: "workspace", amount: -1 }), 422);
   });
 
+  it("refuses an amount that rounds to nothing in the workspace's currency", async () => {
+    const f = await build();
+    const tiny = await expectApiError(createBudget(uid("adm"), f.W, { scope: "workspace", amount: 0.001 }), 422);
+    expect(tiny.message).toBe("The amount must be at least 0.01 USD");
+    await db().update(workspaces).set({ currency: "JPY", locale: "ja-JP" }).where(eq(workspaces.id, f.W));
+    const yen = await expectApiError(createBudget(uid("adm"), f.W, { scope: "workspace", amount: 0.4 }), 422);
+    expect(yen.message).toBe("The amount must be at least 1 JPY");
+    const { id } = await createBudget(uid("adm"), f.W, { scope: "workspace", amount: 1 });
+    await expectApiError(updateBudget(uid("adm"), f.W, id, { amount: 0.4 }), 422);
+    expect((await db().select().from(budgets))[0]!.amountMinor).toBe(1);
+  });
+
+  it("two adds racing for the last place: one wins, the other gets plan_limit", async () => {
+    const f = await build();
+    const expense = await db()
+      .select({ id: categories.id })
+      .from(categories)
+      .where(and(eq(categories.workspaceId, f.W), eq(categories.kind, "expense")));
+    for (const c of expense.slice(0, 4)) {
+      await createBudget(uid("adm"), f.W, { scope: "category", categoryId: c.id, amount: 1 });
+    }
+    const results = await Promise.allSettled([
+      createBudget(uid("adm"), f.W, { scope: "workspace", amount: 1 }),
+      createBudget(uid("adm"), f.W, { scope: "profile", profileId: f.p1, amount: 1 }),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const lost = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect((lost.reason as ApiError).code).toBe("plan_limit");
+    expect(await db().select().from(budgets).where(eq(budgets.workspaceId, f.W))).toHaveLength(5);
+  });
+
   it("changes the amount and the email switch; the scope stays", async () => {
     const f = await build();
     const { id } = await createBudget(uid("adm"), f.W, { scope: "profile", profileId: f.p1, amount: 100 });
@@ -300,7 +331,7 @@ describe("budgets — who sees and who manages", () => {
     const err = await expectApiError(createBudget(uid("adm"), f.W, { scope: "profile", profileId: f.p1, amount: 1 }), 403, "plan_limit");
     expect((err.details as { limit: string }).limit).toBe("freeWorkspaces");
     await expectApiError(updateBudget(uid("adm"), f.W, id, { amount: 1 }), 403, "plan_limit");
-    expect((await listBudgets(uid("adm"), f.W, MONTH))[0]!.canManage).toBe(false);
+    expect((await listBudgets(uid("adm"), f.W, MONTH))[0]).toMatchObject({ canManage: false, canDelete: true });
     expect((await getBudgetManagement(uid("adm"), f.W)).readOnly).toBe(true);
     expect(await deleteBudget(uid("adm"), f.W, id)).toBe(true);
   });
@@ -398,26 +429,17 @@ describe("budgets — progress", () => {
     expect(matrix.reduce((sum, c) => sum + c.totalMinor, 0)).toBe(10000);
   });
 
-  it("raising the amount re-arms this month's alerts it no longer reaches", async () => {
+  it("changing the amount or the email switch never touches the alert log", async () => {
     const f = await build();
     await insertTxn("adm", { type: "expense", amountMinor: 9000, occurredOn: DAY1, profileId: f.p1 });
     const { id } = await createBudget(uid("adm"), f.W, { scope: "profile", profileId: f.p1, amount: 100 });
     const month = monthBounds(MONTH).first;
     await db().insert(budgetAlerts).values([
-      { budgetId: id, month, threshold: 80 },
-      { budgetId: id, month, threshold: 100 },
+      { budgetId: id, month, threshold: 80, amountMinor: 10000 },
+      { budgetId: id, month, threshold: 100, amountMinor: 10000 },
     ]);
-    // The same amount changes nothing.
-    await updateBudget(uid("adm"), f.W, id, { amount: 100 });
-    expect((await db().select().from(budgetAlerts)).map((a) => a.threshold).sort((a, b) => a - b)).toEqual([80, 100]);
-    // 90 of 110 → 81%: 80% still met, 100% re-armed.
-    await updateBudget(uid("adm"), f.W, id, { amount: 110 });
-    expect((await db().select().from(budgetAlerts)).map((a) => a.threshold)).toEqual([80]);
-    await updateBudget(uid("adm"), f.W, id, { amount: 1000 });
-    expect(await db().select().from(budgetAlerts)).toEqual([]);
-    // Only the email switch: nothing re-armed or touched.
-    await db().insert(budgetAlerts).values({ budgetId: id, month, threshold: 80 });
+    for (const amount of [110, 1000, 50, 100]) await updateBudget(uid("adm"), f.W, id, { amount });
     await updateBudget(uid("adm"), f.W, id, { emailAlerts: false });
-    expect(await db().select().from(budgetAlerts)).toHaveLength(1);
+    expect(await db().select().from(budgetAlerts)).toHaveLength(2);
   });
 });

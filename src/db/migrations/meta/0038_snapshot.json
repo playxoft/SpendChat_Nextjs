@@ -1,5 +1,5 @@
 {
-  "id": "94c109ec-eb87-4022-acb5-533ebf137bc0",
+  "id": "bffca6b8-bbec-446c-9093-82cf60365c93",
   "prevId": "f98709f2-32fa-4963-80ef-350d83a9cedf",
   "version": "7",
   "dialect": "postgresql",
@@ -151,6 +151,75 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.budget_alert_emails": {
+      "name": "budget_alert_emails",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "workspace_id": {
+          "name": "workspace_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "budget_alert_emails_workspace_created_idx": {
+          "name": "budget_alert_emails_workspace_created_idx",
+          "columns": [
+            {
+              "expression": "workspace_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "budget_alert_emails_workspace_id_workspaces_id_fk": {
+          "name": "budget_alert_emails_workspace_id_workspaces_id_fk",
+          "tableFrom": "budget_alert_emails",
+          "tableTo": "workspaces",
+          "columnsFrom": [
+            "workspace_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.budget_alerts": {
       "name": "budget_alerts",
       "schema": "",
@@ -172,6 +241,18 @@
           "type": "smallint",
           "primaryKey": false,
           "notNull": true
+        },
+        "amount_minor": {
+          "name": "amount_minor",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "notified_at": {
+          "name": "notified_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
         },
         "created_at": {
           "name": "created_at",

@@ -765,13 +765,22 @@ export const budgets = pgTable(
 
 /**
  * The alert log: one row per budget × month × threshold that has fired. The
- * primary key *is* the "once per budget, per threshold, per month" rule — an
- * alert is claimed with `insert … on conflict do nothing returning`, so of two
- * writes that cross 80% at the same moment exactly one gets the row and sends
- * the email (`src/lib/budget-alerts.ts`). In-app alerts don't read this; they
- * are computed live from the month's spending.
+ * primary key *is* the "once per budget, per threshold, per month" rule — a
+ * crossing is claimed with `insert … on conflict … do update … where
+ * excluded.amount_minor > budget_alerts.amount_minor returning`, so of two
+ * writes that cross 80% at the same moment exactly one gets the row, and the
+ * same threshold fires again in a month only if the budget's amount was
+ * raised past the one it fired at (`src/services/budget-alerts.ts`).
  *
- * Tiny and bounded (≤ budgets × 2 a month), and it goes with its budget.
+ * Rows are never deleted while their budget lives — that's what makes
+ * raise/lower loops pointless. `notified_at` is null until the email for it
+ * went out (or turned out to be owed to nobody), so a claim whose email
+ * couldn't be sent — the workspace's monthly alert-email pool was spent, or the
+ * send failed — is picked up again by the next check. In-app alerts don't read
+ * this; they're computed live from the month's spending.
+ *
+ * Tiny and bounded (≤ budgets × 2 a month, plus raises), and it goes with its
+ * budget.
  */
 export const budgetAlerts = pgTable(
   "budget_alerts",
@@ -783,12 +792,41 @@ export const budgetAlerts = pgTable(
     month: date("month").notNull(),
     // 80 or 100 (`BUDGET_THRESHOLDS`).
     threshold: smallint("threshold").notNull(),
+    // The budget's amount when this threshold fired — it fires again this
+    // month only for a higher amount.
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+    // When its email went out (or nothing was owed); null = still to send.
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     primaryKey({ columns: [t.budgetId, t.month, t.threshold] }),
     check("budget_alerts_threshold_ck", sql`${t.threshold} in (80, 100)`),
     check("budget_alerts_month_ck", sql`extract(day from ${t.month}) = 1`),
+  ],
+);
+
+/**
+ * One row per budget-alert email sent — the workspace's own monthly pool
+ * (`BUDGET_ALERT_EMAILS_PER_MONTH`, `reserveBudgetAlertEmails` in
+ * `email-quota.ts`). Separate from `email_send_log` on purpose: alerts are the
+ * workspace's, not the writer's, so they neither eat into a person's invite
+ * allowance nor stop when it's spent. Keyed by workspace and kept when a budget
+ * is deleted, so deleting and re-creating a budget can't refill it. Stores no
+ * recipient.
+ */
+export const budgetAlertEmails = pgTable(
+  "budget_alert_emails",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The pool's count: this workspace's alert emails since the 1st.
+    index("budget_alert_emails_workspace_created_idx").on(t.workspaceId, t.createdAt),
   ],
 );
 

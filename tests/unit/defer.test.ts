@@ -26,9 +26,22 @@ vi.mock("@opennextjs/cloudflare", () => ({
   },
 }));
 
+const logged = vi.hoisted(() => ({ warn: [] as { message: string; event: unknown }[] }));
+vi.mock("@/lib/logger", () => ({
+  describeError: (err: unknown) => (err instanceof Error ? err.message : String(err)),
+  logger: {
+    warn: (message: string, meta: { event?: unknown }) => logged.warn.push({ message, event: meta.event }),
+    error: () => {},
+    info: () => {},
+    debug: () => {},
+  },
+}));
+
 const { afterResponse, settleDeferred } = await import("@/lib/defer");
 
 beforeEach(() => {
+  logged.warn = [];
+  vi.unstubAllEnvs();
   state.afterThrows = true;
   state.scheduled = [];
   state.cloudflare = [];
@@ -54,6 +67,30 @@ describe("afterResponse", () => {
     expect(state.scheduled).toHaveLength(1);
     await state.scheduled[0]!();
     expect(task).toHaveBeenCalledOnce();
+  });
+
+  it("drops the task, with a warning, when after() is missing in a real request", async () => {
+    state.cloudflare = [true]; // a Worker request whose after() isn't wired
+    const task = vi.fn(async () => {});
+    afterResponse("budget check", task);
+    await settleDeferred();
+    expect(task).not.toHaveBeenCalled();
+    expect(logged.warn).toEqual([
+      {
+        message: "The budget check was dropped because after() isn't available here: `after` was called outside a request scope",
+        event: "defer.unavailable",
+      },
+    ]);
+  });
+
+  it("drops the task outside the test runner — nothing queues where nobody drains it", async () => {
+    vi.stubEnv("VITEST", "");
+    const task = vi.fn(async () => {});
+    afterResponse("budget check", task);
+    vi.unstubAllEnvs();
+    await settleDeferred();
+    expect(task).not.toHaveBeenCalled();
+    expect(logged.warn.map((w) => w.event)).toEqual(["defer.unavailable"]);
   });
 
   it("swallows a failing task — the write it follows already succeeded", async () => {

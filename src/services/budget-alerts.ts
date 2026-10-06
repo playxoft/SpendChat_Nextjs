@@ -1,10 +1,10 @@
 import "server-only";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { budgetAlerts, users, workspaceMembers, workspaces } from "@/db/schema";
+import { budgetAlerts, budgets, users, workspaceMembers, workspaces } from "@/db/schema";
 import { getMonthExpenseMatrix } from "@/lib/budget-spend";
 import {
-  canSeeBudget,
+  canManageBudget,
   currentMonthKeys,
   monthBounds,
   monthKeyOf,
@@ -15,17 +15,17 @@ import {
 } from "@/lib/budgets";
 import { afterResponse } from "@/lib/defer";
 import { redactEmail, sendEmail } from "@/lib/email";
-import { assertEmailSendAllowed } from "@/lib/email-quota";
+import { reserveBudgetAlertEmails } from "@/lib/email-quota";
 import { budgetAlertEmail, siteUrl, type BudgetAlertItem } from "@/lib/email-templates";
-import { ApiError } from "@/lib/errors";
 import { openWorkspacePath } from "@/lib/invite-links";
 import { logger } from "@/lib/logger";
 import { budgetAccess, labelOf, loadWorkspaceBudgets, type BudgetRow } from "@/services/budgets";
 
 /**
  * Budget alerts at 80% and 100% — by email, once per budget, per threshold, per
- * month. (In-app alerts need none of this: the app computes them live from the
- * month's spending on every render.)
+ * month (and again only if the budget's amount is raised past the one it fired
+ * at). In-app alerts need none of this: the app computes them live from the
+ * month's spending on every render.
  *
  * **Every transaction write that can raise spending calls
  * `scheduleBudgetCheck`** once it has written — create, edit, bulk edit, bulk
@@ -38,7 +38,7 @@ import { budgetAccess, labelOf, loadWorkspaceBudgets, type BudgetRow } from "@/s
 
 export type BudgetCheckRequest = {
   workspaceId: string;
-  /** Whose write triggered it — the sender the email quota is counted against. */
+  /** Whose write triggered it (for the logs). */
   userId: string;
   /**
    * The `occurred_on` dates of the expenses written, or `"current"` when they
@@ -62,99 +62,252 @@ export function scheduleBudgetCheck(request: BudgetCheckRequest, now: Date = new
 }
 
 export type BudgetCheckResult = {
-  /** Alert rows this check claimed (budget × month × threshold). */
+  /** Alert rows this check claimed or re-armed (budget × month × threshold). */
   claimed: number;
   /** Emails handed to the mailer. */
   emailed: number;
 };
 
-type Crossing = { budget: BudgetRow; month: string; threshold: BudgetThreshold; spentMinor: number };
-
 const NONE: BudgetCheckResult = { claimed: 0, emailed: 0 };
+
+type Crossing = { budget: BudgetRow; month: string; threshold: BudgetThreshold; spentMinor: number };
+type ClaimKey = { budgetId: string; month: string; threshold: number };
+
+/** A claim's identity; `month` may be "YYYY-MM" or the stored "YYYY-MM-01". */
+const keyOf = (k: ClaimKey) => `${k.budgetId}|${k.month.slice(0, 7)}|${k.threshold}`;
 
 /**
  * Claim and email every alert the workspace's budgets have reached in `months`.
  *
- * 1. Each budget's spending for the month, from the one matrix query.
- * 2. Every threshold met is claimed in one `insert … on conflict do nothing
- *    returning` — so of two checks racing over the same crossing exactly one
- *    gets the row, and a crossing alerts once a month however many writes
- *    follow it.
- * 3. Per budget, only the highest newly claimed threshold is told (50% → 120%
- *    in one write claims 80 and 100 and says 100). Budgets with email alerts
- *    off are claimed, not emailed.
- * 4. Recipients: the workspace's admins, and whoever set the budget if they can
- *    still see it. One email per person per month, listing every budget it's
- *    about.
- * 5. Each email counts against the writer's hourly email allowance
- *    (`email-quota.ts`); once that's spent, the rest are skipped and logged.
- *    The claims stay, and the app still shows the alert.
+ * 1. **Claim.** Each budget's spending for the month comes from the one matrix
+ *    query; every threshold met is claimed with `insert … on conflict … do
+ *    update … where excluded.amount_minor > budget_alerts.amount_minor
+ *    returning`. A new crossing gets a row; one that already fired this month
+ *    fires again only for a *higher* amount than it fired at — so lowering and
+ *    raising an amount, or re-saving an expense, re-sends nothing. Rows are
+ *    never deleted while the budget lives.
+ * 2. **Owe.** Every claim of these months still unsent (`notified_at` null) —
+ *    this check's and any an earlier check couldn't send — is owed an email if
+ *    its budget still has email alerts on and still meets the threshold. Per
+ *    budget only the highest threshold is told (50% → 120% in one write says
+ *    100%).
+ * 3. **Recipients:** the workspace's admins, and the budget's creator while
+ *    they can still manage it (a creator who can only read couldn't switch the
+ *    emails off, so they don't get them). One email per person per month.
+ * 4. **Mark and reserve, together.** In one transaction the claims are marked
+ *    sent (only those still unsent, so a racing check can't send them twice)
+ *    and the emails are reserved from the workspace's own monthly alert pool
+ *    (`reserveBudgetAlertEmails` — never the writer's). If the pool can't take
+ *    them all, nothing is marked: the claims stay unsent and the next check
+ *    tries again (the pool refills on the 1st). Any failure before the commit
+ *    leaves them unsent the same way.
+ * 5. **Send** (`sendEmail`, deferred and logged like every email).
  */
 export async function checkBudgetAlerts(input: {
   workspaceId: string;
   userId: string;
   months: readonly string[];
+  now?: Date;
 }): Promise<BudgetCheckResult> {
-  const { workspaceId, userId, months } = input;
+  const { workspaceId, months, now = new Date() } = input;
   const rows = await loadWorkspaceBudgets(workspaceId);
   if (rows.length === 0 || months.length === 0) return NONE;
+  const db = getDb();
 
+  // 1. Claim new crossings, or re-arm ones whose amount went up.
+  const spent = new Map<string, number>(); // `${budgetId}|${month}`
   const crossings: Crossing[] = [];
   for (const month of months) {
     const matrix = await getMonthExpenseMatrix(workspaceId, month);
     for (const budget of rows) {
       const spentMinor = spentFor(budget, matrix);
+      spent.set(`${budget.id}|${month}`, spentMinor);
       for (const threshold of thresholdsMet(spentMinor, budget.amountMinor)) {
         crossings.push({ budget, month, threshold, spentMinor });
       }
     }
   }
-  if (crossings.length === 0) return NONE;
-
-  const db = getDb();
-  const claimed = await db
-    .insert(budgetAlerts)
-    .values(
-      crossings.map((c) => ({
-        budgetId: c.budget.id,
-        month: monthBounds(c.month).first,
-        threshold: c.threshold,
-      })),
-    )
-    .onConflictDoNothing()
-    .returning({ budgetId: budgetAlerts.budgetId, month: budgetAlerts.month, threshold: budgetAlerts.threshold });
-  if (claimed.length === 0) return NONE;
-
-  logger.info(`Claimed ${claimed.length} budget alert${claimed.length === 1 ? "" : "s"}`, {
-    event: "budget.alert_claimed",
-    workspaceId,
-    alerts: claimed.map((c) => ({ budgetId: c.budgetId, month: c.month, threshold: c.threshold })),
-  });
-
-  // The highest threshold newly claimed, per budget and month.
-  const key = (budgetId: string, month: string) => `${budgetId}|${month}`;
-  const won = new Set(claimed.map((c) => `${key(c.budgetId, monthKeyOf(c.month))}|${c.threshold}`));
-  const newest = new Map<string, Crossing>();
-  for (const c of crossings) {
-    if (!won.has(`${key(c.budget.id, c.month)}|${c.threshold}`)) continue;
-    const k = key(c.budget.id, c.month);
-    const prev = newest.get(k);
-    if (!prev || c.threshold > prev.threshold) newest.set(k, c);
+  let claimed = 0;
+  if (crossings.length > 0) {
+    const won = await db
+      .insert(budgetAlerts)
+      .values(
+        crossings.map((c) => ({
+          budgetId: c.budget.id,
+          month: monthBounds(c.month).first,
+          threshold: c.threshold,
+          amountMinor: c.budget.amountMinor,
+        })),
+      )
+      .onConflictDoUpdate({
+        target: [budgetAlerts.budgetId, budgetAlerts.month, budgetAlerts.threshold],
+        set: { amountMinor: sql`excluded.amount_minor`, notifiedAt: null, createdAt: sql`now()` },
+        where: sql`excluded.amount_minor > ${budgetAlerts.amountMinor}`,
+      })
+      .returning({
+        budgetId: budgetAlerts.budgetId,
+        month: budgetAlerts.month,
+        threshold: budgetAlerts.threshold,
+      });
+    claimed = won.length;
+    if (claimed > 0) {
+      logger.info(`Claimed ${claimed} budget alert${claimed === 1 ? "" : "s"}`, {
+        event: "budget.alert_claimed",
+        workspaceId,
+        alerts: won,
+      });
+    }
   }
-  const toTell = [...newest.values()].filter((c) => c.budget.emailAlerts);
-  if (toTell.length === 0) return { claimed: claimed.length, emailed: 0 };
 
-  const emailed = await emailCrossings(workspaceId, userId, toTell);
-  return { claimed: claimed.length, emailed };
+  // 2. Everything still unsent for these months, and what of it is owed.
+  const pending = await db
+    .select({
+      budgetId: budgetAlerts.budgetId,
+      month: budgetAlerts.month,
+      threshold: budgetAlerts.threshold,
+    })
+    .from(budgetAlerts)
+    .innerJoin(budgets, eq(budgets.id, budgetAlerts.budgetId))
+    .where(
+      and(
+        eq(budgets.workspaceId, workspaceId),
+        inArray(
+          budgetAlerts.month,
+          months.map((m) => monthBounds(m).first),
+        ),
+        isNull(budgetAlerts.notifiedAt),
+      ),
+    );
+  // A budget added after this check loaded the list is the next check's to tell.
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const known = pending.filter((p) => byId.has(p.budgetId));
+  if (known.length === 0) return { claimed, emailed: 0 };
+
+  const highest = new Map<string, Crossing>(); // `${budgetId}|${month}`
+  for (const p of known) {
+    const budget = byId.get(p.budgetId)!;
+    const month = monthKeyOf(p.month);
+    const spentMinor = spent.get(`${budget.id}|${month}`) ?? 0;
+    const threshold = p.threshold as BudgetThreshold;
+    // Emails off, or no longer true (an expense deleted, the amount raised):
+    // settled below with the rest, nothing to say.
+    if (!budget.emailAlerts || !thresholdsMet(spentMinor, budget.amountMinor).includes(threshold)) {
+      continue;
+    }
+    const k = `${budget.id}|${month}`;
+    const prev = highest.get(k);
+    if (!prev || threshold > prev.threshold) highest.set(k, { budget, month, threshold, spentMinor });
+  }
+  const owed = [...highest.values()];
+
+  // 3. Who hears about what — one email per person per month.
+  const recipients = owed.length > 0 ? await recipientsFor(workspaceId, owed) : [];
+  const messages = recipients.flatMap((person) =>
+    [...new Set(person.crossings.map((c) => c.month))].sort().map((month) => ({
+      person,
+      month,
+      crossings: person.crossings.filter((c) => c.month === month),
+    })),
+  );
+
+  // 4. Mark this check's view of the unsent claims, and reserve the emails,
+  //    in one transaction — all or nothing.
+  const tuples = sql.join(
+    known.map((p) => sql`(${p.budgetId}::uuid, ${p.month}::date, ${p.threshold}::smallint)`),
+    sql`, `,
+  );
+  const sendable = await db
+    .transaction(async (tx) => {
+      const marked = await tx
+        .update(budgetAlerts)
+        .set({ notifiedAt: now })
+        .where(
+          and(
+            isNull(budgetAlerts.notifiedAt),
+            sql`(${budgetAlerts.budgetId}, ${budgetAlerts.month}, ${budgetAlerts.threshold}) in (${tuples})`,
+          ),
+        )
+        .returning({
+          budgetId: budgetAlerts.budgetId,
+          month: budgetAlerts.month,
+          threshold: budgetAlerts.threshold,
+        });
+      // A racing check may have marked some first: tell only what this one did.
+      const mine = new Set(marked.map(keyOf));
+      const toSend = messages
+        .map((m) => ({
+          ...m,
+          crossings: m.crossings.filter((c) =>
+            mine.has(keyOf({ budgetId: c.budget.id, month: c.month, threshold: c.threshold })),
+          ),
+        }))
+        .filter((m) => m.crossings.length > 0);
+      if (!(await reserveBudgetAlertEmails(tx, workspaceId, toSend.length, now))) {
+        throw new PoolSpent();
+      }
+      return toSend;
+    })
+    .catch((err: unknown) => {
+      if (!(err instanceof PoolSpent)) throw err;
+      logger.warn(
+        "Budget alert emails are waiting because this workspace's monthly alert email allowance is used up",
+        { event: "budget.alert_email_capped", workspaceId, pending: known.length },
+      );
+      return null;
+    });
+  if (!sendable || sendable.length === 0) return { claimed, emailed: 0 };
+
+  // 5. Send.
+  const workspace = await db.query.workspaces.findFirst({
+    where: eq(workspaces.id, workspaceId),
+    columns: { name: true, currency: true, locale: true },
+  });
+  if (!workspace) return { claimed, emailed: 0 };
+  const href = siteUrl(openWorkspacePath(workspaceId, "/app/budgets"));
+  for (const { person, month, crossings: list } of sendable) {
+    const items: BudgetAlertItem[] = list.map((c) => ({
+      label: labelOf(c.budget),
+      spentMinor: c.spentMinor,
+      amountMinor: c.budget.amountMinor,
+      threshold: c.threshold,
+    }));
+    sendEmail({
+      to: person.email,
+      ...budgetAlertEmail({
+        workspaceName: workspace.name,
+        monthLabel: monthName(month),
+        items,
+        money: { currency: workspace.currency, locale: workspace.locale },
+        href,
+        reason: person.reason,
+      }),
+    });
+    logger.info(`Budget alert email queued for ${redactEmail(person.email)}`, {
+      event: "budget.alert_email_queued",
+      workspaceId,
+      recipientId: person.userId,
+      budgets: items.length,
+    });
+  }
+  return { claimed, emailed: sendable.length };
 }
 
-type Recipient = { userId: string; email: string; reason: "admin" | "creator"; crossings: Crossing[] };
+/** The workspace's monthly alert-email pool can't take this check's emails. */
+class PoolSpent extends Error {}
+
+type Recipient = {
+  userId: string;
+  email: string;
+  reason: "admin" | "creator";
+  crossings: Crossing[];
+};
 
 /**
  * Who hears about which crossing: every admin about all of them, and each
- * budget's creator about their own — while they can still see it (someone
- * removed from the workspace, or narrowed out of a profile it covers, gets
- * nothing). Only accounts with an email address.
+ * budget's creator about their own — only while they can still **manage** it.
+ * Someone removed from the workspace, narrowed out of a profile it covers, or
+ * down to read-only couldn't turn its emails off, so they stop getting them.
+ * Only accounts with an email address.
  */
 async function recipientsFor(workspaceId: string, crossings: Crossing[]): Promise<Recipient[]> {
   const db = getDb();
@@ -173,7 +326,7 @@ async function recipientsFor(workspaceId: string, crossings: Crossing[]): Promis
   for (const creatorId of creators) {
     const access = await budgetAccess(creatorId, workspaceId);
     const theirs = crossings.filter(
-      (c) => c.budget.createdBy === creatorId && canSeeBudget(c.budget, access),
+      (c) => c.budget.createdBy === creatorId && canManageBudget(c.budget, access),
     );
     if (theirs.length > 0) byUser.set(creatorId, { reason: "creator", crossings: theirs });
   }
@@ -190,68 +343,4 @@ async function recipientsFor(workspaceId: string, crossings: Crossing[]): Promis
     out.push({ userId: person.id, email: person.email, ...entry });
   }
   return out.sort((a, b) => a.userId.localeCompare(b.userId));
-}
-
-async function emailCrossings(
-  workspaceId: string,
-  senderId: string,
-  crossings: Crossing[],
-): Promise<number> {
-  const db = getDb();
-  const [workspace, recipients] = await Promise.all([
-    db.query.workspaces.findFirst({
-      where: eq(workspaces.id, workspaceId),
-      columns: { name: true, currency: true, locale: true },
-    }),
-    recipientsFor(workspaceId, crossings),
-  ]);
-  if (!workspace || recipients.length === 0) return 0;
-
-  const href = siteUrl(openWorkspacePath(workspaceId, "/app/budgets"));
-  let emailed = 0;
-  for (const person of recipients) {
-    const months = [...new Set(person.crossings.map((c) => c.month))].sort();
-    for (const month of months) {
-      const items: BudgetAlertItem[] = person.crossings
-        .filter((c) => c.month === month)
-        .map((c) => ({
-          label: labelOf(c.budget),
-          spentMinor: c.spentMinor,
-          amountMinor: c.budget.amountMinor,
-          threshold: c.threshold,
-        }));
-      try {
-        await assertEmailSendAllowed(senderId, "budget_alert");
-      } catch (err) {
-        if (err instanceof ApiError && err.status === 429) {
-          logger.warn("Budget alert emails stopped — the writer's hourly email allowance is used up", {
-            event: "budget.alert_email_skipped",
-            workspaceId,
-            sent: emailed,
-          });
-          return emailed;
-        }
-        throw err;
-      }
-      sendEmail({
-        to: person.email,
-        ...budgetAlertEmail({
-          workspaceName: workspace.name,
-          monthLabel: monthName(month),
-          items,
-          money: { currency: workspace.currency, locale: workspace.locale },
-          href,
-          reason: person.reason,
-        }),
-      });
-      emailed++;
-      logger.info(`Budget alert email queued for ${redactEmail(person.email)}`, {
-        event: "budget.alert_email_queued",
-        workspaceId,
-        recipientId: person.userId,
-        budgets: items.length,
-      });
-    }
-  }
-  return emailed;
 }

@@ -11,6 +11,6 @@ export function budgetMonthFrom(url: URL): string {
   const raw = url.searchParams.get("month");
   if (raw == null || raw === "") return utcMonthKey();
   const parsed = budgetMonthSchema.safeParse(raw);
-  if (!parsed.success) throw validationError("Query param `month` must be YYYY-MM");
+  if (!parsed.success) throw validationError("Query param `month` must be YYYY-MM, between 1970 and 2999");
   return parsed.data;
 }

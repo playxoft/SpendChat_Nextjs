@@ -143,6 +143,11 @@ describe("months", () => {
     expect(isMonthKey("2026-10")).toBe(true);
     expect(isMonthKey("2026-13")).toBe(false);
     expect(isMonthKey(202610)).toBe(false);
+    // Years SQL can read as a four-digit date, 1970–2999.
+    for (const ok of ["1970-01", "2999-12"]) expect(isMonthKey(ok), ok).toBe(true);
+    for (const bad of ["0000-01", "0099-12", "1969-12", "3000-01", "12026-01"]) {
+      expect(isMonthKey(bad), bad).toBe(false);
+    }
     expect(monthKeyOf("2026-10-17")).toBe("2026-10");
     expect(monthBounds("2026-02")).toEqual({ first: "2026-02-01", last: "2026-02-28" });
     expect(monthBounds("2028-02")).toEqual({ first: "2028-02-01", last: "2028-02-29" });

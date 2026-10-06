@@ -380,6 +380,7 @@ export type ApiBudget = {
   percent: number;
   status: "ok" | "warn" | "over";
   canManage: boolean;
+  canDelete: boolean;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -401,6 +402,7 @@ export function serializeApiBudget(b: BudgetView): ApiBudget {
     percent: b.percent,
     status: b.status,
     canManage: b.canManage,
+    canDelete: b.canDelete,
     createdBy: b.createdBy,
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),

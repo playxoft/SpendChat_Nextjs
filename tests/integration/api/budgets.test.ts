@@ -49,6 +49,7 @@ describe("/api/v1/budgets", () => {
       percent: 90,
       status: "warn",
       canManage: true,
+      canDelete: true,
     });
     expect(created.body.data.createdAt).toMatch(/Z$/);
     expect(created.body.meta.currency.code).toBe("USD");
@@ -58,7 +59,14 @@ describe("/api/v1/budgets", () => {
     const old = await list("?month=2020-01");
     expect(old.body.meta.month).toBe("2020-01");
     expect(old.body.data[0]).toMatchObject({ id, month: "2020-01", spentMinor: 0, status: "ok" });
-    expect((await list("?month=2020-13")).status).toBe(422);
+    // Malformed, or a year SQL can't read as a four-digit date: 422, never a 500.
+    for (const bad of ["2020-13", "0000-01", "0099-12", "1969-12", "3000-01", "20201-01"]) {
+      const res = await list(`?month=${bad}`);
+      expect(res.status, bad).toBe(422);
+      expect(res.body.error.code).toBe("validation_error");
+    }
+    expect((await list("?month=1970-01")).status).toBe(200);
+    expect((await list("?month=2999-12")).status).toBe(200);
 
     const patched = await patchBudget(
       apiReq(`/api/v1/budgets/${id}`, { method: "PATCH", body: jsonBody({ amount: 40, emailAlerts: false }) }),
@@ -85,6 +93,10 @@ describe("/api/v1/budgets", () => {
     expect(dup.body.error.code).toBe("conflict");
     expect((await post({ scope: "category", categoryId: await categoryId("a", "Salary", "income"), amount: 1 })).status).toBe(422);
     expect((await post({ scope: "space", amount: 1 })).status).toBe(422);
+    // Rounds to nothing in minor units: a 422, not a 500 from the check constraint.
+    const tiny = await post({ scope: "profile", profileId: await firstProfileId("a"), amount: 0.001 });
+    expect(tiny.status).toBe(422);
+    expect(tiny.body.error.message).toBe("The amount must be at least 0.01 USD");
 
     for (const name of ["Groceries", "Transport", "Housing", "Health"]) {
       expect((await post({ scope: "category", categoryId: await categoryId("a", name, "expense"), amount: 1 })).status).toBe(201);
