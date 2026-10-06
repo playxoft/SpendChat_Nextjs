@@ -38,8 +38,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   and its limits are shared by everyone in it: members (3 / 5 / 10), spaces
   (2 / 6 / 15), profiles per space (3 / 5 / 10), categories (20 / 30 / 50,
   the starters included), tags (5 / 10 / 20), storage (1 / 5 / 20 GB) and AI
-  actions a month (50 / 300 / 1,000). Upgrade any workspace from the app, with
-  a 21-day free trial.
+  actions a month (50 / 300 / 1,000). Upgrade any workspace from the app; a
+  workspace's first paid plan starts with a 21-day free trial (one per
+  workspace).
 - **You see a limit before you hit it.** A "New space", "New profile", "Add
   tag", "Add category", "Create workspace" or "Invite" control that's at its
   limit carries a lock; hover it for what's full and which plan lifts it. Its

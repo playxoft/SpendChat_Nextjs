@@ -133,7 +133,7 @@ const principlesBento: BentoItem[] = [
   {
     label: "A free plan worth using",
     body:
-      "No ads, and unlimited transactions and export on every plan. Paid plans add more AI, voice entry, storage and room for more people.",
+      `No ads, and unlimited transactions and export on every plan. Paid plans add more AI, storage and room for more people; ${PLAN_NAMES[lowestPlanWith("voice")]} adds voice entry.`,
     visual: <GlyphMock icon={Wallet} />,
   },
   {

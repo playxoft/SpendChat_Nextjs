@@ -38,7 +38,7 @@ function sampleFor(money: DemoMoneyFormat): string {
     [amount(6200), "Weekly groceries", "Groceries", "expense"],
     [amount(2400), "Bus pass top-up", "Transport", "expense"],
     [amount(200000), "August salary", "Salary", "income"],
-    ["lots", "Cinema tickets", "Entertainment", "expense"],
+    ["lots", "New headphones", "Shopping", "expense"],
   ]
     .map((row) => row.join(join))
     .join("\n");

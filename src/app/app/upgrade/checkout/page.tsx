@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
-import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { getAppContext } from "@/lib/auth";
 import { checkoutCurrency, parseCheckoutParams } from "@/lib/checkout";
+import { requestCountry } from "@/lib/geo.server";
 import { pricingCurrencyFor } from "@/lib/plan-copy";
 import { getAccountProfile } from "@/lib/queries";
 import { DEFAULT_WORKSPACE_ICON } from "@/lib/validation";
@@ -31,10 +31,7 @@ export default async function CheckoutPage({
   const item = parseCheckoutParams(await searchParams);
   if (!item) redirect("/app/upgrade");
 
-  const { workspace } = await getAppContext();
-  // The same rule the server charges by, so the page shows what's charged.
-  const cf = (await headers()).get("cf-ipcountry");
-  const country = cf && cf !== "XX" && cf !== "T1" ? cf : null;
+  const [{ workspace }, country] = await Promise.all([getAppContext(), requestCountry()]);
   const canBuy = workspace.role === "admin";
   const owner = canBuy ? null : await getAccountProfile(workspace.ownerId);
 
@@ -47,6 +44,7 @@ export default async function CheckoutPage({
       }}
       currentPlan={workspace.plan}
       item={item}
+      // The same rule the server charges by, so the page shows what's charged.
       currency={checkoutCurrency(item.currency ?? pricingCurrencyFor(workspace.currency), country)}
       canBuy={canBuy}
       ownerName={owner?.name?.trim() || null}

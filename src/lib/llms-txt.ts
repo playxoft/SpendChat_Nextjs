@@ -108,8 +108,8 @@ function pricingLines(): string[] {
       return `- **${PLAN_NAMES[plan]}** (${price}): ${limitsLine(plan)}.`;
     }),
     `- On every plan: unlimited transactions, CSV and PDF export, and AI drafts that always wait for review. Voice entry is ${voicePlan} only (clips up to ${VOICE.maxClipMs / 60_000} minutes). An AI top-up adds ${n(TOPUP.actions)} actions for ${formatAmount(topUpPrice("INR"), "INR")} / ${formatAmount(topUpPrice("USD"), "USD")}.`,
-    `- Paid plans start with a ${TRIAL_DAYS}-day free trial; students get ${pct(STUDENT_DISCOUNT)} off. Billing periods: ${PERIODS.map((p) => PERIOD_LABEL[p].toggle).join(", ")}. Prices are also set in EUR, GBP, AUD and JPY, and exclude tax.`,
-    `- Plus and Pro are bought per workspace, in the app (see ${abs("/pricing")}), by card or UPI; a workspace's first paid plan starts with the free trial. Reaching a limit never deletes anything. Self-hosting the open-source code stays free.`,
+    `- A workspace's first paid plan starts with a ${TRIAL_DAYS}-day free trial; students get ${pct(STUDENT_DISCOUNT)} off. Billing periods: ${PERIODS.map((p) => PERIOD_LABEL[p].toggle).join(", ")}. Prices are also set in EUR, GBP, AUD and JPY, and exclude tax.`,
+    `- Plus and Pro are bought per workspace, in the app (see ${abs("/pricing")}), by card (or UPI when paying in rupees); each workspace gets one trial. Reaching a limit never deletes anything. Self-hosting the open-source code stays free.`,
   ];
 }
 

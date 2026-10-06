@@ -110,7 +110,11 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
     {
       title: "Billing",
       rows: [
-        { label: `${TRIAL_DAYS}-day free trial`, cell: isPaidPlan },
+        {
+          label: `${TRIAL_DAYS}-day free trial`,
+          hint: "With a workspace's first paid plan — one trial per workspace.",
+          cell: isPaidPlan,
+        },
         {
           label: "Student discount",
           hint: `${pct(STUDENT_DISCOUNT)} off, checked by hand with a student email or ID.`,

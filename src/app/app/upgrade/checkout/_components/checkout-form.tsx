@@ -407,7 +407,7 @@ function Summary({
         </p>
       )}
 
-      <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{PURCHASE.billing}</p>
+      <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{PURCHASE.billing(currency)}</p>
     </aside>
   );
 }

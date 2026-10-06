@@ -53,7 +53,7 @@ function LockTooltipContent({
     >
       <span>{lock.reason}</span>
       <Button type="button" size="sm" className="h-7 px-3" onClick={() => showUpgrade(lock.info)}>
-        {lock.info.upgradeTo ? "Upgrade" : "Contact us"}
+        {lock.cta}
       </Button>
     </TooltipContent>
   );
@@ -79,7 +79,7 @@ export function LimitLock({
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={`${lock.title}. ${lock.info.upgradeTo ? "Upgrade" : "Contact us"}`}
+          aria-label={`${lock.title}. ${lock.cta}`}
           onClick={(e) => {
             // It can sit inside a clickable row or a label.
             e.preventDefault();

@@ -42,7 +42,7 @@ const rows: CompareRow[] = [
   },
   {
     label: "Price",
-    spendchat: "Free plan with no ads. Paid plans add more AI, voice entry, storage and people.",
+    spendchat: "Free plan with no ads. Paid plans add more AI, storage and people; Pro adds voice entry.",
     competitor:
       "Free with ads and a daily expense limit. Pro removes both; the price isn't listed on splitwise.com (App Store tiers run from $2.99 to $39.99).",
   },
@@ -88,7 +88,7 @@ const faqs = [
   },
   {
     q: "Is SpendChat really free?",
-    a: "There is a Free plan with no time limit and no ads, and transactions are unlimited on it. Paid plans — Plus and Pro, priced per workspace — add more AI, voice entry, storage and room for more people; the pricing page has the details. SpendChat is open source under the AGPL, and you can export everything to CSV at any time on every plan.",
+    a: "There is a Free plan with no time limit and no ads, and transactions are unlimited on it. Paid plans — Plus and Pro, priced per workspace — add more AI, storage and room for more people, and Pro adds voice entry; the pricing page has the details. SpendChat is open source under the AGPL, and you can export everything to CSV at any time on every plan.",
   },
 ];
 

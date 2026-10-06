@@ -27,6 +27,11 @@ export type AddLimitsData = {
   profilesPerSpace: number;
   /** This user can create one more workspace on Free (they don't own a free one yet). */
   canCreateFreeWorkspace: boolean;
+  /**
+   * The open workspace is this user's one free workspace, so upgrading it frees
+   * the free place a new workspace needs.
+   */
+  freeSlotHere: boolean;
   profileLevelAccess: boolean;
   voice: boolean;
 };
@@ -48,7 +53,10 @@ export type AddLock = {
   title: string;
   /** One line for the tooltip and the panel: "Free includes 2 spaces — upgrade to Plus for 6." */
   reason: string;
-  /** The upgrade button's label: "Upgrade", or "Contact us" when no plan lifts it. */
+  /**
+   * The upgrade button's label: "Upgrade", "Contact us" when no plan lifts it,
+   * or "Upgrade your free workspace" when the upgrade is for another workspace.
+   */
   cta: string;
   /** What the upgrade dialog explains (`showUpgrade(lock.info)`). */
   info: PlanLimitInfo;
@@ -86,6 +94,32 @@ function paidPlans(join: "and" | "or", feature?: "profileLevelAccess"): string {
 
 function cta(upgradeTo: PersonalPlan | null): string {
   return upgradeTo ? "Upgrade" : "Contact us";
+}
+
+/**
+ * The lock on "New workspace": the person already has their one free
+ * workspace. About the person, not the open workspace — so it shows on a paid
+ * or a view-only workspace too — but the way out depends on it: upgrade this
+ * one when it's their free one (`freeSlotHere`), else upgrade the free one
+ * they have. Either way the new workspace can then start on Free.
+ */
+export function newWorkspaceLock(
+  limits: Pick<AddLimitsData, "plan" | "freeSlotHere">,
+): AddLock {
+  return {
+    title: "You already have a free workspace",
+    reason: `You already have a free workspace — each extra workspace needs its own ${paidPlans("or")} plan.`,
+    cta: limits.freeSlotHere ? "Upgrade" : "Upgrade your free workspace",
+    info: {
+      limit: "newWorkspace",
+      plan: limits.plan,
+      max: 1,
+      used: 1,
+      // The plan a free workspace moves up to, wherever that workspace is.
+      upgradeTo: "plus",
+      freeSlotHere: limits.freeSlotHere,
+    },
+  };
 }
 
 /** The lock for a view-only workspace — every create in it. */
@@ -160,13 +194,7 @@ export function addLock(
   // One free workspace per person — about the user, not this workspace, so a
   // view-only workspace doesn't change it.
   if (kind === "workspaces") {
-    if (limits.canCreateFreeWorkspace) return null;
-    return {
-      title: "You already have a free workspace",
-      reason: `You already have a free workspace — each extra workspace needs ${paidPlans("or")}.`,
-      cta: "Upgrade",
-      info: { limit: "freeWorkspaces", plan: "free", max: 1, used: 1, upgradeTo: "plus" },
-    };
+    return limits.canCreateFreeWorkspace ? null : newWorkspaceLock(limits);
   }
 
   if (kind === "profileLevelAccess") {

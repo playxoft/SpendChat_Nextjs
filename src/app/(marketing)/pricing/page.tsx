@@ -8,9 +8,10 @@ import { ComparisonTable } from "@/components/pricing/comparison-table";
 import { PlanCards, PricingExtras } from "@/components/pricing/plan-cards";
 import { PricingStateProvider } from "@/components/pricing/pricing-state";
 import { parseAcceptLanguage, regionFromLocale } from "@/lib/geo";
+import { requestCountry } from "@/lib/geo.server";
 import { marketingCta } from "@/lib/marketing";
 import { PLAN_PITCH, PRICING_HERO, pricingFaqs } from "@/lib/plan-copy";
-import { PERSONAL_PLANS, PLAN_NAMES } from "@/lib/plans";
+import { PERSONAL_PLANS, PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
 import { STUDENT_DISCOUNT, TRIAL_DAYS, currencyForCountry, pct } from "@/lib/pricing";
 import { createMetadata, faqJsonLd } from "@/lib/seo";
 
@@ -25,16 +26,15 @@ import { createMetadata, faqJsonLd } from "@/lib/seo";
  */
 export const metadata = createMetadata({
   title: "Pricing — Free Expense Tracker, Plus and Pro Plans",
-  description: `Start free with unlimited transactions. Plus and Pro add more AI, voice entry, storage and room for your family — priced per workspace, with a ${TRIAL_DAYS}-day trial.`,
+  description: `Start free with unlimited transactions. Plus and Pro add more AI, storage and people, and ${PLAN_NAMES[lowestPlanWith("voice")]} adds voice — priced per workspace, with a ${TRIAL_DAYS}-day trial.`,
   path: "/pricing",
 });
 
 /** The visitor's country — Cloudflare's edge header first, then their browser's language region. */
 async function detectCountry(): Promise<string> {
-  const h = await headers();
-  const cf = h.get("cf-ipcountry");
-  if (cf && cf !== "XX" && cf !== "T1") return cf;
-  for (const tag of parseAcceptLanguage(h.get("accept-language"))) {
+  const cf = await requestCountry();
+  if (cf) return cf;
+  for (const tag of parseAcceptLanguage((await headers()).get("accept-language"))) {
     const region = regionFromLocale(tag);
     if (region) return region;
   }
@@ -44,8 +44,8 @@ async function detectCountry(): Promise<string> {
 const promises = [
   {
     icon: Timer,
-    title: `${TRIAL_DAYS} days free on every paid plan`,
-    body: "Use the whole plan for three weeks before you pay anything. Cancel inside the trial and you're never charged.",
+    title: `${TRIAL_DAYS} days free on your first paid plan`,
+    body: "Use the whole plan for three weeks before you pay anything — one trial per workspace. Cancel inside the trial and you're never charged.",
   },
   {
     icon: ShieldCheck,

@@ -87,8 +87,9 @@ export function ChatDemo({
   const cats = useMemo(
     () =>
       demoCategories(type).map((c) => ({
-        // The default set has an "Other" in both kinds, so the kind has to be
-        // part of the key even though only one kind is on screen at a time.
+        // A name is unique per kind, not across kinds (a workspace can have an
+        // expense and an income category of the same name), so the kind has to
+        // be part of the key even though only one kind is on screen at a time.
         id: `${c.kind}:${c.name}`,
         name: c.name,
         kind: c.kind,
@@ -143,7 +144,7 @@ export function ChatDemo({
       type,
       amountMinor,
       title: title.trim() || cat?.name || "Transaction",
-      categoryName: cat?.name ?? "Other",
+      categoryName: cat?.name ?? "Uncategorized",
       categoryIcon: cat?.icon ?? "💸",
     });
     setAmount("");

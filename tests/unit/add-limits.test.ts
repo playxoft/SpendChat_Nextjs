@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest";
 import { PLAN_LIMITS, type PersonalPlan } from "@/lib/plans";
 import {
   addLock,
+  newWorkspaceLock,
   profileAccessLock,
   readOnlyLock,
   spaceHasRoom,
   type AddLimitsData,
   type AddMeter,
 } from "@/lib/add-limits";
-import { upgradeCopy } from "@/lib/plan-limit";
+import { limitPitch } from "@/lib/plan-copy";
 
 /**
  * The locks the "new …" buttons and create forms show before anything is
@@ -31,11 +32,12 @@ function limitsFor(
     plan,
     readOnly,
     spaces: meter(used.spaces ?? 1, l.spaces, readOnly),
-    categories: meter(used.categories ?? 15, l.categories, readOnly),
+    categories: meter(used.categories ?? 10, l.categories, readOnly),
     tags: meter(used.tags ?? 0, l.tags, readOnly),
     members: meter(used.members ?? 1, l.members, readOnly),
     profilesPerSpace: l.profilesPerSpace,
     canCreateFreeWorkspace: true,
+    freeSlotHere: false,
     profileLevelAccess: l.profileLevelAccess,
     voice: l.voice,
     ...extra,
@@ -122,9 +124,27 @@ describe("addLock", () => {
     expect(addLock(limitsFor("free", {}, { readOnly: true }), "workspaces")).toBeNull();
     const lock = addLock(limitsFor("pro", {}, { canCreateFreeWorkspace: false }), "workspaces");
     expect(lock?.reason).toBe(
-      "You already have a free workspace — each extra workspace needs Plus or Pro.",
+      "You already have a free workspace — each extra workspace needs its own Plus or Pro plan.",
     );
-    expect(lock?.info).toMatchObject({ limit: "freeWorkspaces", plan: "free", upgradeTo: "plus" });
+    // About creating one — not the view-only words — and on the real plan.
+    expect(lock?.info).toMatchObject({ limit: "newWorkspace", plan: "pro", upgradeTo: "plus" });
+  });
+
+  it("points the new-workspace lock at the free workspace to upgrade", () => {
+    // This is their one free workspace: upgrading it frees the place.
+    const here = addLock(
+      limitsFor("free", {}, { canCreateFreeWorkspace: false, freeSlotHere: true }),
+      "workspaces",
+    );
+    expect(here).toEqual(newWorkspaceLock({ plan: "free", freeSlotHere: true }));
+    expect(here?.cta).toBe("Upgrade");
+    expect(here?.info).toMatchObject({ plan: "free", freeSlotHere: true });
+    // Their free workspace is another one — a paid workspace, or someone else's.
+    for (const plan of ["free", "plus", "pro"] as const) {
+      const elsewhere = addLock(limitsFor(plan, {}, { canCreateFreeWorkspace: false }), "workspaces");
+      expect(elsewhere?.cta).toBe("Upgrade your free workspace");
+      expect(elsewhere?.info).toMatchObject({ limit: "newWorkspace", plan, freeSlotHere: false });
+    }
   });
 
   it("locks per-profile access below Plus only", () => {
@@ -142,7 +162,9 @@ describe("addLock", () => {
     for (const kind of ["spaces", "categories", "tags", "members", "profileLevelAccess"] as const) {
       const lock = addLock(limits, kind);
       expect(lock).not.toBeNull();
-      expect(upgradeCopy(lock!.info).upgradeTo).toBe("plus");
+      const pitch = limitPitch(lock!.info);
+      expect(pitch.upgradeTo).toBe("plus");
+      expect(pitch.pitch).toContain("Plus");
     }
   });
 

@@ -1,6 +1,22 @@
 import "server-only";
 import { headers } from "next/headers";
-import { resolveSettingsDefaults, type SettingsDefaults } from "./geo";
+import { edgeCountry, resolveSettingsDefaults, type SettingsDefaults } from "./geo";
+
+/**
+ * The country this request comes from, by Cloudflare's IP geolocation
+ * (`cf-ipcountry`) only — never `Accept-Language`, which the client writes —
+ * or null when it's unknown (`edgeCountry`) or there's no request. This is the
+ * country the checkout currency rule (`checkoutCurrency`) is judged by, so
+ * every page that shows a plan's price and the action that charges it read it
+ * from here.
+ */
+export async function requestCountry(): Promise<string | null> {
+  try {
+    return edgeCountry((await headers()).get("cf-ipcountry"));
+  } catch {
+    return null;
+  }
+}
 
 /**
  * Geo-detected default currency + locale for the current request. Reads

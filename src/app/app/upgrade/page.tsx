@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { getAppContext } from "@/lib/auth";
 import { getUsage } from "@/lib/entitlements";
-import { PLAN_PITCH, pricingCurrencyFor, pricingFaqs, upgradeHero } from "@/lib/plan-copy";
+import { checkoutCurrencies } from "@/lib/checkout";
+import { requestCountry } from "@/lib/geo.server";
+import { PLAN_PITCH, pricingFaqs, upgradeHero, workspacePriceCurrency } from "@/lib/plan-copy";
 import { isPaidPlan } from "@/lib/plans";
 import { FaqSection } from "@/components/marketing/faq-section";
 import { ComparisonTable } from "@/components/pricing/comparison-table";
@@ -21,12 +23,12 @@ export const metadata: Metadata = {
  * The in-app plans page: what the current workspace is on, how much of it is
  * used, and what Plus and Pro would change — the place every upgrade prompt
  * ("Upgrade") lands. Same cards, table and words as the public `/pricing`
- * (`components/pricing`, `lib/plan-copy`), priced in the workspace's currency
- * when we sell in it. Each paid card's button opens checkout for this
- * workspace (`/app/upgrade/checkout`).
+ * (`components/pricing`, `lib/plan-copy`), priced in the currency checkout
+ * will charge (`workspacePriceCurrency`). Each paid card's button opens
+ * checkout for this workspace (`/app/upgrade/checkout`).
  */
 export default async function UpgradePage() {
-  const { workspace } = await getAppContext();
+  const [{ workspace }, country] = await Promise.all([getAppContext(), requestCountry()]);
   const usage = await getUsage(workspace.id);
   const plan = usage.plan;
   const hero = upgradeHero(workspace.name);
@@ -51,7 +53,11 @@ export default async function UpgradePage() {
         <UsageStrip usage={usage} />
       </div>
 
-      <PricingStateProvider initialCurrency={pricingCurrencyFor(workspace.currency)}>
+      {/* Only what checkout will charge, so the cards never quote another price. */}
+      <PricingStateProvider
+        initialCurrency={workspacePriceCurrency(workspace.currency, country)}
+        currencies={checkoutCurrencies(country)}
+      >
         <section aria-labelledby="plans-heading" className="mt-10">
           <h2 id="plans-heading" className="text-lg font-semibold tracking-tight">
             {isPaidPlan(plan) ? "Your plan and the others" : "What an upgrade would change"}

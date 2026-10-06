@@ -236,8 +236,8 @@ const CHAT_TITLE = "Afternoon coffee";
  * transaction the beat commits.
  */
 const CHAT_CATEGORY = "Food & Dining";
-/** The same category as the id `CategoryRow` keys its chips by — the default
- * set has an "Other" in both kinds, so the kind is part of the id. */
+/** The same category as the id `CategoryRow` keys its chips by — a name is
+ * unique per kind, not across kinds, so the kind is part of the id. */
 const CHAT_CATEGORY_ID = `expense:${CHAT_CATEGORY}`;
 
 function aiNoteFor(money: DemoMoneyFormat): string {

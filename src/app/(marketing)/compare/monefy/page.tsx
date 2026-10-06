@@ -36,7 +36,7 @@ const rows: CompareRow[] = [
   },
   {
     label: "Price",
-    spendchat: "Free plan with no ads. Paid plans add more AI, voice entry, storage and people.",
+    spendchat: "Free plan with no ads. Paid plans add more AI, storage and people; Pro adds voice entry.",
     competitor:
       "Free with ads. Premium is an in-app purchase for unlimited accounts, recurring transactions and advanced filters; store listings show tiers up to $59.99 and don't state the billing period.",
   },

@@ -28,6 +28,8 @@ type PricingState = {
   setPeriod: (p: Period) => void;
   currency: Currency;
   setCurrency: (c: Currency) => void;
+  /** The currencies the switcher offers. */
+  currencies: Currency[];
 };
 
 const Ctx = createContext<PricingState | null>(null);
@@ -39,18 +41,28 @@ const Ctx = createContext<PricingState | null>(null);
  */
 export function PricingStateProvider({
   initialCurrency,
+  currencies = ALL_CURRENCIES,
   children,
 }: {
   initialCurrency: Currency;
+  /**
+   * Limit the switcher — the in-app page passes `checkoutCurrencies(country)`
+   * so it only offers prices checkout will charge. The public page shows all.
+   */
+  currencies?: Currency[];
   children: ReactNode;
 }) {
   // Yearly first: it's the best deal, and the price people should anchor on.
   const [period, setPeriod] = useState<Period>("yearly");
   const [currency, setCurrency] = useState<Currency>(initialCurrency);
   return (
-    <Ctx.Provider value={{ period, setPeriod, currency, setCurrency }}>{children}</Ctx.Provider>
+    <Ctx.Provider value={{ period, setPeriod, currency, setCurrency, currencies }}>
+      {children}
+    </Ctx.Provider>
   );
 }
+
+const ALL_CURRENCIES = CURRENCIES.map((c) => c.code);
 
 export function usePricingState(): PricingState {
   const value = useContext(Ctx);
@@ -63,7 +75,7 @@ export function usePricingState(): PricingState {
  * the comparison chart. Both are 44px tall.
  */
 export function PricingControls({ className }: { className?: string }) {
-  const { period, setPeriod, currency, setCurrency } = usePricingState();
+  const { period, setPeriod, currency, setCurrency, currencies } = usePricingState();
 
   // One selector serves both paid plans, so each option shows the best saving
   // either of them gets; each card then shows its own exact saving.
@@ -106,10 +118,10 @@ export function PricingControls({ className }: { className?: string }) {
           </SelectValue>
         </SelectTrigger>
         <SelectContent position="popper" align="end">
-          {CURRENCIES.map((c) => (
-            <SelectItem key={c.code} value={c.code}>
-              <span className="w-7 text-center font-semibold">{currencySymbol(c.code)}</span>
-              {c.code}
+          {currencies.map((code) => (
+            <SelectItem key={code} value={code}>
+              <span className="w-7 text-center font-semibold">{currencySymbol(code)}</span>
+              {code}
             </SelectItem>
           ))}
         </SelectContent>

@@ -1,12 +1,14 @@
 import { Suspense } from "react";
 import { getAppContext, getUserWorkspaces } from "@/lib/auth";
 import { canWriteInWorkspace } from "@/lib/workspaces";
-import { getAddLimits, getWorkspaceEntitlements, voiceAllowed } from "@/lib/entitlements";
+import { getAddLimits } from "@/lib/entitlements";
 import { getCategories, getProfiles, getTags } from "@/lib/queries";
 import { normalizeUiPrefs } from "@/lib/validation";
 import { listSpaces } from "@/services/spaces";
 import { todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
+import { requestCountry } from "@/lib/geo.server";
+import { workspacePriceCurrency } from "@/lib/plan-copy";
 import { AppSidebar } from "@/components/app/app-sidebar";
 import { AppTopbar } from "@/components/app/app-topbar";
 import { BottomNav } from "@/components/app/bottom-nav";
@@ -26,8 +28,8 @@ export default async function AppLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   const { user, settings, workspace } = await getAppContext();
   const email = user.email;
-  const timeZone = await getTimeZone();
-  const [profiles, spaces, categories, tags, workspaces, canWrite, entitlements, addLimits] =
+  const [timeZone, country] = await Promise.all([getTimeZone(), requestCountry()]);
+  const [profiles, spaces, categories, tags, workspaces, canWrite, addLimits] =
     await Promise.all([
       getProfiles(user.id, workspace.id),
       // The sidebar's groups: every space for admins, a member's own spaces otherwise.
@@ -38,9 +40,9 @@ export default async function AppLayout({
       getTags(workspace.id),
       getUserWorkspaces(user.id),
       canWriteInWorkspace(user.id, workspace.id),
-      getWorkspaceEntitlements(workspace.id),
-      // What can still be added (spaces, categories, tags, members, a new
-      // workspace) — so the "new …" buttons show a lock before a form is filled in.
+      // The plan, and what can still be added (spaces, categories, tags,
+      // members, a new workspace) — so the "new …" buttons show a lock before
+      // a form is filled in.
       getAddLimits(workspace.id, user.id),
     ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
@@ -51,12 +53,12 @@ export default async function AppLayout({
     <LoadingOverlayProvider>
     <PermissionsProvider canWrite={canWrite} canManage={canManage}>
     <PlanProvider
-      plan={entitlements.plan}
-      readOnly={entitlements.readOnly}
-      voiceAllowed={voiceAllowed(entitlements)}
-      profileLevelAccess={entitlements.limits.profileLevelAccess}
+      plan={addLimits.plan}
+      readOnly={addLimits.readOnly}
+      voiceAllowed={addLimits.voice}
+      profileLevelAccess={addLimits.profileLevelAccess}
       addLimits={addLimits}
-      currency={workspace.currency}
+      currency={workspacePriceCurrency(workspace.currency, country)}
     >
     <AttachmentViewerProvider>
     <div className="flex min-h-svh">

@@ -94,17 +94,17 @@ export const DEMO_SEEDS: Record<DemoProfile, DemoTxn[]> = {
     { id: 5, type: "expense", amountMinor: 4000, title: "Weekly groceries", categoryName: "Groceries", categoryIcon: "🛒", timeLabel: "6:30 PM" },
   ],
   Home: [
-    { id: 1, day: "Yesterday", type: "expense", amountMinor: 3200, title: "Water bill", categoryName: "Utilities", categoryIcon: "💡", timeLabel: "10:40 AM" },
+    { id: 1, day: "Yesterday", type: "expense", amountMinor: 3200, title: "Water bill", categoryName: "Bills & Utilities", categoryIcon: "💡", timeLabel: "10:40 AM" },
     { id: 2, day: "Yesterday", type: "expense", amountMinor: 1899, title: "Light bulbs", categoryName: "Shopping", categoryIcon: "🛍️", timeLabel: "4:20 PM" },
     { id: 3, type: "expense", amountMinor: 120000, title: "Rent", categoryName: "Housing", categoryIcon: "🏠", timeLabel: "8:00 AM" },
-    { id: 4, type: "expense", amountMinor: 6800, title: "Electricity bill", categoryName: "Utilities", categoryIcon: "💡", timeLabel: "11:20 AM" },
+    { id: 4, type: "expense", amountMinor: 6800, title: "Electricity bill", categoryName: "Bills & Utilities", categoryIcon: "💡", timeLabel: "11:20 AM" },
     { id: 5, type: "expense", amountMinor: 7350, title: "Household supplies", categoryName: "Groceries", categoryIcon: "🛒", timeLabel: "5:45 PM" },
   ],
   Business: [
-    { id: 1, day: "Yesterday", type: "expense", amountMinor: 2500, title: "Domain renewal", categoryName: "Other", categoryIcon: "📦", timeLabel: "9:30 AM" },
+    { id: 1, day: "Yesterday", type: "expense", amountMinor: 2500, title: "Domain renewal", categoryName: "Bills & Utilities", categoryIcon: "💡", timeLabel: "9:30 AM" },
     { id: 2, day: "Yesterday", type: "income", amountMinor: 75000, title: "Consulting retainer", categoryName: "Freelance", categoryIcon: "🧾", timeLabel: "3:00 PM" },
     { id: 3, type: "income", amountMinor: 350000, title: "Client invoice", categoryName: "Freelance", categoryIcon: "🧾", timeLabel: "10:05 AM" },
-    { id: 4, type: "expense", amountMinor: 4900, title: "Software subscriptions", categoryName: "Other", categoryIcon: "📦", timeLabel: "2:30 PM" },
+    { id: 4, type: "expense", amountMinor: 4900, title: "Software subscriptions", categoryName: "Bills & Utilities", categoryIcon: "💡", timeLabel: "2:30 PM" },
     { id: 5, type: "expense", amountMinor: 12000, title: "Online ads", categoryName: "Shopping", categoryIcon: "🛍️", timeLabel: "4:10 PM" },
   ],
 };

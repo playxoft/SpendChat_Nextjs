@@ -1,8 +1,8 @@
 "use server";
 
-import { headers } from "next/headers";
 import { requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
+import { requestCountry } from "@/lib/geo.server";
 import * as billing from "@/services/billing";
 import type { StartCheckoutInput } from "@/lib/validation";
 
@@ -17,15 +17,9 @@ export async function startCheckout(
   input: StartCheckoutInput,
 ): Promise<ActionResult<{ url: string }>> {
   const user = await requireUser();
-  const country = requestCountry((await headers()).get("cf-ipcountry"));
+  const country = await requestCountry();
   return runAction("startCheckout", () => billing.startCheckout(user.id, workspaceId, input, { country }), {
     userId: user.id,
     workspaceId,
   });
-}
-
-/** Cloudflare's country for the request; its "unknown" (XX) and Tor (T1) codes count as none. */
-function requestCountry(value: string | null): string | null {
-  if (!value || value === "XX" || value === "T1") return null;
-  return value.toUpperCase();
 }

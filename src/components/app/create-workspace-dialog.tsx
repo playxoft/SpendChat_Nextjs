@@ -17,9 +17,11 @@ import { Label } from "@/components/ui/label";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { useLoadingOverlay } from "./loading-overlay";
 import { usePlan } from "./upgrade-dialog";
-import { LimitPanel, LockedButton, useAddLock } from "./limit-lock";
+import { LimitPanel, LockedButton, useAddLimits, useAddLock } from "./limit-lock";
 import { createWorkspace } from "@/actions/workspaces";
 import { DEFAULT_WORKSPACE_ICON, WORKSPACE_NAME_MAX } from "@/lib/validation";
+import { newWorkspaceLock } from "@/lib/add-limits";
+import { planLimitOf } from "@/lib/plan-limit";
 
 /**
  * Modal for creating a new workspace. Reused by the sidebar workspace switcher,
@@ -40,7 +42,8 @@ export function CreateWorkspaceDialog({
 }) {
   const router = useRouter();
   const { run, pending } = useLoadingOverlay();
-  const { handlePlanLimit, showUpgrade } = usePlan();
+  const { handlePlanLimit, showUpgrade, plan } = usePlan();
+  const limits = useAddLimits();
   const lock = useAddLock("workspaces");
   const [name, setName] = React.useState("");
   const [icon, setIcon] = React.useState(DEFAULT_WORKSPACE_ICON);
@@ -76,9 +79,20 @@ export function CreateWorkspaceDialog({
         router.refresh();
       } else if (res.code === "plan_limit") {
         // One free workspace per person: explain it in the upgrade dialog
-        // rather than leaving this form up with an error toast.
+        // rather than leaving this form up with an error toast. The server
+        // calls it `freeWorkspaces` (as it does a view-only workspace); here
+        // it's about creating one, so it gets the "New workspace" words.
         onOpenChange(false);
-        if (!handlePlanLimit(res)) toast.error(res.error);
+        const refused = planLimitOf(res);
+        if (refused?.limit === "freeWorkspaces") {
+          showUpgrade(
+            limits
+              ? newWorkspaceLock(limits).info
+              : { ...refused, limit: "newWorkspace", plan },
+          );
+        } else if (!handlePlanLimit(res)) {
+          toast.error(res.error);
+        }
       } else {
         toast.error(res.error);
       }

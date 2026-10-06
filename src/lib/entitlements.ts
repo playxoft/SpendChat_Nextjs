@@ -147,12 +147,12 @@ function capError(
 
 /**
  * People who count as members: workspace members, people with a per-profile
- * grant only, and pending invites (by email). Each person once.
+ * grant only, and pending invites (by email). Each person once. A scalar
+ * subquery, so `getAddLimits` can fold it into its one counts query.
  */
-export async function countMembers(workspaceId: string): Promise<number> {
-  const db = getDb();
-  const result = await db.execute<{ n: string }>(sql`
-    select count(*)::text as n from (
+function membersCountSql(workspaceId: string) {
+  return sql`(
+    select count(*) from (
       select ${workspaceMembers.userId}::text as who from ${workspaceMembers}
         where ${workspaceMembers.workspaceId} = ${workspaceId}
       union
@@ -163,7 +163,13 @@ export async function countMembers(workspaceId: string): Promise<number> {
       select 'invite:' || ${workspaceInvites.email} from ${workspaceInvites}
         where ${workspaceInvites.workspaceId} = ${workspaceId}
     ) people
-  `);
+  )`;
+}
+
+export async function countMembers(workspaceId: string): Promise<number> {
+  const result = await getDb().execute<{ n: string }>(
+    sql`select ${membersCountSql(workspaceId)}::text as n`,
+  );
   return Number(result.rows[0]?.n ?? 0);
 }
 
@@ -292,7 +298,7 @@ export async function assertCanAddProfilesToSpace(
   }
 }
 
-/** The 15 seeded defaults count; deleting one frees a slot. */
+/** The seeded defaults (`DEFAULT_CATEGORIES`) count; deleting one frees a slot. */
 export async function assertCanAddCategory(workspaceId: string): Promise<void> {
   const ent = await getWorkspaceEntitlements(workspaceId);
   assertWritable(ent);
@@ -469,9 +475,10 @@ export type AddMeter = { used: number; limit: number; reached: boolean };
 /**
  * Everything the "new …" buttons and dialogs need to show a limit *before*
  * someone fills a form in — a lock and a reason instead of a Create button that
- * fails. One round trip (correlated counts), cheap enough for the app layout to
- * read on every page. The server still enforces each limit on the write; this
- * only decides what the UI offers.
+ * fails. Every count is one query (scalar subqueries), run alongside the plan
+ * read, so it costs the app layout one round trip on every page. The layout
+ * reads the plan from here too rather than asking for it again. The server
+ * still enforces each limit on the write; this only decides what the UI offers.
  *
  * Profiles per space are counted per space by `listSpaces` (`profileCount`);
  * compare those against `profilesPerSpace` here.
@@ -487,28 +494,36 @@ export type AddLimits = {
   profilesPerSpace: number;
   /** This user can create one more workspace on Free (they don't own a free one yet). */
   canCreateFreeWorkspace: boolean;
+  /**
+   * The workspace is this user's one free workspace, so upgrading it frees the
+   * free place a new workspace needs (the "New workspace" lock says so).
+   */
+  freeSlotHere: boolean;
   profileLevelAccess: boolean;
   voice: boolean;
 };
 
 export async function getAddLimits(workspaceId: string, userId: string): Promise<AddLimits> {
-  const ent = await getWorkspaceEntitlements(workspaceId);
-  const db = getDb();
-  const result = await db.execute<{
-    spaces: string;
-    categories: string;
-    tags: string;
-    free_owned: string;
-  }>(sql`
-    select
-      (select count(*) from ${spaces} where ${spaces.workspaceId} = ${workspaceId})::text as spaces,
-      (select count(*) from ${categories} where ${categories.workspaceId} = ${workspaceId})::text as categories,
-      (select count(*) from ${tags} where ${tags.workspaceId} = ${workspaceId})::text as tags,
-      (select count(*) from ${workspaces}
-        where ${workspaces.ownerId} = ${userId} and ${workspaces.plan} = 'free')::text as free_owned
-  `);
+  const [ent, result] = await Promise.all([
+    getWorkspaceEntitlements(workspaceId),
+    getDb().execute<{
+      spaces: string;
+      categories: string;
+      tags: string;
+      members: string;
+      free_owned: string;
+    }>(sql`
+      select
+        (select count(*) from ${spaces} where ${spaces.workspaceId} = ${workspaceId})::text as spaces,
+        (select count(*) from ${categories} where ${categories.workspaceId} = ${workspaceId})::text as categories,
+        (select count(*) from ${tags} where ${tags.workspaceId} = ${workspaceId})::text as tags,
+        ${membersCountSql(workspaceId)}::text as members,
+        (select count(*) from ${workspaces}
+          where ${workspaces.ownerId} = ${userId} and ${workspaces.plan} = 'free')::text as free_owned
+    `),
+  ]);
   const row = result.rows[0];
-  const members = await countMembers(workspaceId);
+  const freeOwned = Number(row?.free_owned ?? 0);
   const meter = (used: number, limit: number): AddMeter => ({
     used,
     limit,
@@ -520,9 +535,10 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
     spaces: meter(Number(row?.spaces ?? 0), ent.limits.spaces),
     categories: meter(Number(row?.categories ?? 0), ent.limits.categories),
     tags: meter(Number(row?.tags ?? 0), ent.limits.tags),
-    members: meter(members, ent.limits.members),
+    members: meter(Number(row?.members ?? 0), ent.limits.members),
     profilesPerSpace: ent.limits.profilesPerSpace,
-    canCreateFreeWorkspace: Number(row?.free_owned ?? 0) === 0,
+    canCreateFreeWorkspace: freeOwned === 0,
+    freeSlotHere: ent.plan === "free" && ent.ownerId === userId && freeOwned === 1,
     profileLevelAccess: ent.limits.profileLevelAccess,
     voice: voiceAllowed(ent),
   };

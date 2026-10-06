@@ -1,5 +1,6 @@
 import { PLAN_LIMITS, TOPUP, planAtLeast, type PersonalPlan } from "@/lib/plans";
 import {
+  CURRENCIES,
   PAID_PERSONAL_PLANS,
   PERIODS,
   PERIOD_MONTHS,
@@ -115,7 +116,6 @@ export type CheckoutQuote = {
   saving: number;
 };
 
-/** The price of one billing period of `plan`, from `pricing.ts` — never from the client. */
 /**
  * The currency an order is charged in. The buyer's choice (or their
  * workspace's) is only a preference: the rupee list carries the regional
@@ -136,6 +136,17 @@ export function checkoutCurrency(
   return preferred;
 }
 
+/**
+ * The currencies checkout charges a request from `country` in, as is — every
+ * global-price currency, and the rupee list only from a rupee country. The
+ * in-app plans page offers only these, so its switcher can't show a price
+ * that checkout would then change.
+ */
+export function checkoutCurrencies(country: string | null | undefined): Currency[] {
+  return CURRENCIES.map((c) => c.code).filter((code) => checkoutCurrency(code, country) === code);
+}
+
+/** The price of one billing period of `plan`, from `pricing.ts` — never from the client. */
 export function checkoutQuote(plan: PaidPersonalPlan, period: Period, currency: Currency): CheckoutQuote {
   const q = quote(plan, period, currency);
   return {

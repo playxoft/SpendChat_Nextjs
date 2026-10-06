@@ -36,7 +36,7 @@ const rows: CompareRow[] = [
   },
   {
     label: "Price",
-    spendchat: "Free plan with no ads. Paid plans add more AI, voice entry, storage and people.",
+    spendchat: "Free plan with no ads. Paid plans add more AI, storage and people; Pro adds voice entry.",
     competitor:
       "Mint was free with ads. The apps people moved to are mostly paid: YNAB $109 a year or $14.99 a month, Copilot $95 a year or $13 a month, PocketGuard Plus $74.99 a year with a free core plan.",
   },

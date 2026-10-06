@@ -630,8 +630,10 @@ describe("getAddLimits", () => {
       tags: { used: 2, limit: 5, reached: false },
       members: { used: 1, limit: 3, reached: false },
       profilesPerSpace: PLAN_LIMITS.free.profilesPerSpace,
-      // They already own their one free workspace.
+      // They already own their one free workspace — this one, so upgrading it
+      // is what frees the place for another.
       canCreateFreeWorkspace: false,
+      freeSlotHere: true,
       profileLevelAccess: false,
       voice: false,
     });
@@ -643,6 +645,7 @@ describe("getAddLimits", () => {
     expect(await getAddLimits(W, uid("own"))).toMatchObject({
       plan: "plus",
       canCreateFreeWorkspace: true,
+      freeSlotHere: false,
       profileLevelAccess: true,
       voice: false,
       categories: { used: 10, limit: PLAN_LIMITS.plus.categories, reached: false },
@@ -673,15 +676,50 @@ describe("getAddLimits", () => {
     await setWorkspacePlan(W1, "free");
 
     const limits = await getAddLimits(W2, uid("own"));
-    expect(limits).toMatchObject({ plan: "free", readOnly: true, canCreateFreeWorkspace: false });
+    expect(limits).toMatchObject({
+      plan: "free",
+      readOnly: true,
+      canCreateFreeWorkspace: false,
+      freeSlotHere: false,
+    });
     for (const meter of [limits.spaces, limits.categories, limits.tags, limits.members]) {
       expect(meter.reached).toBe(true);
     }
     expect(limits.categories).toEqual({ used: 10, limit: 20, reached: true });
-    // The older free workspace is unaffected.
+    // The older free workspace is unaffected. Upgrading it alone wouldn't free
+    // a place — they'd still own the view-only one.
     expect(await getAddLimits(W1, uid("own"))).toMatchObject({
       readOnly: false,
       categories: { reached: false },
+      freeSlotHere: false,
+    });
+  });
+
+  it("counts members (invites and grants included) in the same query as the rest", async () => {
+    const W = await ownerOn("free");
+    await bootstrapUser("mb");
+    const all = { mode: "all" as const, role: "viewer" as const };
+    await ws.addMember(uid("own"), W, { email: "mb@example.com", access: all });
+    await ws.addMember(uid("own"), W, { email: "pending@example.com", access: all });
+    const limits = await getAddLimits(W, uid("own"));
+    expect(limits.members).toEqual({ used: await countMembers(W), limit: 3, reached: true });
+    expect(limits.members.used).toBe(3);
+  });
+
+  it("someone else's Free workspace isn't the place to free up a new one", async () => {
+    await ownerOn("free");
+    await bootstrapUser("oth");
+    const theirs = await workspaceIdOf("oth");
+    await ws.addMember(uid("oth"), theirs, {
+      email: "own@example.com",
+      access: { mode: "all", role: "editor" },
+    });
+    // own still owns a free workspace (so can't create one), but upgrading
+    // oth's wouldn't change that.
+    expect(await getAddLimits(theirs, uid("own"))).toMatchObject({
+      plan: "free",
+      canCreateFreeWorkspace: false,
+      freeSlotHere: false,
     });
   });
 

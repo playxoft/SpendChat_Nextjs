@@ -2,7 +2,6 @@ import { formatFileSize } from "@/lib/attachments";
 import {
   PERSONAL_PLANS,
   PLAN_LIMITS,
-  PLAN_NAMES,
   isPersonalPlan,
   planAtLeast,
   type PersonalPlan,
@@ -10,13 +9,12 @@ import {
 
 /**
  * The client half of a `plan_limit` rejection: recognising one on an action
- * result (or an upload response), and turning its `details` into the words the
- * upgrade dialog shows. Pure and client-safe — the numbers come from the same
- * `PLAN_LIMITS` the server enforces, so the dialog can't promise something the
- * plan doesn't include.
+ * result (or an upload response) and validating its `details`, plus the small
+ * formatters and meter maths the limit UI shares. Pure and client-safe — the
+ * numbers come from the same `PLAN_LIMITS` the server enforces.
  *
- * The dialog explains the limit, names the plan that lifts it, and links to
- * checkout for that plan (`lib/checkout.ts`).
+ * The upgrade dialog's words for a limit are `limitPitch` in `lib/plan-copy.ts`;
+ * its button links to checkout for the plan that lifts it (`lib/checkout.ts`).
  */
 
 /** Mirrors `PlanLimitKey` in `lib/errors.ts` (kept here so this file stays client-safe). */
@@ -34,9 +32,19 @@ export const PLAN_LIMIT_KEYS = [
 ] as const;
 export type PlanLimitKey = (typeof PLAN_LIMIT_KEYS)[number];
 
+/**
+ * What the upgrade dialog can explain: every server key, plus `newWorkspace`
+ * — the one-free-workspace rule met from "New workspace" (creating another
+ * one), as opposed to `freeWorkspaces`, an extra workspace that is view-only.
+ * The server says `freeWorkspaces` for both; the client knows which one it
+ * hit (the create lock, the create form's refusal), so it names it.
+ */
+export const UPGRADE_LIMITS = [...PLAN_LIMIT_KEYS, "newWorkspace"] as const;
+export type UpgradeLimit = (typeof UPGRADE_LIMITS)[number];
+
 export type PlanLimitInfo = {
-  limit: PlanLimitKey;
-  /** The workspace's plan when the limit was hit. */
+  limit: UpgradeLimit;
+  /** The workspace's plan when the limit was hit — the one that's open. */
   plan: PersonalPlan;
   /** The cap that was hit, when it's a number. */
   max?: number;
@@ -44,6 +52,12 @@ export type PlanLimitInfo = {
   used?: number;
   /** The cheapest plan that lifts the limit; null when none does ("contact us"). */
   upgradeTo: PersonalPlan | null;
+  /**
+   * `newWorkspace` only: the open workspace is the person's one free
+   * workspace, so upgrading it frees the free place a new workspace needs.
+   * Otherwise the free workspace to upgrade is another one.
+   */
+  freeSlotHere?: boolean;
 };
 
 function isLimitKey(value: unknown): value is PlanLimitKey {
@@ -104,143 +118,6 @@ export function formatPlanStorage(bytes: number): string {
 /** "3 members", "1 space". `noun` is the singular; `plural` when it isn't just +s. */
 export function quantity(n: number, noun: string, plural = `${noun}s`): string {
   return `${n.toLocaleString("en-US")} ${n === 1 ? noun : plural}`;
-}
-
-/** What a plan includes, one short line each — the list the upgrade dialog shows. */
-export function planHighlights(plan: PersonalPlan): string[] {
-  const l = PLAN_LIMITS[plan];
-  const lines = [
-    quantity(l.members, "member"),
-    `${quantity(l.spaces, "space")}, ${quantity(l.profilesPerSpace, "profile")} in each`,
-    `${quantity(l.aiActionsPerMonth, "AI action")} a month`,
-    `${formatPlanStorage(l.storageBytes)} of storage`,
-    `${quantity(l.categories, "category", "categories")} and ${quantity(l.tags, "tag")}`,
-  ];
-  if (l.profileLevelAccess) lines.push("Access settings for each profile");
-  if (l.voice) lines.push("Voice entry");
-  return lines;
-}
-
-export type UpgradeCopy = {
-  title: string;
-  /** What happened, in plain words. */
-  reason: string;
-  /** The plan that lifts the limit; null → "contact us". */
-  upgradeTo: PersonalPlan | null;
-  /** One line about what the upgrade gives for *this* limit. */
-  upgradeLine: string | null;
-  /** Everything `upgradeTo` includes. */
-  includes: string[];
-};
-
-function planName(plan: PersonalPlan): string {
-  return PLAN_NAMES[plan];
-}
-
-/**
- * The upgrade dialog's words for a limit. Always simple English, and never
- * implies anything gets deleted — limits only stop *adding*.
- */
-export function upgradeCopy(info: PlanLimitInfo, now: Date = new Date()): UpgradeCopy {
-  const { plan, upgradeTo } = info;
-  const current = planName(plan);
-  const next = upgradeTo ? PLAN_LIMITS[upgradeTo] : null;
-  const max = info.max ?? null;
-  const on = `This workspace's ${current} plan`;
-
-  let title: string;
-  let reason: string;
-  let upgradeLine: string | null = null;
-
-  switch (info.limit) {
-    case "members": {
-      const cap = max ?? PLAN_LIMITS[plan].members;
-      title = "Member limit reached";
-      reason = `${on} includes ${quantity(cap, "member")}, and they're all in use. Pending invites count too.`;
-      if (next) upgradeLine = `${planName(upgradeTo!)} includes ${quantity(next.members, "member")}.`;
-      break;
-    }
-    case "spaces": {
-      const cap = max ?? PLAN_LIMITS[plan].spaces;
-      title = "Space limit reached";
-      reason = `${on} includes ${quantity(cap, "space")}.`;
-      if (next) upgradeLine = `${planName(upgradeTo!)} includes ${quantity(next.spaces, "space")}.`;
-      break;
-    }
-    case "profilesPerSpace": {
-      const cap = max ?? PLAN_LIMITS[plan].profilesPerSpace;
-      title = "This space is full";
-      reason = `On the ${current} plan, each space holds up to ${quantity(cap, "profile")}. You can put new profiles in another space.`;
-      if (next) {
-        upgradeLine = `${planName(upgradeTo!)} allows ${quantity(next.profilesPerSpace, "profile")} in each space.`;
-      }
-      break;
-    }
-    case "categories": {
-      const cap = max ?? PLAN_LIMITS[plan].categories;
-      title = "Category limit reached";
-      reason = `${on} includes ${quantity(cap, "category", "categories")} — the starter ones count too. Deleting one you don't use frees a place.`;
-      if (next) {
-        upgradeLine = `${planName(upgradeTo!)} includes ${quantity(next.categories, "category", "categories")}.`;
-      }
-      break;
-    }
-    case "tags": {
-      const cap = max ?? PLAN_LIMITS[plan].tags;
-      title = "Tag limit reached";
-      reason = `${on} includes ${quantity(cap, "tag")}. Deleting one you don't use frees a place.`;
-      if (next) upgradeLine = `${planName(upgradeTo!)} includes ${quantity(next.tags, "tag")}.`;
-      break;
-    }
-    case "storage": {
-      const cap = max ?? PLAN_LIMITS[plan].storageBytes;
-      const used = info.used;
-      title = "Not enough storage";
-      reason =
-        used !== undefined
-          ? `${on} includes ${formatPlanStorage(cap)} for files and receipts, and ${formatFileSize(Math.min(used, cap))} of it is used. This upload doesn't fit.`
-          : `${on} includes ${formatPlanStorage(cap)} for files and receipts, and this upload doesn't fit.`;
-      if (next) upgradeLine = `${planName(upgradeTo!)} includes ${formatPlanStorage(next.storageBytes)}.`;
-      break;
-    }
-    case "aiActions": {
-      const cap = max ?? PLAN_LIMITS[plan].aiActionsPerMonth;
-      title = "AI actions used up for this month";
-      reason = `This workspace has used its ${quantity(cap, "AI action")} for this month. They refill on ${formatResetDate(nextMonthStartUtc(now))}. You can still add transactions by hand.`;
-      if (next) {
-        upgradeLine = `${planName(upgradeTo!)} includes ${quantity(next.aiActionsPerMonth, "AI action")} a month.`;
-      }
-      break;
-    }
-    case "voice": {
-      title = `Voice entry is on ${upgradeTo ? planName(upgradeTo) : "a paid plan"}`;
-      reason =
-        "Hold M (or the mic) and say what you spent — the AI turns it into transactions. You can still type or paste a note for the AI.";
-      if (next) upgradeLine = `${planName(upgradeTo!)} includes voice entry.`;
-      break;
-    }
-    case "profileLevelAccess": {
-      title = "Per-profile access is on Plus and Pro";
-      reason = `On ${current}, people get Read or Read + write on a whole space. Plus and Pro let you change that for single profiles — hide one, or let someone write to just one.`;
-      if (next) upgradeLine = `${planName(upgradeTo!)} includes access settings for each profile.`;
-      break;
-    }
-    case "freeWorkspaces": {
-      title = "One free workspace per person";
-      reason =
-        "You can have one free workspace. Each extra workspace needs its own Plus or Pro plan — until then, an extra free workspace is view-only. Nothing in it is deleted.";
-      if (next) upgradeLine = `With ${planName(upgradeTo!)}, this workspace gets its own plan.`;
-      break;
-    }
-  }
-
-  return {
-    title,
-    reason,
-    upgradeTo,
-    upgradeLine,
-    includes: upgradeTo ? planHighlights(upgradeTo) : [],
-  };
 }
 
 // ── Meters ─────────────────────────────────────────────────────────────────

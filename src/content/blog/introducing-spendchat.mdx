@@ -13,7 +13,7 @@ export const meta = {
   faqs: [
     {
       q: "Is SpendChat free?",
-      a: "Yes. There's a Free plan with no time limit and no ads, and transactions and export are unlimited on it. Paid plans — Plus and Pro, priced per workspace — add more AI, voice entry, storage and room for more people; the pricing page has the details. Whatever happens to the hosted app, it's open source under the AGPL, so running your own copy stays free.",
+      a: "Yes. There's a Free plan with no time limit and no ads, and transactions and export are unlimited on it. Paid plans — Plus and Pro, priced per workspace — add more AI, storage and room for more people, and Pro adds voice entry; the pricing page has the details. Whatever happens to the hosted app, it's open source under the AGPL, so running your own copy stays free.",
     },
     {
       q: "Do I have to connect my bank account?",
@@ -116,7 +116,7 @@ Worth describing, because "set up in under a minute" is a claim everyone makes.
 
 You sign in with Google, which puts you straight in, or with an email and password, which sends a verification link you have to click before the account opens — one trip through your inbox, and the only part of this that leaves the app. Either way it is handled by Firebase Authentication, so no password ever reaches our servers. That is the whole of setup: no onboarding wizard, no budget to define before you're allowed to type anything, and no connect-your-accounts step to skip.
 
-What happens behind that is one workspace named after you, fifteen starter categories in it, and a default profile. The currency and number format are guessed from where you are — the country your connection reports, then your browser's language — and set on that first workspace only. An admin can change both later, and any workspace you create afterwards inherits whatever you're using at the time.
+What happens behind that is one workspace named after you, ten starter categories in it, and a default profile. The currency and number format are guessed from where you are — the country your connection reports, then your browser's language — and set on that first workspace only. An admin can change both later, and any workspace you create afterwards inherits whatever you're using at the time.
 
 Then you land on the tracker: an empty feed, with the composer already open underneath it. The first thing to do is type a number.
 

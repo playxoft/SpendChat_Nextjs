@@ -15,14 +15,12 @@ import {
 } from "@/components/ui/dialog";
 import type { PersonalPlan } from "@/lib/plans";
 import { planLimitOf, type PlanLimitInfo } from "@/lib/plan-limit";
-import { checkoutPath, trialDaysFor } from "@/lib/checkout";
 import {
   BIGGEST_PLAN_LINE,
   NOTHING_DELETED_LINE,
   limitPitch,
-  pricingCurrencyFor,
+  upgradeAction,
 } from "@/lib/plan-copy";
-import { PLAN_NAMES } from "@/lib/plans";
 import { formatAmount, isPaidPersonalPlan, quote, type Currency } from "@/lib/pricing";
 import { siteConfig } from "@/lib/site";
 import type { AddLimitsData } from "@/lib/add-limits";
@@ -50,10 +48,11 @@ export type PlanState = {
    */
   addLimits?: AddLimitsData | null;
   /**
-   * The workspace's currency (`workspaces.currency`), for the price the upgrade
-   * dialog quotes. Shown in it when we sell in it, else in US dollars.
+   * The currency the upgrade dialog quotes prices in — the one checkout will
+   * charge (`workspacePriceCurrency`, resolved on the server). US dollars when
+   * absent.
    */
-  currency?: string | null;
+  currency?: Currency;
 };
 
 type FailureLike = { ok: boolean; error?: string; code?: string; details?: unknown };
@@ -149,7 +148,7 @@ export function PlanProvider({
         info={info}
         open={open}
         onOpenChange={setOpen}
-        currency={pricingCurrencyFor(state.currency)}
+        currency={state.currency}
       />
     </PlanContext.Provider>
   );
@@ -163,9 +162,11 @@ export function usePlan(): PlanContextValue {
  * Explains a plan limit in terms of what it's getting in the way of, names the
  * plan that lifts it with its price, and offers it: "Upgrade to <plan>" opens
  * checkout for that plan, yearly preselected (the period can be changed
- * there). The one exception is an extra free workspace, which may not be the
- * one open, so that case goes to `/app/upgrade` to compare first. All the
- * words come from `lib/plan-copy.ts`, so this says what the pricing pages say.
+ * there). The exceptions are the one-free-workspace rule (`upgradeAction`):
+ * an extra, view-only workspace may not be the one open, and "New workspace"
+ * is lifted by upgrading the person's free workspace — this one, or another
+ * listed in organisation settings. All the words come from `lib/plan-copy.ts`,
+ * so this says what the pricing pages say.
  */
 export function UpgradeDialog({
   info,
@@ -185,9 +186,7 @@ export function UpgradeDialog({
   const paid = target && isPaidPersonalPlan(target) ? target : null;
   const monthly = paid ? quote(paid, "monthly", currency) : null;
   const yearly = paid ? quote(paid, "yearly", currency) : null;
-  const trialDays = trialDaysFor(info.plan);
-  const upgradeHref =
-    paid && info.limit !== "freeWorkspaces" ? checkoutPath({ plan: paid, period: "yearly" }) : "/app/upgrade";
+  const action = upgradeAction(info);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -216,7 +215,7 @@ export function UpgradeDialog({
             {yearly ? (
               <p className="text-xs text-muted-foreground tabular-nums">
                 Or {formatAmount(yearly.perMonth, currency)} a month, paid yearly.
-                {trialDays > 0 ? ` The first ${trialDays} days are free.` : ""}
+                {action.trialDays > 0 ? ` The first ${action.trialDays} days are free.` : ""}
               </p>
             ) : null}
           </div>
@@ -233,8 +232,8 @@ export function UpgradeDialog({
                 Not now
               </Button>
               <Button asChild>
-                <Link href={upgradeHref} onClick={() => onOpenChange(false)}>
-                  Upgrade to {PLAN_NAMES[target]}
+                <Link href={action.href} onClick={() => onOpenChange(false)}>
+                  {action.label}
                   <ArrowRight className="size-4" />
                 </Link>
               </Button>

@@ -25,7 +25,7 @@ type DemoCat = { id: string; name: string; kind: DemoTxnType; icon: string };
  *
  * Ids are `kind:name` at seed time and then never change, which is how a rename
  * behaves in the app: the transaction points at the category's id, so editing
- * the name doesn't detach any history. The default set has an "Other" in both
+ * the name doesn't detach any history. A name is unique per kind, not across
  * kinds, so the kind has to be part of the key.
  *
  * Deliberately not the app's `EmojiPicker`: that one loads `frimousse` plus a

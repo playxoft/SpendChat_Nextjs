@@ -4,7 +4,7 @@ import {
   formatResetDate,
   nextMonthStartUtc,
   type PlanLimitInfo,
-  type PlanLimitKey,
+  type UpgradeLimit,
 } from "@/lib/plan-limit";
 import {
   PERSONAL_PLANS,
@@ -16,12 +16,14 @@ import {
   type PersonalPlan,
   type PlanLimits,
 } from "@/lib/plans";
-import { trialDaysFor, type CheckoutRefusal } from "@/lib/checkout";
+import { checkoutCurrency, checkoutPath, trialDaysFor, type CheckoutRefusal } from "@/lib/checkout";
 import {
+  PAID_PERSONAL_PLANS,
   PERIOD_LABEL,
   STUDENT_DISCOUNT,
   TRIAL_DAYS,
   isCurrency,
+  isPaidPersonalPlan,
   pct,
   type Currency,
   type PaidPersonalPlan,
@@ -64,6 +66,9 @@ export function plansWith(feature: BooleanFeature): string {
   return names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names.at(-1)}` : (names[0] ?? "");
 }
 
+/** "Plus or Pro" — the paid plans, by name. */
+const paidPlanNames = PAID_PERSONAL_PLANS.map((p) => PLAN_NAMES[p]).join(" or ");
+
 const voiceClipMinutes = VOICE.maxClipMs / 60_000;
 const minutes = (n: number) => `${n} ${n === 1 ? "minute" : "minutes"}`;
 
@@ -74,6 +79,20 @@ const minutes = (n: number) => `${n} ${n === 1 ? "minute" : "minutes"}`;
  */
 export function pricingCurrencyFor(code: string | null | undefined): Currency {
   return code && isCurrency(code) ? code : "USD";
+}
+
+/**
+ * The currency the app quotes a workspace's plans in for this request: the
+ * one checkout would charge (`checkoutCurrency`), with the workspace's own
+ * currency as the preference. So the rupee list shows only to a request from
+ * a rupee country (`country` = `requestCountry()`), and the plan cards and the
+ * upgrade dialog never quote a price that checkout then changes.
+ */
+export function workspacePriceCurrency(
+  code: string | null | undefined,
+  country: string | null | undefined,
+): Currency {
+  return checkoutCurrency(pricingCurrencyFor(code), country);
 }
 
 // ── Plans ──────────────────────────────────────────────────────────────────
@@ -151,22 +170,37 @@ export const FEATURED_BADGE = "Best value";
 
 // ── Buying ─────────────────────────────────────────────────────────────────
 
+/** How a buyer can pay in `currency`: UPI only exists for payments in rupees. */
+export function paymentMethods(currency: Currency): string {
+  return currency === "INR" ? "card or UPI" : "card";
+}
+
 /** The words on every buy button and the lines around them. */
 export const PURCHASE = {
   /** A paid plan bought from Free — it starts with the trial. */
   trialCta: `Start ${TRIAL_DAYS}-day free trial`,
   topUpCta: `Buy ${count(TOPUP.actions)} AI actions`,
-  /** Under a buy button. */
-  ctaNote: "Card or UPI. Cancel any time.",
+  /** Under a buy button, for the currency on screen. */
+  ctaNote: (currency: Currency) => `Pay by ${paymentMethods(currency)}. Cancel any time.`,
   /** Under the plan cards, and on the checkout page. */
-  billing:
-    "Billed per workspace. Card or UPI. Cancel any time — the plan runs to the end of what you paid for.",
+  billing: (currency: Currency) =>
+    `Billed per workspace. Pay by ${paymentMethods(currency)}. Cancel any time — the plan runs to the end of what you paid for.`,
   keepsEverything: "Your transactions, files and members stay exactly as they are.",
 } as const;
 
 /** A paid plan's button: the trial from Free, a straight upgrade from a paid plan. */
 export function planCta(plan: PaidPersonalPlan, currentPlan: PersonalPlan = "free"): string {
   return trialDaysFor(currentPlan) > 0 ? PURCHASE.trialCta : `Upgrade to ${PLAN_NAMES[plan]}`;
+}
+
+/**
+ * The trial line on a paid plan card: shown from Free — and on the public page,
+ * where there's no plan yet — but not to a paid workspace looking at a bigger
+ * plan, since the trial comes with a workspace's first paid plan only.
+ */
+export function cardTrialLine(currentPlan?: PersonalPlan): string | null {
+  const days = trialDaysFor(currentPlan ?? "free");
+  return days > 0 ? `First ${days} days free` : null;
 }
 
 /** "21 days free, then ₹1,299 billed yearly" — or just the price when there's no trial. */
@@ -274,7 +308,7 @@ type LimitPitchDef = {
   cap?: (plan: PersonalPlan) => number;
 };
 
-export const LIMIT_PITCH: Record<PlanLimitKey, LimitPitchDef> = {
+export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
   aiActions: {
     headline: "Don't go back to typing every entry",
     cap: (p) => L[p].aiActionsPerMonth,
@@ -346,12 +380,23 @@ export const LIMIT_PITCH: Record<PlanLimitKey, LimitPitchDef> = {
     pitch: ({ next }) =>
       `${next} lets you set it for each profile — your accountant reads only the business, and a personal profile stays private.`,
   },
+  // This workspace is an extra free one, so it's view-only.
   freeWorkspaces: {
     headline: "Give this workspace its own plan",
     status: () =>
       "Everyone gets one free workspace. This one is extra, so it's view-only for now — nothing in it is deleted.",
     pitch: ({ next }) =>
       `With ${next}, it works like your first one: add, edit and invite.`,
+  },
+  // "New workspace", when the person already has their free one.
+  newWorkspace: {
+    headline: "Make room for another workspace",
+    status: () =>
+      `You already have a free workspace — each extra workspace needs its own ${paidPlanNames} plan.`,
+    pitch: ({ next, info }) =>
+      info.freeSlotHere
+        ? `Upgrade this workspace to ${next} and your free place opens up, so the new workspace can start on Free.`
+        : `Upgrade your free workspace to ${next} and the new one can start on Free.`,
   },
 };
 
@@ -383,6 +428,39 @@ export function limitPitch(info: PlanLimitInfo, now: Date = new Date()): LimitPi
   };
 }
 
+export type UpgradeAction = {
+  /** Where the dialog's upgrade button goes. */
+  href: string;
+  label: string;
+  /** Trial days the upgrade comes with, for the dialog's price line. */
+  trialDays: number;
+};
+
+/**
+ * The upgrade dialog's button for a limit that a plan lifts. A limit on this
+ * workspace goes straight to checkout for `upgradeTo`. The one-free-workspace
+ * rule is different: a view-only workspace (`freeWorkspaces`) may not be the
+ * one open, so it goes to the plans page; "New workspace" (`newWorkspace`) is
+ * lifted by upgrading the person's free workspace — the plans page when that's
+ * this one, organisation settings (every workspace, each with Open) when it's
+ * another. That free workspace is what gets the trial, even from a paid one.
+ */
+export function upgradeAction(info: PlanLimitInfo): UpgradeAction {
+  const target = info.upgradeTo;
+  const label = target ? `Upgrade to ${PLAN_NAMES[target]}` : "Upgrade";
+  if (info.limit === "newWorkspace") {
+    const trialDays = trialDaysFor("free");
+    return info.freeSlotHere
+      ? { href: "/app/upgrade", label, trialDays }
+      : { href: "/app/settings/organization", label: "Upgrade your free workspace", trialDays };
+  }
+  const trialDays = trialDaysFor(info.plan);
+  if (info.limit === "freeWorkspaces" || !target || !isPaidPersonalPlan(target)) {
+    return { href: "/app/upgrade", label, trialDays };
+  }
+  return { href: checkoutPath({ plan: target, period: "yearly" }), label, trialDays };
+}
+
 /** What the dialog says when no plan lifts the limit. */
 export const BIGGEST_PLAN_LINE =
   "This workspace is already on our biggest plan. Write to us and we'll work out what you need.";
@@ -402,7 +480,7 @@ export function pricingFaqs({ selfHost = false }: { selfHost?: boolean } = {}): 
   const faqs: Faq[] = [
     {
       q: "How does billing work?",
-      a: `You buy a plan for a workspace, from Plans in the app. Pay every month, every 3 months or once a year, by card or UPI. A workspace's first paid plan starts with a ${TRIAL_DAYS}-day free trial. Upgrading keeps every transaction, file and member the workspace already has. Cancel or move to a smaller plan any time: the change takes effect at renewal, the plan runs to the end of what you paid for, and nothing is ever deleted.`,
+      a: `You buy a plan for a workspace, from Plans in the app. Pay every month, every 3 months or once a year, by card — or UPI when you pay in rupees. A workspace's first paid plan starts with a ${TRIAL_DAYS}-day free trial. Upgrading keeps every transaction, file and member the workspace already has. Cancel or move to a smaller plan any time: the change takes effect at renewal, the plan runs to the end of what you paid for, and nothing is ever deleted.`,
     },
     {
       q: "Is a plan for me, or for a workspace?",
@@ -418,7 +496,7 @@ export function pricingFaqs({ selfHost = false }: { selfHost?: boolean } = {}): 
     },
     {
       q: "How does the free trial work?",
-      a: `A workspace's first paid plan starts with ${TRIAL_DAYS} days free, with everything in that plan. You add a card or UPI to start it, and if you cancel before the trial ends you pay nothing. Each workspace gets one trial.`,
+      a: `A workspace's first paid plan starts with ${TRIAL_DAYS} days free, with everything in that plan. You add a way to pay to start it, and if you cancel before the trial ends you pay nothing. Each workspace gets one trial.`,
     },
     {
       q: "Is there a student discount?",

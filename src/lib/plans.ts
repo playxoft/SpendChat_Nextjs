@@ -50,7 +50,7 @@ export type PlanLimits = {
    * "Contact us" rather than "Upgrade".
    */
   budgets: { max: number; displayUnlimited: boolean };
-  /** The 15 seeded defaults count towards this. */
+  /** The seeded defaults (`DEFAULT_CATEGORIES`) count towards this. */
   categories: number;
   tags: number;
   /** Hold-M voice entry. */

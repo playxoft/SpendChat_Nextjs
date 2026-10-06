@@ -41,7 +41,7 @@ const rows: CompareRow[] = [
   },
   {
     label: "Price",
-    spendchat: "Free plan with no ads. Paid plans add more AI, voice entry, storage and people.",
+    spendchat: "Free plan with no ads. Paid plans add more AI, storage and people; Pro adds voice entry.",
     competitor: "$109 a year or $14.99 a month, after a 34-day trial with no card.",
   },
   {

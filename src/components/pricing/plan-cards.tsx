@@ -12,13 +12,13 @@ import {
   FEATURED_PLAN,
   PLAN_PITCH,
   PURCHASE,
+  cardTrialLine,
   count,
   planCta,
   plansWith,
 } from "@/lib/plan-copy";
 import {
   PERIOD_LABEL,
-  TRIAL_DAYS,
   formatAmount,
   isPaidPersonalPlan,
   pct,
@@ -64,7 +64,7 @@ export function PlanCards({ currentPlan }: { currentPlan?: PersonalPlan }) {
 
       <p className="mx-auto flex max-w-xl items-start justify-center gap-1.5 text-center text-xs text-muted-foreground">
         <ShieldCheck className="mt-px size-3.5 shrink-0" />
-        {PURCHASE.billing}
+        {PURCHASE.billing(currency)}
       </p>
     </div>
   );
@@ -89,6 +89,7 @@ function PlanCard({
   const featured = id === FEATURED_PLAN && !(currentPlan && planAtLeast(currentPlan, id));
   const badge = isCurrent ? "Your plan" : featured ? FEATURED_BADGE : null;
   const headline = formatAmount(q ? q.perMonth : 0, currency);
+  const trialLine = cardTrialLine(currentPlan);
 
   return (
     <div
@@ -139,9 +140,11 @@ function PlanCard({
                     </span>
                   ) : null}
                 </p>
-                <p className="inline-flex items-center gap-1.5 pt-0.5 text-sm font-medium">
-                  <Timer className="size-4" /> First {TRIAL_DAYS} days free
-                </p>
+                {trialLine ? (
+                  <p className="inline-flex items-center gap-1.5 pt-0.5 text-sm font-medium">
+                    <Timer className="size-4" /> {trialLine}
+                  </p>
+                ) : null}
               </>
             ) : (
               <p className="text-sm">No card. No trial clock. Every workspace starts here.</p>
@@ -228,7 +231,7 @@ function PlanAction({
           {planCta(id, currentPlan)} <ArrowRight className="size-4" />
         </Link>
       </Button>
-      <p className="mt-2 min-h-5 text-center text-xs text-muted-foreground">{PURCHASE.ctaNote}</p>
+      <p className="mt-2 min-h-5 text-center text-xs text-muted-foreground">{PURCHASE.ctaNote(currency)}</p>
     </div>
   );
 }

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { PERSONAL_PLANS, PLAN_LIMITS, PLAN_NAMES } from "@/lib/plans";
+import { PLAN_LIMITS } from "@/lib/plans";
 import {
-  PLAN_LIMIT_KEYS,
   formatPlanStorage,
   formatResetDate,
   isPlanLimit,
@@ -9,16 +8,14 @@ import {
   nextMonthStartUtc,
   nextPlanFor,
   parsePlanLimitDetails,
-  planHighlights,
   planLimitOf,
-  upgradeCopy,
   type NumericPlanLimit,
 } from "@/lib/plan-limit";
 
 /**
  * The client half of `plan_limit`: recognising one on an action result, and
- * the upgrade dialog's words. The numbers must come from `PLAN_LIMITS`, and the
- * copy must never imply that anything gets deleted.
+ * the formatters and meters the limit UI shares. (The upgrade dialog's words
+ * are `limitPitch`, tested in `plan-copy.test.ts`.)
  */
 
 describe("parsePlanLimitDetails", () => {
@@ -53,63 +50,6 @@ describe("planLimitOf / isPlanLimit", () => {
     expect(isPlanLimit({ ok: false, code: "forbidden", details })).toBe(false);
     expect(isPlanLimit({ ok: false, code: "plan_limit" })).toBe(false);
     expect(isPlanLimit({ ok: false })).toBe(false);
-  });
-});
-
-describe("upgradeCopy", () => {
-  it("has words for every limit, on every plan", () => {
-    for (const limit of PLAN_LIMIT_KEYS) {
-      for (const plan of PERSONAL_PLANS) {
-        const copy = upgradeCopy({ limit, plan, upgradeTo: plan === "pro" ? null : "pro" });
-        expect(copy.title.length).toBeGreaterThan(0);
-        expect(copy.reason.length).toBeGreaterThan(0);
-        // Limits stop adding; they never take anything away.
-        expect(`${copy.title} ${copy.reason}`).not.toMatch(/\b(will be|get|gets) deleted\b/i);
-      }
-    }
-  });
-  it("names the plan that lifts the limit, with its number from PLAN_LIMITS", () => {
-    const copy = upgradeCopy({ limit: "members", plan: "free", max: 3, used: 3, upgradeTo: "plus" });
-    expect(copy.reason).toContain("3 members");
-    expect(copy.upgradeTo).toBe("plus");
-    expect(copy.upgradeLine).toBe(`Plus includes ${PLAN_LIMITS.plus.members} members.`);
-    expect(copy.includes).toEqual(planHighlights("plus"));
-  });
-  it("says 'contact us' territory when nothing lifts it", () => {
-    const copy = upgradeCopy({ limit: "spaces", plan: "pro", max: 15, used: 15, upgradeTo: null });
-    expect(copy.upgradeTo).toBeNull();
-    expect(copy.upgradeLine).toBeNull();
-    expect(copy.includes).toEqual([]);
-  });
-  it("words storage in sizes, and the AI refill date", () => {
-    const storage = upgradeCopy({
-      limit: "storage",
-      plan: "free",
-      max: PLAN_LIMITS.free.storageBytes,
-      used: PLAN_LIMITS.free.storageBytes,
-      upgradeTo: "plus",
-    });
-    expect(storage.reason).toContain("1 GB");
-    expect(storage.upgradeLine).toBe("Plus includes 5 GB.");
-    const ai = upgradeCopy(
-      { limit: "aiActions", plan: "free", max: 50, used: 50, upgradeTo: "plus" },
-      new Date("2026-10-05T12:00:00Z"),
-    );
-    expect(ai.reason).toContain("50 AI actions");
-    expect(ai.reason).toContain("November 1");
-  });
-  it("calls voice a Pro feature", () => {
-    expect(upgradeCopy({ limit: "voice", plan: "plus", upgradeTo: "pro" }).title).toBe(
-      `Voice entry is on ${PLAN_NAMES.pro}`,
-    );
-  });
-});
-
-describe("planHighlights", () => {
-  it("lists voice and per-profile access only where the plan has them", () => {
-    expect(planHighlights("free").join(" ")).not.toMatch(/Voice/);
-    expect(planHighlights("plus")).toContain("Access settings for each profile");
-    expect(planHighlights("pro")).toContain("Voice entry");
   });
 });
 

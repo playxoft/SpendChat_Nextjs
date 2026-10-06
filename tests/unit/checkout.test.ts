@@ -146,5 +146,14 @@ describe("checkoutCurrency", () => {
     expect(checkoutCurrency(undefined, "AU")).toBe("AUD");
     expect(checkoutCurrency(undefined, undefined)).toBe("USD");
   });
+  it("lists only the currencies it would charge as is — the in-app switcher's options", async () => {
+    const { checkoutCurrencies } = await import("@/lib/checkout");
+    expect(checkoutCurrencies("IN")).toContain("INR");
+    for (const country of ["US", "DE", null]) {
+      const list = checkoutCurrencies(country);
+      expect(list).not.toContain("INR");
+      expect(list).toEqual(expect.arrayContaining(["USD", "EUR", "GBP", "AUD", "JPY"]));
+    }
+  });
 });
 
