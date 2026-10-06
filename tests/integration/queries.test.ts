@@ -557,6 +557,9 @@ describe("index/sort agreement", () => {
       "files_folder_idx: btree (folder_id)",
       "files_pkey: btree (id)",
       "files_profile_created_idx: btree (profile_id, created_at DESC, id DESC)",
+      // The trash, per profile — partial, so it only ever holds 30 days of
+      // deletions. The listing index above stays full (it serves the cascades).
+      "files_trash_idx: btree (profile_id, deleted_at DESC, id DESC) WHERE (deleted_at IS NOT NULL)",
       "files_workspace_idx: btree (workspace_id)",
       "transaction_attachments_pkey: btree (id)",
       "txn_attachments_profile_created_idx: btree (profile_id, created_at DESC, id DESC)",

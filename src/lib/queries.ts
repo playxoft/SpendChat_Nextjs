@@ -10,11 +10,12 @@ import {
   ilike,
   inArray,
   lte,
+  notExists,
   or,
   sql,
   type SQL,
 } from "drizzle-orm";
-import { unionAll } from "drizzle-orm/pg-core";
+import { alias, unionAll } from "drizzle-orm/pg-core";
 import { getDb } from "@/db";
 import {
   categories,
@@ -28,6 +29,7 @@ import {
   users,
 } from "@/db/schema";
 import { accessibleProfileIds } from "@/lib/workspaces";
+import { notTrashed, trashedOnly } from "@/lib/trash-scope";
 import { forgetForRequest, memoizeForRequest } from "@/lib/request-cache";
 import type { AttachmentDTO } from "@/lib/attachments";
 import {
@@ -150,7 +152,11 @@ export function forgetAccessibleProfiles(userId: string, workspaceId: string): v
  * since `inArray(col, [])` would otherwise have to be special-cased downstream.
  */
 function buildConditions(profileIds: string[], f: TxnFilters) {
-  const conds = [inArray(transactions.profileId, profileIds)];
+  // Live rows only, first and unconditionally: the trash is invisible to every
+  // read built from here. It is also what lets the planner use the partial
+  // `transactions_profile_date_idx` (`where deleted_at is null`) in every
+  // merge-append branch — each branch is built from this function.
+  const conds = [notTrashed(transactions), inArray(transactions.profileId, profileIds)];
   if (f.from) conds.push(gte(transactions.occurredOn, f.from));
   if (f.to) conds.push(lte(transactions.occurredOn, f.to));
   if (f.type) conds.push(eq(transactions.type, f.type));
@@ -265,6 +271,7 @@ function pageBranch(where: SQL | undefined, take: number) {
   const db = getDb();
   return db
     .select(pageColumns)
+    // trash: every caller passes a `buildConditions` / `feedConditions` predicate.
     .from(transactions)
     .where(where)
     .orderBy(...cursorOrder())
@@ -364,7 +371,13 @@ function rowOf(id: string, profileIds: string[]) {
   return db
     .select(pageColumns)
     .from(transactions)
-    .where(and(eq(transactions.id, id), inArray(transactions.profileId, profileIds)))
+    .where(
+      and(
+        eq(transactions.id, id),
+        notTrashed(transactions),
+        inArray(transactions.profileId, profileIds),
+      ),
+    )
     .limit(1)
     .as("page");
 }
@@ -375,7 +388,13 @@ function rowsOf(ids: string[], profileIds: string[]) {
   return db
     .select(pageColumns)
     .from(transactions)
-    .where(and(inArray(transactions.id, ids), inArray(transactions.profileId, profileIds)))
+    .where(
+      and(
+        inArray(transactions.id, ids),
+        notTrashed(transactions),
+        inArray(transactions.profileId, profileIds),
+      ),
+    )
     .limit(ids.length)
     .as("page");
 }
@@ -769,6 +788,7 @@ export async function getMonthlyTrend(
   if (profileIds.length === 0) return [];
   const db = getDb();
   const conds = [
+    notTrashed(transactions),
     inArray(transactions.profileId, profileIds),
     gte(transactions.occurredOn, fromISO),
   ];
@@ -779,6 +799,7 @@ export async function getMonthlyTrend(
       type: transactions.type,
       total: sql<string>`coalesce(sum(${transactions.amountMinor}), 0)`,
     })
+    // trash: `conds` leads with notTrashed(transactions).
     .from(transactions)
     .where(and(...conds))
     .groupBy(sql`to_char(${transactions.occurredOn}, 'YYYY-MM')`, transactions.type)
@@ -875,6 +896,8 @@ export async function getTagsWithUsage(
         from ${transactions} tx
         inner join ${profiles} p on p.id = tx.profile_id
         where p.workspace_id = ${workspaceId}
+          and tx.deleted_at is null
+          and p.deleted_at is null
           and tx.tag_ids @> array[${tags}.id]
       )`,
     })
@@ -913,6 +936,25 @@ export async function getAccountProfile(userId: string) {
 export type AttachmentRow = typeof transactionAttachments.$inferSelect;
 
 /**
+ * "This attachment's transaction is not in the trash" — read **through the
+ * parent row**, because an attachment carries no trash state of its own (a
+ * denormalized copy would be a predicate that can drift; see the schema). A
+ * correlated `not exists` built with the query builder, so both sides render
+ * table-qualified — for the single-row reads (download, detail list). The vault
+ * listing uses `notAmongTrashedParents` instead; see there for why.
+ */
+function liveParentTransaction(): SQL {
+  return notExists(
+    getDb()
+      .select({ one: sql`1` })
+      .from(transactions)
+      .where(
+        and(eq(transactions.id, transactionAttachments.transactionId), trashedOnly(transactions)),
+      ),
+  );
+}
+
+/**
  * Attachments for a transaction, scoped to profiles the user can view in the
  * current workspace. Scopes on the denormalized `profile_id`, so a transaction
  * in another workspace (or a profile the user can't reach) returns an empty
@@ -931,6 +973,7 @@ export async function listTransactionAttachments(
       and(
         eq(transactionAttachments.transactionId, transactionId),
         inArray(transactionAttachments.profileId, accessibleProfileIds(userId, workspaceId)),
+        liveParentTransaction(),
       ),
     )
     .orderBy(asc(transactionAttachments.createdAt));
@@ -954,10 +997,117 @@ export async function getAttachmentById(
       and(
         eq(transactionAttachments.id, attachmentId),
         inArray(transactionAttachments.profileId, accessibleProfileIds(userId, workspaceId)),
+        liveParentTransaction(),
       ),
     )
     .limit(1);
   return row ?? null;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Trash                                                                       */
+/* -------------------------------------------------------------------------- */
+
+/** The trash list's page size (transactions). */
+export const TRASH_PAGE_SIZE = 50;
+
+/** A cursor into the trash list's (deletedAt, id) order, newest deletion first. */
+export type TrashCursor = { deletedAt: Date; id: string };
+
+/** A trashed transaction: the usual row plus who sent it to the trash, and when. */
+export type TrashedTransactionRow = TransactionRow & {
+  deletedAt: Date;
+  deletedById: string | null;
+  deletedByName: string | null;
+};
+
+const trashPageColumns = {
+  ...pageColumns,
+  deletedAt: transactions.deletedAt,
+  deletedBy: transactions.deletedBy,
+};
+
+/** One profile's slice of the trash: an ordered scan of `transactions_trash_idx`. */
+function trashBranch(where: SQL, take: number) {
+  return getDb()
+    .select(trashPageColumns)
+    .from(transactions)
+    .where(where)
+    .orderBy(desc(transactions.deletedAt), desc(transactions.id))
+    .limit(take);
+}
+
+/** `mergeAppend` for the trash list, which selects different columns. */
+function mergeTrash(branches: ReturnType<typeof trashBranch>[], limit: number) {
+  const [first, second, ...rest] = branches;
+  if (!first || !second || branches.length > MERGE_APPEND_MAX_BRANCHES) return null;
+  return unionAll(first, second, ...rest)
+    .orderBy(desc(transactions.deletedAt), desc(transactions.id))
+    .limit(limit)
+    .as("page");
+}
+
+/**
+ * Trash rows of the given profiles strictly older than the cursor, newest
+ * deletion first. A **row comparison**, so each branch seeks into
+ * `transactions_trash_idx` instead of filtering (same reasoning as the feed).
+ * `deleted_at` is `timestamptz(3)` precisely so this cursor round-trips through
+ * a JavaScript `Date` without dropping the rows a bulk delete stamped with the
+ * same instant — they tie, and `id` breaks the tie.
+ */
+function trashConditions(profileIds: string[], before?: TrashCursor): SQL {
+  const base = and(trashedOnly(transactions), inArray(transactions.profileId, profileIds))!;
+  if (!before) return base;
+  return and(
+    base,
+    sql`(${transactions.deletedAt}, ${transactions.id}) <
+        (${before.deletedAt}::timestamptz, ${before.id}::uuid)`,
+  )!;
+}
+
+/**
+ * One page of the caller's trash in the current workspace: trashed transactions
+ * in profiles they can at least view (a trashed *profile* is hidden by the
+ * access layer and shows up as one item of its own, for admins). Decorated like
+ * every other transaction read, plus `deletedAt` and the deleter's name.
+ */
+export async function listTrashedTransactions(
+  userId: string,
+  workspaceId: string,
+  opts: { limit?: number; before?: TrashCursor } = {},
+): Promise<TrashedTransactionRow[]> {
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return [];
+  const limit = opts.limit ?? TRASH_PAGE_SIZE;
+  const db = getDb();
+
+  // Merged per profile, like the feed: no offset, so `limit` per branch is enough.
+  const canMerge = profileIds.length > 1 && profileIds.length <= MERGE_APPEND_MAX_BRANCHES;
+  const merged = canMerge
+    ? mergeTrash(
+        profileIds.map((id) => trashBranch(trashConditions([id], opts.before), limit)),
+        limit,
+      )
+    : null;
+  const page =
+    merged ?? trashBranch(trashConditions(profileIds, opts.before), limit).as("page");
+
+  const deleter = alias(users, "deleter");
+  const rows = await db
+    .select({
+      ...selectionFor(page),
+      deletedAt: page.deletedAt,
+      deletedById: page.deletedBy,
+      deletedByName: deleter.name,
+    })
+    .from(page)
+    .leftJoin(categories, eq(page.categoryId, categories.id))
+    .leftJoin(profiles, eq(page.profileId, profiles.id))
+    .leftJoin(users, eq(page.userId, users.id))
+    .leftJoin(deleter, eq(page.deletedBy, deleter.id))
+    .orderBy(desc(page.deletedAt), desc(page.id));
+  // `deleted_at` is non-null on every row here (the branches select trash only).
+  return rows.map((r) => ({ ...r, deletedAt: r.deletedAt! }));
 }
 
 /* -------------------------------------------------------------------------- */
@@ -984,7 +1134,10 @@ export async function listVaultFolders(
   profileId?: string,
 ): Promise<FolderDTO[]> {
   const db = getDb();
-  const conds = [inArray(folders.profileId, accessibleProfileIds(userId, workspaceId))];
+  const conds = [
+    notTrashed(folders),
+    inArray(folders.profileId, accessibleProfileIds(userId, workspaceId)),
+  ];
   if (profileId) conds.push(eq(folders.profileId, profileId));
   const rows = await db
     .select({
@@ -999,6 +1152,7 @@ export async function listVaultFolders(
       updatedAt: folders.updatedAt,
       createdByName: users.name,
     })
+    // trash: `conds` leads with notTrashed(folders).
     .from(folders)
     .leftJoin(users, eq(folders.userId, users.id))
     .where(and(...conds))
@@ -1027,6 +1181,7 @@ const vaultFileColumns = {
 function vaultFileBranch(where: SQL, take: number) {
   return getDb()
     .select(vaultFileColumns)
+    // trash: every caller's `where` includes notTrashed(files).
     .from(files)
     .where(where)
     .orderBy(desc(files.createdAt), desc(files.id))
@@ -1073,12 +1228,18 @@ export async function listVaultFiles(
   const merged =
     canMerge
       ? mergeVaultFiles(
-          scoped.map((id) => vaultFileBranch(eq(files.profileId, id), VAULT_FILES_LIMIT)),
+          scoped.map((id) =>
+            vaultFileBranch(and(eq(files.profileId, id), notTrashed(files))!, VAULT_FILES_LIMIT),
+          ),
           VAULT_FILES_LIMIT,
         )
       : null;
   const page =
-    merged ?? vaultFileBranch(inArray(files.profileId, scoped), VAULT_FILES_LIMIT).as("page");
+    merged ??
+    vaultFileBranch(
+      and(inArray(files.profileId, scoped), notTrashed(files))!,
+      VAULT_FILES_LIMIT,
+    ).as("page");
 
   const rows = await getDb()
     .select({
@@ -1098,6 +1259,7 @@ export async function listVaultFiles(
     })
     .from(page)
     .leftJoin(users, eq(page.userId, users.id))
+    // trash: a display join onto a page already scoped to live rows/profiles.
     .leftJoin(profiles, eq(page.profileId, profiles.id))
     // Joining a subquery doesn't preserve its order, so restate it.
     .orderBy(desc(page.createdAt), desc(page.id));
@@ -1114,6 +1276,9 @@ export async function listVaultFiles(
  */
 export async function getWorkspaceStorageUsage(workspaceId: string): Promise<number> {
   const db = getDb();
+  // trash: included on purpose — trashed files and the receipts of trashed
+  // transactions keep counting toward storage until they're purged (abuse rule
+  // C6), or the trash would be free storage. Neither sum filters `deleted_at`.
   const rows = await unionAll(
     db
       .select({ bytes: sql<string>`coalesce(sum(${files.sizeBytes}), 0)` })
@@ -1126,6 +1291,29 @@ export async function getWorkspaceStorageUsage(workspaceId: string): Promise<num
   );
   // pg returns bigint sums as strings; 1 GB scale is far below 2^53.
   return rows.reduce((total, r) => total + Number(r.bytes), 0);
+}
+
+/**
+ * Bytes sitting in the workspace's trash — trashed files, receipts of trashed
+ * transactions, and everything stored under a trashed profile. They count
+ * toward storage until purged (abuse rule C6); the usage panel shows this so
+ * the number is never a surprise.
+ */
+export async function getTrashBytes(workspaceId: string): Promise<number> {
+  const result = await getDb().execute<{ bytes: string }>(sql`
+    select (
+      (select coalesce(sum(f.size_bytes), 0) from ${files} f
+         join ${profiles} p on p.id = f.profile_id
+        where f.workspace_id = ${workspaceId}
+          and (f.deleted_at is not null or p.deleted_at is not null))
+      +
+      (select coalesce(sum(a.size_bytes), 0) from ${transactionAttachments} a
+         join ${transactions} t on t.id = a.transaction_id
+         join ${profiles} p on p.id = t.profile_id
+        where a.workspace_id = ${workspaceId}
+          and (t.deleted_at is not null or p.deleted_at is not null))
+    )::text as bytes`);
+  return Number(result.rows[0]?.bytes ?? 0);
 }
 
 /**
@@ -1168,6 +1356,7 @@ export async function getVaultFile(
     .where(
       and(
         eq(files.id, fileId),
+        notTrashed(files),
         inArray(files.profileId, accessibleProfileIds(userId, workspaceId)),
       ),
     )
@@ -1188,6 +1377,7 @@ export async function getVaultFolder(
     .where(
       and(
         eq(folders.id, folderId),
+        notTrashed(folders),
         inArray(folders.profileId, accessibleProfileIds(userId, workspaceId)),
       ),
     )
@@ -1230,6 +1420,42 @@ function mergeVaultAttachments(
 }
 
 /**
+ * The trashed transactions in these profiles that have receipts — usually
+ * none. Read through `transactions_trash_idx` (the trash is small by
+ * construction) and the attachments' `transaction_id` index.
+ */
+async function trashedReceiptParents(profileIds: string[]): Promise<string[]> {
+  const rows = await getDb()
+    .selectDistinct({ id: transactions.id })
+    .from(transactions)
+    .innerJoin(transactionAttachments, eq(transactionAttachments.transactionId, transactions.id))
+    .where(and(inArray(transactions.profileId, profileIds), trashedOnly(transactions)));
+  return rows.map((r) => r.id);
+}
+
+/**
+ * Hide receipts whose transaction is in the trash from the vault listing,
+ * without costing the listing its plan. That listing must stay an ordered index
+ * scan that stops at 500 rows (the "reads both vault listings through the
+ * index" test), and every way of saying this as a join to `transactions` loses
+ * it — measured on PGlite: `exists (… deleted_at is null)` becomes a hash
+ * semi-join over every live transaction, `not exists (… is not null)` a hash
+ * anti-join, `(select deleted_at …) is null` an unestimable filter (the planner
+ * guesses 0.5% pass), and each then sorts the whole profile.
+ *
+ * So the (few) trashed parents are looked up first and excluded by value:
+ * `transaction_id <> all(array)` is a plain filter on the ordered scan, and
+ * with a constant array the planner estimates it from the column's statistics.
+ * With nothing in the trash there is no predicate at all — the exact plan the
+ * listing had before the trash existed. The ids travel as one text parameter
+ * (`string_to_array`), so a large trash can't hit the bind-parameter limit.
+ */
+function notAmongTrashedParents(trashedIds: string[]): SQL | undefined {
+  if (trashedIds.length === 0) return undefined;
+  return sql`${transactionAttachments.transactionId} <> all(string_to_array(${trashedIds.join(",")}, ',')::uuid[])`;
+}
+
+/**
  * Transaction attachments surfaced in the files page, flattened with the
  * parent transaction's info (title/amount/date) so a receipt is recognizable
  * outside its chat thread. Same access scoping as everything else; newest
@@ -1243,6 +1469,7 @@ export async function listTransactionFilesForVault(
   const accessible = await accessibleProfileIdList(userId, workspaceId);
   const scoped = profileId ? accessible.filter((id) => id === profileId) : accessible;
   if (scoped.length === 0) return [];
+  const hidden = notAmongTrashedParents(await trashedReceiptParents(scoped));
 
   // Merged per profile for the same reason `listVaultFiles` is; this half of
   // the page is awaited alongside it, so it has to be as quick.
@@ -1252,7 +1479,10 @@ export async function listTransactionFilesForVault(
     canMerge
       ? mergeVaultAttachments(
           scoped.map((id) =>
-            vaultAttachmentBranch(eq(transactionAttachments.profileId, id), VAULT_FILES_LIMIT),
+            vaultAttachmentBranch(
+              and(eq(transactionAttachments.profileId, id), hidden)!,
+              VAULT_FILES_LIMIT,
+            ),
           ),
           VAULT_FILES_LIMIT,
         )
@@ -1260,7 +1490,7 @@ export async function listTransactionFilesForVault(
   const page =
     merged ??
     vaultAttachmentBranch(
-      inArray(transactionAttachments.profileId, scoped),
+      and(inArray(transactionAttachments.profileId, scoped), hidden)!,
       VAULT_FILES_LIMIT,
     ).as("page");
 
@@ -1286,6 +1516,8 @@ export async function listTransactionFilesForVault(
     // Still an inner join, and it still can't drop a row: `transaction_id` is a
     // FK that cascades, so every attachment has its transaction. Limiting first
     // is therefore the same page, not a shorter one.
+    // trash: display joins — the page already excludes receipts of trashed
+    // transactions (`notAmongTrashedParents`) and trashed profiles.
     .innerJoin(transactions, eq(page.transactionId, transactions.id))
     .leftJoin(profiles, eq(page.profileId, profiles.id))
     .orderBy(desc(page.createdAt), desc(page.id));

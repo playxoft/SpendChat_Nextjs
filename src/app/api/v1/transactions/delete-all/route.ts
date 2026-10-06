@@ -7,8 +7,9 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/v1/transactions/delete-all — danger zone. **Workspace admins only.**
- * Wipes every transaction (regardless of author) in the selected profiles of the
- * current workspace. Body: { "confirm": "DELETE", "profileIds"?: string[] } —
+ * Moves every transaction (regardless of author) in the selected profiles of the
+ * current workspace to the trash, where they stay restorable for 30 days.
+ * Body: { "confirm": "DELETE", "profileIds"?: string[] } —
  * `confirm` must be the exact string; `profileIds` omitted/empty clears every
  * profile in the workspace. A non-admin caller gets 403.
  */
@@ -22,6 +23,6 @@ export async function POST(request: NextRequest) {
       body?.confirm ?? "",
       Array.isArray(body?.profileIds) ? body.profileIds : [],
     );
-    return apiOk(result);
+    return apiOk({ ...result, trashed: true });
   });
 }

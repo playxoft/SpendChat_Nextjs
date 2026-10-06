@@ -498,6 +498,17 @@ export const profiles = pgTable(
     color: text("color"),
     // Manual ordering for the sidebar (drag-to-sort), within the space.
     sortOrder: integer("sort_order").notNull().default(0),
+    // In the trash since this instant (null = live). Deleting a profile always
+    // sends the whole profile here as one unit — its transactions, files and
+    // folders stay as they were and are hidden because the access layer
+    // (`accessibleProfileIds` / `getEffectiveProfileRole`) skips trashed
+    // profiles. It has to be the profile: `transactions.profile_id` is ON DELETE
+    // restrict, so a trashed transaction can't outlive its profile row. The
+    // purge (`lib/trash-purge.ts`) hard-deletes it after `TRASH_DAYS`.
+    // Millisecond precision like every `deleted_at` (see `transactions`).
+    deletedAt: timestamp("deleted_at", { withTimezone: true, precision: 3 }),
+    // Who sent it there (attribution only, like `user_id`; no foreign key).
+    deletedBy: uuid("deleted_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -506,8 +517,13 @@ export const profiles = pgTable(
     index("profiles_workspace_idx").on(t.workspaceId, t.sortOrder),
     // Profiles of one space, in sidebar order; also the space FK's restrict check.
     index("profiles_space_sort_idx").on(t.spaceId, t.sortOrder),
-    // Names are unique within a workspace (was per-user pre-workspaces).
-    uniqueIndex("profiles_workspace_name_uq").on(t.workspaceId, t.name),
+    // Names are unique within a workspace (was per-user pre-workspaces) —
+    // among *live* profiles, so "Home" can be created again the moment the old
+    // "Home" goes to the trash. Restoring into a taken name renames the restored
+    // one (`restoredName` in `lib/trash.ts`).
+    uniqueIndex("profiles_workspace_name_uq")
+      .on(t.workspaceId, t.name)
+      .where(sql`${t.deletedAt} is null`),
     // Restrict, not cascade: deleting a space that still holds profiles must
     // fail — the service moves or deletes them first, deliberately.
     foreignKey({
@@ -652,6 +668,17 @@ export const transactions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
       .notNull()
       .defaultNow(),
+    // In the trash since this instant; null = live. Every read excludes trashed
+    // rows through `notTrashed(transactions)` (`lib/trash-scope.ts`), which
+    // `buildConditions` applies first. Millisecond precision for the same
+    // reason as `created_at`: the trash list pages on a `(deleted_at, id)`
+    // keyset that round-trips through a JavaScript `Date`, and a bulk delete
+    // shares one `deleted_at` across the batch — ties must stay ties so `id`
+    // can break them. The row's receipts (`transaction_attachments`) carry no
+    // copy of this: their state is always read through this row.
+    deletedAt: timestamp("deleted_at", { withTimezone: true, precision: 3 }),
+    // Who trashed it (attribution only; no foreign key, like `user_id`).
+    deletedBy: uuid("deleted_by"),
   },
   (t) => [
     // THE access path. Every read scopes to the profiles the caller can see in
@@ -676,12 +703,36 @@ export const transactions = pgTable(
     // of the whole profile plus a top-N sort. Measured on Postgres 18 against
     // 300,000 rows across three profiles, one page of 50: 164 buffer reads with
     // the null ordering below, 31,793 without it.
-    index("transactions_profile_date_idx").on(
-      t.profileId,
-      t.occurredOn.desc().nullsFirst(),
-      t.createdAt.desc().nullsFirst(),
-      t.id.desc().nullsFirst(),
-    ),
+    //
+    // Partial: live rows only. The trash is invisible to every read, so its
+    // rows have no business in the hot path's index — without the predicate a
+    // "clear transactions" of 50,000 rows would make every feed page walk those
+    // 50,000 dead entries for the 30 days they sit in the trash. The planner only
+    // uses a partial index when the query *proves* its predicate, so every read
+    // must carry the literal `deleted_at is null` (`notTrashed`, via
+    // `buildConditions`) in every merge-append branch — never a parameter.
+    index("transactions_profile_date_idx")
+      .on(
+        t.profileId,
+        t.occurredOn.desc().nullsFirst(),
+        t.createdAt.desc().nullsFirst(),
+        t.id.desc().nullsFirst(),
+      )
+      .where(sql`${t.deletedAt} is null`),
+    // Every row of a profile, trash included. The index above used to serve
+    // these as its leading-column prefix, and a partial index can't: the
+    // `profile_id` FK restrict check when a profile is finally destroyed, and
+    // the all-states statements by profile (moving a profile's rows, collecting
+    // its stored objects, the purge, account deletion). A plain single-column
+    // btree, ~30 bytes a row.
+    index("transactions_profile_idx").on(t.profileId),
+    // The trash: per profile, most recently deleted first — the trash list
+    // (merged per profile like the feed) and the purge (which scans it whole;
+    // it only ever holds `TRASH_DAYS` of deletions). `nullsFirst()` for the
+    // same pathkey reason as above.
+    index("transactions_trash_idx")
+      .on(t.profileId, t.deletedAt.desc().nullsFirst(), t.id.desc().nullsFirst())
+      .where(sql`${t.deletedAt} is not null`),
     // FK maintenance: category delete → set null. Not a prefix of anything above.
     index("transactions_category_idx").on(t.categoryId),
     // The account-deletion sweep (`deleteAccount` in services/settings.ts) is the
@@ -709,6 +760,11 @@ export const transactions = pgTable(
  * The bytes live in R2 under `r2Key`; the row is metadata only. A transaction
  * delete cascades these rows away (the service also deletes the R2 objects).
  * `userId` is uploader attribution, never the access key.
+ *
+ * Deliberately **no `deleted_at`**: an attachment is in the trash exactly when
+ * its transaction is, and that state is always read through the parent row
+ * (`transactions.deleted_at`). A copy here would be a denormalized column used
+ * as a predicate — the shape that once deleted a live transaction's receipt.
  */
 export const transactionAttachments = pgTable(
   "transaction_attachments",
@@ -834,6 +890,14 @@ export const folders = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
+    // In the trash since this instant (Plus/Pro; Free deletes for good). Trashing
+    // a folder stamps it **and every live descendant** folder and file with the
+    // same instant, in one transaction, so every vault read stays a plain
+    // `deleted_at is null` filter and restoring the folder brings back exactly
+    // what went with it (equal `deleted_at`, compared in SQL — never through a
+    // JavaScript `Date`). The predefined system folder is never trashed.
+    deletedAt: timestamp("deleted_at", { withTimezone: true, precision: 3 }),
+    deletedBy: uuid("deleted_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -881,6 +945,12 @@ export const files = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
+    // In the trash since this instant (Plus/Pro). Trashed bytes still count
+    // toward the workspace's storage until purged (abuse rule C6) — the storage
+    // sum deliberately ignores this column. See `folders.deleted_at` for how a
+    // folder's subtree is stamped.
+    deletedAt: timestamp("deleted_at", { withTimezone: true, precision: 3 }),
+    deletedBy: uuid("deleted_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -923,6 +993,15 @@ export const files = pgTable(
     index("files_workspace_idx").on(t.workspaceId),
     // Browsing a folder's subtree + the folder FK cascade.
     index("files_folder_idx").on(t.folderId),
+    // The trash, per profile, most recently deleted first (trash list + purge).
+    // `files_profile_created_idx` above stays a full index on purpose: unlike the
+    // transactions feed it also serves the profile cascade, the tag detach, the
+    // vault move and the sweeps — all of which need trashed rows too — and the
+    // listing it serves is capped at 500 with trashed files bounded by storage,
+    // so `deleted_at is null` costs it a cheap filter, not a walk.
+    index("files_trash_idx")
+      .on(t.profileId, t.deletedAt.desc().nullsFirst(), t.id.desc().nullsFirst())
+      .where(sql`${t.deletedAt} is not null`),
   ],
 );
 

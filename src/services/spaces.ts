@@ -31,6 +31,7 @@ import {
   requireSpaceInWorkspace,
   requireWorkspaceRole,
 } from "@/lib/workspaces";
+import { notTrashed } from "@/lib/trash-scope";
 import {
   createSpaceSchema,
   deleteSpaceSchema,
@@ -59,7 +60,8 @@ export type SpaceSummary = {
   name: string;
   icon: string | null;
   position: number;
-  /** Profiles in the space (all of them — what counts towards the per-space cap). */
+  /** Live profiles in the space (what counts towards the per-space cap; a
+   * trashed profile counts again only when restored). */
   profileCount: number;
   /** The caller's role here: "admin" for workspace admins, else their space role or null. */
   role: WorkspaceRole | null;
@@ -100,10 +102,11 @@ export async function listSpaces(userId: string, workspaceId: string): Promise<S
         // A builder subquery, not a hand-written one: in this single-table
         // select Drizzle renders `spaces.id` unqualified, which inside a raw
         // subquery over `profiles` would bind to `profiles.id`.
+        // Live profiles: a trashed one frees its place in the space.
         profileCount: sql<number>`(${db
           .select({ n: sql`count(*)::int` })
           .from(profiles)
-          .where(eq(profiles.spaceId, spaces.id))})`,
+          .where(and(eq(profiles.spaceId, spaces.id), notTrashed(profiles)))})`,
       })
       .from(spaces)
       .where(eq(spaces.workspaceId, workspaceId))
@@ -222,10 +225,13 @@ export async function deleteSpace(userId: string, spaceId: string, input: unknow
     .where(eq(spaces.workspaceId, space.workspaceId));
   if (spaceCount <= 1) throw conflict("A workspace needs at least one space");
 
+  // Live profiles decide whether the space is "empty"; trashed ones don't block
+  // the delete — they're moved along below (the restrict FK would otherwise
+  // refuse it), so restoring one later lands it somewhere real.
   const [{ n: profileCount }] = await db
     .select({ n: count() })
     .from(profiles)
-    .where(eq(profiles.spaceId, space.id));
+    .where(and(eq(profiles.spaceId, space.id), notTrashed(profiles)));
 
   let target: string | null = null;
   if (profileCount > 0) {
@@ -237,11 +243,31 @@ export async function deleteSpace(userId: string, spaceId: string, input: unknow
     await assertCanAddProfilesToSpace(space.workspaceId, target, profileCount);
   }
 
+  // Where trashed profiles go when the space had no live ones to move: the
+  // workspace's first other space (there is one — the last space can't go).
+  const trashTarget =
+    target ??
+    (
+      await db
+        .select({ id: spaces.id })
+        .from(spaces)
+        .where(and(eq(spaces.workspaceId, space.workspaceId), ne(spaces.id, space.id)))
+        .orderBy(asc(spaces.position), asc(spaces.createdAt))
+        .limit(1)
+    )[0]?.id;
+
   await db.transaction(async (tx) => {
     if (target) {
       await tx
         .update(profiles)
         .set({ spaceId: target, updatedAt: new Date() })
+        .where(and(eq(profiles.spaceId, space.id), notTrashed(profiles)));
+    }
+    if (trashTarget) {
+      // trash: profiles in the trash move too, without touching `updated_at`.
+      await tx
+        .update(profiles)
+        .set({ spaceId: trashTarget })
         .where(eq(profiles.spaceId, space.id));
     }
     // Restrict FK on profiles.space_id: a profile written into the space after
@@ -271,7 +297,7 @@ export async function moveProfileToSpace(
   const [profile] = await db
     .select({ id: profiles.id, workspaceId: profiles.workspaceId, spaceId: profiles.spaceId })
     .from(profiles)
-    .where(eq(profiles.id, profileId))
+    .where(and(eq(profiles.id, profileId), notTrashed(profiles)))
     .limit(1);
   if (!profile) throw notFound("Profile not found");
   await requireWorkspaceRole(userId, profile.workspaceId, "admin");
@@ -335,7 +361,7 @@ export async function getSpaceAccess(userId: string, spaceId: string): Promise<S
     db
       .select({ id: profiles.id, name: profiles.name, icon: profiles.icon })
       .from(profiles)
-      .where(eq(profiles.spaceId, space.id))
+      .where(and(eq(profiles.spaceId, space.id), notTrashed(profiles)))
       .orderBy(asc(profiles.sortOrder), asc(profiles.createdAt)),
     db
       .select({
@@ -345,7 +371,7 @@ export async function getSpaceAccess(userId: string, spaceId: string): Promise<S
       })
       .from(profileOverrides)
       .innerJoin(profiles, eq(profileOverrides.profileId, profiles.id))
-      .where(eq(profiles.spaceId, space.id)),
+      .where(and(eq(profiles.spaceId, space.id), notTrashed(profiles))),
     getWorkspaceEntitlements(space.workspaceId),
   ]);
   const roleIn = new Map(inSpace.map((r) => [r.userId, r.role]));
@@ -416,6 +442,8 @@ export async function setSpaceMember(userId: string, spaceId: string, input: unk
             inArray(profileOverrides.access, ["read", "write"]),
             inArray(
               profileOverrides.profileId,
+              // trash: trashed profiles too — leaving the space must not let a
+              // restore bring their opening overrides back.
               tx.select({ id: profiles.id }).from(profiles).where(eq(profiles.spaceId, space.id)),
             ),
           ),
@@ -456,7 +484,7 @@ export async function setProfileOverride(
   const [profile] = await db
     .select({ id: profiles.id, workspaceId: profiles.workspaceId })
     .from(profiles)
-    .where(eq(profiles.id, profileId))
+    .where(and(eq(profiles.id, profileId), notTrashed(profiles)))
     .limit(1);
   if (!profile) throw notFound("Profile not found");
   await requireWorkspaceRole(userId, profile.workspaceId, "admin");
@@ -521,6 +549,7 @@ async function narrowsExistingOverride(
     db
       .select({ role: spaceMembers.role })
       .from(spaceMembers)
+      // trash: resolves a role for a profile the caller already looked up live.
       .innerJoin(profiles, eq(profiles.spaceId, spaceMembers.spaceId))
       .where(and(eq(profiles.id, profileId), eq(spaceMembers.userId, targetUserId)))
       .limit(1),
@@ -548,7 +577,7 @@ export async function listProfileOverrides(userId: string, profileId: string) {
   const [profile] = await db
     .select({ workspaceId: profiles.workspaceId })
     .from(profiles)
-    .where(eq(profiles.id, profileId))
+    .where(and(eq(profiles.id, profileId), notTrashed(profiles)))
     .limit(1);
   if (!profile) throw notFound("Profile not found");
   await requireWorkspaceRole(userId, profile.workspaceId, "admin");

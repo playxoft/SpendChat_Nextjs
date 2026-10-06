@@ -22,9 +22,10 @@ import {
   type PersonalPlan,
   type PlanLimits,
 } from "@/lib/plans";
-import { getWorkspaceStorageUsage } from "@/lib/queries";
+import { getTrashBytes, getWorkspaceStorageUsage } from "@/lib/queries";
 import { forgetForRequest, memoizeForRequest } from "@/lib/request-cache";
 import { readOnlyWorkspaceError, readOnlyWorkspaceSql } from "@/lib/workspaces";
+import { notTrashed } from "@/lib/trash-scope";
 
 /**
  * What a workspace's plan allows, and the checks that enforce it — the server
@@ -147,8 +148,10 @@ function capError(
 
 /**
  * People who count as members: workspace members, people with a per-profile
- * grant only, and pending invites (by email). Each person once. A scalar
- * subquery, so `getAddLimits` can fold it into its one counts query.
+ * grant only (on a live profile — a trashed profile frees its grant-only
+ * people's seats until it is restored, which checks the limit again), and
+ * pending invites (by email). Each person once. A scalar subquery, so
+ * `getAddLimits` can fold it into its one counts query.
  */
 function membersCountSql(workspaceId: string) {
   return sql`(
@@ -159,6 +162,7 @@ function membersCountSql(workspaceId: string) {
       select ${profileAccess.userId}::text from ${profileAccess}
         join ${profiles} on ${profiles.id} = ${profileAccess.profileId}
         where ${profiles.workspaceId} = ${workspaceId}
+          and ${profiles.deletedAt} is null
       union
       select 'invite:' || ${workspaceInvites.email} from ${workspaceInvites}
         where ${workspaceInvites.workspaceId} = ${workspaceId}
@@ -192,7 +196,13 @@ async function alreadyCounted(
       .select({ one: sql`1` })
       .from(profileAccess)
       .innerJoin(profiles, eq(profiles.id, profileAccess.profileId))
-      .where(and(eq(profiles.workspaceId, workspaceId), eq(profileAccess.userId, who.userId)))
+      .where(
+        and(
+          eq(profiles.workspaceId, workspaceId),
+          notTrashed(profiles),
+          eq(profileAccess.userId, who.userId),
+        ),
+      )
       .limit(1);
     if (grant) return true;
   }
@@ -220,11 +230,13 @@ export async function countSpaces(workspaceId: string): Promise<number> {
   return row?.n ?? 0;
 }
 
+/** Live profiles in a space — a trashed profile frees its place (it is checked
+ * again when restored). */
 export async function countProfilesInSpace(spaceId: string): Promise<number> {
   const [row] = await getDb()
     .select({ n: count() })
     .from(profiles)
-    .where(eq(profiles.spaceId, spaceId));
+    .where(and(eq(profiles.spaceId, spaceId), notTrashed(profiles)));
   return row?.n ?? 0;
 }
 
@@ -298,6 +310,48 @@ export async function assertCanAddProfilesToSpace(
   const used = await countProfilesInSpace(spaceId);
   if (used + adding > ent.limits.profilesPerSpace) {
     throw capError(ent, "profilesPerSpace", "profilesPerSpace", "profile", used, "Each space on this workspace's");
+  }
+}
+
+/**
+ * Room to bring a profile back from the trash. A trashed profile counts toward
+ * nothing — not its space's `profilesPerSpace`, and not the member cap for the
+ * people who could only reach the workspace through a grant on it — so
+ * restoring it is an add on both counts and pays both caps, like creating a
+ * profile and inviting those people would. A view-only workspace refuses it.
+ */
+export async function assertCanRestoreProfile(
+  workspaceId: string,
+  profile: { id: string; spaceId: string },
+): Promise<void> {
+  const ent = await getWorkspaceEntitlements(workspaceId);
+  assertWritable(ent);
+  const inSpace = await countProfilesInSpace(profile.spaceId);
+  if (inSpace + 1 > ent.limits.profilesPerSpace) {
+    throw capError(ent, "profilesPerSpace", "profilesPerSpace", "profile", inSpace, "Each space on this workspace's");
+  }
+  // People whose only way into the workspace is a grant on this profile: no
+  // membership, and no grant on another live profile here.
+  const result = await getDb().execute<{ n: string }>(sql`
+    select count(distinct pa.user_id)::text as n
+    from ${profileAccess} pa
+    where pa.profile_id = ${profile.id}
+      and not exists (
+        select 1 from ${workspaceMembers} wm
+        where wm.workspace_id = ${workspaceId} and wm.user_id = pa.user_id
+      )
+      and not exists (
+        select 1 from ${profileAccess} other
+        join ${profiles} p on p.id = other.profile_id
+        where p.workspace_id = ${workspaceId}
+          and p.deleted_at is null
+          and other.user_id = pa.user_id
+      )`);
+  const returning = Number(result.rows[0]?.n ?? 0);
+  if (returning === 0) return;
+  const used = await countMembers(workspaceId);
+  if (used + returning > ent.limits.members) {
+    throw capError(ent, "members", "members", "member", used);
   }
 }
 
@@ -379,6 +433,7 @@ export function storageFullMessage(
   ent: WorkspaceEntitlements,
   usedBytes: number,
   incomingBytes: number,
+  trashBytes = 0,
 ): string {
   const limit = ent.limits.storageBytes;
   const remaining = Math.max(0, limit - usedBytes);
@@ -386,9 +441,13 @@ export function storageFullMessage(
   const upgrade = upgradeTo
     ? ` Upgrade to ${PLAN_NAMES[upgradeTo]} for ${formatFileSize(PLAN_LIMITS[upgradeTo].storageBytes)}.`
     : "";
+  // The trash counts toward storage (abuse rule C6) — say so, with the number,
+  // so a full workspace with a full trash knows the quickest way out.
+  const trash =
+    trashBytes > 0 ? ` Emptying the trash frees ${formatFileSize(trashBytes)}.` : "";
   return remaining <= 0
-    ? `The workspace's ${formatFileSize(limit)} storage is full — delete some files to free up space.${upgrade}`
-    : `Not enough storage left — this upload needs ${formatFileSize(incomingBytes)} but only ${formatFileSize(remaining)} of the ${formatFileSize(limit)} remains.${upgrade}`;
+    ? `The workspace's ${formatFileSize(limit)} storage is full — delete some files to free up space.${trash}${upgrade}`
+    : `Not enough storage left — this upload needs ${formatFileSize(incomingBytes)} but only ${formatFileSize(remaining)} of the ${formatFileSize(limit)} remains.${trash}${upgrade}`;
 }
 
 // ── AI allowance ───────────────────────────────────────────────────────────
@@ -558,7 +617,8 @@ export type WorkspaceUsage = {
   plan: PersonalPlan;
   readOnly: boolean;
   ai: AiAllowance;
-  storage: { usedBytes: number; limitBytes: number };
+  /** `trashBytes` is the part of `usedBytes` sitting in the trash (C6). */
+  storage: { usedBytes: number; limitBytes: number; trashBytes: number };
   members: Meter;
   spaces: Meter;
   categories: Meter;
@@ -572,9 +632,10 @@ export type WorkspaceUsage = {
 /** Everything the usage panel shows, in one call. */
 export async function getUsage(workspaceId: string): Promise<WorkspaceUsage> {
   const ent = await getWorkspaceEntitlements(workspaceId);
-  const [ai, storageUsed, members, spaceCount, categoryCount, tagCount] = await Promise.all([
+  const [ai, storageUsed, trashBytes, members, spaceCount, categoryCount, tagCount] = await Promise.all([
     getAiAllowance(workspaceId),
     getWorkspaceStorageUsage(workspaceId),
+    getTrashBytes(workspaceId),
     countMembers(workspaceId),
     countSpaces(workspaceId),
     countCategories(workspaceId),
@@ -584,7 +645,7 @@ export async function getUsage(workspaceId: string): Promise<WorkspaceUsage> {
     plan: ent.plan,
     readOnly: ent.readOnly,
     ai,
-    storage: { usedBytes: storageUsed, limitBytes: ent.limits.storageBytes },
+    storage: { usedBytes: storageUsed, limitBytes: ent.limits.storageBytes, trashBytes },
     members: { used: members, limit: ent.limits.members },
     spaces: { used: spaceCount, limit: ent.limits.spaces },
     categories: { used: categoryCount, limit: ent.limits.categories },

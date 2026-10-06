@@ -20,6 +20,7 @@ import {
 } from "@/db/schema";
 import { DEFAULT_CATEGORIES, DEFAULT_TAGS } from "@/lib/categories";
 import { findUserById } from "@/lib/directory";
+import { notTrashed } from "@/lib/trash-scope";
 import { forbidden, notFound, planLimit, type ApiError } from "@/lib/errors";
 import type { PersonalPlan } from "@/lib/plans";
 import {
@@ -89,13 +90,14 @@ export async function listUserWorkspaces(userId: string): Promise<WorkspaceSumma
 
   const memberIds = new Set(memberOf.map((w) => w.id));
 
-  // Workspaces reachable only through a per-profile grant.
+  // Workspaces reachable only through a per-profile grant — on a live profile:
+  // a grant whose profile is in the trash opens nothing.
   const granted = await db
     .selectDistinct(summaryColumns)
     .from(profileAccess)
     .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
     .innerJoin(workspaces, eq(profiles.workspaceId, workspaces.id))
-    .where(eq(profileAccess.userId, userId));
+    .where(and(eq(profileAccess.userId, userId), notTrashed(profiles)));
 
   return [
     ...memberOf,
@@ -250,7 +252,10 @@ export async function getEffectiveProfileRole(
       readOnly: readOnlyWorkspaceSql(sql`${profiles}."workspace_id"`),
     })
     .from(profiles)
-    .where(eq(profiles.id, profileId))
+    // A profile in the trash grants nothing to anyone — this and
+    // `accessibleProfileIds` are what hide a trashed profile's transactions,
+    // files and folders from every read and write that scopes through them.
+    .where(and(eq(profiles.id, profileId), notTrashed(profiles)))
     .limit(1);
   if (!row) return null;
 
@@ -358,6 +363,8 @@ export function accessibleProfileIds(
     .where(
       and(
         eq(profiles.workspaceId, workspaceId),
+        // Live profiles only — see `getEffectiveProfileRole`.
+        notTrashed(profiles),
         or(...branches),
         atLeastRole(minRole, "editor") ? not(readOnlyWorkspaceSql(workspaceId)) : undefined,
       ),
@@ -406,7 +413,7 @@ export async function profileRolesFor(
       ),
     })
     .from(profiles)
-    .where(eq(profiles.workspaceId, workspaceId));
+    .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles)));
   const out = new Map<string, WorkspaceRole>();
   for (const r of rows) {
     const role = resolveProfileRole({ workspaceRole: wsRole, ...r });
@@ -446,6 +453,8 @@ export async function workspaceHasMultipleUsers(workspaceId: string): Promise<bo
         .select({ userId: profileAccess.userId })
         .from(profileAccess)
         .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
+        // trash: grants on a trashed profile still count — it's an author-label
+        // heuristic, and the people come back with the profile on restore.
         .where(eq(profiles.workspaceId, workspaceId)),
     );
   return new Set(rows.map((r) => r.userId)).size > 1;
@@ -502,7 +511,12 @@ export async function requireSharedListEdit(userId: string, workspaceId: string)
   if (ro?.ro) throw readOnlyWorkspaceError();
   if (role === "admin") return;
   const [all, writable] = await Promise.all([
-    db.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
+    // Live profiles: a trashed one is nobody's to write, so counting it would
+    // lock every non-admin editor out of the shared lists.
+    db
+      .select({ id: profiles.id })
+      .from(profiles)
+      .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles))),
     accessibleProfileIds(userId, workspaceId, "editor"),
   ]);
   if (writable.length < all.length) {
@@ -528,7 +542,10 @@ export async function sharedListAccess(
     db
       .execute<{ ro: boolean }>(sql`select ${readOnlyWorkspaceSql(workspaceId)} as ro`)
       .then((r) => r.rows),
-    db.select({ id: profiles.id }).from(profiles).where(eq(profiles.workspaceId, workspaceId)),
+    db
+      .select({ id: profiles.id })
+      .from(profiles)
+      .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles))),
     accessibleProfileIds(userId, workspaceId, "editor"),
   ]);
   if (ro?.ro) return { canAdd: false, canEdit: false };

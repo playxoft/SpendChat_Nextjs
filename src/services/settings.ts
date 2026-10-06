@@ -16,6 +16,7 @@ import {
 } from "@/db/schema";
 import { ensureBootstrap, getUserSettings } from "@/lib/auth";
 import { requireWorkspaceRole } from "@/lib/workspaces";
+import { notTrashed } from "@/lib/trash-scope";
 import { findUserById } from "@/lib/directory";
 import { sendEmail } from "@/lib/email";
 import { deleteObjects, keyFromPublicUrl } from "@/lib/r2";
@@ -148,10 +149,13 @@ export async function updateVoiceLanguages(
  */
 /**
  * Clear transactions in the current workspace — a workspace-admin action.
- * Deletes **every** transaction in the selected profiles (regardless of who
- * authored it), so a profile is fully wiped. `profileIds` empty = every profile
- * in the workspace; otherwise only the chosen ones (any id not in the workspace
- * is ignored). Categories and settings are kept.
+ * Moves **every** live transaction in the selected profiles (regardless of who
+ * authored it) to the trash, so a profile is emptied but nothing is lost for
+ * `TRASH_DAYS`. `profileIds` empty = every live profile in the workspace;
+ * otherwise only the chosen ones (any id not in the workspace, or in the trash,
+ * is ignored). Categories and settings are kept. Receipts stay with their rows
+ * and are swept from storage by the purge (before the trash existed, this
+ * delete left their stored bytes behind).
  */
 export async function deleteAllTransactions(
   userId: string,
@@ -166,7 +170,7 @@ export async function deleteAllTransactions(
   const wsProfiles = await db
     .select({ id: profiles.id })
     .from(profiles)
-    .where(eq(profiles.workspaceId, workspaceId));
+    .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles)));
   const allowed = new Set(wsProfiles.map((p) => p.id));
   const targets =
     profileIds.length === 0
@@ -175,10 +179,11 @@ export async function deleteAllTransactions(
   if (targets.length === 0) throw badRequest("Select at least one profile to clear");
 
   const deleted = await db
-    .delete(transactions)
-    .where(inArray(transactions.profileId, targets))
+    .update(transactions)
+    .set({ deletedAt: sql`now()`, deletedBy: userId })
+    .where(and(inArray(transactions.profileId, targets), notTrashed(transactions)))
     .returning({ id: transactions.id });
-  logger.info(`Cleared ${deleted.length} transactions across ${targets.length} profile(s)`, {
+  logger.info(`Moved ${deleted.length} transactions across ${targets.length} profile(s) to the trash`, {
     event: "settings.transactions_cleared",
     workspaceId,
     userId,
@@ -232,6 +237,7 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
       const keys: (string | null)[] = [];
 
       if (ownedIds.length > 0) {
+        // trash: every profile, trashed ones too — erasure means everything.
         const ownedProfiles = await tx
           .select({ id: profiles.id })
           .from(profiles)
@@ -253,6 +259,7 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
           thumbnailKey: transactionAttachments.thumbnailKey,
         })
         .from(transactionAttachments)
+        // trash: trashed transactions too — erasure covers the trash.
         .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
         .where(eq(transactions.userId, userId));
       keys.push(...authoredElsewhere.flatMap((r) => [r.r2Key, r.thumbnailKey]));

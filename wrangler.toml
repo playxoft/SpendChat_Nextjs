@@ -1,5 +1,8 @@
 name = "spendchat"
-main = ".open-next/worker.js"
+# Our own entry (`worker.ts`), which wraps OpenNext's generated
+# `.open-next/worker.js` and adds what it doesn't: the daily cron's
+# `scheduled()` (and, from phase 6, the rate-limit Durable Object).
+main = "worker.ts"
 compatibility_date = "2025-09-23"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
@@ -18,6 +21,14 @@ keep_vars = true
 # helper doesn't exist in the browser, and the script threw
 # "__name is not defined" before applying the stored theme on every page.
 keep_names = false
+
+# The daily trash purge (03:17 UTC — off the hour, away from everyone else's
+# crons). `scheduled()` in worker.ts runs it through the app's own fetch
+# handler on a token-guarded internal route. Repeated in each env below, like
+# every other non-inheritable key here; this top-level copy is what a local
+# `wrangler dev --test-scheduled` uses.
+[triggers]
+crons = ["17 3 * * *"]
 
 # ---------------------------------------------------------------------------
 # There is NO deployable top-level environment: prod and beta are BOTH named
@@ -50,6 +61,14 @@ keep_names = false
 # only stops deploys DELETING dashboard vars; vars declared here are still set.
 [env.production.vars]
 APP_ENV = "production"
+# The public origin the cron's in-process request carries. OpenNext records the
+# first request an isolate sees as its origin (Next uses it for server-action
+# redirects), so a cron that happens to be first must not carry a made-up one;
+# without this var the cron skips its run instead. Keep it equal to the route.
+APP_ORIGIN = "https://spendchat.app"
+
+[env.production.triggers]
+crons = ["17 3 * * *"]
 
 [env.production.observability]
 enabled = true
@@ -111,6 +130,11 @@ binding = "CF_VERSION_METADATA"
 # Tags shipped logs as environment="beta" (see the production note above).
 [env.beta.vars]
 APP_ENV = "beta"
+# See the production note on APP_ORIGIN.
+APP_ORIGIN = "https://beta.spendchat.app"
+
+[env.beta.triggers]
+crons = ["17 3 * * *"]
 
 [env.beta.observability]
 enabled = true
