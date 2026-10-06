@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.5.0"
+  version: "6.9.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -187,6 +187,10 @@ tags:
   - name: Settings
   - name: Analytics
   - name: AI
+  - name: Split
+    description: >
+      Groups for sharing costs between people (6.9.0). User-scoped — outside
+      every workspace, so X-Workspace-Id is ignored.
 
 paths:
   /api/v1/version:
@@ -2467,6 +2471,520 @@ paths:
         "502": { $ref: "#/components/responses/AiFailed" }
         "503": { $ref: "#/components/responses/AiUnavailable" }
 
+  # ── Split (6.9.0) — user-scoped groups outside every workspace ──────────────
+  # None of these read X-Workspace-Id. Only a *joined* member can see a group:
+  # anyone else (strangers, people who left, invitees who haven't joined) gets
+  # 404, so a group's existence never leaks.
+
+  /api/v1/split/groups:
+    get:
+      tags: [Split]
+      summary: List the split groups you've joined
+      description: |
+        Newest first, each with your own balance (`myBalanceMinor`: positive =
+        you're owed, negative = you owe) in the group's currency. Ignores
+        `X-Workspace-Id`.
+      responses:
+        "200":
+          description: Your groups.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SplitGroup" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    post:
+      tags: [Split]
+      summary: Create a split group
+      description: |
+        You become its creator (the only person who can rename it, add and
+        remove people, or delete it). `members` invites up to 49 people (the
+        group holds 50, you included). Someone whose email has an account gets
+        an in-app invitation and no email; someone without one gets a join
+        link (see `SplitAddedPerson.delivery`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SplitGroupInput" }
+      responses:
+        "201":
+          description: The new group and what happened to each person.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      group: { $ref: "#/components/schemas/SplitGroupDetail" }
+                      added:
+                        type: array
+                        items: { $ref: "#/components/schemas/SplitAddedPerson" }
+                    required: [group, added]
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/split/groups/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Split]
+      summary: A group, its people, balances and settle-up suggestions
+      description: |
+        `members` lists everyone in the group, then former members who still
+        have a balance. `email` is only filled in for the group's creator and
+        on your own row. `suggestions` are the payments that would square
+        everyone (largest debt to largest credit first) — "Mark as paid"
+        records one as a settlement.
+      responses:
+        "200":
+          description: The group.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/SplitGroupDetail" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Split]
+      summary: Rename, re-icon or change the currency (creator only)
+      description: |
+        At least one field. `icon: null` or `""` clears it. The currency can
+        change only while the group has no expenses and no payments (409
+        `conflict` otherwise).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SplitGroupUpdate" }
+      responses:
+        "200":
+          description: The updated group.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/SplitGroupDetail" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Split]
+      summary: Delete the group and everything in it (creator only)
+      description: |
+        Every expense and payment goes, for everyone. Shares people already
+        added to their own workspaces stay there.
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { deleted: { type: boolean, enum: [true] } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/split/groups/{id}/members:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [Split]
+      summary: Add people by email (creator only)
+      description: |
+        Someone already in the group comes back as `delivery: already`; someone
+        who left is invited again (same member id, history intact). Past 50
+        people (you included) the whole request is refused with 409
+        `split_group_full` (`details: { max, used }`) — no plan lifts it.
+        Adding yourself is 400.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                members:
+                  type: array
+                  minItems: 1
+                  maxItems: 49
+                  items: { $ref: "#/components/schemas/SplitPersonInput" }
+              required: [members]
+      responses:
+        "200":
+          description: The group and what happened to each person.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      group: { $ref: "#/components/schemas/SplitGroupDetail" }
+                      added:
+                        type: array
+                        items: { $ref: "#/components/schemas/SplitAddedPerson" }
+                    required: [group, added]
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/split/groups/{id}/members/{memberId}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: memberId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Split]
+      summary: Remove someone (creator only)
+      description: |
+        Only once they're settled up — 409 `settle_first` while they owe or
+        are owed. Their history stays; they stop seeing the group and their
+        join link stops working. You can't remove yourself (400 — delete the
+        group instead).
+      responses:
+        "200":
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { removed: { type: boolean, enum: [true] } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/split/groups/{id}/leave:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    post:
+      tags: [Split]
+      summary: Leave a group
+      description: |
+        Only once you're settled up (409 `settle_first`). The creator can't
+        leave (400 — delete the group instead).
+      responses:
+        "200":
+          description: You left.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { left: { type: boolean, enum: [true] } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/split/groups/{id}/expenses:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Split]
+      summary: The group's expenses, newest first
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: A page of expenses; `meta` carries the total and the group currency.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SplitExpense" }
+                  meta:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      limit: { type: integer }
+                      offset: { type: integer }
+                      currency: { type: string }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Split]
+      summary: Add an expense (any joined member)
+      description: |
+        The server computes every share from the inputs — never send share
+        amounts for an `equal` split. Payer and participants must be people in
+        the group (422 otherwise). Leftover minor units (₹100 ÷ 3) go to the
+        payer first, then by join order.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SplitExpenseInput" }
+      responses:
+        "201":
+          description: The expense.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/SplitExpense" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/split/groups/{id}/expenses/{expenseId}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: expenseId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    get:
+      tags: [Split]
+      summary: One expense
+      responses:
+        "200":
+          description: The expense.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/SplitExpense" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    put:
+      tags: [Split]
+      summary: Replace an expense (its author or the creator)
+      description: |
+        Same body as POST. Someone who has since left may stay on an expense
+        they were already on. A share already added to a workspace keeps that
+        state through the edit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SplitExpenseInput" }
+      responses:
+        "200":
+          description: The updated expense.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/SplitExpense" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Split]
+      summary: Delete an expense (its author or the creator)
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { deleted: { type: boolean, enum: [true] } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/split/groups/{id}/settlements:
+    parameters:
+      - $ref: "#/components/parameters/id"
+    get:
+      tags: [Split]
+      summary: Recorded payments, newest first
+      parameters:
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: A page of payments.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SplitSettlement" }
+                  meta:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      limit: { type: integer }
+                      offset: { type: integer }
+                      currency: { type: string }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Split]
+      summary: Mark as paid — record that one person paid another
+      description: |
+        Records a payment made outside the app; no money moves. The creator
+        can record any payment; a member only one they made or received (403).
+        Either person may be a former member. Partial payments are fine.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SplitSettlementInput" }
+      responses:
+        "201":
+          description: The payment.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/SplitSettlement" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/split/groups/{id}/settlements/{settlementId}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: settlementId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    delete:
+      tags: [Split]
+      summary: Undo a payment (whoever recorded it, or the creator)
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { deleted: { type: boolean, enum: [true] } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/split/invitations:
+    get:
+      tags: [Split]
+      summary: Split groups waiting for you to join or decline
+      description: |
+        Includes invitations sent to your email before you had an account.
+        Only what you need to decide: the group's name, icon, currency, people
+        count and who invited you — nothing inside the group until you join.
+      responses:
+        "200":
+          description: Your pending invitations, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/SplitInvitation" }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /api/v1/split/invitations/{memberId}/accept:
+    parameters:
+      - name: memberId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Split]
+      summary: Join a group from an invitation
+      description: 404 when the invitation isn't yours or is no longer open.
+      responses:
+        "200":
+          description: The group you joined.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/SplitGroupDetail" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/split/invitations/{memberId}/decline:
+    parameters:
+      - name: memberId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      tags: [Split]
+      summary: Decline an invitation
+      description: Always allowed. 404 when it isn't yours or is no longer open.
+      responses:
+        "200":
+          description: Declined.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { declined: { type: boolean, enum: [true] } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -2679,7 +3197,8 @@ components:
               enum: [unauthorized, forbidden, plan_limit, bad_request, not_found,
                      conflict, validation_error, rate_limited, payload_too_large,
                      storage_quota_exceeded, ai_unavailable, ai_failed,
-                     storage_unavailable, internal_error]
+                     storage_unavailable, split_group_full, settle_first,
+                     internal_error]
             message: { type: string }
             details:
               description: >
@@ -3806,3 +4325,235 @@ components:
         tr Turkish, vi Vietnamese, zh Chinese.
       enum: [en, bn, gu, hi, kn, ml, mr, or, pa, ta, te, ur, ar, de, es, fr,
              id, it, ja, ko, nl, pt, ru, th, tr, vi, zh]
+
+    # ── Split (6.9.0) ──────────────────────────────────────────────────────────
+    SplitGroup:
+      type: object
+      description: A group in your list, with your own balance in its currency.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string, maxLength: 40 }
+        icon: { type: [string, "null"], maxLength: 16 }
+        currency: { type: string, description: ISO 4217 code; every amount in the group uses it. }
+        isCreator: { type: boolean }
+        peopleCount: { type: integer, description: Invited + joined people, you included (max 50). }
+        myBalanceMinor: { type: integer, description: Positive = you're owed; negative = you owe. }
+        myBalance: { type: string, description: 'Major units at the currency''s decimals, e.g. "-33.33".' }
+        createdAt: { type: string, format: date-time }
+      required: [id, name, icon, currency, isCreator, peopleCount, myBalanceMinor, myBalance, createdAt]
+
+    SplitMember:
+      type: object
+      properties:
+        id: { type: string, format: uuid, description: The member id expenses and payments use. }
+        name: { type: string, description: The name the group sees (set by whoever added them). }
+        email:
+          type: [string, "null"]
+          description: Only for the group's creator, and on your own row. Null for everyone else.
+        status:
+          type: string
+          enum: [invited, joined, left]
+          description: '`left` rows only appear while that person still has a balance.'
+        isCreator: { type: boolean }
+        isYou: { type: boolean }
+        balanceMinor: { type: integer, description: Positive = is owed; negative = owes. }
+        balance: { type: string }
+        invitedByEmail:
+          type: [boolean, "null"]
+          description: Creator only (null otherwise) — whether this person was sent their one invite email.
+      required: [id, name, email, status, isCreator, isYou, balanceMinor, balance, invitedByEmail]
+
+    SplitSuggestion:
+      type: object
+      description: One payment that, with the others, brings every balance to zero.
+      properties:
+        fromMemberId: { type: string, format: uuid }
+        toMemberId: { type: string, format: uuid }
+        amountMinor: { type: integer }
+        amount: { type: string }
+      required: [fromMemberId, toMemberId, amountMinor, amount]
+
+    SplitGroupDetail:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        icon: { type: [string, "null"] }
+        currency: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        me:
+          type: object
+          properties:
+            memberId: { type: string, format: uuid }
+            isCreator: { type: boolean }
+          required: [memberId, isCreator]
+        members:
+          type: array
+          items: { $ref: "#/components/schemas/SplitMember" }
+        suggestions:
+          type: array
+          items: { $ref: "#/components/schemas/SplitSuggestion" }
+        peopleCount: { type: integer }
+        maxPeople: { type: integer, description: Always 50 (the creator included), on every plan. }
+        hasActivity: { type: boolean, description: Any expense or payment yet — the currency is fixed from then on. }
+      required: [id, name, icon, currency, createdAt, updatedAt, me, members, suggestions, peopleCount, maxPeople, hasActivity]
+
+    SplitPersonInput:
+      type: object
+      properties:
+        email: { type: string, format: email, maxLength: 100 }
+        name: { type: string, minLength: 1, maxLength: 40, description: What the group calls them. }
+      required: [email, name]
+
+    SplitGroupInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        icon: { type: [string, "null"], maxLength: 16 }
+        currency: { type: string, description: A supported ISO 4217 code. }
+        members:
+          type: array
+          maxItems: 49
+          items: { $ref: "#/components/schemas/SplitPersonInput" }
+      required: [name, currency]
+
+    SplitGroupUpdate:
+      type: object
+      minProperties: 1
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        icon: { type: [string, "null"], maxLength: 16 }
+        currency: { type: string }
+
+    SplitAddedPerson:
+      type: object
+      description: What happened to one person an add named (returned to the creator only).
+      properties:
+        memberId: { type: string, format: uuid }
+        email: { type: string }
+        delivery:
+          type: string
+          enum: [in_app, email, link, already]
+          description: |
+            `in_app` — they have an account and see an invitation in the app
+            (never an email). `email` — no account; their one invite email is
+            on its way. `link` — no account and no email went (the daily cap,
+            or they were emailed before): share the join link. `already` —
+            they were already in the group.
+      required: [memberId, email, delivery]
+
+    SplitExpenseInput:
+      type: object
+      description: |
+        `splitType` decides which inputs apply: `equal` → `memberIds`;
+        `exact` → `shares[].amount` (major units, summing to `amount`);
+        `percent` → `shares[].percent` (≤ 2 decimals, summing to 100).
+        People with 0 are left out of the expense.
+      properties:
+        title: { type: string, minLength: 1, maxLength: 40 }
+        amount: { type: number, exclusiveMinimum: 0, maximum: 999999999.99 }
+        paidBy: { type: string, format: uuid, description: A member id. }
+        occurredOn: { type: string, format: date }
+        splitType: { type: string, enum: [equal, exact, percent] }
+        memberIds:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { type: string, format: uuid }
+        shares:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            properties:
+              memberId: { type: string, format: uuid }
+              amount: { type: number, minimum: 0 }
+              percent: { type: number, minimum: 0, maximum: 100 }
+            required: [memberId]
+      required: [title, amount, paidBy, occurredOn, splitType]
+
+    SplitExpense:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        amountMinor: { type: integer }
+        amount: { type: string }
+        splitType: { type: string, enum: [equal, exact, percent] }
+        occurredOn: { type: string, format: date }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        paidBy:
+          type: object
+          properties:
+            memberId: { type: string, format: uuid }
+            name: { type: string }
+          required: [memberId, name]
+        shares:
+          type: array
+          items:
+            type: object
+            properties:
+              memberId: { type: string, format: uuid }
+              name: { type: string }
+              amountMinor: { type: integer }
+              amount: { type: string }
+              percent: { type: [number, "null"], description: Percent splits only. }
+            required: [memberId, name, amountMinor, amount, percent]
+        canEdit: { type: boolean, description: You added it, or you created the group. }
+        myShare:
+          description: Your part of it; null when you're not in this expense.
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                shareId: { type: string, format: uuid }
+                amountMinor: { type: integer }
+                amount: { type: string }
+                added: { type: boolean, description: Already in one of your workspaces. }
+                addedAt: { type: [string, "null"], format: date-time }
+              required: [shareId, amountMinor, amount, added, addedAt]
+      required: [id, title, amountMinor, amount, splitType, occurredOn, createdAt, updatedAt, paidBy, shares, canEdit, myShare]
+
+    SplitSettlementInput:
+      type: object
+      properties:
+        fromMemberId: { type: string, format: uuid, description: Who paid. }
+        toMemberId: { type: string, format: uuid, description: Who was paid (must differ). }
+        amount: { type: number, exclusiveMinimum: 0, maximum: 999999999.99 }
+        settledOn: { type: string, format: date }
+      required: [fromMemberId, toMemberId, amount, settledOn]
+
+    SplitSettlement:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        from:
+          type: object
+          properties: { memberId: { type: string, format: uuid }, name: { type: string } }
+          required: [memberId, name]
+        to:
+          type: object
+          properties: { memberId: { type: string, format: uuid }, name: { type: string } }
+          required: [memberId, name]
+        amountMinor: { type: integer }
+        amount: { type: string }
+        settledOn: { type: string, format: date }
+        createdAt: { type: string, format: date-time }
+        canDelete: { type: boolean }
+      required: [id, from, to, amountMinor, amount, settledOn, createdAt, canDelete]
+
+    SplitInvitation:
+      type: object
+      properties:
+        memberId: { type: string, format: uuid, description: What accept/decline take. }
+        groupId: { type: string, format: uuid }
+        groupName: { type: string }
+        groupIcon: { type: [string, "null"] }
+        currency: { type: string }
+        inviterName: { type: [string, "null"], description: What the group calls whoever invited you. }
+        peopleCount: { type: integer }
+        invitedAt: { type: string, format: date-time }
+      required: [memberId, groupId, groupName, groupIcon, currency, inviterName, peopleCount, invitedAt]

@@ -86,6 +86,16 @@ Authentication, secrets via Doppler.
   (pure, unit-tested, one shared layout: neutral, no images, plain-text twin); the one-time
   welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. ZeptoMail is
   transactional-only — don't add newsletters or drip campaigns to this pipe.
+- **Split groups live outside workspaces.** `split_groups` and everything under them
+  are user-scoped: no `workspace_id`, no plan (50 people per group, the creator included,
+  on every plan — `SPLIT_GROUP_MAX_PEOPLE`), and nothing in them is a transaction. Each
+  group has one currency; amounts are minor units in it, divided by `src/lib/split-math.ts`
+  on the server (leftovers to the payer first, then join order). Who may do what is
+  `src/lib/split-access.ts`; only a *joined* member sees a group — everyone else gets
+  404 — and members' emails are shown only to the group's creator. Member rows are never
+  deleted while the group exists (leave/remove/decline = `left`), balances are always
+  computed, never stored. Adds take the group row `FOR UPDATE` before counting. The
+  only bridge into a workspace is "add my share", which writes one ordinary expense.
 - **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,
   mutations in `src/actions/*` (server actions), both validated with Zod (`src/lib/validation.ts`).
 - **Auth: Firebase Authentication** (Google + email/password). Sign-in happens in the browser

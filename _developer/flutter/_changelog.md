@@ -19,6 +19,45 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.9.0 — 2026-10-07
+
+**Split** — groups for sharing costs between people (a trip, a flat, a
+dinner), **outside every workspace**: user-scoped, so every `/split/*` endpoint
+ignores `X-Workspace-Id`. Everything here is additive.
+
+**New endpoints** (full table in [01-api-reference.md](./01-api-reference.md) § Split)
+
+| Endpoint | What |
+|---|---|
+| `GET/POST /split/groups` | Your joined groups (with your balance); create one — you become its creator |
+| `GET/PATCH/DELETE /split/groups/{id}` | Detail (people, balances, settle-up suggestions); rename / icon / currency while empty; delete — the last two creator only |
+| `POST /split/groups/{id}/members`, `DELETE …/members/{memberId}` | Add people by `{ email, name }`; remove someone who's settled up — creator only |
+| `POST /split/groups/{id}/leave` | Leave once you're settled up |
+| `GET/POST /split/groups/{id}/expenses`, `GET/PUT/DELETE …/expenses/{expenseId}` | Expenses split `equal` / `exact` / `percent`; the server computes every share |
+| `GET/POST /split/groups/{id}/settlements`, `DELETE …/settlements/{settlementId}` | "Mark as paid" — record that one person paid another |
+| `GET /split/invitations`, `POST /split/invitations/{memberId}/accept` / `decline` | Groups waiting for you to join |
+
+**Rules worth mirroring in the UI**
+- Only a **joined** member can see a group; everyone else (invitees included)
+  gets 404. Invitees see `SplitInvitation` only.
+- `email` on a `SplitMember` is filled in **only for the group's creator and on
+  your own row** — never show an address you weren't sent.
+- 50 people per group, the creator included, on every plan → **409
+  `split_group_full`** (`details: { max, used }`); no upgrade prompt.
+- Remove / leave need a zero balance → **409 `settle_first`**.
+- Every amount is in the group's `currency` (`…Minor` + string). Leftover
+  minor units go to the payer first, then by join order — don't recompute
+  shares client-side for display; read `shares`.
+
+**New error codes:** `split_group_full` (409), `settle_first` (409).
+
+**Flutter impact:** additive — nothing breaks. To ship Split in the app, add a
+Split tab outside the workspace switcher (don't send `X-Workspace-Id` there),
+the models in § Split models, and an invitations list/badge from
+`GET /split/invitations`.
+
+---
+
 ## 6.5.0 — 2026-10-05
 
 Plans, spaces and the organisation. Every workspace now has a **plan**

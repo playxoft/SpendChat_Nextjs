@@ -20,6 +20,7 @@ import { findUserById } from "@/lib/directory";
 import { sendEmail } from "@/lib/email";
 import { deleteObjects, keyFromPublicUrl } from "@/lib/r2";
 import { collectProfileObjectKeys } from "./storage-keys";
+import { forgetSplitUser } from "./split";
 import { assertEmailSendAllowed } from "@/lib/email-quota";
 import { siteConfig } from "@/lib/site";
 import { badRequest, conflict, isForeignKeyViolation, validationError } from "@/lib/errors";
@@ -281,6 +282,9 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
       await tx.delete(spaceMembers).where(eq(spaceMembers.userId, userId));
       await tx.delete(profileOverrides).where(eq(profileOverrides.userId, userId));
       await tx.delete(profileAccess).where(eq(profileAccess.userId, userId));
+      // Split groups they created go; their rows in other people's groups are
+      // anonymised but kept, so those groups' balances still add up.
+      await forgetSplitUser(tx, userId);
       await tx.delete(userSettings).where(eq(userSettings.userId, userId));
       // The identity row last (the Firebase credential is deleted client-side).
       await tx.delete(users).where(eq(users.id, userId));

@@ -14,9 +14,32 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.5.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.9.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.36.0] — 2026-10-07
+
+### Added
+- **Split.** Share costs with anyone — a trip, a flat, a dinner — without
+  putting them in your workspace. Start a group, pick its currency, and add
+  people by name and email. Everyone adds what they paid and sees who owes
+  whom; SpendChat works out the shortest way to settle up, and **Mark as paid**
+  records it when someone pays back. Split an expense equally, by exact
+  amounts or by percent; if it doesn't divide evenly, whoever paid takes the
+  leftover paisa, so nobody else is asked for more than their share.
+- **Groups live outside workspaces** and are free on every plan: up to 50
+  people each (you included), as many groups and expenses as you like. Find
+  them under **Split** in the sidebar (or press `P`).
+- **Invitations in the app.** Add someone who already uses SpendChat and they
+  see the invitation in the app — Join or Decline — with a badge on Split
+  until they answer.
+- **Who can do what.** The person who created a group renames it, adds and
+  removes people, and can delete it. Everyone else adds expenses, edits the
+  ones they added, and records payments they made or received. Only the
+  creator sees people's email addresses.
+- Mobile API 6.9.0: `/api/v1/split/*` (groups, people, expenses, payments,
+  invitations).
 
 ## [0.33.0] — 2026-10-06
 
