@@ -111,7 +111,7 @@ async function resolveProfileId(
 
   const role = await getWorkspaceRole(userId, workspaceId);
   // Nothing writable may mean the workspace is view-only (an extra free
-  // workspace past its grace period) — then say so, and never self-heal a
+  // workspace) — then say so, and never self-heal a
   // profile into it.
   const { readOnly } = await getWorkspaceEntitlements(workspaceId);
   if (readOnly) throw readOnlyWorkspaceError();

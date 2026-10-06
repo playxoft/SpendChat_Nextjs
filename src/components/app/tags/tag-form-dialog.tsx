@@ -20,6 +20,7 @@ import { defaultTagColor, type TxnTagDTO } from "@/lib/tags";
 import { ColorSwatch } from "./color-swatch";
 import { TagChip } from "./tag-chip";
 import { usePlan } from "../upgrade-dialog";
+import { LimitPanel, LockedButton, useAddLock } from "../limit-lock";
 
 /**
  * Create or edit a transaction tag: a name and one of twenty colors, with
@@ -52,7 +53,11 @@ export function TagFormDialog({
   const [color, setColor] = useState(tag?.color ?? defaultTagColor(initialName));
   const [usage, setUsage] = useState<number | null>(null);
   const [pending, startTransition] = useTransition();
-  const { reportFailure } = usePlan();
+  const { reportFailure, showUpgrade } = usePlan();
+  // The plan's tag cap, shown before anything is typed. Only creating counts —
+  // renaming or recolouring an existing tag is never locked.
+  const tagLock = useAddLock("tags");
+  const createLock = editing ? null : tagLock;
 
   // The color follows the name only while the user hasn't chosen one, and only
   // in create mode: typing further into "trav" → "travel" should keep moving
@@ -106,6 +111,10 @@ export function TagFormDialog({
     // Portaled but still a React-tree child of the composer's <form>, so this
     // submit would otherwise bubble up and fire the composer's own validation.
     e.stopPropagation();
+    if (createLock) {
+      showUpgrade(createLock.info);
+      return;
+    }
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error("Enter a tag name");
@@ -162,6 +171,7 @@ export function TagFormDialog({
           </DialogHeader>
 
           <div className="space-y-4 py-4">
+            <LimitPanel lock={createLock} />
             <div className="space-y-2">
               <Label htmlFor="tag-name">Name</Label>
               <Input
@@ -209,10 +219,10 @@ export function TagFormDialog({
               >
                 Cancel
               </Button>
-              <Button type="submit" disabled={pending}>
+              <LockedButton type="submit" lock={createLock} disabled={pending}>
                 {pending ? <Loader2 className="size-4 animate-spin" /> : null}
                 {editing ? "Save" : "Create"}
-              </Button>
+              </LockedButton>
             </div>
           </DialogFooter>
         </form>

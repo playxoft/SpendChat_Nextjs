@@ -6,6 +6,7 @@ import {
   FeatureSection,
   FeatureSteps,
 } from "@/components/marketing/feature-page";
+import { DEFAULT_CATEGORIES } from "@/lib/categories";
 import { featureLink, getFeature } from "@/lib/features";
 import { createMetadata } from "@/lib/seo";
 
@@ -18,10 +19,17 @@ export const metadata = createMetadata({
   path: `/features/${SLUG}`,
 });
 
+/** The seeded list, counted — so the copy can't drift from `DEFAULT_CATEGORIES`. */
+const defaults = {
+  all: DEFAULT_CATEGORIES.length,
+  expense: DEFAULT_CATEGORIES.filter((c) => c.kind === "expense").length,
+  income: DEFAULT_CATEGORIES.filter((c) => c.kind === "income").length,
+};
+
 const faqs = [
   {
     q: "Can I create my own expense categories?",
-    a: "Yes. Every workspace starts with fifteen defaults — ten for expenses, five for income — and you can rename any of them, change the emoji, delete the ones you'll never use, and add your own. A name is up to 20 characters, because it has to stay readable as a chip in the composer.",
+    a: `Yes. Every workspace starts with ${defaults.all} defaults — ${defaults.expense} for expenses, ${defaults.income} for income — and you can rename any of them, change the emoji, delete the ones you'll never use, and add your own. A name is up to 20 characters, because it has to stay readable as a chip in the composer.`,
   },
   {
     q: "What happens to transactions if I delete a category?",
@@ -72,7 +80,7 @@ export default function CategoriesPage() {
         steps={[
           {
             title: "Start from the defaults",
-            body: "A new workspace is seeded with fifteen categories — ten expense, five income — so you can log something in the first thirty seconds without setting anything up.",
+            body: `A new workspace is seeded with ${defaults.all} categories — ${defaults.expense} expense, ${defaults.income} income — so you can log something in the first thirty seconds without setting anything up.`,
           },
           {
             title: "Make them yours",

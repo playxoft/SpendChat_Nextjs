@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { and, count, eq } from "drizzle-orm";
+import { and, count, eq, sql } from "drizzle-orm";
 import {
   aiUsageLog,
   categories,
@@ -19,17 +19,18 @@ import {
 import { addCategory } from "@/actions/categories";
 import { createWorkspace as createWorkspaceAction } from "@/actions/workspaces";
 import { ensureBootstrap } from "@/lib/auth";
-import { DEFAULT_CATEGORIES } from "@/lib/categories";
+import { DEFAULT_CATEGORIES, DEFAULT_TAGS } from "@/lib/categories";
 import {
   aiActionsUsedThisMonth,
   assertProfileLevelAccess,
   assertVoiceAllowed,
   countMembers,
+  getAddLimits,
   getAiAllowance,
   getWorkspaceEntitlements,
   monthStartUtc,
 } from "@/lib/entitlements";
-import { PLAN_GRACE_ENDS_AT, PLAN_LIMITS, type PersonalPlan } from "@/lib/plans";
+import { PLAN_LIMITS, type PersonalPlan } from "@/lib/plans";
 import { assertStorageQuota } from "@/lib/storage-quota";
 import { createCategory } from "@/services/categories";
 import { createProfile } from "@/services/profiles";
@@ -194,10 +195,10 @@ describe("members", () => {
 // ── Categories, tags, spaces, profiles ─────────────────────────────────────
 
 describe("categories", () => {
-  it("Free: the 15 defaults count, 5 more fit, the 21st is refused", async () => {
+  it("Free: the 10 defaults count, 10 more fit, the 21st is refused", async () => {
     const W = await ownerOn("free");
-    expect(DEFAULT_CATEGORIES).toHaveLength(15);
-    for (let i = 0; i < 5; i++) {
+    expect(DEFAULT_CATEGORIES).toHaveLength(10);
+    for (let i = 0; i < 10; i++) {
       await createCategory(uid("own"), W, { name: `Extra ${i}`, kind: "expense" });
     }
     await expect(
@@ -211,9 +212,12 @@ describe("categories", () => {
 
   it("deleting a category frees a slot", async () => {
     const W = await ownerOn("free");
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < PLAN_LIMITS.free.categories - DEFAULT_CATEGORIES.length; i++) {
       await createCategory(uid("own"), W, { name: `Extra ${i}`, kind: "expense" });
     }
+    await expect(
+      createCategory(uid("own"), W, { name: "Full", kind: "expense" }),
+    ).rejects.toMatchObject(planLimit({ limit: "categories", used: 20 }));
     await db()
       .delete(categories)
       .where(and(eq(categories.workspaceId, W), eq(categories.name, "Extra 0")));
@@ -224,7 +228,7 @@ describe("categories", () => {
 
   it("Pro allows 50", async () => {
     const W = await ownerOn("pro");
-    for (let i = 0; i < 35; i++) {
+    for (let i = 0; i < 50 - DEFAULT_CATEGORIES.length; i++) {
       await createCategory(uid("own"), W, { name: `Extra ${i}`, kind: "expense" });
     }
     await expect(
@@ -234,7 +238,7 @@ describe("categories", () => {
 
   it("the web action reports the plan limit with its code and details", async () => {
     await ownerOn("free");
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < 10; i++) {
       expect(await addCategory({ name: `Extra ${i}`, kind: "expense" })).toMatchObject({ ok: true });
     }
     expect(await addCategory({ name: "One too many", kind: "expense" })).toMatchObject({
@@ -248,18 +252,19 @@ describe("categories", () => {
 describe("tags", () => {
   const tag = (W: string, name: string) => createTxnTag(uid("own"), W, { name, color: "#ef4444" });
 
-  it("Free: 5, then refused", async () => {
+  it("Free: the 2 default tags count, 3 more fit, then refused at 5", async () => {
     const W = await ownerOn("free");
-    for (let i = 0; i < 5; i++) await tag(W, `t${i}`);
-    await expect(tag(W, "t5")).rejects.toMatchObject(
+    expect(DEFAULT_TAGS).toHaveLength(2);
+    for (let i = 0; i < 3; i++) await tag(W, `t${i}`);
+    await expect(tag(W, "t3")).rejects.toMatchObject(
       planLimit({ limit: "tags", plan: "free", max: 5, used: 5, upgradeTo: "plus" }),
     );
   });
 
-  it("Pro: 20, then refused", async () => {
+  it("Pro: 20 (the 2 defaults included), then refused", async () => {
     const W = await ownerOn("pro");
-    for (let i = 0; i < 20; i++) await tag(W, `t${i}`);
-    await expect(tag(W, "t20")).rejects.toMatchObject(
+    for (let i = 0; i < 18; i++) await tag(W, `t${i}`);
+    await expect(tag(W, "t18")).rejects.toMatchObject(
       planLimit({ limit: "tags", plan: "pro", max: 20, used: 20, upgradeTo: null }),
     );
   });
@@ -391,14 +396,6 @@ describe("voice (assertVoiceAllowed)", () => {
     await setWorkspacePlan(W, "pro");
     await expect(assertVoiceAllowed(W)).resolves.toBeUndefined();
   });
-
-  it("keeps working for a grandfathered Free workspace while the grace period runs", async () => {
-    expect(PLAN_GRACE_ENDS_AT).toBeNull(); // pricing hasn't launched: grace is open-ended
-    const W = await ownerOn("free");
-    await setWorkspacePlan(W, "free", { grandfathered: true });
-    await expect(assertVoiceAllowed(W)).resolves.toBeUndefined();
-    expect(await getWorkspaceEntitlements(W)).toMatchObject({ grandfathered: true, inGrace: true });
-  });
 });
 
 // ── AI allowance ───────────────────────────────────────────────────────────
@@ -527,7 +524,7 @@ describe("C5: one free workspace per person", () => {
     const W = await ownerOn("free");
     await setWorkspacePlan(W, "plus");
     const second = await ws.createWorkspace(uid("own"), { name: "Second" });
-    expect(second).toMatchObject({ plan: "free", grandfathered: false });
+    expect(second).toMatchObject({ plan: "free" });
     // It joins the same personal organisation.
     expect(second.organizationId).toBe(await orgOf(W));
     await expect(ws.createWorkspace(uid("own"), { name: "Third" })).rejects.toMatchObject(
@@ -569,9 +566,18 @@ describe("C7: over a cap after a downgrade", () => {
     await setWorkspacePlan(W, "free");
     await expect(
       createTxnTag(uid("own"), W, { name: "t6", color: "#ef4444" }),
-    ).rejects.toMatchObject(planLimit({ limit: "tags", max: 5, used: 6 }));
+    ).rejects.toMatchObject(planLimit({ limit: "tags", max: 5, used: 8 }));
     const kept = await db().select({ name: tags.name }).from(tags).where(eq(tags.workspaceId, W));
-    expect(kept.map((t) => t.name).sort()).toEqual(["t0", "t1", "t2", "t3", "t4", "t5"]);
+    expect(kept.map((t) => t.name).sort()).toEqual([
+      "Recurring",
+      "Reimbursable",
+      "t0",
+      "t1",
+      "t2",
+      "t3",
+      "t4",
+      "t5",
+    ]);
   });
 
   it("C7: over the profile and space caps, nothing is deleted and nothing more fits", async () => {
@@ -590,17 +596,15 @@ describe("C7: over a cap after a downgrade", () => {
     const [{ s }] = await db().select({ s: count() }).from(spaces).where(eq(spaces.workspaceId, W));
     expect({ p, s }).toEqual({ p: 4, s: 3 });
   });
-});
 
-describe("C9: grandfathered workspaces", () => {
-  it("C9: a grandfathered Free workspace over the member cap can't add a member, but keeps voice in grace", async () => {
-    const W = await ownerOn("free");
-    await setWorkspacePlan(W, "free", { grandfathered: true });
-    // Four people besides the owner, from before plans existed.
+  it("C7: over the member cap, everyone stays and nobody more can be added — and voice goes with Pro", async () => {
+    const W = await ownerOn("pro");
+    // Four people besides the owner, added while on Pro.
     for (const alias of ["g1", "g2", "g3", "g4"]) {
       await registerUser(alias);
       await db().insert(workspaceMembers).values({ workspaceId: W, userId: uid(alias), role: "viewer" });
     }
+    await setWorkspacePlan(W, "free");
     expect(await countMembers(W)).toBe(5);
 
     await expect(
@@ -608,8 +612,127 @@ describe("C9: grandfathered workspaces", () => {
     ).rejects.toMatchObject(planLimit({ limit: "members", plan: "free", max: 3, used: 5 }));
     // Everyone already there stays.
     expect(await countMembers(W)).toBe(5);
-    // The grace period keeps features running.
-    await expect(assertVoiceAllowed(W)).resolves.toBeUndefined();
+    // Features follow the plan straight away — there's no grace period.
+    await expect(assertVoiceAllowed(W)).rejects.toMatchObject(planLimit({ limit: "voice", plan: "free" }));
+  });
+});
+
+// ── Add limits up front (getAddLimits) ────────────────────────────────────
+
+describe("getAddLimits", () => {
+  it("a fresh Free workspace: room on every meter, and no second free workspace", async () => {
+    const W = await ownerOn("free");
+    expect(await getAddLimits(W, uid("own"))).toEqual({
+      plan: "free",
+      readOnly: false,
+      spaces: { used: 1, limit: 2, reached: false },
+      categories: { used: 10, limit: 20, reached: false },
+      tags: { used: 2, limit: 5, reached: false },
+      members: { used: 1, limit: 3, reached: false },
+      profilesPerSpace: PLAN_LIMITS.free.profilesPerSpace,
+      // They already own their one free workspace — this one, so upgrading it
+      // is what frees the place for another.
+      canCreateFreeWorkspace: false,
+      freeSlotHere: true,
+      freeOwned: 1,
+      profileLevelAccess: false,
+      voice: false,
+    });
+  });
+
+  it("can create a free workspace once the one they own is paid", async () => {
+    const W = await ownerOn("free");
+    await setWorkspacePlan(W, "plus");
+    expect(await getAddLimits(W, uid("own"))).toMatchObject({
+      plan: "plus",
+      canCreateFreeWorkspace: true,
+      freeSlotHere: false,
+      profileLevelAccess: true,
+      voice: false,
+      categories: { used: 10, limit: PLAN_LIMITS.plus.categories, reached: false },
+      tags: { used: 2, limit: PLAN_LIMITS.plus.tags, reached: false },
+    });
+  });
+
+  it("marks a meter reached at its cap", async () => {
+    const W = await ownerOn("free");
+    await createSpace(uid("own"), W, { name: "Family" });
+    for (let i = 0; i < 3; i++) await createTxnTag(uid("own"), W, { name: `t${i}`, color: "#ef4444" });
+    const limits = await getAddLimits(W, uid("own"));
+    expect(limits.spaces).toEqual({ used: 2, limit: 2, reached: true });
+    expect(limits.tags).toEqual({ used: 5, limit: 5, reached: true });
+    expect(limits.categories.reached).toBe(false);
+  });
+
+  it("a view-only workspace: every meter is reached, however little is used", async () => {
+    const W1 = await ownerOn("free");
+    // A second free workspace: create it while the first is paid, then drop
+    // the first back to Free — the newer one is the view-only one.
+    await setWorkspacePlan(W1, "plus");
+    const W2 = (await ws.createWorkspace(uid("own"), { name: "Second" })).id;
+    await db()
+      .update(workspaces)
+      .set({ createdAt: sql`now() + interval '1 minute'` })
+      .where(eq(workspaces.id, W2));
+    await setWorkspacePlan(W1, "free");
+
+    const limits = await getAddLimits(W2, uid("own"));
+    expect(limits).toMatchObject({
+      plan: "free",
+      readOnly: true,
+      canCreateFreeWorkspace: false,
+      freeSlotHere: false,
+    });
+    for (const meter of [limits.spaces, limits.categories, limits.tags, limits.members]) {
+      expect(meter.reached).toBe(true);
+    }
+    expect(limits.categories).toEqual({ used: 10, limit: 20, reached: true });
+    // The older free workspace is unaffected. Upgrading it alone wouldn't free
+    // a place — they'd still own the view-only one.
+    expect(await getAddLimits(W1, uid("own"))).toMatchObject({
+      readOnly: false,
+      categories: { reached: false },
+      freeSlotHere: false,
+    });
+  });
+
+  it("counts members (invites and grants included) in the same query as the rest", async () => {
+    const W = await ownerOn("free");
+    await bootstrapUser("mb");
+    const all = { mode: "all" as const, role: "viewer" as const };
+    await ws.addMember(uid("own"), W, { email: "mb@example.com", access: all });
+    await ws.addMember(uid("own"), W, { email: "pending@example.com", access: all });
+    const limits = await getAddLimits(W, uid("own"));
+    expect(limits.members).toEqual({ used: await countMembers(W), limit: 3, reached: true });
+    expect(limits.members.used).toBe(3);
+  });
+
+  it("someone else's Free workspace isn't the place to free up a new one", async () => {
+    await ownerOn("free");
+    await bootstrapUser("oth");
+    const theirs = await workspaceIdOf("oth");
+    await ws.addMember(uid("oth"), theirs, {
+      email: "own@example.com",
+      access: { mode: "all", role: "editor" },
+    });
+    // own still owns a free workspace (so can't create one), but upgrading
+    // oth's wouldn't change that.
+    expect(await getAddLimits(theirs, uid("own"))).toMatchObject({
+      plan: "free",
+      canCreateFreeWorkspace: false,
+      freeSlotHere: false,
+    });
+  });
+
+  it("Pro: voice is on", async () => {
+    const W = await ownerOn("pro");
+    expect(await getAddLimits(W, uid("own"))).toMatchObject({
+      plan: "pro",
+      voice: true,
+      profileLevelAccess: true,
+      canCreateFreeWorkspace: true,
+      spaces: { used: 1, limit: PLAN_LIMITS.pro.spaces, reached: false },
+    });
   });
 });
 
@@ -623,7 +746,7 @@ describe("bootstrap", () => {
     expect(orgs[0]).toMatchObject({ name: "ann's organisation", kind: "personal" });
 
     const [w] = await db().select().from(workspaces).where(eq(workspaces.ownerId, uid("ann")));
-    expect(w).toMatchObject({ organizationId: orgs[0]!.id, plan: "free", grandfathered: false });
+    expect(w).toMatchObject({ organizationId: orgs[0]!.id, plan: "free" });
 
     const wsSpaces = await db().select().from(spaces).where(eq(spaces.workspaceId, w!.id));
     expect(wsSpaces).toHaveLength(1);

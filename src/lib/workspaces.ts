@@ -9,6 +9,7 @@ import {
   profiles,
   spaceMembers,
   spaces,
+  tags,
   userSettings,
   workspaceInvites,
   workspaceMembers,
@@ -17,10 +18,10 @@ import {
   type SpaceRole,
   type WorkspaceRole,
 } from "@/db/schema";
-import { DEFAULT_CATEGORIES } from "@/lib/categories";
+import { DEFAULT_CATEGORIES, DEFAULT_TAGS } from "@/lib/categories";
 import { findUserById } from "@/lib/directory";
 import { forbidden, notFound, planLimit, type ApiError } from "@/lib/errors";
-import { PLAN_GRACE_ENDS_AT, type PersonalPlan } from "@/lib/plans";
+import type { PersonalPlan } from "@/lib/plans";
 import {
   accessLevelsAtLeast,
   atLeastRole,
@@ -62,8 +63,6 @@ export type WorkspaceSummary = {
   organizationId: string;
   /** The workspace's plan — limits are shared by everyone in it. */
   plan: PersonalPlan;
-  /** Existed before plans did, so it keeps what it had until the grace period ends. */
-  grandfathered: boolean;
 };
 
 const summaryColumns = {
@@ -75,7 +74,6 @@ const summaryColumns = {
   locale: workspaces.locale,
   organizationId: workspaces.organizationId,
   plan: workspaces.plan,
-  grandfathered: workspaces.grandfathered,
 };
 
 /** Every workspace the user can open: memberships first, then grant-only ones. */
@@ -145,9 +143,9 @@ export async function getWorkspaceRole(
  * SQL boolean: is this workspace **view-only** because it's over the "one free
  * workspace per person" rule?
  *
- * True for a Free workspace whose owner has an *older* Free workspace, once its
- * grace period is over (`PLAN_GRACE_ENDS_AT`; a workspace that isn't
- * `grandfathered` has none). The oldest free workspace always stays writable.
+ * True for a Free workspace whose owner has an *older* Free workspace — from
+ * the day plans ship, with no grace period. The oldest free workspace always
+ * stays writable.
  * Nothing is deleted: members can still read and export, they just can't add
  * or change anything until the workspace upgrades.
  *
@@ -164,15 +162,10 @@ export async function getWorkspaceRole(
  * single-profile path.)
  */
 export function readOnlyWorkspaceSql(workspaceId: SQL | string): SQL<boolean> {
-  const graceOver =
-    PLAN_GRACE_ENDS_AT === null
-      ? sql`not "ro_self"."grandfathered"`
-      : sql`(not "ro_self"."grandfathered" or now() >= ${PLAN_GRACE_ENDS_AT}::timestamptz)`;
   return sql<boolean>`exists (
     select 1 from "workspaces" as "ro_self"
     where "ro_self"."id" = ${workspaceId}
       and "ro_self"."plan" = 'free'
-      and ${graceOver}
       and exists (
         select 1 from "workspaces" as "ro_older"
         where "ro_older"."owner_id" = "ro_self"."owner_id"
@@ -646,7 +639,7 @@ export async function requireSpaceInWorkspace(
 
 /**
  * Create a workspace with its currency/locale, admin membership, default space,
- * default "Personal" profile, and default category list, and point the
+ * default "Personal" profile, and default category and tag lists, and point the
  * creator's `last_workspace_id` at it when unset (`makeCurrent` forces the
  * switch, for explicit "create workspace" flows). Currency/locale default to
  * USD/en-US; bootstrap passes geo-detected values, and the "create workspace"
@@ -753,6 +746,12 @@ export async function createWorkspaceWithDefaults(
       })
       .onConflictDoNothing();
 
+    // Seed the workspace's shared tag list.
+    await tx
+      .insert(tags)
+      .values(DEFAULT_TAGS.map((t) => ({ userId, workspaceId: workspace!.id, name: t.name, color: t.color })))
+      .onConflictDoNothing();
+
     // Seed the workspace's shared category list.
     await tx
       .insert(categories)
@@ -788,7 +787,6 @@ export async function createWorkspaceWithDefaults(
       role: "admin",
       organizationId,
       plan: workspace!.plan,
-      grandfathered: workspace!.grandfathered,
     };
   });
 }

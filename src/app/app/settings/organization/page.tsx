@@ -25,7 +25,6 @@ export default async function OrganizationSettingsPage() {
           name: w.name,
           icon: w.icon,
           plan: w.plan,
-          grandfathered: w.grandfathered,
           readOnly: w.readOnly,
           canOpen: w.canOpen,
         })),

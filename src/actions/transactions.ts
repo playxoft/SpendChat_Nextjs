@@ -332,8 +332,8 @@ export async function parseTransactionsWithAI(
  * Gated like the parse action, and for the same reason: it costs money per
  * call and a server action is invocable by any signed-in user regardless of
  * what the UI rendered. Cheap local checks first (format, size, declared
- * length), then the editor role, then the plan (voice is Pro, or a
- * grandfathered workspace in its grace period), then the AI charge — a denied
+ * length), then the editor role, then the plan (voice is Pro), then the AI
+ * charge — a denied
  * caller must never burn another caller's budget.
  *
  * The clip costs one AI action per started minute, which also covers parsing

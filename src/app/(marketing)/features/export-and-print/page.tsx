@@ -29,7 +29,7 @@ const faqs = [
   },
   {
     q: "Is there a limit on exports?",
-    a: "There's no cap on how often you export, no paid tier that unlocks it, and no watermark. One file covers up to 5,000 transactions; if you have more than that, export a year at a time using the date filter.",
+    a: "There's no cap on how often you export, it works the same on every plan, and there's no watermark. One file covers up to 5,000 transactions; if you have more than that, export a year at a time using the date filter.",
   },
   {
     q: "Will my export open in Excel?",
@@ -41,7 +41,7 @@ const faqs = [
   },
   {
     q: "Can I move my data to another app later?",
-    a: "That's the point of exporting well. Nothing is locked to us: your transactions leave as CSV whenever you like, SpendChat is free and open source under the AGPL, and you can read the exporter — or the whole app — on GitHub. Attachments are a separate matter: files download individually from the vault, and there isn't a one-click archive of all of them yet.",
+    a: "That's the point of exporting well. Nothing is locked to us: your transactions leave as CSV whenever you like on every plan, SpendChat is open source under the AGPL, and you can read the exporter — or the whole app — on GitHub. Attachments are a separate matter: files download individually from the vault, and there isn't a one-click archive of all of them yet.",
   },
 ];
 
@@ -183,8 +183,9 @@ export default function ExportAndPrintPage() {
           The position here is the opposite one, and it is easier to state than
           to hedge. Export is free, unmetered and immediate. There is no
           watermark, no upsell in front of the button, no queue, and no plan on
-          which it behaves differently — there is no other plan. The whole
-          application is open source under the AGPL, so the exporter is a file
+          which it behaves differently — Free, Plus and Pro export exactly the
+          same. The whole application is open source under the AGPL, so the
+          exporter is a file
           you can read, the schema is a file you can read, and if you ever want
           to run the thing yourself, that&apos;s a supported outcome rather than
           a threat. The same export is available over the API with a bearer

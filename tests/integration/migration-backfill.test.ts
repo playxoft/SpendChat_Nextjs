@@ -13,14 +13,17 @@ import { defaultOrganizationName, readOnlyWorkspaceSql } from "@/lib/workspaces"
 import { uid } from "./helpers/session";
 
 /**
- * The 0034–0036 backfill, run against data that existed *before* it.
+ * The 0034–0036 backfill, run against data that existed *before* it (and the
+ * rest of the folder after it, 0037 dropping the short-lived `grandfathered`
+ * flag included).
  *
- * Its promise is "nobody's access changes": every profile moves into one
+ * Its promise is "nobody's role changes": every profile moves into one
  * "Main" space per workspace and every non-admin member joins it at their old
  * role. The shared test database can't check that — it migrates an empty
  * database — so this file boots its own PGlite, applies migrations up to 0033,
  * writes pre-pricing fixture rows with raw SQL, then runs the full folder and
- * compares.
+ * compares. (The plan's own rules — like "one free workspace per person" —
+ * apply on top from the day plans ship; there is no grace period.)
  */
 
 const MIGRATIONS = path.resolve(process.cwd(), "src/db/migrations");
@@ -246,16 +249,15 @@ describe("0034 backfill — organisations", () => {
 });
 
 describe("0034 backfill — workspaces", () => {
-  it("puts every workspace in its owner's organisation, on Free, grandfathered", async () => {
+  it("puts every workspace in its owner's organisation, on Free", async () => {
     const all = await rows<{
       id: string;
       owner_id: string;
       organization_id: string | null;
       plan: string;
-      grandfathered: boolean;
       org_owner: string;
     }>(
-      `select w.id, w.owner_id, w.organization_id, w.plan::text as plan, w.grandfathered,
+      `select w.id, w.owner_id, w.organization_id, w.plan::text as plan,
               o.owner_id as org_owner
          from workspaces w join organizations o on o.id = w.organization_id`,
     );
@@ -264,14 +266,22 @@ describe("0034 backfill — workspaces", () => {
       expect(w.organization_id).not.toBeNull();
       expect(w.org_owner).toBe(w.owner_id);
       expect(w.plan).toBe("free");
-      expect(w.grandfathered).toBe(true);
     }
     // Alice's two workspaces share her one organisation.
     const a = all.filter((w) => w.owner_id === U.alice);
     expect(new Set(a.map((w) => w.organization_id)).size).toBe(1);
   });
 
-  it("keeps an owner's second free workspace writable while grandfathered (grace period)", async () => {
+  it("leaves no `grandfathered` column behind (0037 drops it)", async () => {
+    const cols = await rows<{ column_name: string }>(
+      `select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = 'workspaces'`,
+    );
+    expect(cols.map((c) => c.column_name)).toContain("plan");
+    expect(cols.map((c) => c.column_name)).not.toContain("grandfathered");
+  });
+
+  it("makes an owner's second free workspace view-only straight away — there's no grace period", async () => {
     const ro = async (workspaceId: string) =>
       (
         await db
@@ -279,8 +289,11 @@ describe("0034 backfill — workspaces", () => {
           .from(schema.workspaces)
           .where(eq(schema.workspaces.id, workspaceId))
       )[0]!.readOnly;
+    // Alice's oldest free workspace stays writable; the newer one is view-only.
     expect(await ro(W.a1)).toBe(false);
-    expect(await ro(W.a2)).toBe(false);
+    expect(await ro(W.a2)).toBe(true);
+    // Owners with a single free workspace are unaffected.
+    expect(await ro(W.b)).toBe(false);
   });
 
   it("creates exactly one \"Main\" space per workspace, holding every one of its profiles", async () => {

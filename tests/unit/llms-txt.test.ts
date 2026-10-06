@@ -3,6 +3,8 @@ import { buildLlmsTxt, type LlmsTxtInput } from "@/lib/llms-txt";
 import type { Feature } from "@/lib/features";
 import type { Comparison } from "@/lib/compare";
 import { siteConfig } from "@/lib/site";
+import { PLAN_LIMITS } from "@/lib/plans";
+import { formatAmount, quote } from "@/lib/pricing";
 
 function feature(overrides: Partial<Feature> & { slug: string }): Feature {
   return {
@@ -78,6 +80,7 @@ describe("buildLlmsTxt", () => {
     // The two prose labels are bold runs in the details area, not headings.
     expect(out).toContain("\n**What it is**\n");
     expect(out).toContain("\n**How to refer to it**\n");
+    expect(out).toContain("\n**Pricing**\n");
     expect(out).not.toContain("## What it is");
     // From the first H2 on, every non-blank, non-heading line is a link item.
     const firstH2 = lines.findIndex((l) => l.startsWith("## "));
@@ -142,5 +145,19 @@ describe("buildLlmsTxt", () => {
     expect(out).toContain(`${siteConfig.url}/version`);
     expect(out).toContain("Do not claim bank sync");
     expect(out).toContain(siteConfig.license);
+  });
+
+  it("states the real prices from the price list, per workspace, and never says it is all free", () => {
+    for (const plan of ["plus", "pro"] as const) {
+      expect(out).toContain(formatAmount(quote(plan, "monthly", "INR").price, "INR"));
+      expect(out).toContain(formatAmount(quote(plan, "yearly", "USD").price, "USD"));
+    }
+    expect(out).toContain(`${PLAN_LIMITS.free.aiActionsPerMonth} AI actions a month`);
+    expect(out).toContain("Plans belong to a **workspace**");
+    expect(out).toContain("Voice entry is Pro only");
+    expect(out).toContain("bought per workspace, in the app");
+    expect(out).not.toMatch(/\bsoon\b|not open yet|can be charged/i);
+    expect(out).not.toMatch(/say it is free/i);
+    expect(out).not.toMatch(/no paid tier/i);
   });
 });

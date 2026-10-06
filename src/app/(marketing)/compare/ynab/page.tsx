@@ -41,7 +41,7 @@ const rows: CompareRow[] = [
   },
   {
     label: "Price",
-    spendchat: "Free. No paid tier.",
+    spendchat: "Free plan with no ads. Paid plans add more AI, storage and people; Pro adds voice entry.",
     competitor: "$109 a year or $14.99 a month, after a 34-day trial with no card.",
   },
   {
@@ -73,7 +73,7 @@ const faqs = [
   },
   {
     q: "How much does YNAB cost?",
-    a: "YNAB's pricing page lists $109 a year or $14.99 a month, after a 34-day free trial that doesn't ask for a card. Up to six people can share one subscription. SpendChat has no paid tier.",
+    a: "YNAB's pricing page lists $109 a year or $14.99 a month, after a 34-day free trial that doesn't ask for a card. Up to six people can share one subscription. SpendChat has a free plan; its paid plans are priced per workspace and listed on the pricing page.",
   },
   {
     q: "Can I use YNAB without linking my bank?",
@@ -162,7 +162,7 @@ export default function YnabComparisonPage() {
         ]}
         ours={[
           "A record you can keep: entries in seconds by message, paste or voice, no plan to reconcile.",
-          "Free, no bank connection, works in any country.",
+          "A free plan, no bank connection, works in any country.",
           "Shared workspaces with roles, receipts on entries, full export, and code you can read.",
         ]}
       />

@@ -58,7 +58,13 @@ describe("tag CRUD", () => {
     // Color is normalized on write, so the chip's alpha suffixes are built
     // from a known shape.
     expect(travel.color).toBe("#ef4444");
-    expect((await listTxnTags(workspaceId)).map((t) => t.name)).toEqual(["Apples", "Travel"]);
+    // Alongside the workspace's two default tags.
+    expect((await listTxnTags(workspaceId)).map((t) => t.name)).toEqual([
+      "Apples",
+      "Recurring",
+      "Reimbursable",
+      "Travel",
+    ]);
 
     const renamed = await updateTxnTag(userId, workspaceId, travel.id, { name: "Trips" });
     expect(renamed?.name).toBe("Trips");
@@ -96,7 +102,14 @@ describe("tag CRUD", () => {
     // Same name in two workspaces is fine — the unique index is per workspace.
     signInAs("a");
     await createTxnTag(a.userId, a.workspaceId, { name: "Theirs", color: "#22c55e" });
-    expect((await listTxnTags(a.workspaceId)).map((t) => t.name)).toEqual(["Theirs"]);
+    expect((await listTxnTags(a.workspaceId)).map((t) => t.name)).toEqual([
+      "Recurring",
+      "Reimbursable",
+      "Theirs",
+    ]);
+    // Each workspace has its own copy of the defaults — no row is shared.
+    const bIds = new Set((await listTxnTags(b.workspaceId)).map((t) => t.id));
+    expect((await listTxnTags(a.workspaceId)).filter((t) => bIds.has(t.id))).toEqual([]);
 
     // And a tag id from another workspace is not addressable here.
     expect(await updateTxnTag(a.userId, a.workspaceId, theirs.id, { name: "Stolen" })).toBeNull();
@@ -161,7 +174,11 @@ describe("deleteTxnTag", () => {
     expect(await tagIdsOf(both.id)).toEqual([keep.id]);
     expect(await tagIdsOf(onlyDoomed.id)).toEqual([]);
     expect(await tagIdsOf(untouched.id)).toEqual([keep.id]);
-    expect((await listTxnTags(workspaceId)).map((t) => t.name)).toEqual(["Keep"]);
+    expect((await listTxnTags(workspaceId)).map((t) => t.name)).toEqual([
+      "Keep",
+      "Recurring",
+      "Reimbursable",
+    ]);
     expect(await countTransactionsForTxnTag(workspaceId, doomed.id)).toBe(0);
   });
 

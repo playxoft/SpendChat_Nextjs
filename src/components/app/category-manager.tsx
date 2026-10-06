@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { CategoryEditorDialog } from "./category-editor-dialog";
+import { LimitTooltip, LockGlyph, useAddLock } from "./limit-lock";
 import { deleteCategory, updateCategory } from "@/actions/categories";
 import { useCategoryRename } from "@/hooks/use-category-rename";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,8 @@ export function CategoryManager({
   const mayAdd = canAdd ?? canEdit;
   const [editorOpen, setEditorOpen] = useState(false);
   const [pending, startTransition] = useTransition();
+  // The plan's cap: the button still opens the editor, which explains and locks adding.
+  const addLock = useAddLock("categories", { used: categories.length });
 
   const expense = categories.filter((c) => c.kind === "expense");
   const income = categories.filter((c) => c.kind === "income");
@@ -53,9 +56,12 @@ export function CategoryManager({
           everyone in this workspace
         </p>
         {mayAdd && (
-          <Button type="button" onClick={() => setEditorOpen(true)}>
-            <Plus className="size-4" /> Add category
-          </Button>
+          <LimitTooltip lock={addLock}>
+            <Button type="button" onClick={() => setEditorOpen(true)}>
+              <Plus className="size-4" /> Add category
+              {addLock && <LockGlyph />}
+            </Button>
+          </LimitTooltip>
         )}
       </div>
 

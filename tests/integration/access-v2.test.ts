@@ -250,12 +250,13 @@ describe("profile access matrix — SQL resolvers agree with each other and with
 
 // ── Read-only workspaces ───────────────────────────────────────────────────
 
-describe("read-only workspace (a second free workspace past its grace)", () => {
+describe("read-only workspace (an extra free workspace, view-only from day one)", () => {
   /**
-   * "ro" owns an older free workspace (W1) and a newer one (W2) that isn't
-   * grandfathered — the shape a person gets by creating a second workspace
-   * after launch. `createWorkspaceWithDefaults` is called directly, the way an
-   * extra workspace from before the one-free rule existed.
+   * "ro" owns an older free workspace (W1) and a newer one (W2) — the shape a
+   * person gets by creating a second free workspace. There's no grace period:
+   * W2 is view-only from the moment it exists. `createWorkspaceWithDefaults` is
+   * called directly, the way an extra workspace from before the one-free rule
+   * existed.
    */
   async function twoFree() {
     await bootstrapUser("ro");
@@ -267,7 +268,6 @@ describe("read-only workspace (a second free workspace past its grace)", () => {
       .update(workspaces)
       .set({ createdAt: sql`now() + interval '1 minute'` })
       .where(eq(workspaces.id, W2));
-    expect(second.grandfathered).toBe(false);
     const [p2] = await db()
       .select({ id: profiles.id })
       .from(profiles)
@@ -369,12 +369,15 @@ describe("read-only workspace (a second free workspace past its grace)", () => {
     ).toEqual([]);
   });
 
-  it("isn't read-only while grandfathered (grace period, PLAN_GRACE_ENDS_AT unset)", async () => {
+  it("is view-only from the day it's created — there's no grace period to wait out", async () => {
     const { W2, p2 } = await twoFree();
-    await db().update(workspaces).set({ grandfathered: true }).where(eq(workspaces.id, W2));
-    expect((await getWorkspaceEntitlements(W2)).readOnly).toBe(false);
-    expect(await getEffectiveProfileRole(uid("ro"), p2)).toMatchObject({ role: "admin", readOnly: false });
-    expect(await canWriteInWorkspace(uid("roe"), W2)).toBe(true);
+    const ent = await getWorkspaceEntitlements(W2);
+    expect(ent).toMatchObject({ plan: "free", readOnly: true });
+    expect(ent).not.toHaveProperty("grandfathered");
+    expect(ent).not.toHaveProperty("inGrace");
+    expect(await getEffectiveProfileRole(uid("ro"), p2)).toMatchObject({ role: "viewer", readOnly: true });
+    expect(await canWriteInWorkspace(uid("ro"), W2)).toBe(false);
+    expect(await canWriteInWorkspace(uid("roe"), W2)).toBe(false);
   });
 
   it("a paid workspace is never read-only — neither the newer one nor, once the older is paid, the free one", async () => {

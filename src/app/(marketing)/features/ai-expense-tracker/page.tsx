@@ -7,9 +7,11 @@ import {
   FeatureSteps,
 } from "@/components/marketing/feature-page";
 import { featureLink, getFeature } from "@/lib/features";
+import { PLAN_LIMITS } from "@/lib/plans";
 import { createMetadata } from "@/lib/seo";
 
 const SLUG = "ai-expense-tracker";
+const n = (v: number) => v.toLocaleString("en-US");
 const feature = getFeature(SLUG)!;
 
 export const metadata = createMetadata({
@@ -33,7 +35,7 @@ const faqs = [
   },
   {
     q: "Is the AI expense tracker free?",
-    a: "Yes. AI entry is included at no cost, with a fair-use limit on how many parses one account can run in a period so a single user can't exhaust the shared allowance.",
+    a: `Yes, on every plan. Each workspace gets a monthly allowance of AI actions — one note the AI turns into drafts is one action — shared by everyone in it: ${n(PLAN_LIMITS.free.aiActionsPerMonth)} a month on Free, ${n(PLAN_LIMITS.plus.aiActionsPerMonth)} on Plus and ${n(PLAN_LIMITS.pro.aiActionsPerMonth)} on Pro. Typing entries yourself is never counted, so running out never stops you tracking.`,
   },
   {
     q: "What happens to what I type?",

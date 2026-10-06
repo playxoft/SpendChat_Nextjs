@@ -336,14 +336,6 @@ describe("voice", () => {
     ]);
   });
 
-  it("keeps working for a grandfathered Free workspace during its grace period", async () => {
-    stubGemini();
-    signInAs("a");
-    await bootstrapUser("a");
-    await setWorkspacePlan(await workspaceIdOf("a"), "free", { grandfathered: true });
-    expect((await transcribe(10_000)).status).toBe(200);
-  });
-
   it("charges one action per started minute — 60 s is 1, 61 s is 2, an undeclared clip the full 2", async () => {
     stubGemini();
     signInAs("a");

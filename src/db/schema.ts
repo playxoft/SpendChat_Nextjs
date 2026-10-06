@@ -160,11 +160,9 @@ export const workspaces = pgTable(
     organizationId: uuid("organization_id")
       .notNull()
       .references(() => organizations.id, { onDelete: "restrict" }),
+    // Limits apply from the day plans ship — there is no grace period (the app
+    // isn't launched; 0037 dropped the short-lived `grandfathered` flag).
     plan: workspacePlanEnum("plan").notNull().default("free"),
-    // True for every workspace that existed before plans did: it keeps what it
-    // had until the grace period ends (`PLAN_GRACE_ENDS_AT` in `lib/plans.ts`).
-    // Anything *new* follows the plan's limits from day one either way.
-    grandfathered: boolean("grandfathered").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },

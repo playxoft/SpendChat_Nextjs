@@ -42,7 +42,7 @@ const rows: CompareRow[] = [
   },
   {
     label: "Price",
-    spendchat: "Free. No paid tier.",
+    spendchat: "Free plan with no ads. Paid plans add more AI, storage and people; Pro adds voice entry.",
     competitor:
       "Free with ads and a daily expense limit. Pro removes both; the price isn't listed on splitwise.com (App Store tiers run from $2.99 to $39.99).",
   },
@@ -87,8 +87,8 @@ const faqs = [
     a: "Yes. Splitwise's knowledge base says the free tier has a daily expense limit and that Pro removes it. Splitwise does not publish the number, so we don't either.",
   },
   {
-    q: "Is SpendChat really free with no catch?",
-    a: "There is no paid tier and no ads. SpendChat is open source under the AGPL, the hosted app is free to use, and you can export everything to CSV at any time. If pricing ever changes it will be announced on the pricing page first.",
+    q: "Is SpendChat really free?",
+    a: "There is a Free plan with no time limit and no ads, and transactions are unlimited on it. Paid plans — Plus and Pro, priced per workspace — add more AI, storage and room for more people, and Pro adds voice entry; the pricing page has the details. SpendChat is open source under the AGPL, and you can export everything to CSV at any time on every plan.",
   },
 ];
 
@@ -176,7 +176,7 @@ export default function SplitwiseComparisonPage() {
         ]}
         ours={[
           "Your own spending as the main feature, with categories, profiles and a monthly balance, not a workaround group.",
-          "Entry in seconds: a message, a pasted day, or your voice, with no daily limit and no ads.",
+          "Entry in seconds: a message, a pasted day, or your voice on Pro, with no daily limit and no ads.",
           "Everything exported to CSV in one go, and code you can read.",
         ]}
       />

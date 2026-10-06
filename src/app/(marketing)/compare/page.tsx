@@ -136,7 +136,7 @@ export default function ComparePage() {
             open an issue on GitHub and we&apos;ll correct the row.
           </p>
           <p>
-            What stays the same on every page: {siteConfig.name} is free, open source under the
+            What stays the same on every page: {siteConfig.name} has a free plan, is open source under the
             AGPL, never connects to your bank, and exports everything so you can leave.
           </p>
         </div>

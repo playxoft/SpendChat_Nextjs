@@ -21,10 +21,11 @@ import {
 import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { getSpaceAccess, setProfileOverride, setSpaceMember } from "@/actions/spaces";
-import { lowestPlanWith } from "@/lib/plans";
+import { profileAccessLock } from "@/lib/add-limits";
 import { cn } from "@/lib/utils";
 import { accessLevelForRole } from "@/lib/rbac";
 import { UpgradeHint, usePlan } from "./upgrade-dialog";
+import { LimitLock } from "./limit-lock";
 
 /**
  * A space's "Members & access" dialog (workspace admins). Two layers, matching
@@ -158,6 +159,7 @@ export function SpaceAccessDialog({
   const withOverride = new Set(data?.overrides.map((o) => o.userId) ?? []);
   const matrixPeople = nonAdmins.filter((m) => m.spaceRole !== null || withOverride.has(m.userId));
   const canEdit = data?.canEditOverrides ?? false;
+  const accessLock = data && !canEdit ? profileAccessLock(plan) : null;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -238,19 +240,18 @@ export function SpaceAccessDialog({
 
             <section className="space-y-2">
               <div>
-                <h3 className="text-sm font-medium">Per-profile access</h3>
+                <h3 className="flex items-center gap-1 text-sm font-medium">
+                  Per-profile access
+                  <LimitLock lock={accessLock} side="right" />
+                </h3>
                 <p className="text-xs text-muted-foreground">
                   Change access for one profile — this wins over the space role. Default follows
                   the space.
                 </p>
               </div>
-              {!canEdit && (
+              {accessLock && (
                 <UpgradeHint
-                  info={{
-                    limit: "profileLevelAccess",
-                    plan,
-                    upgradeTo: lowestPlanWith("profileLevelAccess"),
-                  }}
+                  info={accessLock.info}
                   className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
                 >
                   Per-profile access is on Plus and Pro. Settings made earlier keep working, and

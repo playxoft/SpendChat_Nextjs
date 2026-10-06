@@ -296,7 +296,7 @@ export const FEATURE_SCENARIOS: Record<string, Scenario[]> = {
       icon: "Users",
       label: "Access you can take back",
       place: "Dubai",
-      body: "Sharing a login means sharing everything and changing a password to undo it. A per-profile invite means the bookkeeper sees the books, never the personal account, and removing them is one click rather than a security exercise.",
+      body: "Sharing a login means sharing everything and changing a password to undo it. A per-profile invite (on Plus and Pro) means the bookkeeper sees the books, never the personal account, and removing them is one click rather than a security exercise.",
     },
     {
       id: "ws-household",

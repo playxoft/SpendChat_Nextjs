@@ -56,6 +56,7 @@ import {
 import { useLoadingOverlay } from "./loading-overlay";
 import { usePermissions } from "./permissions";
 import { usePlan } from "./upgrade-dialog";
+import { LimitTooltip, LockBadge, useAddLimits } from "./limit-lock";
 import { Kbd } from "@/components/ui/kbd";
 import { reorderProfiles } from "@/actions/profiles";
 import { reorderSpaces } from "@/actions/spaces";
@@ -70,6 +71,7 @@ import {
   profileShortcut,
 } from "@/lib/sidebar-spaces";
 import { DEFAULT_SPACE_ICON } from "@/lib/validation";
+import { addLock, type AddLock } from "@/lib/add-limits";
 import { cn } from "@/lib/utils";
 import type { Profile, WorkspaceRole } from "@/db/schema";
 
@@ -124,6 +126,7 @@ export function ProfileList({
   const { runQuiet } = useLoadingOverlay();
   const { canManage } = usePermissions();
   const { reportFailure } = usePlan();
+  const addLimits = useAddLimits();
   const [, startTransition] = useTransition();
 
   const [items, setItems] = React.useState<P[]>(profiles);
@@ -251,7 +254,15 @@ export function ProfileList({
     id: g.space.id,
     name: g.space.name,
     icon: g.space.icon,
+    profileCount: g.space.profileCount,
   }));
+
+  // Plan limits, shown on the buttons before a form is opened (the forms lock
+  // too). "Add profile" locks only when no space has room.
+  const spaceLock = addLock(addLimits, "spaces");
+  const profileLock = addLock(addLimits, "profiles", {
+    profileCount: spaceOptions.length ? Math.min(...spaceOptions.map((s) => s.profileCount)) : 0,
+  });
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -271,24 +282,34 @@ export function ProfileList({
         {/* Only workspace admins can create spaces and profiles. */}
         {canManage && (
           <div className="flex items-center gap-0.5">
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="New space"
-              title="New space"
-              onClick={() => setNewSpaceOpen(true)}
-            >
-              <FolderPlus className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              aria-label="Add profile"
-              title="Add profile"
-              onClick={() => setAdding({})}
-            >
-              <Plus className="size-3.5" />
-            </Button>
+            <LimitTooltip lock={spaceLock}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={spaceLock ? `New space (${spaceLock.title.toLowerCase()})` : "New space"}
+                title={spaceLock ? undefined : "New space"}
+                className="relative"
+                onClick={() => setNewSpaceOpen(true)}
+              >
+                <FolderPlus className="size-3.5" />
+                {spaceLock && <LockBadge />}
+              </Button>
+            </LimitTooltip>
+            <LimitTooltip lock={profileLock}>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                aria-label={
+                  profileLock ? `Add profile (${profileLock.title.toLowerCase()})` : "Add profile"
+                }
+                title={profileLock ? undefined : "Add profile"}
+                className="relative"
+                onClick={() => setAdding({})}
+              >
+                <Plus className="size-3.5" />
+                {profileLock && <LockBadge />}
+              </Button>
+            </LimitTooltip>
           </div>
         )}
       </div>
@@ -305,6 +326,7 @@ export function ProfileList({
                 holdsActive={isCollapsed && list.some((p) => p.id === shownActive)}
                 listId={listId}
                 canManage={canManage}
+                addLock={addLock(addLimits, "profiles", { profileCount: space.profileCount })}
                 isFirst={index === 0}
                 isLast={index === groups.length - 1}
                 onToggle={() => setCollapsed(space.id, !isCollapsed)}
@@ -478,6 +500,7 @@ function SpaceHeader({
   holdsActive,
   listId,
   canManage,
+  addLock: lock,
   isFirst,
   isLast,
   onToggle,
@@ -494,6 +517,8 @@ function SpaceHeader({
   holdsActive: boolean;
   listId: string;
   canManage: boolean;
+  /** Why this space can't take another profile (full, or a view-only workspace). */
+  addLock: AddLock | null;
   isFirst: boolean;
   isLast: boolean;
   onToggle: () => void;
@@ -535,15 +560,23 @@ function SpaceHeader({
       </button>
       {canManage && (
         <div className={cn("flex shrink-0 items-center gap-0.5 pr-1", REVEAL)}>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            aria-label={`Add a profile to ${space.name}`}
-            title="Add a profile here"
-            onClick={onAdd}
-          >
-            <Plus className="size-3.5" />
-          </Button>
+          <LimitTooltip lock={lock}>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={
+                lock
+                  ? `Add a profile to ${space.name} (${lock.title.toLowerCase()})`
+                  : `Add a profile to ${space.name}`
+              }
+              title={lock ? undefined : "Add a profile here"}
+              className="relative"
+              onClick={onAdd}
+            >
+              <Plus className="size-3.5" />
+              {lock && <LockBadge />}
+            </Button>
+          </LimitTooltip>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon-xs" aria-label={`${space.name} space options`}>

@@ -16,6 +16,7 @@ import {
 import { CategoryRow } from "./category-row";
 import { TagChip } from "./tags/tag-chip";
 import { TagFormDialog } from "./tags/tag-form-dialog";
+import { LockGlyph, useAddLock } from "./limit-lock";
 import { TagSelect } from "./tags/tag-select";
 import { TagsInField } from "./tags/tags-in-field";
 import { TagEditorDialog } from "./tags/tag-editor-dialog";
@@ -258,6 +259,9 @@ export function TransactionComposer({
   // "show me the list", and for a name that already exists.
   // The server's list plus anything created here that it hasn't caught up with.
   const knownTags = createdTags.known;
+  // Plan caps: the Create rows show a lock; the forms they open explain it.
+  const tagLock = useAddLock("tags", { used: knownTags.length });
+  const categoryLock = useAddLock("categories", { used: categories.length });
 
   const tagMatch = titleSource.match(TAG_RE);
   const tagQuery = tagMatch?.[1] ?? "";
@@ -1447,6 +1451,7 @@ export function TransactionComposer({
                                     color: defaultTagColor(tagQuery.trim()),
                                   }}
                                 />
+                                {tagLock && <LockGlyph className="ml-auto" />}
                               </button>
                             </li>
                           )}
@@ -1561,6 +1566,7 @@ export function TransactionComposer({
                               ) : (
                                 <span className="truncate text-muted-foreground">New category</span>
                               )}
+                              {categoryLock && <LockGlyph className="ml-auto" />}
                             </button>
                           </li>
                         </ul>

@@ -18,7 +18,6 @@ import {
   PERSONAL_PLANS,
   PLAN_LIMITS,
   PLAN_NAMES,
-  inGracePeriod,
   planAtLeast,
   type PersonalPlan,
   type PlanLimits,
@@ -34,13 +33,11 @@ import { readOnlyWorkspaceError, readOnlyWorkspaceSql } from "@/lib/workspaces";
  * per-profile access) and is shared by everyone in it.
  *
  * Two rules from the abuse catalogue shape all of it:
- *  - **Limits gate adding, never existing data** (C7, C9). A workspace over a
- *    cap — grandfathered, or after a downgrade — keeps everything it has; it
- *    just can't add another until it's back under or upgrades. Nothing here
- *    deletes.
- *  - **Grandfathering keeps what existed, not what's new** (C9). The grace
- *    period only keeps features running (voice) and extra free workspaces
- *    writable; every *add* follows the plan's limits from day one.
+ *  - **Limits gate adding, never existing data** (C7). A workspace over a cap —
+ *    after a downgrade — keeps everything it has; it just can't add another
+ *    until it's back under or upgrades. Nothing here deletes.
+ *  - **They apply from the day plans ship.** The app isn't launched, so there
+ *    is no grace period and nothing is grandfathered.
  *
  * The count-then-insert checks are not locked: two concurrent adds can both
  * pass and overshoot a cap by one. Accepted for product caps (the same stance
@@ -53,11 +50,8 @@ export type WorkspaceEntitlements = {
   workspaceId: string;
   ownerId: string;
   plan: PersonalPlan;
-  grandfathered: boolean;
-  /** Inside the grandfathering grace period (`PLAN_GRACE_ENDS_AT`). */
-  inGrace: boolean;
   limits: PlanLimits;
-  /** An extra free workspace past its grace period: everything is view-only. */
+  /** An extra free workspace (the owner has an older free one): everything is view-only. */
   readOnly: boolean;
 };
 
@@ -74,7 +68,6 @@ export function getWorkspaceEntitlements(workspaceId: string): Promise<Workspace
       .select({
         ownerId: workspaces.ownerId,
         plan: workspaces.plan,
-        grandfathered: workspaces.grandfathered,
         readOnly: readOnlyWorkspaceSql(workspaceId),
       })
       .from(workspaces)
@@ -85,8 +78,6 @@ export function getWorkspaceEntitlements(workspaceId: string): Promise<Workspace
       workspaceId,
       ownerId: row.ownerId,
       plan: row.plan,
-      grandfathered: row.grandfathered,
-      inGrace: inGracePeriod(row.grandfathered),
       limits: PLAN_LIMITS[row.plan],
       readOnly: Boolean(row.readOnly),
     };
@@ -156,12 +147,12 @@ function capError(
 
 /**
  * People who count as members: workspace members, people with a per-profile
- * grant only, and pending invites (by email). Each person once.
+ * grant only, and pending invites (by email). Each person once. A scalar
+ * subquery, so `getAddLimits` can fold it into its one counts query.
  */
-export async function countMembers(workspaceId: string): Promise<number> {
-  const db = getDb();
-  const result = await db.execute<{ n: string }>(sql`
-    select count(*)::text as n from (
+function membersCountSql(workspaceId: string) {
+  return sql`(
+    select count(*) from (
       select ${workspaceMembers.userId}::text as who from ${workspaceMembers}
         where ${workspaceMembers.workspaceId} = ${workspaceId}
       union
@@ -172,7 +163,13 @@ export async function countMembers(workspaceId: string): Promise<number> {
       select 'invite:' || ${workspaceInvites.email} from ${workspaceInvites}
         where ${workspaceInvites.workspaceId} = ${workspaceId}
     ) people
-  `);
+  )`;
+}
+
+export async function countMembers(workspaceId: string): Promise<number> {
+  const result = await getDb().execute<{ n: string }>(
+    sql`select ${membersCountSql(workspaceId)}::text as n`,
+  );
   return Number(result.rows[0]?.n ?? 0);
 }
 
@@ -250,7 +247,7 @@ export async function countTags(workspaceId: string): Promise<number> {
 // ── Assertions ─────────────────────────────────────────────────────────────
 
 /**
- * A view-only workspace (an extra free one past its grace period) can't gain
+ * A view-only workspace (an extra free one) can't gain
  * anything — no members, spaces, profiles, categories or tags — even through
  * the workspace-admin paths that don't go through a profile role. Removing and
  * reading stay open, so the owner can still clean up or export.
@@ -304,7 +301,7 @@ export async function assertCanAddProfilesToSpace(
   }
 }
 
-/** The 15 seeded defaults count; deleting one frees a slot. */
+/** The seeded defaults (`DEFAULT_CATEGORIES`) count; deleting one frees a slot. */
 export async function assertCanAddCategory(workspaceId: string): Promise<void> {
   const ent = await getWorkspaceEntitlements(workspaceId);
   assertWritable(ent);
@@ -336,9 +333,9 @@ export async function assertProfileLevelAccess(workspaceId: string): Promise<voi
   );
 }
 
-/** Voice is on Pro — and keeps working for grandfathered workspaces during their grace period. */
+/** Voice is on Pro. */
 export function voiceAllowed(ent: WorkspaceEntitlements): boolean {
-  return ent.limits.voice || ent.inGrace;
+  return ent.limits.voice;
 }
 
 export async function assertVoiceAllowed(workspaceId: string): Promise<void> {
@@ -353,8 +350,8 @@ export async function assertVoiceAllowed(workspaceId: string): Promise<void> {
 
 /**
  * One free workspace per person (abuse rule C5). Creating another workspace
- * needs a paid plan for it — until checkout exists (personal phase 9) that
- * means the request is refused with an upgrade prompt.
+ * needs a paid plan for it, so the request is refused with an upgrade prompt
+ * that leads to the plans and checkout.
  */
 export async function assertCanCreateFreeWorkspace(userId: string): Promise<void> {
   const db = getDb();
@@ -473,14 +470,92 @@ export function aiAllowanceError(ent: WorkspaceEntitlements, used: number): ApiE
   return planLimit(message, { limit: "aiActions", plan: ent.plan, max: limit, used, upgradeTo });
 }
 
+// ── Add limits, up front ───────────────────────────────────────────────────
+
+/** A cap and how much of it is in use; `reached` = nothing more can be added. */
+export type AddMeter = { used: number; limit: number; reached: boolean };
+
+/**
+ * Everything the "new …" buttons and dialogs need to show a limit *before*
+ * someone fills a form in — a lock and a reason instead of a Create button that
+ * fails. Every count is one query (scalar subqueries), run alongside the plan
+ * read, so it costs the app layout one round trip on every page. The layout
+ * reads the plan from here too rather than asking for it again. The server
+ * still enforces each limit on the write; this only decides what the UI offers.
+ *
+ * Profiles per space are counted per space by `listSpaces` (`profileCount`);
+ * compare those against `profilesPerSpace` here.
+ */
+export type AddLimits = {
+  plan: PersonalPlan;
+  /** View-only workspace: nothing can be added at all. */
+  readOnly: boolean;
+  spaces: AddMeter;
+  categories: AddMeter;
+  tags: AddMeter;
+  members: AddMeter;
+  profilesPerSpace: number;
+  /** This user can create one more workspace on Free (they don't own a free one yet). */
+  canCreateFreeWorkspace: boolean;
+  /**
+   * The workspace is this user's one free workspace, so upgrading it frees the
+   * free place a new workspace needs (the "New workspace" lock says so).
+   */
+  freeSlotHere: boolean;
+  /** How many free workspaces this person owns (only one may stay free). */
+  freeOwned: number;
+  profileLevelAccess: boolean;
+  voice: boolean;
+};
+
+export async function getAddLimits(workspaceId: string, userId: string): Promise<AddLimits> {
+  const [ent, result] = await Promise.all([
+    getWorkspaceEntitlements(workspaceId),
+    getDb().execute<{
+      spaces: string;
+      categories: string;
+      tags: string;
+      members: string;
+      free_owned: string;
+    }>(sql`
+      select
+        (select count(*) from ${spaces} where ${spaces.workspaceId} = ${workspaceId})::text as spaces,
+        (select count(*) from ${categories} where ${categories.workspaceId} = ${workspaceId})::text as categories,
+        (select count(*) from ${tags} where ${tags.workspaceId} = ${workspaceId})::text as tags,
+        ${membersCountSql(workspaceId)}::text as members,
+        (select count(*) from ${workspaces}
+          where ${workspaces.ownerId} = ${userId} and ${workspaces.plan} = 'free')::text as free_owned
+    `),
+  ]);
+  const row = result.rows[0];
+  const freeOwned = Number(row?.free_owned ?? 0);
+  const meter = (used: number, limit: number): AddMeter => ({
+    used,
+    limit,
+    reached: ent.readOnly || used >= limit,
+  });
+  return {
+    plan: ent.plan,
+    readOnly: ent.readOnly,
+    spaces: meter(Number(row?.spaces ?? 0), ent.limits.spaces),
+    categories: meter(Number(row?.categories ?? 0), ent.limits.categories),
+    tags: meter(Number(row?.tags ?? 0), ent.limits.tags),
+    members: meter(Number(row?.members ?? 0), ent.limits.members),
+    profilesPerSpace: ent.limits.profilesPerSpace,
+    canCreateFreeWorkspace: freeOwned === 0,
+    freeSlotHere: ent.plan === "free" && ent.ownerId === userId && freeOwned === 1,
+    freeOwned,
+    profileLevelAccess: ent.limits.profileLevelAccess,
+    voice: voiceAllowed(ent),
+  };
+}
+
 // ── Usage summary ──────────────────────────────────────────────────────────
 
 export type Meter = { used: number; limit: number };
 
 export type WorkspaceUsage = {
   plan: PersonalPlan;
-  grandfathered: boolean;
-  inGrace: boolean;
   readOnly: boolean;
   ai: AiAllowance;
   storage: { usedBytes: number; limitBytes: number };
@@ -507,8 +582,6 @@ export async function getUsage(workspaceId: string): Promise<WorkspaceUsage> {
   ]);
   return {
     plan: ent.plan,
-    grandfathered: ent.grandfathered,
-    inGrace: ent.inGrace,
     readOnly: ent.readOnly,
     ai,
     storage: { usedBytes: storageUsed, limitBytes: ent.limits.storageBytes },

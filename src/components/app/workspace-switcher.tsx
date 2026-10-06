@@ -21,6 +21,7 @@ import { CreateWorkspaceDialog } from "./create-workspace-dialog";
 import { useLoadingOverlay } from "./loading-overlay";
 import { usePermissions } from "./permissions";
 import { PlanBadge } from "./plan-badge";
+import { LimitTooltip, LockGlyph, useAddLock } from "./limit-lock";
 import { switchWorkspace } from "@/actions/workspaces";
 import type { WorkspaceRole } from "@/db/schema";
 import type { PersonalPlan } from "@/lib/plans";
@@ -61,6 +62,8 @@ export function WorkspaceSwitcher({
   const { run, pending } = useLoadingOverlay();
   const { canWrite } = usePermissions();
   const [createOpen, setCreateOpen] = React.useState(false);
+  // One free workspace per person: the item still opens the form, which explains.
+  const createLock = useAddLock("workspaces");
 
   const current = workspaces.find((w) => w.id === currentId) ?? workspaces[0];
 
@@ -150,10 +153,13 @@ export function WorkspaceSwitcher({
             </Link>
           </DropdownMenuItem>
           {canWrite && (
-            <DropdownMenuItem onSelect={() => setCreateOpen(true)}>
-              <Plus className="size-4" />
-              New workspace
-            </DropdownMenuItem>
+            <LimitTooltip lock={createLock} side="right">
+              <DropdownMenuItem onSelect={() => setCreateOpen(true)}>
+                <Plus className="size-4" />
+                New workspace
+                {createLock && <LockGlyph className="ml-auto" />}
+              </DropdownMenuItem>
+            </LimitTooltip>
           )}
         </DropdownMenuContent>
       </DropdownMenu>

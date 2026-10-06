@@ -29,8 +29,8 @@ export const dynamic = "force-dynamic";
  * languages the model is told to expect come from the caller's
  * `voiceLanguages` setting.
  *
- * Voice is a plan feature (Pro, or a grandfathered workspace in its grace
- * period) and costs one AI action per started minute of the clip — `durationMs`,
+ * Voice is a plan feature (Pro) and costs one AI action per started minute of
+ * the clip — `durationMs`,
  * clamped to two minutes; a request without it is charged for the full two.
  * That charge also covers parsing the transcript: send it to `/ai/parse` with
  * `source: "voice"`.

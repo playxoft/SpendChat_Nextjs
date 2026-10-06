@@ -3,6 +3,7 @@ import { GET as listTags, POST as createTag } from "@/app/api/v1/tags/route";
 import { PATCH as patchTag, DELETE as deleteTag } from "@/app/api/v1/tags/[id]/route";
 import { GET as listTxns, POST as createTxn } from "@/app/api/v1/transactions/route";
 import { tags } from "@/db/schema";
+import { DEFAULT_TAGS } from "@/lib/categories";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { setSession, signInAs, uid } from "../helpers/session";
 import { bootstrapUser, workspaceIdOf } from "../helpers/seed";
@@ -37,23 +38,30 @@ describe("/api/v1/tags", () => {
     expect(res.status).toBe(401);
   });
 
-  it("starts empty and lists by name, case-insensitively", async () => {
+  it("starts with the two default tags and lists by name, case-insensitively", async () => {
     signInAs("a");
     await bootstrapUser("a");
 
-    const empty = await listTags(apiReq("/api/v1/tags"));
-    expect(empty.status).toBe(200);
-    // Unlike categories, a workspace is not seeded with tags — the list starts
-    // empty and the user builds it.
-    expect((await empty.json()).data).toEqual([]);
+    const seeded = await listTags(apiReq("/api/v1/tags"));
+    expect(seeded.status).toBe(200);
+    // Like categories, a new workspace is seeded with a short tag list.
+    expect((await seeded.json()).data.map((t: { name: string }) => t.name)).toEqual([
+      "Recurring",
+      "Reimbursable",
+    ]);
 
     await post("zebra");
-    await post("Apple");
+    await post("apple");
     const res = await listTags(apiReq("/api/v1/tags"));
     const { data } = await res.json();
-    // `lower(name)`, so "Apple" leads — a C-collation database would otherwise
-    // sort every capital ahead of every lowercase.
-    expect((data as { name: string }[]).map((t) => t.name)).toEqual(["Apple", "zebra"]);
+    // `lower(name)`, so "apple" leads — a C-collation database would otherwise
+    // sort every capital ("Recurring", "Reimbursable") ahead of every lowercase.
+    expect((data as { name: string }[]).map((t) => t.name)).toEqual([
+      "apple",
+      "Recurring",
+      "Reimbursable",
+      "zebra",
+    ]);
   });
 
   it("creates a tag (201) and rejects a duplicate name (409)", async () => {
@@ -201,7 +209,11 @@ describe("/api/v1/tags", () => {
     // Reading is fine — a viewer sees the shared list.
     const list = await listTags(apiReq("/api/v1/tags"));
     expect(list.status).toBe(200);
-    expect((await list.json()).data.map((t: { name: string }) => t.name)).toEqual(["Travel"]);
+    expect((await list.json()).data.map((t: { name: string }) => t.name)).toEqual([
+      "Recurring",
+      "Reimbursable",
+      "Travel",
+    ]);
 
     expect((await post("Theirs")).status).toBe(403);
     const patched = await patchTag(
@@ -223,7 +235,7 @@ describe("/api/v1/tags", () => {
     const W = await workspaceIdOf("a");
     // Every plan's own cap (5 / 10 / 20) sits below the hard ceiling, so the
     // service can't reach it any more — a workspace only gets there by being
-    // over its cap already (grandfathered / downgraded). Seed that directly.
+    // over its cap already (after a downgrade). Seed that directly.
     await getTestDb()
       .insert(tags)
       .values(
@@ -242,7 +254,9 @@ describe("/api/v1/tags", () => {
   it("403s plan_limit past the Free plan's tag cap, with the upgrade in details", async () => {
     signInAs("a");
     await bootstrapUser("a");
-    for (let i = 0; i < PLAN_LIMITS.free.tags; i++) {
+    // The two default tags count toward the cap: 5 − 2 = 3 more fit.
+    expect(PLAN_LIMITS.free.tags - DEFAULT_TAGS.length).toBe(3);
+    for (let i = 0; i < PLAN_LIMITS.free.tags - DEFAULT_TAGS.length; i++) {
       expect((await post(`tag-${i}`)).status).toBe(201);
     }
     const res = await post("one-too-many");
@@ -261,7 +275,11 @@ describe("/api/v1/tags", () => {
     signInAs("b");
     await bootstrapUser("b");
     const theirs = await listTags(apiReq("/api/v1/tags"));
-    expect((await theirs.json()).data).toEqual([]);
+    // Only b's own defaults — a's "Travel" isn't visible.
+    expect((await theirs.json()).data.map((t: { name: string }) => t.name)).toEqual([
+      "Recurring",
+      "Reimbursable",
+    ]);
 
     // Same name is fine in another workspace — the unique index is per
     // workspace, not global.

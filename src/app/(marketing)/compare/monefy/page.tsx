@@ -36,7 +36,7 @@ const rows: CompareRow[] = [
   },
   {
     label: "Price",
-    spendchat: "Free. No paid tier, no ads.",
+    spendchat: "Free plan with no ads. Paid plans add more AI, storage and people; Pro adds voice entry.",
     competitor:
       "Free with ads. Premium is an in-app purchase for unlimited accounts, recurring transactions and advanced filters; store listings show tiers up to $59.99 and don't state the billing period.",
   },
@@ -166,7 +166,7 @@ export default function MonefyComparisonPage() {
         ours={[
           "Batch entry by sentence or voice, with drafts you confirm before anything is saved.",
           "A web app that a household shares, with roles and each entry labelled by who added it.",
-          "Free without ads or a paid tier, receipts attached, everything exported, and open source.",
+          "A free plan without ads, receipts attached, everything exported, and open source.",
         ]}
       />
     </ComparePage>

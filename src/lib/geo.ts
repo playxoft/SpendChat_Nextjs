@@ -82,6 +82,16 @@ export const COUNTRY_TO_CURRENCY: Record<string, string> = {
 };
 
 /**
+ * Cloudflare's `cf-ipcountry` value as a country code, or null when it names
+ * none: absent, or its "unknown" (`XX`) and Tor (`T1`) placeholders.
+ */
+export function edgeCountry(value: string | null | undefined): string | null {
+  const code = value?.trim().toUpperCase();
+  if (!code || code === "XX" || code === "T1") return null;
+  return code;
+}
+
+/**
  * The *supported* currency for a country, or null when the country is unknown
  * (including Cloudflare's `XX`/`T1` placeholders) or uses a currency we don't
  * support yet.

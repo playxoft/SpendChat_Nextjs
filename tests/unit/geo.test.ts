@@ -2,12 +2,24 @@ import { describe, it, expect } from "vitest";
 import {
   COUNTRY_TO_CURRENCY,
   currencyForCountry,
+  edgeCountry,
   parseAcceptLanguage,
   regionFromLocale,
   resolveSettingsDefaults,
   DEFAULT_LOCALE,
 } from "@/lib/geo";
 import { DEFAULT_CURRENCY, isSupportedCurrency } from "@/lib/currencies";
+
+describe("edgeCountry", () => {
+  it("reads Cloudflare's country, treating its unknown and Tor codes as none", () => {
+    expect(edgeCountry("IN")).toBe("IN");
+    expect(edgeCountry(" us ")).toBe("US");
+    expect(edgeCountry("XX")).toBeNull();
+    expect(edgeCountry("T1")).toBeNull();
+    expect(edgeCountry("")).toBeNull();
+    expect(edgeCountry(null)).toBeNull();
+  });
+});
 
 describe("COUNTRY_TO_CURRENCY", () => {
   it("is well-formed (alpha-2 keys, alpha-3 currency values)", () => {

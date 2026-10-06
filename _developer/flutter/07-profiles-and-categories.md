@@ -108,12 +108,17 @@ set to `null` (they become "Uncategorized"). No confirmation dialog in the web
 app; consider a light confirm on mobile.
 
 ### 2.4 Default seed categories
-New users are seeded (server-side at first sign-in) with these — you don't create
-them, but knowing them helps design empty/first-run states:
+Every new workspace is seeded (server-side, when it's created — including the
+default one at first sign-in) with these 10 — you don't create them, but
+knowing them helps design empty/first-run states. They count toward the plan's
+category cap (20 on Free), and existing workspaces keep whatever they have:
 
-- **Expenses:** Food & Dining 🍽️, Groceries 🛒, Transport 🚆, Housing 🏠,
-  Utilities 💡, Shopping 🛍️, Health ⚕️, Entertainment 🎬, Education 📚, Other 📦
-- **Income:** Salary 💼, Freelance 🧾, Investments 📈, Gifts 🎁, Other ➕
+- **Expenses (7):** Food & Dining 🍽️, Groceries 🛒, Transport 🚆, Housing 🏠,
+  Bills & Utilities 💡, Shopping 🛍️, Health ⚕️
+- **Income (3):** Salary 💼, Freelance 🧾, Investments 📈
+
+It also gets two default tags, **Recurring** and **Reimbursable** (they count
+toward the tag cap, 5 on Free).
 
 ---
 

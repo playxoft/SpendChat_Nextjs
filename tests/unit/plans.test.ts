@@ -3,9 +3,7 @@ import { fromMinorUnits } from "@/lib/money";
 import {
   INVOICE_ADDON_PRICE,
   PERSONAL_PLANS,
-  PLAN_GRACE_ENDS_AT,
   PLAN_LIMITS,
-  inGracePeriod,
   voiceActionsFor,
   type PersonalPlan,
   type PlanLimits,
@@ -104,19 +102,9 @@ describe("voiceActionsFor", () => {
   });
 });
 
-describe("inGracePeriod", () => {
-  it("is never true for a workspace that wasn't grandfathered", () => {
-    expect(inGracePeriod(false)).toBe(false);
-  });
-
-  it("keeps a grandfathered workspace in grace until the end date is set", () => {
-    if (PLAN_GRACE_ENDS_AT === null) {
-      expect(inGracePeriod(true)).toBe(true);
-    } else {
-      const end = new Date(PLAN_GRACE_ENDS_AT).getTime();
-      expect(inGracePeriod(true, new Date(end - 1))).toBe(true);
-      expect(inGracePeriod(true, new Date(end))).toBe(false);
-    }
+describe("voice", () => {
+  it("is a Pro feature from day one — no grace period keeps it on Free or Plus", () => {
+    expect(PERSONAL_PLANS.filter((p) => PLAN_LIMITS[p].voice)).toEqual(["pro"]);
   });
 });
 

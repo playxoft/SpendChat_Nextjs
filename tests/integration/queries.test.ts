@@ -376,7 +376,7 @@ describe("getMonthlyTrend", () => {
 describe("getCategories / getProfiles", () => {
   it("returns categories ordered by kind then name", async () => {
     const cats = await getCategories(W);
-    expect(cats).toHaveLength(15);
+    expect(cats).toHaveLength(10);
     // Postgres orders the enum by its declared order: ENUM('income','expense').
     expect(cats[0].kind).toBe("income");
     const lastIncome = cats.map((c) => c.kind).lastIndexOf("income");
@@ -414,12 +414,18 @@ describe("getTags / getTagsWithUsage", () => {
   it("orders by lower(name), so case doesn't decide the order", async () => {
     // Lowercase first, capital second — the pair that tells the two orderings
     // apart. A C-collation database (PGlite) sorts every capital ahead of every
-    // lowercase, so a plain `order by name` returns ["Zebra", "apple"] here;
-    // Neon's en_US.UTF-8 returns ["apple", "Zebra"] either way. The picker has
-    // to read the same in both, and only this pair proves it does.
+    // lowercase, so a plain `order by name` puts "Zebra" (and the default
+    // "Recurring" / "Reimbursable") ahead of "apple" here; Neon's en_US.UTF-8
+    // returns "apple" first either way. The picker has to read the same in
+    // both, and only this pair proves it does.
     await tag("Zebra", []);
     await tag("apple", []);
-    expect((await getTags(W)).map((t) => t.name)).toEqual(["apple", "Zebra"]);
+    expect((await getTags(W)).map((t) => t.name)).toEqual([
+      "apple",
+      "Recurring",
+      "Reimbursable",
+      "Zebra",
+    ]);
   });
 
   it("counts the transactions carrying each tag", async () => {
@@ -428,6 +434,9 @@ describe("getTags / getTagsWithUsage", () => {
     const rows = await getTagsWithUsage(W);
     expect(rows.map((t) => [t.name, t.usage])).toEqual([
       ["Groceries", 2],
+      // The workspace's two default tags, on nothing yet.
+      ["Recurring", 0],
+      ["Reimbursable", 0],
       ["Unused", 0],
     ]);
     // Serialized, not raw rows — this list crosses into client components.

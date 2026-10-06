@@ -181,9 +181,12 @@ second place one can be created (the first is the composer's `#` picker,
   because it reads one server-side; there is no endpoint for it.)
 - **Editor+ only.** A viewer sees the list read-only: no add button, no edit
   affordance. The server enforces it (403), so this is presentation.
-- A workspace starts with **no** tags and is capped at **100**; past that
-  `POST /tags` is a 409 and the add button should be disabled rather than
-  opening a form that can't succeed.
+- A new workspace starts with two tags, **Recurring** and **Reimbursable**
+  (spec 6.5.0; none before). The plan caps tags (5 / 10 / 20 on Free / Plus /
+  Pro, the seeded two included — `GET /usage` → `tags`); at the cap
+  `POST /tags` is `403 plan_limit` (and past the hard ceiling of **100**, a
+  409), so disable the add button rather than opening a form that can't
+  succeed.
 
 Endpoints: `GET/POST /tags`, `PATCH/DELETE /tags/{id}` (spec 6.2.0) —
 [01](./01-api-reference.md) § Tags.

@@ -45,7 +45,7 @@ const faqs = [
   },
   {
     q: "Is there a limit on how many transactions I can store?",
-    a: "No. There is no cap on transactions and no paid tier that raises one.",
+    a: "No. Transactions are unlimited on every plan, Free included.",
   },
 ];
 

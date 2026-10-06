@@ -13,7 +13,7 @@ import { GET as getVault } from "@/app/api/v1/files/route";
 import { GET as listProfiles } from "@/app/api/v1/profiles/route";
 import { PATCH as patchProfile } from "@/app/api/v1/profiles/[id]/route";
 import { POST as createWorkspace } from "@/app/api/v1/workspaces/route";
-import { DEFAULT_CATEGORIES } from "@/lib/categories";
+import { DEFAULT_CATEGORIES, DEFAULT_TAGS } from "@/lib/categories";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { setSession, signInAs } from "../helpers/session";
 import { bootstrapUser, setWorkspacePlan, workspaceIdOf } from "../helpers/seed";
@@ -40,8 +40,6 @@ describe("GET /api/v1/usage", () => {
     const data = await usage();
     expect(data).toEqual({
       plan: "free",
-      grandfathered: false,
-      inGrace: false,
       readOnly: false,
       ai: {
         used: 0,
@@ -54,7 +52,7 @@ describe("GET /api/v1/usage", () => {
       members: { used: 1, limit: free.members },
       spaces: { used: 1, limit: free.spaces },
       categories: { used: DEFAULT_CATEGORIES.length, limit: free.categories },
-      tags: { used: 0, limit: free.tags },
+      tags: { used: DEFAULT_TAGS.length, limit: free.tags },
       profilesPerSpace: free.profilesPerSpace,
       voice: false,
       profileLevelAccess: false,

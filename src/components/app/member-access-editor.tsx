@@ -15,7 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { lowestPlanWith } from "@/lib/plans";
+import { profileAccessLock } from "@/lib/add-limits";
 import {
   ROLE_ABILITIES,
   ROLE_NAMES,
@@ -28,6 +28,7 @@ import {
 } from "@/lib/member-access";
 import { cn } from "@/lib/utils";
 import { UpgradeHint, usePlan } from "./upgrade-dialog";
+import { LimitTooltip, LockGlyph } from "./limit-lock";
 
 /**
  * The People list's access picker. Two ways to give someone access:
@@ -97,6 +98,7 @@ function ScopeEditor({
   const allSpaceIds = spaces.map((s) => s.id);
   const isAll = value.mode === "all";
   const profilesLocked = !profileLevelAccess;
+  const profilesLock = profilesLocked ? profileAccessLock(plan) : null;
   // Without per-profile access an existing per-profile share can still be
   // narrowed — profiles dropped, roles lowered — never widened; the server
   // applies the same rule.
@@ -122,32 +124,42 @@ function ScopeEditor({
             ["all", "Spaces"],
             ["profiles", "Specific profiles"],
           ] as const
-        ).map(([mode, text]) => (
-          <button
-            key={mode}
-            type="button"
-            aria-pressed={value.mode === mode}
-            disabled={mode === "profiles" && profilesLocked && value.mode !== "profiles"}
-            onClick={() => pickMode(mode)}
-            className={cn(
-              "rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-              value.mode === mode
-                ? "bg-background text-foreground shadow-xs"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {text}
-          </button>
-        ))}
+        ).map(([mode, text]) => {
+          const locked = mode === "profiles" && profilesLocked;
+          const disabled = locked && value.mode !== "profiles";
+          return (
+            // Locked on Free: a lock and the reason in a tooltip (on a wrapper,
+            // since the disabled button itself gets no pointer events).
+            <LimitTooltip
+              key={mode}
+              lock={locked ? profilesLock : null}
+              wrapperClassName={disabled ? "flex" : undefined}
+            >
+              <button
+                type="button"
+                aria-pressed={value.mode === mode}
+                disabled={disabled}
+                onClick={() => pickMode(mode)}
+                className={cn(
+                  "flex flex-1 items-center justify-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  value.mode === mode
+                    ? "bg-background text-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {locked && <LockGlyph className="size-3" />}
+                {text}
+              </button>
+            </LimitTooltip>
+          );
+        })}
       </div>
 
-      {profilesLocked && (
-        <UpgradeHint
-          info={{ limit: "profileLevelAccess", plan, upgradeTo: lowestPlanWith("profileLevelAccess") }}
-        >
+      {profilesLock && (
+        <UpgradeHint info={profilesLock.info}>
           {ceiling
-            ? "Specific profiles is on Plus and Pro — you can still remove profiles or lower roles here."
-            : "Specific profiles is on Plus and Pro."}
+            ? `${profilesLock.reason} You can still remove profiles or lower roles here.`
+            : profilesLock.reason}
         </UpgradeHint>
       )}
 
@@ -279,7 +291,11 @@ function ProfilePicker({
               onCheckedChange={(c) =>
                 onChange(
                   c === true
-                    ? [...entries.filter((e) => e.profileId !== p.id), { profileId: p.id, role: seedRole }]
+                    ? [
+                        ...entries.filter((e) => e.profileId !== p.id),
+                        // Narrow-only: re-ticking a profile can't come back above what it had.
+                        { profileId: p.id, role: ceiling?.get(p.id) ?? seedRole },
+                      ]
                     : entries.filter((e) => e.profileId !== p.id),
                 )
               }

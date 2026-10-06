@@ -149,7 +149,7 @@ export const FEATURES: Feature[] = [
     title: "Receipt Storage for Bills and Invoices",
     h1: "Keep the receipt with the expense",
     description:
-      "Attach receipts, bills and invoices to any transaction, or keep them in a Drive-style vault with folders, colour tags and share links. 1 GB per workspace.",
+      "Attach receipts, bills and invoices to any transaction, or keep them in a Drive-style vault with folders, colour tags and share links. 1 GB free per workspace.",
     blurb: "Attach receipts to transactions; keep the rest in a tagged vault.",
     icon: "Paperclip",
     group: "understand",
@@ -162,7 +162,7 @@ export const FEATURES: Feature[] = [
     title: "Export Expenses to CSV, or Print a Report",
     h1: "Your data leaves as easily as it arrives",
     description:
-      "Download the view you're looking at as a CSV, or print a clean report and save it as a PDF. No paid tier, no watermark, no lock-in.",
+      "Download the view you're looking at as a CSV, or print a clean report and save it as a PDF. Same on every plan, no watermark, no lock-in.",
     blurb: "CSV of the filtered view, or a print-ready PDF report.",
     icon: "Download",
     group: "understand",
@@ -190,8 +190,8 @@ export const FEATURES: Feature[] = [
     title: "Shared Expense Tracking for Families",
     h1: "Share the books without sharing your password",
     description:
-      "Invite your partner, family or accountant to a workspace and choose what each of them can do — view, edit or administer. Shared categories and currency.",
-    blurb: "Invite people to a shared workspace with viewer/editor/admin roles.",
+      "Group profiles into spaces, invite your partner or accountant, and choose who sees which. Your accountant gets the business books, not your groceries.",
+    blurb: "Group profiles into spaces and choose who sees each one.",
     icon: "Building2",
     group: "organise",
     related: ["multiple-profiles", "categories", "privacy-and-security", "receipts-and-files"],

@@ -15,7 +15,6 @@ type Organization = {
     name: string;
     icon: string | null;
     plan: string;
-    grandfathered: boolean;
     readOnly: boolean;
     canOpen: boolean;
   }[];
@@ -50,7 +49,6 @@ describe("/api/v1/organization", () => {
           name: "a's Workspace",
           icon: expect.any(String),
           plan: "free",
-          grandfathered: false,
           readOnly: false,
           canOpen: true,
         },

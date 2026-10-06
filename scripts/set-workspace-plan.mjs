@@ -7,7 +7,6 @@
  * Usage (the script wraps its own `doppler run --config dev`; don't prefix another):
  *   pnpm plan:set:dev -- --list                          # workspaces with their plan
  *   pnpm plan:set:dev -- --workspace=<uuid> --plan=pro   # free | plus | pro
- *   pnpm plan:set:dev -- --workspace=<uuid> --grandfathered=false
  *
  * There is deliberately no `plan:set:prod`. On a production database this would
  * hand out paid plans for free, so a write refuses to run unless Doppler says
@@ -20,7 +19,7 @@ import pg from "pg";
 const args = process.argv.slice(2).filter((a) => a !== "--");
 
 const USAGE =
-  "usage: pnpm plan:set:dev -- --list | --workspace=<uuid> [--plan=free|plus|pro] [--grandfathered=true|false]";
+  "usage: pnpm plan:set:dev -- --list | --workspace=<uuid> --plan=free|plus|pro";
 const PLANS = ["free", "plus", "pro"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -35,21 +34,18 @@ for (const arg of args) {
     opts.list = true;
     continue;
   }
-  const match = /^--(workspace|plan|grandfathered)=(.+)$/.exec(arg);
+  const match = /^--(workspace|plan)=(.+)$/.exec(arg);
   if (!match) usageError(`Unrecognised argument "${arg}".`);
   opts[match[1]] = match[2];
 }
 
-if (opts.list && (opts.workspace || opts.plan || opts.grandfathered)) {
+if (opts.list && (opts.workspace || opts.plan)) {
   usageError("--list doesn't take other arguments.");
 }
 if (!opts.list) {
   if (!opts.workspace || !UUID.test(opts.workspace)) usageError("--workspace=<uuid> is required.");
-  if (!opts.plan && !opts.grandfathered) usageError("Nothing to change: pass --plan and/or --grandfathered.");
-  if (opts.plan && !PLANS.includes(opts.plan)) usageError(`--plan must be one of ${PLANS.join(", ")}.`);
-  if (opts.grandfathered && !["true", "false"].includes(opts.grandfathered)) {
-    usageError("--grandfathered must be true or false.");
-  }
+  if (!opts.plan) usageError("Nothing to change: pass --plan.");
+  if (!PLANS.includes(opts.plan)) usageError(`--plan must be one of ${PLANS.join(", ")}.`);
 }
 
 const url = process.env.NEON_POSTGRES_DATABASE_URL;
@@ -77,35 +73,25 @@ await client.connect();
 try {
   if (opts.list) {
     const { rows } = await client.query(
-      `select w.id, w.name, w.plan, w.grandfathered, u.email as owner
+      `select w.id, w.name, w.plan, u.email as owner
          from workspaces w left join users u on u.id = w.owner_id
         order by w.created_at`,
     );
     for (const r of rows) {
-      console.log(`${r.id}  ${String(r.plan).padEnd(4)}  ${r.grandfathered ? "grandfathered" : "             "}  ${r.name}  (${r.owner ?? "?"})`);
+      console.log(`${r.id}  ${String(r.plan).padEnd(4)}  ${r.name}  (${r.owner ?? "?"})`);
     }
     if (rows.length === 0) console.log("(no workspaces)");
   } else {
-    const sets = [];
-    const params = [opts.workspace];
-    if (opts.plan) {
-      params.push(opts.plan);
-      sets.push(`plan = $${params.length}::workspace_plan`);
-    }
-    if (opts.grandfathered) {
-      params.push(opts.grandfathered === "true");
-      sets.push(`grandfathered = $${params.length}`);
-    }
     const { rows } = await client.query(
-      `update workspaces set ${sets.join(", ")}, updated_at = now() where id = $1 returning id, name, plan, grandfathered`,
-      params,
+      `update workspaces set plan = $2::workspace_plan, updated_at = now() where id = $1 returning id, name, plan`,
+      [opts.workspace, opts.plan],
     );
     if (rows.length === 0) {
       console.error(`No workspace ${opts.workspace}.`);
       process.exitCode = 1;
     } else {
       const r = rows[0];
-      console.log(`${r.name}: plan ${r.plan}${r.grandfathered ? ", grandfathered" : ""}`);
+      console.log(`${r.name}: plan ${r.plan}`);
     }
   }
 } finally {

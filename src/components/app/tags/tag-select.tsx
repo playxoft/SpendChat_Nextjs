@@ -17,6 +17,7 @@ import { cn } from "@/lib/utils";
 import { TagChip } from "./tag-chip";
 import { TagFormDialog } from "./tag-form-dialog";
 import { useCreatedTags } from "./use-created-tags";
+import { LimitTooltip, LockGlyph, useAddLock } from "../limit-lock";
 
 /**
  * Pick several tags from the workspace's list — the transactions page's filter
@@ -92,6 +93,8 @@ export function TagSelect({
   // simply drops out rather than rendering a blank chip.
   const selected = value.map((id) => known.get(id)).filter((t): t is TxnTagDTO => !!t);
   const atMax = value.length >= max;
+  // The plan's tag cap: the Create row still opens the form, which explains.
+  const tagLock = useAddLock("tags", { used: all.length });
 
   function toggle(id: string) {
     if (value.includes(id)) onChange(value.filter((v) => v !== id));
@@ -211,13 +214,16 @@ export function TagSelect({
               {/* Disabled at the cap, rather than opening a form whose result
                   can't be applied: it used to create the tag, close, and
                   silently not attach it — the work looked lost. */}
-              <DropdownMenuItem
-                disabled={atMax}
-                onSelect={() => setCreating(true)}
-                className="flex-1 py-1.5"
-              >
-                <Plus className="size-4" /> Create new tag
-              </DropdownMenuItem>
+              <LimitTooltip lock={atMax ? null : tagLock} side="left">
+                <DropdownMenuItem
+                  disabled={atMax}
+                  onSelect={() => setCreating(true)}
+                  className="flex-1 py-1.5"
+                >
+                  <Plus className="size-4" /> Create new tag
+                  {tagLock && !atMax && <LockGlyph className="ml-auto" />}
+                </DropdownMenuItem>
+              </LimitTooltip>
               <Tooltip>
                 {/* The trigger is a wrapper, not the item: a disabled menu item
                     takes no pointer events, and the tooltip is how anyone

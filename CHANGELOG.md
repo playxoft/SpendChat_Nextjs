@@ -18,7 +18,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
-## [0.33.0] — 2026-10-05
+## [0.33.0] — 2026-10-06
 
 ### Added
 - **Spaces.** Profiles now sit in spaces inside a workspace, shown in the
@@ -37,15 +37,29 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - **Plans per workspace — Free, Plus and Pro.** Each workspace has its own plan,
   and its limits are shared by everyone in it: members (3 / 5 / 10), spaces
   (2 / 6 / 15), profiles per space (3 / 5 / 10), categories (20 / 30 / 50,
-  the 15 starters included), tags (5 / 10 / 20), storage (1 / 5 / 20 GB) and AI
-  actions a month (50 / 300 / 1,000). Paid plans aren't on sale yet; when you
-  reach a limit, the app says which plan lifts it instead of a bare error.
+  the starters included), tags (5 / 10 / 20), storage (1 / 5 / 20 GB) and AI
+  actions a month (50 / 300 / 1,000). Upgrade any workspace from the app; a
+  workspace's first paid plan starts with a 21-day free trial (one per
+  workspace).
+- **You see a limit before you hit it.** A "New space", "New profile", "Add
+  tag", "Add category", "Create workspace" or "Invite" control that's at its
+  limit carries a lock; hover it for what's full and which plan lifts it. Its
+  form says so at the top and its Create button is disabled — no more filling
+  in a form only to be refused. Renaming and editing are never locked.
+- **Upgrade page** in the app (user menu or Settings → Upgrade): your
+  workspace's plan, what's used, and the three plans side by side for 1 month,
+  3 months or a year, each one a click from checkout. A checkout page sums up
+  the order — the workspace, the plan, the price and the free trial — before
+  you pay.
+- **Pricing page** at /pricing with real prices in your currency, what each
+  plan solves, a full comparison and the FAQ.
 - **Plan & usage** card in workspace settings: AI actions used this month and
   when they refill, storage, members, spaces, categories and tags against the
   plan.
 - **Settings → Organisation**: your organisation's name (editable), its owner,
   and every workspace in it with its plan.
-- Plan badges in the workspace switcher (`g`).
+- Plan badges in the workspace switcher (`g`), and a **Create workspace**
+  button on the Organisation page.
 
 ### Changed
 - **AI actions are a monthly allowance per workspace** (Free 50, Plus 300, Pro
@@ -55,19 +69,22 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   on our side, the action is given back. AI used before this release doesn't
   count — every workspace starts this month with its full allowance.
 - **Voice entry is a Pro feature**, and a recording can now run up to two
-  minutes (was one); notes can be up to 3,000 characters. Workspaces that
-  existed before plans keep voice while plans roll out.
+  minutes (was one); notes can be up to 3,000 characters.
 - **Storage follows the plan** (1 / 5 / 20 GB per workspace) instead of a flat
   1 GB. The 5 MB per-file limit is unchanged.
 - **One free workspace per person.** Creating another workspace needs a paid
-  plan for it.
+  plan for it, and an extra free workspace someone already has turns
+  view-only — everything in it stays readable and exportable.
+- **New workspaces start lighter**: 10 categories (Food & Dining, Groceries,
+  Transport, Housing, Bills & Utilities, Shopping, Health; Salary, Freelance,
+  Investments) and 2 tags (Recurring, Reimbursable), leaving room under the
+  plan for your own. Existing workspaces keep what they have.
 - Renaming or deleting a category or tag — which changes every transaction
   that uses it — now needs an admin, or someone who can edit every profile in
   the workspace. Anyone who can edit a profile can still add one.
-- Being over a limit never deletes anything: a workspace that already has more
-  than its plan allows (one that existed before plans, or after a downgrade)
-  keeps all of it and only stops adding more of that thing. Workspaces that
-  existed before plans keep everything they have during the transition.
+- **Limits apply from this release**, to every workspace. Being over one never
+  deletes anything: a workspace that already has more than its plan allows
+  keeps all of it and only stops adding more of that thing.
 
 ## [0.32.0] — 2026-10-04
 

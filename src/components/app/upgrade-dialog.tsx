@@ -1,8 +1,9 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { toast } from "sonner";
-import { Check, Mail } from "lucide-react";
+import { ArrowRight, Mail } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -12,9 +13,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { PLAN_NAMES, type PersonalPlan } from "@/lib/plans";
-import { planLimitOf, upgradeCopy, type PlanLimitInfo } from "@/lib/plan-limit";
+import type { PersonalPlan } from "@/lib/plans";
+import { planLimitOf, type PlanLimitInfo } from "@/lib/plan-limit";
+import {
+  BIGGEST_PLAN_LINE,
+  NOTHING_DELETED_LINE,
+  limitPitch,
+  upgradeAction,
+} from "@/lib/plan-copy";
+import { formatAmount, isPaidPersonalPlan, quote, type Currency } from "@/lib/pricing";
 import { siteConfig } from "@/lib/site";
+import type { AddLimitsData } from "@/lib/add-limits";
 import { PlanBadge } from "./plan-badge";
 
 /**
@@ -26,15 +35,24 @@ import { PlanBadge } from "./plan-badge";
  */
 export type PlanState = {
   plan: PersonalPlan;
-  grandfathered: boolean;
-  /** Grandfathered and still inside the grace period. */
-  inGrace: boolean;
-  /** An extra free workspace past its grace period: everything is view-only. */
+  /** An extra free workspace (the owner has an older free one): everything is view-only. */
   readOnly: boolean;
-  /** Voice entry works here (Pro, or grandfathered during grace). */
+  /** Voice entry works here (Pro). */
   voiceAllowed: boolean;
   /** Per-profile access can be changed (Plus/Pro). */
   profileLevelAccess: boolean;
+  /**
+   * `getAddLimits()` — what can still be added, so "new …" buttons and forms
+   * can show a lock up front (`addLock` in `lib/add-limits.ts`). Absent outside
+   * the app layout, which locks nothing.
+   */
+  addLimits?: AddLimitsData | null;
+  /**
+   * The currency the upgrade dialog quotes prices in — the one checkout will
+   * charge (`workspacePriceCurrency`, resolved on the server). US dollars when
+   * absent.
+   */
+  currency?: Currency;
 };
 
 type FailureLike = { ok: boolean; error?: string; code?: string; details?: unknown };
@@ -55,11 +73,10 @@ type PlanContextValue = PlanState & {
 // as it did before plans: voice on, and failures fall back to a toast.
 const DEFAULT_VALUE: PlanContextValue = {
   plan: "free",
-  grandfathered: false,
-  inGrace: false,
   readOnly: false,
   voiceAllowed: true,
   profileLevelAccess: false,
+  addLimits: null,
   showUpgrade: () => {},
   handlePlanLimit: () => false,
   reportFailure: (res, fallback) => {
@@ -99,26 +116,25 @@ export function PlanProvider({
     [handlePlanLimit],
   );
 
-  const { plan, grandfathered, inGrace, readOnly, voiceAllowed, profileLevelAccess } = state;
+  const { plan, readOnly, voiceAllowed, profileLevelAccess } = state;
+  const addLimits = state.addLimits ?? null;
   const value = React.useMemo<PlanContextValue>(
     () => ({
       plan,
-      grandfathered,
-      inGrace,
       readOnly,
       voiceAllowed,
       profileLevelAccess,
+      addLimits,
       showUpgrade,
       handlePlanLimit,
       reportFailure,
     }),
     [
       plan,
-      grandfathered,
-      inGrace,
       readOnly,
       voiceAllowed,
       profileLevelAccess,
+      addLimits,
       showUpgrade,
       handlePlanLimit,
       reportFailure,
@@ -128,7 +144,12 @@ export function PlanProvider({
   return (
     <PlanContext.Provider value={value}>
       {children}
-      <UpgradeDialog info={info} open={open} onOpenChange={setOpen} />
+      <UpgradeDialog
+        info={info}
+        open={open}
+        onOpenChange={setOpen}
+        currency={state.currency}
+      />
     </PlanContext.Provider>
   );
 }
@@ -138,73 +159,85 @@ export function usePlan(): PlanContextValue {
 }
 
 /**
- * Explains a plan limit and the plan that lifts it. There's no checkout yet, so
- * it never pretends to sell anything: it says what the limit is, what the next
- * plan includes, and that paid plans are coming soon. Prices aren't shown here
- * — they belong on the pricing page once it's live.
+ * Explains a plan limit in terms of what it's getting in the way of, names the
+ * plan that lifts it with its price, and offers it: "Upgrade to <plan>" opens
+ * checkout for that plan, yearly preselected (the period can be changed
+ * there). The exceptions are the one-free-workspace rule (`upgradeAction`):
+ * an extra, view-only workspace may not be the one open, and "New workspace"
+ * is lifted by upgrading the person's free workspace — this one, or another
+ * listed in organisation settings. All the words come from `lib/plan-copy.ts`,
+ * so this says what the pricing pages say.
  */
 export function UpgradeDialog({
   info,
   open,
   onOpenChange,
+  currency = "USD",
 }: {
   info: PlanLimitInfo | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** The currency to quote the plan in. */
+  currency?: Currency;
 }) {
   if (!info) return null;
-  const copy = upgradeCopy(info);
+  const copy = limitPitch(info);
   const target = copy.upgradeTo;
+  const paid = target && isPaidPersonalPlan(target) ? target : null;
+  const monthly = paid ? quote(paid, "monthly", currency) : null;
+  const yearly = paid ? quote(paid, "yearly", currency) : null;
+  const action = upgradeAction(info);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md" closeOnOutsideClick>
         <DialogHeader>
-          <DialogTitle>{copy.title}</DialogTitle>
-          <DialogDescription>{copy.reason}</DialogDescription>
+          <DialogTitle>{copy.headline}</DialogTitle>
+          <DialogDescription>{copy.status}</DialogDescription>
         </DialogHeader>
 
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
           This workspace is on <PlanBadge plan={info.plan} />
         </p>
 
-        {target ? (
-          <div className="space-y-3 rounded-lg border p-3">
-            <div className="flex items-center gap-2">
-              <PlanBadge plan={target} />
-              {copy.upgradeLine && <p className="text-sm font-medium">{copy.upgradeLine}</p>}
+        {target && !(info.limit === "newWorkspace" && !info.freeSlotHere) ? (
+          <div className="space-y-2 rounded-lg border p-3">
+            <div className="flex items-center justify-between gap-3">
+              <PlanBadge plan={target} className="h-5 px-2 text-xs" />
+              {monthly ? (
+                <p className="text-sm tabular-nums">
+                  <span className="font-semibold">{formatAmount(monthly.price, currency)}</span>
+                  <span className="text-muted-foreground"> a month</span>
+                </p>
+              ) : null}
             </div>
-            <div>
-              <p className="mb-1.5 text-xs text-muted-foreground">
-                Everything in {PLAN_NAMES[target]}, for the whole workspace:
+            {copy.pitch ? <p className="text-sm">{copy.pitch}</p> : null}
+            {yearly ? (
+              <p className="text-xs text-muted-foreground tabular-nums">
+                Or {formatAmount(yearly.perMonth, currency)} a month, paid yearly.
+                {action.trialDays > 0 ? ` The first ${action.trialDays} days are free.` : ""}
               </p>
-              <ul className="space-y-1">
-                {copy.includes.map((line) => (
-                  <li key={line} className="flex items-start gap-2 text-sm">
-                    <Check aria-hidden className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                    {line}
-                  </li>
-                ))}
-              </ul>
-            </div>
+            ) : null}
           </div>
         ) : (
-          <p className="text-sm">
-            This is already our biggest plan. If you need more, write to us and we&apos;ll
-            help.
-          </p>
+          <p className="text-sm">{BIGGEST_PLAN_LINE}</p>
         )}
 
-        <p className="text-xs text-muted-foreground">
-          {target ? "Paid plans are coming soon. " : ""}
-          Nothing you already have is affected — limits only stop adding new things.
-        </p>
+        <p className="text-xs text-muted-foreground">{NOTHING_DELETED_LINE}</p>
 
         <DialogFooter>
           {target ? (
-            <Button type="button" onClick={() => onOpenChange(false)}>
-              Got it
-            </Button>
+            <>
+              <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+                Not now
+              </Button>
+              <Button asChild>
+                <Link href={action.href} onClick={() => onOpenChange(false)}>
+                  {action.label}
+                  <ArrowRight className="size-4" />
+                </Link>
+              </Button>
+            </>
           ) : (
             <>
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>

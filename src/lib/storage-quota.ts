@@ -12,7 +12,7 @@ import { getWorkspaceStorageUsage } from "@/lib/queries";
  * validation, so a too-big single file still gets its more specific 5 MB
  * message first.
  *
- * A workspace already over its limit (grandfathered, or after a downgrade)
+ * A workspace already over its limit (after a downgrade)
  * keeps every file — this only refuses *new* bytes (abuse rule C7).
  *
  * The check is read-then-insert without a lock: two concurrent uploads can

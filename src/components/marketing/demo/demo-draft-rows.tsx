@@ -90,7 +90,7 @@ export type DemoDraftTxn = Omit<DemoTxn, "id" | "timeLabel">;
  * Four surfaces commit drafts (the AI demo, the voice demo, the bulk demo and
  * the homepage's entry-methods widget) and each used to carry its own copy of
  * this mapping. They had already drifted apart — one trimmed the title and the
- * others didn't, one wrote `?? "Other"` where the rest wrote `|| "Other"` — and
+ * others didn't, one wrote `?? fallback` where the rest wrote `|| fallback` — and
  * the half that keeps needing repair is the money-sensitive half: the format
  * argument on `isValidDraft` (the locale that reads the string, the decimals
  * that decide whether it's worth anything) and the
@@ -116,12 +116,11 @@ export type DemoDraftTxn = Omit<DemoTxn, "id" | "timeLabel">;
  * - **`categoryName` falls back on falsiness (`||`), not just nullishness.**
  *   `""` is how "no category" is spelled throughout these demos: `patchDraft`
  *   clears the field to `""` when a row's type flips, and the picker's "No
- *   category" option writes `""` too. `?? "Other"` lets that empty string
- *   through and lands a transaction with a blank category chip. The *icon* is
- *   still resolved from the draft's own name rather than from the `"Other"`
- *   fallback, because `demoCategory` matches on name alone and the default set
- *   has an "Other" in both kinds — an income row would be handed the expense
- *   pack's 📦. `💸` stays the neutral stand-in for a row nobody categorised.
+ *   category" option writes `""` too. `??` lets that empty string
+ *   through and lands a transaction with a blank category chip. A row nobody
+ *   categorised reads "Uncategorized", the app's own label for one
+ *   (`TransactionBubble`), rather than a made-up category the pickers don't
+ *   list, and gets `💸` as its neutral icon.
  */
 export function draftsToTxns(
   drafts: DemoDraft[],
@@ -133,7 +132,7 @@ export function draftsToTxns(
       type: draft.type,
       amountMinor: toMinorUnits(draft.amount, money.code, money.locale),
       title: draft.title.trim(),
-      categoryName: draft.categoryName || "Other",
+      categoryName: draft.categoryName || "Uncategorized",
       categoryIcon: demoCategory(draft.categoryName)?.icon ?? "💸",
     }));
 }

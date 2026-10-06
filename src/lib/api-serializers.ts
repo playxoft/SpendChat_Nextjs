@@ -259,8 +259,6 @@ export type ApiWorkspace = {
   plan: PersonalPlan;
   /** The organisation that holds it (6.5.0). */
   organizationId: string;
-  /** Existed before plans; keeps what it had until the grace period ends (6.5.0). */
-  grandfathered: boolean;
 };
 
 export function serializeWorkspace(w: WorkspaceSummary): ApiWorkspace {
@@ -275,7 +273,6 @@ export function serializeWorkspace(w: WorkspaceSummary): ApiWorkspace {
     currencyDetail: { code: c.code, symbol: c.symbol, decimals: c.decimals },
     plan: w.plan,
     organizationId: w.organizationId,
-    grandfathered: w.grandfathered,
   };
 }
 
@@ -290,8 +287,7 @@ export type ApiOrganization = {
     name: string;
     icon: string | null;
     plan: PersonalPlan;
-    grandfathered: boolean;
-    /** An extra free workspace past its grace period — view-only until upgraded. */
+    /** An extra free workspace (the owner has an older free one) — view-only until upgraded. */
     readOnly: boolean;
     /** Whether the caller can open it (send it as `X-Workspace-Id`). */
     canOpen: boolean;
@@ -309,8 +305,7 @@ export function serializeOrganization(o: OrganizationOverview): ApiOrganization 
       name: w.name,
       icon: w.icon,
       plan: w.plan,
-      grandfathered: w.grandfathered,
-      readOnly: w.readOnly,
+        readOnly: w.readOnly,
       canOpen: w.canOpen,
     })),
   };
@@ -322,8 +317,6 @@ export type ApiMeter = { used: number; limit: number };
 /** Everything the plan allows the current workspace, and how much of it is used. */
 export type ApiUsage = {
   plan: PersonalPlan;
-  grandfathered: boolean;
-  inGrace: boolean;
   readOnly: boolean;
   ai: {
     used: number;
@@ -347,8 +340,6 @@ export function serializeUsage(u: WorkspaceUsage): ApiUsage {
   const meter = (m: { used: number; limit: number }): ApiMeter => ({ used: m.used, limit: m.limit });
   return {
     plan: u.plan,
-    grandfathered: u.grandfathered,
-    inGrace: u.inGrace,
     readOnly: u.readOnly,
     ai: {
       used: u.ai.used,

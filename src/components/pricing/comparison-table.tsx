@@ -4,29 +4,27 @@ import { Check, Minus } from "lucide-react";
 import { DEFAULT_CATEGORIES } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import {
-  INVOICE_LIMITS,
   PERSONAL_PLANS,
   PLAN_LIMITS,
   PLAN_NAMES,
   TOPUP,
-  TRASH_DAYS,
   VOICE,
   isPaidPlan,
   type PersonalPlan,
 } from "@/lib/plans";
+import { formatPlanStorage } from "@/lib/plan-limit";
+import { FEATURED_PLAN, count } from "@/lib/plan-copy";
 import {
   PERIOD_LABEL,
   STUDENT_DISCOUNT,
   TRIAL_DAYS,
   formatAmount,
-  invoiceAddonPrice,
   isPaidPersonalPlan,
   pct,
   quote,
   topUpPrice,
   type Currency,
 } from "@/lib/pricing";
-import { FEATURED_PLAN, budgetsLabel, count, formatStorage } from "../_data/plan-copy";
 import { PricingControls, usePricingState } from "./pricing-state";
 
 type Cell = string | boolean;
@@ -37,15 +35,14 @@ const everywhere = (c: Cell) => () => c;
 
 /**
  * Every row is read from `@/lib/plans` (limits) or `@/lib/pricing` (prices),
- * never typed out — so the chart can't drift from what the app enforces.
+ * never typed out — so the table can't drift from what the app enforces. Only
+ * what the app does today is listed: entries in `PLAN_LIMITS` for features
+ * that haven't shipped (budgets, invoices, the file trash) stay off the page
+ * until they do.
  */
-function sections(currency: Currency): { title: string; rows: Row[] }[] {
-  const L = PLAN_LIMITS;
-  const freeInvoices = INVOICE_LIMITS.free;
-  const addon = INVOICE_LIMITS.addon;
+function sections(currency: Currency, selfHost: boolean): { title: string; rows: Row[] }[] {
   const money = (major: number) => formatAmount(major, currency);
   const clipMinutes = VOICE.maxClipMs / 60_000;
-  const minutesPerAction = VOICE.msPerAction / 60_000;
 
   return [
     {
@@ -54,33 +51,32 @@ function sections(currency: Currency): { title: string; rows: Row[] }[] {
         { label: "Transactions", cell: everywhere("Unlimited") },
         { label: "Chat-style entry & bulk add", cell: everywhere(true) },
         { label: "Filters, analytics & search", cell: everywhere(true) },
-        { label: "Budgets", cell: budgetsLabel },
         {
           label: "Categories",
-          hint: `Including the ${count(DEFAULT_CATEGORIES.length)} defaults.`,
-          cell: (p) => count(L[p].categories),
+          hint: `Including the ${count(DEFAULT_CATEGORIES.length)} starter ones.`,
+          cell: (p) => count(PLAN_LIMITS[p].categories),
         },
-        { label: "Tags", cell: (p) => count(L[p].tags) },
-        { label: "CSV & PDF export", hint: "Never gated. Your data is yours.", cell: everywhere(true) },
+        { label: "Tags", cell: (p) => count(PLAN_LIMITS[p].tags) },
+        { label: "CSV & PDF export", hint: "On every plan, always. Your data is yours.", cell: everywhere(true) },
       ],
     },
     {
       title: "AI & voice",
       rows: [
         {
-          label: "AI actions / month",
+          label: "AI actions a month",
           hint: "Shared by the whole workspace. Typing an entry yourself is never counted.",
-          cell: (p) => count(L[p].aiActionsPerMonth),
+          cell: (p) => count(PLAN_LIMITS[p].aiActionsPerMonth),
         },
         {
           label: "AI top-ups",
           hint: `${count(TOPUP.actions)} more actions for ${money(topUpPrice(currency))}, valid ${TOPUP.validityMonths} months.`,
-          cell: (p) => L[p].topUps,
+          cell: (p) => PLAN_LIMITS[p].topUps,
         },
         {
           label: "Voice entry",
-          hint: `Hold M and talk, in several languages at once. Clips up to ${clipMinutes} minutes; one AI action per started ${minutesPerAction === 1 ? "minute" : `${minutesPerAction} minutes`}.`,
-          cell: (p) => L[p].voice,
+          hint: `Hold M and talk, in several languages at once. Clips up to ${clipMinutes} minutes; one AI action per started minute.`,
+          cell: (p) => PLAN_LIMITS[p].voice,
         },
       ],
     },
@@ -89,11 +85,9 @@ function sections(currency: Currency): { title: string; rows: Row[] }[] {
       rows: [
         {
           label: "Storage",
-          hint: "Files vault and receipts on transactions, for the whole workspace.",
-          cell: (p) => formatStorage(L[p].storageBytes),
+          hint: "The files vault and receipts on transactions, for the whole workspace.",
+          cell: (p) => formatPlanStorage(PLAN_LIMITS[p].storageBytes),
         },
-        { label: `${TRASH_DAYS}-day trash for transactions`, cell: everywhere(true) },
-        { label: `${TRASH_DAYS}-day trash for files & folders`, cell: (p) => L[p].fileTrash },
       ],
     },
     {
@@ -102,57 +96,46 @@ function sections(currency: Currency): { title: string; rows: Row[] }[] {
         {
           label: "Members",
           hint: "Everyone with access to the workspace, you included.",
-          cell: (p) => count(L[p].members),
+          cell: (p) => count(PLAN_LIMITS[p].members),
         },
-        { label: "Spaces", cell: (p) => count(L[p].spaces) },
-        { label: "Profiles per space", cell: (p) => count(L[p].profilesPerSpace) },
+        { label: "Spaces", cell: (p) => count(PLAN_LIMITS[p].spaces) },
+        { label: "Profiles in each space", cell: (p) => count(PLAN_LIMITS[p].profilesPerSpace) },
         {
-          label: "Per-profile access",
-          hint: "No access, Read or Read + write for each profile in a space. Without it, people share a whole space.",
-          cell: (p) => L[p].profileLevelAccess,
-        },
-      ],
-    },
-    {
-      title: "Invoices & quotes",
-      rows: [
-        {
-          label: "Invoices & quotes / month",
-          cell: everywhere(count(freeInvoices.perMonth)),
-        },
-        {
-          label: "Clients",
-          cell: everywhere(freeInvoices.clients === null ? "Unlimited" : count(freeInvoices.clients)),
-        },
-        { label: "Templates", cell: everywhere(count(freeInvoices.templates)) },
-        {
-          label: "Invoice add-on",
-          hint: `Per workspace, or ${money(invoiceAddonPrice("yearly", currency))} a year. ${addon.displayUnlimited ? "Unlimited invoices" : `${count(addon.perMonth)} invoices a month`}, ${addon.templates}+ templates, no footer, email, reminders, recurring invoices, GST fields and ${addon.sellerDetails} seller details.`,
-          cell: everywhere(`${money(invoiceAddonPrice("monthly", currency))}/mo`),
+          label: "Access for each profile",
+          hint: "No access, Read, or Read + write for each profile in a space. Without it, people share a whole space.",
+          cell: (p) => PLAN_LIMITS[p].profileLevelAccess,
         },
       ],
     },
     {
       title: "Billing",
       rows: [
-        { label: `${TRIAL_DAYS}-day free trial`, cell: isPaidPlan },
+        {
+          label: `${TRIAL_DAYS}-day free trial`,
+          hint: "With a workspace's first paid plan — one trial per workspace.",
+          cell: isPaidPlan,
+        },
         {
           label: "Student discount",
-          hint: `${pct(STUDENT_DISCOUNT)} off, with a student email or ID.`,
+          hint: `${pct(STUDENT_DISCOUNT)} off, checked by hand with a student email or ID.`,
           cell: isPaidPlan,
         },
       ],
     },
-    {
-      title: "Open source",
-      rows: [
-        {
-          label: "Self-host the whole thing",
-          hint: "AGPL-3.0, free forever, with your own AI provider keys.",
-          cell: everywhere(true),
-        },
-      ],
-    },
+    ...(selfHost
+      ? [
+          {
+            title: "Open source",
+            rows: [
+              {
+                label: "Self-host the whole thing",
+                hint: "AGPL-3.0, free, with your own AI keys.",
+                cell: everywhere(true),
+              },
+            ],
+          },
+        ]
+      : []),
   ];
 }
 
@@ -166,15 +149,25 @@ function Value({ cell }: { cell: Cell }) {
 
 /**
  * Every plan side by side, priced. Period and currency are shared with the
- * cards above, through the same controls row.
+ * cards above, through the same controls row. In the app, `currentPlan`'s
+ * column is the shaded one.
  */
-export function ComparisonChart() {
+export function ComparisonTable({
+  currentPlan,
+  selfHost = false,
+  controls = true,
+}: {
+  currentPlan?: PersonalPlan;
+  selfHost?: boolean;
+  /** Repeat the period/currency row above the table (the public page does). */
+  controls?: boolean;
+}) {
   const { currency } = usePricingState();
-  const featured = PERSONAL_PLANS.indexOf(FEATURED_PLAN);
+  const shaded = PERSONAL_PLANS.indexOf(currentPlan ?? FEATURED_PLAN);
 
   return (
     <div>
-      <PricingControls className="mb-5" />
+      {controls ? <PricingControls className="mb-5" /> : null}
 
       <div className="overflow-x-auto rounded-3xl border bg-card [scrollbar-width:thin]">
         <table className="w-full min-w-[640px] border-separate border-spacing-0 text-left">
@@ -189,16 +182,21 @@ export function ComparisonChart() {
                   scope="col"
                   className={cn(
                     "px-3 py-5 text-center align-bottom",
-                    i === featured && "bg-foreground/[0.035] dark:bg-foreground/[0.06]",
+                    i === shaded && "bg-foreground/[0.035] dark:bg-foreground/[0.06]",
                   )}
                 >
-                  <span className="block text-sm font-semibold">{PLAN_NAMES[id]}</span>
+                  <span className="block text-sm font-semibold">
+                    {PLAN_NAMES[id]}
+                    {currentPlan === id ? (
+                      <span className="ml-1.5 text-xs font-normal text-muted-foreground">(yours)</span>
+                    ) : null}
+                  </span>
                   <PriceCell id={id} />
                 </th>
               ))}
             </tr>
           </thead>
-          {sections(currency).map((s) => (
+          {sections(currency, selfHost).map((s) => (
             <tbody key={s.title}>
               <tr>
                 <th
@@ -223,7 +221,7 @@ export function ComparisonChart() {
                       key={id}
                       className={cn(
                         "border-t px-3 py-3.5 text-center group-hover:bg-muted/60",
-                        i === featured && "bg-foreground/[0.035] dark:bg-foreground/[0.06]",
+                        i === shaded && "bg-foreground/[0.035] dark:bg-foreground/[0.06]",
                       )}
                     >
                       <Value cell={r.cell(id)} />
@@ -242,7 +240,7 @@ export function ComparisonChart() {
 /** A plan's price in the table header, for the table's period. */
 function PriceCell({ id }: { id: PersonalPlan }) {
   const { period, currency } = usePricingState();
-  if (!isPaidPersonalPlan(id)) return <Price big={formatAmount(0, currency)} small="forever" />;
+  if (!isPaidPersonalPlan(id)) return <Price big={formatAmount(0, currency)} unit="/mo" small="free" />;
 
   const q = quote(id, period, currency);
   return (

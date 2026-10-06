@@ -18,6 +18,7 @@ import { CATEGORY_NAME_MAX } from "@/lib/validation";
 import { addCategory, deleteCategory } from "@/actions/categories";
 import { useCategoryRename } from "@/hooks/use-category-rename";
 import { usePlan } from "./upgrade-dialog";
+import { LimitPanel, LockedButton, useAddLock } from "./limit-lock";
 import { cn } from "@/lib/utils";
 import type { Category } from "@/db/schema";
 
@@ -49,7 +50,10 @@ export function CategoryEditorDialog({
   const [name, setName] = React.useState(initialName);
   const [icon, setIcon] = React.useState("🏷️");
   const [pending, startTransition] = useTransition();
-  const { reportFailure } = usePlan();
+  const { reportFailure, showUpgrade } = usePlan();
+  // The plan's cap locks adding only — renaming and removing stay open, and
+  // removing one frees a place. `categories` is the whole workspace list.
+  const addLock = useAddLock("categories", { used: categories.length });
 
   // Reset the active tab to the composer's type each time the dialog opens, and
   // re-seed the name: this is mounted once and reused, so without it a second
@@ -72,6 +76,10 @@ export function CategoryEditorDialog({
     // composer <form>, so its submit would otherwise bubble up and trigger the
     // composer's own submit validation. Keep it self-contained.
     e.stopPropagation();
+    if (addLock) {
+      showUpgrade(addLock.info);
+      return;
+    }
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error("Enter a category name");
@@ -128,6 +136,8 @@ export function CategoryEditorDialog({
           ))}
         </div>
 
+        <LimitPanel lock={addLock} />
+
         <form onSubmit={handleAdd} className="flex items-center gap-2">
           <EmojiPicker
             onSelect={setIcon}
@@ -145,9 +155,15 @@ export function CategoryEditorDialog({
             className="flex-1"
             autoFocus
           />
-          <Button type="submit" size="icon" disabled={pending} aria-label="Add category">
+          <LockedButton
+            type="submit"
+            size="icon"
+            lock={addLock}
+            disabled={pending}
+            aria-label="Add category"
+          >
             <Plus className="size-4" />
-          </Button>
+          </LockedButton>
         </form>
 
         {/* Fixed height (not max-height) so the dialog stays the same size

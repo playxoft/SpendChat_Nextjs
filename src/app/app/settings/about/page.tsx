@@ -51,9 +51,14 @@ export default function AboutSettingsPage() {
           <p className="text-sm leading-relaxed text-muted-foreground">
             {siteConfig.name} is a chat-style money tracker: you type what you
             spent the way you would text it, and it becomes a transaction you can
-            filter, tag, export and print. There is no paid tier, and no bank
-            connection — nothing is imported from your accounts, so nothing to
-            revoke.
+            filter, tag, export and print. Every workspace starts on Free; Plus
+            and Pro are paid plans bought for a single workspace, with more room,
+            AI and storage —{" "}
+            <Link href="/app/upgrade" className="underline underline-offset-2 hover:text-foreground">
+              see the plans
+            </Link>
+            . There is no bank connection — nothing is imported from your
+            accounts, so nothing to revoke.
           </p>
           <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
             {rows.map((r) => (

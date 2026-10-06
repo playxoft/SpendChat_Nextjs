@@ -1,4 +1,5 @@
 import { DEFAULT_CATEGORIES } from "@/lib/categories";
+import { PLAN_LIMITS } from "@/lib/plans";
 
 /**
  * Shared seed data for every marketing demo.
@@ -7,7 +8,7 @@ import { DEFAULT_CATEGORIES } from "@/lib/categories";
  * them sees one coherent product rather than three unrelated mock-ups. The
  * amounts are deliberately unremarkable — a demo full of $4,000 dinners reads
  * as a mock-up; groceries and a phone bill read as software someone uses. The
- * same goes for anything a second surface repeats: the files vault's 1 GB quota
+ * same goes for anything a second surface repeats: the files vault's quota
  * is shown on both a feature page and a homepage band, and a figure that moves
  * in one file and not the other is exactly the drift this module prevents.
  *
@@ -93,17 +94,17 @@ export const DEMO_SEEDS: Record<DemoProfile, DemoTxn[]> = {
     { id: 5, type: "expense", amountMinor: 4000, title: "Weekly groceries", categoryName: "Groceries", categoryIcon: "🛒", timeLabel: "6:30 PM" },
   ],
   Home: [
-    { id: 1, day: "Yesterday", type: "expense", amountMinor: 3200, title: "Water bill", categoryName: "Utilities", categoryIcon: "💡", timeLabel: "10:40 AM" },
+    { id: 1, day: "Yesterday", type: "expense", amountMinor: 3200, title: "Water bill", categoryName: "Bills & Utilities", categoryIcon: "💡", timeLabel: "10:40 AM" },
     { id: 2, day: "Yesterday", type: "expense", amountMinor: 1899, title: "Light bulbs", categoryName: "Shopping", categoryIcon: "🛍️", timeLabel: "4:20 PM" },
     { id: 3, type: "expense", amountMinor: 120000, title: "Rent", categoryName: "Housing", categoryIcon: "🏠", timeLabel: "8:00 AM" },
-    { id: 4, type: "expense", amountMinor: 6800, title: "Electricity bill", categoryName: "Utilities", categoryIcon: "💡", timeLabel: "11:20 AM" },
+    { id: 4, type: "expense", amountMinor: 6800, title: "Electricity bill", categoryName: "Bills & Utilities", categoryIcon: "💡", timeLabel: "11:20 AM" },
     { id: 5, type: "expense", amountMinor: 7350, title: "Household supplies", categoryName: "Groceries", categoryIcon: "🛒", timeLabel: "5:45 PM" },
   ],
   Business: [
-    { id: 1, day: "Yesterday", type: "expense", amountMinor: 2500, title: "Domain renewal", categoryName: "Other", categoryIcon: "📦", timeLabel: "9:30 AM" },
+    { id: 1, day: "Yesterday", type: "expense", amountMinor: 2500, title: "Domain renewal", categoryName: "Bills & Utilities", categoryIcon: "💡", timeLabel: "9:30 AM" },
     { id: 2, day: "Yesterday", type: "income", amountMinor: 75000, title: "Consulting retainer", categoryName: "Freelance", categoryIcon: "🧾", timeLabel: "3:00 PM" },
     { id: 3, type: "income", amountMinor: 350000, title: "Client invoice", categoryName: "Freelance", categoryIcon: "🧾", timeLabel: "10:05 AM" },
-    { id: 4, type: "expense", amountMinor: 4900, title: "Software subscriptions", categoryName: "Other", categoryIcon: "📦", timeLabel: "2:30 PM" },
+    { id: 4, type: "expense", amountMinor: 4900, title: "Software subscriptions", categoryName: "Bills & Utilities", categoryIcon: "💡", timeLabel: "2:30 PM" },
     { id: 5, type: "expense", amountMinor: 12000, title: "Online ads", categoryName: "Shopping", categoryIcon: "🛍️", timeLabel: "4:10 PM" },
   ],
 };
@@ -113,13 +114,14 @@ export const DEMO_SEEDS: Record<DemoProfile, DemoTxn[]> = {
 /**
  * The workspace storage quota, and how much of it the demos show used.
  *
- * 1 GB is the real per-workspace cap. Both numbers live here rather than in the
+ * The limit is the Free plan's real per-workspace cap, read from `PLAN_LIMITS`
+ * (Plus and Pro get more). Both numbers live here rather than in the
  * vault components because they are a claim about the product, not a layout
  * detail: `files-demo.tsx` makes it on the feature page and `files-preview.tsx`
  * makes it again on the homepage, and the failure mode is one of them being
  * raised and the other not.
  */
-export const DEMO_STORAGE_LIMIT_BYTES = 1024 ** 3;
+export const DEMO_STORAGE_LIMIT_BYTES = PLAN_LIMITS.free.storageBytes;
 export const DEMO_STORAGE_USED_BYTES = 118_400_000;
 
 export type DemoFileTag = { name: string; color: string };
