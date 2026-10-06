@@ -46,40 +46,39 @@ export async function initTestDb(): Promise<PgliteDatabase<typeof schema>> {
  * a listing's own query — asserting an index exists proves nothing if the query
  * stopped being able to use it.
  */
-export type CapturedStatement = { text: string; params: unknown[] };
+export type CapturedStatement = {
+  text: string;
+  params: unknown[];
+  /** Which `db.transaction` sent it (1, 2, … in order), or null outside one. */
+  tx: number | null;
+};
 
 export async function captureSql(fn: () => Promise<unknown>): Promise<CapturedStatement[]> {
   if (!client) throw new Error("Test DB not initialised — call initTestDb() first");
   const pglite = client;
   const original = pglite.query.bind(pglite);
-  const originalTransaction = pglite.transaction.bind(pglite);
+  const originalTx = pglite.transaction.bind(pglite);
   const seen: CapturedStatement[] = [];
-  const record = (text: string, rest: unknown[]) =>
-    seen.push({ text, params: Array.isArray(rest[0]) ? (rest[0] as unknown[]) : [] });
-  (pglite as { query: typeof original }).query = ((text: string, ...rest: unknown[]) => {
-    record(text, rest);
-    return (original as (...a: unknown[]) => unknown)(text, ...rest);
-  }) as typeof original;
-  // Statements inside `db.transaction(...)` go through the transaction's own
-  // `query`, not the client's — wrap that too, so a test can see them.
-  (pglite as { transaction: typeof originalTransaction }).transaction = ((
-    cb: (tx: { query: (...a: unknown[]) => unknown }) => unknown,
-  ) =>
-    (originalTransaction as (cb: unknown) => unknown)(
-      (tx: { query: (text: string, ...rest: unknown[]) => unknown }) => {
-        const txQuery = tx.query.bind(tx);
-        tx.query = (text: string, ...rest: unknown[]) => {
-          record(text, rest);
-          return txQuery(text, ...rest);
-        };
-        return cb(tx);
-      },
-    )) as unknown as typeof originalTransaction;
+  let txCount = 0;
+  const recording =
+    (query: (...a: unknown[]) => unknown, tx: number | null) =>
+    (text: string, ...rest: unknown[]) => {
+      seen.push({ text, params: Array.isArray(rest[0]) ? (rest[0] as unknown[]) : [], tx });
+      return query(text, ...rest);
+    };
+  (pglite as { query: unknown }).query = recording(original as (...a: unknown[]) => unknown, null);
+  // Drizzle runs a transaction's statements on the handle PGlite passes in.
+  (pglite as { transaction: unknown }).transaction = (cb: (tx: { query: unknown }) => Promise<unknown>) =>
+    originalTx(async (tx) => {
+      const n = ++txCount;
+      (tx as { query: unknown }).query = recording(tx.query.bind(tx) as (...a: unknown[]) => unknown, n);
+      return cb(tx);
+    });
   try {
     await fn();
   } finally {
     (pglite as { query: typeof original }).query = original;
-    (pglite as { transaction: typeof originalTransaction }).transaction = originalTransaction;
+    (pglite as { transaction: typeof originalTx }).transaction = originalTx;
   }
   return seen;
 }

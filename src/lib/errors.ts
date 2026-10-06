@@ -162,6 +162,19 @@ export function isForeignKeyViolation(err: unknown): boolean {
 }
 
 /**
+ * A Postgres deadlock (SQLSTATE 40P01), unwrapped the same way. Postgres
+ * aborts one of the transactions in the cycle; the other goes on. Retrying the
+ * aborted one is safe — none of it committed.
+ */
+export function isDeadlock(err: unknown): boolean {
+  for (let e: unknown = err, depth = 0; e != null && depth < 5; depth++) {
+    if (typeof e === "object" && (e as { code?: unknown }).code === "40P01") return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
+/**
  * A Postgres unique-constraint violation (SQLSTATE 23505), unwrapped the same
  * way.
  *
