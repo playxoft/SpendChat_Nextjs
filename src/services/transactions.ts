@@ -15,6 +15,7 @@ import {
 import { deleteObjects } from "@/lib/r2";
 import { planBulkEdit, type BulkChange } from "@/lib/bulk-edit";
 import { setLogContext } from "@/lib/log-context";
+import { scheduleBudgetCheck } from "@/services/budget-alerts";
 import { logger } from "@/lib/logger";
 import { time } from "@/lib/timing";
 import { parseOrThrow, withId } from "@/lib/api-response";
@@ -203,6 +204,10 @@ export async function createTransactionId(
       })
       .returning({ id: transactions.id }),
   );
+  // After the response, not now — a crossing emails without slowing the send.
+  if (data.type === "expense") {
+    scheduleBudgetCheck({ workspaceId, userId, dates: [data.occurredOn] });
+  }
   return { id: row!.id };
 }
 
@@ -324,6 +329,9 @@ export async function updateTransaction(
         .set({ profileId })
         .where(eq(transactionAttachments.transactionId, data.id));
     });
+  }
+  if (data.type === "expense") {
+    scheduleBudgetCheck({ workspaceId, userId, dates: [data.occurredOn] });
   }
 
   return getTransactionById(userId, workspaceId, data.id);
@@ -553,6 +561,7 @@ export async function updateTransactions(
         type: transactions.type,
         categoryId: transactions.categoryId,
         tagIds: transactions.tagIds,
+        occurredOn: transactions.occurredOn,
       })
       .from(transactions)
       .where(and(inArray(transactions.id, ids), inArray(transactions.profileId, writable)))
@@ -565,12 +574,15 @@ export async function updateTransactions(
 
     let wrongKind = 0;
     let tagLimit = 0;
+    // Expenses that moved profile or category can push a budget over.
+    const expenseDates: string[] = [];
     const patches: { id: string; profileId: string; categoryId: string | null; tagIds: string[]; moved: boolean }[] = [];
     for (const row of current) {
       const plan = planBulkEdit({ ...row, tagIds: row.tagIds ?? [] }, change, TAGS_PER_TRANSACTION_MAX);
       if (plan.categorySkipped) wrongKind++;
       if (plan.tagsSkipped) tagLimit++;
       if (!plan.changed) continue;
+      if (row.type === "expense") expenseDates.push(row.occurredOn);
       patches.push({
         id: row.id,
         profileId: plan.next.profileId,
@@ -618,11 +630,13 @@ export async function updateTransactions(
 
     return {
       changedIds: patches.map((p) => p.id),
+      expenseDates,
       noAccess: ids.length - current.length,
       wrongKind,
       tagLimit,
     };
   });
+  scheduleBudgetCheck({ workspaceId, userId, dates: outcome.expenseDates });
 
   const rows = await getTransactionsByIds(userId, workspaceId, outcome.changedIds);
   return { rows, noAccess: outcome.noAccess, wrongKind: outcome.wrongKind, tagLimit: outcome.tagLimit };
@@ -679,7 +693,13 @@ export async function createManyTransactions(
   }));
 
   await db.insert(transactions).values(values);
+  scheduleBudgetCheck({ workspaceId, userId, dates: expenseDatesOf(values) });
   return { count: values.length };
+}
+
+/** The dates of the expenses in a batch about to be (or just) written. */
+function expenseDatesOf(values: { type: "income" | "expense"; occurredOn: string }[]): string[] {
+  return values.filter((v) => v.type === "expense").map((v) => v.occurredOn);
 }
 
 /**
@@ -793,5 +813,7 @@ export async function createBulkFromDrafts(
   if (values.length === 0) throw badRequest("No valid rows to import");
 
   await db.insert(transactions).values(values);
+  // Bulk add, CSV import and the AI's confirmed drafts all land here.
+  scheduleBudgetCheck({ workspaceId, userId, dates: expenseDatesOf(values) });
   return { count: values.length };
 }

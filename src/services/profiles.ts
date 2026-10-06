@@ -17,6 +17,7 @@ import { conflict, isForeignKeyViolation, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { deleteObjects } from "@/lib/r2";
 import { collectProfileObjectKeys } from "./storage-keys";
+import { scheduleBudgetCheck } from "./budget-alerts";
 import { assertCanAddProfilesToSpace } from "@/lib/entitlements";
 import {
   accessibleProfileIds,
@@ -448,6 +449,10 @@ export async function deleteProfile(
   }
 
   await deleteObjects(doomedKeys);
+  // Moved transactions can push the receiving profile's budget over.
+  if (disposal.transactions === "move") {
+    scheduleBudgetCheck({ workspaceId, userId, dates: "current" });
+  }
   return true;
 }
 
@@ -478,6 +483,7 @@ export async function moveProfileTransactions(
 
   const db = getDb();
   const moved = await db.transaction((tx) => reprofileTransactions(tx, fromId, toId));
+  if (moved > 0) scheduleBudgetCheck({ workspaceId: to.workspaceId, userId, dates: "current" });
   return { moved };
 }
 
