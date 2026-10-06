@@ -333,3 +333,20 @@ export async function updateSplitWorkspaceEntry(
     { userId: user.id, groupId, expenseId },
   );
 }
+
+/** You're no longer in an expense you'd added to your workspace: remove that entry. */
+export async function removeSplitWorkspaceEntry(
+  groupId: string,
+  expenseId: string,
+): Promise<ActionResult<{ transactionId: string }>> {
+  const user = await requireUser();
+  return runAction(
+    "removeSplitWorkspaceEntry",
+    async () => {
+      const { transactionId } = await ledger.removeWorkspaceEntry(user.id, groupId, expenseId);
+      revalidateApp();
+      return { transactionId };
+    },
+    { userId: user.id, groupId, expenseId },
+  );
+}

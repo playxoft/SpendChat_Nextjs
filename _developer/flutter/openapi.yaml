@@ -2931,6 +2931,31 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Split]
+      summary: Remove my entry after I was taken off the expense
+      description: |
+        When you were dropped from the expense (or your share became 0) after
+        adding it — `myShare.amountMinor` is 0 and `added` is true — deletes the
+        linked workspace transaction through the normal transaction rules (403
+        without edit access there) and clears the link. 409 while you still
+        have a share (update it instead) or when there's no entry.
+      responses:
+        "200":
+          description: Removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties: { removed: { type: boolean, enum: [true] } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
 
   /api/v1/split/groups/{id}/settlements:
     parameters:
@@ -4620,7 +4645,12 @@ components:
             required: [memberId, name, amountMinor, amount, percent]
         canEdit: { type: boolean, description: You added it, or you created the group. }
         myShare:
-          description: Your part of it; null when you're not in this expense.
+          description: |
+            Your part of it; null when you're not in this expense. If you were
+            taken off it after adding your share to a workspace, it stays with
+            `amountMinor: 0` and `added: true` — offer "Remove from my
+            workspace" (`DELETE …/workspace-entry`). `shares` never lists 0
+            rows.
           oneOf:
             - type: "null"
             - type: object

@@ -88,8 +88,8 @@ Authentication, secrets via Doppler.
   welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. Split
   invites (`src/services/split-invites.ts`) email only people **without** an account, **once per
   group per address, ever** (claimed on `split_members.invite_emailed_at`), inside a per-sender
-  daily cap (`SPLIT_INVITE_EMAILS_PER_DAY`, reserved with `reserveEmailSends`) and a per-inbox
-  weekly cap (`split_rate_log`, keyed on a hash of `emailKey()`), only after the add itself
+  daily cap and a per-inbox weekly cap (`reserveInviteEmails`, both in `split_rate_log` — **not**
+  the shared hourly pool, whose 429 would expose who was emailed), only after the add itself
   succeeded; account holders get an in-app invitation instead. **Never let a response say
   whether an address has an account** — adds answer `invited` either way. ZeptoMail is
   transactional-only — don't add newsletters or drip campaigns to this pipe.

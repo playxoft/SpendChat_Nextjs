@@ -29,6 +29,7 @@ import {
   leaveSplitGroup,
   loadSplitExpenses,
   loadSplitSettlements,
+  removeSplitWorkspaceEntry,
   updateSplitWorkspaceEntry,
 } from "@/actions/split";
 import { formatDateShort } from "@/lib/dates";
@@ -135,6 +136,15 @@ export function SplitGroupView({
     if (!res.ok) return toast.error(res.error);
     setPayments([...payments, ...res.items.filter((p) => !payments.some((x) => x.id === p.id))]);
     setPaymentsTotal(res.total);
+  }
+
+  /** "Remove from my workspace": dropped from the expense after adding it. */
+  async function removeEntry(e: SplitExpenseView) {
+    setUpdatingEntry(e.id);
+    const res = await removeSplitWorkspaceEntry(group.id, e.id).finally(() => setUpdatingEntry(null));
+    if (res.ok) toast.success("Removed from your workspace");
+    else toast.error(res.error);
+    router.refresh();
   }
 
   /** "Update my entry": same currency goes straight through; another asks for the amount. */
@@ -350,9 +360,25 @@ export function SplitGroupView({
                 {e.myShare && (
                   <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
                     <span className="text-muted-foreground">
-                      Your share <span className="font-medium text-foreground tabular-nums">{fmt(e.myShare.amountMinor)}</span>
+                      {e.myShare.amountMinor > 0 ? (
+                        <>
+                          Your share{" "}
+                          <span className="font-medium text-foreground tabular-nums">{fmt(e.myShare.amountMinor)}</span>
+                        </>
+                      ) : (
+                        "You're no longer in this expense, but it's in your workspace"
+                      )}
                     </span>
-                    {e.myShare.added && e.myShare.changedSinceAdded ? (
+                    {e.myShare.added && e.myShare.amountMinor === 0 ? (
+                      <Button
+                        size="xs"
+                        variant="outline"
+                        disabled={updatingEntry === e.id}
+                        onClick={() => removeEntry(e)}
+                      >
+                        {updatingEntry === e.id ? "Removing…" : "Remove from my workspace"}
+                      </Button>
+                    ) : e.myShare.added && e.myShare.changedSinceAdded ? (
                       <span className="inline-flex items-center gap-2">
                         <span className="text-muted-foreground">Changed since you added it</span>
                         <Button

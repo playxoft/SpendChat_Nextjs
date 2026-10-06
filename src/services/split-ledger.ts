@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, desc, eq, inArray, isNull, notInArray } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   profiles,
@@ -36,7 +36,7 @@ import {
 } from "@/lib/validation";
 import { getTransactionById } from "@/lib/queries";
 import { accessibleProfileIds, getWorkspaceMoneyFormat } from "@/lib/workspaces";
-import { createTransactionId, updateTransaction } from "@/services/transactions";
+import { createTransactionId, deleteTransaction, updateTransaction } from "@/services/transactions";
 import { groupMembers, parseSplitId, requireJoined, type JoinedContext } from "@/services/split";
 import { z } from "zod";
 
@@ -189,8 +189,10 @@ async function expenseViews(
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       paidBy: { memberId: e.paidByMemberId, name: names.get(e.paidByMemberId) ?? "" },
+      // 0 rows (kept only for a workspace link, or a percent share that
+      // rounded to nothing) aren't part of the split.
       shares: shares
-        .filter((s) => s.expenseId === e.id)
+        .filter((s) => s.expenseId === e.id && s.amountMinor > 0)
         .sort((a, b) => (order.get(a.memberId) ?? 0) - (order.get(b.memberId) ?? 0))
         .map((s) => ({
           memberId: s.memberId,
@@ -199,7 +201,8 @@ async function expenseViews(
           percentBp: s.percentBp,
         })),
       canEdit: canEditExpense(ctx.viewer, e),
-      myShare: mine
+      myShare:
+        mine && (mine.amountMinor > 0 || mine.transactionId !== null)
         ? {
             shareId: mine.id,
             amountMinor: mine.amountMinor,
@@ -325,7 +328,12 @@ export async function updateExpense(
     const ctx = await requireJoined(userId, rawGroupId, tx, "share");
     const expense = await loadExpense(tx, ctx, rawExpenseId);
     const existing = await tx.select().from(splitShares).where(eq(splitShares.expenseId, expense.id));
-    const keep = new Set([expense.paidByMemberId, ...existing.map((s) => s.memberId)]);
+    // Who may stay on it though they've left the group: whoever paid, and
+    // whoever still has a share (a 0 row kept for a workspace link doesn't count).
+    const keep = new Set([
+      expense.paidByMemberId,
+      ...existing.filter((s) => s.amountMinor > 0).map((s) => s.memberId),
+    ]);
     const plan = planExpense(ctx, await groupMembers(ctx.group.id, tx), data, keep);
 
     await tx
@@ -339,10 +347,20 @@ export async function updateExpense(
         updatedAt: new Date(),
       })
       .where(eq(splitExpenses.id, expense.id));
-    const nextIds = plan.shares.map((s) => s.memberId);
-    await tx
-      .delete(splitShares)
-      .where(and(eq(splitShares.expenseId, expense.id), notInArray(splitShares.memberId, nextIds)));
+    // Someone dropped from the expense: their share goes — unless it's linked
+    // to their workspace entry, in which case it stays at 0, so the link and
+    // "changed since you added it" survive and they can remove the entry.
+    const nextIds = new Set(plan.shares.map((s) => s.memberId));
+    const droppedIds = existing.filter((s) => !nextIds.has(s.memberId)).map((s) => s.id);
+    if (droppedIds.length) {
+      await tx
+        .delete(splitShares)
+        .where(and(inArray(splitShares.id, droppedIds), isNull(splitShares.transactionId)));
+      await tx
+        .update(splitShares)
+        .set({ amountMinor: 0, percentBp: null })
+        .where(and(inArray(splitShares.id, droppedIds), isNotNull(splitShares.transactionId)));
+    }
     const had = new Map(existing.map((s) => [s.memberId, s.id]));
     const fresh = plan.shares.filter((s) => !had.has(s.memberId));
     for (const s of plan.shares) {
@@ -680,10 +698,15 @@ export async function updateWorkspaceEntry(
     .leftJoin(transactions, eq(transactions.id, splitShares.transactionId))
     .leftJoin(profiles, eq(profiles.id, transactions.profileId))
     .where(and(eq(splitExpenses.id, expenseId), eq(splitExpenses.groupId, ctx.group.id)));
-  if (!row || row.share.amountMinor <= 0) throw notFound("You don't have a share in this expense");
+  if (!row || (row.share.amountMinor <= 0 && row.share.transactionId === null)) {
+    throw notFound("You don't have a share in this expense");
+  }
   const transactionId = row.share.transactionId;
   if (!transactionId || !row.workspaceId) {
     throw conflict("Your share isn't in a workspace any more — add it again instead");
+  }
+  if (row.share.amountMinor <= 0) {
+    throw conflict("You're no longer part of this expense — remove it from your workspace instead");
   }
   const workspaceId = row.workspaceId;
   const existing = await getTransactionById(userId, workspaceId, transactionId);
@@ -722,4 +745,53 @@ export async function updateWorkspaceEntry(
     sameCurrency,
   });
   return { transactionId, workspaceId };
+}
+
+/**
+ * "Remove from my workspace": the caller was dropped from an expense (or
+ * their share became 0) after they'd added it. Deletes the linked workspace
+ * transaction through the normal `deleteTransaction` — access checks in its
+ * own workspace, and the trash once that exists — then clears the link and
+ * the empty share row.
+ */
+export async function removeWorkspaceEntry(
+  userId: string,
+  rawGroupId: unknown,
+  rawExpenseId: unknown,
+): Promise<{ transactionId: string }> {
+  const db = getDb();
+  const ctx = await requireJoined(userId, rawGroupId);
+  const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
+  const [row] = await db
+    .select({ share: splitShares, workspaceId: profiles.workspaceId })
+    .from(splitExpenses)
+    .innerJoin(
+      splitShares,
+      and(eq(splitShares.expenseId, splitExpenses.id), eq(splitShares.memberId, ctx.me.id)),
+    )
+    .leftJoin(transactions, eq(transactions.id, splitShares.transactionId))
+    .leftJoin(profiles, eq(profiles.id, transactions.profileId))
+    .where(and(eq(splitExpenses.id, expenseId), eq(splitExpenses.groupId, ctx.group.id)));
+  if (!row) throw notFound("You don't have a share in this expense");
+  const transactionId = row.share.transactionId;
+  if (!transactionId || !row.workspaceId) throw conflict("Your share isn't in a workspace");
+  if (row.share.amountMinor > 0) {
+    throw conflict("You're still part of this expense — update your entry instead");
+  }
+  const deleted = await deleteTransaction(userId, row.workspaceId, transactionId);
+  if (!deleted) throw notFound("Your entry is in a workspace you can no longer open");
+  // Explicitly, not just via the FK: a transaction moved to the trash still exists.
+  await db
+    .delete(splitShares)
+    .where(and(eq(splitShares.id, row.share.id), eq(splitShares.amountMinor, 0)));
+  await db
+    .update(splitShares)
+    .set({ transactionId: null, addedAt: null, addedAmountMinor: null })
+    .where(and(eq(splitShares.id, row.share.id), eq(splitShares.transactionId, transactionId)));
+  logger.info("Split share's workspace entry removed", {
+    event: "split.share_entry_removed",
+    expenseId,
+    transactionId,
+  });
+  return { transactionId };
 }

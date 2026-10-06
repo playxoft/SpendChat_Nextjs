@@ -532,6 +532,8 @@ negative when they **owe**.
   "myShare": { "shareId": "uuid", "amountMinor": 3333, "amount": "33.33",
                "added": false, "addedAt": null,
                "changedSinceAdded": false } | null }  // added, then the expense changed → "Update my entry"
+// myShare stays (amountMinor 0, added true) when you're taken off an expense you'd
+// added → "Remove from my workspace". `shares` never lists 0 rows.
 
 // SplitSettlement ("Mark as paid")
 { "id": "uuid", "from": { "memberId": "uuid", "name": "Asha" },
@@ -866,6 +868,7 @@ records payments. Ids in paths are uuids; a malformed one is a 404.
 | `POST /split/invitations/{memberId}/accept` | — | 200 `data: SplitGroupDetail` | 404 not yours / no longer open |
 | `POST /split/invitations/{memberId}/decline` | — | 200 `data: { declined: true }` | Always allowed. The group's creator can't invite you back for 30 days |
 | `POST /split/groups/{id}/expenses/{expenseId}/add-to-workspace` | `{ profileId, categoryId?, title?, occurredOn?, amount? }` | 201 `data: Transaction` | **Reads `X-Workspace-Id`** (the current workspace). Your share as one expense in a profile you can write to (403; `plan_limit` in a view-only workspace). Same currency → the share is the amount; different → `amount` in the workspace's currency is required (**422 `amount_required`**). **409** when this share is already in a workspace — it can be added again only after that transaction is permanently deleted. 404 no share in it, or the expense was deleted mid-add; 422 an amount that rounds to 0 |
+| `DELETE /split/groups/{id}/expenses/{expenseId}/workspace-entry` | — | 200 `data: { removed: true }` | "Remove from my workspace" when you were taken off the expense after adding it (`myShare.amountMinor: 0`, `added: true`). Deletes the linked transaction through the normal rules (403 without edit access there). **409** while you still have a share, or when there's no entry |
 | `PUT /split/groups/{id}/expenses/{expenseId}/workspace-entry` | `{ amount? }` | 200 `data: Transaction` | "Update my entry" when `myShare.changedSinceAdded`. Works in whichever workspace the entry lives (header ignored), through the normal transaction rules; only the amount changes. Same currency → the new share; different → `amount` in that workspace's currency (**422 `amount_required`**). **409** when the share isn't in a workspace any more — add it again instead |
 
 ### Settings

@@ -38,6 +38,7 @@ ignores `X-Workspace-Id`. Everything here is additive.
 | `GET /split/invitations`, `POST /split/invitations/{memberId}/accept` / `decline` | Groups waiting for you to join |
 | `POST /split/groups/{id}/expenses/{expenseId}/add-to-workspace` | "Add my share to my workspace" — one expense in the current workspace (reads `X-Workspace-Id`) |
 | `PUT /split/groups/{id}/expenses/{expenseId}/workspace-entry` | "Update my entry" after the expense changed (`myShare.changedSinceAdded`) |
+| `DELETE /split/groups/{id}/expenses/{expenseId}/workspace-entry` | "Remove from my workspace" after you were taken off the expense (`myShare.amountMinor: 0`) |
 
 **Rules worth mirroring in the UI**
 - Only a **joined** member can see a group; everyone else (invitees included)
@@ -67,7 +68,9 @@ ignores `X-Workspace-Id`. Everything here is additive.
   the user what it cost them in the workspace's currency and send `amount`
   (422 `amount_required` otherwise). `myShare.added` flips to true; a second
   add is 409. If the expense changes later, `myShare.changedSinceAdded` turns
-  true — offer "Update my entry" (`PUT …/workspace-entry`).
+  true — offer "Update my entry" (`PUT …/workspace-entry`). If you're taken
+  off the expense instead, `myShare` stays with `amountMinor: 0` — offer
+  "Remove from my workspace" (`DELETE …/workspace-entry`).
 
 **New error codes:** `split_group_full` (409), `settle_first` (409),
 `invite_cooldown` (409), `amount_required` (422).

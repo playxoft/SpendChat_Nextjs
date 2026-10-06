@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { and, asc, count, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import {
@@ -212,7 +212,8 @@ async function ledgerTotals(memberIds: string[], db: DbOrTx) {
     db
       .select({ memberId: splitShares.memberId, total: sumMinor(splitShares.amountMinor) })
       .from(splitShares)
-      .where(inArray(splitShares.memberId, memberIds))
+      // 0 rows (kept for a workspace link) owe nothing; leave them out.
+      .where(and(inArray(splitShares.memberId, memberIds), gt(splitShares.amountMinor, 0)))
       .groupBy(splitShares.memberId),
     db
       .select({ memberId: splitSettlements.fromMemberId, total: sumMinor(splitSettlements.amountMinor) })

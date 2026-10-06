@@ -5,11 +5,6 @@ import { splitGroups, splitMembers } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
 import { ensureBootstrap, type SessionUser } from "@/lib/auth";
 import { redactEmail, sendEmail } from "@/lib/email";
-import {
-  reserveEmailSends,
-  SPLIT_INVITE_EMAIL_KIND,
-  SPLIT_INVITE_EMAILS_PER_DAY,
-} from "@/lib/email-quota";
 import { siteUrl, splitInviteEmail } from "@/lib/email-templates";
 import { recipientHash } from "@/lib/email-key";
 import { forbidden, isUniqueViolation, conflict, notFound } from "@/lib/errors";
@@ -17,7 +12,7 @@ import { splitInviteEmailPath } from "@/lib/invite-links";
 import { logger } from "@/lib/logger";
 import { memberLabel } from "@/lib/split-access";
 import { inviteTokenSchema } from "@/lib/validation";
-import { releaseEmails, reserveRecipientEmails } from "@/services/split-rate";
+import { reserveInviteEmails } from "@/services/split-rate";
 
 /**
  * Split invites for people without an account: the one email (abuse rule D1)
@@ -34,10 +29,14 @@ import { releaseEmails, reserveRecipientEmails } from "@/services/split-rate";
  *   `SPLIT_EMAILS_PER_RECIPIENT` split invites per 7 days, counted on a
  *   SHA-256 of the normalised address (`lib/email-key.ts` — `+tag` and Gmail
  *   dots collapse), so one person can't be flooded from many accounts.
- * - *A daily cap per sender,* reserved for the whole batch in one go
- *   (`reserveEmailSends`). Rows past either cap are un-claimed — compared on
- *   the exact timestamp this call wrote, so a concurrent claim is never undone
- *   — and the person is still in the group; the creator has their link.
+ * - *A daily cap per sender* (`SPLIT_INVITE_EMAILS_PER_DAY`). Both are
+ *   reserved for the whole batch in one go (`reserveInviteEmails`), in
+ *   `split_rate_log` — **not** in the shared hourly email pool, which a
+ *   workspace invite's 429 would expose: only people without an account are
+ *   emailed, so counting these there would leak who has one. Rows past either
+ *   cap are un-claimed — compared on the exact timestamp this call wrote, so a
+ *   concurrent claim is never undone — and the person is still in the group;
+ *   the creator has their link.
  * - *Only after every check passed:* callers run this after the add has
  *   committed, so a refused add (not the creator, group full) spends nothing.
  *
@@ -102,13 +101,8 @@ export async function emailNewInvitees(
       .map(async (c) => ({ ...c, recipientKey: await recipientHash(c.email) })),
   );
 
-  // Per inbox first (every sender counts), then the sender's own quota.
-  const perInbox = await reserveRecipientEmails(senderId, sendable);
-  const granted = await reserveEmailSends(senderId, SPLIT_INVITE_EMAIL_KIND, perInbox.length, {
-    perDay: SPLIT_INVITE_EMAILS_PER_DAY,
-  });
-  const sending = perInbox.slice(0, granted).map((g) => g.item);
-  await releaseEmails(perInbox.slice(granted).map((g) => g.logId));
+  // The sender's daily allowance and each inbox's weekly one, together.
+  const sending = await reserveInviteEmails(senderId, sendable);
 
   const sendingIds = new Set(sending.map((r) => r.id));
   const overflow = claimed.filter((c) => !sendingIds.has(c.id));

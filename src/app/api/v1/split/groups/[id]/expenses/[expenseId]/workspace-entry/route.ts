@@ -5,7 +5,7 @@ import { serializeTransaction } from "@/lib/api-serializers";
 import { notFound } from "@/lib/errors";
 import { getTransactionById } from "@/lib/queries";
 import { getWorkspaceMoneyFormat } from "@/lib/workspaces";
-import { updateWorkspaceEntry } from "@/services/split-ledger";
+import { removeWorkspaceEntry, updateWorkspaceEntry } from "@/services/split-ledger";
 
 export const dynamic = "force-dynamic";
 
@@ -37,5 +37,22 @@ export async function PUT(request: NextRequest, ctx: Ctx) {
     ]);
     if (!row) throw notFound("Transaction not found");
     return apiOk(serializeTransaction(row, money.currency));
+  });
+}
+
+/**
+ * DELETE /api/v1/split/groups/:id/expenses/:expenseId/workspace-entry —
+ * "Remove from my workspace": you were dropped from this expense (your share
+ * is now 0, `myShare.amountMinor: 0`) after adding it. Deletes the linked
+ * transaction through the normal rules (403 without edit access there) and
+ * clears the link. 409 while you still have a share (update it instead) or
+ * when there's no entry.
+ */
+export async function DELETE(request: NextRequest, ctx: Ctx) {
+  return handle(async () => {
+    const user = await getApiUser(request);
+    const { id, expenseId } = await ctx.params;
+    await removeWorkspaceEntry(user.id, id, expenseId);
+    return apiOk({ removed: true });
   });
 }

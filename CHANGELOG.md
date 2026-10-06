@@ -49,15 +49,15 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   a profile in your current workspace as an ordinary expense. If the group
   uses another currency, you enter what it cost you in yours. Each share can
   only be added once — and if the expense is edited afterwards, **Update my
-  entry** brings your workspace entry back in line.
+  entry** brings your workspace entry back in line (or **Remove from my
+  workspace**, if you were taken off it).
 - Mobile API 6.9.0: `/api/v1/split/*` (groups, people, expenses, payments,
   invitations, add to workspace, update my entry).
 
 ### Security
 - Split can't be used to send bulk email from our domain or to pester people:
   one invite email per group per address, ever; 30 invite emails a day per
-  sender (on top of the existing 20 an hour); 3 a week per inbox from everyone
-  together; 100 people added and 20 groups started per person a day; 3 open
+  sender; 3 a week per inbox from everyone together; 100 people added and 20 groups started per person a day; 3 open
   invitations from one person to one inbox. `+tags` and Gmail dots count as
   one inbox.
 - Adding someone to a group never reveals whether they already have a

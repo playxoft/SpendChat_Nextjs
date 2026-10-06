@@ -22,7 +22,7 @@ import { DELETE as deleteSettlement } from "@/app/api/v1/split/groups/[id]/settl
 import { GET as listInvitations } from "@/app/api/v1/split/invitations/route";
 import { POST as acceptInvitation } from "@/app/api/v1/split/invitations/[memberId]/accept/route";
 import { POST as declineInvitation } from "@/app/api/v1/split/invitations/[memberId]/decline/route";
-import { PUT as putWorkspaceEntry } from "@/app/api/v1/split/groups/[id]/expenses/[expenseId]/workspace-entry/route";
+import { DELETE as deleteWorkspaceEntry, PUT as putWorkspaceEntry } from "@/app/api/v1/split/groups/[id]/expenses/[expenseId]/workspace-entry/route";
 import { POST as addToWorkspace } from "@/app/api/v1/split/groups/[id]/expenses/[expenseId]/add-to-workspace/route";
 import { firstProfileId, workspaceIdOf } from "../helpers/seed";
 import { setSession, signInAs } from "../helpers/session";
@@ -396,5 +396,28 @@ describe("/api/v1/split", () => {
     );
     expect(entry.status).toBe(200);
     expect(entry.body.data.amountMinor).toBe(1310);
+
+    // Taken off the expense, she removes the entry from her workspace.
+    signInAs("o");
+    await putExpense(
+      apiReq("/x", {
+        method: "PUT",
+        body: jsonBody({
+          title: "Sushi",
+          amount: 4000,
+          paidBy: group.me.memberId,
+          occurredOn: "2026-10-01",
+          splitType: "equal",
+          memberIds: [group.me.memberId],
+        }),
+      }),
+      ctx({ id: group.id, expenseId: created.body.data.id }),
+    );
+    signInAs("asha");
+    const removed = await deleteWorkspaceEntry(
+      apiReq("/x", { method: "DELETE" }),
+      ctx({ id: group.id, expenseId: created.body.data.id }),
+    );
+    expect(removed.status).toBe(200);
   });
 });

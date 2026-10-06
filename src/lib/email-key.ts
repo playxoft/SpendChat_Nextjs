@@ -12,6 +12,14 @@
  *
  * Over-merging is the safe direction here — the key only ever makes caps
  * stricter and duplicates easier to spot.
+ *
+ * **Known gaps, accepted:** dots are collapsed only for `gmail.com` /
+ * `googlemail.com`. Google Workspace custom domains (which also ignore dots),
+ * Proton's dot/hyphen folding and Fastmail's `user@user.example.com`
+ * subdomain addressing are not normalised, so those spellings count as
+ * separate people. Every cap that uses this key is also bounded per sender
+ * (`SPLIT_ADDS_PER_DAY`, `SPLIT_INVITE_EMAILS_PER_DAY`), so the gap can't be
+ * used to send more than those allow. Don't extend this list piecemeal.
  */
 const GMAIL = new Set(["gmail.com", "googlemail.com"]);
 

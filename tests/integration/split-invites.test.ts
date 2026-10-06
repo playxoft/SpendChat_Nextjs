@@ -11,12 +11,7 @@ import {
   workspaces,
 } from "@/db/schema";
 import { sendEmail } from "@/lib/email";
-import {
-  EMAIL_SENDS_PER_HOUR,
-  reserveEmailSends,
-  SPLIT_INVITE_EMAIL_KIND,
-  SPLIT_INVITE_EMAILS_PER_DAY,
-} from "@/lib/email-quota";
+import { assertEmailSendAllowed, EMAIL_SENDS_PER_HOUR } from "@/lib/email-quota";
 import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import { bindSplitInvitesOnSignup } from "@/lib/split-signup";
 import { createWorkspaceWithDefaults } from "@/lib/workspaces";
@@ -26,6 +21,7 @@ import * as invites from "@/services/split-invites";
 import * as ledger from "@/services/split-ledger";
 import {
   SPLIT_ADDS_PER_DAY,
+  SPLIT_INVITE_EMAILS_PER_DAY,
   SPLIT_EMAILS_PER_RECIPIENT,
   SPLIT_EMAILS_PER_RECIPIENT_DAYS,
   SPLIT_GROUPS_PER_DAY,
@@ -58,11 +54,12 @@ async function rowFor(email: string) {
   return row!;
 }
 
+/** Split invite emails this person sent — counted in `split_rate_log`, never the shared pool. */
 async function splitSends(userAlias = "o") {
   return db()
     .select()
-    .from(emailSendLog)
-    .where(and(eq(emailSendLog.userId, uid(userAlias)), eq(emailSendLog.kind, SPLIT_INVITE_EMAIL_KIND)));
+    .from(splitRateLog)
+    .where(and(eq(splitRateLog.actorId, uid(userAlias)), eq(splitRateLog.event, "invite_emailed")));
 }
 
 describe("split invite emails (abuse rule D1)", () => {
@@ -125,15 +122,50 @@ describe("split invite emails (abuse rule D1)", () => {
     expect(strip(a)).toEqual(strip(n));
   });
 
+  it("D1: adding an account holder or not leaves every observable quota the same", async () => {
+    // Two creators: one adds someone with an account, the other someone without.
+    await bootstrapUser("asha");
+    for (const [creator, invitee] of [
+      ["c1", "asha@example.com"],
+      ["c2", "nobody@example.com"],
+    ] as const) {
+      await bootstrapUser(creator);
+      signInAs(creator);
+      ok(await actions.createSplitGroup({ name: "Trip", currency: "USD", members: [{ email: invitee, name: "X" }] }));
+    }
+    const pool = async (alias: string) =>
+      (await db().select().from(emailSendLog).where(eq(emailSendLog.userId, uid(alias)))).length;
+    const counted = async (alias: string, event: string) =>
+      (
+        await db()
+          .select()
+          .from(splitRateLog)
+          .where(and(eq(splitRateLog.actorId, uid(alias)), eq(splitRateLog.event, event)))
+      ).length;
+    // The shared hourly email pool — what a workspace invite's 429 exposes —
+    // is untouched for both; so are the add and group counters.
+    expect(await pool("c1")).toBe(0);
+    expect(await pool("c2")).toBe(0);
+    for (const event of ["member_added", "group_created"]) {
+      expect(await counted("c1", event)).toBe(await counted("c2", event));
+    }
+    // Both can still send exactly the full hourly allowance of other emails.
+    for (const alias of ["c1", "c2"]) {
+      for (let i = 0; i < EMAIL_SENDS_PER_HOUR; i++) await assertEmailSendAllowed(uid(alias), "member_invite");
+      await expect(assertEmailSendAllowed(uid(alias), "member_invite")).rejects.toMatchObject({ status: 429 });
+    }
+  });
+
   it("D1: the daily invite-email cap stops emails but still adds the people, with a link", async () => {
     await bootstrapUser("o");
-    // 25 split invites already today, outside the last hour.
+    // 25 split invites already today, to other inboxes.
     await db()
-      .insert(emailSendLog)
+      .insert(splitRateLog)
       .values(
-        Array.from({ length: 25 }, () => ({
-          userId: uid("o"),
-          kind: SPLIT_INVITE_EMAIL_KIND,
+        Array.from({ length: 25 }, (_, i) => ({
+          event: "invite_emailed",
+          actorId: uid("o"),
+          recipientKey: `earlier-${i}`,
           createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
         })),
       );
@@ -152,8 +184,9 @@ describe("split invite emails (abuse rule D1)", () => {
     const emailedTo = new Set(sent().map((m) => m.to));
     const skipped = added.find((a) => !emailedTo.has(a.email))!;
     expect((await rowFor(skipped.email)).inviteEmailedAt).toBeNull();
-    const inboxLog = await db().select().from(splitRateLog).where(eq(splitRateLog.event, "invite_emailed"));
-    expect(inboxLog).toHaveLength(left);
+    expect(await splitSends()).toHaveLength(SPLIT_INVITE_EMAILS_PER_DAY);
+    // Nothing went into the shared hourly pool.
+    expect(await db().select().from(emailSendLog).where(eq(emailSendLog.userId, uid("o")))).toHaveLength(0);
   });
 
   it("D1: refused adds (not the creator, group full) spend no email quota", async () => {
@@ -174,8 +207,7 @@ describe("split invite emails (abuse rule D1)", () => {
 
     // Fill the group, then one more is refused before any quota is touched.
     signInAs("o");
-    await db().delete(emailSendLog); // room for the fill
-    await db().delete(splitRateLog);
+    await db().delete(splitRateLog); // room for the fill
     const fill = ok(await actions.addSplitMembers(id, { members: people.slice(1, SPLIT_GROUP_MAX_PEOPLE - 3) }));
     expect(fill.added.length).toBe(SPLIT_GROUP_MAX_PEOPLE - 4);
     const afterFill = (await splitSends()).length;
@@ -392,18 +424,6 @@ describe("sign-up from a split invite", () => {
     expect(await bindSplitInvitesOnSignup(uid("dup"), "A2@example.com")).toBe(0);
     expect((await rowFor("a2@example.com")).userId).toBeNull();
     void id;
-  });
-});
-
-describe("email quota reservation", () => {
-  it("shares the hourly pool with every other user-triggered email", async () => {
-    await registerUser("q");
-    expect(await reserveEmailSends(uid("q"), SPLIT_INVITE_EMAIL_KIND, 0)).toBe(0);
-    await db()
-      .insert(emailSendLog)
-      .values(Array.from({ length: EMAIL_SENDS_PER_HOUR - 2 }, () => ({ userId: uid("q"), kind: "member_invite" })));
-    expect(await reserveEmailSends(uid("q"), SPLIT_INVITE_EMAIL_KIND, 5, { perDay: 30 })).toBe(2);
-    expect(await reserveEmailSends(uid("q"), "member_invite", 1)).toBe(0);
   });
 });
 
@@ -668,6 +688,94 @@ describe("add my share to my workspace", () => {
   });
 });
 
+describe("a share that drops to 0 after it was added", () => {
+  async function addedShare() {
+    await bootstrapUser("asha");
+    const { id } = await newGroup([{ email: "asha@example.com", name: "Asha" }]);
+    const ashaId = (await rowFor("asha@example.com")).id;
+    signInAs("asha");
+    ok(await actions.acceptSplitInvitation(ashaId));
+    signInAs("o");
+    const ownerId = (await split.getGroupDetail(uid("o"), id)).me.memberId;
+    const input = {
+      title: "Hotel",
+      amount: 90,
+      paidBy: ownerId,
+      occurredOn: today,
+      splitType: "equal" as const,
+      memberIds: [ownerId, ashaId],
+    };
+    const { id: expenseId } = ok(await actions.createSplitExpense(id, input));
+    signInAs("asha");
+    const { transactionId } = ok(
+      await actions.addSplitShareToWorkspace(id, expenseId, { profileId: await firstProfileId("asha") }),
+    );
+    return { groupId: id, expenseId, ashaId, ownerId, input, transactionId };
+  }
+
+  it("keeps the linked row at 0, out of the split and the balances, and offers Remove", async () => {
+    const { groupId, expenseId, ashaId, ownerId, input, transactionId } = await addedShare();
+    // The payer takes Asha off the expense.
+    signInAs("o");
+    ok(await actions.updateSplitExpense(groupId, expenseId, { ...input, memberIds: [ownerId] }));
+
+    const [row] = await db().select().from(splitShares).where(eq(splitShares.memberId, ashaId));
+    expect(row).toMatchObject({ amountMinor: 0, transactionId });
+    const detail = await split.getGroupDetail(uid("o"), groupId);
+    expect(detail.members.find((m) => m.id === ashaId)!.netMinor).toBe(0);
+    expect(detail.suggestions).toEqual([]);
+    const page = await ledger.listExpenses(uid("asha"), groupId, { limit: 5, offset: 0 });
+    expect(page.items[0]!.shares.map((s) => s.memberId)).toEqual([ownerId]);
+    expect(page.items[0]!.myShare).toMatchObject({ amountMinor: 0, added: true, changedSinceAdded: true });
+
+    // Update doesn't apply to a 0 share; Remove does — through deleteTransaction.
+    signInAs("asha");
+    expect(await actions.updateSplitWorkspaceEntry(groupId, expenseId, {})).toMatchObject({
+      ok: false,
+      code: "conflict",
+    });
+    ok(await actions.removeSplitWorkspaceEntry(groupId, expenseId));
+    expect(await db().select().from(transactions).where(eq(transactions.id, transactionId))).toEqual([]);
+    expect(await db().select().from(splitShares).where(eq(splitShares.memberId, ashaId))).toEqual([]);
+    const after = await ledger.listExpenses(uid("asha"), groupId, { limit: 5, offset: 0 });
+    expect(after.items[0]!.myShare).toBeNull();
+    expect(await actions.removeSplitWorkspaceEntry(groupId, expenseId)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+  });
+
+  it("brings the same row back if they're put on the expense again, link intact", async () => {
+    const { groupId, expenseId, ashaId, ownerId, input, transactionId } = await addedShare();
+    signInAs("o");
+    ok(await actions.updateSplitExpense(groupId, expenseId, { ...input, memberIds: [ownerId] }));
+    ok(await actions.updateSplitExpense(groupId, expenseId, input));
+    const [row] = await db().select().from(splitShares).where(eq(splitShares.memberId, ashaId));
+    expect(row).toMatchObject({ amountMinor: 4500, transactionId });
+    const page = await ledger.listExpenses(uid("asha"), groupId, { limit: 5, offset: 0 });
+    expect(page.items[0]!.myShare).toMatchObject({ added: true, changedSinceAdded: false });
+    // While she has a share, Remove isn't the way.
+    signInAs("asha");
+    expect(await actions.removeSplitWorkspaceEntry(groupId, expenseId)).toMatchObject({
+      ok: false,
+      code: "conflict",
+    });
+  });
+
+  it("a 0 row with no link is simply dropped, and an unlinked share can't be removed", async () => {
+    const { groupId, expenseId, ownerId, input } = await addedShare();
+    // o's own share was never added: dropping o leaves no row.
+    signInAs("o");
+    const ashaId = (await rowFor("asha@example.com")).id;
+    ok(await actions.updateSplitExpense(groupId, expenseId, { ...input, paidBy: ownerId, memberIds: [ashaId] }));
+    expect(await db().select().from(splitShares).where(eq(splitShares.memberId, ownerId))).toEqual([]);
+    expect(await actions.removeSplitWorkspaceEntry(groupId, expenseId)).toMatchObject({
+      ok: false,
+      code: "not_found",
+    });
+  });
+});
+
 describe("invite pages' metadata", () => {
   it("state their own canonical and og:url, and are never indexed", async () => {
     const workspacePage = await import("@/app/(auth)/invite/[token]/page");
@@ -682,4 +790,3 @@ describe("invite pages' metadata", () => {
     expect(sp.title).toBe("Join a split group");
   });
 });
-

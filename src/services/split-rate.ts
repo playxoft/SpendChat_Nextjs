@@ -23,6 +23,15 @@ export const SPLIT_ADDS_PER_DAY = 100;
 export const SPLIT_PENDING_PER_INVITEE = 3;
 /** Days before someone who declined or left can be invited back into that group. */
 export const SPLIT_INVITE_COOLDOWN_DAYS = 30;
+/**
+ * Split invite emails one person may send per rolling 24 hours (abuse rule
+ * D1). Counted here, in `split_rate_log` — deliberately **not** in the shared
+ * hourly email pool (`email-quota.ts`): only people without an account are
+ * emailed, so if these sends ate into that pool, a workspace invite's 429
+ * would tell the sender which of the people they just added have accounts.
+ * Nothing a response carries depends on this counter or the per-inbox one.
+ */
+export const SPLIT_INVITE_EMAILS_PER_DAY = 30;
 /** Split invite emails one inbox may receive, from everyone together… */
 export const SPLIT_EMAILS_PER_RECIPIENT = 3;
 /** …per this many days. */
@@ -71,22 +80,27 @@ export async function logActorEvents(
 }
 
 /**
- * Reserve one invite email per item for inboxes still under
- * `SPLIT_EMAILS_PER_RECIPIENT` in the window, counting every sender. Returns
- * the granted items with the log row that reserved each (for `releaseEmails`).
- * Locks are taken in a fixed order, so two batches can't deadlock.
+ * Reserve invite emails for a batch: one per item, while the sender is under
+ * `SPLIT_INVITE_EMAILS_PER_DAY` and the item's inbox under
+ * `SPLIT_EMAILS_PER_RECIPIENT` in its window (every sender counts). Granted
+ * items are logged as `invite_emailed` (actor = sender, recipient = inbox hash)
+ * in the same transaction, so the reservation *is* the record. Locks: the
+ * sender first, then the inboxes in a fixed order — two batches can't
+ * deadlock, and neither can slip past a cap.
  */
-export async function reserveRecipientEmails<T extends { recipientKey: string }>(
-  actorId: string,
+export async function reserveInviteEmails<T extends { recipientKey: string }>(
+  senderId: string,
   items: T[],
-): Promise<{ item: T; logId: string }[]> {
+): Promise<T[]> {
   if (items.length === 0) return [];
   const db = getDb();
   return db.transaction(async (tx) => {
+    await lockActor(tx, senderId);
     const keys = [...new Set(items.map((i) => i.recipientKey))].sort();
     for (const key of keys) {
       await tx.execute(sql`select pg_advisory_xact_lock(${RECIPIENT_LOCK}, hashtext(${key}))`);
     }
+    let senderRoom = SPLIT_INVITE_EMAILS_PER_DAY - (await actorEventsToday(tx, senderId, "invite_emailed"));
     const since = new Date(Date.now() - SPLIT_EMAILS_PER_RECIPIENT_DAYS * DAY_MS);
     const rows = await tx
       .select({ key: splitRateLog.recipientKey, n: count() })
@@ -100,23 +114,20 @@ export async function reserveRecipientEmails<T extends { recipientKey: string }>
       )
       .groupBy(splitRateLog.recipientKey);
     const used = new Map(rows.map((r) => [r.key, r.n]));
-    const granted: { item: T; logId: string }[] = [];
+    const granted: T[] = [];
     for (const item of items) {
+      if (senderRoom <= 0) break;
       const n = used.get(item.recipientKey) ?? 0;
       if (n >= SPLIT_EMAILS_PER_RECIPIENT) continue;
       used.set(item.recipientKey, n + 1);
-      const [log] = await tx
-        .insert(splitRateLog)
-        .values({ event: "invite_emailed", actorId, recipientKey: item.recipientKey })
-        .returning({ id: splitRateLog.id });
-      granted.push({ item, logId: log!.id });
+      senderRoom -= 1;
+      granted.push(item);
+    }
+    if (granted.length) {
+      await tx.insert(splitRateLog).values(
+        granted.map((g) => ({ event: "invite_emailed", actorId: senderId, recipientKey: g.recipientKey })),
+      );
     }
     return granted;
   });
-}
-
-/** Hand back recipient reservations that ended up not being sent. */
-export async function releaseEmails(logIds: string[]): Promise<void> {
-  if (logIds.length === 0) return;
-  await getDb().delete(splitRateLog).where(inArray(splitRateLog.id, logIds));
 }
