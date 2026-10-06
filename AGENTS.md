@@ -46,7 +46,7 @@ Authentication, secrets via Doppler.
   guarded internal route (`lib/cron-dispatch.ts`, `lib/cron-token.ts`,
   `app/api/internal/cron/*`), so they get Hyperdrive, `after()` log shipping and
   `withRequestContext` like any request. Each env's `vars` carries `APP_ORIGIN` for that request.
-  Test a run locally with `wrangler dev --test-scheduled` and `curl /__scheduled`.
+  Test a run locally with `wrangler dev --env beta --test-scheduled` and `curl /__scheduled`.
 
 ## Conventions
 - **Money** is stored as integer minor units (`amount_minor`). Convert with `src/lib/money.ts`
@@ -109,6 +109,29 @@ Authentication, secrets via Doppler.
   otherwise, and `tests/integration/trash-reads.test.ts` runs every read in `queries.ts` against
   seeded trash. Attachments have no trash state of their own — always read it through the parent
   transaction. Keep the literal `deleted_at is null` in feed queries: the feed index is partial.
+- **Rate limits are per person** (abuse rule C8; numbers in `RATE_LIMITS`, `src/lib/plans.ts`).
+  Every authenticated request counts against one bucket — `create`, `read` or `ai` — over 1-,
+  5- and 60-minute windows, judged by the plan of the workspace in context (with no workspace,
+  the best plan among the person's workspaces). It's enforced at the two seams, so a new route
+  needs nothing. **A new server action does need a bucket if it isn't a create:** a read-only
+  action, or a write of the person's own UI prefs, passes `rateLimit: "read"` in its `runAction`
+  meta; an AI call passes `"ai"`.
+  - `runAction`: the bucket comes from `meta.rateLimit` (default `create`).
+  - The REST API: the check runs in `getApiContext` / `requireApiUser`. `/api/v1/ai/*` → ai,
+    `GET`/`HEAD` → read, else create.
+  - A cookie-auth route handler outside both seams calls `rateLimitedResponse()`.
+  - A heavy read can weigh more than one request: a CSV export counts as `EXPORT_WEIGHT` (20)
+    reads, on the API (`rateOfApiRequest`) and the web route alike.
+  - Over the limit: 429 `rate_limited`, with `Retry-After` on the API and
+    `details.retryAfterSeconds` from an action.
+  - The counts live in one SQLite-backed Durable Object per user (`src/lib/rate-limit/`). It's
+    exported from the Worker entry **`worker.ts`** (`main` in wrangler.toml) and bound as
+    `RATE_LIMITER` in each env, not at the top level, which `next dev` reads.
+  - The limiter **fails open** when the binding is missing (`next dev`, tests), and when the
+    object errors or is slow — **except for AI**, which then fails closed (429, retry in 5 s):
+    nothing else bounds paid provider calls.
+  - After a `wrangler.toml` change, run `pnpm cf-typegen`: `cloudflare-env.d.ts` is generated
+    and gitignored, and typecheck needs the new binding types.
 - **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,
   mutations in `src/actions/*` (server actions), both validated with Zod (`src/lib/validation.ts`).
 - **Auth: Firebase Authentication** (Google + email/password). Sign-in happens in the browser

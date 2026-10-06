@@ -121,7 +121,12 @@ export async function updateTransaction(
       revalidateApp();
       return {};
     },
-    { userId: user.id, transactionId: input.id, profileId: input.profileId ?? null },
+    {
+      userId: user.id,
+      workspaceId: workspace.id,
+      transactionId: input.id,
+      profileId: input.profileId ?? null,
+    },
   );
 }
 
@@ -135,7 +140,7 @@ export async function deleteTransaction(id: string): Promise<ActionResult> {
       revalidateApp();
       return {};
     },
-    { userId: user.id, transactionId: id },
+    { userId: user.id, workspaceId: workspace.id, transactionId: id },
   );
 }
 
@@ -207,7 +212,7 @@ export async function loadMoreTransactions(
       });
       return { rows };
     },
-    { userId: user.id, workspaceId: workspace.id },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
   );
 }
 
@@ -234,7 +239,7 @@ export async function loadOlderFeed(
       // Oldest-first for the chat feed; the client prepends these above.
       return { rows: newestFirst.reverse() };
     },
-    { userId: user.id, workspaceId: workspace.id },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
   );
 }
 
@@ -260,11 +265,12 @@ export async function addBulkTransactions(drafts: BulkDraft[]): Promise<ActionRe
  * right date, and categories come from the workspace so the model can only pick
  * names that actually exist.
  *
- * Unlike a plain read, this one *costs money* on every call, so it's gated twice
- * before anything reaches a provider: the caller needs the editor role (the UI
- * hides AI mode from viewers, but a server action is callable by any signed-in
- * user regardless of what rendered), and then the AI charge — the per-user
- * hourly cap and the workspace's monthly allowance (`ai-quota.ts`).
+ * Unlike a plain read, this one *costs money* on every call, so it's gated
+ * before anything reaches a provider: the per-person `ai` rate limit (in
+ * `runAction`), then the editor role (the UI hides AI mode from viewers, but a
+ * server action is callable by any signed-in user regardless of what
+ * rendered), and then the AI charge against the workspace's monthly allowance
+ * (`ai-quota.ts`).
  *
  * A typed note costs one AI action. Pass `source: "voice"` when the note is a
  * transcript from `transcribeVoiceNoteAction` (edited or not): the clip already
@@ -319,7 +325,7 @@ export async function parseTransactionsWithAI(
         return { drafts, tags };
       });
     },
-    { userId: user.id, workspaceId: workspace.id },
+    { userId: user.id, rateLimit: "ai", workspaceId: workspace.id },
   );
 }
 
@@ -406,6 +412,6 @@ export async function transcribeVoiceNoteAction(
         return { text };
       });
     },
-    { userId: user.id, workspaceId: workspace.id },
+    { userId: user.id, rateLimit: "ai", workspaceId: workspace.id },
   );
 }

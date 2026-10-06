@@ -57,7 +57,7 @@ Every JSON response uses one of two shapes:
 | `not_found` | 404 | Resource / workspace / profile not accessible to the caller |
 | `conflict` | 409 | Duplicate name; last profile; non-empty profile delete; email already registered with a different sign-in method (unverified email only — see § Authentication) |
 | `validation_error` | 422 | Zod validation failed (`details` = field→message) |
-| `rate_limited` | 429 | Shared per-user AI quota spent (30 calls/hour across `/ai/*`) |
+| `rate_limited` | 429 | Over a **per-person rate limit** for the plan (since 6.6.0, any endpoint — see § Rate limits). `Retry-After` header = seconds to wait; `details` = `{ bucket, window, retryAfterSeconds }` |
 | `payload_too_large` | 413 | An uploaded attachment file exceeds 5 MB, or the whole request body is larger than the endpoint's limits could ever allow (rejected from `Content-Length`, before the body is read) |
 | `storage_quota_exceeded` | 413 | The upload would push the workspace past its plan's storage — 1 / 5 / 20 GB on Free / Plus / Pro (message says how much space remains — displayable as-is; since 6.5.0 `details` is a `PlanLimitDetails` with `limit: "storage"`) |
 | `ai_failed` | 502 | The upstream AI model provider errored — retry is reasonable |
@@ -124,6 +124,47 @@ downgrade) is **view-only**: `GET /usage` → `readOnly: true` (and
 attachments, vault files, profile edits) and every add at workspace level
 (profiles, spaces, categories, tags). Render such a workspace read-only up
 front rather than waiting for the error.
+
+### Rate limits (`429 rate_limited`, since 6.6.0)
+
+Every authenticated request counts against a **per-person** limit, checked over
+three windows at once — 1 minute, 5 minutes and 1 hour — in one of three
+buckets picked from the request itself:
+
+| Request | Bucket |
+|---|---|
+| `POST /ai/parse`, `POST /ai/transcribe` | **ai** |
+| any other `GET` / `HEAD` | **read** |
+| every other `POST` / `PUT` / `PATCH` / `DELETE` | **create** |
+
+| Per person (1 min / 5 min / 1 hour) | Free | Plus | Pro |
+|---|---|---|---|
+| create | 20 / 60 / 300 | 30 / 100 / 500 | 40 / 150 / 800 |
+| read | 120 / 400 / 2,000 | 180 / 600 / 3,000 | 240 / 900 / 5,000 |
+| ai | 3 / 6 / 10 | 5 / 15 / 30 | 6 / 20 / 60 |
+
+- The numbers are the plan of the workspace in context (`X-Workspace-Id`, else
+  the current one). `GET`/`POST /workspaces` and `/organization` have no
+  workspace in context: they use the best plan among the caller's workspaces.
+- **A bulk call is one request** — `POST /transactions/bulk` with 500 rows, or
+  a multi-file upload, counts once. A **CSV export** (`GET /transactions/export`,
+  up to 5,000 rows) is the exception the other way: it counts as **20 reads**
+  (6 a minute on Free).
+- Over a limit → **`429 rate_limited`** with a **`Retry-After`** header (whole
+  seconds) and
+  `error.details = { bucket: "create" | "read" | "ai", window: "1m" | "5m" | "1h", retryAfterSeconds }`.
+  `error.message` already says how long to wait ("That's a lot of changes in a
+  short time. Try again in 40 seconds.") — show it as-is.
+- **Wait `Retry-After` before retrying.** An earlier retry is refused again;
+  refused requests don't count against you. Never retry a 429 in a loop.
+- Minting a file URL (`GET /files/{id}/url`, `GET /attachments/{id}/url`) is a
+  read — mint per view and reuse the URL for its lifetime (`expiresInSeconds`)
+  instead of re-minting while scrolling a grid.
+- On `/ai/*` two 429s come without `window`: a second AI call sent while your
+  previous one is still being charged (`retryAfterSeconds: 1`), and AI paused
+  because the server can't check the limit right now (`retryAfterSeconds: 5`
+  — AI is refused rather than allowed unchecked; other endpoints carry on).
+- `GET /version` is never limited.
 
 ---
 
@@ -719,8 +760,9 @@ only color + tags — rename/move/delete/share/upload-into are 400s.
 | `DELETE /file-shares/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Token stops working immediately. 422; 404 |
 
 ### AI (assisted entry — both endpoints cost money server-side, so they're extra-gated)
-Both require the **editor** role (403 for viewers — hide the UI) and share a
-per-user quota of **30 calls/hour** (429 `rate_limited`, checked first). Since
+Both require the **editor** role (403 for viewers — hide the UI) and share the
+per-person **`ai` rate limit** (429 `rate_limited` + `Retry-After`, checked
+first — §1 · Rate limits; it replaced the 30 calls/hour quota in 6.6.0). Since
 6.5.0 both also spend the workspace's **monthly AI allowance** — 50 / 300 /
 1,000 AI actions per UTC calendar month on Free / Plus / Pro (`GET /usage` →
 `ai`); once it's spent the call is **403 `plan_limit`**, `limit: "aiActions"`,
@@ -734,7 +776,7 @@ back. Neither writes any user data.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `POST /ai/parse` | `{ text, timezone?, source? }` — text ≤ 3000 chars (2000 before 6.5.0); timezone = IANA device zone (omitted → UTC); `source` = `typed` (default) \| `voice` (6.5.0; anything else → 422) | 200 `data: { drafts: AiDraft[], today }` | Free text → ≤ 50 reviewable drafts. **Nothing is saved** — user reviews/edits, then commit kept drafts via `POST /transactions/bulk`. Note hints: `/Category` picks a category (slash + a letter; a slash between digits is a date), `#Tag` tags it (hash + a letter, repeatable, max 10), `(parens)` → description, relative dates resolve against `timezone`. Since 6.4.0 the model **also infers** tags, so a draft may carry one the note never named — always a real workspace tag, and the user drops it in review. **Cost:** one AI action; a `source: "voice"` parse is free when the caller has an unclaimed paid transcription in this workspace from the last 15 minutes (each paid clip covers one), else charged like a typed note. 400 empty/too-long text, bad timezone, or nothing parseable ("I couldn't find any transactions in that…"); 403 `plan_limit` `aiActions` |
-| `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) + `durationMs` (6.5.0, integer ms) | 200 `data: { text }` | Voice note → transcript (≤ 2400 chars) for the composer; user fixes it, then it goes through `/ai/parse` (with `source: "voice"`) like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB and up to **2 minutes** (cap recording at 120 s; 60 s before 6.5.0). **Cost:** one AI action per started minute of `durationMs` (clamped to 120000; 61 s → 2); omitted → charged as a full two minutes, so always send it; malformed/negative → 400. **403 `plan_limit`** `voice` off Pro, `aiActions` when the allowance is spent. Languages guided by `settings.voiceLanguages`; amounts come back as digits. **413** when the request's `Content-Length` alone exceeds 4 MB (refused before the body is read); 400 bad/empty/oversized audio or no speech — a 400 on format/size/emptiness costs **no quota slot** (those checks precede the role + quota gates), so retrying is free. 413 and 400 mean the same thing here (recording too long) and differ only in whether the client declared its size |
+| `POST /ai/transcribe` | **multipart** — recording under `audio` (+ optional `mimeType` text field fallback) + `durationMs` (6.5.0, integer ms) | 200 `data: { text }` | Voice note → transcript (≤ 2400 chars) for the composer; user fixes it, then it goes through `/ai/parse` (with `source: "voice"`) like a typed note. Audio is discarded, never stored. Accepted: webm/ogg/mp4(m4a)/mpeg/wav; ≤ 4 MB and up to **2 minutes** (cap recording at 120 s; 60 s before 6.5.0). **Cost:** one AI action per started minute of `durationMs` (clamped to 120000; 61 s → 2); omitted → charged as a full two minutes, so always send it; malformed/negative → 400. **403 `plan_limit`** `voice` off Pro, `aiActions` when the allowance is spent. Languages guided by `settings.voiceLanguages`; amounts come back as digits. **413** when the request's `Content-Length` alone exceeds 4 MB (refused before the body is read); 400 bad/empty/oversized audio or no speech — a 400 on format/size/emptiness costs **no AI action** (those checks precede the role + allowance gates), though like any request it counts once against the `ai` rate limit. 413 and 400 mean the same thing here (recording too long) and differ only in whether the client declared its size |
 
 ### Categories (scoped to the current workspace via `X-Workspace-Id`)
 Shared by every member of the workspace. Reads need workspace access; writes

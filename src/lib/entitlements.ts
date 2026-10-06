@@ -24,7 +24,7 @@ import {
 } from "@/lib/plans";
 import { getTrashBytes, getWorkspaceStorageUsage } from "@/lib/queries";
 import { forgetForRequest, memoizeForRequest } from "@/lib/request-cache";
-import { readOnlyWorkspaceError, readOnlyWorkspaceSql } from "@/lib/workspaces";
+import { listUserWorkspaces, readOnlyWorkspaceError, readOnlyWorkspaceSql } from "@/lib/workspaces";
 import { notTrashed } from "@/lib/trash-scope";
 
 /**
@@ -93,6 +93,51 @@ export function forgetEntitlements(workspaceId: string): void {
 /** The workspace's plan (memoized per request). */
 export async function getWorkspacePlan(workspaceId: string): Promise<PersonalPlan> {
   return (await getWorkspaceEntitlements(workspaceId)).plan;
+}
+
+/** The workspaces the person can open, read once per request — for the two plan lookups below. */
+function userWorkspacesForRequest(userId: string) {
+  return memoizeForRequest(`user-workspaces:${userId}`, () => listUserWorkspaces(userId));
+}
+
+/**
+ * The highest plan among every workspace the person can open (memoized per
+ * request). What a request with no workspace in context — account settings,
+ * the workspace list, the organisation — is rate-limited by (`lib/rate-limit`),
+ * so a paid member isn't held to Free's numbers there. Read only when such a
+ * request is over Free's numbers, so it's off the hot path.
+ */
+export async function getBestPlanForUser(userId: string): Promise<PersonalPlan> {
+  return (await getPlanRangeForUser(userId)).ceiling;
+}
+
+/** The lowest and highest plan among the workspaces a person can open. */
+export type PlanRange = { floor: PersonalPlan; ceiling: PersonalPlan };
+
+/**
+ * The lowest and highest plan among every workspace the person can open
+ * (memoized per request; Free/Free when they have none). The rate limiter
+ * reads it once per block: someone whose workspaces are all on one plan can be
+ * refused from the block without looking anything up again.
+ */
+export async function getPlanRangeForUser(userId: string): Promise<PlanRange> {
+  const plans = (await userWorkspacesForRequest(userId)).map((w) => w.plan);
+  if (plans.length === 0) return { floor: "free", ceiling: "free" };
+  return {
+    floor: plans.reduce((low, p) => (planAtLeast(low, p) ? p : low)),
+    ceiling: plans.reduce((high, p) => (planAtLeast(p, high) ? p : high)),
+  };
+}
+
+/**
+ * The plan of `workspaceId` **as this person sees it**: the workspace's plan if
+ * they can open it, else Free. For rate limiting a server action by the
+ * workspace id it was handed — the id comes from the client, and a workspace
+ * the person isn't in must not lend them its plan.
+ */
+export async function getPlanForUserIn(userId: string, workspaceId: string): Promise<PersonalPlan> {
+  const list = await userWorkspacesForRequest(userId);
+  return list.find((w) => w.id === workspaceId)?.plan ?? "free";
 }
 
 // ── Errors ─────────────────────────────────────────────────────────────────

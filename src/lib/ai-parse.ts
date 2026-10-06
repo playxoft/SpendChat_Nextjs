@@ -30,10 +30,10 @@ import {
  * every field and resolves category names against the workspace's own list
  * (unknown → null), so a hallucinated category or bad amount can't leak in.
  *
- * Access + cost are enforced by the caller, not here — the action checks the
- * editor role, then charges the call against the per-user hourly cap and the
- * workspace's monthly AI allowance (`ai-quota.ts`) *before* calling in, so a
- * denied request never reaches a paid provider.
+ * Access + cost are enforced by the caller, not here — the per-person `ai` rate
+ * limit at the request seam, then the editor role, then the charge against the
+ * workspace's monthly AI allowance (`ai-quota.ts`), all *before* calling in, so
+ * a denied request never reaches a paid provider.
  */
 
 export type AiCategory = { name: string; kind: "income" | "expense" };

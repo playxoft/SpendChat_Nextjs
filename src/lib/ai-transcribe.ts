@@ -190,9 +190,10 @@ export function cleanTranscript(raw: string): string {
  * 503 when transcription isn't configured, 502 on an upstream failure, 400 when
  * the recording is unusable or contained no speech.
  *
- * Access, the voice plan gate and the AI charge (hourly cap + monthly
- * allowance) are enforced by the caller *before* this runs, exactly as for
- * `parseTransactionsText` — a denied request must never reach a paid provider.
+ * The per-person `ai` rate limit, access, the voice plan gate and the AI
+ * charge (the monthly allowance) are enforced by the caller *before* this
+ * runs, exactly as for `parseTransactionsText` — a denied request must never
+ * reach a paid provider.
  */
 export async function transcribeVoiceNote(opts: {
   audio: AudioInput;
