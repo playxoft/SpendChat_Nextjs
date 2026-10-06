@@ -19,6 +19,40 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.6.0 — 2026-10-06
+
+Per-person rate limits. Every authenticated endpoint can now answer
+**`429 rate_limited`**: each person's requests are counted over 1-minute,
+5-minute and 1-hour windows in one of three buckets — `ai` (`/ai/*`), `read`
+(any other `GET`/`HEAD`), `create` (every other method) — against the numbers
+of the workspace's plan (Free / Plus / Pro; the table is in
+[01-api-reference.md](./01-api-reference.md) § Rate limits). A bulk call counts
+once. `GET /version` is never limited.
+
+**What a 429 looks like**
+
+| Where | What |
+|---|---|
+| Header | `Retry-After: <seconds>` — new on every rate-limit 429 |
+| `error.details` | `{ bucket: "create" \| "read" \| "ai", window: "1m" \| "5m" \| "1h", retryAfterSeconds }` (new `RateLimitedDetails`) |
+| `error.message` | Ready to show, with the wait spelled out: "That's a lot of changes in a short time. Try again in 40 seconds." |
+
+**Changed**
+
+| Endpoint | Before | Now |
+|---|---|---|
+| `POST /ai/parse`, `POST /ai/transcribe` | 429 after a shared 30 calls/hour per user, checked after the role | 429 from the per-person `ai` rate limit (3 a minute on Free, 6 on Pro …), checked **first**; the 30/hour quota is gone. A second AI call sent while the previous one is still being charged is also a 429, with `retryAfterSeconds: 1` and no `window`. |
+| every other authenticated endpoint | never 429 | may 429 (see above) |
+
+**Flutter impact:** treat `429 rate_limited` as possible on **any** endpoint.
+Wait `Retry-After` seconds (also `error.details.retryAfterSeconds`) before
+retrying, never retry a 429 in a loop, and show `error.message`. Mint file URLs
+(`/files/{id}/url`, `/attachments/{id}/url`) per view and reuse them for their
+lifetime — each mint is a read. The AI 429 copy "try again later" can now name
+the wait from `error.message`.
+
+---
+
 ## 6.5.0 — 2026-10-05
 
 Plans, spaces and the organisation. Every workspace now has a **plan**

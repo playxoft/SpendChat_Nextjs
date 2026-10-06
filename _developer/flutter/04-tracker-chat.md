@@ -326,7 +326,8 @@ explains the note syntax.
    note came from a transcription (that clip already paid for this parse —
    spec 6.5.0), else `"typed"` (or omit it). Errors, mapped for the user:
    400 nothing-parseable (show the server message — it's written for users),
-   429 quota ("try again later"), **403 `plan_limit`** with
+   429 rate limit (show `error.message` — it says how long to wait — and
+   honour `Retry-After`), **403 `plan_limit`** with
    `details.limit == "aiActions"` (the workspace's monthly AI allowance is spent
    — show the message and an upgrade prompt for `details.upgradeTo`; it refills
    at `GET /usage` → `ai.resetsAt`), 503 feature-off (hide/disable AI mode with
@@ -344,7 +345,7 @@ explains the note syntax.
    under the title. This is not optional polish: since 6.4.0 the model *infers*
    tags, so a row can arrive carrying a tag the user never asked for, and review
    is the only place to drop it before it is written. Re-parsing is not the
-   answer — it costs a model call, a quota slot, and every other edit on the
+   answer — it costs a model call, an AI action, and every other edit on the
    list. Each draft carries `tagIds` (resolved, ready to send) and `tagNames`
    (for display without a lookup).
 4. **Save** (gradient primary, e.g. "Add N transactions") → validate rows like

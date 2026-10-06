@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.5.0"
+  version: "6.6.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -57,7 +57,8 @@ info:
       `GET`/`POST /workspaces`) can return `403` (email not verified) and
       `404` (unknown/inaccessible `X-Workspace-Id`) — both are listed per
       path. Any endpoint that reads a JSON body can return `400` (malformed
-      JSON). The account-linking `409` above can surface on any endpoint.
+      JSON). The account-linking `409` above can surface on any endpoint, and
+      so can `429 rate_limited` (see Rate limits).
     - **Money** is integer minor units (`amountMinor`). Each transaction also
       returns `amount` (major-unit string). One currency **per workspace**;
       `meta.currency`/`workspace.currencyDetail` give the `decimals`.
@@ -68,9 +69,9 @@ info:
     `POST /ai/parse` (free text → reviewable transaction drafts) and
     `POST /ai/transcribe` (voice recording → note text) call a paid model
     provider, so they carry extra gates the CRUD endpoints don't:
-    the **editor** role in the current workspace (403 otherwise), a shared
-    per-user quota of **30 AI calls per hour** across both endpoints
-    (`429 rate_limited`, checked first), the workspace's monthly **AI
+    the **editor** role in the current workspace (403 otherwise), the
+    per-person **AI rate limit** shared by both endpoints (`429
+    rate_limited`, checked first — see Rate limits), the workspace's monthly **AI
     allowance** from its plan — 50 / 300 / 1,000 AI actions per UTC calendar
     month on Free / Plus / Pro (`403 plan_limit`, `limit: "aiActions"` once
     it's spent — see `GET /usage` → `ai`), voice entry for transcription
@@ -83,6 +84,33 @@ info:
     user and committed via `POST /transactions/bulk`; transcribe output is
     reviewed and then sent to `/ai/parse`. Audio is transcribed and discarded —
     never stored.
+
+    ## Rate limits
+    Every authenticated request counts against a **per-person** rate limit
+    (since 6.6.0), over three sliding windows at once — 1 minute, 5 minutes
+    and 1 hour — in one of three buckets picked from the request:
+    `/ai/*` → **ai**; any other `GET`/`HEAD` → **read**; every other method
+    → **create**. A bulk call (`POST /transactions/bulk`, a multi-file upload)
+    is one request. The numbers come from the plan of the workspace in
+    context (`X-Workspace-Id`, else the current one); for the endpoints with
+    no workspace (`GET`/`POST /workspaces`, `/organization`) they come from
+    the best plan among the caller's workspaces.
+
+    | per person (1 min / 5 min / 1 hour) | Free | Plus | Pro |
+    |---|---|---|---|
+    | create | 20 / 60 / 300 | 30 / 100 / 500 | 40 / 150 / 800 |
+    | read | 120 / 400 / 2,000 | 180 / 600 / 3,000 | 240 / 900 / 5,000 |
+    | ai | 3 / 6 / 10 | 5 / 15 / 30 | 6 / 20 / 60 |
+
+    Over a limit the server answers **`429 rate_limited`** with a
+    **`Retry-After`** header (whole seconds) and the same number in
+    `error.details.retryAfterSeconds`, plus the `bucket` and the full
+    `window` (`1m`/`5m`/`1h`). Wait that long before retrying — a retry
+    sooner is refused again, and refused requests don't count. Show
+    `error.message`; it already says how long to wait. A minted file URL
+    (`GET /files/{id}/url`, `GET /attachments/{id}/url`) is a read, so mint
+    one per view and reuse it for its lifetime rather than re-minting per
+    frame. `GET /version` is never limited.
 
     ## Attachments
     Transactions can carry up to **2 attached files** (receipt/bill/invoice —
@@ -249,6 +277,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/workspaces:
     get:
@@ -274,6 +303,7 @@ paths:
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Workspaces]
       summary: Create a workspace
@@ -308,6 +338,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/workspaces/{id}:
     parameters:
@@ -338,6 +369,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions:
     get:
@@ -383,6 +415,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Transactions]
       summary: Create a transaction
@@ -407,6 +440,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/{id}:
     parameters:
@@ -430,6 +464,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     patch:
       tags: [Transactions]
       summary: Update a transaction (full replacement of mutable fields)
@@ -455,6 +490,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Transactions]
       summary: Delete a transaction
@@ -474,6 +510,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/bulk:
     post:
@@ -512,6 +549,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/export:
     get:
@@ -554,6 +592,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/delete-all:
     post:
@@ -603,6 +642,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/transactions/{id}/attachments:
     parameters:
@@ -665,6 +705,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/StorageUnavailable" }
 
   /api/v1/attachments/{id}:
@@ -693,6 +734,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Attachments]
       summary: Delete an attachment (editor only)
@@ -710,6 +752,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/attachments/{id}/url:
     parameters:
@@ -752,6 +795,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/StorageUnavailable" }
 
   /api/v1/files:
@@ -823,6 +867,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Files]
       summary: Upload files into the vault (multipart, editor only)
@@ -891,6 +936,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "413": { $ref: "#/components/responses/PayloadTooLarge" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/StorageUnavailable" }
 
   /api/v1/files/{id}:
@@ -919,6 +965,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Files]
       summary: Delete a vault file (editor only)
@@ -936,6 +983,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/files/{id}/url:
     parameters:
@@ -1000,6 +1048,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
         "503": { $ref: "#/components/responses/StorageUnavailable" }
 
   /api/v1/folders:
@@ -1033,6 +1082,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/folders/{id}:
     parameters:
@@ -1066,6 +1116,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Files]
       summary: Delete a folder and everything inside it (editor only)
@@ -1087,6 +1138,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/file-tags:
     get:
@@ -1115,6 +1167,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Files]
       summary: Create a vault tag (editor only)
@@ -1141,6 +1194,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/file-tags/{id}:
     parameters:
@@ -1170,6 +1224,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Files]
       summary: Delete a tag (editor only)
@@ -1187,6 +1242,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/file-shares:
     get:
@@ -1227,6 +1283,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Files]
       summary: Create a public share link for one file or folder (editor only)
@@ -1262,6 +1319,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/file-shares/{id}:
     parameters:
@@ -1284,6 +1342,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/categories:
     get:
@@ -1309,6 +1368,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Categories]
       summary: Create a category
@@ -1341,6 +1401,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/categories/{id}:
     parameters:
@@ -1372,6 +1433,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Categories]
       summary: Delete a category (referencing transactions keep their data; category set to null)
@@ -1391,6 +1453,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/tags:
     get:
@@ -1424,6 +1487,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Tags]
       summary: Create a tag
@@ -1460,6 +1524,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/tags/{id}:
     parameters:
@@ -1494,6 +1559,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Tags]
       summary: Delete a tag (and detach it from every transaction)
@@ -1514,6 +1580,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles:
     get:
@@ -1536,6 +1603,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Profiles]
       summary: Create a profile (admin only)
@@ -1568,6 +1636,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}:
     parameters:
@@ -1595,6 +1664,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Profiles]
       summary: Delete a profile (admin only)
@@ -1647,6 +1717,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/reorder:
     post:
@@ -1685,6 +1756,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}/deletion-impact:
     parameters:
@@ -1712,6 +1784,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}/move:
     parameters:
@@ -1746,6 +1819,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}/space:
     parameters:
@@ -1783,6 +1857,7 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/profiles/{id}/overrides:
     parameters:
@@ -1813,6 +1888,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     put:
       tags: [Profiles]
       summary: Set or clear one member's override on this profile (admin, Plus/Pro)
@@ -1851,6 +1927,7 @@ paths:
         "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces:
     get:
@@ -1879,6 +1956,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Spaces]
       summary: Create a space (admin only)
@@ -1910,6 +1988,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces/reorder:
     post:
@@ -1944,6 +2023,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces/{id}:
     parameters:
@@ -1977,6 +2057,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Spaces]
       summary: Delete a space (admin only)
@@ -2022,6 +2103,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces/{id}/access:
     parameters:
@@ -2050,6 +2132,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/spaces/{id}/members:
     parameters:
@@ -2085,6 +2168,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/organization:
     get:
@@ -2106,6 +2190,7 @@ paths:
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     patch:
       tags: [Organization]
       summary: Rename the caller's organisation
@@ -2130,6 +2215,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/usage:
     get:
@@ -2158,6 +2244,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/settings:
     get:
@@ -2175,6 +2262,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
     patch:
       tags: [Settings]
       summary: Update settings (partial; at least one field)
@@ -2197,6 +2285,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/analytics/summary:
     get:
@@ -2227,6 +2316,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/analytics/categories:
     get:
@@ -2262,6 +2352,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/analytics/monthly:
     get:
@@ -2295,6 +2386,7 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/ai/parse:
     post:
@@ -2333,9 +2425,10 @@ paths:
         such parse), and is charged like a typed note otherwise. `source`
         omitted means `typed`; any other value is a 422.
 
-        Gates, in order: 422 (bad `source`), 400 (empty or > 3000-char note,
+        Gates, in order: 429 (the per-person `ai` rate limit — see Rate
+        limits), 422 (bad `source`), 400 (empty or > 3000-char note,
         bad timezone), 403 `forbidden` (viewer in this workspace),
-        429 (shared 30/hour AI quota), 403 `plan_limit` with
+        403 `plan_limit` with
         `limit: "aiActions"` once the workspace's monthly allowance is spent
         (`max` = the allowance, `used` = actions counted this month; it
         refills on `GET /usage` → `ai.resetsAt`), 503 (parse model not
@@ -2408,11 +2501,12 @@ paths:
         always send it. That charge also covers parsing the transcript — send
         it to `/ai/parse` with `source: "voice"` within 15 minutes.
 
-        Gates, in order: 413 (the request body's `Content-Length` alone is past
+        Gates, in order: 429 (the per-person `ai` rate limit — see Rate
+        limits), 413 (the request body's `Content-Length` alone is past
         the 4 MB cap — refused before the body is read), 400 (missing/empty/
         oversized/unsupported audio, a malformed or negative `durationMs`, or
         no speech heard), 403 `forbidden` (viewer in this workspace),
-        403 `plan_limit` `voice`, 429 (shared 30/hour AI quota), 403
+        403 `plan_limit` `voice`, 403
         `plan_limit` `aiActions` (monthly allowance spent), 503 (transcribe
         model not configured), 502 (provider failed — the actions are given
         back).
@@ -2623,11 +2717,24 @@ components:
               message: "Amount must be greater than 0"
               details: { amount: "Amount must be greater than 0" }
     RateLimited:
-      description: The caller spent the shared per-user AI quota (30 calls/hour).
+      description: >
+        The caller is over a per-person rate limit for their plan (see Rate
+        limits in the description). `Retry-After` and
+        `error.details.retryAfterSeconds` give the wait in seconds. (On
+        `/ai/*` the same 429 also answers a second AI call sent while the
+        caller's previous one is still being charged — retry after a second.)
+      headers:
+        Retry-After:
+          description: Whole seconds until a retry would pass.
+          schema: { type: integer, minimum: 1 }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
-          example: { error: { code: rate_limited, message: "That's a lot of AI requests in the last hour — try again later" } }
+          example:
+            error:
+              code: rate_limited
+              message: "That's a lot of changes in a short time. Try again in 40 seconds."
+              details: { bucket: create, window: 1m, retryAfterSeconds: 40 }
     AiUnavailable:
       description: This AI feature's model isn't configured on the server (feature is off).
       content:
@@ -2685,11 +2792,13 @@ components:
               description: >
                 Optional. For `validation_error`, a flat `{ field: message }`
                 map. For `plan_limit` and `storage_quota_exceeded`, a
-                `PlanLimitDetails` object.
+                `PlanLimitDetails` object. For `rate_limited`, a
+                `RateLimitedDetails` object.
               oneOf:
                 - type: object
                   additionalProperties: { type: string }
                 - $ref: "#/components/schemas/PlanLimitDetails"
+                - $ref: "#/components/schemas/RateLimitedDetails"
           required: [code, message]
       required: [error]
 
@@ -2712,6 +2821,18 @@ components:
         writing into an extra one that is view-only.
       enum: [members, spaces, profilesPerSpace, categories, tags, storage,
              aiActions, voice, profileLevelAccess, freeWorkspaces]
+
+    RateLimitedDetails:
+      type: object
+      description: >
+        `details` of a `429 rate_limited` (since 6.6.0). `window` is absent on
+        the one-off refusal of an AI call sent while the previous one is still
+        being charged.
+      properties:
+        bucket: { type: string, enum: [create, read, ai] }
+        window: { type: string, enum: [1m, 5m, 1h] }
+        retryAfterSeconds: { type: integer, minimum: 1, description: Same as the Retry-After header. }
+      required: [bucket, retryAfterSeconds]
 
     PlanLimitDetails:
       type: object
