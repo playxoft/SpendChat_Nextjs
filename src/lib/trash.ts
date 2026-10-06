@@ -95,6 +95,10 @@ export function describeTrashCounts(c: TrashCounts): string {
   return parts.join(", ");
 }
 
+/** Who sent something to the trash — the same shape on every trash item. The
+ * name is null when the account is gone (or never had one). */
+export type TrashActor = { id: string | null; name: string | null };
+
 /** A trashed vault folder, as the trash lists it: the folder that was deleted,
  * with the size of everything that went to the trash with it. */
 export type TrashedFolderDTO = {
@@ -109,7 +113,7 @@ export type TrashedFolderDTO = {
   files: number;
   sizeBytes: number;
   deletedAt: string;
-  deletedByName: string | null;
+  deletedBy: TrashActor;
   purgeAt: string;
   /** Whether the caller may restore or delete it (editor on its profile). */
   canRestore: boolean;
@@ -126,7 +130,7 @@ export type TrashedFileDTO = {
   contentType: string;
   sizeBytes: number;
   deletedAt: string;
-  deletedByName: string | null;
+  deletedBy: TrashActor;
   purgeAt: string;
   canRestore: boolean;
 };
@@ -139,12 +143,17 @@ export type TrashedProfileDTO = {
   color: string | null;
   spaceId: string;
   spaceName: string | null;
-  /** Live transactions and files inside it — what a restore brings back. */
+  /** Live transactions and vault files inside it — what a restore brings back into view. */
   transactions: number;
   files: number;
+  /**
+   * Every byte stored under it — vault files and receipts, including anything
+   * that was already in the trash on its own: what it holds in storage, and
+   * what deleting it for good frees.
+   */
   sizeBytes: number;
   deletedAt: string;
-  deletedByName: string | null;
+  deletedBy: TrashActor;
   purgeAt: string;
 };
 

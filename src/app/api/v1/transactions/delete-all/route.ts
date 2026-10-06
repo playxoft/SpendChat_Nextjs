@@ -23,6 +23,6 @@ export async function POST(request: NextRequest) {
       body?.confirm ?? "",
       Array.isArray(body?.profileIds) ? body.profileIds : [],
     );
-    return apiOk({ ...result, trashed: true });
+    return apiOk({ deleted: result.deleted, trashed: true });
   });
 }

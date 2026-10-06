@@ -356,7 +356,7 @@ describe("deleteAllTransactions (admin, profile-scoped)", () => {
 
     // Admin clears just the shared profile: BOTH authors' rows go (2), and the
     // `other` profile is untouched.
-    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [sharedProfile])).toEqual({
+    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [sharedProfile])).toMatchObject({
       deleted: 2,
     });
     expect(await countLiveTxns("a")).toBe(1); // a's row in `other` survives
@@ -373,7 +373,7 @@ describe("deleteAllTransactions (admin, profile-scoped)", () => {
     await insertTxn("a", { type: "expense", amountMinor: 100, occurredOn: "2026-06-01", profileId: p1 });
     await insertTxn("a", { type: "expense", amountMinor: 200, occurredOn: "2026-06-01", profileId: p2.id });
 
-    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [])).toEqual({ deleted: 2 });
+    expect(await deleteAllTransactions(uid("a"), W, "DELETE", [])).toMatchObject({ deleted: 2 });
     expect(await countLiveTxns("a")).toBe(0);
   });
 

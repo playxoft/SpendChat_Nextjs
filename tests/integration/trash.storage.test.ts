@@ -114,6 +114,23 @@ describe("C6 — trash counts toward storage", () => {
     expect(await getTrashBytes(W)).toBe(0);
   });
 
+  it("C6: on Plus a full workspace is told to delete files *and empty the trash*", async () => {
+    // Deleting a file on Plus moves it to the trash, which still counts — so
+    // "delete some files" alone would free nothing.
+    await seedFile("a", P, { sizeBytes: PLAN_LIMITS.plus.storageBytes });
+    const refused = await assertStorageQuota(W, MB).catch((e: unknown) => e);
+    expect((refused as Error).message).toContain("delete some files and empty the trash");
+  });
+
+  it("C6: on Free the full-storage message just says to delete files (no trash to empty)", async () => {
+    await setWorkspacePlan(W, "free");
+    const limit = PLAN_LIMITS.free.storageBytes;
+    await seedFile("a", P, { sizeBytes: limit });
+    const refused = await assertStorageQuota(W, MB).catch((e: unknown) => e);
+    expect((refused as Error).message).toContain("delete some files to free up space");
+    expect((refused as Error).message).not.toContain("empty the trash");
+  });
+
   it("C6: on Free a file delete frees storage at once (no file trash)", async () => {
     await setWorkspacePlan(W, "free");
     const id = await seedFile("a", P, { sizeBytes: 3 * MB });

@@ -39,8 +39,10 @@ export default async function TrashPage() {
       <TrashPageClient
         rows={page.rows}
         nextCursor={page.nextCursor ? encodeTrashCursor(page.nextCursor) : null}
+        now={new Date().toISOString()}
         folders={vault.folders}
         files={vault.files}
+        filesCapped={vault.filesCapped}
         profiles={profiles}
         counts={counts}
         trashBytes={trashBytes}

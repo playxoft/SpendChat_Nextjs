@@ -9,15 +9,29 @@ vi.mock("@/lib/r2", () => ({
   signedGetUrl: vi.fn(async () => "https://signed.example/object"),
 }));
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { deleteObjects, deleteObject } from "@/lib/r2";
-import { files, profileAccess, profiles, spaceMembers, transactions, workspaceMembers } from "@/db/schema";
+import {
+  files,
+  profileAccess,
+  profiles,
+  spaceMembers,
+  transactions,
+  workspaceMembers,
+  workspaces,
+} from "@/db/schema";
 import { createProfile, deleteProfile, listProfiles } from "@/services/profiles";
 import { deleteTransaction } from "@/services/transactions";
 import { createSpace, deleteSpace, getSpaceAccess, listSpaces } from "@/services/spaces";
-import { listCollaborators, listWorkspaceProfileGrants } from "@/services/workspaces";
+import { createWorkspace, listCollaborators, listWorkspaceProfileGrants } from "@/services/workspaces";
 import { createFileShare, resolveShare } from "@/services/files";
-import { deleteFromTrash, listTrashProfiles, restoreFromTrash } from "@/services/trash";
+import {
+  countTrash,
+  deleteFromTrash,
+  emptyTrash,
+  listTrashProfiles,
+  restoreFromTrash,
+} from "@/services/trash";
 import {
   accessibleProfileIds,
   getEffectiveProfileRole,
@@ -270,18 +284,51 @@ describe("restoring a profile", () => {
 });
 
 describe("a space with trashed profiles in it", () => {
-  it("still deletes — its trashed profiles move along, restorable into the new space", async () => {
+  /**
+   * S2: a trashed profile restored later shows to whoever is in the space it
+   * sits in. Moving it out of a deleted space into "the first other space"
+   * without asking quietly decided who would see it — reproduced in review. So
+   * any profile left in the space, trashed ones included, needs a destination
+   * the admin picks.
+   */
+  it("won't delete without a destination for them, then moves them where it was told", async () => {
+    await setWorkspacePlan(W, "plus"); // room for a third space
     const other = (await createSpace(U, W, { name: "Other" })).id;
+    const third = (await createSpace(U, W, { name: "Third" })).id;
     const [{ id: inOther }] = await getTestDb()
       .insert(profiles)
       .values({ userId: U, workspaceId: W, spaceId: other, name: "Side" })
       .returning({ id: profiles.id });
     await deleteProfile(U, inOther);
+    expect((await listSpaces(U, W)).find((s) => s.id === other)).toMatchObject({
+      profileCount: 0,
+      trashedProfileCount: 1,
+    });
 
-    // No live profiles left, so no destination is needed.
-    await deleteSpace(U, other);
-    expect((await profileRow(inOther))!.spaceId).toBe(space);
+    await expect(deleteSpace(U, other)).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining("people in that space will see them"),
+    });
+    expect((await profileRow(inOther))!.spaceId).toBe(other);
+
+    await deleteSpace(U, other, { moveProfilesTo: third });
+    expect((await profileRow(inOther))!.spaceId).toBe(third);
     expect((await restoreFromTrash(U, W, { profileIds: [inOther] })).counts.profiles).toBe(1);
+  });
+
+  it("only live profiles need room in the destination", async () => {
+    const other = (await createSpace(U, W, { name: "Other" })).id;
+    // Main holds Personal + two more = full on Free (3 per space).
+    await seedProfile("a", "Two");
+    await seedProfile("a", "Three");
+    const [{ id: trashed }] = await getTestDb()
+      .insert(profiles)
+      .values({ userId: U, workspaceId: W, spaceId: other, name: "Side" })
+      .returning({ id: profiles.id });
+    await deleteProfile(U, trashed);
+    // Main is full, but the only profile moving is in the trash — it fits.
+    await deleteSpace(U, other, { moveProfilesTo: space });
+    expect((await profileRow(trashed))!.spaceId).toBe(space);
   });
 });
 
@@ -299,5 +346,115 @@ describe("delete a trashed profile for good", () => {
     expect(await profileRow(work)).toBeUndefined();
     expect(await getTestDb().select().from(transactions).where(eq(transactions.id, txn))).toHaveLength(0);
     expect(swept()).toEqual(expect.arrayContaining(["attachments/gone.pdf", "vault/gone.pdf"]));
+  });
+});
+
+describe("a view-only workspace (S3)", () => {
+  /** An extra free workspace of "a" with a trashed profile in it, made view-only. */
+  async function viewOnlyWithTrashedProfile() {
+    await setWorkspacePlan(W, "plus");
+    const W2 = (await createWorkspace(U, { name: "Second" })).id;
+    await getTestDb()
+      .update(workspaces)
+      .set({ createdAt: sql`now() + interval '1 minute'` })
+      .where(eq(workspaces.id, W2));
+    const [{ id: spare }] = await getTestDb()
+      .insert(profiles)
+      .values({ userId: U, workspaceId: W2, spaceId: await defaultSpaceIdOf(W2), name: "Spare" })
+      .returning({ id: profiles.id });
+    expect(await deleteProfile(U, spare)).toBe(true);
+    await setWorkspacePlan(W, "free"); // W2 is now the extra free one — view-only
+    return { W2, spare };
+  }
+
+  it("refuses to delete a trashed profile for good, or empty its trash, through the admin path", async () => {
+    const { W2, spare } = await viewOnlyWithTrashedProfile();
+    await expect(deleteFromTrash(U, W2, { profileIds: [spare] })).rejects.toMatchObject({
+      status: 403,
+      code: "plan_limit",
+    });
+    await expect(emptyTrash(U, W2)).rejects.toMatchObject({ status: 403, code: "plan_limit" });
+    // Nothing to offer, so "Empty trash" isn't offered either.
+    expect(await countTrash(U, W2)).toEqual({ transactions: 0, files: 0, folders: 0, profiles: 0 });
+    expect((await profileRow(spare))!.deletedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe("Free's default delete (S4)", () => {
+  /**
+   * `reject` is what a client gets by saying nothing, so it must never destroy
+   * anything. On Free deleting a profile deletes its vault for good, so
+   * `reject` refuses while live files remain — they'd be gone unasked.
+   */
+  it("refuses while live files would be deleted for good; an explicit delete still works", async () => {
+    const work = await seedProfile("a", "Work");
+    await seedFile("a", work, { key: "vault/keep-me.pdf" });
+    await expect(deleteProfile(U, work)).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining("deleted for good"),
+    });
+    expect((await profileRow(work))!.deletedAt).toBeNull();
+    expect(swept()).toHaveLength(0);
+    expect(await deleteProfile(U, work, { transactions: "delete" })).toBe(true);
+    expect(swept()).toContain("vault/keep-me.pdf");
+  });
+
+  it("on Plus the default goes through — the files go to the trash with the profile", async () => {
+    await setWorkspacePlan(W, "plus");
+    const work = await seedProfile("a", "Work");
+    await seedFile("a", work);
+    expect(await deleteProfile(U, work)).toBe(true);
+    expect(swept()).toHaveLength(0);
+  });
+});
+
+describe("restoring several profiles at once (C9)", () => {
+  it("checks them all against the caps together — two into a space with one place left restores neither", async () => {
+    // Free: 3 per space. Personal + A + B; trash A and B; add C → one place left.
+    const a = await seedProfile("a", "A");
+    const b = await seedProfile("a", "B");
+    await deleteProfile(U, a);
+    await deleteProfile(U, b);
+    await seedProfile("a", "C");
+    await expect(restoreFromTrash(U, W, { profileIds: [a, b] })).rejects.toMatchObject({
+      status: 403,
+      code: "plan_limit",
+    });
+    expect((await profileRow(a))!.deletedAt).toBeInstanceOf(Date);
+    expect((await profileRow(b))!.deletedAt).toBeInstanceOf(Date);
+    // One of them fits.
+    expect((await restoreFromTrash(U, W, { profileIds: [a] })).counts.profiles).toBe(1);
+  });
+
+  it("restores several that fit, renaming any whose name was taken", async () => {
+    await setWorkspacePlan(W, "plus");
+    const a = (await createProfile(U, W, { name: "Home" })).id;
+    const b = (await createProfile(U, W, { name: "Trips" })).id;
+    await deleteProfile(U, a);
+    await deleteProfile(U, b);
+    await createProfile(U, W, { name: "Home" });
+    const res = await restoreFromTrash(U, W, { profileIds: [a, b] });
+    expect(res.counts.profiles).toBe(2);
+    expect((await profileRow(a))!.name).toBe("Home (restored)");
+    expect((await profileRow(b))!.name).toBe("Trips");
+  });
+});
+
+describe("listing trashed profiles (C10)", () => {
+  it("names the deleter in the shared shape, and sizes everything stored under it", async () => {
+    await setWorkspacePlan(W, "plus");
+    const work = await seedProfile("a", "Work");
+    const txn = await insertTxn("a", { type: "expense", amountMinor: 1, occurredOn: "2026-06-01", profileId: work });
+    await seedReceipt("a", txn, work, { sizeBytes: 300 });
+    await seedFile("a", work, { sizeBytes: 700 });
+    await deleteProfile(U, work, { transactions: "delete" });
+    const [listed] = await listTrashProfiles(U, W);
+    expect(listed).toMatchObject({
+      id: work,
+      transactions: 1,
+      files: 1,
+      sizeBytes: 1000,
+      deletedBy: { id: U },
+    });
   });
 });

@@ -359,28 +359,42 @@ export async function assertCanAddProfilesToSpace(
 }
 
 /**
- * Room to bring a profile back from the trash. A trashed profile counts toward
- * nothing — not its space's `profilesPerSpace`, and not the member cap for the
- * people who could only reach the workspace through a grant on it — so
- * restoring it is an add on both counts and pays both caps, like creating a
- * profile and inviting those people would. A view-only workspace refuses it.
+ * Room to bring profiles back from the trash — **all of them together**, so a
+ * restore of several is refused before any comes back rather than half-way.
+ * A trashed profile counts toward nothing — not its space's `profilesPerSpace`,
+ * and not the member cap for the people who could only reach the workspace
+ * through a grant on it — so restoring is an add on both counts and pays both
+ * caps, like creating those profiles and inviting those people would: per
+ * space, the profiles coming back into it are summed; across the workspace,
+ * each person who comes back is counted once. A view-only workspace refuses it.
  */
-export async function assertCanRestoreProfile(
+export async function assertCanRestoreProfiles(
   workspaceId: string,
-  profile: { id: string; spaceId: string },
+  restoring: readonly { id: string; spaceId: string }[],
 ): Promise<void> {
+  if (restoring.length === 0) return;
   const ent = await getWorkspaceEntitlements(workspaceId);
   assertWritable(ent);
-  const inSpace = await countProfilesInSpace(profile.spaceId);
-  if (inSpace + 1 > ent.limits.profilesPerSpace) {
-    throw capError(ent, "profilesPerSpace", "profilesPerSpace", "profile", inSpace, "Each space on this workspace's");
+
+  const perSpace = new Map<string, number>();
+  for (const p of restoring) perSpace.set(p.spaceId, (perSpace.get(p.spaceId) ?? 0) + 1);
+  for (const [spaceId, adding] of perSpace) {
+    const inSpace = await countProfilesInSpace(spaceId);
+    if (inSpace + adding > ent.limits.profilesPerSpace) {
+      throw capError(ent, "profilesPerSpace", "profilesPerSpace", "profile", inSpace, "Each space on this workspace's");
+    }
   }
-  // People whose only way into the workspace is a grant on this profile: no
-  // membership, and no grant on another live profile here.
+
+  // People whose only way into the workspace is a grant on one of these
+  // profiles: no membership, and no grant on another live profile here.
+  const ids = sql.join(
+    restoring.map((p) => sql`${p.id}::uuid`),
+    sql`, `,
+  );
   const result = await getDb().execute<{ n: string }>(sql`
     select count(distinct pa.user_id)::text as n
     from ${profileAccess} pa
-    where pa.profile_id = ${profile.id}
+    where pa.profile_id in (${ids})
       and not exists (
         select 1 from ${workspaceMembers} wm
         where wm.workspace_id = ${workspaceId} and wm.user_id = pa.user_id
@@ -487,11 +501,15 @@ export function storageFullMessage(
     ? ` Upgrade to ${PLAN_NAMES[upgradeTo]} for ${formatFileSize(PLAN_LIMITS[upgradeTo].storageBytes)}.`
     : "";
   // The trash counts toward storage (abuse rule C6) — say so, with the number,
-  // so a full workspace with a full trash knows the quickest way out.
+  // so a full workspace with a full trash knows the quickest way out. On a plan
+  // with a file trash, deleting a file alone frees nothing until it's emptied.
   const trash =
     trashBytes > 0 ? ` Emptying the trash frees ${formatFileSize(trashBytes)}.` : "";
+  const freeUp = ent.limits.fileTrash
+    ? "delete some files and empty the trash to free up space"
+    : "delete some files to free up space";
   return remaining <= 0
-    ? `The workspace's ${formatFileSize(limit)} storage is full — delete some files to free up space.${trash}${upgrade}`
+    ? `The workspace's ${formatFileSize(limit)} storage is full — ${freeUp}.${trash}${upgrade}`
     : `Not enough storage left — this upload needs ${formatFileSize(incomingBytes)} but only ${formatFileSize(remaining)} of the ${formatFileSize(limit)} remains.${trash}${upgrade}`;
 }
 

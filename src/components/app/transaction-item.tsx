@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/context-menu";
 import { deleteTransaction } from "@/actions/transactions";
 import { toastMovedToTrash } from "./trash/trash-toast";
+import { TRASH_DAYS } from "@/lib/trash";
 import { TransactionBubble, bubbleAmountLabel } from "./transaction-bubble";
 import { TransactionDialog } from "./transaction-dialog";
 import { useAttachmentViewer } from "./attachments/attachment-viewer";
@@ -83,7 +84,7 @@ export const TransactionItem = memo(function TransactionItem({
   const router = useRouter();
   // An edit patches the bubble / a delete hides it in the same commit as the
   // toast, then the server revalidation reconciles.
-  const { row, removed, patch, remove } = useOptimisticRow(serverRow);
+  const { row, removed, patch, remove, unremove } = useOptimisticRow(serverRow);
 
   if (removed) return null;
 
@@ -99,7 +100,10 @@ export const TransactionItem = memo(function TransactionItem({
     // Gone in the same commit as the toast, as the edit dialog's delete does.
     remove();
     toastMovedToTrash("Moved to trash", { transactionIds: [row.id] }, {
-      onRestored: () => router.refresh(),
+      onRestored: () => {
+        unremove();
+        router.refresh();
+      },
     });
   }
 
@@ -177,7 +181,7 @@ export const TransactionItem = memo(function TransactionItem({
             <AlertDialogTitle>Delete this transaction?</AlertDialogTitle>
             <AlertDialogDescription>
               It moves to the trash with any files attached to it, and your balance updates.
-              You can restore it for 30 days.
+              You can restore it for {TRASH_DAYS} days.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -204,6 +208,7 @@ export const TransactionItem = memo(function TransactionItem({
         onOpenChange={setEditing}
         onSaved={patch}
         onDeleted={remove}
+        onRestored={unremove}
         categories={categories}
         profiles={profiles}
         tags={tags}

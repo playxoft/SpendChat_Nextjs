@@ -47,5 +47,9 @@ describe("/app/trash", () => {
       [txn, true],
     ]);
     expect((props.files as { id: string }[]).map((f) => f.id)).toEqual([file]);
+    // C6: relative times are computed from the server's clock, passed down, so
+    // the server render and the hydration agree.
+    expect(Date.parse(props.now as string)).not.toBeNaN();
+    expect(props.filesCapped).toBe(false);
   });
 });

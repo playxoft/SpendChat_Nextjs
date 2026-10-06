@@ -60,6 +60,9 @@ export type TxnFilters = {
    *  absent means "don't filter by tag". */
   tagIds?: string[];
   search?: string;
+  /** Only these rows (still under every other filter) — re-reading rows just
+   *  restored from the trash, to put back the ones the current view shows. */
+  ids?: string[];
   /** Web-only column sort. The mobile API never sets these, so its ordering
    * (newest first) is unchanged. */
   sort?: SortColumn;
@@ -162,6 +165,7 @@ function buildConditions(profileIds: string[], f: TxnFilters) {
   if (f.type) conds.push(eq(transactions.type, f.type));
   if (f.categoryId) conds.push(eq(transactions.categoryId, f.categoryId));
   if (f.profileId) conds.push(eq(transactions.profileId, f.profileId));
+  if (f.ids) conds.push(inArray(transactions.id, f.ids.length ? f.ids : ["00000000-0000-0000-0000-000000000000"]));
   if (f.tagIds?.length) {
     // Overlap, so several selected tags widen the result the way a filter chip
     // row implies: "tagged travel **or** reimbursable". `@>` would narrow it to
@@ -512,6 +516,7 @@ function decorate(page: Page, f: TxnFilters) {
     .select(selectionFor(page))
     .from(page)
     .leftJoin(categories, eq(page.categoryId, categories.id))
+    // trash: a display join onto a page already scoped to live rows and profiles.
     .leftJoin(profiles, eq(page.profileId, profiles.id))
     .leftJoin(users, eq(page.userId, users.id))
     .orderBy(...orderByPage(page, f));
@@ -1102,6 +1107,7 @@ export async function listTrashedTransactions(
     })
     .from(page)
     .leftJoin(categories, eq(page.categoryId, categories.id))
+    // trash: a display join; the page is scoped to the caller's live profiles.
     .leftJoin(profiles, eq(page.profileId, profiles.id))
     .leftJoin(users, eq(page.userId, users.id))
     .leftJoin(deleter, eq(page.deletedBy, deleter.id))

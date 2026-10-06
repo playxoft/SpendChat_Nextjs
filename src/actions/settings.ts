@@ -120,7 +120,7 @@ export async function deleteAccount(confirm: string): Promise<ActionResult> {
 export async function deleteAllTransactions(
   confirm: string,
   profileIds: string[],
-): Promise<ActionResult<{ deleted?: number }>> {
+): Promise<ActionResult<{ deleted?: number; deletedAt?: string | null; profileIds?: string[] }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
@@ -135,7 +135,7 @@ export async function deleteAllTransactions(
       revalidatePath("/app");
       revalidatePath("/app/transactions");
       revalidatePath("/app/analytics");
-      return { deleted: res.deleted };
+      return { deleted: res.deleted, deletedAt: res.deletedAt, profileIds };
     },
     { userId: user.id, workspaceId: workspace.id },
   );

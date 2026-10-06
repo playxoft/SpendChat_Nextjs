@@ -839,7 +839,12 @@ export type CategoryInput = z.infer<typeof categoryInputSchema>;
 
 export const updateCategorySchema = z.object({
   id: z.string().uuid(),
-  name: z.string().trim().min(1, "Name is required").max(PROFILE_NAME_MAX, `Name is too long (max ${PROFILE_NAME_MAX} characters)`).optional(),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(CATEGORY_NAME_MAX, `Name is too long (max ${CATEGORY_NAME_MAX} characters)`)
+    .optional(),
   icon: z.string().trim().max(16).nullish(),
 });
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;

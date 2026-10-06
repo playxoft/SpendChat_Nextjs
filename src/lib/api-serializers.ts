@@ -184,8 +184,10 @@ export type ApiSpace = {
   name: string;
   icon: string | null;
   position: number;
-  /** Every profile in the space (what the per-space cap counts), not just the visible ones. */
+  /** Every live profile in the space (what the per-space cap counts), not just the visible ones. */
   profileCount: number;
+  /** 6.7.0: the space's profiles in the trash — admins only (0 for anyone else). */
+  trashedProfileCount: number;
   /** "admin" for workspace admins; else the caller's space role, or null (reached via an override/grant). */
   role: WorkspaceRole | null;
 };
@@ -197,6 +199,7 @@ export function serializeSpace(s: SpaceSummary): ApiSpace {
     icon: s.icon,
     position: s.position,
     profileCount: s.profileCount,
+    trashedProfileCount: s.trashedProfileCount,
     role: s.role,
   };
 }

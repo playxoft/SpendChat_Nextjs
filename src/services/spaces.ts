@@ -31,7 +31,7 @@ import {
   requireSpaceInWorkspace,
   requireWorkspaceRole,
 } from "@/lib/workspaces";
-import { notTrashed } from "@/lib/trash-scope";
+import { notTrashed, trashedOnly } from "@/lib/trash-scope";
 import {
   createSpaceSchema,
   deleteSpaceSchema,
@@ -63,6 +63,12 @@ export type SpaceSummary = {
   /** Live profiles in the space (what counts towards the per-space cap; a
    * trashed profile counts again only when restored). */
   profileCount: number;
+  /**
+   * Profiles of this space that are in the trash — admins only (0 for anyone
+   * else). Deleting the space needs a destination for them too, since a
+   * restore would show them to that space's members.
+   */
+  trashedProfileCount: number;
   /** The caller's role here: "admin" for workspace admins, else their space role or null. */
   role: WorkspaceRole | null;
 };
@@ -107,6 +113,10 @@ export async function listSpaces(userId: string, workspaceId: string): Promise<S
           .select({ n: sql`count(*)::int` })
           .from(profiles)
           .where(and(eq(profiles.spaceId, spaces.id), notTrashed(profiles)))})`,
+        trashedProfileCount: sql<number>`(${db
+          .select({ n: sql`count(*)::int` })
+          .from(profiles)
+          .where(and(eq(profiles.spaceId, spaces.id), trashedOnly(profiles)))})`,
       })
       .from(spaces)
       .where(eq(spaces.workspaceId, workspaceId))
@@ -123,6 +133,7 @@ export async function listSpaces(userId: string, workspaceId: string): Promise<S
   ]);
 
   if (wsRole === "admin") return rows.map((r) => ({ ...r, role: "admin" as const }));
+  // The trash is the admins' business: nobody else sees a count of it.
   // Space membership only counts for workspace members — the same rule the
   // profile resolver applies, so a stale row can't surface a space.
   const roleBySpace = new Map<string, SpaceRole>(
@@ -131,7 +142,7 @@ export async function listSpaces(userId: string, workspaceId: string): Promise<S
   const visible = new Set([...roleBySpace.keys(), ...reachable.map((r) => r.spaceId)]);
   return rows
     .filter((r) => visible.has(r.id))
-    .map((r) => ({ ...r, role: roleBySpace.get(r.id) ?? null }));
+    .map((r) => ({ ...r, trashedProfileCount: 0, role: roleBySpace.get(r.id) ?? null }));
 }
 
 export async function createSpace(
@@ -159,6 +170,7 @@ export async function createSpace(
       icon: row!.icon,
       position: row!.position,
       profileCount: 0,
+      trashedProfileCount: 0,
       role: "admin",
     };
   } catch (err) {
@@ -225,61 +237,57 @@ export async function deleteSpace(userId: string, spaceId: string, input: unknow
     .where(eq(spaces.workspaceId, space.workspaceId));
   if (spaceCount <= 1) throw conflict("A workspace needs at least one space");
 
-  // Live profiles decide whether the space is "empty"; trashed ones don't block
-  // the delete — they're moved along below (the restrict FK would otherwise
-  // refuse it), so restoring one later lands it somewhere real.
-  const [{ n: profileCount }] = await db
-    .select({ n: count() })
+  // Every profile in it, trashed ones included, needs a destination the admin
+  // chose: a trashed profile restored later appears to whoever is in the space
+  // it sits in, so moving it anywhere without asking would quietly decide who
+  // sees it. Only live ones count toward the destination's room — a trashed
+  // profile counts again when it's restored, which checks the cap then.
+  const rows = await db
+    .select({ live: sql<boolean>`${profiles.deletedAt} is null` })
     .from(profiles)
-    .where(and(eq(profiles.spaceId, space.id), notTrashed(profiles)));
+    .where(eq(profiles.spaceId, space.id));
+  const profileCount = rows.filter((r) => r.live).length;
+  const trashedCount = rows.length - profileCount;
 
   let target: string | null = null;
-  if (profileCount > 0) {
+  if (rows.length > 0) {
     if (!data.moveProfilesTo) {
-      throw conflict("This space still has profiles — move them to another space first");
+      throw conflict(
+        profileCount > 0
+          ? "This space still has profiles — move them to another space first"
+          : "This space has profiles in the trash — choose a space for them first. If they're restored, the people in that space will see them.",
+      );
     }
     if (data.moveProfilesTo === space.id) throw badRequest("Pick a different space");
     target = await requireSpaceInWorkspace(space.workspaceId, data.moveProfilesTo);
-    await assertCanAddProfilesToSpace(space.workspaceId, target, profileCount);
+    if (profileCount > 0) {
+      await assertCanAddProfilesToSpace(space.workspaceId, target, profileCount);
+    }
   }
-
-  // Where trashed profiles go when the space had no live ones to move: the
-  // workspace's first other space (there is one — the last space can't go).
-  const trashTarget =
-    target ??
-    (
-      await db
-        .select({ id: spaces.id })
-        .from(spaces)
-        .where(and(eq(spaces.workspaceId, space.workspaceId), ne(spaces.id, space.id)))
-        .orderBy(asc(spaces.position), asc(spaces.createdAt))
-        .limit(1)
-    )[0]?.id;
 
   await db.transaction(async (tx) => {
     if (target) {
+      // trash: every profile, trashed ones too — they all go where the admin said.
       await tx
         .update(profiles)
-        .set({ spaceId: target, updatedAt: new Date() })
-        .where(and(eq(profiles.spaceId, space.id), notTrashed(profiles)));
-    }
-    if (trashTarget) {
-      // trash: profiles in the trash move too, without touching `updated_at`.
-      await tx
-        .update(profiles)
-        .set({ spaceId: trashTarget })
+        .set({ spaceId: target })
         .where(eq(profiles.spaceId, space.id));
     }
     // Restrict FK on profiles.space_id: a profile written into the space after
     // the count above fails this delete and rolls the move back with it.
     await tx.delete(spaces).where(eq(spaces.id, space.id));
   });
-  logger.info(`Space deleted${target ? ` (${profileCount} profiles moved)` : ""}`, {
-    event: "space.deleted",
-    workspaceId: space.workspaceId,
-    spaceId,
-    movedTo: target,
-  });
+  logger.info(
+    `Space deleted${target ? ` (${profileCount} profiles and ${trashedCount} in the trash moved)` : ""}`,
+    {
+      event: "space.deleted",
+      workspaceId: space.workspaceId,
+      spaceId,
+      movedTo: target,
+      profiles: profileCount,
+      trashedProfiles: trashedCount,
+    },
+  );
 }
 
 /**

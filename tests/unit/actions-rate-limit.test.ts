@@ -170,6 +170,7 @@ describe("every server action is rate limited", () => {
         "loadMoreTransactions",
         "loadOlderFeed",
         "listTrashPage",
+        "loadRestoredTransactions",
         // the person's own UI preferences
         "dismissInviteNudge",
         "patchSettings",

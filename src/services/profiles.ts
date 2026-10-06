@@ -370,6 +370,7 @@ async function healStrandedAttachments(tx: Tx, profileId: string): Promise<void>
  * may still hold trashed files, and they go with the rest.
  */
 async function destroyProfileVault(tx: Tx, profileId: string): Promise<(string | null)[]> {
+  // trash: all states, as the doc says.
   const doomed = await tx
     .select({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey })
     .from(files)
@@ -456,6 +457,21 @@ export async function deleteProfile(
           .where(and(eq(transactions.profileId, id), notTrashed(transactions)));
         if (used > 0) {
           throw conflict("Move this profile's transactions to another profile first");
+        }
+        // `reject` is the default a client gets by saying nothing, so it must
+        // never destroy anything. On Free the vault has no trash — deleting the
+        // profile would delete its files for good — so it refuses while any
+        // live files remain, and the caller has to ask for `delete` (or `move`).
+        if (!limits.fileTrash) {
+          const [{ stored }] = await tx
+            .select({ stored: count() })
+            .from(files)
+            .where(and(eq(files.profileId, id), notTrashed(files)));
+          if (stored > 0) {
+            throw conflict(
+              "This profile's files would be deleted for good — move them to another profile, or choose to delete them",
+            );
+          }
         }
       }
 

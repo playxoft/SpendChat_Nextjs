@@ -501,8 +501,8 @@ export function DeleteVaultItemDialog({
           <AlertDialogDescription>
             {keepsTrash
               ? isFile
-                ? `The file moves to the trash for everyone with access, and its share links stop working. You can restore it for ${TRASH_DAYS} days.`
-                : `The folder and everything inside it move to the trash for everyone, and their share links stop working. You can restore them for ${TRASH_DAYS} days.`
+                ? `The file moves to the trash for everyone with access, and its share links stop working. You can restore it for ${TRASH_DAYS} days — until the trash is emptied, it still counts toward your storage.`
+                : `The folder and everything inside it move to the trash for everyone, and their share links stop working. You can restore them for ${TRASH_DAYS} days — until the trash is emptied, they still count toward your storage.`
               : isFile
                 ? `The file is removed for everyone with access, along with any share links to it. This can't be undone — ${PLAN_NAMES[lowestPlanWith("fileTrash")]} and up keep deleted files in the trash for ${TRASH_DAYS} days.`
                 : `The folder, everything inside it (including nested folders), and any share links to it are removed for everyone. This can't be undone — ${PLAN_NAMES[lowestPlanWith("fileTrash")]} and up keep deleted folders in the trash for ${TRASH_DAYS} days.`}

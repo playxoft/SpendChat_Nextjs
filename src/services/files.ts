@@ -1,18 +1,19 @@
 import "server-only";
 import { and, asc, desc, eq, gt, inArray, isNull, notExists, or, sql } from "drizzle-orm";
 import { z } from "zod";
-import { getDb, type Db } from "@/db";
+import { getDb } from "@/db";
 import { fileShares, fileTags, files, folders, profiles } from "@/db/schema";
 import { badRequest, conflict, forbidden, notFound, validationError } from "@/lib/errors";
 import { parseOrThrow } from "@/lib/api-response";
 import { setLogContext } from "@/lib/log-context";
 import { rolesAtLeast } from "@/lib/rbac";
 import { accessibleProfileIds, getEffectiveProfileRole } from "@/lib/workspaces";
-import { deleteObject, uploadObject } from "@/lib/r2";
+import { deleteObject, deleteObjects, uploadObject } from "@/lib/r2";
 import { assertStorageQuota } from "@/lib/storage-quota";
 import { getWorkspaceEntitlements } from "@/lib/entitlements";
 import { logger } from "@/lib/logger";
 import { notTrashed } from "@/lib/trash-scope";
+import { lockFolderSubtree, type Tx } from "./vault-tree";
 import {
   VAULT_FILES_LIMIT,
   getVaultFile,
@@ -268,6 +269,7 @@ async function assertFolderNameFree(
   ];
   const [existing] = await db
     .select({ id: folders.id })
+    // trash: `conds` includes notTrashed(folders) (live siblings only).
     .from(folders)
     .where(and(...conds))
     .limit(1);
@@ -275,9 +277,6 @@ async function assertFolderNameFree(
     throw conflict("A folder with that name already exists here");
   }
 }
-
-/** A `db.transaction()` handle. */
-type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /** The parent folder for a create/move/upload, verified to live in the same
  * profile (folders never span profiles — access is per-profile) and to be
@@ -424,17 +423,22 @@ async function keepsFileTrash(workspaceId: string): Promise<boolean> {
 /**
  * Delete a folder and its whole subtree.
  *
- * **Plus/Pro** move it to the trash: the folder and every live descendant
- * folder and file are stamped with one `now()`, in one transaction, so every
- * vault read stays a plain `deleted_at is null` filter and a restore can bring
- * back exactly that set (equal `deleted_at`). Items already in the trash on
- * their own keep their earlier stamp. Nothing is destroyed; storage still
- * counts the bytes (abuse rule C6).
+ * Both paths work on the subtree **as locked inside the transaction**
+ * (`lockFolderSubtree`), never on one read before it: a folder moved in while
+ * the delete runs is either caught (it committed first) or refused (it waits on
+ * our lock, then finds its destination gone). Read outside, a concurrent move
+ * left a live folder under a trashed one, and the purge later destroyed it.
  *
- * **Free** deletes for good, as before: the DB cascade removes the rows; this
- * first collects every descendant file's R2 keys — the original **and** its
- * preview, trashed descendants included — and deletes those objects after the
- * delete, so no bytes are orphaned.
+ * **Plus/Pro** move it to the trash: the folder and every live folder and file
+ * under it are stamped with one instant, so every vault read stays a plain
+ * `deleted_at is null` filter and a restore brings back exactly that set
+ * (equal `deleted_at`). Items already in the trash on their own keep their
+ * earlier stamp. Nothing is destroyed; storage still counts the bytes (C6).
+ *
+ * **Free** deletes for good: every file under it — original and preview,
+ * trashed ones from a downgraded plan included — is deleted with `RETURNING`
+ * its keys, the folder cascades the rest, and only the keys of rows actually
+ * deleted are swept, after the commit.
  */
 export async function deleteFolder(
   userId: string,
@@ -448,31 +452,33 @@ export async function deleteFolder(
     throw badRequest("This predefined folder can't be deleted");
   }
   await assertEditorOnProfile(userId, workspaceId, existing.profileId);
-
   const db = getDb();
-  const rows = await profileFolders(existing.profileId);
-  const subtree = subtreeFolderIds(rows, existing.id);
 
   if (await keepsFileTrash(workspaceId)) {
     const trashed = await db.transaction(async (tx) => {
+      // One instant for the whole batch, kept as text at the column's own
+      // precision — the restore matches on equality.
+      const [{ at }] = (
+        await tx.execute<{ at: string }>(sql`select now()::timestamptz(3)::text as at`)
+      ).rows as [{ at: string }];
+      const stamp = { deletedAt: sql`${at}::timestamptz`, deletedBy: userId };
       // The root first, and only while it's still live: a concurrent delete or
       // restore of the same folder can't double-stamp it.
       const root = await tx
         .update(folders)
-        .set({ deletedAt: sql`now()`, deletedBy: userId })
+        .set(stamp)
         .where(and(eq(folders.id, existing.id), notTrashed(folders)))
         .returning({ id: folders.id });
       if (root.length === 0) return null;
-      // `now()` is the transaction's start time, so all three statements stamp
-      // the same instant — the restore relies on that.
+      const subtree = (await lockFolderSubtree(tx, [existing.id])).map((f) => f.id);
       const sub = await tx
         .update(folders)
-        .set({ deletedAt: sql`now()`, deletedBy: userId })
+        .set(stamp)
         .where(and(inArray(folders.id, subtree), notTrashed(folders)))
         .returning({ id: folders.id });
       const contained = await tx
         .update(files)
-        .set({ deletedAt: sql`now()`, deletedBy: userId })
+        .set(stamp)
         .where(and(inArray(files.folderId, subtree), notTrashed(files)))
         .returning({ id: files.id });
       return { folders: 1 + sub.length, files: contained.length };
@@ -485,22 +491,24 @@ export async function deleteFolder(
     return "trashed";
   }
 
-  // trash: all states — on Free everything under the folder goes for good,
-  // anything a downgraded workspace still had in the trash included.
-  const contained = await db
-    .select({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey })
-    .from(files)
-    .where(inArray(files.folderId, subtree));
-
-  const deleted = await db
-    .delete(folders)
-    .where(eq(folders.id, existing.id))
-    .returning({ id: folders.id });
-  if (deleted.length === 0) return null;
-  for (const f of contained) {
-    await deleteObject(f.r2Key);
-    if (f.thumbnailKey) await deleteObject(f.thumbnailKey);
-  }
+  const keys = await db.transaction(async (tx) => {
+    const subtree = (await lockFolderSubtree(tx, [existing.id])).map((f) => f.id);
+    if (!subtree.includes(existing.id)) return null;
+    // trash: all states — on Free everything under the folder goes for good,
+    // anything a downgraded workspace still had in the trash included.
+    const doomed = await tx
+      .delete(files)
+      .where(inArray(files.folderId, subtree))
+      .returning({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey });
+    const deleted = await tx
+      .delete(folders)
+      .where(eq(folders.id, existing.id))
+      .returning({ id: folders.id });
+    if (deleted.length === 0) return null;
+    return doomed.flatMap((f) => [f.r2Key, f.thumbnailKey]);
+  });
+  if (!keys) return null;
+  await deleteObjects(keys);
   return "deleted";
 }
 

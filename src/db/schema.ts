@@ -690,8 +690,8 @@ export const transactions = pgTable(
     // cursor `(occurred_on, created_at, id)`, in the same direction, so the feed
     // reads straight off the index with no sort.
     //
-    // This also covers the `profile_id` FK restrict check, which is why there is
-    // no separate single-column index on it — a leading-column prefix serves it.
+    // It no longer covers the `profile_id` FK restrict check: it is partial (see
+    // below), so it can't — `transactions_profile_idx` does that now.
     //
     // `nullsFirst()` is load-bearing, not decoration. Drizzle's `.desc()` emits
     // `DESC NULLS LAST`, while SQL's `ORDER BY x DESC` means `DESC NULLS FIRST`.

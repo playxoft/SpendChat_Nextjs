@@ -16,6 +16,7 @@ import {
   getTags,
   getTagsWithUsage,
   getWorkspaceStorageUsage,
+  listTrashedTransactions,
 } from "@/lib/queries";
 import { addProfile } from "@/actions/profiles";
 import { files, transactionAttachments, transactions } from "@/db/schema";
@@ -735,5 +736,58 @@ describe("index/sort agreement", () => {
         expect(plan, `${label} lost its merge:\n${plan}`).toContain("Merge Append");
       }
     }
+  });
+
+  /**
+   * The trash's two indexes. `transactions_profile_date_idx` is now partial
+   * (`where deleted_at is null`): the feed and the list must still read it — the
+   * planner only does when every branch carries the literal predicate — with no
+   * sort over the page, even with a big block of the newest rows in the trash
+   * (which a full index would make every page walk past). And the trash list
+   * must read `transactions_trash_idx`, merged per profile like the feed.
+   */
+  it("reads the feed through the partial index past a trashed block, and the trash through its own", async () => {
+    const db = getTestDb();
+    await db.execute(sql.raw(`
+      insert into transactions (user_id, type, amount_minor, profile_id, occurred_on, created_at, deleted_at)
+      select '${U}'::uuid, 'expense', i,
+             (array['${personal}'::uuid, '${work}'::uuid])[1 + (i % 2)],
+             date '2020-01-01' + (i / 10),
+             timestamptz '2020-01-01' + (i || ' seconds')::interval,
+             -- the newest third of the personal profile is in the trash
+             case when i % 2 = 0 and i > 2000 then timestamptz '2026-10-01' + (i || ' milliseconds')::interval end
+      from generate_series(1, 3000) i`));
+    await db.execute(sql.raw(`analyze transactions`));
+
+    const explain = async (run: () => Promise<unknown>) => {
+      const statements = await captureSql(run);
+      const listing = statements.find((st) => st.text.includes("order by") && st.text.includes("limit"));
+      expect(listing, "no listing statement captured").toBeTruthy();
+      const explained = await getTestClient().query(`explain (costs off) ${listing!.text}`, listing!.params);
+      return (explained.rows as { "QUERY PLAN": string }[]).map((r) => r["QUERY PLAN"]).join("\n");
+    };
+    // Sorts of the page itself — keyed on its cursor columns — not the per-row
+    // subqueries that order one row's receipts or tag chips (a handful each).
+    const sortsIn = (plan: string) => {
+      const lines = plan.split("\n");
+      return lines.filter(
+        (line, i) => /(^|->\s+)Sort\b/.test(line) && /occurred_on|deleted_at/.test(lines[i + 1] ?? ""),
+      ).length;
+    };
+
+    for (const [label, merged, run] of [
+      ["feed, one profile", false, () => listFeedPage(U, W, { profileId: personal, limit: 40 })],
+      ["feed, all profiles", true, () => listFeedPage(U, W, { limit: 40 })],
+      ["list, default order", true, () => listTransactions(U, W, { limit: 50 })],
+    ] as const) {
+      const plan = await explain(run);
+      expect(plan, `${label} ignores the partial feed index:\n${plan}`).toContain("transactions_profile_date_idx");
+      expect(sortsIn(plan), `${label} sorts the page:\n${plan}`).toBe(merged ? 1 : 0);
+      if (merged) expect(plan, `${label} lost its merge:\n${plan}`).toContain("Merge Append");
+    }
+
+    const trashPlan = await explain(() => listTrashedTransactions(U, W, { limit: 50 }));
+    expect(trashPlan, `the trash list ignores its index:\n${trashPlan}`).toContain("transactions_trash_idx");
+    expect(trashPlan, `the trash list lost its merge:\n${trashPlan}`).toContain("Merge Append");
   });
 });

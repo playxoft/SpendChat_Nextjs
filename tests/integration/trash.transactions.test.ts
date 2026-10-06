@@ -20,11 +20,12 @@ import {
   deleteFromTrash,
   emptyTrash,
   listTrashTransactions,
+  restoreAllTransactions,
   restoreFromTrash,
 } from "@/services/trash";
 import { getTransactionById } from "@/lib/queries";
 import { deleteAllTransactions } from "@/services/settings";
-import { restoreFromTrash as restoreAction } from "@/actions/trash";
+import { loadRestoredTransactions, restoreFromTrash as restoreAction } from "@/actions/trash";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 import { bootstrapUser, categoryId, firstProfileId, insertTxn, workspaceIdOf } from "./helpers/seed";
@@ -65,6 +66,7 @@ describe("restore", () => {
     expect(res).toEqual({
       counts: { transactions: 1, files: 0, folders: 0, profiles: 0 },
       skipped: 0,
+      transactionIds: [id],
     });
     const back = await getTransactionById(U, W, id);
     expect(back?.title).toBe("lunch");
@@ -127,6 +129,7 @@ describe("restore", () => {
       ok: true,
       counts: { transactions: 1, files: 0, folders: 0, profiles: 0 },
       skipped: 0,
+      transactionIds: [id],
     });
   });
 });
@@ -239,9 +242,49 @@ describe("clear transactions goes to the trash", () => {
   it("every live row of the chosen profiles is restorable afterwards", async () => {
     const a = await insertTxn("a", expense("a"));
     const b = await insertTxn("a", expense("b"));
-    expect(await deleteAllTransactions(U, W, "DELETE", [])).toEqual({ deleted: 2 });
+    expect(await deleteAllTransactions(U, W, "DELETE", [])).toMatchObject({ deleted: 2 });
     const res = await restoreFromTrash(U, W, { transactionIds: [a, b] });
     expect(res.counts.transactions).toBe(2);
     expect((await getTransactionById(U, W, a))?.id).toBe(a);
+  });
+});
+
+describe("restore by filter (C2)", () => {
+  it("brings back one deletion by its instant — a big 'Delete all' is one call, not its ids", async () => {
+    const before = await insertTxn("a", expense("trashed earlier"));
+    await deleteTransaction(U, W, before);
+    await new Promise((r) => setTimeout(r, 5));
+    const ids: string[] = [];
+    for (let i = 0; i < 30; i++) ids.push(await insertTxn("a", expense(`row ${i}`)));
+    const res = await deleteAllTransactions(U, W, "DELETE", []);
+    expect(res.deleted).toBe(30);
+    expect(res.deletedAt).toEqual(expect.any(String));
+
+    const back = await restoreAllTransactions(U, W, { deletedAt: new Date(res.deletedAt!) });
+    expect(back).toMatchObject({ restored: 30, remaining: 0 });
+    expect((await getTransactionById(U, W, ids[0]!))?.id).toBe(ids[0]);
+    // The row trashed on its own, earlier, is not part of that deletion.
+    expect(await getTransactionById(U, W, before)).toBeNull();
+  });
+
+  it("restores everything the caller can edit, optionally one profile's, and nothing they can't", async () => {
+    const a = await insertTxn("a", expense("a"));
+    await deleteTransaction(U, W, a);
+    await bootstrapUser("v");
+    await getTestDb().insert(profileAccess).values({ profileId: P, userId: uid("v"), role: "viewer" });
+    expect(await restoreAllTransactions(uid("v"), W)).toEqual({ restored: 0, remaining: 0, transactionIds: [] });
+    expect(await restoreAllTransactions(U, W, { profileIds: [P] })).toMatchObject({ restored: 1, remaining: 0 });
+  });
+});
+
+describe("putting restored rows back on screen (C1)", () => {
+  it("re-reads restored rows under the view's own filters", async () => {
+    const spent = await insertTxn("a", { ...expense("spent") });
+    const earned = await insertTxn("a", { type: "income", amountMinor: 900, occurredOn: "2026-06-01", title: "earned" });
+    await deleteTransactions(U, W, { ids: [spent, earned] });
+    const restored = await restoreAction({ transactionIds: [spent, earned] });
+    expect(restored.ok && restored.transactionIds.sort()).toEqual([spent, earned].sort());
+    const res = await loadRestoredTransactions({ ids: [spent, earned], filters: { type: "expense" } });
+    expect(res.ok && res.rows.map((r) => r.id)).toEqual([spent]);
   });
 });

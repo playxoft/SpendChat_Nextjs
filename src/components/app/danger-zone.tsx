@@ -17,6 +17,8 @@ import { Input } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
 import { deleteUser, signOut } from "firebase/auth";
 import { deleteAccount, deleteAllTransactions } from "@/actions/settings";
+import { restoreAllFromTrash } from "@/actions/trash";
+import { TRASH_DAYS } from "@/lib/trash";
 import { clearSession, getFirebaseAuth } from "@/lib/firebase";
 import { usePermissions } from "./permissions";
 
@@ -144,13 +146,37 @@ function ClearTransactionsRow({ profiles }: { profiles: ProfileOption[] }) {
     });
   }
 
+  async function undoClear(deletedAt: string, profileIds?: string[]) {
+    let restored = 0;
+    for (let round = 0; round < 100; round++) {
+      const res = await restoreAllFromTrash({ deletedAt, profileIds });
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      restored += res.restored;
+      if (res.remaining === 0 || res.restored === 0) break;
+    }
+    if (restored > 0) toast.success(`Restored ${restored} transaction${restored === 1 ? "" : "s"}`);
+    else toast.error("Couldn't restore them — they may have been deleted for good.");
+  }
+
   function handleConfirm() {
     startTransition(async () => {
       const res = await deleteAllTransactions(confirm, [...selected]);
       if (res.ok) {
         const n = res.deleted ?? 0;
+        const batch = res.deletedAt;
+        const profileIds = res.profileIds;
         toast.success(`Moved ${n} transaction${n === 1 ? "" : "s"} to the trash`, {
-          description: "Restore them from the trash for 30 days.",
+          description: `Restore them from the trash for ${TRASH_DAYS} days.`,
+          // Undo restores exactly this deletion, by its instant — a server-side
+          // restore by filter, a bounded batch per call, so tens of thousands of
+          // rows come back without the client sending their ids.
+          action:
+            n > 0 && batch
+              ? { label: "Undo", onClick: () => void undoClear(batch, profileIds) }
+              : undefined,
         });
         setOpen(false);
         setConfirm("");
@@ -165,7 +191,7 @@ function ClearTransactionsRow({ profiles }: { profiles: ProfileOption[] }) {
   return (
     <DangerRowShell
       title="Delete all transactions"
-      description="Move every transaction in the profiles you choose to the trash. You can restore them for 30 days; after that they're gone for good. Categories and settings are kept."
+      description={`Move every transaction in the profiles you choose to the trash. You can restore them for ${TRASH_DAYS} days; after that they're gone for good. Categories and settings are kept.`}
     >
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogTrigger asChild>

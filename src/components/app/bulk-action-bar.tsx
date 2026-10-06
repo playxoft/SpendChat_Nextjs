@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { deleteTransactions, updateTransactions } from "@/actions/transactions";
 import { toastMovedToTrash } from "./trash/trash-toast";
+import { TRASH_DAYS } from "@/lib/trash";
 import {
   BULK_TRANSACTIONS_MAX,
   TAGS_PER_TRANSACTION_MAX,
@@ -72,6 +73,7 @@ export function BulkActionBar({
   onClear,
   onDeleted,
   onUpdated,
+  onRestored,
 }: {
   selected: TransactionRow[];
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
@@ -83,6 +85,8 @@ export function BulkActionBar({
   onClear: () => void;
   onDeleted: (ids: string[]) => void;
   onUpdated: (rows: TransactionRow[]) => void;
+  /** The delete was undone: these came back — put the ones on screen back. */
+  onRestored?: (ids: string[]) => void;
 }) {
   // Busy for the request only — not a transition, which would also wait out
   // the page refresh the action's revalidation triggers. The rows are already
@@ -170,15 +174,22 @@ export function BulkActionBar({
         skipped += res.skipped;
       }
       onDeleted(deletedIds);
+      // Nothing moved (every row was someone else's to delete): say so, with no
+      // Undo — `toastMovedToTrash` offers none for an empty selection.
       toastMovedToTrash(
-        `Moved ${plural(deletedIds.length, "transaction")} to trash`,
+        deletedIds.length > 0
+          ? `Moved ${plural(deletedIds.length, "transaction")} to trash`
+          : "Nothing was deleted",
         { transactionIds: deletedIds },
         {
           description:
             skipped > 0
-              ? `${plural(skipped, "transaction")} you can't delete ${skipped === 1 ? "was" : "were"} kept. You can restore the rest from the trash for 30 days.`
-              : `You can restore ${deletedIds.length === 1 ? "it" : "them"} from the trash for 30 days.`,
-          onRestored: () => router.refresh(),
+              ? `${plural(skipped, "transaction")} you can't delete ${skipped === 1 ? "was" : "were"} kept.${deletedIds.length > 0 ? ` You can restore the rest from the trash for ${TRASH_DAYS} days.` : ""}`
+              : `You can restore ${deletedIds.length === 1 ? "it" : "them"} from the trash for ${TRASH_DAYS} days.`,
+          onRestored: ({ transactionIds }) => {
+            onRestored?.(transactionIds);
+            router.refresh();
+          },
         },
       );
     });
@@ -347,7 +358,7 @@ export function BulkActionBar({
                   <AlertDialogTitle>Delete {plural(count, "transaction")}?</AlertDialogTitle>
                   <AlertDialogDescription>
                     They move to the trash with any files attached to them, and your balance
-                    updates. You can restore them for 30 days.
+                    updates. You can restore them for {TRASH_DAYS} days.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>

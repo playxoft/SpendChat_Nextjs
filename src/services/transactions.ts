@@ -438,18 +438,31 @@ export async function deleteTransactions(
   if (writable.length === 0) throw forbidden("You don't have permission to do that");
 
   const db = getDb();
-  const trashed = await db
-    .update(transactions)
-    .set({ deletedAt: sql`now()`, deletedBy: userId })
-    .where(
-      and(
-        inArray(transactions.id, ids),
-        inArray(transactions.profileId, writable),
-        notTrashed(transactions),
-      ),
-    )
-    .returning({ id: transactions.id });
-  const deletedIds = trashed.map((r) => r.id);
+  const deletedIds = await db.transaction(async (tx) => {
+    // Locked in id order first, whatever plan the update would take: two
+    // overlapping bulk operations taking their row locks in different orders is
+    // a deadlock (`updateTransactions` does the same). `no key update`: the key
+    // never changes, so attachment inserts aren't held off meanwhile.
+    const locked = await tx
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(
+        and(
+          inArray(transactions.id, ids),
+          inArray(transactions.profileId, writable),
+          notTrashed(transactions),
+        ),
+      )
+      .orderBy(asc(transactions.id))
+      .for("no key update");
+    if (locked.length === 0) return [];
+    const trashed = await tx
+      .update(transactions)
+      .set({ deletedAt: sql`now()`, deletedBy: userId })
+      .where(and(inArray(transactions.id, locked.map((r) => r.id)), notTrashed(transactions)))
+      .returning({ id: transactions.id });
+    return trashed.map((r) => r.id);
+  });
   if (deletedIds.length > 0) {
     logger.info(`Moved ${deletedIds.length} transactions to the trash`, {
       event: "trash.moved",

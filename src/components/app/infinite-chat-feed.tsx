@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { loadOlderFeed } from "@/actions/transactions";
+import { loadRestoredTransactions } from "@/actions/trash";
+import { mergeRestoredIntoFeed } from "@/lib/merge-restored";
 import { ChatFeed } from "./chat-feed";
 import { MonthScrollSpy } from "./month-scroll-spy";
 import { BulkActionBar } from "./bulk-action-bar";
@@ -189,6 +191,20 @@ export function InfiniteChatFeed({
     const gone = new Set(ids);
     setRows((prev) => prev.filter((r) => !gone.has(r.id)));
   }, []);
+  // Undo of a bulk delete: the revalidation only refreshes the latest page, so
+  // rows restored further back are read again (as this feed shows them) and
+  // put back where they belong — within the history already loaded.
+  const onBulkRestored = useCallback(
+    async (ids: string[]) => {
+      const res = await loadRestoredTransactions({
+        ids,
+        filters: { profileId: profileId ?? undefined },
+      });
+      if (!res.ok) return;
+      setRows((prev) => mergeRestoredIntoFeed(prev, res.rows, done));
+    },
+    [profileId, done],
+  );
 
   // Changes whenever the rendered rows do (a prepended older page, a revalidated
   // latest page), which is exactly when the set of month sections can change and
@@ -242,6 +258,7 @@ export function InfiniteChatFeed({
           onClear={selection.clear}
           onDeleted={onBulkDeleted}
           onUpdated={onBulkUpdated}
+          onRestored={(ids) => void onBulkRestored(ids)}
         />
       ) : null}
     </>

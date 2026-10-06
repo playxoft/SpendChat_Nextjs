@@ -9,7 +9,7 @@ vi.mock("@/lib/r2", () => ({
   signedGetUrl: vi.fn(async () => "https://signed.example/object"),
 }));
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { deleteObject, deleteObjects, uploadObject } from "@/lib/r2";
 import { files, folders } from "@/db/schema";
 import { deleteFile, deleteFolder, uploadVaultFiles } from "@/services/files";
@@ -157,19 +157,87 @@ describe("folder trees (Plus)", () => {
     expect(uploadObject).not.toHaveBeenCalled();
   });
 
-  it("deleting a folder for good sweeps every file under it, even one that raced in live", async () => {
+  /**
+   * S1: something live found under a trashed folder — a move that raced the
+   * trashing, or older data — is never destroyed with it: delete-for-good and
+   * the purge move it to the top level first, and sweep only the bytes of rows
+   * they actually deleted.
+   */
+  it("deleting a folder for good moves anything live under it to the top level instead", async () => {
     const top = await seedFolder("a", P, "Taxes");
     const sub = await seedFolder("a", P, "2025", top);
     await seedFile("a", P, { folderId: sub, key: "vault/deep.pdf" });
     await deleteFolder(U, W, top);
-    // A file that landed inside after the folder went (the race the share lock
-    // closes) — whatever its own state, the sweep must not strand it.
-    await seedFile("a", P, { folderId: sub, key: "vault/raced.pdf" });
+    // A file and a folder that landed inside after the folder went to the trash.
+    const racedFile = await seedFile("a", P, { folderId: sub, key: "vault/raced.pdf" });
+    const racedFolder = await seedFolder("a", P, "Deeds", sub);
+    const inRaced = await seedFile("a", P, { folderId: racedFolder, key: "vault/in-deeds.pdf" });
 
     const res = await deleteFromTrash(U, W, { folderIds: [top] });
     expect(res.counts.folders).toBe(1);
     expect(await folderRow(top)).toBeUndefined();
     expect(await folderRow(sub)).toBeUndefined();
-    expect(swept()).toEqual(expect.arrayContaining(["vault/deep.pdf", "vault/raced.pdf"]));
+    // The live ones survive, at the top level, with their own contents.
+    expect((await fileRow(racedFile))?.folderId).toBeNull();
+    expect((await folderRow(racedFolder))?.parentId).toBeNull();
+    expect((await fileRow(inRaced))?.folderId).toBe(racedFolder);
+    expect(swept()).toContain("vault/deep.pdf");
+    expect(swept()).not.toContain("vault/raced.pdf");
+    expect(swept()).not.toContain("vault/in-deeds.pdf");
+  });
+
+  /**
+   * S1, the race itself: B moves "Deeds" into Taxes/2025 while A deletes
+   * Taxes. The subtree used to be read before the delete's transaction, so a
+   * move that committed in between left Deeds live under a trashed folder. It's
+   * now read inside the transaction, after the root is locked — reproduced
+   * here by a trigger that performs B's move at exactly that moment.
+   */
+  it("a folder moved into the subtree while it goes to the trash goes with it", async () => {
+    const top = await seedFolder("a", P, "Taxes");
+    const sub = await seedFolder("a", P, "2025", top);
+    const deeds = await seedFolder("a", P, "Deeds");
+    const inDeeds = await seedFile("a", P, { folderId: deeds });
+    await getTestDb().execute(sql.raw(`
+      CREATE OR REPLACE FUNCTION pg_temp.race_move() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.id = '${top}'::uuid AND NEW.deleted_at IS NOT NULL AND OLD.deleted_at IS NULL THEN
+            UPDATE folders SET parent_id = '${sub}'::uuid WHERE id = '${deeds}'::uuid;
+          END IF;
+          RETURN NEW;
+        END;
+      $$ LANGUAGE plpgsql`));
+    await getTestDb().execute(sql.raw(`
+      CREATE TRIGGER race_move AFTER UPDATE ON folders
+        FOR EACH ROW EXECUTE FUNCTION pg_temp.race_move()`));
+    try {
+      expect(await deleteFolder(U, W, top)).toBe("trashed");
+    } finally {
+      await getTestDb().execute(sql.raw(`DROP TRIGGER race_move ON folders`));
+    }
+    const stamp = (await folderRow(top))!.deletedAt!.getTime();
+    expect((await folderRow(deeds))!.deletedAt?.getTime()).toBe(stamp);
+    expect((await fileRow(inDeeds))!.deletedAt?.getTime()).toBe(stamp);
+    // And a restore brings it back with the rest.
+    await restoreFromTrash(U, W, { folderIds: [top] });
+    expect((await folderRow(deeds))!.deletedAt).toBeNull();
+    expect((await fileRow(inDeeds))!.deletedAt).toBeNull();
+  });
+
+  /**
+   * S1: a file restored into its folder is part of that folder from then on —
+   * trashing the folder afterwards takes it along (the trash reads the subtree
+   * inside its transaction), so it's never left live inside a trashed folder.
+   * (The `FOR SHARE` the restore takes on the folder covers the concurrent
+   * version, which a single-connection test database can't stage.)
+   */
+  it("a file restored into its folder goes to the trash with that folder", async () => {
+    const top = await seedFolder("a", P, "Taxes");
+    const file = await seedFile("a", P, { folderId: top });
+    await deleteFile(U, W, file);
+    await restoreFromTrash(U, W, { fileIds: [file] });
+    expect((await fileRow(file))!.folderId).toBe(top);
+    await deleteFolder(U, W, top);
+    expect((await fileRow(file))!.deletedAt?.getTime()).toBe((await folderRow(top))!.deletedAt!.getTime());
   });
 });

@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { deleteProfile, getProfileDeletionImpact } from "@/actions/profiles";
 import { TRASH_DAYS } from "@/lib/trash";
+import { PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
 import { toastMovedToTrash } from "./trash/trash-toast";
 import {
   hasDisposableContents,
@@ -75,9 +76,28 @@ function deleteDescription(counts: ProfileDeletionCounts): string {
       rest === "nothing"
         ? "The profile goes to the trash"
         : `The profile and its ${rest} go to the trash`;
-    return `${lead} for ${TRASH_DAYS} days, but its ${plural(counts.files, "vault file")} ${counts.files === 1 ? "is" : "are"} deleted for good — Plus and Pro keep files in the trash too.`;
+    return `${lead} for ${TRASH_DAYS} days, but its ${plural(counts.files, "vault file")} ${counts.files === 1 ? "is" : "are"} deleted for good — ${PLAN_NAMES[lowestPlanWith("fileTrash")]} and up keep files in the trash too.`;
   }
   return `The profile and its ${contentsSummary(counts)} go to the trash. You can restore it for ${TRASH_DAYS} days.`;
+}
+
+/**
+ * The delete toast's second line, for what actually happened: on `move` the
+ * contents went elsewhere and only the empty profile is in the trash; on
+ * `delete` (or an empty profile) everything came with it — except, on Free, the
+ * vault files, which are gone for good.
+ */
+function deletedToastDescription(
+  request: { transactions?: string; toProfileId?: string },
+  counts: ProfileDeletionCounts,
+): string {
+  if (request.transactions === "move") {
+    return `Its contents moved to the other profile; the empty profile can be restored for ${TRASH_DAYS} days.`;
+  }
+  if (counts.files > 0 && counts.filesRecoverable === false) {
+    return `Restore it from the trash for ${TRASH_DAYS} days to bring its transactions back — its files were deleted for good.`;
+  }
+  return `Restore it from the trash for ${TRASH_DAYS} days — everything in it comes back with it.`;
 }
 
 /**
@@ -199,16 +219,14 @@ export function ProfileDeleteDialog({
         confirmed = fresh;
       }
 
-      const res = await deleteProfile(
-        profile.id,
-        profileDisposalRequest(confirmed, disposal, target),
-      );
+      const request = profileDisposalRequest(confirmed, disposal, target);
+      const res = await deleteProfile(profile.id, request);
       if (res.ok) {
         toastMovedToTrash(
           "Profile moved to trash",
           { profileIds: [profile.id] },
           {
-            description: `Restore it from the trash for ${TRASH_DAYS} days — everything in it comes back with it.`,
+            description: deletedToastDescription(request, confirmed ?? shown),
             onRestored: () => router.refresh(),
           },
         );

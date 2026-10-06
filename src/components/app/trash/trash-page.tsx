@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { formatDistanceToNowStrict } from "date-fns";
+import { formatDistanceStrict } from "date-fns";
 import { toast } from "sonner";
 import { File, Folder, Loader2, RotateCcw, Trash2, UserRound } from "lucide-react";
 import {
@@ -19,7 +19,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { deleteFromTrash, emptyTrash, listTrashPage, restoreFromTrash } from "@/actions/trash";
+import {
+  deleteFromTrash,
+  emptyTrash,
+  listTrashPage,
+  restoreAllFromTrash,
+  restoreFromTrash,
+} from "@/actions/trash";
 import { formatFileSize } from "@/lib/attachments";
 import { fileTrashLock } from "@/lib/add-limits";
 import { formatMoney, signedMinor } from "@/lib/money";
@@ -58,14 +64,20 @@ function toSelection(keys: Iterable<Key>): TrashSelection {
   return sel;
 }
 
-function deletedLine(deletedAt: Date | string, by: string | null): string {
-  const ago = formatDistanceToNowStrict(new Date(deletedAt), { addSuffix: true });
+/**
+ * "Deleted 3 days ago by Asha". Relative to the **server's** `now` (passed down
+ * from the page), not the browser clock: rendered on both sides, a clock read
+ * at render would differ between them and React would report a hydration
+ * mismatch — and could disagree across the minute boundary anyway.
+ */
+function deletedLine(deletedAt: Date | string, by: string | null, now: Date): string {
+  const ago = formatDistanceStrict(new Date(deletedAt), now, { addSuffix: true });
   return by ? `Deleted ${ago} by ${by}` : `Deleted ${ago}`;
 }
 
 /** "Deletes in 27 days" — amber in the last few days, so it's noticed in time. */
-function Countdown({ deletedAt }: { deletedAt: Date | string }) {
-  const { days, label } = trashCountdown(deletedAt);
+function Countdown({ deletedAt, now }: { deletedAt: Date | string; now: Date }) {
+  const { days, label } = trashCountdown(deletedAt, now);
   return (
     <Badge
       variant="outline"
@@ -89,6 +101,7 @@ function TrashRow({
   meta,
   aside,
   deletedAt,
+  now,
 }: {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
@@ -99,6 +112,7 @@ function TrashRow({
   meta: React.ReactNode;
   aside?: React.ReactNode;
   deletedAt: Date | string;
+  now: Date;
 }) {
   return (
     <li className="flex items-center gap-3 px-3 py-2.5">
@@ -116,7 +130,7 @@ function TrashRow({
         <p className="truncate text-xs text-muted-foreground">{meta}</p>
       </div>
       {aside ? <span className="hidden shrink-0 text-sm tabular-nums sm:inline">{aside}</span> : null}
-      <Countdown deletedAt={deletedAt} />
+      <Countdown deletedAt={deletedAt} now={now} />
     </li>
   );
 }
@@ -132,8 +146,10 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 export function TrashPageClient({
   rows: initialRows,
   nextCursor: initialCursor,
+  now: nowIso,
   folders,
   files,
+  filesCapped = false,
   profiles,
   counts,
   trashBytes,
@@ -143,8 +159,12 @@ export function TrashPageClient({
 }: {
   rows: TxnRow[];
   nextCursor: string | null;
+  /** The server's clock when it rendered — every relative time is computed from it. */
+  now: string;
   folders: TrashedFolderDTO[];
   files: TrashedFileDTO[];
+  /** More deleted files than the list shows. */
+  filesCapped?: boolean;
   profiles: TrashedProfileDTO[];
   counts: TrashCounts;
   trashBytes: number;
@@ -154,6 +174,7 @@ export function TrashPageClient({
 }) {
   const router = useRouter();
   const { plan, reportFailure } = usePlan();
+  const now = React.useMemo(() => new Date(nowIso), [nowIso]);
   const [rows, setRows] = React.useState(initialRows);
   const [cursor, setCursor] = React.useState(initialCursor);
   const [loadingMore, setLoadingMore] = React.useState(false);
@@ -208,6 +229,25 @@ export function TrashPageClient({
       if (res.skipped > 0) {
         toast.info(`${res.skipped} item${res.skipped === 1 ? "" : "s"} couldn't be restored`);
       }
+      router.refresh();
+    });
+  }
+
+  /** Every trashed transaction the caller can restore, by filter on the server —
+   * a bounded batch per call, repeated until none are left. */
+  function restoreAll() {
+    startTransition(async () => {
+      let restored = 0;
+      for (let round = 0; round < 100; round++) {
+        const res = await restoreAllFromTrash({});
+        if (!res.ok) {
+          reportFailure(res);
+          break;
+        }
+        restored += res.restored;
+        if (res.remaining === 0 || res.restored === 0) break;
+      }
+      if (restored > 0) toast.success(`Restored ${describeTrashCounts({ transactions: restored, files: 0, folders: 0, profiles: 0 })}`);
       router.refresh();
     });
   }
@@ -308,6 +348,14 @@ export function TrashPageClient({
         </TabsList>
 
         <TabsContent value="transactions" className="space-y-3">
+          {counts.transactions > 0 && (
+            <div className="flex justify-end">
+              <Button variant="ghost" size="sm" onClick={restoreAll} disabled={pending}>
+                <RotateCcw className="size-4" />
+                Restore all {counts.transactions.toLocaleString("en-US")}
+              </Button>
+            </div>
+          )}
           {rows.length === 0 ? (
             <EmptyState>No deleted transactions. When you delete one, it waits here for {TRASH_DAYS} days.</EmptyState>
           ) : (
@@ -320,7 +368,7 @@ export function TrashPageClient({
                   disabled={!r.canRestore || pending}
                   icon={<span className="text-base">{r.categoryIcon ?? "•"}</span>}
                   title={r.title || r.categoryName || "Untitled"}
-                  meta={[r.profileName, r.occurredOn, deletedLine(r.deletedAt, r.deletedByName)]
+                  meta={[r.profileName, r.occurredOn, deletedLine(r.deletedAt, r.deletedByName, now)]
                     .filter(Boolean)
                     .join(" · ")}
                   aside={
@@ -329,6 +377,7 @@ export function TrashPageClient({
                     </span>
                   }
                   deletedAt={r.deletedAt}
+                  now={now}
                 />
               ))}
             </ul>
@@ -345,6 +394,12 @@ export function TrashPageClient({
 
         <TabsContent value="files" className="space-y-3">
           {!fileTrash && <LimitPanel lock={fileTrashLock(plan)} />}
+          {filesCapped && (
+            <p className="text-xs text-muted-foreground">
+              Showing the most recent files deleted on their own — restore or delete some to see
+              the rest.
+            </p>
+          )}
           {folders.length + files.length === 0 ? (
             <EmptyState>
               {fileTrash
@@ -364,12 +419,13 @@ export function TrashPageClient({
                   meta={[
                     f.profileName,
                     `${f.files} file${f.files === 1 ? "" : "s"}${f.folders > 0 ? `, ${f.folders} folder${f.folders === 1 ? "" : "s"}` : ""}`,
-                    deletedLine(f.deletedAt, f.deletedByName),
+                    deletedLine(f.deletedAt, f.deletedBy.name, now),
                   ]
                     .filter(Boolean)
                     .join(" · ")}
                   aside={formatFileSize(f.sizeBytes)}
                   deletedAt={f.deletedAt}
+                  now={now}
                 />
               ))}
               {files.map((f) => (
@@ -380,9 +436,10 @@ export function TrashPageClient({
                   disabled={!f.canRestore || pending}
                   icon={<File className="size-4" />}
                   title={f.name}
-                  meta={[f.profileName, deletedLine(f.deletedAt, f.deletedByName)].filter(Boolean).join(" · ")}
+                  meta={[f.profileName, deletedLine(f.deletedAt, f.deletedBy.name, now)].filter(Boolean).join(" · ")}
                   aside={formatFileSize(f.sizeBytes)}
                   deletedAt={f.deletedAt}
+                  now={now}
                 />
               ))}
             </ul>
@@ -406,12 +463,13 @@ export function TrashPageClient({
                   meta={[
                     p.spaceName,
                     `${p.transactions} transaction${p.transactions === 1 ? "" : "s"}, ${p.files} file${p.files === 1 ? "" : "s"}`,
-                    deletedLine(p.deletedAt, p.deletedByName),
+                    deletedLine(p.deletedAt, p.deletedBy.name, now),
                   ]
                     .filter(Boolean)
                     .join(" · ")}
                   aside={p.sizeBytes > 0 ? formatFileSize(p.sizeBytes) : undefined}
                   deletedAt={p.deletedAt}
+                  now={now}
                 />
               ))}
             </ul>

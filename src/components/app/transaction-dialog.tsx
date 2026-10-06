@@ -40,6 +40,7 @@ import {
 import { cn } from "@/lib/utils";
 import { addTransaction, updateTransaction, deleteTransaction } from "@/actions/transactions";
 import { toastMovedToTrash } from "./trash/trash-toast";
+import { TRASH_DAYS } from "@/lib/trash";
 import { getCurrency } from "@/lib/currencies";
 import { amountPlaceholder, formatAmountInput, integerDigitCount, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 import {
@@ -96,6 +97,7 @@ export function TransactionDialog({
   onOpenChange,
   onSaved,
   onDeleted,
+  onRestored,
   initialFiles,
   attachments = [],
 }: {
@@ -124,6 +126,8 @@ export function TransactionDialog({
   /** (edit) Called on a successful delete, so the caller can remove the row
    * optimistically in the same commit as the toast. */
   onDeleted?: () => void;
+  /** The delete was undone — show the row again (the caller hid it). */
+  onRestored?: () => void;
 }) {
   // Viewers (no editor access anywhere) get a read-only dialog: fields are
   // disabled and the Save/Delete buttons are hidden. The server enforces this too.
@@ -321,7 +325,10 @@ export function TransactionDialog({
         // not a beat later when the server revalidation arrives.
         onDeleted?.();
         toastMovedToTrash("Moved to trash", { transactionIds: [id] }, {
-          onRestored: () => router.refresh(),
+          onRestored: () => {
+            onRestored?.();
+            router.refresh();
+          },
         });
         setOpen(false);
       } else {
@@ -594,8 +601,8 @@ export function TransactionDialog({
                     <AlertDialogHeader>
                       <AlertDialogTitle>Delete this transaction?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        It moves to the trash and your balance updates. You can restore it for 30
-                        days.
+                        It moves to the trash and your balance updates. You can restore it for{" "}
+                        {TRASH_DAYS} days.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

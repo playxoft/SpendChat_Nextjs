@@ -162,7 +162,7 @@ export async function deleteAllTransactions(
   workspaceId: string,
   confirm: string,
   profileIds: string[] = [],
-): Promise<{ deleted: number }> {
+): Promise<{ deleted: number; deletedAt: string | null }> {
   if (confirm !== "DELETE") throw badRequest("Type DELETE to confirm");
   await requireWorkspaceRole(userId, workspaceId, "admin");
   const db = getDb();
@@ -182,7 +182,7 @@ export async function deleteAllTransactions(
     .update(transactions)
     .set({ deletedAt: sql`now()`, deletedBy: userId })
     .where(and(inArray(transactions.profileId, targets), notTrashed(transactions)))
-    .returning({ id: transactions.id });
+    .returning({ id: transactions.id, deletedAt: transactions.deletedAt });
   logger.info(`Moved ${deleted.length} transactions across ${targets.length} profile(s) to the trash`, {
     event: "settings.transactions_cleared",
     workspaceId,
@@ -190,7 +190,9 @@ export async function deleteAllTransactions(
     profileCount: targets.length,
     deleted: deleted.length,
   });
-  return { deleted: deleted.length };
+  // Every row shares the statement's instant: the web's Undo restores exactly
+  // this batch by it (`restoreAllTransactions`), without sending the ids back.
+  return { deleted: deleted.length, deletedAt: deleted[0]?.deletedAt?.toISOString() ?? null };
 }
 
 /**
