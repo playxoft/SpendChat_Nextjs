@@ -40,6 +40,7 @@ import { scheduleBudgetCheck } from "./budget-alerts";
 import {
   lockFolderSubtree,
   rescueLiveUnderTrash,
+  retryOnDeadlock,
   trashedReach,
   uuidList,
   type Tx,
@@ -140,6 +141,8 @@ export async function listTrashVault(
       profileIcon: profiles.icon,
     })
     .from(folders)
+    // trash: the parent in any state — whether it went with this folder is
+    // exactly what `parentInstant` is read for.
     .leftJoin(parent, eq(parent.id, folders.parentId))
     .leftJoin(deleter, eq(deleter.id, folders.deletedBy))
     // trash: a display join; `profileIds` are the caller's live profiles.
@@ -302,6 +305,7 @@ export async function listTrashProfiles(
       receiptBytes: sql<string>`(${db
         .select({ n: sql`coalesce(sum(${transactionAttachments.sizeBytes}), 0)` })
         .from(transactionAttachments)
+        // trash: all states, like `fileBytes` above.
         .innerJoin(transactions, eq(transactions.id, transactionAttachments.transactionId))
         .where(eq(transactions.profileId, profiles.id))})`,
     })
@@ -441,8 +445,10 @@ export async function restoreFromTrash(
   }
 
   if (sel.fileIds.length && writable.length) {
-    const restored = await db.transaction((tx) =>
-      restoreFiles(tx, [...new Set(sel.fileIds)], writable),
+    // Restores lock in the opposite order to a folder delete (row, then its
+    // folder), so they can be a deadlock victim — retried once.
+    const restored = await retryOnDeadlock(() =>
+      db.transaction((tx) => restoreFiles(tx, [...new Set(sel.fileIds)], writable)),
     );
     counts.files = restored;
     done += restored;
@@ -450,7 +456,9 @@ export async function restoreFromTrash(
 
   for (const folderId of new Set(sel.folderIds)) {
     if (!writable.length) break;
-    const restored = await db.transaction((tx) => restoreFolder(tx, folderId, writable));
+    const restored = await retryOnDeadlock(() =>
+      db.transaction((tx) => restoreFolder(tx, folderId, writable)),
+    );
     if (restored) {
       counts.folders += restored.folders;
       counts.files += restored.files;
@@ -613,7 +621,7 @@ async function restoreFolder(
   const batch = await tx.execute<{ id: string }>(sql`
     with recursive sub as (
       select id from ${folders} where id = ${root.id}::uuid
-      union all
+      union
       select c.id from ${folders} c
         join sub on c.parent_id = sub.id
        where c.deleted_at = ${root.instant}::timestamptz
@@ -784,10 +792,11 @@ export async function destroyTrashedFiles(where: SQL, limit: number): Promise<De
  * (`rescueLiveUnderTrash`): deleting a trashed folder never destroys something
  * nobody deleted. Then the files are deleted with `RETURNING` their keys, so
  * only the stored objects of rows that really went are swept, and the roots
- * cascade the (now all-trashed) folders under them.
+ * cascade the (now all-trashed) folders under them. Run through
+ * `retryOnDeadlock`, like every folder transaction.
  */
 export async function destroyTrashedFolders(where: SQL, limit: number): Promise<Destroyed> {
-  return getDb().transaction(async (tx) => {
+  return retryOnDeadlock(() => getDb().transaction(async (tx) => {
     const doomed = await tx
       .select({ id: folders.id })
       .from(folders)
@@ -813,7 +822,7 @@ export async function destroyTrashedFolders(where: SQL, limit: number): Promise<
       counts: { ...EMPTY_TRASH_COUNTS, folders: removed.length, files: gone.length },
       keys: gone.flatMap((r) => [r.r2Key, r.thumbnailKey]),
     };
-  });
+  }));
 }
 
 /** Destroy up to `limit` trashed profiles matching `where`, with everything in them. */

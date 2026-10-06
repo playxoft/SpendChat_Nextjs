@@ -46,21 +46,39 @@ export async function initTestDb(): Promise<PgliteDatabase<typeof schema>> {
  * a listing's own query — asserting an index exists proves nothing if the query
  * stopped being able to use it.
  */
-export type CapturedStatement = { text: string; params: unknown[] };
+export type CapturedStatement = {
+  text: string;
+  params: unknown[];
+  /** Which `db.transaction` sent it (1, 2, … in order), or null outside one. */
+  tx: number | null;
+};
 
 export async function captureSql(fn: () => Promise<unknown>): Promise<CapturedStatement[]> {
   if (!client) throw new Error("Test DB not initialised — call initTestDb() first");
   const pglite = client;
   const original = pglite.query.bind(pglite);
+  const originalTx = pglite.transaction.bind(pglite);
   const seen: CapturedStatement[] = [];
-  (pglite as { query: typeof original }).query = ((text: string, ...rest: unknown[]) => {
-    seen.push({ text, params: Array.isArray(rest[0]) ? (rest[0] as unknown[]) : [] });
-    return (original as (...a: unknown[]) => unknown)(text, ...rest);
-  }) as typeof original;
+  let txCount = 0;
+  const recording =
+    (query: (...a: unknown[]) => unknown, tx: number | null) =>
+    (text: string, ...rest: unknown[]) => {
+      seen.push({ text, params: Array.isArray(rest[0]) ? (rest[0] as unknown[]) : [], tx });
+      return query(text, ...rest);
+    };
+  (pglite as { query: unknown }).query = recording(original as (...a: unknown[]) => unknown, null);
+  // Drizzle runs a transaction's statements on the handle PGlite passes in.
+  (pglite as { transaction: unknown }).transaction = (cb: (tx: { query: unknown }) => Promise<unknown>) =>
+    originalTx(async (tx) => {
+      const n = ++txCount;
+      (tx as { query: unknown }).query = recording(tx.query.bind(tx) as (...a: unknown[]) => unknown, n);
+      return cb(tx);
+    });
   try {
     await fn();
   } finally {
     (pglite as { query: typeof original }).query = original;
+    (pglite as { transaction: typeof originalTx }).transaction = originalTx;
   }
   return seen;
 }

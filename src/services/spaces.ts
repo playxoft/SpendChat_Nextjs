@@ -244,6 +244,7 @@ export async function deleteSpace(userId: string, spaceId: string, input: unknow
   // profile counts again when it's restored, which checks the cap then.
   const rows = await db
     .select({ live: sql<boolean>`${profiles.deletedAt} is null` })
+    // trash: every profile, trashed ones too — each needs a destination.
     .from(profiles)
     .where(eq(profiles.spaceId, space.id));
   const profileCount = rows.filter((r) => r.live).length;
@@ -270,7 +271,7 @@ export async function deleteSpace(userId: string, spaceId: string, input: unknow
       // trash: every profile, trashed ones too — they all go where the admin said.
       await tx
         .update(profiles)
-        .set({ spaceId: target })
+        .set({ spaceId: target, updatedAt: new Date() })
         .where(eq(profiles.spaceId, space.id));
     }
     // Restrict FK on profiles.space_id: a profile written into the space after

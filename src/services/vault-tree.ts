@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 import type { Db } from "@/db";
 import { files, folders } from "@/db/schema";
+import { isDeadlock } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { restoredName } from "@/lib/trash";
 import { FOLDER_NAME_MAX } from "@/lib/validation";
@@ -26,6 +27,9 @@ export type TreeFolder = {
   deletedAt: string | null;
 };
 
+/** How many times a locked walk re-reads before giving up. */
+const MAX_PASSES = 20;
+
 /**
  * Every folder under `rootIds` (them included, whatever their trash state),
  * **locked `FOR UPDATE` until the caller's transaction ends**.
@@ -43,18 +47,30 @@ export type TreeFolder = {
  * "Deeds" into Taxes/2025 while A deletes Taxes — before this, Deeds stayed
  * live under a trashed folder and the purge destroyed it.)
  *
- * Rows are locked in id order, so two overlapping walks can't deadlock on order.
+ * Rows are locked in id order, so two walks don't deadlock *each other*. A walk
+ * can still deadlock against a writer that locks the same folders in another
+ * order — a move inside the subtree (share-locks its destination, then updates
+ * the folder) or a restore of a trashed child (locks the child, then
+ * share-locks its parent). Postgres breaks the cycle by aborting one side with
+ * 40P01, so every caller runs its transaction through `retryOnDeadlock`.
+ *
+ * Throws if the set is still growing after `MAX_PASSES` — something is moving
+ * folders into it faster than it can be locked, and returning a partial set
+ * would let the caller act on a subtree that isn't fixed.
  */
 export async function lockFolderSubtree(tx: Tx, rootIds: readonly string[]): Promise<TreeFolder[]> {
   if (rootIds.length === 0) return [];
   let rows: TreeFolder[] = [];
-  for (let pass = 0; pass < 20; pass++) {
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
     const result = await tx.execute<{
       id: string;
       parent_id: string | null;
       profile_id: string;
       deleted_at: string | null;
-    }>(sql`
+    }>(
+      // trash: every folder under the roots, trashed or not — the callers
+      // decide by `deletedAt` what to stamp, rescue or destroy.
+      sql`
       with recursive sub as (
         select id from ${folders} where id in (${uuidList(rootIds)})
         union
@@ -64,7 +80,8 @@ export async function lockFolderSubtree(tx: Tx, rootIds: readonly string[]): Pro
       from ${folders} f
       where f.id in (select id from sub)
       order by f.id
-      for update of f`);
+      for update of f`,
+    );
     const next = result.rows.map((r) => ({
       id: r.id,
       parentId: r.parent_id,
@@ -73,9 +90,61 @@ export async function lockFolderSubtree(tx: Tx, rootIds: readonly string[]): Pro
     }));
     const grew = next.length !== rows.length || next.some((r, i) => r.id !== rows[i]?.id);
     rows = next;
-    if (!grew) break;
+    if (!grew) return rows;
   }
-  return rows;
+  throw new Error(`Folder subtree still growing after ${MAX_PASSES} passes`);
+}
+
+/**
+ * `folderId` and every folder above it, **share-locked until the caller's
+ * transaction ends** — what a move checks for a cycle. While these rows are
+ * locked nobody can re-parent them, so the chain read here is the chain the
+ * move commits against: two crossing moves that would close a loop between
+ * them block each other (or one is a deadlock victim and retries), and the
+ * second then sees the first. Re-walked until it stops changing, like
+ * `lockFolderSubtree`; `union` ends the walk even on a stored cycle.
+ */
+export async function lockFolderAncestors(tx: Tx, folderId: string): Promise<string[]> {
+  let ids: string[] = [];
+  for (let pass = 0; pass < MAX_PASSES; pass++) {
+    const result = await tx.execute<{ id: string }>(
+      // trash: the chain as stored — a cycle is a cycle whatever is trashed.
+      sql`
+      with recursive up as (
+        select id, parent_id from ${folders} where id = ${folderId}::uuid
+        union
+        select p.id, p.parent_id from ${folders} p join up on p.id = up.parent_id
+      )
+      select f.id from ${folders} f
+      where f.id in (select id from up)
+      order by f.id
+      for share of f`,
+    );
+    const next = result.rows.map((r) => r.id);
+    const same = next.length === ids.length && next.every((id, i) => id === ids[i]);
+    ids = next;
+    if (same) return ids;
+  }
+  throw new Error(`Folder ancestry still changing after ${MAX_PASSES} passes`);
+}
+
+/**
+ * Run a folder transaction (delete, move, restore), and run it **once more**
+ * if Postgres aborted it as a deadlock victim — see `lockFolderSubtree` for the
+ * cycles. The retry starts from scratch and sees what the other side
+ * committed, so it lands on the right answer (a 404 for a destination that
+ * went to the trash, a refused cycle). A second deadlock is thrown.
+ */
+export async function retryOnDeadlock<T>(run: () => Promise<T>): Promise<T> {
+  try {
+    return await run();
+  } catch (err) {
+    if (!isDeadlock(err)) throw err;
+    logger.warn("A folder change was chosen as a deadlock victim and is being retried once", {
+      event: "vault.deadlock_retry",
+    });
+    return run();
+  }
 }
 
 /**

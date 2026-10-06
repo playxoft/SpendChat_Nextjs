@@ -12,11 +12,12 @@ vi.mock("@/lib/r2", () => ({
 import { eq, sql } from "drizzle-orm";
 import { deleteObject, deleteObjects, uploadObject } from "@/lib/r2";
 import { files, folders } from "@/db/schema";
-import { deleteFile, deleteFolder, uploadVaultFiles } from "@/services/files";
+import { deleteFile, deleteFolder, updateFolder, uploadVaultFiles } from "@/services/files";
+import { lockFolderAncestors, lockFolderSubtree, retryOnDeadlock, type Tx } from "@/services/vault-tree";
 import { deleteFromTrash, listTrashVault, restoreFromTrash } from "@/services/trash";
 import { getVaultFile, getVaultFolder } from "@/lib/queries";
 import { signInAs, uid } from "./helpers/session";
-import { getTestDb } from "./helpers/test-db";
+import { captureSql, getTestDb } from "./helpers/test-db";
 import { bootstrapUser, firstProfileId, setWorkspacePlan, workspaceIdOf } from "./helpers/seed";
 import { seedFile, seedFolder } from "./helpers/vault-seed";
 
@@ -239,5 +240,156 @@ describe("folder trees (Plus)", () => {
     expect((await fileRow(file))!.folderId).toBe(top);
     await deleteFolder(U, W, top);
     expect((await fileRow(file))!.deletedAt?.getTime()).toBe((await folderRow(top))!.deletedAt!.getTime());
+  });
+});
+
+/**
+ * Round 2 of the review. Folder writers lock rows in different orders — a
+ * delete locks the subtree top-down, a move share-locks its destination then
+ * updates the folder, a restore locks the child then its parent — so two of
+ * them can deadlock, and Postgres aborts one with 40P01. Each folder
+ * transaction runs once more when that happens. A single-connection test
+ * database can't deadlock, so a trigger raises 40P01 at the first folder
+ * update instead (a sequence counts the attempts — it isn't rolled back).
+ */
+describe("folder changes chosen as a deadlock victim", () => {
+  beforeEach(async () => setWorkspacePlan(W, "plus"));
+
+  async function withDeadlocks(times: number, run: () => Promise<unknown>) {
+    const db = getTestDb();
+    await db.execute(sql.raw(`CREATE TEMP SEQUENCE deadlock_attempts`));
+    await db.execute(
+      sql.raw(`
+      CREATE OR REPLACE FUNCTION pg_temp.deadlock_victim() RETURNS trigger AS $$
+        BEGIN
+          IF nextval('deadlock_attempts') <= ${times} THEN
+            RAISE EXCEPTION 'deadlock detected' USING ERRCODE = '40P01';
+          END IF;
+          RETURN NEW;
+        END;
+      $$ LANGUAGE plpgsql`),
+    );
+    await db.execute(
+      sql.raw(`CREATE TRIGGER deadlock_victim BEFORE UPDATE ON folders
+        FOR EACH STATEMENT EXECUTE FUNCTION pg_temp.deadlock_victim()`),
+    );
+    try {
+      return await run();
+    } finally {
+      await db.execute(sql.raw(`DROP TRIGGER deadlock_victim ON folders`));
+      await db.execute(sql.raw(`DROP SEQUENCE deadlock_attempts`));
+    }
+  }
+
+  it("a folder delete is retried once and goes through", async () => {
+    const top = await seedFolder("a", P, "Taxes");
+    expect(await withDeadlocks(1, () => deleteFolder(U, W, top))).toBe("trashed");
+    expect((await folderRow(top))!.deletedAt).not.toBeNull();
+  });
+
+  it("a folder move is retried once and goes through", async () => {
+    const a = await seedFolder("a", P, "A");
+    const b = await seedFolder("a", P, "B");
+    await withDeadlocks(1, () => updateFolder(U, W, { id: a, parentId: b }));
+    expect((await folderRow(a))!.parentId).toBe(b);
+  });
+
+  it("a folder restore is retried once and goes through", async () => {
+    const top = await seedFolder("a", P, "Taxes");
+    await deleteFolder(U, W, top);
+    const res = (await withDeadlocks(1, () => restoreFromTrash(U, W, { folderIds: [top] }))) as {
+      counts: { folders: number };
+    };
+    expect(res.counts.folders).toBe(1);
+    expect((await folderRow(top))!.deletedAt).toBeNull();
+  });
+
+  it("only once: a second deadlock is reported, and nothing was half-done", async () => {
+    const top = await seedFolder("a", P, "Taxes");
+    await expect(withDeadlocks(2, () => deleteFolder(U, W, top))).rejects.toMatchObject({
+      cause: expect.objectContaining({ code: "40P01" }),
+    });
+    expect((await folderRow(top))!.deletedAt).toBeNull();
+  });
+
+  it("anything that isn't a deadlock is not retried", async () => {
+    let calls = 0;
+    await expect(
+      retryOnDeadlock(async () => {
+        calls++;
+        throw Object.assign(new Error("unique"), { code: "23505" });
+      }),
+    ).rejects.toThrow("unique");
+    expect(calls).toBe(1);
+  });
+});
+
+describe("locked folder walks", () => {
+  /** A transaction handle whose every walk finds one more folder than the last. */
+  function growingTx(): Tx {
+    let n = 0;
+    return {
+      execute: async () => {
+        n++;
+        return {
+          rows: Array.from({ length: n }, (_, i) => ({
+            id: `00000000-0000-7000-8000-${String(i).padStart(12, "0")}`,
+            parent_id: null,
+            profile_id: P,
+            deleted_at: null,
+          })),
+        };
+      },
+    } as unknown as Tx;
+  }
+
+  it("throw rather than return a set that never stopped growing", async () => {
+    await expect(lockFolderSubtree(growingTx(), ["root"])).rejects.toThrow(/still growing/);
+    await expect(lockFolderAncestors(growingTx(), "leaf")).rejects.toThrow(/still changing/);
+  });
+
+  it("a move's cycle check runs inside the move's transaction, under lock, before the update", async () => {
+    await setWorkspacePlan(W, "plus");
+    const a = await seedFolder("a", P, "A");
+    const b = await seedFolder("a", P, "B");
+    const sent = await captureSql(() => updateFolder(U, W, { id: a, parentId: b }));
+    const walk = sent.findIndex((s) => /with recursive up/.test(s.text));
+    const update = sent.findIndex((s) => /^update "folders"/.test(s.text));
+    expect(walk).toBeGreaterThan(-1);
+    expect(sent[walk]!.text).toMatch(/for share of f/);
+    expect(sent[walk]!.tx).not.toBeNull();
+    expect(sent[walk]!.tx).toBe(sent[update]!.tx);
+    expect(walk).toBeLessThan(update);
+  });
+
+  it("moving a folder under its own descendant is refused", async () => {
+    const a = await seedFolder("a", P, "A");
+    const child = await seedFolder("a", P, "Child", a);
+    const grandchild = await seedFolder("a", P, "Grandchild", child);
+    await expect(updateFolder(U, W, { id: a, parentId: grandchild })).rejects.toMatchObject({ status: 400 });
+    expect((await folderRow(a))!.parentId).toBeNull();
+  });
+
+  /**
+   * A stored cycle (from before the check moved under lock) must not hang
+   * anything: both walks use `union`, which stops at a row it has seen.
+   */
+  it("a stored cycle doesn't hang a restore or a move", async () => {
+    await setWorkspacePlan(W, "plus");
+    const a = await seedFolder("a", P, "A");
+    const b = await seedFolder("a", P, "B", a);
+    await deleteFolder(U, W, a);
+    await getTestDb().update(folders).set({ parentId: b }).where(eq(folders.id, a));
+    const res = await restoreFromTrash(U, W, { folderIds: [a] });
+    expect(res.counts.folders).toBe(2);
+    // Its parent was in the trash when it came back, so it's at the top now.
+    expect((await folderRow(a))!.parentId).toBeNull();
+
+    const c = await seedFolder("a", P, "C");
+    const d = await seedFolder("a", P, "D", c);
+    await getTestDb().update(folders).set({ parentId: d }).where(eq(folders.id, c));
+    const e = await seedFolder("a", P, "E");
+    await updateFolder(U, W, { id: e, parentId: c });
+    expect((await folderRow(e))!.parentId).toBe(c);
   });
 });

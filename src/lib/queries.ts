@@ -1036,6 +1036,7 @@ const trashPageColumns = {
 function trashBranch(where: SQL, take: number) {
   return getDb()
     .select(trashPageColumns)
+    // trash: every caller passes a `trashConditions` predicate.
     .from(transactions)
     .where(where)
     .orderBy(desc(transactions.deletedAt), desc(transactions.id))
@@ -1525,6 +1526,7 @@ export async function listTransactionFilesForVault(
     // trash: display joins — the page already excludes receipts of trashed
     // transactions (`notAmongTrashedParents`) and trashed profiles.
     .innerJoin(transactions, eq(page.transactionId, transactions.id))
+    // trash: as above — the page is scoped to the caller's live profiles.
     .leftJoin(profiles, eq(page.profileId, profiles.id))
     .orderBy(desc(page.createdAt), desc(page.id));
   return rows.map((r) => ({

@@ -13,7 +13,7 @@ import { assertStorageQuota } from "@/lib/storage-quota";
 import { getWorkspaceEntitlements } from "@/lib/entitlements";
 import { logger } from "@/lib/logger";
 import { notTrashed } from "@/lib/trash-scope";
-import { lockFolderSubtree, type Tx } from "./vault-tree";
+import { lockFolderAncestors, lockFolderSubtree, retryOnDeadlock, type Tx } from "./vault-tree";
 import {
   VAULT_FILES_LIMIT,
   getVaultFile,
@@ -377,13 +377,7 @@ export async function updateFolder(
     set.tagIds = parsed.tagIds;
   }
   if (parsed.parentId !== undefined && parsed.parentId !== existing.parentId) {
-    if (parsed.parentId) {
-      await requireFolderInProfile(parsed.parentId, existing.profileId);
-      const rows = await profileFolders(existing.profileId);
-      if (subtreeFolderIds(rows, existing.id).includes(parsed.parentId)) {
-        throw badRequest("A folder can't be moved into itself");
-      }
-    }
+    if (parsed.parentId) await requireFolderInProfile(parsed.parentId, existing.profileId);
     if (set.name === undefined) {
       await assertFolderNameFree(
         existing.profileId,
@@ -398,15 +392,25 @@ export async function updateFolder(
   set.updatedAt = new Date();
 
   const db = getDb();
-  const updated = await db.transaction(async (tx) => {
-    if (set.parentId) await requireFolderInProfile(set.parentId, existing.profileId, tx);
-    const [row] = await tx
-      .update(folders)
-      .set(set)
-      .where(and(eq(folders.id, existing.id), notTrashed(folders)))
-      .returning();
-    return row;
-  });
+  const updated = await retryOnDeadlock(() =>
+    db.transaction(async (tx) => {
+      if (set.parentId) {
+        await requireFolderInProfile(set.parentId, existing.profileId, tx);
+        // The cycle check reads the destination's ancestry under lock, inside
+        // the transaction that moves: checked before it, two crossing moves
+        // could each pass and together close a loop.
+        if ((await lockFolderAncestors(tx, set.parentId)).includes(existing.id)) {
+          throw badRequest("A folder can't be moved into itself");
+        }
+      }
+      const [row] = await tx
+        .update(folders)
+        .set(set)
+        .where(and(eq(folders.id, existing.id), notTrashed(folders)))
+        .returning();
+      return row;
+    }),
+  );
   if (!updated) throw notFound("Folder not found");
   return serializeFolder(updated);
 }
@@ -428,6 +432,9 @@ async function keepsFileTrash(workspaceId: string): Promise<boolean> {
  * the delete runs is either caught (it committed first) or refused (it waits on
  * our lock, then finds its destination gone). Read outside, a concurrent move
  * left a live folder under a trashed one, and the purge later destroyed it.
+ * A move or restore that locks the same folders in the other order can
+ * deadlock with it; Postgres aborts one side and `retryOnDeadlock` runs it
+ * again.
  *
  * **Plus/Pro** move it to the trash: the folder and every live folder and file
  * under it are stamped with one instant, so every vault read stays a plain
@@ -455,7 +462,7 @@ export async function deleteFolder(
   const db = getDb();
 
   if (await keepsFileTrash(workspaceId)) {
-    const trashed = await db.transaction(async (tx) => {
+    const trashed = await retryOnDeadlock(() => db.transaction(async (tx) => {
       // One instant for the whole batch, kept as text at the column's own
       // precision — the restore matches on equality.
       const [{ at }] = (
@@ -482,7 +489,7 @@ export async function deleteFolder(
         .where(and(inArray(files.folderId, subtree), notTrashed(files)))
         .returning({ id: files.id });
       return { folders: 1 + sub.length, files: contained.length };
-    });
+    }));
     if (!trashed) return null;
     logger.info(
       `Moved a folder to the trash with ${trashed.folders - 1} subfolders and ${trashed.files} files`,
@@ -491,7 +498,7 @@ export async function deleteFolder(
     return "trashed";
   }
 
-  const keys = await db.transaction(async (tx) => {
+  const keys = await retryOnDeadlock(() => db.transaction(async (tx) => {
     const subtree = (await lockFolderSubtree(tx, [existing.id])).map((f) => f.id);
     if (!subtree.includes(existing.id)) return null;
     // trash: all states — on Free everything under the folder goes for good,
@@ -506,7 +513,7 @@ export async function deleteFolder(
       .returning({ id: folders.id });
     if (deleted.length === 0) return null;
     return doomed.flatMap((f) => [f.r2Key, f.thumbnailKey]);
-  });
+  }));
   if (!keys) return null;
   await deleteObjects(keys);
   return "deleted";
