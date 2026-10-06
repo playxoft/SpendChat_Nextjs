@@ -5,7 +5,13 @@ import { getDb } from "@/db";
 import { users, workspaces } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
 import { badRequest, notFound } from "@/lib/errors";
-import { checkoutQuote, checkoutRefusal, topUpQuote, trialDaysFor } from "@/lib/checkout";
+import {
+  checkoutCurrency,
+  checkoutQuote,
+  checkoutRefusal,
+  topUpQuote,
+  trialDaysFor,
+} from "@/lib/checkout";
 import { createCheckoutSession, type CheckoutOrder } from "@/lib/payments";
 import { checkoutDescription, checkoutRefusalMessage, pricingCurrencyFor } from "@/lib/plan-copy";
 import { startCheckoutSchema } from "@/lib/validation";
@@ -26,12 +32,16 @@ import { requireWorkspaceRole } from "@/lib/workspaces";
 
 const workspaceIdSchema = z.string().uuid("That workspace isn't valid");
 
+/** Where the request came from — `cf-ipcountry`, for the currency rule. */
+export type CheckoutRequestContext = { country: string | null };
+
 export async function startCheckout(
   userId: string,
   workspaceId: string,
   input: unknown,
+  ctx: CheckoutRequestContext = { country: null },
 ): Promise<{ url: string }> {
-  const order = await buildCheckoutOrder(userId, workspaceId, input);
+  const order = await buildCheckoutOrder(userId, workspaceId, input, ctx);
   return createCheckoutSession(order);
 }
 
@@ -43,6 +53,7 @@ export async function buildCheckoutOrder(
   userId: string,
   workspaceId: string,
   input: unknown,
+  ctx: CheckoutRequestContext = { country: null },
 ): Promise<CheckoutOrder> {
   const id = parseOrThrow(workspaceIdSchema, workspaceId);
   const item = parseOrThrow(startCheckoutSchema, input);
@@ -68,7 +79,9 @@ export async function buildCheckoutOrder(
     throw badRequest(checkoutRefusalMessage(refusal, ws.plan, item.item === "plan" ? item.plan : undefined));
   }
 
-  const currency = item.currency ?? pricingCurrencyFor(ws.currency);
+  // The client's (or the workspace's) currency is a preference; the request's
+  // country decides whether the rupee list may be used (`checkoutCurrency`).
+  const currency = checkoutCurrency(item.currency ?? pricingCurrencyFor(ws.currency), ctx.country);
   const base = {
     workspace: { id: ws.id, name: ws.name },
     buyer: { userId, email: buyer?.email ?? null, name: buyer?.name ?? null },

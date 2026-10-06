@@ -4,6 +4,7 @@ import {
   PERIODS,
   PERIOD_MONTHS,
   TRIAL_DAYS,
+  currencyForCountry,
   isCurrency,
   periodDiscount,
   quote,
@@ -115,6 +116,26 @@ export type CheckoutQuote = {
 };
 
 /** The price of one billing period of `plan`, from `pricing.ts` — never from the client. */
+/**
+ * The currency an order is charged in. The buyer's choice (or their
+ * workspace's) is only a preference: the rupee list carries the regional
+ * discount, so INR is allowed only when the request comes from a country
+ * priced in rupees — judged by Cloudflare's `cf-ipcountry`, never by
+ * `Accept-Language`, which the client writes. Anything else falls back to the
+ * buyer's regional currency (USD when the country is unknown). Every other
+ * currency is the global price, so it's theirs to pick. The payment provider
+ * should pin the billing country as well (personal phase 9).
+ */
+export function checkoutCurrency(
+  preferred: Currency | undefined,
+  country: string | null | undefined,
+): Currency {
+  const regional = currencyForCountry(country);
+  if (!preferred) return regional;
+  if (preferred === "INR" && regional !== "INR") return regional;
+  return preferred;
+}
+
 export function checkoutQuote(plan: PaidPersonalPlan, period: Period, currency: Currency): CheckoutQuote {
   const q = quote(plan, period, currency);
   return {

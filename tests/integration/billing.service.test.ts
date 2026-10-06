@@ -133,7 +133,7 @@ describe("startCheckout — the price is the server's", () => {
   it("prices a plan from the price list in the workspace's currency, with the trial from Free", async () => {
     const W = await ownWorkspace();
     await getTestDb().update(workspaces).set({ currency: "INR" }).where(eq(workspaces.id, W));
-    const order = await buildCheckoutOrder(uid("own"), W, plan("pro", "yearly"));
+    const order = await buildCheckoutOrder(uid("own"), W, plan("pro", "yearly"), { country: "IN" });
     expect(order.currency).toBe("INR");
     expect(order.amountMinor).toBe(priceMinor("pro", "yearly", "INR"));
     expect(order.amountMinor).toBe(checkoutQuote("pro", "yearly", "INR").amountMinor);
@@ -156,6 +156,29 @@ describe("startCheckout — the price is the server's", () => {
     expect(order.amountMinor).toBe(priceMinor("plus", "monthly", "EUR"));
   });
 
+  it("only charges the rupee list to a request from a rupee country (security review: currency arbitrage)", async () => {
+    const W = await ownWorkspace();
+    const pro = { ...plan("pro", "yearly"), currency: "INR" as const };
+    // From India: the rupee price.
+    const fromIndia = await buildCheckoutOrder(uid("own"), W, pro, { country: "IN" });
+    expect(fromIndia.currency).toBe("INR");
+    expect(fromIndia.amountMinor).toBe(priceMinor("pro", "yearly", "INR"));
+    // Asking for rupees from the US, or from nowhere known, gets the regional price.
+    const fromUs = await buildCheckoutOrder(uid("own"), W, pro, { country: "US" });
+    expect(fromUs.currency).toBe("USD");
+    expect(fromUs.amountMinor).toBe(priceMinor("pro", "yearly", "USD"));
+    const unknown = await buildCheckoutOrder(uid("own"), W, pro, { country: null });
+    expect(unknown.currency).toBe("USD");
+    // A workspace set to INR doesn't unlock it either.
+    await getTestDb().update(workspaces).set({ currency: "INR" }).where(eq(workspaces.id, W));
+    const viaWorkspace = await buildCheckoutOrder(uid("own"), W, plan("pro", "yearly"), { country: "GB" });
+    expect(viaWorkspace.currency).toBe("GBP");
+    // Top-ups follow the same rule.
+    await setWorkspacePlan(W, "plus");
+    const topUp = await buildCheckoutOrder(uid("own"), W, { item: "topup", currency: "INR" }, { country: "US" });
+    expect(topUp.amountMinor).toBe(topUpPriceMinor("USD"));
+  });
+
   it("ignores a price the client tries to send", async () => {
     const W = await ownWorkspace();
     const order = await buildCheckoutOrder(uid("own"), W, { ...plan("pro", "yearly"), amountMinor: 1 });
@@ -165,7 +188,7 @@ describe("startCheckout — the price is the server's", () => {
   it("prices a top-up on a paid plan", async () => {
     const W = await ownWorkspace();
     await setWorkspacePlan(W, "plus");
-    const order = await buildCheckoutOrder(uid("own"), W, { item: "topup", currency: "INR" });
+    const order = await buildCheckoutOrder(uid("own"), W, { item: "topup", currency: "INR" }, { country: "IN" });
     expect(order.amountMinor).toBe(topUpPriceMinor("INR"));
     expect(order.line).toEqual({
       kind: "topup",

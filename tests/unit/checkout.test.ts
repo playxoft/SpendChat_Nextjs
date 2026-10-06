@@ -128,3 +128,23 @@ describe("trial and refusals", () => {
     expect(checkoutRefusal("pro", topup)).toBeNull();
   });
 });
+
+describe("checkoutCurrency", () => {
+  it("allows the rupee list only for a rupee country, judged by the request's country", async () => {
+    const { checkoutCurrency } = await import("@/lib/checkout");
+    expect(checkoutCurrency("INR", "IN")).toBe("INR");
+    expect(checkoutCurrency("INR", "NP")).toBe("INR");
+    expect(checkoutCurrency("INR", "US")).toBe("USD");
+    expect(checkoutCurrency("INR", "DE")).toBe("EUR");
+    expect(checkoutCurrency("INR", null)).toBe("USD");
+  });
+  it("lets anyone pick a global-price currency, and defaults to the regional one", async () => {
+    const { checkoutCurrency } = await import("@/lib/checkout");
+    expect(checkoutCurrency("GBP", "IN")).toBe("GBP");
+    expect(checkoutCurrency("JPY", "US")).toBe("JPY");
+    expect(checkoutCurrency(undefined, "IN")).toBe("INR");
+    expect(checkoutCurrency(undefined, "AU")).toBe("AUD");
+    expect(checkoutCurrency(undefined, undefined)).toBe("USD");
+  });
+});
+
