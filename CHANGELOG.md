@@ -50,7 +50,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   uses another currency, you enter what it cost you in yours. Each share can
   only be added once — and if the expense is edited afterwards, **Update my
   entry** brings your workspace entry back in line (or **Remove from my
-  workspace**, if you were taken off it).
+  workspace** moves it to the trash, if you were taken off it).
 - Mobile API 6.9.0: `/api/v1/split/*` (groups, people, expenses, payments,
   invitations, add to workspace, update my entry).
 
@@ -62,6 +62,95 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   one inbox.
 - Adding someone to a group never reveals whether they already have a
   SpendChat account — the answer and the group look the same either way.
+
+## [0.35.0] — 2026-10-07
+
+### Added
+- **Budgets.** Set a monthly limit for the whole workspace, one profile, or one
+  category (that category across every profile), and watch it fill up on the
+  new **Budgets** page (`U`, or the sidebar). Only expenses count — income
+  doesn't offset spending — and every budget starts again on the 1st.
+- **Alerts at 80% and 100%.** A budget that needs a look shows a badge on the
+  Budgets nav item and a banner on the page, worked out live from this month's
+  spending. Admins and whoever set the budget (while they can still change it)
+  also get one email per budget at 80% and one at 100% each month — again only
+  if its amount is raised — with several budgets crossed at once arriving as
+  one email, and at most 30 alert emails a month per workspace. Each budget has
+  a switch to turn its emails off. The check runs after the entry is saved, so
+  adding a transaction is no slower.
+- **Budgets in analytics.** When the range is this month, analytics shows each
+  budget's progress — all of them for "All profiles", the profile's own budget
+  when one is selected.
+- **Who sees what.** A budget shows only to people who can read every profile it
+  covers (admins always can), so a total never reveals spending someone can't
+  see. Admins and editors of every covered profile can add, change or delete
+  it; viewers only look.
+- **Plan limits:** 5 budgets on Free, 20 on Plus, unlimited on Pro. The limit
+  shows up front on "New budget", in the usage panel and on the pricing page;
+  a workspace over the limit after a downgrade keeps every budget and its
+  alerts, it just can't add another.
+- **Mobile API 6.8.0:** `GET/POST /budgets`, `PATCH/DELETE /budgets/{id}`,
+  `Usage.budgets`, and `plan_limit` with `limit: "budgets"`.
+## [0.34.0] — 2026-10-07
+
+### Added
+- **Trash.** Deleting no longer has to be final. A deleted transaction, a whole
+  profile, and — on Plus and Pro — a file or folder goes to the trash and stays
+  there for 30 days, then it's gone for good. Open **Trash** from the account
+  menu to see what's there, who deleted it and how long it has left, and to
+  restore it or delete it for good — one item, a selection, or the whole trash.
+- **Undo.** Deleting a transaction (one or a selection), a file, a folder, a
+  profile — or clearing transactions in Settings — shows an **Undo** right in
+  the confirmation, so a slip costs one tap; the rows come back where they
+  were, even far down a long list. **Restore all** in the trash brings back
+  every deleted transaction at once.
+- **Your storage, explained.** The trash keeps counting toward storage until
+  it's emptied or purged — the files page's storage popover and the "storage
+  full" message now say how much of it is in the trash, with a link to empty
+  it.
+
+### Changed
+- **Deleting a profile sends it to the trash as one unit** — its transactions,
+  receipts and (on Plus and Pro) files come back with it when a workspace admin
+  restores it. Its name is free to reuse straight away. On Free the profile's
+  files are still deleted for good, and the dialog says so before you confirm.
+- **"Delete all transactions"** in Settings moves them to the trash instead of
+  erasing them, so a wrong profile in the list is no longer a disaster.
+- A profile in the trash doesn't count toward a space's profile limit, and
+  people who could only see that one profile don't take a member seat — until
+  it's restored, which checks the limits again.
+- A share link to something in the trash stops working, and works again if it's
+  restored.
+- Deleting a space that has profiles in the trash asks where they should go —
+  and says that whoever is in that space will see them if they're restored —
+  instead of moving them somewhere on its own.
+- On Free, deleting a profile that still has files asks you to choose: the
+  files can't go to the trash on Free, so they're never deleted without you
+  saying so.
+
+### Fixed
+- Clearing transactions from Settings used to leave their receipts' files in
+  storage forever; they're now removed with everything else when the trash is
+  emptied or purged.
+
+## [0.33.1] — 2026-10-06
+
+### Security
+- **Per-person rate limits, by plan.** Every signed-in request now counts
+  against one of three limits — adding and editing, viewing and searching, or
+  AI — over the last minute, five minutes and hour, with the numbers from the
+  plan of the workspace you're in (Free: 20 changes, 120 views and 3 AI
+  requests a minute; Plus and Pro allow more). It's there to stop scripts and
+  runaway loops, not people: a bulk add counts once, and folding the sidebar
+  or switching workspaces never eats into your adding budget. A CSV export —
+  up to 5,000 rows — counts as 20 views. Over the limit you're told how long
+  to wait ("Try again in 40 seconds"); the mobile API answers `429` with a
+  `Retry-After` header. If the limit ever can't be checked, AI pauses for a
+  few seconds rather than running unchecked; everything else carries on.
+
+### Changed
+- The flat 30-an-hour cap on AI requests is replaced by the AI rate limit
+  above — tighter on Free, roomier on Pro.
 
 ## [0.33.0] — 2026-10-06
 

@@ -85,6 +85,160 @@ invitations there — there's no token endpoint for the app.
 
 ---
 
+## 6.8.0 — 2026-10-07
+
+**Budgets.** A monthly spending limit for the whole workspace, one profile, or
+one expense category (across every profile). Each budget comes back with that
+month's spending, so the app can draw progress and its own 80% / 100% alerts.
+Alert *emails* are sent by the server; there is nothing to poll. Additive.
+
+**New endpoints**
+
+| Method & path | What |
+|---|---|
+| `GET /budgets?month=YYYY-MM` | The budgets the caller can see, each with `month`'s spending. `month` defaults to the current **UTC** month — send the phone's own month. `meta: { month, currency }`. |
+| `POST /budgets` | `{ scope: "workspace" \| "profile" \| "category", profileId?, categoryId?, amount, emailAlerts? }` → 201 `Budget`. `amount` is major units, like a transaction's. One budget per scope (409 otherwise); a category must be an expense category (422). |
+| `PATCH /budgets/{id}` | `{ amount?, emailAlerts? }` → `Budget`. What a budget covers can't change. |
+| `DELETE /budgets/{id}` | `{ id, deleted: true }`. |
+
+**New model: `Budget`** — `id, scope, profileId, categoryId, label, icon,
+period ("monthly"), amountMinor, emailAlerts, month, spentMinor, percent,
+status ("ok" | "warn" (≥ 80%) | "over" (≥ 100%)), canManage, canDelete,
+createdBy, createdAt, updatedAt`. Spending is expenses only (income never offsets) in the
+calendar month of each transaction's `occurredOn`.
+
+**Who sees and manages:** a budget is listed only to admins and to people who
+can read **every** profile it covers (the workspace and category scopes cover
+all profiles); anything else is a 404. Adding or changing one needs write
+access to every profile it covers (`canManage`); viewers only read. `canDelete`
+has the same reach as `canManage`, but isn't blocked by a view-only workspace.
+Alert emails go once per budget, threshold and month (again only if the amount
+is raised past the one it fired at), within 30 a month per workspace. Trashed
+transactions don't count, and a budget on a trashed profile is hidden (and
+doesn't count toward the plan) until the profile is restored.
+
+**New fields**
+
+| Where | Field | Notes |
+|---|---|---|
+| `Usage` (`GET /usage`) | `budgets: { used, limit, unlimited }` | Free 5, Plus 20, Pro `unlimited: true` (its `limit` of 200 is a safety cap — show "Unlimited"). |
+| `plan_limit` `details.limit` | `"budgets"` | From `POST /budgets` past the cap. `upgradeTo: null` on Pro → "contact us". |
+
+**Flutter impact:** none required — every change is additive. To ship budgets,
+add a Budgets screen on the four endpoints (send `?month=` in the device's
+zone), show `Usage.budgets`, and map `plan_limit` `limit: "budgets"` to the
+upgrade sheet (Pro's cap → "Contact us").
+
+---
+
+## 6.7.0 — 2026-10-07
+
+**The trash.** Deleting a transaction (every plan), a vault file or folder
+(Plus/Pro) or a whole profile now moves it to a trash for **30 days** instead of
+destroying it; a daily purge deletes it for good after that. Everything here is
+additive — the shapes clients already read keep their fields — but what a
+delete *means* changed, so read the behaviour notes.
+
+**New endpoints**
+
+| Method & path | What |
+|---|---|
+| `GET /trash/transactions?limit=&cursor=` | Trashed transactions (viewer on the profile), most recently deleted first; keyset-paged via `meta.nextCursor`. Each is a `Transaction` plus `deletedAt`, `deletedBy { id, name }`, `purgeAt`, `canRestore`. |
+| `GET /trash/files` | `{ folders: TrashedFolder[], files: TrashedFile[] }` — a folder carries what went to the trash with it. |
+| `GET /trash/profiles` | Trashed profiles (workspace admins; others get `[]`). |
+| `POST /trash/restore` | `{ transactionIds?, fileIds?, folderIds?, profileIds? }` → `{ restored, skipped }`. A profile restore can be **403 `plan_limit`** (`profilesPerSpace` or `members`). |
+| `POST /trash/delete` | Same body → `{ deleted, skipped }` — permanent. |
+| `POST /trash/empty` | → `{ deleted, remaining }`; call again while `remaining > 0`. |
+
+**Changed responses (additive)**
+
+| Where | Change |
+|---|---|
+| `DELETE /transactions/{id}` | `data` gains `trashed: true`. |
+| `DELETE /files/{id}`, `DELETE /folders/{id}` | `data` gains `trashed` — `true` on Plus/Pro (in the trash), `false` on Free (gone for good). |
+| `DELETE /profiles/{id}` | `data` gains `trashed: true` — the profile goes to the trash as one unit. |
+| `POST /transactions/delete-all` | `data` gains `trashed: true` — the rows go to the trash. |
+| `GET /profiles/{id}/deletion-impact` | gains `filesRecoverable` (false on Free: the vault is deleted for good). Counts are live rows only. |
+| `GET /usage` | `storage.trashBytes` — the part of `usedBytes` sitting in the trash. |
+| `413 storage_quota_exceeded` | `details.trashBytes` — how much of `used` is in the trash (what emptying it frees). |
+| `Space` (`GET /spaces`, …) | `trashedProfileCount` — the space's profiles in the trash (admins; 0 otherwise). |
+
+**Behaviour**
+
+- **Every read excludes the trash**: lists, totals, analytics, exports, search,
+  `GET /files`, and single GETs (404). Writes against a trashed id are 404s too.
+- A **trashed profile hides everything in it** (transactions, receipts, vault)
+  until a workspace admin restores it; its name is free to reuse at once, and a
+  restore into a taken name renames it "Name (restored)". `DELETE
+  /profiles/{id}` with the default `reject` now only refuses while **live**
+  transactions remain; `move` also moves the trashed ones.
+- Receipts stay with a trashed transaction; trashed bytes keep counting toward
+  storage until purged. Share links to anything in the trash stop working until
+  it's restored.
+- A trashed profile no longer counts toward `profilesPerSpace`, and people who
+  could only reach the workspace through it stop counting toward `members` — a
+  restore pays both caps again, checked for every profile in the request
+  together before any is restored.
+- `DELETE /spaces/{id}` now needs `moveProfilesTo` while the space holds
+  profiles **in the trash** too (409 otherwise): restored, a profile shows to
+  whoever is in its space, so the admin picks where they go.
+- `DELETE /profiles/{id}` with the default `reject` now also refuses (409) on
+  **Free** while live vault files remain — they'd be deleted for good. Send
+  `transactions=delete` to confirm.
+- Trash items name their deleter the same way everywhere:
+  `deletedBy: { id, name }`. `GET /trash/files` adds `filesCapped`.
+  `TrashedProfile.sizeBytes` is everything stored under the profile (vault
+  files and receipts, trash included) — what deleting it for good frees.
+
+**Flutter impact:** mostly optional. Two places can now answer **409** where
+they didn't: deleting a space that has profiles only in the trash (send
+`moveProfilesTo`; show the message), and, on Free, deleting a profile that has
+files without choosing `transactions=delete` (ask, then send `delete`). To offer
+recovery: after a
+transaction delete, show an **Undo** (`POST /trash/restore` with the id); add a
+**Trash** screen (the three `GET /trash/*` lists, restore / delete forever /
+empty, the `purgeAt` countdown). Word file-delete and profile-delete
+confirmations from `trashed` / `filesRecoverable` ("You can restore it for 30
+days" vs "This can't be undone"). Treat a 404 on a recently deleted id as
+expected. Optionally show `storage.trashBytes` on the usage screen.
+
+---
+
+## 6.6.0 — 2026-10-06
+
+Per-person rate limits. Every authenticated endpoint can now answer
+**`429 rate_limited`**: each person's requests are counted over 1-minute,
+5-minute and 1-hour windows in one of three buckets — `ai` (`/ai/*`), `read`
+(any other `GET`/`HEAD`), `create` (every other method) — against the numbers
+of the workspace's plan (Free / Plus / Pro; the table is in
+[01-api-reference.md](./01-api-reference.md) § Rate limits). A bulk call counts
+once; a CSV export (`GET /transactions/export`) counts as 20 reads.
+`GET /version` is never limited.
+
+**What a 429 looks like**
+
+| Where | What |
+|---|---|
+| Header | `Retry-After: <seconds>` — new on every rate-limit 429 |
+| `error.details` | `{ bucket: "create" \| "read" \| "ai", window: "1m" \| "5m" \| "1h", retryAfterSeconds }` (new `RateLimitedDetails`) |
+| `error.message` | Ready to show, with the wait spelled out: "That's a lot of changes in a short time. Try again in 40 seconds." |
+
+**Changed**
+
+| Endpoint | Before | Now |
+|---|---|---|
+| `POST /ai/parse`, `POST /ai/transcribe` | 429 after a shared 30 calls/hour per user, checked after the role | 429 from the per-person `ai` rate limit (3 a minute on Free, 6 on Pro …), checked **first**; the 30/hour quota is gone. Two 429s here carry no `window`: a second AI call sent while the previous one is still being charged (`retryAfterSeconds: 1`), and AI paused while the server can't check the limit (`retryAfterSeconds: 5`). |
+| every other authenticated endpoint | never 429 | may 429 (see above) |
+
+**Flutter impact:** treat `429 rate_limited` as possible on **any** endpoint.
+Wait `Retry-After` seconds (also `error.details.retryAfterSeconds`) before
+retrying, never retry a 429 in a loop, and show `error.message`. Mint file URLs
+(`/files/{id}/url`, `/attachments/{id}/url`) per view and reuse them for their
+lifetime — each mint is a read. The AI 429 copy "try again later" can now name
+the wait from `error.message`.
+
+---
+
 ## 6.5.0 — 2026-10-05
 
 Plans, spaces and the organisation. Every workspace now has a **plan**

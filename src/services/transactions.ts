@@ -12,9 +12,10 @@ import {
   getTransactionsByIds,
   type TransactionRow,
 } from "@/lib/queries";
-import { deleteObjects } from "@/lib/r2";
+import { notTrashed } from "@/lib/trash-scope";
 import { planBulkEdit, type BulkChange } from "@/lib/bulk-edit";
 import { setLogContext } from "@/lib/log-context";
+import { scheduleBudgetCheck } from "@/services/budget-alerts";
 import { logger } from "@/lib/logger";
 import { time } from "@/lib/timing";
 import { parseOrThrow, withId } from "@/lib/api-response";
@@ -239,6 +240,10 @@ export async function createTransactionId(
         })
       : insert(db),
   );
+  // After the response, not now — a crossing emails without slowing the send.
+  if (data.type === "expense") {
+    scheduleBudgetCheck({ workspaceId, userId, dates: [data.occurredOn] });
+  }
   return { id: row!.id };
 }
 
@@ -308,8 +313,9 @@ export async function updateTransaction(
   const data = parseOrThrow(updateTransactionSchema, withId(input, id));
   const db = getDb();
 
+  // A row in the trash can't be edited — it reads as absent until restored.
   const existing = await db.query.transactions.findFirst({
-    where: eq(transactions.id, data.id),
+    where: and(eq(transactions.id, data.id), notTrashed(transactions)),
     columns: { id: true, profileId: true },
   });
   if (!existing) return null;
@@ -361,6 +367,9 @@ export async function updateTransaction(
         .where(eq(transactionAttachments.transactionId, data.id));
     });
   }
+  if (data.type === "expense") {
+    scheduleBudgetCheck({ workspaceId, userId, dates: [data.occurredOn] });
+  }
 
   return getTransactionById(userId, workspaceId, data.id);
 }
@@ -387,8 +396,9 @@ export async function setTransactionTags(
   const data = parseOrThrow(setTransactionTagsSchema, withId(input, id));
   const db = getDb();
 
+  // A row in the trash can't be edited — it reads as absent until restored.
   const existing = await db.query.transactions.findFirst({
-    where: eq(transactions.id, data.id),
+    where: and(eq(transactions.id, data.id), notTrashed(transactions)),
     columns: { id: true, profileId: true },
   });
   if (!existing) return null;
@@ -404,16 +414,16 @@ export async function setTransactionTags(
 }
 
 /**
- * Delete a transaction (requires editor on its profile, in the current
- * workspace). Returns whether a row was removed — false when it doesn't exist
- * or lives in another workspace. Throws a validation error for a non-UUID id.
+ * Move a transaction to the trash (requires editor on its profile, in the
+ * current workspace). Returns whether a row was trashed — false when it doesn't
+ * exist, is already in the trash, or lives in another workspace. Throws a
+ * validation error for a non-UUID id.
  *
- * Its attachments' stored files go with it. The attachment rows cascade off
- * the transaction, but nothing cascades in object storage, so the keys are
- * read under a lock on the row (an upload landing mid-delete can't commit past
- * it — its foreign key waits on the lock, then finds the row gone) and swept
- * once the delete has committed. Before 0.32.0 nothing did this, and every
- * deleted transaction stranded its receipts in the bucket.
+ * Nothing is destroyed: the row is stamped `deleted_at` / `deleted_by` and every
+ * read stops seeing it. Its receipts stay as they are — rows and stored bytes —
+ * so restoring it (`services/trash.ts`) brings them back, and they keep counting
+ * toward storage until the purge or "delete forever" removes them for good,
+ * which is where the stored objects are swept now.
  */
 export async function deleteTransaction(
   userId: string,
@@ -425,60 +435,42 @@ export async function deleteTransaction(
   }
   const db = getDb();
   const existing = await db.query.transactions.findFirst({
-    where: eq(transactions.id, id),
+    where: and(eq(transactions.id, id), notTrashed(transactions)),
     columns: { id: true, profileId: true },
   });
   if (!existing) return false;
   if (!(await editableInWorkspace(userId, workspaceId, existing.profileId))) return false;
 
-  const { deleted, keys } = await db.transaction(async (tx) => {
-    // Locked on the profile the access check above approved, not just the id:
-    // a row moved into a profile the caller can only view, between that check
-    // and this lock, is no longer theirs to delete.
-    const locked = await tx
-      .select({ id: transactions.id })
-      .from(transactions)
-      .where(and(eq(transactions.id, id), eq(transactions.profileId, existing.profileId)))
-      .for("update");
-    if (locked.length === 0) return { deleted: false, keys: [] as (string | null)[] };
-    const stored = await tx
-      .select({
-        r2Key: transactionAttachments.r2Key,
-        thumbnailKey: transactionAttachments.thumbnailKey,
-      })
-      .from(transactionAttachments)
-      .where(eq(transactionAttachments.transactionId, id));
-    const removed = await tx
-      .delete(transactions)
-      .where(eq(transactions.id, id))
-      .returning({ id: transactions.id });
-    return {
-      deleted: removed.length > 0,
-      keys: stored.flatMap((f) => [f.r2Key, f.thumbnailKey]),
-    };
-  });
-
-  // After the commit, never inside it: a rolled-back delete must not have
-  // already destroyed the bytes. Best-effort; never throws.
-  if (deleted) await deleteObjects(keys);
-  return deleted;
+  // Scoped to the profile the access check above approved, not just the id: a
+  // row moved into a profile the caller can only view, between that check and
+  // this write, is no longer theirs to delete.
+  const trashed = await db
+    .update(transactions)
+    .set({ deletedAt: sql`now()`, deletedBy: userId })
+    .where(
+      and(
+        eq(transactions.id, id),
+        eq(transactions.profileId, existing.profileId),
+        notTrashed(transactions),
+      ),
+    )
+    .returning({ id: transactions.id });
+  if (trashed.length > 0) {
+    logger.info("Moved 1 transaction to the trash", { event: "trash.moved", kind: "transaction", count: 1 });
+  }
+  return trashed.length > 0;
 }
 
 /**
- * Delete many transactions at once — the tracker's and the table's multi-select.
+ * Move many transactions to the trash at once — the tracker's and the table's
+ * multi-select.
  *
  * Same rule as a single delete, per row: editor on its profile, in the current
- * workspace. Rows the caller can't edit (or that don't exist, or live in
- * another workspace) are left alone and counted in `skipped`; the rest go.
- *
- * Like the single delete, this removes the rows' stored files too. Attachment
- * rows cascade off their transaction, but nothing cascades in object storage —
- * the keys have to be read while the rows exist, or the bytes stay in the
- * bucket with nothing left pointing at them. The rows are locked first, so an
- * attachment uploaded to one of them mid-delete can't commit (its foreign key
- * waits on the lock, then finds the row gone) and slip past the sweep.
- * Attachment keys are minted per attachment (`attachments/<ws>/<txn>/<id>`) and
- * never shared with a vault file, so sweeping them can't take a file elsewhere.
+ * workspace. Rows the caller can't edit (or that don't exist, are already in
+ * the trash, or live in another workspace) are left alone and counted in
+ * `skipped`; the rest go. One statement, one `now()` — every row of the batch
+ * shares its `deleted_at`, which the trash list's keyset cursor handles (ties
+ * broken by `id`). Receipts stay with their rows, as in the single delete.
  */
 export async function deleteTransactions(
   userId: string,
@@ -490,39 +482,38 @@ export async function deleteTransactions(
   if (writable.length === 0) throw forbidden("You don't have permission to do that");
 
   const db = getDb();
-  const { deletedIds, keys } = await db.transaction(async (tx) => {
-    // Locked in id order, whatever plan the scan takes: two overlapping bulk
-    // operations taking their row locks in different orders is a deadlock.
-    const doomed = await tx
+  const deletedIds = await db.transaction(async (tx) => {
+    // Locked in id order first, whatever plan the update would take: two
+    // overlapping bulk operations taking their row locks in different orders is
+    // a deadlock (`updateTransactions` does the same). `no key update`: the key
+    // never changes, so attachment inserts aren't held off meanwhile.
+    const locked = await tx
       .select({ id: transactions.id })
       .from(transactions)
-      .where(and(inArray(transactions.id, ids), inArray(transactions.profileId, writable)))
+      .where(
+        and(
+          inArray(transactions.id, ids),
+          inArray(transactions.profileId, writable),
+          notTrashed(transactions),
+        ),
+      )
       .orderBy(asc(transactions.id))
-      .for("update");
-    if (doomed.length === 0) return { deletedIds: [] as string[], keys: [] as (string | null)[] };
-    const doomedIds = doomed.map((r) => r.id);
-
-    const stored = await tx
-      .select({
-        r2Key: transactionAttachments.r2Key,
-        thumbnailKey: transactionAttachments.thumbnailKey,
-      })
-      .from(transactionAttachments)
-      .where(inArray(transactionAttachments.transactionId, doomedIds));
-
-    const deleted = await tx
-      .delete(transactions)
-      .where(inArray(transactions.id, doomedIds))
+      .for("no key update");
+    if (locked.length === 0) return [];
+    const trashed = await tx
+      .update(transactions)
+      .set({ deletedAt: sql`now()`, deletedBy: userId })
+      .where(and(inArray(transactions.id, locked.map((r) => r.id)), notTrashed(transactions)))
       .returning({ id: transactions.id });
-    return {
-      deletedIds: deleted.map((r) => r.id),
-      keys: stored.flatMap((f) => [f.r2Key, f.thumbnailKey]),
-    };
+    return trashed.map((r) => r.id);
   });
-
-  // After the commit, never inside it: a rolled-back delete must not have
-  // already destroyed the bytes. `deleteObjects` is best-effort and never throws.
-  await deleteObjects(keys);
+  if (deletedIds.length > 0) {
+    logger.info(`Moved ${deletedIds.length} transactions to the trash`, {
+      event: "trash.moved",
+      kind: "transaction",
+      count: deletedIds.length,
+    });
+  }
   return { deletedIds, skipped: ids.length - deletedIds.length };
 }
 
@@ -589,10 +580,17 @@ export async function updateTransactions(
         type: transactions.type,
         categoryId: transactions.categoryId,
         tagIds: transactions.tagIds,
+        occurredOn: transactions.occurredOn,
       })
       .from(transactions)
-      .where(and(inArray(transactions.id, ids), inArray(transactions.profileId, writable)))
-      // In id order, like the bulk delete, so overlapping bulk operations can't
+      .where(
+        and(
+          inArray(transactions.id, ids),
+          inArray(transactions.profileId, writable),
+          notTrashed(transactions),
+        ),
+      )
+      // In id order, so overlapping bulk operations can't
       // deadlock. `no key update`: the write never touches the key, and plain
       // `for update` would also hold off attachment inserts (their foreign key
       // check) for as long as this transaction is open.
@@ -601,12 +599,15 @@ export async function updateTransactions(
 
     let wrongKind = 0;
     let tagLimit = 0;
+    // Expenses that moved profile or category can push a budget over.
+    const expenseDates: string[] = [];
     const patches: { id: string; profileId: string; categoryId: string | null; tagIds: string[]; moved: boolean }[] = [];
     for (const row of current) {
       const plan = planBulkEdit({ ...row, tagIds: row.tagIds ?? [] }, change, TAGS_PER_TRANSACTION_MAX);
       if (plan.categorySkipped) wrongKind++;
       if (plan.tagsSkipped) tagLimit++;
       if (!plan.changed) continue;
+      if (row.type === "expense") expenseDates.push(row.occurredOn);
       patches.push({
         id: row.id,
         profileId: plan.next.profileId,
@@ -633,6 +634,7 @@ export async function updateTransactions(
         ),
         sql`, `,
       );
+      // trash: only rows the locked read above found live are in `values`.
       await tx.execute(sql`
         update ${transactions} as t
         set profile_id = v.profile_id,
@@ -654,11 +656,13 @@ export async function updateTransactions(
 
     return {
       changedIds: patches.map((p) => p.id),
+      expenseDates,
       noAccess: ids.length - current.length,
       wrongKind,
       tagLimit,
     };
   });
+  scheduleBudgetCheck({ workspaceId, userId, dates: outcome.expenseDates });
 
   const rows = await getTransactionsByIds(userId, workspaceId, outcome.changedIds);
   return { rows, noAccess: outcome.noAccess, wrongKind: outcome.wrongKind, tagLimit: outcome.tagLimit };
@@ -715,7 +719,13 @@ export async function createManyTransactions(
   }));
 
   await db.insert(transactions).values(values);
+  scheduleBudgetCheck({ workspaceId, userId, dates: expenseDatesOf(values) });
   return { count: values.length };
+}
+
+/** The dates of the expenses in a batch about to be (or just) written. */
+function expenseDatesOf(values: { type: "income" | "expense"; occurredOn: string }[]): string[] {
+  return values.filter((v) => v.type === "expense").map((v) => v.occurredOn);
 }
 
 /**
@@ -829,5 +839,7 @@ export async function createBulkFromDrafts(
   if (values.length === 0) throw badRequest("No valid rows to import");
 
   await db.insert(transactions).values(values);
+  // Bulk add, CSV import and the AI's confirmed drafts all land here.
+  scheduleBudgetCheck({ workspaceId, userId, dates: expenseDatesOf(values) });
   return { count: values.length };
 }

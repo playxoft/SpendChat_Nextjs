@@ -8,8 +8,12 @@ import { parseOrThrow } from "@/lib/api-response";
 import { setLogContext } from "@/lib/log-context";
 import { rolesAtLeast } from "@/lib/rbac";
 import { accessibleProfileIds, getEffectiveProfileRole } from "@/lib/workspaces";
-import { deleteObject, uploadObject } from "@/lib/r2";
+import { deleteObject, deleteObjects, uploadObject } from "@/lib/r2";
 import { assertStorageQuota } from "@/lib/storage-quota";
+import { getWorkspaceEntitlements } from "@/lib/entitlements";
+import { logger } from "@/lib/logger";
+import { notTrashed } from "@/lib/trash-scope";
+import { lockFolderSubtree, type Tx } from "./vault-tree";
 import {
   VAULT_FILES_LIMIT,
   getVaultFile,
@@ -99,6 +103,7 @@ export async function ensureSystemFolders(
         inArray(profiles.id, accessibleProfileIds(userId, workspaceId, "editor")),
         profileId ? eq(profiles.id, profileId) : undefined,
         notExists(
+          // trash: the system folder is never trashed, so any row counts.
           db
             .select({ one: sql`1` })
             .from(folders)
@@ -213,13 +218,16 @@ async function assertEditorOnProfile(userId: string, workspaceId: string, profil
 }
 
 /** All folder rows of one profile — the working set for subtree/cycle math.
- * A profile's folder tree is small (it's a document vault, not a filesystem). */
-async function profileFolders(profileId: string) {
+ * A profile's folder tree is small (it's a document vault, not a filesystem).
+ * `live` narrows it to folders outside the trash (share resolution); without it
+ * trashed folders are included, which is what the delete and cycle math want. */
+async function profileFolders(profileId: string, { live = false }: { live?: boolean } = {}) {
   const db = getDb();
   return db
     .select({ id: folders.id, parentId: folders.parentId })
+    // trash: all states unless `live` — see above.
     .from(folders)
-    .where(eq(folders.profileId, profileId));
+    .where(and(eq(folders.profileId, profileId), live ? notTrashed(folders) : undefined));
 }
 
 /** `rootId` plus every descendant folder id, walked over the in-memory rows. */
@@ -253,11 +261,15 @@ async function assertFolderNameFree(
   const db = getDb();
   const conds = [
     eq(folders.profileId, profileId),
+    // Live siblings only — a name in the trash is free to take again (a restore
+    // into a taken name renames the restored folder instead).
+    notTrashed(folders),
     parentId ? eq(folders.parentId, parentId) : isNull(folders.parentId),
     sql`lower(${folders.name}) = lower(${name})`,
   ];
   const [existing] = await db
     .select({ id: folders.id })
+    // trash: `conds` includes notTrashed(folders) (live siblings only).
     .from(folders)
     .where(and(...conds))
     .limit(1);
@@ -267,16 +279,22 @@ async function assertFolderNameFree(
 }
 
 /** The parent folder for a create/move/upload, verified to live in the same
- * profile (folders never span profiles — access is per-profile). System
- * folders are never a valid destination: nothing can be created in, moved
- * into, or uploaded to "Transaction attachments". */
-async function requireFolderInProfile(folderId: string, profileId: string) {
-  const db = getDb();
-  const [row] = await db
+ * profile (folders never span profiles — access is per-profile) and to be
+ * outside the trash. System folders are never a valid destination: nothing can
+ * be created in, moved into, or uploaded to "Transaction attachments".
+ *
+ * Given a transaction handle, the folder row is also locked `FOR SHARE` until
+ * it commits. Trashing a folder updates its row, so it waits for that lock —
+ * and a write that lands first is then swept into the trash with the folder,
+ * while one that comes second finds the folder gone and 404s. Without it a file
+ * could land, live, inside a folder that had just gone to the trash. */
+async function requireFolderInProfile(folderId: string, profileId: string, tx?: Tx) {
+  const query = (tx ?? getDb())
     .select({ id: folders.id, profileId: folders.profileId, systemKey: folders.systemKey })
     .from(folders)
-    .where(eq(folders.id, folderId))
+    .where(and(eq(folders.id, folderId), notTrashed(folders)))
     .limit(1);
+  const [row] = tx ? await query.for("share") : await query;
   if (!row || row.profileId !== profileId) throw notFound("Folder not found");
   if (row.systemKey != null) {
     throw badRequest(
@@ -302,19 +320,24 @@ export async function createFolder(
   await assertTagsInProfile(parsed.profileId, parsed.tagIds);
 
   const db = getDb();
-  const [row] = await db
-    .insert(folders)
-    .values({
-      workspaceId,
-      profileId: parsed.profileId,
-      parentId: parsed.parentId ?? null,
-      userId,
-      name: parsed.name,
-      color: parsed.color ?? null,
-      tagIds: parsed.tagIds,
-    })
-    .returning();
-  return serializeFolder(row!);
+  const row = await db.transaction(async (tx) => {
+    // Re-checked under a share lock: see `requireFolderInProfile`.
+    if (parsed.parentId) await requireFolderInProfile(parsed.parentId, parsed.profileId, tx);
+    const [inserted] = await tx
+      .insert(folders)
+      .values({
+        workspaceId,
+        profileId: parsed.profileId,
+        parentId: parsed.parentId ?? null,
+        userId,
+        name: parsed.name,
+        color: parsed.color ?? null,
+        tagIds: parsed.tagIds,
+      })
+      .returning();
+    return inserted!;
+  });
+  return serializeFolder(row);
 }
 
 /** Rename / re-tag / move a folder. Moving checks the target isn't the folder
@@ -375,51 +398,118 @@ export async function updateFolder(
   set.updatedAt = new Date();
 
   const db = getDb();
-  const [updated] = await db
-    .update(folders)
-    .set(set)
-    .where(eq(folders.id, existing.id))
-    .returning();
-  return serializeFolder(updated!);
+  const updated = await db.transaction(async (tx) => {
+    if (set.parentId) await requireFolderInProfile(set.parentId, existing.profileId, tx);
+    const [row] = await tx
+      .update(folders)
+      .set(set)
+      .where(and(eq(folders.id, existing.id), notTrashed(folders)))
+      .returning();
+    return row;
+  });
+  if (!updated) throw notFound("Folder not found");
+  return serializeFolder(updated);
+}
+
+/** What a vault delete did: `trashed` (Plus/Pro — restorable for `TRASH_DAYS`)
+ * or `deleted` for good (Free). Null when the item wasn't reachable. */
+export type VaultDeleteOutcome = "trashed" | "deleted";
+
+/** Whether this workspace's plan keeps deleted files and folders in the trash. */
+async function keepsFileTrash(workspaceId: string): Promise<boolean> {
+  return (await getWorkspaceEntitlements(workspaceId)).limits.fileTrash;
 }
 
 /**
- * Delete a folder and its whole subtree. The DB cascade removes the rows; this
- * first collects every descendant file's R2 keys — the original **and** its
- * preview — and deletes those objects so no bytes are orphaned. Returns false
- * when the folder isn't reachable.
+ * Delete a folder and its whole subtree.
+ *
+ * Both paths work on the subtree **as locked inside the transaction**
+ * (`lockFolderSubtree`), never on one read before it: a folder moved in while
+ * the delete runs is either caught (it committed first) or refused (it waits on
+ * our lock, then finds its destination gone). Read outside, a concurrent move
+ * left a live folder under a trashed one, and the purge later destroyed it.
+ *
+ * **Plus/Pro** move it to the trash: the folder and every live folder and file
+ * under it are stamped with one instant, so every vault read stays a plain
+ * `deleted_at is null` filter and a restore brings back exactly that set
+ * (equal `deleted_at`). Items already in the trash on their own keep their
+ * earlier stamp. Nothing is destroyed; storage still counts the bytes (C6).
+ *
+ * **Free** deletes for good: every file under it — original and preview,
+ * trashed ones from a downgraded plan included — is deleted with `RETURNING`
+ * its keys, the folder cascades the rest, and only the keys of rows actually
+ * deleted are swept, after the commit.
  */
 export async function deleteFolder(
   userId: string,
   workspaceId: string,
   folderId: string,
-): Promise<boolean> {
+): Promise<VaultDeleteOutcome | null> {
   if (!isUuid(folderId)) throw validationError("Invalid folder");
   const existing = await getVaultFolder(userId, workspaceId, folderId);
-  if (!existing) return false;
+  if (!existing) return null;
   if (existing.systemKey != null) {
     throw badRequest("This predefined folder can't be deleted");
   }
   await assertEditorOnProfile(userId, workspaceId, existing.profileId);
-
   const db = getDb();
-  const rows = await profileFolders(existing.profileId);
-  const subtree = subtreeFolderIds(rows, existing.id);
-  const contained = await db
-    .select({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey })
-    .from(files)
-    .where(inArray(files.folderId, subtree));
 
-  const deleted = await db
-    .delete(folders)
-    .where(eq(folders.id, existing.id))
-    .returning({ id: folders.id });
-  if (deleted.length === 0) return false;
-  for (const f of contained) {
-    await deleteObject(f.r2Key);
-    if (f.thumbnailKey) await deleteObject(f.thumbnailKey);
+  if (await keepsFileTrash(workspaceId)) {
+    const trashed = await db.transaction(async (tx) => {
+      // One instant for the whole batch, kept as text at the column's own
+      // precision — the restore matches on equality.
+      const [{ at }] = (
+        await tx.execute<{ at: string }>(sql`select now()::timestamptz(3)::text as at`)
+      ).rows as [{ at: string }];
+      const stamp = { deletedAt: sql`${at}::timestamptz`, deletedBy: userId };
+      // The root first, and only while it's still live: a concurrent delete or
+      // restore of the same folder can't double-stamp it.
+      const root = await tx
+        .update(folders)
+        .set(stamp)
+        .where(and(eq(folders.id, existing.id), notTrashed(folders)))
+        .returning({ id: folders.id });
+      if (root.length === 0) return null;
+      const subtree = (await lockFolderSubtree(tx, [existing.id])).map((f) => f.id);
+      const sub = await tx
+        .update(folders)
+        .set(stamp)
+        .where(and(inArray(folders.id, subtree), notTrashed(folders)))
+        .returning({ id: folders.id });
+      const contained = await tx
+        .update(files)
+        .set(stamp)
+        .where(and(inArray(files.folderId, subtree), notTrashed(files)))
+        .returning({ id: files.id });
+      return { folders: 1 + sub.length, files: contained.length };
+    });
+    if (!trashed) return null;
+    logger.info(
+      `Moved a folder to the trash with ${trashed.folders - 1} subfolders and ${trashed.files} files`,
+      { event: "trash.moved", kind: "folder", folders: trashed.folders, files: trashed.files },
+    );
+    return "trashed";
   }
-  return true;
+
+  const keys = await db.transaction(async (tx) => {
+    const subtree = (await lockFolderSubtree(tx, [existing.id])).map((f) => f.id);
+    if (!subtree.includes(existing.id)) return null;
+    // trash: all states — on Free everything under the folder goes for good,
+    // anything a downgraded workspace still had in the trash included.
+    const doomed = await tx
+      .delete(files)
+      .where(inArray(files.folderId, subtree))
+      .returning({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey });
+    const deleted = await tx
+      .delete(folders)
+      .where(eq(folders.id, existing.id))
+      .returning({ id: folders.id });
+    if (deleted.length === 0) return null;
+    return doomed.flatMap((f) => [f.r2Key, f.thumbnailKey]);
+  });
+  if (!keys) return null;
+  await deleteObjects(keys);
+  return "deleted";
 }
 
 /* -------------------------------------------------------------------------- */
@@ -488,22 +578,28 @@ export async function uploadVaultFiles(
       }
       uploaded.push({ key, thumbnailKey, item });
     }
-    const rows = await db
-      .insert(files)
-      .values(
-        uploaded.map(({ key, thumbnailKey, item }) => ({
-          workspaceId,
-          profileId: target.profileId,
-          folderId: target.folderId,
-          userId,
-          r2Key: key,
-          thumbnailKey,
-          name: item.name,
-          contentType: item.contentType,
-          sizeBytes: item.size,
-        })),
-      )
-      .returning();
+    const rows = await db.transaction(async (tx) => {
+      // The folder may have gone to the trash while the bytes uploaded; checked
+      // again under a share lock (see `requireFolderInProfile`). A 404 here
+      // falls through to the cleanup below, so the objects don't orphan.
+      if (target.folderId) await requireFolderInProfile(target.folderId, target.profileId, tx);
+      return tx
+        .insert(files)
+        .values(
+          uploaded.map(({ key, thumbnailKey, item }) => ({
+            workspaceId,
+            profileId: target.profileId,
+            folderId: target.folderId,
+            userId,
+            r2Key: key,
+            thumbnailKey,
+            name: item.name,
+            contentType: item.contentType,
+            sizeBytes: item.size,
+          })),
+        )
+        .returning();
+    });
     return rows.map((r) => serializeFile(r));
   } catch (err) {
     for (const { key, thumbnailKey } of uploaded) {
@@ -540,31 +636,53 @@ export async function updateFile(
   set.updatedAt = new Date();
 
   const db = getDb();
-  const [updated] = await db.update(files).set(set).where(eq(files.id, existing.id)).returning();
-  return serializeFile(updated!);
+  const updated = await db.transaction(async (tx) => {
+    if (set.folderId) await requireFolderInProfile(set.folderId, existing.profileId, tx);
+    const [row] = await tx
+      .update(files)
+      .set(set)
+      .where(and(eq(files.id, existing.id), notTrashed(files)))
+      .returning();
+    return row;
+  });
+  if (!updated) throw notFound("File not found");
+  return serializeFile(updated);
 }
 
-/** Delete a file's row and its R2 objects — the original and, when one was
- * stored, its `_thumb` preview (editor). False when unreachable. */
+/** Delete a file (editor). Plus/Pro move it to the trash (bytes kept, still
+ * counted toward storage — C6); Free deletes the row and its R2 objects — the
+ * original and, when one was stored, its `_thumb` preview. Null when
+ * unreachable. */
 export async function deleteFile(
   userId: string,
   workspaceId: string,
   fileId: string,
-): Promise<boolean> {
+): Promise<VaultDeleteOutcome | null> {
   if (!isUuid(fileId)) throw validationError("Invalid file");
   const existing = await getVaultFile(userId, workspaceId, fileId);
-  if (!existing) return false;
+  if (!existing) return null;
   await assertEditorOnProfile(userId, workspaceId, existing.profileId);
 
   const db = getDb();
+  if (await keepsFileTrash(workspaceId)) {
+    const trashed = await db
+      .update(files)
+      .set({ deletedAt: sql`now()`, deletedBy: userId })
+      .where(and(eq(files.id, existing.id), notTrashed(files)))
+      .returning({ id: files.id });
+    if (trashed.length === 0) return null;
+    logger.info("Moved 1 file to the trash", { event: "trash.moved", kind: "file", count: 1 });
+    return "trashed";
+  }
+
   const deleted = await db
     .delete(files)
     .where(eq(files.id, existing.id))
     .returning({ id: files.id });
-  if (deleted.length === 0) return false;
+  if (deleted.length === 0) return null;
   await deleteObject(existing.r2Key);
   if (existing.thumbnailKey) await deleteObject(existing.thumbnailKey);
-  return true;
+  return "deleted";
 }
 
 /** The row behind an authenticated view/download (viewer-or-better), or null. */
@@ -684,6 +802,7 @@ export async function deleteTag(
   if (deleted.length === 0) return false;
   // tag_ids is a plain uuid[] (no FK), so detach by hand — scoped to the
   // profile, matching only rows that actually carry the id.
+  // trash: trashed files and folders too, so a restore can't bring back a dead id.
   await db
     .update(files)
     .set({ tagIds: sql`array_remove(${files.tagIds}, ${existing.id}::uuid)` })
@@ -907,11 +1026,19 @@ async function publicTags(tagIds: string[]): Promise<SharedTagPublic[]> {
   return rows;
 }
 
-/** The share row for a token, or null when unknown/expired. */
+/** The share row for a token, or null when unknown, expired, or its profile is
+ * in the trash (a link stops working while what it shares is in the trash, and
+ * works again once it's restored — the share row itself is kept). */
 async function activeShareByToken(token: string) {
   if (!token || token.length > 64 || !/^[A-Za-z0-9_-]+$/.test(token)) return null;
   const db = getDb();
-  const [row] = await db.select().from(fileShares).where(eq(fileShares.token, token)).limit(1);
+  const [found] = await db
+    .select({ share: fileShares })
+    .from(fileShares)
+    .innerJoin(profiles, eq(profiles.id, fileShares.profileId))
+    .where(and(eq(fileShares.token, token), notTrashed(profiles)))
+    .limit(1);
+  const row = found?.share;
   if (!row) return null;
   if (row.expiresAt && row.expiresAt.getTime() < Date.now()) return null;
   return row;
@@ -929,7 +1056,11 @@ export async function resolveShare(token: string): Promise<ShareResolution | nul
   const db = getDb();
 
   if (share.fileId) {
-    const [file] = await db.select().from(files).where(eq(files.id, share.fileId)).limit(1);
+    const [file] = await db
+      .select()
+      .from(files)
+      .where(and(eq(files.id, share.fileId), notTrashed(files)))
+      .limit(1);
     if (!file) return null;
     const pub = toPublicFile(file);
     return {
@@ -944,10 +1075,12 @@ export async function resolveShare(token: string): Promise<ShareResolution | nul
   const [root] = await db
     .select()
     .from(folders)
-    .where(eq(folders.id, share.folderId!))
+    .where(and(eq(folders.id, share.folderId!), notTrashed(folders)))
     .limit(1);
   if (!root) return null;
-  const rows = await profileFolders(root.profileId);
+  // Live folders only: a trashed subfolder (and so its subtree, which was
+  // stamped with it) drops out of the shared view.
+  const rows = await profileFolders(root.profileId, { live: true });
   const subtree = subtreeFolderIds(rows, root.id);
   const [subFolders, subFiles] = await Promise.all([
     db
@@ -959,12 +1092,12 @@ export async function resolveShare(token: string): Promise<ShareResolution | nul
         tagIds: folders.tagIds,
       })
       .from(folders)
-      .where(inArray(folders.id, subtree))
+      .where(and(inArray(folders.id, subtree), notTrashed(folders)))
       .orderBy(asc(folders.name)),
     db
       .select()
       .from(files)
-      .where(inArray(files.folderId, subtree))
+      .where(and(inArray(files.folderId, subtree), notTrashed(files)))
       .orderBy(asc(files.name)),
   ]);
   const pubFiles = subFiles.map(toPublicFile);
@@ -996,7 +1129,11 @@ export async function getSharedFileForDownload(
   const share = await activeShareByToken(token);
   if (!share) return null;
   const db = getDb();
-  const [row] = await db.select().from(files).where(eq(files.id, fileId)).limit(1);
+  const [row] = await db
+    .select()
+    .from(files)
+    .where(and(eq(files.id, fileId), notTrashed(files)))
+    .limit(1);
   if (!row) return null;
 
   if (share.fileId) {
@@ -1004,7 +1141,7 @@ export async function getSharedFileForDownload(
     return { row, allowDownload: share.allowDownload };
   }
   if (!row.folderId) return null;
-  const rows = await profileFolders(row.profileId);
+  const rows = await profileFolders(row.profileId, { live: true });
   if (!subtreeFolderIds(rows, share.folderId!).includes(row.folderId)) return null;
   return { row, allowDownload: share.allowDownload };
 }

@@ -59,17 +59,18 @@ export async function updateFolder(
   );
 }
 
-/** Delete a folder, its subtree, and every contained file's bytes (editor). */
-export async function deleteFolder(id: string): Promise<ActionResult> {
+/** Delete a folder and its subtree (editor): to the trash on Plus/Pro, for good
+ * (bytes included) on Free. `trashed` says which happened. */
+export async function deleteFolder(id: string): Promise<ActionResult<{ trashed: boolean }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "deleteFolder",
     async () => {
-      const removed = await filesService.deleteFolder(user.id, workspace.id, id);
-      if (!removed) throw notFound("Folder not found");
+      const outcome = await filesService.deleteFolder(user.id, workspace.id, id);
+      if (!outcome) throw notFound("Folder not found");
       revalidateFiles();
-      return {};
+      return { trashed: outcome === "trashed" };
     },
     { userId: user.id, workspaceId: workspace.id },
   );
@@ -92,17 +93,17 @@ export async function updateFile(
   );
 }
 
-/** Delete a file and its stored bytes (editor). */
-export async function deleteFile(id: string): Promise<ActionResult> {
+/** Delete a file (editor): to the trash on Plus/Pro, for good on Free. */
+export async function deleteFile(id: string): Promise<ActionResult<{ trashed: boolean }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
     "deleteFile",
     async () => {
-      const removed = await filesService.deleteFile(user.id, workspace.id, id);
-      if (!removed) throw notFound("File not found");
+      const outcome = await filesService.deleteFile(user.id, workspace.id, id);
+      if (!outcome) throw notFound("File not found");
       revalidateFiles();
-      return {};
+      return { trashed: outcome === "trashed" };
     },
     { userId: user.id, workspaceId: workspace.id },
   );
@@ -187,7 +188,7 @@ export async function listFileShares(target: {
       const shares = await filesService.listFileShares(user.id, workspace.id, target);
       return { shares };
     },
-    { userId: user.id, workspaceId: workspace.id },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
   );
 }
 

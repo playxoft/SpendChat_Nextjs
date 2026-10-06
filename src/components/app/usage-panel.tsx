@@ -16,6 +16,7 @@ import {
   formatResetDate,
   meterState,
   nextPlanFor,
+  nextPlanForBudgets,
   type NumericPlanLimit,
   type PlanLimitInfo,
   type PlanLimitKey,
@@ -45,6 +46,8 @@ export type UsageData = {
   spaces: Meter;
   categories: Meter;
   tags: Meter;
+  /** Optional so older callers fit; `unlimited` shows "Unlimited" (Pro). */
+  budgets?: Meter & { unlimited: boolean };
   profilesPerSpace: number;
   voice: boolean;
 };
@@ -147,6 +150,28 @@ export function UsagePanel({ usage }: { usage: UsageData }) {
             limit={usage.tags.limit}
             onUpgrade={() => showUpgrade(upgradeInfo("tags", "tags", usage.tags))}
           />
+          {usage.budgets && (
+            <UsageMeter
+              label="Budgets"
+              used={usage.budgets.used}
+              limit={usage.budgets.limit}
+              display={
+                usage.budgets.unlimited
+                  ? `${usage.budgets.used.toLocaleString("en-US")} · Unlimited`
+                  : undefined
+              }
+              note="Monthly, with alerts at 80% and 100%"
+              onUpgrade={() =>
+                showUpgrade({
+                  limit: "budgets",
+                  plan,
+                  max: usage.budgets!.limit,
+                  used: usage.budgets!.used,
+                  upgradeTo: nextPlanForBudgets(plan),
+                })
+              }
+            />
+          )}
         </div>
 
         <div className="flex items-center justify-between gap-3 border-t pt-4 text-sm">

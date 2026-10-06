@@ -1,4 +1,5 @@
 import type { WorkspaceRole } from "@/db/schema";
+import { percentUsed, type BudgetThreshold } from "@/lib/budgets";
 import { escapeHtml } from "@/lib/email";
 import { featureLink } from "@/lib/features";
 import { formatMoney } from "@/lib/money";
@@ -749,5 +750,115 @@ export function splitInviteEmail(input: SplitInviteEmailInput): RenderedEmail {
     title: `Join ${groupName}`,
     blocks,
     footer: `This message was sent to ${recipientEmail} because someone added that address to a ${name} split group. It's the only email you'll get about it, and it isn't a newsletter.`,
+  });
+}
+
+/* ------------------------------------------------------------------------- */
+/* Budget alerts                                                              */
+/* ------------------------------------------------------------------------- */
+
+/** Tailwind amber-600 / red-600 — the app's meter tones for 80% and 100%. */
+const COLOR_WARN = "#d97706";
+const COLOR_OVER = "#dc2626";
+
+export type BudgetAlertItem = {
+  /** "Groceries", a profile's name, or "Whole workspace". */
+  label: string;
+  spentMinor: number;
+  amountMinor: number;
+  /** The highest threshold this alert is about. */
+  threshold: BudgetThreshold;
+};
+
+export type BudgetAlertEmailInput = {
+  workspaceName: string;
+  /** "October 2026". */
+  monthLabel: string;
+  /** At least one; several budgets crossed in one write become one email. */
+  items: BudgetAlertItem[];
+  money: MoneyFormat;
+  /** Absolute link to the budgets page in that workspace (`/app/budgets?workspace=<id>`). */
+  href: string;
+  /** Why this person gets it: an admin of the workspace, or the one who set the budget. */
+  reason: "admin" | "creator";
+};
+
+/** One budget's line: name, "₹4,120 of ₹5,000", and a bar. */
+function budgetRow(item: BudgetAlertItem, money: MoneyFormat): Block {
+  const pct = percentUsed(item.spentMinor, item.amountMinor);
+  const over = item.spentMinor - item.amountMinor;
+  const fmt = (minor: number) => formatMoney(minor, money.currency, money.locale);
+  const status =
+    item.threshold === 100
+      ? over > 0
+        ? `${fmt(over)} over`
+        : "all used"
+      : `${pct}% used`;
+  const figures = `${fmt(item.spentMinor)} of ${fmt(item.amountMinor)} — ${status}`;
+  const color = item.threshold === 100 ? COLOR_OVER : COLOR_WARN;
+  const width = Math.min(100, Math.max(1, pct));
+  const html =
+    `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 16px;">` +
+    `<tr><td style="font-size:15px;line-height:1.5;font-weight:600;color:${COLOR_TEXT};">${escapeHtml(item.label)}</td></tr>` +
+    `<tr><td style="font-size:14px;line-height:1.5;color:${COLOR_BODY};padding:0 0 6px;">${escapeHtml(figures)}</td></tr>` +
+    `<tr><td><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${COLOR_BORDER};border-radius:4px;">` +
+    `<tr><td width="${width}%" style="height:6px;line-height:6px;font-size:0;background:${color};border-radius:4px;">&nbsp;</td>` +
+    (width < 100 ? `<td style="height:6px;line-height:6px;font-size:0;">&nbsp;</td>` : "") +
+    `</tr></table></td></tr></table>`;
+  return { html, text: `- ${item.label}: ${figures}` };
+}
+
+/**
+ * A budget reached 80% or 100% of its month. Sent once per budget, per
+ * threshold, per month (`budget_alerts`) to the workspace's admins and the
+ * person who set the budget — and when one write crosses several budgets,
+ * they arrive as one email. It's a heads-up, not a block: nothing stops
+ * anyone adding more, so the copy says what happened and where to look.
+ */
+export function budgetAlertEmail(input: BudgetAlertEmailInput): RenderedEmail {
+  const { workspaceName, monthLabel, items: list, money, href, reason } = input;
+  const single = list.length === 1 ? list[0]! : null;
+  const anyOver = list.some((i) => i.threshold === 100);
+
+  const subject = single
+    ? single.threshold === 100
+      ? `${single.label} is over budget for ${monthLabel}`
+      : `${single.label}: ${percentUsed(single.spentMinor, single.amountMinor)}% of the ${monthLabel} budget used`
+    : `${list.length} budgets in ${workspaceName} need a look`;
+  const title = single
+    ? single.threshold === 100
+      ? `${single.label} is over budget`
+      : `${single.label} is at ${percentUsed(single.spentMinor, single.amountMinor)}%`
+    : `${list.length} budgets need a look`;
+
+  const leadText = `Here's where ${monthLabel} stands in ${workspaceName}:`;
+  const blocks: Block[] = [
+    richParagraph(escapeHtml(leadText), leadText),
+    ...list.map((item) => budgetRow(item, money)),
+    paragraph(
+      anyOver
+        ? "Nothing is blocked — you can keep adding entries. Open your budgets to see what's driving it, or change the amount."
+        : "Nothing is blocked. You still have room — open your budgets to see where it's going.",
+    ),
+    button("Open budgets", href),
+    paragraph(
+      "You hear about each budget once at 80% and once at 100% each month — again only if its amount is raised.",
+      { muted: true },
+    ),
+  ];
+
+  const why =
+    reason === "admin"
+      ? `You get this because you're an admin of ${workspaceName}.`
+      : `You get this because you set this budget in ${workspaceName}.`;
+
+  return render({
+    subject,
+    preheader: single
+      ? `${single.label} for ${monthLabel}: ${percentUsed(single.spentMinor, single.amountMinor)}% used.`
+      : `${list.length} budgets in ${workspaceName} passed a limit in ${monthLabel}.`,
+    title,
+    blocks,
+    footer: `${why} To stop these emails for a budget, turn off its email alerts on the Budgets page.`,
   });
 }

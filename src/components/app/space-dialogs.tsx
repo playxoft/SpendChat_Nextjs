@@ -233,19 +233,45 @@ export function SpaceIconDialog({
 }
 
 /**
- * Delete a space. An empty one just goes (after a confirm); one with profiles
- * asks where they should move first — profiles are never deleted with a space.
+ * What moving a space's profiles out says — live ones and the ones in the
+ * trash, and who sees each afterwards.
+ */
+export function spaceDeleteMoveCopy(live: number, trashed: number): string {
+  const parts: string[] = [];
+  if (live > 0) {
+    parts.push(
+      `Its ${live === 1 ? "profile moves" : `${live} profiles move`} to the space you pick, with all their transactions. People in this space lose access to them unless they're in that space too.`,
+    );
+  }
+  if (trashed > 0) {
+    parts.push(
+      `${trashed === 1 ? "A profile in the trash goes" : `${trashed} profiles in the trash go`} there too — if ${trashed === 1 ? "it's" : "they're"} restored, the people in that space will see ${trashed === 1 ? "it" : "them"}.`,
+    );
+  }
+  return parts.join(" ");
+}
+
+/**
+ * Delete a space. An empty one just goes (after a confirm); one with profiles —
+ * live or in the trash — asks where they should move first. Profiles are never
+ * deleted with a space, and never moved anywhere the admin didn't pick.
  */
 export function SpaceDeleteDialog({
   space,
   profileCount,
+  trashedCount = 0,
   others,
   open,
   onOpenChange,
 }: {
   space: SpaceOption;
-  /** Profiles in the space (all of them — the server moves every one). */
+  /** Live profiles in the space (the server moves every one). */
   profileCount: number;
+  /**
+   * Its profiles in the trash. They need a home too: restored later, a profile
+   * shows to whoever is in the space it sits in — so the admin picks it.
+   */
+  trashedCount?: number;
   /** The workspace's other spaces — where profiles can move. */
   others: SpaceOption[];
   open: boolean;
@@ -265,17 +291,19 @@ export function SpaceDeleteDialog({
     if (open) setTarget(firstTarget());
   }
 
-  const hasProfiles = profileCount > 0;
+  // Anything in the space — live or in the trash — needs a destination.
+  const hasProfiles = profileCount + trashedCount > 0;
   const lastSpace = others.length === 0;
   const targetSpace = others.find((s) => s.id === target);
+  // Only live profiles take room; a trashed one counts again when restored.
   const moveLock =
-    hasProfiles && targetSpace
+    profileCount > 0 && targetSpace
       ? addLock(addLimits, "profiles", {
           profileCount: targetSpace.profileCount ?? 0,
           adding: profileCount,
         })
       : null;
-  const noneFit = hasProfiles && !others.some(fits);
+  const noneFit = profileCount > 0 && !others.some(fits);
 
   function handleDelete() {
     if (moveLock) return showUpgrade(moveLock.info);
@@ -303,7 +331,7 @@ export function SpaceDeleteDialog({
             {lastSpace
               ? "A workspace needs at least one space, so this one can't be deleted."
               : hasProfiles
-                ? `Its ${profileCount === 1 ? "profile moves" : `${profileCount} profiles move`} to the space you pick, with all their transactions. People in this space lose access to them unless they're in that space too.`
+                ? spaceDeleteMoveCopy(profileCount, trashedCount)
                 : "The space is empty. People in it are taken out; nothing else changes."}
           </DialogDescription>
         </DialogHeader>

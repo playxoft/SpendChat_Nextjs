@@ -118,6 +118,11 @@ beforeAll(async () => {
 afterEach(async () => {
   const { resetTestDb } = await import("./helpers/test-db");
   const { setSession } = await import("./helpers/session");
+  // Work a write deferred past its response (`afterResponse` — the budget
+  // check) has nowhere to run outside a request, so it queues. Run it before
+  // the reset, so it never lands in the next test's database.
+  const { settleDeferred } = await import("@/lib/defer");
+  await settleDeferred();
   await resetTestDb();
   setSession(null);
   vi.clearAllMocks();

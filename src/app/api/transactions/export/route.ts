@@ -3,6 +3,8 @@ import { getProfiles, listTransactions } from "@/lib/queries";
 import { parseTxnFilters } from "@/lib/filters";
 import { transactionsToReportCsv } from "@/lib/transactions-csv";
 import { setLogContext } from "@/lib/log-context";
+import { rateLimitedResponse } from "@/lib/rate-limit";
+import { EXPORT_WEIGHT } from "@/lib/rate-limit/classify";
 import { withRequestContext } from "@/lib/request-context";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +17,10 @@ export async function GET(request: Request) {
     setLogContext({ userId: user.id });
 
     const workspace = await getCurrentWorkspace(user.id);
+    // Per-person rate limit (C8): an export is a read — a heavy one, weighing
+    // EXPORT_WEIGHT reads (the same as GET /api/v1/transactions/export).
+    const limited = await rateLimitedResponse(user.id, "read", () => workspace.plan, EXPORT_WEIGHT);
+    if (limited) return limited;
     const url = new URL(request.url);
     const filters = parseTxnFilters((k) => url.searchParams.get(k));
     setLogContext({ workspaceId: workspace.id, profileId: filters.profileId ?? null });

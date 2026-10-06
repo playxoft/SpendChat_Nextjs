@@ -163,7 +163,7 @@ export async function loadSplitExpenses(
       const safeOffset = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
       return ledger.listExpenses(user.id, groupId, { limit: SPLIT_EXPENSES_PAGE, offset: safeOffset });
     },
-    { userId: user.id, groupId },
+    { userId: user.id, groupId, rateLimit: "read" },
   );
 }
 
@@ -179,7 +179,7 @@ export async function loadSplitSettlements(
       const safeOffset = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
       return ledger.listSettlements(user.id, groupId, { limit: SPLIT_PAYMENTS_PAGE, offset: safeOffset });
     },
-    { userId: user.id, groupId },
+    { userId: user.id, groupId, rateLimit: "read" },
   );
 }
 
@@ -194,7 +194,7 @@ export async function loadSplitInvitations(
       const safeOffset = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
       return split.listInvitations(user, { limit: split.SPLIT_INVITATIONS_PAGE, offset: safeOffset });
     },
-    { userId: user.id },
+    { userId: user.id, rateLimit: "read" },
   );
 }
 

@@ -4,12 +4,18 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { hrefWithProfile, invitationBadge, isActive, navItems, splitNavItem } from "./nav-items";
+import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badge";
 
 /** Settings used to be filtered out here; it is no longer in `navItems` at all
- *  (it lives in the profile/user menu), so the bar is the whole list again. */
+ *  (it lives in the profile/user menu), so the bar is the whole list again —
+ *  plus Split, which sits outside the workspace sections. Six items, so the
+ *  labels are `text-xs` to fit a 360px screen. */
 const BOTTOM_NAV_ITEMS = navItems;
 
-export function BottomNav({ splitInvitations = 0 }: { splitInvitations?: number }) {
+export function BottomNav({
+  budgetAlerts,
+  splitInvitations = 0,
+}: { budgetAlerts?: Promise<BudgetAlertCount>; splitInvitations?: number } = {}) {
   const pathname = usePathname();
   const profile = useSearchParams().get("profile");
   const splitActive = isActive(pathname, splitNavItem.href, splitNavItem.exact);
@@ -25,11 +31,16 @@ export function BottomNav({ splitInvitations = 0 }: { splitInvitations?: number 
               href={hrefWithProfile(item.href, profile)}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex flex-1 flex-col items-center justify-center gap-1 text-sm transition-colors",
+                "flex flex-1 flex-col items-center justify-center gap-1 text-xs transition-colors",
                 active ? "text-foreground" : "text-muted-foreground",
               )}
             >
-              <item.icon className={cn("size-5", active && "scale-105")} />
+              <span className="relative">
+                <item.icon className={cn("size-5", active && "scale-105")} />
+                {item.href === "/app/budgets" && (
+                  <BudgetNavBadge alerts={budgetAlerts} className="absolute -top-1.5 -right-2.5" />
+                )}
+              </span>
               {item.label}
             </Link>
           );
@@ -39,7 +50,7 @@ export function BottomNav({ splitInvitations = 0 }: { splitInvitations?: number 
           href={splitNavItem.href}
           aria-current={splitActive ? "page" : undefined}
           className={cn(
-            "relative flex flex-1 flex-col items-center justify-center gap-1 text-sm transition-colors",
+            "relative flex flex-1 flex-col items-center justify-center gap-1 text-xs transition-colors",
             splitActive ? "text-foreground" : "text-muted-foreground",
           )}
         >

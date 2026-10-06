@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { resolveWebProfile } from "@/lib/filters";
-import { getProfiles } from "@/lib/queries";
+import { getProfiles, getTrashBytes } from "@/lib/queries";
 import { getStorageLimitBytes } from "@/lib/entitlements";
 import { getVaultWorkingSet } from "@/services/files";
 import { FilesPageClient } from "@/components/app/files/files-page";
@@ -30,10 +30,13 @@ export default async function FilesPage({
 
   // Exactly what `GET /api/v1/files` serves the Flutter app — one function, so
   // the two working sets can't drift.
-  const { folders, files, transactionFiles, tags, storageUsedBytes, filesCapped } =
-    await getVaultWorkingSet(user.id, workspace.id, activeProfileId, {
-      dedupeStorageRead: true,
-    });
+  const [{ folders, files, transactionFiles, tags, storageUsedBytes, filesCapped }, trashBytes] =
+    await Promise.all([
+      getVaultWorkingSet(user.id, workspace.id, activeProfileId, {
+        dedupeStorageRead: true,
+      }),
+      getTrashBytes(workspace.id),
+    ]);
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -48,6 +51,7 @@ export default async function FilesPage({
         locale={workspace.locale}
         filesCapped={filesCapped}
         storageUsedBytes={storageUsedBytes}
+        storageTrashBytes={trashBytes}
         storageLimitBytes={await getStorageLimitBytes(workspace.id)}
       />
     </div>

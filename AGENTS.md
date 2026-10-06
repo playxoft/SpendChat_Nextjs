@@ -37,6 +37,17 @@ Authentication, secrets via Doppler.
   per day, per channel (`users.acquisition`, rules in `src/lib/attribution.ts`),
   per "how did you hear about us" answer, with activation (≥1 transaction).
 - `pnpm preview` / `pnpm deploy:dev` / `pnpm deploy:prod` — Worker build / deploy
+- **The Worker entry is `worker.ts`** (`wrangler.toml` `main`), wrapping OpenNext's generated
+  `.open-next/worker.js` with what it doesn't generate: the daily cron's `scheduled()` (and
+  Durable Object exports). Keep it thin and excluded from tsconfig — its runtime types and the
+  generated file exist only after a build — and import only dependency-free `src/lib` modules
+  into it: wrangler bundles it outside Next's `react-server` condition, where any
+  `import "server-only"` throws at startup and takes the fetch handler down too. Cron jobs
+  therefore run **through the app**: `scheduled()` calls the fetch handler in-process on a token-
+  guarded internal route (`lib/cron-dispatch.ts`, `lib/cron-token.ts`,
+  `app/api/internal/cron/*`), so they get Hyperdrive, `after()` log shipping and
+  `withRequestContext` like any request. Each env's `vars` carries `APP_ORIGIN` for that request.
+  Test a run locally with `wrangler dev --env beta --test-scheduled` and `curl /__scheduled`.
 
 ## Conventions
 - **Money** is stored as integer minor units (`amount_minor`). Convert with `src/lib/money.ts`
@@ -103,7 +114,64 @@ Authentication, secrets via Doppler.
   404 — and members' emails are shown only to the group's creator. Member rows are never
   deleted while the group exists (leave/remove/decline = `left`), balances are always
   computed, never stored. Adds take the group row `FOR UPDATE` before counting. The
-  only bridge into a workspace is "add my share", which writes one ordinary expense.
+  only bridge into a workspace is "add my share", which writes one ordinary expense through
+  `createTransactionId` (so budget checks fire) and links it on `split_shares.transaction_id`;
+  "Update my entry" / "Remove from my workspace" go through `updateTransaction` /
+  `deleteTransaction` (the trash). A trashed linked entry still counts as added.
+- **Budgets** — monthly spending limits for the whole workspace, one profile, or one expense
+  category (across every profile); one per scope; capped per plan (`PLAN_LIMITS.budgets`). Rules
+  are pure in `src/lib/budgets.ts`, CRUD in `src/services/budgets.ts`. **Every budget number comes
+  from `getMonthExpenseMatrix` (`src/lib/budget-spend.ts`)** — its one `where` decides which
+  transactions count (expenses only, the calendar month of `occurred_on`, every profile of the
+  workspace, trashed rows and trashed profiles excluded); never sum spending for a budget anywhere
+  else. A budget is shown only to admins and people who can read **every** live profile it covers;
+  a budget on a trashed profile is hidden from everyone (and not counted toward the plan) until the
+  profile is restored. Managing it needs edit access to every covered profile. **Every
+  transaction write that can raise spending calls `scheduleBudgetCheck` after it writes**
+  (`src/services/budget-alerts.ts`; in the service layer, so web and API are both covered; trash
+  restore calls it too) — a new write path must as well.
+  The check runs after the response through `afterResponse` (`src/lib/defer.ts`: Next's `after()`,
+  `ctx.waitUntil` on Workers) and claims each alert once per budget × threshold × month in
+  `budget_alerts` (never deleted; it fires again only for a higher amount; a claim that didn't fit
+  the pool or whose check failed before committing is retried, a failed send isn't). Alert emails
+  come from the workspace's own monthly pool (`budgetAlertEmailsLeft`, `email-quota.ts`), filled
+  claim by claim, never the writer's. In-app alerts are computed live — there is no
+  notifications table. Put any other post-response DB work through `afterResponse` too.
+- **Trash: every read excludes trashed rows.** `transactions`, `files`, `folders` and `profiles`
+  carry `deleted_at` (`timestamptz(3)`): deleting a transaction, a profile, or (Plus/Pro) a file or
+  folder moves it to the trash for `TRASH_DAYS` (30), and a daily cron purges it (`lib/trash-purge.ts`).
+  "Live" has two halves: the **row** — `notTrashed(table)` from `lib/trash-scope.ts`, which
+  `buildConditions` applies first for every transaction read — and its **profile** — the access
+  layer (`accessibleProfileIds` / `getEffectiveProfileRole`) skips trashed profiles, which hides
+  everything in them. A new read of one of these tables uses one of those, or carries a
+  `// trash: <reason>` comment saying why it reads everything (the storage sum — trashed bytes count
+  until purged, abuse rule C6 — destroy paths, sweeps); `tests/unit/trash-coverage.test.ts` fails
+  otherwise, and `tests/integration/trash-reads.test.ts` runs every read in `queries.ts` against
+  seeded trash. Attachments have no trash state of their own — always read it through the parent
+  transaction. Keep the literal `deleted_at is null` in feed queries: the feed index is partial.
+- **Rate limits are per person** (abuse rule C8; numbers in `RATE_LIMITS`, `src/lib/plans.ts`).
+  Every authenticated request counts against one bucket — `create`, `read` or `ai` — over 1-,
+  5- and 60-minute windows, judged by the plan of the workspace in context (with no workspace,
+  the best plan among the person's workspaces). It's enforced at the two seams, so a new route
+  needs nothing. **A new server action does need a bucket if it isn't a create:** a read-only
+  action, or a write of the person's own UI prefs, passes `rateLimit: "read"` in its `runAction`
+  meta; an AI call passes `"ai"`.
+  - `runAction`: the bucket comes from `meta.rateLimit` (default `create`).
+  - The REST API: the check runs in `getApiContext` / `requireApiUser`. `/api/v1/ai/*` → ai,
+    `GET`/`HEAD` → read, else create.
+  - A cookie-auth route handler outside both seams calls `rateLimitedResponse()`.
+  - A heavy read can weigh more than one request: a CSV export counts as `EXPORT_WEIGHT` (20)
+    reads, on the API (`rateOfApiRequest`) and the web route alike.
+  - Over the limit: 429 `rate_limited`, with `Retry-After` on the API and
+    `details.retryAfterSeconds` from an action.
+  - The counts live in one SQLite-backed Durable Object per user (`src/lib/rate-limit/`). It's
+    exported from the Worker entry **`worker.ts`** (`main` in wrangler.toml) and bound as
+    `RATE_LIMITER` in each env, not at the top level, which `next dev` reads.
+  - The limiter **fails open** when the binding is missing (`next dev`, tests), and when the
+    object errors or is slow — **except for AI**, which then fails closed (429, retry in 5 s):
+    nothing else bounds paid provider calls.
+  - After a `wrangler.toml` change, run `pnpm cf-typegen`: `cloudflare-env.d.ts` is generated
+    and gitignored, and typecheck needs the new binding types.
 - **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,
   mutations in `src/actions/*` (server actions), both validated with Zod (`src/lib/validation.ts`).
 - **Auth: Firebase Authentication** (Google + email/password). Sign-in happens in the browser

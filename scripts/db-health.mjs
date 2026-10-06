@@ -7,11 +7,12 @@
  * degradation. This script is the warning shoulder. It exits non-zero past a
  * threshold so it can gate a cron or a CI job.
  *
- * It also prunes the append-only rate-limit logs. `ai_usage_log` and
- * `email_send_log` are read by the quota checks over a one-hour window (and
- * `ai_usage_log` by the monthly AI allowance, so it is kept at least 62 days);
- * `split_rate_log` by Split's caps over up to 7 days (so never below that),
- * but nothing else deletes from them, so without this they grow forever. Pruning
+ * It also prunes the append-only usage logs. `email_send_log` is read by the
+ * invite-email quota over a one-hour window, `ai_usage_log` by the monthly AI
+ * allowance (so it is kept at least 62 days), and `split_rate_log` by Split's
+ * anti-abuse caps over up to 7 days (so never below that); nothing else
+ * deletes from them, so without this they grow forever. (Per-person request
+ * rate limits don't use any of them — they live in a Durable Object.) Pruning
  * caps that growth; it does not hand the space back — see the note above the
  * VACUUM below.
  *

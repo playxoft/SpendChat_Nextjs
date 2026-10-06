@@ -91,7 +91,7 @@ export async function getSpaceAccess(id: string): Promise<ActionResult<{ access:
   return runAction(
     "getSpaceAccess",
     async () => ({ access: await spaceService.getSpaceAccess(user.id, id) }),
-    { userId: user.id, spaceId: id },
+    { userId: user.id, rateLimit: "read", spaceId: id },
   );
 }
 

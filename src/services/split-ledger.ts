@@ -688,8 +688,15 @@ export async function updateWorkspaceEntry(
   const db = getDb();
   const ctx = await requireJoined(userId, rawGroupId);
   const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
+  // The linked entry in any state — a trashed transaction (or one whose
+  // profile is in the trash) still counts as added, and is answered below.
   const [row] = await db
-    .select({ share: splitShares, workspaceId: profiles.workspaceId })
+    .select({
+      share: splitShares,
+      workspaceId: profiles.workspaceId,
+      entryTrashed: transactions.deletedAt,
+      profileTrashed: profiles.deletedAt,
+    })
     .from(splitExpenses)
     .innerJoin(
       splitShares,
@@ -707,6 +714,11 @@ export async function updateWorkspaceEntry(
   }
   if (row.share.amountMinor <= 0) {
     throw conflict("You're no longer part of this expense — remove it from your workspace instead");
+  }
+  if (row.entryTrashed || row.profileTrashed) {
+    throw conflict(
+      "Your entry is in the trash — restore it to update it, or delete it for good there and add your share again",
+    );
   }
   const workspaceId = row.workspaceId;
   const existing = await getTransactionById(userId, workspaceId, transactionId);
@@ -749,10 +761,11 @@ export async function updateWorkspaceEntry(
 
 /**
  * "Remove from my workspace": the caller was dropped from an expense (or
- * their share became 0) after they'd added it. Deletes the linked workspace
- * transaction through the normal `deleteTransaction` — access checks in its
- * own workspace, and the trash once that exists — then clears the link and
- * the empty share row.
+ * their share became 0) after they'd added it. Moves the linked workspace
+ * transaction to the trash through the normal `deleteTransaction` (access
+ * checks in its own workspace; restorable for 30 days), then clears the link
+ * and the empty share row — a trashed transaction still exists, so the FK
+ * alone wouldn't.
  */
 export async function removeWorkspaceEntry(
   userId: string,
@@ -762,8 +775,15 @@ export async function removeWorkspaceEntry(
   const db = getDb();
   const ctx = await requireJoined(userId, rawGroupId);
   const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
+  // The linked entry in any state — a trashed transaction (or one whose
+  // profile is in the trash) still counts as added, and is answered below.
   const [row] = await db
-    .select({ share: splitShares, workspaceId: profiles.workspaceId })
+    .select({
+      share: splitShares,
+      workspaceId: profiles.workspaceId,
+      entryTrashed: transactions.deletedAt,
+      profileTrashed: profiles.deletedAt,
+    })
     .from(splitExpenses)
     .innerJoin(
       splitShares,
@@ -778,8 +798,12 @@ export async function removeWorkspaceEntry(
   if (row.share.amountMinor > 0) {
     throw conflict("You're still part of this expense — update your entry instead");
   }
-  const deleted = await deleteTransaction(userId, row.workspaceId, transactionId);
-  if (!deleted) throw notFound("Your entry is in a workspace you can no longer open");
+  // Already in the trash (on its own or with its profile): nothing left to
+  // move — just let go of the link below.
+  if (!row.entryTrashed && !row.profileTrashed) {
+    const deleted = await deleteTransaction(userId, row.workspaceId, transactionId);
+    if (!deleted) throw notFound("Your entry is in a workspace you can no longer open");
+  }
   // Explicitly, not just via the FK: a transaction moved to the trash still exists.
   await db
     .delete(splitShares)

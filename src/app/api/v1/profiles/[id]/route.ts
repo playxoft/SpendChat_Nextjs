@@ -23,18 +23,21 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 }
 
 /**
- * DELETE /api/v1/profiles/:id — always refused (409) for the workspace's last
- * profile.
+ * DELETE /api/v1/profiles/:id — moves the profile to the trash, as one unit,
+ * restorable for 30 days by a workspace admin (`POST /trash/restore`). Always
+ * refused (409) for the workspace's last live profile.
  *
  * `?transactions=` says what to do with the transactions filed under it:
- *   delete            — remove them (and their attachments) too
- *   move&to=<id>      — re-file them under another profile first
- *   omitted / reject  — refuse with 409 while any remain (the old behaviour,
- *                       kept as the default so a client that says nothing can't
- *                       destroy rows it didn't ask about)
+ *   delete            — they go to the trash with the profile
+ *   move&to=<id>      — re-file them (and the vault) under another profile
+ *                       first; the empty profile then goes to the trash
+ *   omitted / reject  — refuse with 409 while any live ones remain (the old
+ *                       behaviour, kept as the default so a client that says
+ *                       nothing can't lose rows it didn't ask about)
  *
- * Either way the profile's vault files go with it — that has always been the
- * cascade, and `GET /profiles/:id/deletion-impact` reports the counts first.
+ * The vault goes to the trash with the profile on Plus/Pro; on Free it is
+ * deleted for good (`GET /profiles/:id/deletion-impact` says which, as
+ * `filesRecoverable`, with the counts).
  */
 export async function DELETE(request: NextRequest, ctx: Ctx) {
   return handle(async () => {
@@ -50,6 +53,8 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
       toProfileId: params.get("to") || undefined,
     });
     if (!deleted) throw notFound("Profile not found");
-    return apiOk({ id, deleted: true });
+    // The profile goes to the trash as one unit (restorable for 30 days by a
+    // workspace admin); on Free its vault files are deleted for good.
+    return apiOk({ id, deleted: true, trashed: true });
   });
 }

@@ -142,7 +142,7 @@ export function SplitGroupView({
   async function removeEntry(e: SplitExpenseView) {
     setUpdatingEntry(e.id);
     const res = await removeSplitWorkspaceEntry(group.id, e.id).finally(() => setUpdatingEntry(null));
-    if (res.ok) toast.success("Removed from your workspace");
+    if (res.ok) toast.success("Moved to the trash in your workspace — you can restore it for 30 days");
     else toast.error(res.error);
     router.refresh();
   }

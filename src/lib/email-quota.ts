@@ -1,7 +1,7 @@
 import "server-only";
 import { and, count, eq, gte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { emailSendLog } from "@/db/schema";
+import { budgetAlertEmails, emailSendLog } from "@/db/schema";
 import { tooManyRequests } from "@/lib/errors";
 
 /** Max user-triggered emails (invites, notifications) one user may send per hour. */
@@ -53,4 +53,60 @@ export async function assertEmailSendAllowed(
     }
     await tx.insert(emailSendLog).values({ userId, kind });
   });
+}
+
+// ── Budget alerts: the workspace's own pool ───────────────────────────────
+
+/**
+ * Budget-alert emails one workspace may send per calendar month (UTC), across
+ * all its budgets and recipients. Alerts are already once per budget × threshold
+ * × month; this is the backstop for the one loop that rule can't see — deleting
+ * and re-creating a budget — and it bounds a big workspace's worst month. Past
+ * it the alerts still show in the app, and their emails stay unsent until the
+ * pool refills on the 1st (the next check after that sends them). What this
+ * guards is the pool, not delivery: a send that fails after its slot was taken
+ * isn't retried.
+ */
+export const BUDGET_ALERT_EMAILS_PER_MONTH = 30;
+
+/**
+ * Advisory-lock namespace for the pool — distinct from every other one in the
+ * app (1 AI rate, 2 email rate, 3 invites, 4 AI allowance, 5 workspace
+ * creation, 80 budget creation).
+ */
+const BUDGET_ALERT_LOCK_NAMESPACE = 81;
+
+type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
+
+/**
+ * How many alert emails the workspace has left this month — taking the pool's
+ * lock for the rest of the caller's transaction, so what it then records with
+ * `recordBudgetAlertEmails` can't be double-spent by a racing check.
+ *
+ * The **blocking** lock, unlike `assertEmailSendAllowed`'s try-lock: this runs
+ * after the response with nobody waiting, so a second check queues for a few
+ * milliseconds instead of failing. Losing a race can't cost an alert.
+ */
+export async function budgetAlertEmailsLeft(
+  tx: Tx,
+  workspaceId: string,
+  now: Date = new Date(),
+): Promise<number> {
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(${BUDGET_ALERT_LOCK_NAMESPACE}, hashtext(${workspaceId}))`,
+  );
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const [row] = await tx
+    .select({ sent: sql<number>`count(*)::int` })
+    .from(budgetAlertEmails)
+    .where(and(eq(budgetAlertEmails.workspaceId, workspaceId), gte(budgetAlertEmails.createdAt, monthStart)));
+  return Math.max(0, BUDGET_ALERT_EMAILS_PER_MONTH - (row?.sent ?? 0));
+}
+
+/** Take `count` emails from the pool, in the transaction that read `budgetAlertEmailsLeft`. */
+export async function recordBudgetAlertEmails(tx: Tx, workspaceId: string, count: number): Promise<void> {
+  if (count <= 0) return;
+  await tx
+    .insert(budgetAlertEmails)
+    .values(Array.from({ length: count }, () => ({ workspaceId })));
 }

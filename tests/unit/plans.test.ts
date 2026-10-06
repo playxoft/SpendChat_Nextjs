@@ -4,9 +4,12 @@ import {
   INVOICE_ADDON_PRICE,
   PERSONAL_PLANS,
   PLAN_LIMITS,
+  RATE_BUCKETS,
+  RATE_LIMITS,
   voiceActionsFor,
   type PersonalPlan,
   type PlanLimits,
+  type RateLimitNumbers,
 } from "@/lib/plans";
 import {
   CURRENCIES,
@@ -87,6 +90,29 @@ describe("PLAN_LIMITS", () => {
         if (PLAN_LIMITS[lower][key]) {
           expect(PLAN_LIMITS[higher][key], `${lower} → ${higher}: ${key}`).toBe(true);
         }
+      }
+    }
+  });
+});
+
+describe("RATE_LIMITS", () => {
+  it("C8: every paid rate limit is at least Free's (the limiter's Free fast path relies on it)", () => {
+    for (const plan of PERSONAL_PLANS) {
+      for (const bucket of RATE_BUCKETS) {
+        for (const [window, value] of Object.entries(RATE_LIMITS[plan][bucket])) {
+          const floor = RATE_LIMITS.free[bucket][window as keyof RateLimitNumbers];
+          expect(value, `${plan}.${bucket}.${window}`).toBeGreaterThanOrEqual(floor);
+        }
+      }
+    }
+  });
+
+  it("C8: the longer a window, the more it allows", () => {
+    for (const plan of PERSONAL_PLANS) {
+      for (const bucket of RATE_BUCKETS) {
+        const { perMinute, per5Minutes, perHour } = RATE_LIMITS[plan][bucket];
+        expect(per5Minutes, `${plan}.${bucket}`).toBeGreaterThan(perMinute);
+        expect(perHour, `${plan}.${bucket}`).toBeGreaterThan(per5Minutes);
       }
     }
   });

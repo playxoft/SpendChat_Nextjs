@@ -7,6 +7,7 @@ import { POST as moveTxns } from "@/app/api/v1/profiles/[id]/move/route";
 import { signInAs } from "../helpers/session";
 import {
   bootstrapUser,
+  countLiveTxns,
   countTxns,
   defaultSpaceIdOf,
   firstProfileId,
@@ -108,7 +109,7 @@ describe("/api/v1/profiles", () => {
     expect(okNow.status).toBe(200);
   });
 
-  it("deletes a non-empty profile's transactions on ?transactions=delete", async () => {
+  it("sends a non-empty profile and its transactions to the trash on ?transactions=delete", async () => {
     signInAs("a");
     await bootstrapUser("a");
     const workId = await createNamed("Work");
@@ -122,6 +123,7 @@ describe("/api/v1/profiles", () => {
       transactions: 1,
       files: 0,
       attachments: 0,
+      filesRecoverable: false,
     });
 
     const res = await deleteProfile(
@@ -129,7 +131,10 @@ describe("/api/v1/profiles", () => {
       ctx({ id: workId }),
     );
     expect(res.status).toBe(200);
-    expect(await countTxns("a")).toBe(0);
+    expect((await res.json()).data).toEqual({ id: workId, deleted: true, trashed: true });
+    // Out of every read, but kept — restorable with the profile.
+    expect(await countLiveTxns("a")).toBe(0);
+    expect(await countTxns("a")).toBe(1);
   });
 
   it("re-files them on ?transactions=move&to=, and 422s without a destination", async () => {
@@ -191,6 +196,6 @@ describe("/api/v1/profiles", () => {
       ctx({ id: fullId }),
     );
     expect(blankTo.status).toBe(200);
-    expect(await countTxns("a")).toBe(0);
+    expect(await countLiveTxns("a")).toBe(0);
   });
 });

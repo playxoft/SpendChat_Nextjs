@@ -1,10 +1,11 @@
-import { ChartColumn, FolderOpen, MessageSquare, Split, Table2 } from "lucide-react";
+import { ChartColumn, FolderOpen, MessageSquare, PiggyBank, Split, Table2 } from "lucide-react";
 import { comboFor } from "@/lib/shortcuts";
 
 export const navItems = [
   { href: "/app", label: "Tracker", icon: MessageSquare, exact: true, shortcut: comboFor("nav.tracker") },
   { href: "/app/transactions", label: "Transactions", icon: Table2, exact: false, shortcut: comboFor("nav.transactions") },
   { href: "/app/analytics", label: "Analytics", icon: ChartColumn, exact: false, shortcut: comboFor("nav.analytics") },
+  { href: "/app/budgets", label: "Budgets", icon: PiggyBank, exact: false, shortcut: comboFor("nav.budgets") },
   { href: "/app/files", label: "Files", icon: FolderOpen, exact: false, shortcut: comboFor("nav.files") },
 ] as const;
 

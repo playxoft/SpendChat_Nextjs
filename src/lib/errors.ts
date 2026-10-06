@@ -58,6 +58,7 @@ export type PlanLimitKey =
   | "profilesPerSpace"
   | "categories"
   | "tags"
+  | "budgets"
   | "storage"
   | "aiActions"
   | "voice"
@@ -89,6 +90,57 @@ export function planLimit(message: string, details: PlanLimitDetails): ApiError 
 /** 429 — the caller hit a rate limit; try again later. */
 export function tooManyRequests(message = "Too many requests — try again later"): ApiError {
   return new ApiError(429, "rate_limited", message);
+}
+
+/** `details` of a `rate_limited` error that knows when a retry will pass. */
+export type RateLimitedDetails = {
+  /** What the request counted against: entries, views, or AI. */
+  bucket: "create" | "read" | "ai";
+  /**
+   * The per-person window that's full (`lib/rate-limit`). Absent when the
+   * refusal isn't about a full window: a second AI call while the previous one
+   * is still being charged, or AI paused because the limiter can't be reached.
+   */
+  window?: "1m" | "5m" | "1h";
+  /** Whole seconds until a retry would pass — also sent as the `Retry-After` header. */
+  retryAfterSeconds: number;
+};
+
+/**
+ * 429 `rate_limited` with a known wait (abuse rule C8). The REST API turns
+ * `retryAfterSeconds` into a `Retry-After` header; a server action returns it
+ * in `details`.
+ */
+export function rateLimited(message: string, details: RateLimitedDetails): ApiError {
+  return new ApiError(429, "rate_limited", message, details);
+}
+
+/** A 429's `Retry-After` in seconds, when its details carry one. */
+export function retryAfterSecondsOf(err: ApiError): number | null {
+  if (err.status !== 429 || !err.details || typeof err.details !== "object") return null;
+  const value = (err.details as { retryAfterSeconds?: unknown }).retryAfterSeconds;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.ceil(value) : null;
+}
+
+/** `{ "Retry-After": "<seconds>" }` for a 429 that knows its wait, else undefined. */
+export function retryAfterHeaders(err: ApiError): Record<string, string> | undefined {
+  const seconds = retryAfterSecondsOf(err);
+  return seconds ? { "Retry-After": String(seconds) } : undefined;
+}
+
+/**
+ * A rate-limiting refusal (`rateLimited()` — it names a bucket): the
+ * per-person limiter, or the AI charge lock refusing a second concurrent call.
+ * The limiter logs each block, and each failure to reach it, once (throttled),
+ * so the entry seams log these at debug — a script looping on a valid token
+ * can't flood the logs. (The invite-email cap's 429 names no bucket and is
+ * logged as usual.)
+ */
+export function isRateLimitRefusal(err: ApiError): boolean {
+  return (
+    err.code === "rate_limited" &&
+    typeof (err.details as { bucket?: unknown } | undefined)?.bucket === "string"
+  );
 }
 
 /**

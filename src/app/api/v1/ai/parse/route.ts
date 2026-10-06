@@ -19,10 +19,11 @@ export const dynamic = "force-dynamic";
  * `POST /transactions/bulk`. `timezone` (IANA) anchors "today" for relative
  * dates like "yesterday"; without it the drafts default to the UTC date.
  *
- * Gated exactly like the web action, and in the same order: cheap local checks,
- * then the editor role, then the AI charge (per-user hourly cap → 429, the
- * workspace's monthly AI allowance → 403 `plan_limit`) — a denied caller must
- * never burn another caller's budget or reach a paid provider.
+ * Gated exactly like the web action, and in the same order: the per-person
+ * `ai` rate limit (429 + `Retry-After`, in `getApiContext`), cheap local checks,
+ * then the editor role, then the AI charge (the workspace's monthly AI
+ * allowance → 403 `plan_limit`) — a denied caller must never burn another
+ * caller's budget or reach a paid provider.
  *
  * A typed note costs one AI action. `source: "voice"` marks a note that is a
  * transcript from `POST /ai/transcribe`: the clip already paid for its parse,

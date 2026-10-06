@@ -1,5 +1,6 @@
 import { formatFileSize } from "@/lib/attachments";
 import {
+  budgetsLimitLabel,
   formatPlanStorage,
   formatResetDate,
   nextMonthStartUtc,
@@ -261,6 +262,9 @@ export function planChanges(from: PersonalPlan, to: PersonalPlan): PlanChange[] 
   num("Profiles in each space", a.profilesPerSpace, b.profilesPerSpace);
   num("Categories", a.categories, b.categories);
   num("Tags", a.tags, b.tags);
+  if (b.budgets.max > a.budgets.max) {
+    out.push({ label: "Budgets", from: budgetsLimitLabel(from), to: budgetsLimitLabel(to) });
+  }
   flag("Voice entry", a.voice, b.voice);
   flag("Access per profile", a.profileLevelAccess, b.profileLevelAccess);
   flag("AI top-ups", a.topUps, b.topUps);
@@ -363,6 +367,16 @@ export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
     pitch: ({ next, nextLimits }) =>
       `${next} gives you ${count(nextLimits.tags)} — enough for every trip, client and tax claim.`,
   },
+  budgets: {
+    headline: "See it coming before the month runs out",
+    cap: (p) => L[p].budgets.max,
+    status: ({ max }) =>
+      `This workspace has ${count(max)} budgets, and they're all in use. Deleting one you don't need frees a place.`,
+    pitch: ({ next, nextLimits }) =>
+      nextLimits.budgets.displayUnlimited
+        ? `${next} takes the limit off, so every category that matters gets its own budget and its own alert.`
+        : `${next} gives you ${count(nextLimits.budgets.max)}, so every category that matters gets its own budget and its own alert.`,
+  },
   storage: {
     headline: "Keep every receipt where you can find it",
     cap: (p) => L[p].storageBytes,
@@ -387,6 +401,14 @@ export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
       "Everyone gets one free workspace. This one is extra, so it's view-only for now — nothing in it is deleted.",
     pitch: ({ next }) =>
       `With ${next}, it works like your first one: add, edit and invite.`,
+  },
+  // Client-only: the trash's Files tab on a plan without a file trash.
+  fileTrash: {
+    headline: "Get a deleted file back",
+    status: ({ current }) =>
+      `On ${current}, deleting a file or folder is final. Deleted transactions still go to the trash for ${TRASH_DAYS} days.`,
+    pitch: ({ next }) =>
+      `${next} keeps deleted files and folders in the trash for ${TRASH_DAYS} days, so one wrong click never costs you a contract or a warranty.`,
   },
   // "New workspace", when the person already has their free one.
   newWorkspace: {

@@ -11,6 +11,7 @@ import {
   pgEnum,
   pgTable,
   primaryKey,
+  smallint,
   text,
   timestamp,
   unique,
@@ -42,6 +43,7 @@ import {
 import type { UiPrefs } from "../lib/validation";
 import type { Acquisition } from "../lib/attribution";
 import { PERSONAL_PLANS } from "../lib/plans";
+import { BUDGET_PERIODS, BUDGET_SCOPES } from "../lib/budgets";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -72,6 +74,12 @@ export const workspacePlanEnum = pgEnum("workspace_plan", PERSONAL_PLANS);
 
 /** Optional preset tag for a transaction attachment (receipt/bill/invoice/other). */
 export const attachmentKindEnum = pgEnum("attachment_kind", ATTACHMENT_KINDS);
+
+/** What a budget covers: the whole workspace, one profile, or one expense category. */
+export const budgetScopeEnum = pgEnum("budget_scope", BUDGET_SCOPES);
+
+/** How often a budget resets. Monthly only today; the enum leaves room for more. */
+export const budgetPeriodEnum = pgEnum("budget_period", BUDGET_PERIODS);
 
 /**
  * Application identity. `id` is our own uuidv7 — the value stored in every
@@ -503,6 +511,17 @@ export const profiles = pgTable(
     color: text("color"),
     // Manual ordering for the sidebar (drag-to-sort), within the space.
     sortOrder: integer("sort_order").notNull().default(0),
+    // In the trash since this instant (null = live). Deleting a profile always
+    // sends the whole profile here as one unit — its transactions, files and
+    // folders stay as they were and are hidden because the access layer
+    // (`accessibleProfileIds` / `getEffectiveProfileRole`) skips trashed
+    // profiles. It has to be the profile: `transactions.profile_id` is ON DELETE
+    // restrict, so a trashed transaction can't outlive its profile row. The
+    // purge (`lib/trash-purge.ts`) hard-deletes it after `TRASH_DAYS`.
+    // Millisecond precision like every `deleted_at` (see `transactions`).
+    deletedAt: timestamp("deleted_at", { withTimezone: true, precision: 3 }),
+    // Who sent it there (attribution only, like `user_id`; no foreign key).
+    deletedBy: uuid("deleted_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -511,8 +530,13 @@ export const profiles = pgTable(
     index("profiles_workspace_idx").on(t.workspaceId, t.sortOrder),
     // Profiles of one space, in sidebar order; also the space FK's restrict check.
     index("profiles_space_sort_idx").on(t.spaceId, t.sortOrder),
-    // Names are unique within a workspace (was per-user pre-workspaces).
-    uniqueIndex("profiles_workspace_name_uq").on(t.workspaceId, t.name),
+    // Names are unique within a workspace (was per-user pre-workspaces) —
+    // among *live* profiles, so "Home" can be created again the moment the old
+    // "Home" goes to the trash. Restoring into a taken name renames the restored
+    // one (`restoredName` in `lib/trash.ts`).
+    uniqueIndex("profiles_workspace_name_uq")
+      .on(t.workspaceId, t.name)
+      .where(sql`${t.deletedAt} is null`),
     // Restrict, not cascade: deleting a space that still holds profiles must
     // fail — the service moves or deletes them first, deliberately.
     foreignKey({
@@ -657,6 +681,17 @@ export const transactions = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
       .notNull()
       .defaultNow(),
+    // In the trash since this instant; null = live. Every read excludes trashed
+    // rows through `notTrashed(transactions)` (`lib/trash-scope.ts`), which
+    // `buildConditions` applies first. Millisecond precision for the same
+    // reason as `created_at`: the trash list pages on a `(deleted_at, id)`
+    // keyset that round-trips through a JavaScript `Date`, and a bulk delete
+    // shares one `deleted_at` across the batch — ties must stay ties so `id`
+    // can break them. The row's receipts (`transaction_attachments`) carry no
+    // copy of this: their state is always read through this row.
+    deletedAt: timestamp("deleted_at", { withTimezone: true, precision: 3 }),
+    // Who trashed it (attribution only; no foreign key, like `user_id`).
+    deletedBy: uuid("deleted_by"),
   },
   (t) => [
     // THE access path. Every read scopes to the profiles the caller can see in
@@ -668,8 +703,8 @@ export const transactions = pgTable(
     // cursor `(occurred_on, created_at, id)`, in the same direction, so the feed
     // reads straight off the index with no sort.
     //
-    // This also covers the `profile_id` FK restrict check, which is why there is
-    // no separate single-column index on it — a leading-column prefix serves it.
+    // It no longer covers the `profile_id` FK restrict check: it is partial (see
+    // below), so it can't — `transactions_profile_idx` does that now.
     //
     // `nullsFirst()` is load-bearing, not decoration. Drizzle's `.desc()` emits
     // `DESC NULLS LAST`, while SQL's `ORDER BY x DESC` means `DESC NULLS FIRST`.
@@ -681,12 +716,36 @@ export const transactions = pgTable(
     // of the whole profile plus a top-N sort. Measured on Postgres 18 against
     // 300,000 rows across three profiles, one page of 50: 164 buffer reads with
     // the null ordering below, 31,793 without it.
-    index("transactions_profile_date_idx").on(
-      t.profileId,
-      t.occurredOn.desc().nullsFirst(),
-      t.createdAt.desc().nullsFirst(),
-      t.id.desc().nullsFirst(),
-    ),
+    //
+    // Partial: live rows only. The trash is invisible to every read, so its
+    // rows have no business in the hot path's index — without the predicate a
+    // "clear transactions" of 50,000 rows would make every feed page walk those
+    // 50,000 dead entries for the 30 days they sit in the trash. The planner only
+    // uses a partial index when the query *proves* its predicate, so every read
+    // must carry the literal `deleted_at is null` (`notTrashed`, via
+    // `buildConditions`) in every merge-append branch — never a parameter.
+    index("transactions_profile_date_idx")
+      .on(
+        t.profileId,
+        t.occurredOn.desc().nullsFirst(),
+        t.createdAt.desc().nullsFirst(),
+        t.id.desc().nullsFirst(),
+      )
+      .where(sql`${t.deletedAt} is null`),
+    // Every row of a profile, trash included. The index above used to serve
+    // these as its leading-column prefix, and a partial index can't: the
+    // `profile_id` FK restrict check when a profile is finally destroyed, and
+    // the all-states statements by profile (moving a profile's rows, collecting
+    // its stored objects, the purge, account deletion). A plain single-column
+    // btree, ~30 bytes a row.
+    index("transactions_profile_idx").on(t.profileId),
+    // The trash: per profile, most recently deleted first — the trash list
+    // (merged per profile like the feed) and the purge (which scans it whole;
+    // it only ever holds `TRASH_DAYS` of deletions). `nullsFirst()` for the
+    // same pathkey reason as above.
+    index("transactions_trash_idx")
+      .on(t.profileId, t.deletedAt.desc().nullsFirst(), t.id.desc().nullsFirst())
+      .where(sql`${t.deletedAt} is not null`),
     // FK maintenance: category delete → set null. Not a prefix of anything above.
     index("transactions_category_idx").on(t.categoryId),
     // The account-deletion sweep (`deleteAccount` in services/settings.ts) is the
@@ -707,6 +766,127 @@ export const transactions = pgTable(
 );
 
 /**
+ * A monthly spending limit (`src/lib/budgets.ts` holds the rules). It covers
+ * the whole workspace, one profile, or one expense category across every
+ * profile — `scope` says which, and exactly one of `profile_id` / `category_id`
+ * is set for the last two (the check constraint below). Typed foreign keys
+ * rather than one polymorphic id, so deleting a profile or a category takes its
+ * budget with it instead of leaving one that points at nothing.
+ *
+ * One budget per scope (the unique constraint treats the nulls as equal, so a
+ * second whole-workspace budget collides too). `amount_minor` is in the
+ * workspace's currency, like every amount. `created_by` is attribution and an
+ * alert recipient, never the access key — who can see or manage a budget is
+ * decided by the profiles it covers (`canSeeBudget` / `canManageBudget`).
+ * How many a workspace may have is its plan's `budgets` limit.
+ */
+export const budgets = pgTable(
+  "budgets",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    scope: budgetScopeEnum("scope").notNull(),
+    profileId: uuid("profile_id").references(() => profiles.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id").references(() => categories.id, { onDelete: "cascade" }),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+    period: budgetPeriodEnum("period").notNull().default("monthly"),
+    // Email the 80% / 100% alerts (in-app alerts always show). Per budget, set
+    // by whoever manages it.
+    emailAlerts: boolean("email_alerts").notNull().default(true),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One budget per scope and period. Leads with `workspace_id`, so it also
+    // serves "this workspace's budgets" and the workspace FK cascade.
+    unique("budgets_workspace_scope_uq")
+      .on(t.workspaceId, t.scope, t.period, t.profileId, t.categoryId)
+      .nullsNotDistinct(),
+    // FK maintenance: profile / category delete cascades.
+    index("budgets_profile_idx").on(t.profileId),
+    index("budgets_category_idx").on(t.categoryId),
+    check(
+      "budgets_scope_target_ck",
+      sql`(${t.scope} = 'workspace' and ${t.profileId} is null and ${t.categoryId} is null)
+        or (${t.scope} = 'profile' and ${t.profileId} is not null and ${t.categoryId} is null)
+        or (${t.scope} = 'category' and ${t.categoryId} is not null and ${t.profileId} is null)`,
+    ),
+    check("budgets_amount_positive_ck", sql`${t.amountMinor} > 0`),
+  ],
+);
+
+/**
+ * The alert log: one row per budget × month × threshold that has fired. The
+ * primary key *is* the "once per budget, per threshold, per month" rule — a
+ * crossing is claimed with `insert … on conflict … do update … where
+ * excluded.amount_minor > budget_alerts.amount_minor returning`, so of two
+ * writes that cross 80% at the same moment exactly one gets the row, and the
+ * same threshold fires again in a month only if the budget's amount was
+ * raised past the one it fired at (`src/services/budget-alerts.ts`).
+ *
+ * Rows are never deleted while their budget lives — that's what makes
+ * raise/lower loops pointless. `notified_at` is null until the claim's email
+ * was handed to the mailer (or turned out to be owed to nobody). A claim that
+ * didn't fit in the workspace's monthly alert-email pool, or whose check failed
+ * before committing, stays null and the next check picks it up. A send that
+ * fails after that commit isn't retried — the alert still shows in the app,
+ * which doesn't read this table; in-app alerts are computed live.
+ *
+ * Tiny and bounded (≤ budgets × 2 a month, plus raises), and it goes with its
+ * budget.
+ */
+export const budgetAlerts = pgTable(
+  "budget_alerts",
+  {
+    budgetId: uuid("budget_id")
+      .notNull()
+      .references(() => budgets.id, { onDelete: "cascade" }),
+    // The first day of the calendar month the alert is about.
+    month: date("month").notNull(),
+    // 80 or 100 (`BUDGET_THRESHOLDS`).
+    threshold: smallint("threshold").notNull(),
+    // The budget's amount when this threshold fired — it fires again this
+    // month only for a higher amount.
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+    // When its email went out (or nothing was owed); null = still to send.
+    notifiedAt: timestamp("notified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.budgetId, t.month, t.threshold] }),
+    check("budget_alerts_threshold_ck", sql`${t.threshold} in (80, 100)`),
+    check("budget_alerts_month_ck", sql`extract(day from ${t.month}) = 1`),
+  ],
+);
+
+/**
+ * One row per budget-alert email sent — the workspace's own monthly pool
+ * (`BUDGET_ALERT_EMAILS_PER_MONTH`, `budgetAlertEmailsLeft` in
+ * `email-quota.ts`). Separate from `email_send_log` on purpose: alerts are the
+ * workspace's, not the writer's, so they neither eat into a person's invite
+ * allowance nor stop when it's spent. Keyed by workspace and kept when a budget
+ * is deleted, so deleting and re-creating a budget can't refill it. Stores no
+ * recipient.
+ */
+export const budgetAlertEmails = pgTable(
+  "budget_alert_emails",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The pool's count: this workspace's alert emails since the 1st.
+    index("budget_alert_emails_workspace_created_idx").on(t.workspaceId, t.createdAt),
+  ],
+);
+
+/**
  * A file (receipt / bill / invoice / any document) attached to a transaction.
  * Access is inherited from the transaction's profile — `profileId` and
  * `workspaceId` are denormalized from the parent so attachment reads scope the
@@ -714,6 +894,11 @@ export const transactions = pgTable(
  * The bytes live in R2 under `r2Key`; the row is metadata only. A transaction
  * delete cascades these rows away (the service also deletes the R2 objects).
  * `userId` is uploader attribution, never the access key.
+ *
+ * Deliberately **no `deleted_at`**: an attachment is in the trash exactly when
+ * its transaction is, and that state is always read through the parent row
+ * (`transactions.deleted_at`). A copy here would be a denormalized column used
+ * as a predicate — the shape that once deleted a live transaction's receipt.
  */
 export const transactionAttachments = pgTable(
   "transaction_attachments",
@@ -839,6 +1024,14 @@ export const folders = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
+    // In the trash since this instant (Plus/Pro; Free deletes for good). Trashing
+    // a folder stamps it **and every live descendant** folder and file with the
+    // same instant, in one transaction, so every vault read stays a plain
+    // `deleted_at is null` filter and restoring the folder brings back exactly
+    // what went with it (equal `deleted_at`, compared in SQL — never through a
+    // JavaScript `Date`). The predefined system folder is never trashed.
+    deletedAt: timestamp("deleted_at", { withTimezone: true, precision: 3 }),
+    deletedBy: uuid("deleted_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -886,6 +1079,12 @@ export const files = pgTable(
       .array()
       .notNull()
       .default(sql`'{}'::uuid[]`),
+    // In the trash since this instant (Plus/Pro). Trashed bytes still count
+    // toward the workspace's storage until purged (abuse rule C6) — the storage
+    // sum deliberately ignores this column. See `folders.deleted_at` for how a
+    // folder's subtree is stamped.
+    deletedAt: timestamp("deleted_at", { withTimezone: true, precision: 3 }),
+    deletedBy: uuid("deleted_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -928,6 +1127,15 @@ export const files = pgTable(
     index("files_workspace_idx").on(t.workspaceId),
     // Browsing a folder's subtree + the folder FK cascade.
     index("files_folder_idx").on(t.folderId),
+    // The trash, per profile, most recently deleted first (trash list + purge).
+    // `files_profile_created_idx` above stays a full index on purpose: unlike the
+    // transactions feed it also serves the profile cascade, the tag detach, the
+    // vault move and the sweeps — all of which need trashed rows too — and the
+    // listing it serves is capped at 500 with trashed files bounded by storage,
+    // so `deleted_at is null` costs it a cheap filter, not a walk.
+    index("files_trash_idx")
+      .on(t.profileId, t.deletedAt.desc().nullsFirst(), t.id.desc().nullsFirst())
+      .where(sql`${t.deletedAt} is not null`),
   ],
 );
 
@@ -1273,3 +1481,6 @@ export type SplitExpense = typeof splitExpenses.$inferSelect;
 export type SplitShare = typeof splitShares.$inferSelect;
 export type SplitSettlement = typeof splitSettlements.$inferSelect;
 export type SplitType = (typeof splitTypeEnum.enumValues)[number];
+export type Budget = typeof budgets.$inferSelect;
+export type NewBudget = typeof budgets.$inferInsert;
+export type BudgetAlert = typeof budgetAlerts.$inferSelect;

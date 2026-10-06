@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatFileSize } from "@/lib/attachments";
 import { formatStorageCompact, storageUsageTone } from "@/lib/files";
@@ -70,9 +71,12 @@ function StorageRingSvg({
 export function StorageRing({
   usedBytes,
   limitBytes,
+  trashBytes = 0,
 }: {
   usedBytes: number;
   limitBytes: number;
+  /** The part of `usedBytes` sitting in the trash — it counts until purged (C6). */
+  trashBytes?: number;
 }) {
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<number | null>(null);
@@ -138,6 +142,15 @@ export function StorageRing({
         <p className="mt-2 text-xs text-muted-foreground">
           Vault files and transaction attachments, across the whole workspace.
         </p>
+        {trashBytes > 0 ? (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {formatFileSize(trashBytes)} of it is in the trash and still counts until it’s
+            deleted.{" "}
+            <Link href="/app/trash" className="font-medium text-foreground underline-offset-4 hover:underline">
+              Open trash
+            </Link>
+          </p>
+        ) : null}
       </PopoverContent>
     </Popover>
   );

@@ -34,7 +34,7 @@ export async function listAttachments(
       const items = await attachments.listAttachments(user.id, workspace.id, transactionId);
       return { attachments: items };
     },
-    { userId: user.id, workspaceId: workspace.id },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
   );
 }
 

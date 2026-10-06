@@ -1,12 +1,16 @@
 import { describe, expect, it } from "vitest";
 import { PLAN_LIMITS } from "@/lib/plans";
 import {
+  budgetsAllowance,
+  budgetsCap,
+  budgetsLimitLabel,
   formatPlanStorage,
   formatResetDate,
   isPlanLimit,
   meterState,
   nextMonthStartUtc,
   nextPlanFor,
+  nextPlanForBudgets,
   parsePlanLimitDetails,
   planLimitOf,
   type NumericPlanLimit,
@@ -34,6 +38,26 @@ describe("parsePlanLimitDetails", () => {
     expect(parsePlanLimitDetails("plan_limit")).toBeNull();
     expect(parsePlanLimitDetails({ limit: "nope", plan: "free", upgradeTo: "plus" })).toBeNull();
     expect(parsePlanLimitDetails({ limit: "members", plan: "family", upgradeTo: "plus" })).toBeNull();
+  });
+});
+
+describe("budgets — the object-shaped limit", () => {
+  it("accepts a budgets refusal from the server", () => {
+    expect(
+      parsePlanLimitDetails({ limit: "budgets", plan: "pro", max: 200, used: 200, upgradeTo: null }),
+    ).toEqual({ limit: "budgets", plan: "pro", max: 200, used: 200, upgradeTo: null });
+  });
+  it("reads caps and labels from PLAN_LIMITS — Pro shows Unlimited", () => {
+    expect(budgetsCap("free")).toBe(PLAN_LIMITS.free.budgets.max);
+    expect(budgetsLimitLabel("plus")).toBe("20");
+    expect(budgetsLimitLabel("pro")).toBe("Unlimited");
+    expect(budgetsAllowance("free")).toBe("5 budgets");
+    expect(budgetsAllowance("pro")).toBe("unlimited budgets");
+  });
+  it("names the next plan up, and none above Pro", () => {
+    expect(nextPlanForBudgets("free")).toBe("plus");
+    expect(nextPlanForBudgets("plus")).toBe("pro");
+    expect(nextPlanForBudgets("pro")).toBeNull();
   });
 });
 

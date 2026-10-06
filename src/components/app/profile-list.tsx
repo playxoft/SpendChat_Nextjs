@@ -83,8 +83,10 @@ export type SidebarSpace = {
   name: string;
   icon: string | null;
   position: number;
-  /** Every profile in it (what the per-space cap counts), not just the visible ones. */
+  /** Every live profile in it (what the per-space cap counts), not just the visible ones. */
   profileCount: number;
+  /** Its profiles in the trash (admins; 0 otherwise) — deleting the space needs a home for them. */
+  trashedProfileCount?: number;
   /** The caller's role here: "admin" for workspace admins, else their space role or null. */
   role: WorkspaceRole | null;
 };
@@ -479,6 +481,7 @@ export function ProfileList({
         <SpaceDeleteDialog
           space={deletingSpace}
           profileCount={deletingSpace.profileCount}
+          trashedCount={deletingSpace.trashedProfileCount ?? 0}
           others={spaceOptions.filter((s) => s.id !== deletingSpace.id)}
           open={!!deletingSpace}
           onOpenChange={(v) => !v && setDeletingSpace(null)}

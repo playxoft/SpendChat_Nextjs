@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import {
+  budgetAlerts,
   emailSendLog,
   profiles,
   splitMembers,
@@ -11,6 +12,8 @@ import {
   workspaces,
 } from "@/db/schema";
 import { sendEmail } from "@/lib/email";
+import { settleDeferred } from "@/lib/defer";
+import { createBudget } from "@/services/budgets";
 import { assertEmailSendAllowed, EMAIL_SENDS_PER_HOUR } from "@/lib/email-quota";
 import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import { bindSplitInvitesOnSignup } from "@/lib/split-signup";
@@ -735,7 +738,9 @@ describe("a share that drops to 0 after it was added", () => {
       code: "conflict",
     });
     ok(await actions.removeSplitWorkspaceEntry(groupId, expenseId));
-    expect(await db().select().from(transactions).where(eq(transactions.id, transactionId))).toEqual([]);
+    // Moved to the trash (restorable), not destroyed.
+    const [trashed] = await db().select().from(transactions).where(eq(transactions.id, transactionId));
+    expect(trashed!.deletedAt).toBeInstanceOf(Date);
     expect(await db().select().from(splitShares).where(eq(splitShares.memberId, ashaId))).toEqual([]);
     const after = await ledger.listExpenses(uid("asha"), groupId, { limit: 5, offset: 0 });
     expect(after.items[0]!.myShare).toBeNull();
@@ -773,6 +778,88 @@ describe("a share that drops to 0 after it was added", () => {
       ok: false,
       code: "not_found",
     });
+  });
+});
+
+describe("split and the trash, and budgets", () => {
+  async function added() {
+    await bootstrapUser("asha");
+    const { id } = await newGroup([{ email: "asha@example.com", name: "Asha" }]);
+    const ashaId = (await rowFor("asha@example.com")).id;
+    signInAs("asha");
+    ok(await actions.acceptSplitInvitation(ashaId));
+    signInAs("o");
+    const ownerId = (await split.getGroupDetail(uid("o"), id)).me.memberId;
+    const input = {
+      title: "Hotel",
+      amount: 90,
+      paidBy: ownerId,
+      occurredOn: today,
+      splitType: "equal" as const,
+      memberIds: [ownerId, ashaId],
+    };
+    const { id: expenseId } = ok(await actions.createSplitExpense(id, input));
+    return { groupId: id, expenseId, ashaId, ownerId, input };
+  }
+
+  it("a trashed entry still counts as added; Update refuses it with a clear 409", async () => {
+    const { groupId, expenseId, ownerId, ashaId, input } = await added();
+    signInAs("asha");
+    const profileId = await firstProfileId("asha");
+    const { transactionId } = ok(await actions.addSplitShareToWorkspace(groupId, expenseId, { profileId }));
+    await db().update(transactions).set({ deletedAt: new Date() }).where(eq(transactions.id, transactionId));
+
+    // Still added: no second copy while the first sits in the trash.
+    expect(await actions.addSplitShareToWorkspace(groupId, expenseId, { profileId })).toMatchObject({
+      ok: false,
+      code: "conflict",
+    });
+    signInAs("o");
+    ok(await actions.updateSplitExpense(groupId, expenseId, { ...input, amount: 120, memberIds: [ownerId, ashaId] }));
+    signInAs("asha");
+    const res = await actions.updateSplitWorkspaceEntry(groupId, expenseId, {});
+    expect(res).toMatchObject({ ok: false, code: "conflict" });
+    expect((res as { error: string }).error).toMatch(/in the trash/);
+
+    // Taken off the expense: Remove just lets go of the trashed entry.
+    signInAs("o");
+    ok(await actions.updateSplitExpense(groupId, expenseId, { ...input, memberIds: [ownerId] }));
+    signInAs("asha");
+    ok(await actions.removeSplitWorkspaceEntry(groupId, expenseId));
+    expect(await db().select().from(splitShares).where(eq(splitShares.memberId, ashaId))).toEqual([]);
+  });
+
+  it("the profile picker leaves out trashed profiles, and a trashed profile is refused", async () => {
+    const { groupId, expenseId } = await added();
+    const W = await workspaceIdOf("asha");
+    const live = await firstProfileId("asha");
+    const [gone] = await db()
+      .insert(profiles)
+      .values({
+        userId: uid("asha"),
+        workspaceId: W,
+        spaceId: (await db().select().from(profiles).where(eq(profiles.id, live)))[0]!.spaceId,
+        name: "Old",
+        sortOrder: 5,
+        deletedAt: new Date(),
+      })
+      .returning({ id: profiles.id });
+    const picker = await ledger.writableProfiles(uid("asha"), W);
+    expect(picker.map((p) => p.id)).toEqual([live]);
+    signInAs("asha");
+    const res = await actions.addSplitShareToWorkspace(groupId, expenseId, { profileId: gone!.id });
+    expect(res).toMatchObject({ ok: false, code: "forbidden" });
+  });
+
+  it("an add-my-share that crosses 80% of a workspace budget claims the alert", async () => {
+    const { groupId, expenseId } = await added();
+    const W = await workspaceIdOf("asha");
+    await createBudget(uid("asha"), W, { scope: "workspace", amount: 50 });
+    signInAs("asha");
+    ok(await actions.addSplitShareToWorkspace(groupId, expenseId, { profileId: await firstProfileId("asha") }));
+    await settleDeferred(); // the budget check runs after the response
+    const claimed = await db().select().from(budgetAlerts);
+    expect(claimed.map((a) => a.threshold)).toEqual([80]);
   });
 });
 

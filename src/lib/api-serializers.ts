@@ -3,10 +3,12 @@ import { getCurrency } from "@/lib/currencies";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
 import { serializeTxnTag, type TxnTagDTO } from "@/lib/tags";
 import type { AttachmentDTO } from "@/lib/attachments";
-import type { TransactionRow } from "@/lib/queries";
+import type { TransactionRow, TrashedTransactionRow } from "@/lib/queries";
+import { purgeAt } from "@/lib/trash";
 import type { WorkspaceSummary } from "@/lib/workspaces";
 import type { WorkspaceUsage } from "@/lib/entitlements";
 import type { PersonalPlan } from "@/lib/plans";
+import type { BudgetView } from "@/services/budgets";
 import type { OrganizationOverview } from "@/services/organizations";
 import type { SpaceAccess, SpaceSummary } from "@/services/spaces";
 import type {
@@ -88,6 +90,28 @@ export function serializeTransaction(row: TransactionRow, currency: string): Api
     user: { id: row.userId, name: row.userName, email: row.userEmail },
     attachments: row.attachments,
     tags: row.tags,
+  };
+}
+
+/** A transaction in the trash: the usual shape plus when (and by whom) it was
+ * deleted, when the purge removes it, and whether the caller can restore it. */
+export type ApiTrashedTransaction = ApiTransaction & {
+  deletedAt: string;
+  deletedBy: { id: string | null; name: string | null };
+  purgeAt: string;
+  canRestore: boolean;
+};
+
+export function serializeTrashedTransaction(
+  row: TrashedTransactionRow & { canRestore: boolean },
+  currency: string,
+): ApiTrashedTransaction {
+  return {
+    ...serializeTransaction(row, currency),
+    deletedAt: row.deletedAt.toISOString(),
+    deletedBy: { id: row.deletedById, name: row.deletedByName },
+    purgeAt: purgeAt(row.deletedAt).toISOString(),
+    canRestore: row.canRestore,
   };
 }
 
@@ -173,8 +197,10 @@ export type ApiSpace = {
   name: string;
   icon: string | null;
   position: number;
-  /** Every profile in the space (what the per-space cap counts), not just the visible ones. */
+  /** Every live profile in the space (what the per-space cap counts), not just the visible ones. */
   profileCount: number;
+  /** 6.7.0: the space's profiles in the trash — admins only (0 for anyone else). */
+  trashedProfileCount: number;
   /** "admin" for workspace admins; else the caller's space role, or null (reached via an override/grant). */
   role: WorkspaceRole | null;
 };
@@ -186,6 +212,7 @@ export function serializeSpace(s: SpaceSummary): ApiSpace {
     icon: s.icon,
     position: s.position,
     profileCount: s.profileCount,
+    trashedProfileCount: s.trashedProfileCount,
     role: s.role,
   };
 }
@@ -338,11 +365,13 @@ export type ApiUsage = {
     /** ISO 8601 — the first instant of next month (UTC). */
     resetsAt: string;
   };
-  storage: { usedBytes: number; limitBytes: number };
+  storage: { usedBytes: number; limitBytes: number; trashBytes: number };
   members: ApiMeter;
   spaces: ApiMeter;
   categories: ApiMeter;
   tags: ApiMeter;
+  /** `unlimited`: show "Unlimited" instead of `limit` (Pro). Since 6.8.0. */
+  budgets: ApiMeter & { unlimited: boolean };
   profilesPerSpace: number;
   voice: boolean;
   profileLevelAccess: boolean;
@@ -360,11 +389,16 @@ export function serializeUsage(u: WorkspaceUsage): ApiUsage {
       topUpRemaining: u.ai.topUpRemaining,
       resetsAt: u.ai.resetsAt,
     },
-    storage: { usedBytes: u.storage.usedBytes, limitBytes: u.storage.limitBytes },
+    storage: {
+      usedBytes: u.storage.usedBytes,
+      limitBytes: u.storage.limitBytes,
+      trashBytes: u.storage.trashBytes,
+    },
     members: meter(u.members),
     spaces: meter(u.spaces),
     categories: meter(u.categories),
     tags: meter(u.tags),
+    budgets: { ...meter(u.budgets), unlimited: u.budgets.unlimited },
     profilesPerSpace: u.profilesPerSpace,
     voice: u.voice,
     profileLevelAccess: u.profileLevelAccess,
@@ -602,5 +636,51 @@ export function serializeSplitInvitation(i: SplitInvitation): ApiSplitInvitation
     inviterName: i.inviterName,
     peopleCount: i.peopleCount,
     invitedAt: toIso(i.invitedAt),
+  };
+}
+
+/** A budget with one month's progress (`GET /budgets`, since 6.8.0). */
+export type ApiBudget = {
+  id: string;
+  scope: "workspace" | "profile" | "category";
+  profileId: string | null;
+  categoryId: string | null;
+  label: string;
+  icon: string | null;
+  period: "monthly";
+  amountMinor: number;
+  emailAlerts: boolean;
+  /** The month `spentMinor` is for, "YYYY-MM". */
+  month: string;
+  spentMinor: number;
+  percent: number;
+  status: "ok" | "warn" | "over";
+  canManage: boolean;
+  canDelete: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function serializeApiBudget(b: BudgetView): ApiBudget {
+  return {
+    id: b.id,
+    scope: b.scope,
+    profileId: b.profileId,
+    categoryId: b.categoryId,
+    label: b.label,
+    icon: b.icon,
+    period: b.period,
+    amountMinor: b.amountMinor,
+    emailAlerts: b.emailAlerts,
+    month: b.month,
+    spentMinor: b.spentMinor,
+    percent: b.percent,
+    status: b.status,
+    canManage: b.canManage,
+    canDelete: b.canDelete,
+    createdBy: b.createdBy,
+    createdAt: b.createdAt.toISOString(),
+    updatedAt: b.updatedAt.toISOString(),
   };
 }

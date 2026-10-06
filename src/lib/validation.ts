@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BUDGET_SCOPES, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
 import {
@@ -164,6 +165,51 @@ const bulkTransactionIdsSchema = z.array(z.string().uuid()).min(1).max(BULK_TRAN
 
 export const bulkDeleteTransactionsSchema = z.object({ ids: bulkTransactionIdsSchema });
 export type BulkDeleteTransactionsInput = z.input<typeof bulkDeleteTransactionsSchema>;
+
+/** Profile names (create/rename), and what a restore trims a renamed one to. */
+export const PROFILE_NAME_MAX = 20;
+
+/** The most ids of one kind a single trash restore/delete takes. */
+export const TRASH_SELECTION_MAX = BULK_TRANSACTIONS_MAX;
+
+const trashIdsSchema = z.array(z.string().uuid()).max(TRASH_SELECTION_MAX).default([]);
+
+/**
+ * What to restore from — or delete for good out of — the trash. Every kind is
+ * optional; at least one id overall. Ids the caller can't act on are skipped
+ * (reported back), never an error, like the bulk transaction edits.
+ */
+export const trashSelectionSchema = z
+  .object({
+    transactionIds: trashIdsSchema,
+    fileIds: trashIdsSchema,
+    folderIds: trashIdsSchema,
+    profileIds: trashIdsSchema,
+  })
+  .refine(
+    (v) => v.transactionIds.length + v.fileIds.length + v.folderIds.length + v.profileIds.length > 0,
+    { message: "Choose something in the trash first" },
+  );
+export type TrashSelectionInput = z.input<typeof trashSelectionSchema>;
+
+/**
+ * The trash list's keyset cursor, `<deletedAt ISO>_<id>`. The timestamp is
+ * millisecond-precise on purpose (`deleted_at` is `timestamptz(3)`), so it
+ * round-trips through a JavaScript `Date` without skipping tied rows.
+ */
+export const trashCursorSchema = z
+  .string()
+  .max(80)
+  .transform((value, ctx) => {
+    const cut = value.lastIndexOf("_");
+    const at = new Date(value.slice(0, cut));
+    const id = value.slice(cut + 1);
+    if (cut <= 0 || Number.isNaN(at.getTime()) || !z.string().uuid().safeParse(id).success) {
+      ctx.addIssue({ code: "custom", message: "Invalid cursor" });
+      return z.NEVER;
+    }
+    return { deletedAt: at, id };
+  });
 
 /**
  * One change applied to many rows. Every field is optional and means "leave it
@@ -795,13 +841,18 @@ export type CategoryInput = z.infer<typeof categoryInputSchema>;
 
 export const updateCategorySchema = z.object({
   id: z.string().uuid(),
-  name: z.string().trim().min(1, "Name is required").max(20, "Name is too long (max 20 characters)").optional(),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Name is required")
+    .max(CATEGORY_NAME_MAX, `Name is too long (max ${CATEGORY_NAME_MAX} characters)`)
+    .optional(),
   icon: z.string().trim().max(16).nullish(),
 });
 export type UpdateCategoryInput = z.infer<typeof updateCategorySchema>;
 
 export const profileInputSchema = z.object({
-  name: z.string().trim().min(1, "Name is required").max(20, "Name is too long (max 20 characters)"),
+  name: z.string().trim().min(1, "Name is required").max(PROFILE_NAME_MAX, `Name is too long (max ${PROFILE_NAME_MAX} characters)`),
   icon: z.string().trim().max(16).optional(),
   color: z.string().trim().max(32).optional(),
   /** The space to create it in; omitted → the workspace's first space. */
@@ -811,7 +862,7 @@ export type ProfileInput = z.infer<typeof profileInputSchema>;
 
 export const updateProfileSchema = z.object({
   id: z.string().uuid(),
-  name: z.string().trim().min(1, "Name is required").max(20, "Name is too long (max 20 characters)").optional(),
+  name: z.string().trim().min(1, "Name is required").max(PROFILE_NAME_MAX, `Name is too long (max ${PROFILE_NAME_MAX} characters)`).optional(),
   icon: z.string().trim().max(16).nullish(),
   color: z.string().trim().max(32).nullish(),
 });
@@ -1232,3 +1283,49 @@ export const updateSplitWorkspaceEntrySchema = z.object({
   amount: amountSchema.optional(),
 });
 export type UpdateSplitWorkspaceEntryInput = z.input<typeof updateSplitWorkspaceEntrySchema>;
+
+// ── Budgets ────────────────────────────────────────────────────────────────
+
+export const budgetScopeSchema = z.enum(BUDGET_SCOPES);
+
+/** A calendar month, "2026-10", between 1970 and 2999. */
+export const budgetMonthSchema = z
+  .string()
+  .refine(isMonthKey, "Month must be YYYY-MM, between 1970 and 2999");
+
+const budgetEmailAlertsSchema = z.boolean().optional();
+
+/**
+ * A new monthly budget: the whole workspace, one profile, or one expense
+ * category. `amount` is in major units of the workspace currency, like a
+ * transaction's.
+ */
+export const createBudgetSchema = z.discriminatedUnion("scope", [
+  z.object({
+    scope: z.literal("workspace"),
+    amount: amountSchema,
+    emailAlerts: budgetEmailAlertsSchema,
+  }),
+  z.object({
+    scope: z.literal("profile"),
+    profileId: z.string().uuid("Pick a profile"),
+    amount: amountSchema,
+    emailAlerts: budgetEmailAlertsSchema,
+  }),
+  z.object({
+    scope: z.literal("category"),
+    categoryId: z.string().uuid("Pick a category"),
+    amount: amountSchema,
+    emailAlerts: budgetEmailAlertsSchema,
+  }),
+]);
+export type CreateBudgetInput = z.input<typeof createBudgetSchema>;
+
+/** Change a budget's amount or its email alerts. What it covers is fixed. */
+export const updateBudgetSchema = z
+  .object({
+    amount: amountSchema.optional(),
+    emailAlerts: z.boolean().optional(),
+  })
+  .refine((v) => v.amount !== undefined || v.emailAlerts !== undefined, "Nothing to update");
+export type UpdateBudgetInput = z.input<typeof updateBudgetSchema>;

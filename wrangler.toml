@@ -1,5 +1,9 @@
 name = "spendchat"
-main = ".open-next/worker.js"
+# Our own entry (worker.ts): OpenNext's generated handler plus what it doesn't
+# generate — the Durable Object classes the bindings below point at, and the
+# daily cron's `scheduled()`. `opennextjs-cloudflare build` still writes
+# `.open-next/worker.js`; `wrangler deploy` bundles worker.ts, which imports it.
+main = "worker.ts"
 compatibility_date = "2025-09-23"
 compatibility_flags = ["nodejs_compat", "global_fetch_strictly_public"]
 
@@ -19,6 +23,16 @@ keep_vars = true
 # "__name is not defined" before applying the stored theme on every page.
 keep_names = false
 
+# The daily trash purge (03:17 UTC — off the hour, away from everyone else's
+# crons). `scheduled()` in worker.ts runs it through the app's own fetch
+# handler on a token-guarded internal route. `triggers` *is* inheritable, so
+# the envs would pick this up anyway; they repeat it so each env reads whole.
+# A local test run needs an env — the top level has no `APP_ORIGIN`, and the
+# cron skips its run without one: `wrangler dev --env beta --test-scheduled`,
+# then `curl /__scheduled`.
+[triggers]
+crons = ["17 3 * * *"]
+
 # ---------------------------------------------------------------------------
 # There is NO deployable top-level environment: prod and beta are BOTH named
 # environments, so every build/deploy must pass `-e|--env` — prod via
@@ -31,9 +45,15 @@ keep_names = false
 # The top level holds only the INHERITABLE keys both envs share (`main`,
 # `compatibility_*`, `keep_vars`). `routes`, `assets`, `observability`,
 # `placement` and bindings are non-inheritable in Wrangler, so each env repeats
-# them below. `cf-typegen` reads `--env production`, so keep the binding shape
-# (HYPERDRIVE, ASSETS, CF_VERSION_METADATA) identical across envs or the
-# generated types drift.
+# them below. `cf-typegen` reads `--env production`, so keep the
+# binding shape (HYPERDRIVE, ASSETS, CF_VERSION_METADATA, RATE_LIMITER) identical
+# across envs or the generated types drift.
+#
+# The top level deliberately has no Durable Object binding *or* migration:
+# `next dev` reads the top level (via getPlatformProxy), whose empty stand-in
+# worker exports no Durable Object classes — a binding or a migration naming one
+# makes workerd warn (and may one day refuse to start). Without the binding the
+# rate limiter simply fails open in dev. So each env declares both, below.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -50,6 +70,14 @@ keep_names = false
 # only stops deploys DELETING dashboard vars; vars declared here are still set.
 [env.production.vars]
 APP_ENV = "production"
+# The public origin the cron's in-process request carries. OpenNext records the
+# first request an isolate sees as its origin (Next uses it for server-action
+# redirects), so a cron that happens to be first must not carry a made-up one;
+# without this var the cron skips its run instead. Keep it equal to the route.
+APP_ORIGIN = "https://spendchat.app"
+
+[env.production.triggers]
+crons = ["17 3 * * *"]
 
 [env.production.observability]
 enabled = true
@@ -101,6 +129,20 @@ id = "4858a2aa60374cd28c60539f0c0b85e6"
 [env.production.version_metadata]
 binding = "CF_VERSION_METADATA"
 
+# Per-person rate limits (abuse rule C8): one Durable Object per user, class
+# exported from worker.ts. Read in src/lib/rate-limit/binding.ts.
+[[env.production.durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+# Durable Object class migrations for this worker. A tag is applied once and
+# never edited after a deploy — a later change to the classes is a new `v2`
+# entry, added to beta's list below as well.
+#   v1 — RateLimiter: per-person rate limits, SQLite-backed.
+[[env.production.migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
+
 # ---------------------------------------------------------------------------
 # Beta (dev) → `pnpm deploy:dev` (--env beta).
 # Worker `spendchat-beta` (wrangler suffixes the env name), served at
@@ -111,6 +153,11 @@ binding = "CF_VERSION_METADATA"
 # Tags shipped logs as environment="beta" (see the production note above).
 [env.beta.vars]
 APP_ENV = "beta"
+# See the production note on APP_ORIGIN.
+APP_ORIGIN = "https://beta.spendchat.app"
+
+[env.beta.triggers]
+crons = ["17 3 * * *"]
 
 [env.beta.observability]
 enabled = true
@@ -139,6 +186,15 @@ id = "07826a33089d4b4db1650922ac12da22"
 # non-inheritable, so beta repeats it.
 [env.beta.version_metadata]
 binding = "CF_VERSION_METADATA"
+
+# Rate-limit Durable Object — same as production (binding and migrations).
+[[env.beta.durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[env.beta.migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
 
 # ---------------------------------------------------------------------------
 # Secrets/vars are NOT stored here — manage them PER WORKER on Cloudflare

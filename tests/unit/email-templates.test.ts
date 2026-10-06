@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  budgetAlertEmail,
   describeRole,
   describeScope,
   firstName,
@@ -7,6 +8,7 @@ import {
   siteUrl,
   splitInviteEmail,
   welcomeEmail,
+  type BudgetAlertEmailInput,
   type InviteEmailInput,
   type SplitInviteEmailInput,
 } from "@/lib/email-templates";
@@ -346,3 +348,81 @@ describe("splitInviteEmail", () => {
 function escapeAttr(url: string): string {
   return url.replace(/&/g, "&amp;");
 }
+
+describe("budgetAlertEmail", () => {
+  const href = `${siteConfig.url}/app/budgets?workspace=ws_1`;
+  const base: BudgetAlertEmailInput = {
+    workspaceName: "Home",
+    monthLabel: "October 2026",
+    items: [{ label: "Groceries", spentMinor: 412000, amountMinor: 500000, threshold: 80 }],
+    money: { currency: "INR", locale: "en-IN" },
+    href,
+    reason: "admin",
+  };
+  const inr = (minor: number) => formatMoney(minor, "INR", "en-IN");
+
+  it("80%: says how much is used, in the workspace's money, in both bodies", () => {
+    const mail = budgetAlertEmail(base);
+    expect(mail.subject).toBe("Groceries: 82% of the October 2026 budget used");
+    const line = `${inr(412000)} of ${inr(500000)} — 82% used`;
+    expect(visibleText(mail.html)).toContain(line);
+    expect(mail.text).toContain(`- Groceries: ${line}`);
+    expect(visibleText(mail.html)).toContain("Groceries is at 82%");
+    expect(mail.text).toContain("You still have room");
+  });
+
+  it("100%: says how far over, or 'all used' when it's exactly spent", () => {
+    const over = budgetAlertEmail({
+      ...base,
+      items: [{ label: "Groceries", spentMinor: 560000, amountMinor: 500000, threshold: 100 }],
+    });
+    expect(over.subject).toBe("Groceries is over budget for October 2026");
+    expect(over.text).toContain(`${inr(60000)} over`);
+    expect(over.text).toContain("Nothing is blocked");
+    const exact = budgetAlertEmail({
+      ...base,
+      items: [{ label: "Groceries", spentMinor: 500000, amountMinor: 500000, threshold: 100 }],
+    });
+    expect(exact.text).toContain("— all used");
+  });
+
+  it("several budgets become one digest", () => {
+    const mail = budgetAlertEmail({
+      ...base,
+      items: [
+        { label: "Whole workspace", spentMinor: 900000, amountMinor: 1000000, threshold: 80 },
+        { label: "Rent", spentMinor: 2500000, amountMinor: 2000000, threshold: 100 },
+      ],
+    });
+    expect(mail.subject).toBe("2 budgets in Home need a look");
+    expect(mail.text).toContain("- Whole workspace:");
+    expect(mail.text).toContain("- Rent:");
+    expect(visibleText(mail.html)).toContain("2 budgets need a look");
+  });
+
+  it("links absolutely to the budgets page in that workspace", () => {
+    const mail = budgetAlertEmail(base);
+    expect(mail.html).toContain(`href="${href.replace("&", "&amp;")}"`);
+    expect(mail.text).toContain(`Open budgets: ${href}`);
+  });
+
+  it("says why it was sent and how to stop it", () => {
+    expect(budgetAlertEmail(base).text).toContain("you're an admin of Home");
+    const creator = budgetAlertEmail({ ...base, reason: "creator" });
+    expect(creator.text).toContain("you set this budget in Home");
+    expect(creator.text).toContain("turn off its email alerts on the Budgets page");
+  });
+
+  it("escapes names people typed — a category or workspace name is never markup", () => {
+    const mail = budgetAlertEmail({
+      ...base,
+      workspaceName: `<a href="https://evil.example">Verify</a>`,
+      items: [{ label: "<b>Food</b>", spentMinor: 900, amountMinor: 1000, threshold: 80 }],
+    });
+    expect(mail.html).not.toContain("<b>Food</b>");
+    expect(mail.html).not.toContain(`<a href="https://evil.example">`);
+    expect(mail.html).toContain("&lt;b&gt;Food&lt;/b&gt;");
+    // The text twin carries the same words, unescaped.
+    expect(mail.text).toContain("- <b>Food</b>:");
+  });
+});

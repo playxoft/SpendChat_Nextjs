@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { Suspense } from "react";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import {
@@ -8,7 +9,9 @@ import {
   getSummary,
 } from "@/lib/queries";
 import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
-import { formatDateLabel, monthLabel, monthRange, todayISO } from "@/lib/dates";
+import { formatDateLabel, monthKey, monthLabel, monthRange, todayISO } from "@/lib/dates";
+import { listBudgets } from "@/services/budgets";
+import { BudgetRow } from "@/components/app/budgets/budget-parts";
 import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
 import { siteConfig } from "@/lib/site";
@@ -161,12 +164,20 @@ async function AnalyticsResults({
   const breakdownType = type ?? "expense";
   const months = lastNMonths(6, today);
   const fromISO = `${months[0]}-01`;
+  // Budgets are monthly, so they show when the range is exactly this month.
+  const thisMonth = monthRange(today);
+  const showBudgets = from === thisMonth.start && to === thisMonth.end;
 
-  const [summary, breakdown, trendRows] = await Promise.all([
+  const [summary, breakdown, trendRows, budgets] = await Promise.all([
     getSummary(userId, workspaceId, filters),
     getCategoryBreakdown(userId, workspaceId, breakdownType, filters),
     getMonthlyTrend(userId, workspaceId, fromISO, profileId),
+    showBudgets ? listBudgets(userId, workspaceId, monthKey(today)) : Promise.resolve([]),
   ]);
+  // One profile selected: its own budget. All profiles: every budget the viewer can see.
+  const shownBudgets = profileId
+    ? budgets.filter((b) => b.scope === "profile" && b.profileId === profileId)
+    : budgets;
 
   const series = months.map((mm) => ({ month: mm, income: 0, expense: 0 }));
   const idx = new Map(series.map((s, i) => [s.month, i]));
@@ -195,6 +206,29 @@ async function AnalyticsResults({
           positive={summary.balance >= 0}
         />
       </div>
+
+      {shownBudgets.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Budgets this month</CardTitle>
+            <CardDescription>
+              Spending against each monthly limit.{" "}
+              <Link href="/app/budgets" className="underline underline-offset-4 print:hidden">
+                Manage budgets
+              </Link>
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="space-y-4">
+              {shownBudgets.map((b) => (
+                <li key={b.id}>
+                  <BudgetRow budget={b} currency={currency} locale={locale} />
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>

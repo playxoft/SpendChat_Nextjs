@@ -48,7 +48,11 @@ export function splitInviteEmailPath(token: string): string {
 /** Query param the tracker reads to switch the current workspace on arrival. */
 export const OPEN_WORKSPACE_PARAM = "workspace";
 
-/** The tracker, switched to `workspaceId` — what an "access granted" email links to. */
-export function openWorkspacePath(workspaceId: string): string {
-  return `/app?${OPEN_WORKSPACE_PARAM}=${encodeURIComponent(workspaceId)}`;
+/**
+ * An app page, switched to `workspaceId` on arrival — the tracker for an
+ * "access granted" email, `/app/budgets` for a budget alert. The page must
+ * honour the param (`/app` and `/app/budgets` do).
+ */
+export function openWorkspacePath(workspaceId: string, path = "/app"): string {
+  return `${path}?${OPEN_WORKSPACE_PARAM}=${encodeURIComponent(workspaceId)}`;
 }

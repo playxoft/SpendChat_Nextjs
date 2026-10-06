@@ -12,7 +12,7 @@ import {
 import { updateWorkspaceCurrency } from "@/actions/workspaces";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
-import { bootstrapUser, insertTxn, countTxns, workspaceIdOf } from "./helpers/seed";
+import { bootstrapUser, insertTxn, countLiveTxns, countTxns, workspaceIdOf } from "./helpers/seed";
 
 const workspaceRow = (id: string) =>
   getTestDb()
@@ -73,7 +73,7 @@ describe("deleteAllTransactions", () => {
     expect(await countTxns("a")).toBe(1); // untouched
   });
 
-  it("wipes every transaction in the current workspace when confirmed (empty = all profiles)", async () => {
+  it("moves every transaction in the current workspace to the trash when confirmed (empty = all profiles)", async () => {
     signInAs("a");
     await bootstrapUser("a");
     await bootstrapUser("b");
@@ -83,8 +83,9 @@ describe("deleteAllTransactions", () => {
     await insertTxn("b", { type: "expense", amountMinor: 50, occurredOn: "2026-06-01" });
 
     expect((await deleteAllTransactions("DELETE", [])).ok).toBe(true);
-    expect(await countTxns("a")).toBe(0);
-    expect(await countTxns("b")).toBe(1); // a different workspace — untouched
+    expect(await countLiveTxns("a")).toBe(0);
+    expect(await countTxns("a")).toBe(2); // in the trash, restorable — not gone
+    expect(await countLiveTxns("b")).toBe(1); // a different workspace — untouched
   });
 });
 
