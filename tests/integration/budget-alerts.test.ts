@@ -24,7 +24,8 @@ import { sendEmail } from "@/lib/email";
 import {
   BUDGET_ALERT_EMAILS_PER_MONTH,
   EMAIL_SENDS_PER_HOUR,
-  reserveBudgetAlertEmails,
+  budgetAlertEmailsLeft,
+  recordBudgetAlertEmails,
 } from "@/lib/email-quota";
 import { checkBudgetAlerts, scheduleBudgetCheck } from "@/services/budget-alerts";
 import { createBudget, deleteBudget, updateBudget } from "@/services/budgets";
@@ -45,7 +46,7 @@ import { apiReq, ctx, jsonBody } from "./api/helpers";
 // The pool is real; wrapping it lets one test make a reservation fail.
 vi.mock("@/lib/email-quota", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/email-quota")>();
-  return { ...actual, reserveBudgetAlertEmails: vi.fn(actual.reserveBudgetAlertEmails) };
+  return { ...actual, budgetAlertEmailsLeft: vi.fn(actual.budgetAlertEmailsLeft) };
 });
 
 /**
@@ -232,7 +233,7 @@ describe("checkBudgetAlerts — once per budget × threshold × month", () => {
     });
     expect(await budgetMail()).toEqual([]);
     expect(await db().select().from(budgetAlerts).where(isNull(budgetAlerts.notifiedAt))).toHaveLength(1);
-    // All or nothing: the one free place wasn't half-used.
+    // Whole claims only: the one place left wasn't half-used.
     expect(await db().select().from(budgetAlertEmails)).toHaveLength(BUDGET_ALERT_EMAILS_PER_MONTH - 1);
 
     // A new month's pool (rows from before the 1st don't count): the waiting alert goes out.
@@ -248,7 +249,7 @@ describe("checkBudgetAlerts — once per budget × threshold × month", () => {
     const f = await build();
     await createBudget(uid("adm"), f.W, { scope: "workspace", amount: 100 });
     await insertTxn("adm", { type: "expense", amountMinor: 9000, occurredOn: DAY1 });
-    vi.mocked(reserveBudgetAlertEmails).mockRejectedValueOnce(new Error("lock wait aborted"));
+    vi.mocked(budgetAlertEmailsLeft).mockRejectedValueOnce(new Error("lock wait aborted"));
     await expect(checkBudgetAlerts({ workspaceId: f.W, userId: uid("adm"), months: [MONTH] })).rejects.toThrow(
       "lock wait aborted",
     );
@@ -263,18 +264,62 @@ describe("checkBudgetAlerts — once per budget × threshold × month", () => {
     });
   });
 
-  it("the pool blocks rather than fails: a waiting reservation goes through once the first commits", async () => {
+  it("the pool is read and spent under its lock: racing reservations never overspend it", async () => {
     const f = await build();
-    const tx = (fn: (t: Parameters<Parameters<ReturnType<typeof db>["transaction"]>[0]>[0]) => Promise<boolean>) =>
-      db().transaction(fn);
-    const results = await Promise.all([
-      tx((t) => reserveBudgetAlertEmails(t, f.W, 10)),
-      tx((t) => reserveBudgetAlertEmails(t, f.W, 10)),
-      tx((t) => reserveBudgetAlertEmails(t, f.W, BUDGET_ALERT_EMAILS_PER_MONTH)),
-    ]);
-    expect(results).toEqual([true, true, false]);
-    expect(await db().select().from(budgetAlertEmails)).toHaveLength(20);
-    expect(await tx((t) => reserveBudgetAlertEmails(t, f.W, 0))).toBe(true);
+    const take = (n: number) =>
+      db().transaction(async (t) => {
+        const left = await budgetAlertEmailsLeft(t, f.W);
+        const used = Math.min(left, n);
+        await recordBudgetAlertEmails(t, f.W, used);
+        return used;
+      });
+    expect(await Promise.all([take(10), take(10), take(BUDGET_ALERT_EMAILS_PER_MONTH)])).toEqual([10, 10, 10]);
+    expect(await db().select().from(budgetAlertEmails)).toHaveLength(BUDGET_ALERT_EMAILS_PER_MONTH);
+    expect(await take(1)).toBe(0);
+  });
+
+  it("a backlog bigger than the pool sends what fits, claim by claim — 100% first — and the rest waits", async () => {
+    const f = await build();
+    await registerUser("ed2");
+    await db().insert(workspaceMembers).values({ workspaceId: f.W, userId: uid("ed2"), role: "editor" });
+    await db().insert(spaceMembers).values({ spaceId: f.s1, userId: uid("ed2"), role: "editor" });
+    // Each claim costs three emails: the two admins and its creator.
+    const kids = await createBudget(uid("ed2"), f.W, { scope: "profile", profileId: f.p2, amount: 100 });
+    await createBudget(uid("ed"), f.W, { scope: "profile", profileId: f.p1, amount: 100 });
+    await insertTxn("adm", { type: "expense", amountMinor: 8500, occurredOn: DAY1, profileId: f.p2 }); // Kids 85%
+    await insertTxn("adm", { type: "expense", amountMinor: 12000, occurredOn: DAY1, profileId: f.p1 }); // Personal 120%
+    // Room for three: one whole claim.
+    await db()
+      .insert(budgetAlertEmails)
+      .values(Array.from({ length: BUDGET_ALERT_EMAILS_PER_MONTH - 3 }, () => ({ workspaceId: f.W })));
+
+    expect(await checkBudgetAlerts({ workspaceId: f.W, userId: uid("adm"), months: [MONTH] })).toEqual({
+      claimed: 3,
+      emailed: 3,
+    });
+    const first = await budgetMail();
+    expect(first.map((m) => m.to).sort()).toEqual(["ad2@example.com", "adm@example.com", "ed@example.com"]);
+    for (const m of first) expect(m.subject).toMatch(/^Personal is over budget/);
+    // Personal's 80% and 100% are sent; Kids' 80% waits — it isn't lost.
+    const waiting = await db().select().from(budgetAlerts).where(isNull(budgetAlerts.notifiedAt));
+    expect(waiting.map((w) => [w.budgetId, w.threshold])).toEqual([[kids.id, 80]]);
+    expect(await db().select().from(budgetAlertEmails)).toHaveLength(BUDGET_ALERT_EMAILS_PER_MONTH);
+
+    // The pool is full, so later checks send nothing and keep it waiting…
+    expect(await checkBudgetAlerts({ workspaceId: f.W, userId: uid("adm"), months: [MONTH] })).toEqual({
+      claimed: 0,
+      emailed: 0,
+    });
+    // …until it refills: then Kids goes, to its own creator.
+    await db().update(budgetAlertEmails).set({ createdAt: new Date(Date.UTC(2000, 0, 1)) });
+    expect(await checkBudgetAlerts({ workspaceId: f.W, userId: uid("adm"), months: [MONTH] })).toEqual({
+      claimed: 0,
+      emailed: 3,
+    });
+    const second = (await budgetMail()).slice(3);
+    expect(second.map((m) => m.to).sort()).toEqual(["ad2@example.com", "adm@example.com", "ed2@example.com"]);
+    for (const m of second) expect(m.subject).toMatch(/^Kids: 85%/);
+    expect(await db().select().from(budgetAlerts).where(isNull(budgetAlerts.notifiedAt))).toEqual([]);
   });
 
   it("does nothing for a workspace without budgets, or with nothing to say", async () => {

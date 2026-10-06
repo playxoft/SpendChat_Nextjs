@@ -62,8 +62,10 @@ export async function assertEmailSendAllowed(
  * all its budgets and recipients. Alerts are already once per budget × threshold
  * × month; this is the backstop for the one loop that rule can't see — deleting
  * and re-creating a budget — and it bounds a big workspace's worst month. Past
- * it the alerts still show in the app; the emails wait (unsent claims are
- * retried) and the pool refills on the 1st.
+ * it the alerts still show in the app, and their emails stay unsent until the
+ * pool refills on the 1st (the next check after that sends them). What this
+ * guards is the pool, not delivery: a send that fails after its slot was taken
+ * isn't retried.
  */
 export const BUDGET_ALERT_EMAILS_PER_MONTH = 30;
 
@@ -77,22 +79,19 @@ const BUDGET_ALERT_LOCK_NAMESPACE = 81;
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
 /**
- * Reserve `count` alert emails from the workspace's monthly pool, inside the
- * caller's transaction — all of them, or none (returns false). The caller marks
- * its claims sent in the same transaction, so a reservation and the claims it
- * covers commit or roll back together.
+ * How many alert emails the workspace has left this month — taking the pool's
+ * lock for the rest of the caller's transaction, so what it then records with
+ * `recordBudgetAlertEmails` can't be double-spent by a racing check.
  *
  * The **blocking** lock, unlike `assertEmailSendAllowed`'s try-lock: this runs
  * after the response with nobody waiting, so a second check queues for a few
  * milliseconds instead of failing. Losing a race can't cost an alert.
  */
-export async function reserveBudgetAlertEmails(
+export async function budgetAlertEmailsLeft(
   tx: Tx,
   workspaceId: string,
-  count: number,
   now: Date = new Date(),
-): Promise<boolean> {
-  if (count <= 0) return true;
+): Promise<number> {
   await tx.execute(
     sql`select pg_advisory_xact_lock(${BUDGET_ALERT_LOCK_NAMESPACE}, hashtext(${workspaceId}))`,
   );
@@ -101,9 +100,13 @@ export async function reserveBudgetAlertEmails(
     .select({ sent: sql<number>`count(*)::int` })
     .from(budgetAlertEmails)
     .where(and(eq(budgetAlertEmails.workspaceId, workspaceId), gte(budgetAlertEmails.createdAt, monthStart)));
-  if ((row?.sent ?? 0) + count > BUDGET_ALERT_EMAILS_PER_MONTH) return false;
+  return Math.max(0, BUDGET_ALERT_EMAILS_PER_MONTH - (row?.sent ?? 0));
+}
+
+/** Take `count` emails from the pool, in the transaction that read `budgetAlertEmailsLeft`. */
+export async function recordBudgetAlertEmails(tx: Tx, workspaceId: string, count: number): Promise<void> {
+  if (count <= 0) return;
   await tx
     .insert(budgetAlertEmails)
     .values(Array.from({ length: count }, () => ({ workspaceId })));
-  return true;
 }

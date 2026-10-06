@@ -773,11 +773,12 @@ export const budgets = pgTable(
  * raised past the one it fired at (`src/services/budget-alerts.ts`).
  *
  * Rows are never deleted while their budget lives — that's what makes
- * raise/lower loops pointless. `notified_at` is null until the email for it
- * went out (or turned out to be owed to nobody), so a claim whose email
- * couldn't be sent — the workspace's monthly alert-email pool was spent, or the
- * send failed — is picked up again by the next check. In-app alerts don't read
- * this; they're computed live from the month's spending.
+ * raise/lower loops pointless. `notified_at` is null until the claim's email
+ * was handed to the mailer (or turned out to be owed to nobody). A claim that
+ * didn't fit in the workspace's monthly alert-email pool, or whose check failed
+ * before committing, stays null and the next check picks it up. A send that
+ * fails after that commit isn't retried — the alert still shows in the app,
+ * which doesn't read this table; in-app alerts are computed live.
  *
  * Tiny and bounded (≤ budgets × 2 a month, plus raises), and it goes with its
  * budget.
@@ -808,7 +809,7 @@ export const budgetAlerts = pgTable(
 
 /**
  * One row per budget-alert email sent — the workspace's own monthly pool
- * (`BUDGET_ALERT_EMAILS_PER_MONTH`, `reserveBudgetAlertEmails` in
+ * (`BUDGET_ALERT_EMAILS_PER_MONTH`, `budgetAlertEmailsLeft` in
  * `email-quota.ts`). Separate from `email_send_log` on purpose: alerts are the
  * workspace's, not the writer's, so they neither eat into a person's invite
  * allowance nor stop when it's spent. Keyed by workspace and kept when a budget
