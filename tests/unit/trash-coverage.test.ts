@@ -582,7 +582,9 @@ describe("trash coverage (static tripwire)", () => {
         `trashed rows (notTrashed(table) / buildConditions / the access layer for profiles) ` +
         `or add a "// trash: <reason>" comment:\n${offenders.join("\n")}`,
     ).toEqual([]);
-  });
+    // Parses every file under src/ with the TypeScript compiler: ~5 s on a CI
+    // runner, past vitest's 5 s default.
+  }, 60_000);
 
   it("the scan itself finds the reads it is meant to police", () => {
     // Guards the guard: a broken parser would let the test above pass vacuously.
