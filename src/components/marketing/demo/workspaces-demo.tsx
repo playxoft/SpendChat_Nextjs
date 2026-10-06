@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { ChevronsUpDown, UserPlus, X } from "lucide-react";
+import { useState } from "react";
+import { ChevronRight, ChevronsUpDown, UserPlus, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Kbd } from "@/components/ui/kbd";
 import { Label } from "@/components/ui/label";
@@ -16,156 +17,259 @@ import {
 } from "@/components/ui/select";
 import { DemoFrame } from "./demo-frame";
 import { DemoReplay } from "./demo-replay";
-import { DEMO_PROFILES, DEMO_PROFILE_ICON, type DemoProfile } from "./demo-data";
+import { DEMO_PROFILE_ICON, type DemoProfile } from "./demo-data";
 import { useDemoMoney } from "@/hooks/use-demo-currency";
-import { WORKSPACE_ROLES, maxRole } from "@/lib/rbac";
+import { ROLE_ABILITIES, ROLE_NAMES } from "@/lib/member-access";
+import { PERSONAL_PLANS, PLAN_LIMITS, PLAN_NAMES, type PersonalPlan } from "@/lib/plans";
+import {
+  PROFILE_ACCESS_LEVELS,
+  SPACE_ROLES,
+  WORKSPACE_ROLES,
+  accessLevelForRole,
+  resolveProfileRole,
+} from "@/lib/rbac";
 import { comboFor } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
-import type { WorkspaceRole } from "@/db/schema";
+import type { ProfileAccessLevel, SpaceRole, WorkspaceRole } from "@/db/schema";
 
 /**
- * The workspace's people list, with the roles doing what they actually do.
+ * A workspace's spaces and people, with access doing what it actually does.
  *
- * The thing worth demonstrating here isn't the invite form — it's that access
- * has two independent sources (workspace membership and a per-profile grant)
- * and that the *higher* of the two wins on any given profile. That rule is easy
- * to state and hard to picture, so the demo computes it live with the app's own
- * `maxRole()` from `src/lib/rbac.ts` rather than a mock-up of it: change the
- * role on a row and the sidebar dims, the chips change, and the sentence at the
- * bottom rewrites itself.
+ * What's worth demonstrating isn't the invite form — it's how access resolves:
+ * admins see every space; everyone else sees the spaces they're in, at Read or
+ * Read + write; and a per-profile setting (Plus/Pro) for one person on one
+ * profile wins over the space in either direction. That's easy to state and
+ * hard to picture, so every answer on screen comes from the app's own
+ * `resolveProfileRole()` in `src/lib/rbac.ts` — the rule the server runs (in
+ * SQL, kept in step with it) on every read and write — rather than a mock-up of
+ * it. Change a space role or a profile setting and the sidebar dims, the chips
+ * change and the sentence at the bottom rewrites itself.
  *
- * `WORKSPACE_ROLES` comes from the same module, so the three roles offered here
- * can't drift from the three the server enforces. Everything else is `useState`
- * — a marketing page must stay statically rendered, so no server action, no
- * `@/lib/queries`, and nothing an invite here could ever send.
+ * The option lists come from the same module (`SPACE_ROLES`,
+ * `PROFILE_ACCESS_LEVELS`, `WORKSPACE_ROLES`) and the words from the People
+ * list's own (`ROLE_NAMES` / `ROLE_ABILITIES`), so the demo can't offer a role
+ * the app doesn't have or call it something else. Everything else is
+ * `useState` — a marketing page must stay statically rendered, so no server
+ * action, no `@/lib/queries`, and nothing an invite here could ever send.
  *
  * The currency in the header line is the visitor's own guessed one, via
- * `useDemoMoney()` like every other amount on the site. It belongs in this
- * demo's summary because currency is a *workspace* setting rather than a
- * per-member one — that's the sentence the line is making — and a hard-coded
- * "USD" would have been the one thing in the frame that didn't follow the
- * reader.
+ * `useDemoMoney()` like every other amount on the site. It belongs there
+ * because currency is a *workspace* setting rather than a per-member one.
  */
 
 const WORKSPACE_NAME = "Menon Household";
 const WORKSPACE_ICON = "🏠";
 
-type Grant = { profile: DemoProfile; role: WorkspaceRole };
+/**
+ * The demo workspace's plan. Per-profile settings need one that has them, and
+ * the people cap on the invite form is read from it.
+ */
+const DEMO_PLAN: PersonalPlan = "plus";
 
-type Member = {
+/** "Plus & Pro" — the plans with per-profile settings, read from the catalogue. */
+const PROFILE_ACCESS_PLANS = PERSONAL_PLANS.filter((p) => PLAN_LIMITS[p].profileLevelAccess)
+  .map((p) => PLAN_NAMES[p])
+  .join(" & ");
+
+export type DemoSpaceId = "family" | "business";
+
+export type DemoSpace = {
+  id: DemoSpaceId;
+  name: string;
+  icon: string;
+  profiles: readonly DemoProfile[];
+};
+
+/** Two spaces, split the way households actually split visibility. */
+export const DEMO_SPACES: readonly DemoSpace[] = [
+  { id: "family", name: "Family", icon: "👪", profiles: ["Home", "Personal"] },
+  { id: "business", name: "Business", icon: "🏢", profiles: ["Business"] },
+];
+
+const ALL_SPACE_IDS = DEMO_SPACES.map((s) => s.id);
+
+export type DemoPerson = {
   id: string;
   name: string;
   email: string;
-  /** Workspace-wide membership role; null = access via a per-profile grant only. */
-  role: WorkspaceRole | null;
-  /** Per-profile grants, exactly like `profile_access` rows. */
-  grants: Grant[];
+  /** `workspace_members.role`. Only `admin` changes the answer — below it, spaces decide. */
+  workspaceRole: WorkspaceRole;
   owner?: boolean;
+  /** `space_members` rows: the spaces this person is in, at Read or Read + write. */
+  spaces: Partial<Record<DemoSpaceId, SpaceRole>>;
+  /** `profile_overrides` rows (Plus/Pro): one profile, for this person, either way. */
+  overrides: Partial<Record<DemoProfile, ProfileAccessLevel>>;
 };
 
 /**
- * Three shapes of access on purpose: the owner, a partner who is a viewer
- * workspace-wide but an editor on one profile, and an accountant who isn't a
- * member at all and reaches exactly one profile.
+ * Three shapes of access on purpose: the owner (an admin, so every space), a
+ * partner who can write to the Family space but has the owner's Personal
+ * profile hidden from them, and an accountant who reads the Business space and
+ * nothing else.
  */
-const SEED_MEMBERS: Member[] = [
+export const SEED_PEOPLE: readonly DemoPerson[] = [
   {
     id: "asha",
     name: "Asha Menon",
     email: "asha@example.com",
-    role: "admin",
-    grants: [],
+    workspaceRole: "admin",
     owner: true,
+    spaces: {},
+    overrides: {},
   },
   {
     id: "priya",
     name: "Priya Menon",
     email: "priya@example.com",
-    role: "viewer",
-    grants: [{ profile: "Home", role: "editor" }],
+    workspaceRole: "editor",
+    spaces: { family: "editor" },
+    overrides: { Personal: "none" },
   },
   {
     id: "dan",
     name: "Dan Okafor",
     email: "dan@example.com",
-    role: null,
-    grants: [{ profile: "Business", role: "viewer" }],
+    workspaceRole: "viewer",
+    spaces: { business: "viewer" },
+    overrides: {},
   },
 ];
 
-type Invite = { email: string; role: WorkspaceRole };
+type Invite = { email: string; role: WorkspaceRole; spaces: DemoSpaceId[] };
 
-const SEED_INVITES: Invite[] = [{ email: "sam@example.com", role: "editor" }];
+const SEED_INVITES: Invite[] = [{ email: "sam@example.com", role: "editor", spaces: ["family"] }];
 
-/** What each role actually permits — the wording the settings page uses. */
-const ROLE_SUMMARY: Record<WorkspaceRole, string> = {
-  viewer: "read the feed, the table and the reports, but not add, edit or delete anything",
-  editor: "add, edit and delete transactions, and attach receipts to them",
-  admin: "do everything an editor can, plus manage profiles, categories, currency and who else is in here",
+/** The app's wording for each level — "Read", "Read + write", "No access". */
+const ACCESS_LABEL: Record<ProfileAccessLevel, string> = {
+  none: "No access",
+  read: ROLE_ABILITIES.viewer,
+  write: ROLE_ABILITIES.editor,
 };
 
-/**
- * The same three roles, described at profile scope. A grant is only ever about
- * one profile, so even an admin grant stops at that profile's edge — workspace
- * settings and the member list need a membership, not a grant.
- */
-const GRANT_SUMMARY: Record<WorkspaceRole, string> = {
-  viewer: "read the feed, the table and the reports",
-  editor: "add, edit and delete transactions and attach receipts",
-  admin: "manage the profile itself as well as its transactions — workspace settings and members still need a membership",
-};
+/** Radix Select can't hold an empty value, so "no row" gets a sentinel. */
+const NOT_IN_SPACE = "out";
+const DEFAULT = "default";
 
-function firstNameOf(member: Member): string {
-  return member.name.split(" ")[0] ?? member.name;
+export function spaceOf(profile: DemoProfile): DemoSpace {
+  return DEMO_SPACES.find((s) => s.profiles.includes(profile)) ?? DEMO_SPACES[0]!;
 }
 
-function initialOf(member: Member): string {
-  return member.name.trim().charAt(0).toUpperCase();
+/** Effective role on one profile — the app's own rule, not a copy of it. */
+export function demoProfileRole(person: DemoPerson, profile: DemoProfile): WorkspaceRole | null {
+  return resolveProfileRole({
+    workspaceRole: person.workspaceRole,
+    override: person.overrides[profile] ?? null,
+    spaceRole: person.spaces[spaceOf(profile).id] ?? null,
+    grantRole: null,
+  });
 }
 
-/** "an editor" / "a viewer" — the sentence at the bottom is rebuilt on every change. */
-function articleFor(role: WorkspaceRole): string {
-  return role === "viewer" ? "a" : "an";
+/** "Read + write" / "Read" / "Admin" / "No access" — the chip on each profile. */
+export function accessLabel(role: WorkspaceRole | null): string {
+  if (role === "admin") return ROLE_NAMES.admin;
+  return ACCESS_LABEL[accessLevelForRole(role)];
 }
 
-/** Effective role on one profile: max(membership, grant) — the app's rule. */
-function effectiveRole(member: Member, profile: DemoProfile): WorkspaceRole | null {
-  const grant = member.grants.find((g) => g.profile === profile)?.role ?? null;
-  return maxRole(member.role, grant);
+function firstNameOf(person: { name: string }): string {
+  return person.name.split(" ")[0] ?? person.name;
 }
 
-/** The role the row's select edits: the membership if there is one, else the grant. */
-function rowRole(member: Member): WorkspaceRole {
-  return member.role ?? member.grants[0]?.role ?? "viewer";
+function initialOf(person: { name: string }): string {
+  return person.name.trim().charAt(0).toUpperCase();
 }
 
-function scopeLabel(member: Member): string {
-  if (member.role !== null) return "All profiles";
-  const grant = member.grants[0];
-  return grant ? `${DEMO_PROFILE_ICON[grant.profile]} ${grant.profile} only` : "No profiles";
+/** "Home", "Home and Personal", "Home, Personal and Business". */
+function listOf(items: string[], conjunction = "and"): string {
+  if (items.length <= 1) return items[0] ?? "";
+  return `${items.slice(0, -1).join(", ")} ${conjunction} ${items.at(-1)}`;
 }
 
-/** The settings page's role picker, same `h-8` and same three options. */
-function RoleSelect({
+/** Profiles in sidebar order: spaces top to bottom, profiles within each. */
+const SIDEBAR_ORDER: DemoProfile[] = DEMO_SPACES.flatMap((s) => [...s.profiles]);
+
+/** The plain-English answer under the frame, rebuilt on every change. */
+export function accessSentence(person: DemoPerson): string {
+  const first = firstNameOf(person);
+  if (person.workspaceRole === "admin") {
+    return person.owner
+      ? `${first} owns the workspace, and an owner is always an admin — so ${first} sees every space and every profile, and manages the spaces, the people and the currency.`
+      : `${first} is an admin, so ${first} sees every space and every profile, and manages the spaces, the people and the currency.`;
+  }
+
+  const roles = SIDEBAR_ORDER.map((profile) => ({ profile, role: demoProfileRole(person, profile) }));
+  const write = roles.filter((r) => r.role === "editor").map((r) => r.profile);
+  const read = roles.filter((r) => r.role === "viewer").map((r) => r.profile);
+  const hidden = roles.filter((r) => r.role === null).map((r) => r.profile);
+
+  if (write.length === 0 && read.length === 0) {
+    return `${first} is in the workspace but sees no profile at all — add ${first} to a space to change that.`;
+  }
+
+  const parts: string[] = [];
+  if (write.length > 0) parts.push(`can add and edit in ${listOf(write)}`);
+  if (read.length > 0) parts.push(`can read ${listOf(read)}`);
+  if (hidden.length > 0) parts.push(`can't see ${listOf(hidden, "or")}`);
+  let sentence = `${first} ${listOf(parts)}.`;
+
+  const overridden = SIDEBAR_ORDER.filter((p) => person.overrides[p] != null);
+  if (overridden.length > 0) {
+    sentence +=
+      overridden.length === 1
+        ? ` On ${overridden[0]}, the per-profile setting wins over the ${spaceOf(overridden[0]!).name} space.`
+        : ` On ${listOf(overridden)}, per-profile settings win over the space.`;
+  }
+  if (write.length === 0) {
+    sentence += ` With nothing to write to, ${first} gets a read-only notice where the composer would be.`;
+  }
+  return sentence;
+}
+
+/** The right-hand summary on a People row. */
+function rowSummary(person: DemoPerson): string {
+  if (person.workspaceRole === "admin") {
+    return person.owner ? `Owner · ${ROLE_NAMES.admin}` : ROLE_NAMES.admin;
+  }
+  const spaces = DEMO_SPACES.filter((s) => person.spaces[s.id]).map(
+    (s) => `${s.name}: ${ROLE_ABILITIES[person.spaces[s.id]!]}`,
+  );
+  const settings = Object.keys(person.overrides).length;
+  if (settings > 0) spaces.push(`${settings} profile ${settings === 1 ? "setting" : "settings"}`);
+  return spaces.length > 0 ? spaces.join(" · ") : "In no space yet";
+}
+
+function inviteSummary(invite: Invite): string {
+  const role = ROLE_NAMES[invite.role];
+  if (invite.role === "admin") return `Joins as ${role} — every space — when they sign up`;
+  if (invite.spaces.length === 0) return `Joins as ${role}, in no space yet, when they sign up`;
+  const names = DEMO_SPACES.filter((s) => invite.spaces.includes(s.id)).map((s) => s.name);
+  return `Joins as ${role} · ${listOf(names)} when they sign up`;
+}
+
+/** A compact Select in the settings page's `h-8` size. */
+function AccessSelect({
   value,
   onChange,
+  options,
   ariaLabel,
   className,
+  disabled,
 }: {
-  value: WorkspaceRole;
-  onChange: (role: WorkspaceRole) => void;
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
   ariaLabel: string;
   className?: string;
+  disabled?: boolean;
 }) {
   return (
-    <Select value={value} onValueChange={(v) => onChange(v as WorkspaceRole)}>
-      <SelectTrigger className={cn("h-8 w-28 shrink-0 capitalize", className)} aria-label={ariaLabel}>
+    <Select value={value} onValueChange={onChange} disabled={disabled}>
+      <SelectTrigger className={cn("h-8 w-44 shrink-0 text-xs", className)} aria-label={ariaLabel}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent align="end">
-        {WORKSPACE_ROLES.map((role) => (
-          <SelectItem key={role} value={role} className="capitalize">
-            {role}
+        {options.map((o) => (
+          <SelectItem key={o.value} value={o.value}>
+            {o.label}
           </SelectItem>
         ))}
       </SelectContent>
@@ -173,344 +277,434 @@ function RoleSelect({
   );
 }
 
+const SPACE_OPTIONS = [
+  { value: NOT_IN_SPACE, label: "Not in space" },
+  ...SPACE_ROLES.map((role) => ({ value: role, label: ROLE_ABILITIES[role] })),
+];
+
 export function WorkspacesDemo() {
   const money = useDemoMoney();
-  const [members, setMembers] = useState<Member[]>(SEED_MEMBERS);
+  const [people, setPeople] = useState<readonly DemoPerson[]>(SEED_PEOPLE);
   const [invites, setInvites] = useState<Invite[]>(SEED_INVITES);
   const [selectedId, setSelectedId] = useState("priya");
   const [email, setEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<WorkspaceRole>("viewer");
+  const [inviteSpaces, setInviteSpaces] = useState<DemoSpaceId[]>(ALL_SPACE_IDS);
 
-  const selected = members.find((m) => m.id === selectedId) ?? members[0]!;
+  const selected = people.find((p) => p.id === selectedId) ?? people[0]!;
   const first = firstNameOf(selected);
+  const isAdmin = selected.workspaceRole === "admin";
+  const reach = SIDEBAR_ORDER.map((profile) => ({
+    profile,
+    role: demoProfileRole(selected, profile),
+  }));
 
-  /** The live answer: what the selected person reaches, profile by profile. */
-  const reach = useMemo(
-    () =>
-      DEMO_PROFILES.map((profile) => ({
-        profile,
-        role: effectiveRole(selected, profile),
-      })),
-    [selected],
-  );
+  const peopleCap = PLAN_LIMITS[DEMO_PLAN].members;
+  // People who count towards the plan: members and pending invites alike.
+  const full = people.length + invites.length >= peopleCap;
 
-  function setRowRole(id: string, role: WorkspaceRole) {
-    setMembers((prev) =>
-      prev.map((m) => {
-        if (m.id !== id) return m;
-        // A member's select moves their workspace role; a grant-only person's
-        // moves the grant, because they have no membership to move.
-        if (m.role !== null) return { ...m, role };
-        return { ...m, grants: m.grants.map((g, i) => (i === 0 ? { ...g, role } : g)) };
-      }),
-    );
+  function updatePerson(id: string, change: (p: DemoPerson) => DemoPerson) {
+    setPeople((prev) => prev.map((p) => (p.id === id ? change(p) : p)));
   }
 
-  function setGrantRole(id: string, profile: DemoProfile, role: WorkspaceRole) {
-    setMembers((prev) =>
-      prev.map((m) =>
-        m.id === id
-          ? { ...m, grants: m.grants.map((g) => (g.profile === profile ? { ...g, role } : g)) }
-          : m,
-      ),
-    );
+  function setSpaceRole(id: string, space: DemoSpace, value: string) {
+    updatePerson(id, (p) => {
+      const spaces = { ...p.spaces };
+      if (value === NOT_IN_SPACE) {
+        delete spaces[space.id];
+        // As in the app: taking someone out of a space also clears their
+        // per-profile settings on its profiles.
+        const overrides = { ...p.overrides };
+        for (const profile of space.profiles) delete overrides[profile];
+        return { ...p, spaces, overrides };
+      }
+      spaces[space.id] = value as SpaceRole;
+      return { ...p, spaces };
+    });
+  }
+
+  function setOverride(id: string, profile: DemoProfile, value: string) {
+    updatePerson(id, (p) => {
+      const overrides = { ...p.overrides };
+      if (value === DEFAULT) delete overrides[profile];
+      else overrides[profile] = value as ProfileAccessLevel;
+      return { ...p, overrides };
+    });
   }
 
   function handleInvite(e: React.FormEvent) {
     e.preventDefault();
     const value = email.trim().toLowerCase();
-    if (!value.includes("@")) return;
-    if (invites.some((i) => i.email === value)) return;
-    setInvites((prev) => [...prev, { email: value, role: inviteRole }]);
+    if (!value.includes("@") || full) return;
+    if (invites.some((i) => i.email === value) || people.some((p) => p.email === value)) return;
+    setInvites((prev) => [
+      ...prev,
+      { email: value, role: inviteRole, spaces: inviteRole === "admin" ? [] : inviteSpaces },
+    ]);
     setEmail("");
   }
 
   function reset() {
-    setMembers(SEED_MEMBERS);
+    setPeople(SEED_PEOPLE);
     setInvites(SEED_INVITES);
     setSelectedId("priya");
     setEmail("");
     setInviteRole("viewer");
+    setInviteSpaces(ALL_SPACE_IDS);
   }
 
-  const peopleLine = [
-    `${members.length} people`,
+  const headerLine = [
+    `${PLAN_NAMES[DEMO_PLAN]} plan`,
+    `${people.length} people`,
     invites.length > 0 ? `${invites.length} pending` : null,
-    `shared categories · ${money.code}`,
+    `${DEMO_SPACES.length} spaces`,
+    money.code,
   ]
     .filter(Boolean)
     .join(" · ");
 
   return (
     <>
-    <DemoFrame
-      label="Interactive workspaces demo"
-      active="/app/settings"
-      className="h-[36rem]"
-      sidebarTop={
-        <div className="px-2 pt-2">
-          {/* The sidebar's workspace switcher, inert — its job here is to show
-              that a workspace is the thing you're inside of, not a setting. */}
-          <div className="flex h-9 items-center gap-2 rounded-lg border px-2 text-sm">
-            <span aria-hidden className="text-base leading-none">
+      <DemoFrame
+        label="Interactive workspaces demo"
+        active="/app/settings"
+        className="h-[38rem]"
+        sidebarTop={
+          <div className="px-2 pt-2">
+            {/* The sidebar's workspace switcher, inert — its job here is to show
+                that a workspace is the thing you're inside of, not a setting. */}
+            <div className="flex h-9 items-center gap-2 rounded-lg border px-2 text-sm">
+              <span aria-hidden className="text-base leading-none">
+                {WORKSPACE_ICON}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{WORKSPACE_NAME}</span>
+              <Kbd combo={comboFor("workspace.switch")} className="shrink-0 opacity-60" />
+              <ChevronsUpDown className="size-3.5 shrink-0 opacity-60" aria-hidden />
+            </div>
+
+            <p className="px-1 pt-3 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+              {first}&apos;s sidebar
+            </p>
+            {/* Spaces as the app draws them — foldable groups holding their
+                profiles — with what this person can't see dimmed rather than
+                removed, so the difference between two people is visible. */}
+            <div className="space-y-1 pb-2">
+              {DEMO_SPACES.map((space) => {
+                const sees = space.profiles.some((p) => demoProfileRole(selected, p) !== null);
+                return (
+                  <div key={space.id}>
+                    <div
+                      className={cn(
+                        "flex items-center gap-1.5 rounded-lg py-1.5 pr-2 pl-1.5 text-sm transition-colors",
+                        sees ? "text-muted-foreground" : "text-muted-foreground/40",
+                      )}
+                    >
+                      <ChevronRight aria-hidden className="size-3.5 shrink-0 rotate-90" />
+                      <span aria-hidden className="text-sm leading-none">
+                        {space.icon}
+                      </span>
+                      <span className="truncate font-medium">{space.name}</span>
+                    </div>
+                    {space.profiles.map((profile) => {
+                      const role = demoProfileRole(selected, profile);
+                      return (
+                        <div
+                          key={profile}
+                          className={cn(
+                            "flex items-center gap-2.5 rounded-lg py-1.5 pr-2 pl-6 text-sm transition-colors",
+                            role ? "text-foreground" : "text-muted-foreground/40",
+                          )}
+                        >
+                          <span aria-hidden className="text-base leading-none">
+                            {DEMO_PROFILE_ICON[profile]}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate">{profile}</span>
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {role ? accessLabel(role) : "Hidden"}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        }
+        header={
+          <div className="flex shrink-0 items-center gap-2.5 border-b px-4 py-3">
+            <span aria-hidden className="text-lg leading-none">
               {WORKSPACE_ICON}
             </span>
-            <span className="min-w-0 flex-1 truncate">{WORKSPACE_NAME}</span>
-            <Kbd combo={comboFor("workspace.switch")} className="shrink-0 opacity-60" />
-            <ChevronsUpDown className="size-3.5 shrink-0 opacity-60" aria-hidden />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-medium">{WORKSPACE_NAME}</p>
+              <p className="truncate text-xs text-muted-foreground">{headerLine}</p>
+            </div>
+            <Badge variant="secondary" className="hidden shrink-0 sm:inline-flex">
+              You&apos;re an admin
+            </Badge>
           </div>
-
-          <p className="px-1 pt-3 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            {first}&apos;s profiles
-          </p>
-          <div className="space-y-0.5 pb-2">
-            {reach.map(({ profile, role }) => (
-              <div
-                key={profile}
-                className={cn(
-                  "flex items-center gap-2.5 rounded-lg px-2 py-2 text-sm transition-colors",
-                  role ? "text-foreground" : "text-muted-foreground/40",
-                )}
-              >
-                <span aria-hidden className="text-base leading-none">
-                  {DEMO_PROFILE_ICON[profile]}
-                </span>
-                <span className="min-w-0 flex-1 truncate">{profile}</span>
-                <span className="shrink-0 text-xs text-muted-foreground capitalize">
-                  {role ?? "hidden"}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      }
-      header={
-        <div className="flex shrink-0 items-center gap-2.5 border-b px-4 py-3">
-          <span aria-hidden className="text-lg leading-none">
-            {WORKSPACE_ICON}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-medium">{WORKSPACE_NAME}</p>
-            <p className="truncate text-xs text-muted-foreground">{peopleLine}</p>
-          </div>
-          <Badge variant="secondary" className="hidden shrink-0 sm:inline-flex">
-            You&apos;re an admin
-          </Badge>
-        </div>
-      }
-      bodyClassName="overflow-hidden"
-      footer={
-        <div className="shrink-0 border-t bg-muted/20 px-4 py-3">
-          <p className="text-sm font-medium">What {first} can do</p>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {selected.role === null ? (
-              <>
-                {first} is not a member of this workspace at all. Access comes
-                from a single grant on{" "}
-                {DEMO_PROFILE_ICON[selected.grants[0]?.profile ?? "Personal"]}{" "}
-                {selected.grants[0]?.profile ?? "one profile"}, so there {first}{" "}
-                can {GRANT_SUMMARY[rowRole(selected)]}. Nothing else in the
-                workspace exists as far as {first} is concerned.
-              </>
-            ) : (
-              <>
-                {first} is {articleFor(selected.role)} {selected.role} of the
-                whole workspace, so they can {ROLE_SUMMARY[selected.role]}.
-                {selected.grants.map((g) => (
-                  <span key={g.profile}>
-                    {" "}
-                    On {g.profile} there is also {articleFor(g.role)} {g.role}{" "}
-                    grant — the higher of the two applies, which makes {first}{" "}
-                    {effectiveRole(selected, g.profile) ?? "hidden"} there.
-                  </span>
-                ))}
-              </>
-            )}
-          </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            {reach.map(({ profile, role }) => (
-              <span
-                key={profile}
-                className={cn(
-                  "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs",
-                  role ? "bg-background" : "border-dashed text-muted-foreground/60",
-                )}
-              >
-                <span aria-hidden>{DEMO_PROFILE_ICON[profile]}</span>
-                {profile}
-                <span className="text-muted-foreground capitalize">
-                  {role ?? "no access"}
-                </span>
-              </span>
-            ))}
-          </div>
-        </div>
-      }
-    >
-      <div
-        tabIndex={0}
-        role="group"
-        aria-label="Workspace members"
-        className="h-full space-y-4 overflow-y-auto px-4 py-3"
-      >
-        <form
-          onSubmit={handleInvite}
-          className="flex flex-wrap items-end gap-2 rounded-lg border bg-muted/30 p-3"
-        >
-          <div className="min-w-40 flex-1 space-y-1.5">
-            <Label htmlFor="demo-invite-email" className="text-xs">
-              Invite by email
-            </Label>
-            <Input
-              id="demo-invite-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="accountant@example.com"
-              className="h-8"
-            />
-          </div>
-          <RoleSelect
-            value={inviteRole}
-            onChange={setInviteRole}
-            ariaLabel="Role for the person you are inviting"
-          />
-          <Button type="submit" size="sm" className="h-8 shrink-0 gap-1.5">
-            <UserPlus className="size-3.5" /> Add
-          </Button>
-        </form>
-
-        <div>
-          <p className="px-2 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            People with access
-          </p>
-          <ul className="divide-y">
-            {members.map((member) => {
-              const isSelected = member.id === selected.id;
-              return (
-                <li
-                  key={member.id}
+        }
+        bodyClassName="overflow-hidden"
+        footer={
+          <div className="shrink-0 border-t bg-muted/20 px-4 py-3">
+            <p className="text-sm font-medium">What {first} can see</p>
+            <p aria-live="polite" className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              {accessSentence(selected)}
+            </p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {reach.map(({ profile, role }) => (
+                <span
+                  key={profile}
                   className={cn(
-                    "flex flex-wrap items-center gap-2 rounded-lg px-2 py-2.5 transition-colors",
-                    isSelected && "bg-accent/60",
+                    "inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs",
+                    role ? "bg-background" : "border-dashed text-muted-foreground/60",
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setSelectedId(member.id)}
-                    aria-current={isSelected ? "true" : undefined}
-                    className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
-                  >
-                    <span
-                      aria-hidden
-                      className="flex size-8 shrink-0 items-center justify-center rounded-full border bg-muted text-sm font-medium"
-                    >
-                      {initialOf(member)}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">
-                        {member.name}
-                        {member.owner && (
-                          <span className="text-muted-foreground"> (you)</span>
-                        )}
-                      </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {member.email}
-                      </span>
-                    </span>
-                  </button>
-
-                  {member.owner ? (
-                    <>
-                      <Badge variant="secondary" className="shrink-0">
-                        Owner
-                      </Badge>
-                      <Badge variant="outline" className="shrink-0 capitalize">
-                        {member.role}
-                      </Badge>
-                    </>
-                  ) : (
-                    <>
-                      <span className="shrink-0 text-xs text-muted-foreground">
-                        {scopeLabel(member)}
-                      </span>
-                      <RoleSelect
-                        value={rowRole(member)}
-                        onChange={(role) => setRowRole(member.id, role)}
-                        ariaLabel={`Role for ${member.name}`}
-                      />
-                    </>
-                  )}
-
-                  {/* The second source of access, shown where it applies: a
-                      grant on one profile, sitting on top of the membership. */}
-                  {member.role !== null &&
-                    member.grants.map((grant) => (
-                      <div
-                        key={grant.profile}
-                        className="flex w-full flex-wrap items-center gap-2 pl-10 text-xs text-muted-foreground"
-                      >
-                        <span>
-                          Plus a grant on {DEMO_PROFILE_ICON[grant.profile]} {grant.profile}
-                        </span>
-                        <RoleSelect
-                          value={grant.role}
-                          onChange={(role) => setGrantRole(member.id, grant.profile, role)}
-                          ariaLabel={`${member.name} role on ${grant.profile}`}
-                          className="h-7 w-24"
-                        />
-                        <span>
-                          effective there:{" "}
-                          <span className="text-foreground capitalize">
-                            {effectiveRole(member, grant.profile) ?? "none"}
-                          </span>
-                        </span>
-                      </div>
-                    ))}
-                </li>
-              );
-            })}
-          </ul>
-        </div>
-
-        {invites.length > 0 && (
+                  <span aria-hidden>{DEMO_PROFILE_ICON[profile]}</span>
+                  {profile}
+                  <span className="text-muted-foreground">{accessLabel(role)}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        }
+      >
+        <div
+          tabIndex={0}
+          role="group"
+          aria-label="Workspace people and access"
+          className="h-full space-y-4 overflow-y-auto px-4 py-3"
+        >
           <div>
             <p className="px-2 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-              Pending invites
+              People
             </p>
-            <ul className="divide-y">
-              {invites.map((invite) => (
-                <li key={invite.email} className="flex flex-wrap items-center gap-2 px-2 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm">{invite.email}</p>
-                    <p className="text-xs text-muted-foreground">
-                      Joins as {invite.role} when they sign up
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    aria-label={`Cancel the invite for ${invite.email}`}
-                    onClick={() =>
-                      setInvites((prev) => prev.filter((i) => i.email !== invite.email))
-                    }
-                  >
-                    <X className="size-4" />
-                  </Button>
-                </li>
-              ))}
+            <ul className="space-y-0.5">
+              {people.map((person) => {
+                const isSelected = person.id === selected.id;
+                return (
+                  <li key={person.id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(person.id)}
+                      aria-pressed={isSelected}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-accent/50",
+                        isSelected && "bg-accent/60 hover:bg-accent/60",
+                      )}
+                    >
+                      <span
+                        aria-hidden
+                        className="flex size-8 shrink-0 items-center justify-center rounded-full border bg-muted text-sm font-medium"
+                      >
+                        {initialOf(person)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {person.name}
+                          {person.owner && <span className="text-muted-foreground"> (you)</span>}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {person.email}
+                        </span>
+                      </span>
+                      <span className="max-w-[45%] shrink-0 text-right text-xs text-muted-foreground">
+                        {rowSummary(person)}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
-        )}
-      </div>
-    </DemoFrame>
-    {/* "Reset", not "Replay": there's no script here, it puts the roles you
-        changed back. Under the frame rather than in its header, where it used
-        to be — the header is a copy of the app's, and the app has no Reset
-        button in it. Rendered unconditionally, like every other demo's, so it
-        can't appear on the first click and shift the page as it arrives. */}
-    <DemoReplay onClick={reset} label="Reset" />
+
+          <div className="rounded-lg border p-3">
+            <p className="text-sm font-medium">{first}&apos;s access</p>
+            {isAdmin ? (
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {selected.owner ? "Owners are always admins, and admins" : "Admins"} see every
+                space and every profile — no space can be hidden from them, so there is nothing to
+                set here.
+              </p>
+            ) : (
+              <>
+                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                  The space decides what {first} can do with everything in it. A profile row set
+                  to anything but Default wins over the space — to hide one profile, or to open
+                  one.{" "}
+                  <Badge variant="outline" className="align-middle">
+                    {PROFILE_ACCESS_PLANS}
+                  </Badge>
+                </p>
+                <ul className="mt-3 space-y-3">
+                  {DEMO_SPACES.map((space) => {
+                    const spaceRole = selected.spaces[space.id] ?? null;
+                    const defaultLabel = ACCESS_LABEL[accessLevelForRole(spaceRole)];
+                    return (
+                      <li key={space.id}>
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="min-w-0 truncate text-sm font-medium">
+                            <span aria-hidden className="mr-1.5">
+                              {space.icon}
+                            </span>
+                            {space.name}
+                            <span className="font-normal text-muted-foreground"> space</span>
+                          </span>
+                          <AccessSelect
+                            value={spaceRole ?? NOT_IN_SPACE}
+                            onChange={(v) => setSpaceRole(selected.id, space, v)}
+                            options={SPACE_OPTIONS}
+                            ariaLabel={`${selected.name}'s role in the ${space.name} space`}
+                          />
+                        </div>
+                        <ul className="mt-1.5 ml-2 space-y-1.5 border-l pl-3">
+                          {space.profiles.map((profile) => {
+                            const override = selected.overrides[profile] ?? null;
+                            return (
+                              <li
+                                key={profile}
+                                className="flex flex-wrap items-center justify-between gap-2"
+                              >
+                                <span className="min-w-0 truncate text-sm">
+                                  <span aria-hidden className="mr-1.5">
+                                    {DEMO_PROFILE_ICON[profile]}
+                                  </span>
+                                  {profile}
+                                </span>
+                                <AccessSelect
+                                  value={override ?? DEFAULT}
+                                  onChange={(v) => setOverride(selected.id, profile, v)}
+                                  options={[
+                                    { value: DEFAULT, label: `Default (${defaultLabel})` },
+                                    ...PROFILE_ACCESS_LEVELS.map((level) => ({
+                                      value: level,
+                                      label: ACCESS_LABEL[level],
+                                    })),
+                                  ]}
+                                  ariaLabel={`${selected.name}'s access to the ${profile} profile`}
+                                  className={cn(override && "border-foreground/30 font-medium")}
+                                  // Like the app's space dialog: per-profile settings are
+                                  // for people in the space. Out of it, the space decides.
+                                  disabled={spaceRole === null && override === null}
+                                />
+                              </li>
+                            );
+                          })}
+                        </ul>
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  Taking someone out of a space also clears their profile settings in it.
+                </p>
+              </>
+            )}
+          </div>
+
+          <form onSubmit={handleInvite} className="space-y-2.5 rounded-lg border bg-muted/30 p-3">
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="min-w-40 flex-1 space-y-1.5">
+                <Label htmlFor="demo-invite-email" className="text-xs">
+                  Invite by email
+                </Label>
+                <Input
+                  id="demo-invite-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="accountant@example.com"
+                  className="h-8"
+                />
+              </div>
+              <AccessSelect
+                value={inviteRole}
+                onChange={(v) => setInviteRole(v as WorkspaceRole)}
+                options={WORKSPACE_ROLES.map((role) => ({
+                  value: role,
+                  label: `${ROLE_NAMES[role]} — ${ROLE_ABILITIES[role]}`,
+                }))}
+                ariaLabel="Role for the person you are inviting"
+              />
+              <Button type="submit" size="sm" className="h-8 shrink-0 gap-1.5" disabled={full}>
+                <UserPlus className="size-3.5" /> Add
+              </Button>
+            </div>
+            {inviteRole === "admin" ? (
+              <p className="text-xs text-muted-foreground">Admins see every space.</p>
+            ) : (
+              <fieldset>
+                <legend className="text-xs text-muted-foreground">Spaces they can see</legend>
+                <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                  {DEMO_SPACES.map((space) => {
+                    const id = `demo-invite-space-${space.id}`;
+                    return (
+                      <div key={space.id} className="flex items-center gap-2">
+                        <Checkbox
+                          id={id}
+                          checked={inviteSpaces.includes(space.id)}
+                          onCheckedChange={(c) =>
+                            setInviteSpaces((prev) =>
+                              c === true
+                                ? [...prev.filter((s) => s !== space.id), space.id]
+                                : prev.filter((s) => s !== space.id),
+                            )
+                          }
+                        />
+                        <Label htmlFor={id} className="gap-1.5 text-sm font-normal">
+                          <span aria-hidden>{space.icon}</span>
+                          {space.name}
+                        </Label>
+                      </div>
+                    );
+                  })}
+                </div>
+              </fieldset>
+            )}
+            {full && (
+              <p className="text-xs text-muted-foreground">
+                {PLAN_NAMES[DEMO_PLAN]} includes {peopleCap} people, pending invites included.
+                Cancel an invite to add someone else.
+              </p>
+            )}
+          </form>
+
+          {invites.length > 0 && (
+            <div>
+              <p className="px-2 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                Pending invites
+              </p>
+              <ul className="divide-y">
+                {invites.map((invite) => (
+                  <li key={invite.email} className="flex items-center gap-2 px-2 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm">{invite.email}</p>
+                      <p className="text-xs text-muted-foreground">{inviteSummary(invite)}</p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      aria-label={`Cancel the invite for ${invite.email}`}
+                      onClick={() =>
+                        setInvites((prev) => prev.filter((i) => i.email !== invite.email))
+                      }
+                    >
+                      <X className="size-4" />
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      </DemoFrame>
+      {/* "Reset", not "Replay": there's no script here, it puts the access you
+          changed back. Under the frame like every other demo's control, and
+          rendered unconditionally so it can't arrive on the first click and
+          shift the page. */}
+      <DemoReplay onClick={reset} label="Reset" />
     </>
   );
 }

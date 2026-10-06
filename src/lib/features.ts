@@ -190,8 +190,8 @@ export const FEATURES: Feature[] = [
     title: "Shared Expense Tracking for Families",
     h1: "Share the books without sharing your password",
     description:
-      "Invite your partner, family or accountant to a workspace and choose what each of them can do — view, edit or administer. Shared categories and currency.",
-    blurb: "Invite people to a shared workspace with viewer/editor/admin roles.",
+      "Group profiles into spaces, invite your partner or accountant, and choose who sees which. Your accountant gets the business books, not your groceries.",
+    blurb: "Group profiles into spaces and choose who sees each one.",
     icon: "Building2",
     group: "organise",
     related: ["multiple-profiles", "categories", "privacy-and-security", "receipts-and-files"],
