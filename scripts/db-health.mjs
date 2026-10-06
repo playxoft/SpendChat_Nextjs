@@ -7,10 +7,11 @@
  * degradation. This script is the warning shoulder. It exits non-zero past a
  * threshold so it can gate a cron or a CI job.
  *
- * It also prunes the two append-only rate-limit logs. `ai_usage_log` and
- * `email_send_log` are read by the quota checks over a one-hour window (and
- * `ai_usage_log` by the monthly AI allowance, so it is kept at least 62 days),
- * but nothing else deletes from them, so without this they grow forever. Pruning
+ * It also prunes the two append-only usage logs. `email_send_log` is read by
+ * the invite-email quota over a one-hour window, and `ai_usage_log` by the
+ * monthly AI allowance (so it is kept at least 62 days); nothing else deletes
+ * from them, so without this they grow forever. (Per-person request rate
+ * limits don't use either table — they live in a Durable Object.) Pruning
  * caps that growth; it does not hand the space back — see the note above the
  * VACUUM below.
  *

@@ -1,8 +1,8 @@
 import "server-only";
-import { and, count, desc, eq, gt, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gt, gte, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { aiUsageLog } from "@/db/schema";
-import { ApiError, planLimit, tooManyRequests, type PlanLimitDetails } from "@/lib/errors";
+import { ApiError, planLimit, rateLimited, type PlanLimitDetails } from "@/lib/errors";
 import {
   aiActionsUsedThisMonth,
   aiAllowanceError,
@@ -14,19 +14,11 @@ import { describeError, logger } from "@/lib/logger";
 import type { AiUsage } from "@/lib/ai-provider";
 
 /**
- * Max AI model requests one user may trigger per hour.
- *
- * This counts *provider calls* (log rows), not AI actions, and the two aren't
- * 1:1. A typed note costs one (parse). A dictated one costs **two** — transcribe,
- * then parse the transcript — so voice-driven entry tops out around 15/hour
- * rather than 30. That's deliberate: transcription is the more expensive call,
- * and the budget is a spend ceiling, not a feature quota. Raise this only
- * alongside a look at the provider bill. (Personal phase 6 replaces it with the
- * plan-based `RATE_LIMITS`; until then it runs alongside the monthly allowance.)
+ * Advisory-lock namespace for the per-user charge lock (`email-quota.ts` is 2,
+ * invites 3). It once guarded an hourly cap on AI calls; that pacing is now the
+ * per-person `ai` rate limit (`lib/rate-limit`, abuse rule C8), and the lock
+ * stays for the reason in `chargeUnderLocks`.
  */
-export const AI_REQUESTS_PER_HOUR = 30;
-
-/** Advisory-lock namespace for the per-user hourly cap (`email-quota.ts` is 2, invites 3). */
 const LOCK_NAMESPACE = 1;
 
 /** Advisory-lock namespace for the monthly allowance — see `chargeUnderLocks`. */
@@ -56,13 +48,14 @@ export type AiKind = (typeof AI_KIND)[keyof typeof AI_KIND];
 
 /**
  * Appended to `kind` when a charged call fails on our side (see `withAiCharge`):
- * the row stays — it was still a provider call, so it still counts against the
- * hourly cap — but it no longer counts as an action, as a paid transcription,
- * or as a used voice parse.
+ * the row stays — it was still a provider call, and the audit trail keeps it —
+ * but it no longer counts as an action, as a paid transcription, or as a used
+ * voice parse.
  */
 const FAILED_SUFFIX = "_failed";
 
-const DEFAULT_LIMIT_MESSAGE = "That's a lot of AI requests in the last hour — try again later";
+/** Losing the per-user charge lock: this person's previous AI call is still being charged. */
+const BUSY_MESSAGE = "Another AI request of yours is still running — try again in a moment.";
 
 /** A charged AI call: its ledger row, and what it cost. */
 export type AiCharge = {
@@ -79,41 +72,42 @@ type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 /**
  * Check and record one AI call, in one transaction, before it reaches a paid
  * provider (and after any permission checks — denied calls must not burn
- * quota). Two budgets, checked in this order:
+ * quota). The budget checked here is **the workspace's monthly AI allowance**
+ * (`aiActionsPerMonth`, 403 `plan_limit`), counted in AI actions (`units`) over
+ * `aiUsageScope` — so plan changes never reset it (C1, C3), and a Free
+ * workspace also counts its owner's other Free usage this month, deleted
+ * workspaces included (C2).
  *
- *  1. **The per-user hourly cap** (`AI_REQUESTS_PER_HOUR`, 429). Server actions
- *     are invocable by any authenticated user regardless of what the UI
- *     renders, so without it one account could loop the composer's AI parse
- *     and spend the operator's whole API budget.
- *  2. **The workspace's monthly AI allowance** (`aiActionsPerMonth`, 403
- *     `plan_limit`), counted in AI actions (`units`) over `aiUsageScope` — so
- *     plan changes never reset it (C1, C3), and a Free workspace also counts
- *     its owner's other Free usage this month, deleted workspaces included (C2).
+ * How *fast* one person may call AI is not decided here: that's the per-person
+ * `ai` rate limit (1 / 5 / 60-minute windows by plan, abuse rule C8), applied
+ * at the request seams before this runs (`lib/rate-limit`). It replaced the
+ * hourly cap this function used to count.
  *
  * Throwing anywhere rolls the transaction back: a refused call inserts nothing
  * and releases both locks, so it spent nothing.
  *
- * **Why the per-user advisory lock.** Counting and then inserting is not a cap:
+ * **Why counting needs locks at all.** Counting and then inserting is not a cap:
  * fire fifty requests at once and all fifty read the same under-limit count, so
  * the limit holds only against a caller polite enough to go one at a time —
  * which is not the caller it exists to stop. Folding both into a single
- * `INSERT ... SELECT ... WHERE (count) < limit` looks like it fixes that and
+ * `INSERT ... SELECT ... WHERE (sum) < limit` looks like it fixes that and
  * does not: under READ COMMITTED the subquery reads a statement snapshot that
  * excludes other sessions' uncommitted rows, and `INSERT` takes only
  * `RowExclusiveLock`, which doesn't conflict with itself. Two concurrent
- * statements both count 29, both insert, and the user is at 31.
+ * statements both see 49 of 50 used, both insert, and the workspace is at 51.
  *
- * A per-user advisory lock is what actually serializes them, and it is the
- * **try** form on purpose. `pg_advisory_xact_lock` blocks with no timeout, which
- * turns the exact burst this exists to stop into a queue: 500 simultaneous calls
- * would each open a transaction and hold a real Neon connection while waiting
- * for a budget that only 30 of them can have — a rate limiter that amplifies
- * into connection exhaustion for every other user of the database.
- * `pg_try_advisory_xact_lock` returns immediately instead, and losing the race
- * *is* the answer: a second request arriving while this user's own check is
- * still running is, definitionally, the concurrency the cap exists to refuse.
- * The lock is released when the transaction ends, rollback included, so a
- * failure can't strand it.
+ * **Why the per-user lock, and why it's the try form.** It's taken first, and
+ * it is what keeps the *blocking* allowance lock below safe: with it, at most
+ * one transaction per person can ever be waiting there. Without it, a burst
+ * from one account — the rate limiter fails open when its Durable Object is
+ * unreachable, and a script doesn't wait its turn — would queue on the
+ * allowance lock, each waiter holding a real Neon connection: a quota check
+ * that amplifies into connection exhaustion for every other user of the
+ * database. `pg_try_advisory_xact_lock` returns immediately instead, and losing
+ * the race *is* the answer: a second call arriving while this person's previous
+ * one is still being charged is refused (429, retry in a second) rather than
+ * queued. The lock is released when the transaction ends, rollback included, so
+ * a failure can't strand it.
  *
  * The key is namespaced (`LOCK_NAMESPACE`, two-argument form) so this doesn't
  * collide with `email-quota.ts`, which locks on the same user id. The two
@@ -138,14 +132,13 @@ type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
  * once must serialize too. Owner and workspace ids are distinct uuids, so one
  * namespace serves both.
  *
- * The log table is both the audit trail and both counters: the hourly cap
- * counts rows (provider calls), the allowance sums `units` (actions).
+ * The log table is both the audit trail and the counter: the allowance sums
+ * `units` (actions).
  */
 async function chargeUnderLocks(
   userId: string,
   workspaceId: string,
   decide: (tx: Tx, now: Date) => Promise<{ kind: AiKind; units: number }>,
-  limitMessage = DEFAULT_LIMIT_MESSAGE,
 ): Promise<AiCharge> {
   const ent = await getWorkspaceEntitlements(workspaceId);
   const now = new Date();
@@ -153,27 +146,13 @@ async function chargeUnderLocks(
   return db.transaction(async (tx) => {
     // Taken before anything is counted. `hashtext` maps the uuid onto the int4
     // key the lock takes; a collision with another user costs one refused
-    // request, never a wrong answer, because the count below is still filtered
-    // by `userId`.
+    // request, never a wrong answer, because the sum below is filtered by scope.
     const [lock] = (
       await tx.execute<{ got: boolean }>(
         sql`select pg_try_advisory_xact_lock(${LOCK_NAMESPACE}, hashtext(${userId})) as got`,
       )
     ).rows;
-    if (!lock?.got) throw tooManyRequests(limitMessage);
-
-    // Hourly first: a caller hammering the endpoint should be told to slow
-    // down, not to upgrade.
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    const [row] = await tx
-      .select({ used: count() })
-      .from(aiUsageLog)
-      .where(and(eq(aiUsageLog.userId, userId), gte(aiUsageLog.createdAt, oneHourAgo)));
-    if ((row?.used ?? 0) >= AI_REQUESTS_PER_HOUR) {
-      // Throwing rolls the transaction back, which releases the lock and
-      // guarantees the rejected caller spent nothing.
-      throw tooManyRequests(limitMessage);
-    }
+    if (!lock?.got) throw rateLimited(BUSY_MESSAGE, { bucket: "ai", retryAfterSeconds: 1 });
 
     // A hash collision here only serializes two unrelated scopes for the
     // length of a count — never a wrong answer, since the sum below is filtered.

@@ -1,24 +1,35 @@
 import { describe, it, expect, afterEach, vi } from "vitest";
+
+// The per-person rate limiter fails open without a Durable Object binding;
+// the C8 test below installs an in-memory one.
+const limiter = vi.hoisted(() => ({
+  current: null as import("../helpers/memory-rate-limiter").MemoryRateLimiter | null,
+}));
+vi.mock("@/lib/rate-limit/binding", () => ({
+  getRateLimiterStub: (id: string) => limiter.current?.stubFor(id) ?? null,
+}));
 import { count, eq } from "drizzle-orm";
 import { POST as parse } from "@/app/api/v1/ai/parse/route";
 import { POST as transcribe } from "@/app/api/v1/ai/transcribe/route";
 import { aiUsageLog } from "@/db/schema";
-import { AI_REQUESTS_PER_HOUR } from "@/lib/ai-quota";
+import { resetRateLimitState } from "@/lib/rate-limit";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
 import * as ws from "@/services/workspaces";
 import { signInAs, uid } from "../helpers/session";
 import { bootstrapUser, setWorkspacePlan, workspaceIdOf } from "../helpers/seed";
 import { getTestDb } from "../helpers/test-db";
+import { createMemoryRateLimiter } from "../helpers/memory-rate-limiter";
 import { apiReq, jsonBody } from "./helpers";
 import type { NextRequest } from "next/server";
 
 /**
  * The two AI endpoints cost real money per call, so what's asserted here is the
- * *gate order*, not the model output: cheap local checks → editor role → (voice:
- * the Pro plan gate) → hourly quota → monthly allowance → provider. A denied
- * caller must never reach `fetch`, and must never consume a quota slot that
- * belongs to someone who was allowed. The allowance itself — what each call
- * charges — is covered in `ai-allowance.test.ts`.
+ * *gate order*, not the model output: the per-person AI rate limit → cheap local
+ * checks → editor role → (voice: the Pro plan gate) → monthly allowance →
+ * provider. A denied caller must never reach `fetch`, and must never consume an
+ * allowance slot that belongs to someone who was allowed. The allowance itself —
+ * what each call charges, and a burst at its last action — is covered in
+ * `ai-allowance.test.ts`.
  *
  * Voice is Pro-only, and bootstrap creates Free workspaces, so every test that
  * means to get a transcription past the plan gate puts the workspace on Pro.
@@ -50,7 +61,7 @@ function audioReq(
 
 const SPEECH = new TextEncoder().encode("fake-opus-bytes-long-enough-to-look-like-a-recording");
 
-/** Rows in the shared hourly AI budget for a user. */
+/** Ledger rows (charged provider calls) for a user. */
 async function quotaUsed(alias: string): Promise<number> {
   const [row] = await getTestDb()
     .select({ n: count() })
@@ -168,72 +179,34 @@ describe("/api/v1/ai — gating before the provider", () => {
     expect(row).toEqual({ units: 0, kind: "voice_transcribe_failed" });
   });
 
-  it("429s once the hourly budget is gone, without reaching the provider", async () => {
+  it("C8: 429s with Retry-After once the person's AI rate limit is used, without reaching the provider", async () => {
     const fetchSpy = noProviderCalls();
-    signInAs("a");
-    await bootstrapUser("a");
-    const W = await workspaceIdOf("a");
-    await setWorkspacePlan(W, "pro");
+    limiter.current = createMemoryRateLimiter();
+    try {
+      signInAs("a");
+      await bootstrapUser("a");
+      const W = await workspaceIdOf("a");
+      await setWorkspacePlan(W, "pro");
+      // Pro allows 6 AI requests a minute — shared by both endpoints.
+      limiter.current.fill(uid("a"), "ai", 6);
 
-    // Fill the budget directly — the pool is one per user, shared across kinds.
-    await getTestDb()
-      .insert(aiUsageLog)
-      .values(
-        Array.from({ length: AI_REQUESTS_PER_HOUR }, () => ({
-          userId: uid("a"),
-          workspaceId: W,
-          kind: "transaction_parse",
-        })),
-      );
-
-    const res = await transcribe(audioReq(SPEECH));
-    expect(res.status).toBe(429);
-    expect(fetchSpy).not.toHaveBeenCalled();
-    expect(await quotaUsed("a")).toBe(AI_REQUESTS_PER_HOUR);
-  });
-
-  it("never overspends the budget when a burst arrives at once", async () => {
-    const fetchSpy = noProviderCalls();
-    signInAs("a");
-    await bootstrapUser("a");
-    const W = await workspaceIdOf("a");
-    await setWorkspacePlan(W, "pro");
-
-    // Leave exactly one slot, then ask for twelve.
-    //
-    // Read what this does and does not prove. The gate takes a namespaced
-    // per-user `pg_try_advisory_xact_lock` and only then counts and inserts, so
-    // a concurrent second caller loses the lock and is refused outright. But
-    // PGlite is a single in-process connection and serializes every query, so
-    // this harness **cannot stage the true race** — it passed against the
-    // read-then-insert version too, which was checked rather than assumed. The
-    // serialization guarantee lives in the lock and is verified by reading it.
-    //
-    // What this does guard is the arithmetic either way: exactly one caller is
-    // admitted, and the ledger ends on the cap rather than past it. A rewrite
-    // that double-inserted, or that let the rejected callers spend a slot,
-    // fails here.
-    await getTestDb()
-      .insert(aiUsageLog)
-      .values(
-        Array.from({ length: AI_REQUESTS_PER_HOUR - 1 }, () => ({
-          userId: uid("a"),
-          workspaceId: W,
-          kind: "transaction_parse",
-        })),
-      );
-
-    const results = await Promise.all(
-      Array.from({ length: 12 }, () => transcribe(audioReq(SPEECH))),
-    );
-    const statuses = results.map((r) => r.status);
-
-    // The single winner is stopped by the missing provider config (503), not by
-    // the quota — it was allowed through. Everyone else is refused.
-    expect(statuses.filter((s) => s !== 429)).toHaveLength(1);
-    expect(statuses.filter((s) => s === 429)).toHaveLength(11);
-    expect(await quotaUsed("a")).toBe(AI_REQUESTS_PER_HOUR);
-    expect(fetchSpy).not.toHaveBeenCalled();
+      const res = await transcribe(audioReq(SPEECH));
+      expect(res.status).toBe(429);
+      const retryAfter = Number(res.headers.get("Retry-After"));
+      expect(retryAfter).toBeGreaterThan(0);
+      expect(await res.json()).toEqual({
+        error: {
+          code: "rate_limited",
+          message: expect.stringMatching(/^That's a lot of AI requests in a short time\. Try again in /),
+          details: { bucket: "ai", window: "1m", retryAfterSeconds: retryAfter },
+        },
+      });
+      expect(fetchSpy).not.toHaveBeenCalled();
+      expect(await quotaUsed("a")).toBe(0);
+    } finally {
+      limiter.current = null;
+      resetRateLimitState();
+    }
   });
 
   it("401s an unauthenticated caller", async () => {

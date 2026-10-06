@@ -221,8 +221,10 @@ export default function PrivacyAndSecurityPage() {
           in it: a user id, a workspace id, a label saying which feature called,
           how many AI actions it used, the workspace&apos;s owner and plan, and a
           timestamp — none of them your note. It exists to count the
-          workspace&apos;s monthly AI allowance and to enforce an hourly limit so
-          one account can&apos;t run up the bill. The
+          workspace&apos;s monthly AI allowance. Separately, a per-person limit
+          on how many requests can arrive in a minute, five minutes and an hour
+          keeps one account from running up the bill — it stores counts, never
+          content. The
           application logs follow the same rule — ids, counts and durations,
           never the text of what you wrote — and receipts aren&apos;t read at
           all, because there is no OCR step and no vision step anywhere in the
