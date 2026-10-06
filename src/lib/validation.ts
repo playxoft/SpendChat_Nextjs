@@ -808,8 +808,11 @@ export const updateProfileSchema = z.object({
 });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
 
+/** The sidebar sends every profile in the workspace; Pro allows 15 spaces × 10 profiles. */
+export const REORDER_PROFILES_MAX = 200;
+
 export const reorderProfilesSchema = z.object({
-  ids: z.array(z.string().uuid()).min(1).max(100),
+  ids: z.array(z.string().uuid()).min(1).max(REORDER_PROFILES_MAX),
 });
 
 /**

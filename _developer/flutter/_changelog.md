@@ -99,6 +99,9 @@ unchanged; requests gain two optional fields and the gates gain two errors.
 | both | `403 plan_limit`, `limit: "aiActions"`, once the workspace's monthly allowance is spent — 50 / 300 / 1,000 actions on Free / Plus / Pro per UTC calendar month (`GET /usage` → `ai`, refilling at `ai.resetsAt`). The hourly `429 rate_limited` is still checked first. A call that fails on our side (502/503) gives its actions back. |
 | `POST /ai/transcribe` | `403 plan_limit`, `limit: "voice"`, unless the workspace is on **Pro** (or is grandfathered and inside its grace period — `GET /usage` → `voice`). |
 
+**Other:** `POST /profiles/reorder` now accepts up to **200** ids (was 100) — a Pro workspace can hold
+15 spaces × 10 profiles, and the list is always the whole workspace.
+
 **Flutter impact:** additive — nothing breaks. Add `spaceId` + `access` to
 the `Profile` model and `plan` / `organizationId` / `grandfathered` to the
 workspace model (all always present). Handle `403` with

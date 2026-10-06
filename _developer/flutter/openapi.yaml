@@ -1664,7 +1664,7 @@ paths:
                   description: The full ordered list of this workspace's profile ids.
                   items: { type: string, format: uuid }
                   minItems: 1
-                  maxItems: 100
+                  maxItems: 200
               required: [ids]
       responses:
         "200":
