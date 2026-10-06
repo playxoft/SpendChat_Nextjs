@@ -688,8 +688,6 @@ export async function updateWorkspaceEntry(
   const db = getDb();
   const ctx = await requireJoined(userId, rawGroupId);
   const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
-  // The linked entry in any state — a trashed transaction (or one whose
-  // profile is in the trash) still counts as added, and is answered below.
   const [row] = await db
     .select({
       share: splitShares,
@@ -702,7 +700,9 @@ export async function updateWorkspaceEntry(
       splitShares,
       and(eq(splitShares.expenseId, splitExpenses.id), eq(splitShares.memberId, ctx.me.id)),
     )
+    // trash: the linked entry in any state — a trashed one still counts as added, and is answered with a 409 / let go below
     .leftJoin(transactions, eq(transactions.id, splitShares.transactionId))
+    // trash: its profile in any state, for the same reason (a profile in the trash hides the entry)
     .leftJoin(profiles, eq(profiles.id, transactions.profileId))
     .where(and(eq(splitExpenses.id, expenseId), eq(splitExpenses.groupId, ctx.group.id)));
   if (!row || (row.share.amountMinor <= 0 && row.share.transactionId === null)) {
@@ -775,8 +775,6 @@ export async function removeWorkspaceEntry(
   const db = getDb();
   const ctx = await requireJoined(userId, rawGroupId);
   const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
-  // The linked entry in any state — a trashed transaction (or one whose
-  // profile is in the trash) still counts as added, and is answered below.
   const [row] = await db
     .select({
       share: splitShares,
@@ -789,7 +787,9 @@ export async function removeWorkspaceEntry(
       splitShares,
       and(eq(splitShares.expenseId, splitExpenses.id), eq(splitShares.memberId, ctx.me.id)),
     )
+    // trash: the linked entry in any state — a trashed one still counts as added, and is answered with a 409 / let go below
     .leftJoin(transactions, eq(transactions.id, splitShares.transactionId))
+    // trash: its profile in any state, for the same reason (a profile in the trash hides the entry)
     .leftJoin(profiles, eq(profiles.id, transactions.profileId))
     .where(and(eq(splitExpenses.id, expenseId), eq(splitExpenses.groupId, ctx.group.id)));
   if (!row) throw notFound("You don't have a share in this expense");
