@@ -142,7 +142,6 @@ export const FEATURED_BADGE = "Best value";
 export const PAID_PLANS_STATUS = {
   button: "Opens soon",
   short: "Paid plans open soon.",
-  long: "Plus and Pro open soon. Nobody can be charged today — start on Free, and your workspace keeps everything when you upgrade.",
   notifyLabel: "Tell me when it opens",
 } as const;
 

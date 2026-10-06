@@ -9,7 +9,7 @@ import { PlanCards, PricingExtras } from "@/components/pricing/plan-cards";
 import { PricingStateProvider } from "@/components/pricing/pricing-state";
 import { parseAcceptLanguage, regionFromLocale } from "@/lib/geo";
 import { marketingCta } from "@/lib/marketing";
-import { PAID_PLANS_STATUS, PLAN_PITCH, PRICING_HERO, pricingFaqs } from "@/lib/plan-copy";
+import { PLAN_PITCH, PRICING_HERO, pricingFaqs } from "@/lib/plan-copy";
 import { PERSONAL_PLANS, PLAN_NAMES } from "@/lib/plans";
 import { STUDENT_DISCOUNT, TRIAL_DAYS, currencyForCountry, pct } from "@/lib/pricing";
 import { createMetadata, faqJsonLd } from "@/lib/seo";
@@ -84,9 +84,6 @@ export default async function PricingPage() {
             </h1>
             <p className="mx-auto mt-5 max-w-xl text-pretty text-lg text-muted-foreground">
               {PRICING_HERO.body}
-            </p>
-            <p className="mx-auto mt-6 max-w-xl rounded-2xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-              {PAID_PLANS_STATUS.long}
             </p>
           </div>
 

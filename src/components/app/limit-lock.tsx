@@ -17,7 +17,7 @@ import { usePlan } from "./upgrade-dialog";
 /**
  * Plan limits shown up front. One behaviour everywhere: a "new …" control
  * whose limit is reached keeps working but carries a lock with a tooltip
- * (reason + "See plans"); the form it opens shows a `LimitPanel` at the top and
+ * (reason + an Upgrade button); the form it opens shows a `LimitPanel` at the top and
  * a disabled create button (`LockedButton`). Editing what already exists is
  * never locked — limits only stop adding.
  *
@@ -36,7 +36,7 @@ export function useAddLock(kind: AddLockKind, opts?: AddLockOptions): AddLock | 
   return addLock(useAddLimits(), kind, opts);
 }
 
-/** Tooltip body: the reason, plus a way into the upgrade dialog for mouse users. */
+/** Tooltip body: the reason, plus an Upgrade button into the upgrade dialog for mouse users. */
 function LockTooltipContent({
   lock,
   side = "top",
@@ -49,16 +49,12 @@ function LockTooltipContent({
     <TooltipContent
       side={side}
       variant="surface"
-      className="max-w-64 flex-col items-start gap-1 text-left"
+      className="max-w-72 flex-col items-start gap-2 text-left text-sm"
     >
       <span>{lock.reason}</span>
-      <button
-        type="button"
-        className="font-medium underline underline-offset-2 hover:text-foreground"
-        onClick={() => showUpgrade(lock.info)}
-      >
-        {lock.info.upgradeTo ? "See plans" : "Contact us"}
-      </button>
+      <Button type="button" size="sm" className="h-7 px-3" onClick={() => showUpgrade(lock.info)}>
+        {lock.info.upgradeTo ? "Upgrade" : "Contact us"}
+      </Button>
     </TooltipContent>
   );
 }
@@ -83,7 +79,7 @@ export function LimitLock({
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={`${lock.title}. ${lock.info.upgradeTo ? "See plans" : "Contact us"}`}
+          aria-label={`${lock.title}. ${lock.info.upgradeTo ? "Upgrade" : "Contact us"}`}
           onClick={(e) => {
             // It can sit inside a clickable row or a label.
             e.preventDefault();

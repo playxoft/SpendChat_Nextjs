@@ -1,8 +1,7 @@
 import type { Metadata } from "next";
-import { Clock } from "lucide-react";
 import { getAppContext } from "@/lib/auth";
 import { getUsage } from "@/lib/entitlements";
-import { PAID_PLANS_STATUS, PLAN_PITCH, pricingCurrencyFor, pricingFaqs, upgradeHero } from "@/lib/plan-copy";
+import { PLAN_PITCH, pricingCurrencyFor, pricingFaqs, upgradeHero } from "@/lib/plan-copy";
 import { isPaidPlan } from "@/lib/plans";
 import { FaqSection } from "@/components/marketing/faq-section";
 import { ComparisonTable } from "@/components/pricing/comparison-table";
@@ -21,7 +20,7 @@ export const metadata: Metadata = {
 /**
  * The in-app plans page: what the current workspace is on, how much of it is
  * used, and what Plus and Pro would change — the place every upgrade prompt
- * ("See plans") lands. Same cards, table and words as the public `/pricing`
+ * ("Upgrade") lands. Same cards, table and words as the public `/pricing`
  * (`components/pricing`, `lib/plan-copy`), priced in the workspace's currency
  * when we sell in it. Checkout isn't open yet, so nothing here takes money.
  */
@@ -46,11 +45,6 @@ export default async function UpgradePage() {
           </p>
         ) : null}
       </header>
-
-      <p className="mt-5 flex max-w-3xl items-start gap-2 rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
-        <Clock aria-hidden className="mt-0.5 size-4 shrink-0" />
-        <span>{PAID_PLANS_STATUS.long}</span>
-      </p>
 
       <div className="mt-6">
         <UsageStrip usage={usage} />

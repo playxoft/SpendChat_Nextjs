@@ -232,7 +232,7 @@ export function UpgradeDialog({
               </Button>
               <Button asChild>
                 <Link href="/app/upgrade" onClick={() => onOpenChange(false)}>
-                  See plans
+                  Upgrade
                   <ArrowRight className="size-4" />
                 </Link>
               </Button>
