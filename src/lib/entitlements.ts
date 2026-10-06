@@ -502,6 +502,8 @@ export type AddLimits = {
    * free place a new workspace needs (the "New workspace" lock says so).
    */
   freeSlotHere: boolean;
+  /** How many free workspaces this person owns (only one may stay free). */
+  freeOwned: number;
   profileLevelAccess: boolean;
   voice: boolean;
 };
@@ -542,6 +544,7 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
     profilesPerSpace: ent.limits.profilesPerSpace,
     canCreateFreeWorkspace: freeOwned === 0,
     freeSlotHere: ent.plan === "free" && ent.ownerId === userId && freeOwned === 1,
+    freeOwned,
     profileLevelAccess: ent.limits.profileLevelAccess,
     voice: voiceAllowed(ent),
   };

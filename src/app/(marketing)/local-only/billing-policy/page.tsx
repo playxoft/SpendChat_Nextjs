@@ -19,15 +19,15 @@ const sections: { h: string; p: string[] }[] = [
   {
     h: "Free trial",
     p: [
-      `Every paid plan starts with a ${TRIAL_DAYS}-day free trial with all of that plan's features. We email you before the trial ends. If you cancel before it ends, you are not charged.`,
-      "Trials are one per person (and one per household on Family, one per team on business plans). We may decline or end a trial that is being used to get around this.",
+      `Moving a workspace from Free to a paid plan starts with a ${TRIAL_DAYS}-day free trial with all of that plan's features; moving between paid plans has no trial. We email you before the trial ends. If you cancel before it ends, you are not charged.`,
+      "Each workspace gets one trial, and a person can start a limited number of trials a year. We may decline or end a trial that is being used to get around this.",
     ],
   },
   {
     h: "Billing and renewal",
     p: [
       "When the trial ends, the plan is charged in advance for the billing period you chose — one month, 3 months or a year on personal plans; one month or a year on business plans — and renews automatically for the same period until you cancel.",
-      "Plans are priced in six currencies — INR, USD, EUR, GBP, AUD and JPY — and you are charged in the one you choose at checkout. Applicable taxes are added at checkout. Our payment provider acts as merchant of record.",
+      "Plans are priced in six currencies — INR, USD, EUR, GBP, AUD and JPY. Rupee prices are available to buyers in India and its neighbouring rupee-priced countries; elsewhere you choose among the others, and checkout shows the exact amount before you pay. Applicable taxes are added at checkout. Our payment provider acts as merchant of record.",
     ],
   },
   {

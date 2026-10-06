@@ -82,6 +82,12 @@ export async function buildCheckoutOrder(
   // The client's (or the workspace's) currency is a preference; the request's
   // country decides whether the rupee list may be used (`checkoutCurrency`).
   const currency = checkoutCurrency(item.currency ?? pricingCurrencyFor(ws.currency), ctx.country);
+  // The page showed `item.currency`; if the request's country no longer allows
+  // it (a VPN toggled, roaming), charging something else silently would bill a
+  // currency the buyer never saw — ask them to reload instead.
+  if (item.currency && currency !== item.currency) {
+    throw badRequest("Prices for your location have changed — reload the page to see them.");
+  }
   const base = {
     workspace: { id: ws.id, name: ws.name },
     buyer: { userId, email: buyer?.email ?? null, name: buyer?.name ?? null },

@@ -200,7 +200,7 @@ export function UpgradeDialog({
           This workspace is on <PlanBadge plan={info.plan} />
         </p>
 
-        {target ? (
+        {target && !(info.limit === "newWorkspace" && !info.freeSlotHere) ? (
           <div className="space-y-2 rounded-lg border p-3">
             <div className="flex items-center justify-between gap-3">
               <PlanBadge plan={target} className="h-5 px-2 text-xs" />

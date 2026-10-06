@@ -1,5 +1,6 @@
 import "server-only";
 import { headers } from "next/headers";
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { edgeCountry, resolveSettingsDefaults, type SettingsDefaults } from "./geo";
 
 /**
@@ -11,6 +12,14 @@ import { edgeCountry, resolveSettingsDefaults, type SettingsDefaults } from "./g
  * from here.
  */
 export async function requestCountry(): Promise<string | null> {
+  // The Workers runtime's own `request.cf.country` first: it can't be set by
+  // the client and doesn't depend on the zone's IP-geolocation header setting.
+  try {
+    const country = (getCloudflareContext().cf as { country?: unknown } | undefined)?.country;
+    if (typeof country === "string") return edgeCountry(country);
+  } catch {
+    // Not inside a Workers request (tests, scripts) — fall back to the header.
+  }
   try {
     return edgeCountry((await headers()).get("cf-ipcountry"));
   } catch {

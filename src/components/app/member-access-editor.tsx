@@ -291,7 +291,11 @@ function ProfilePicker({
               onCheckedChange={(c) =>
                 onChange(
                   c === true
-                    ? [...entries.filter((e) => e.profileId !== p.id), { profileId: p.id, role: seedRole }]
+                    ? [
+                        ...entries.filter((e) => e.profileId !== p.id),
+                        // Narrow-only: re-ticking a profile can't come back above what it had.
+                        { profileId: p.id, role: ceiling?.get(p.id) ?? seedRole },
+                      ]
                     : entries.filter((e) => e.profileId !== p.id),
                 )
               }

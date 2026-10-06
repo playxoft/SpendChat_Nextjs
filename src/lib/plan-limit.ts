@@ -58,6 +58,8 @@ export type PlanLimitInfo = {
    * Otherwise the free workspace to upgrade is another one.
    */
   freeSlotHere?: boolean;
+  /** For `newWorkspace`: free workspaces the person owns. More than one = upgrading one won't make room. */
+  freeOwned?: number;
 };
 
 function isLimitKey(value: unknown): value is PlanLimitKey {

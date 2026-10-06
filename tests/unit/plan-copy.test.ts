@@ -320,3 +320,15 @@ describe("upgradeAction", () => {
     }
   });
 });
+
+describe("newWorkspace pitch (second review of #90)", () => {
+  it("doesn't promise that upgrading one free workspace makes room when the person owns two", async () => {
+    const { limitPitch } = await import("@/lib/plan-copy");
+    const one = limitPitch({ limit: "newWorkspace", plan: "pro", upgradeTo: "plus", freeSlotHere: false, freeOwned: 1 });
+    expect(one.pitch).toMatch(/new one can start on Free/);
+    const two = limitPitch({ limit: "newWorkspace", plan: "pro", upgradeTo: "plus", freeSlotHere: false, freeOwned: 2 });
+    expect(two.pitch).toMatch(/2 free workspaces/);
+    expect(two.pitch).not.toMatch(/new one can start on Free/);
+  });
+});
+

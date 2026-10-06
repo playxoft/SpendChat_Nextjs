@@ -396,7 +396,9 @@ export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
     pitch: ({ next, info }) =>
       info.freeSlotHere
         ? `Upgrade this workspace to ${next} and your free place opens up, so the new workspace can start on Free.`
-        : `Upgrade your free workspace to ${next} and the new one can start on Free.`,
+        : (info.freeOwned ?? 1) > 1
+          ? `You have ${info.freeOwned} free workspaces and only one can stay free — move the others to ${next} to make room for a new one.`
+          : `Upgrade your free workspace to ${next} and the new one can start on Free.`,
   },
 };
 

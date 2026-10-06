@@ -32,6 +32,8 @@ export type AddLimitsData = {
    * the free place a new workspace needs.
    */
   freeSlotHere: boolean;
+  /** Free workspaces the person owns; optional so older callers/tests still fit. */
+  freeOwned?: number;
   profileLevelAccess: boolean;
   voice: boolean;
 };
@@ -104,7 +106,7 @@ function cta(upgradeTo: PersonalPlan | null): string {
  * they have. Either way the new workspace can then start on Free.
  */
 export function newWorkspaceLock(
-  limits: Pick<AddLimitsData, "plan" | "freeSlotHere">,
+  limits: Pick<AddLimitsData, "plan" | "freeSlotHere"> & { freeOwned?: number },
 ): AddLock {
   return {
     title: "You already have a free workspace",
@@ -118,6 +120,7 @@ export function newWorkspaceLock(
       // The plan a free workspace moves up to, wherever that workspace is.
       upgradeTo: "plus",
       freeSlotHere: limits.freeSlotHere,
+      freeOwned: limits.freeOwned,
     },
   };
 }

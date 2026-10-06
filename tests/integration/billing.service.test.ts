@@ -163,20 +163,33 @@ describe("startCheckout — the price is the server's", () => {
     const fromIndia = await buildCheckoutOrder(uid("own"), W, pro, { country: "IN" });
     expect(fromIndia.currency).toBe("INR");
     expect(fromIndia.amountMinor).toBe(priceMinor("pro", "yearly", "INR"));
-    // Asking for rupees from the US, or from nowhere known, gets the regional price.
-    const fromUs = await buildCheckoutOrder(uid("own"), W, pro, { country: "US" });
+    // Asking for rupees from the US, or from nowhere known, is refused — the
+    // page would have shown the regional price instead.
+    await expect(buildCheckoutOrder(uid("own"), W, pro, { country: "US" })).rejects.toMatchObject({ status: 400 });
+    await expect(buildCheckoutOrder(uid("own"), W, pro, { country: null })).rejects.toMatchObject({ status: 400 });
+    // With no explicit currency, the regional price is used.
+    const fromUs = await buildCheckoutOrder(uid("own"), W, plan("pro", "yearly"), { country: "US" });
     expect(fromUs.currency).toBe("USD");
     expect(fromUs.amountMinor).toBe(priceMinor("pro", "yearly", "USD"));
-    const unknown = await buildCheckoutOrder(uid("own"), W, pro, { country: null });
-    expect(unknown.currency).toBe("USD");
     // A workspace set to INR doesn't unlock it either.
     await getTestDb().update(workspaces).set({ currency: "INR" }).where(eq(workspaces.id, W));
     const viaWorkspace = await buildCheckoutOrder(uid("own"), W, plan("pro", "yearly"), { country: "GB" });
     expect(viaWorkspace.currency).toBe("GBP");
     // Top-ups follow the same rule.
     await setWorkspacePlan(W, "plus");
-    const topUp = await buildCheckoutOrder(uid("own"), W, { item: "topup", currency: "INR" }, { country: "US" });
+    await expect(
+      buildCheckoutOrder(uid("own"), W, { item: "topup", currency: "INR" }, { country: "US" }),
+    ).rejects.toMatchObject({ status: 400 });
+    const topUp = await buildCheckoutOrder(uid("own"), W, { item: "topup" }, { country: "US" });
     expect(topUp.amountMinor).toBe(topUpPriceMinor("USD"));
+  });
+
+  it("asks for a reload instead of charging a currency the page didn't show (second review of #90)", async () => {
+    const W = await ownWorkspace();
+    // The page showed rupees (from India); by submit the request is from the US.
+    await expect(
+      buildCheckoutOrder(uid("own"), W, { ...plan("plus", "monthly"), currency: "INR" }, { country: "US" }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it("ignores a price the client tries to send", async () => {

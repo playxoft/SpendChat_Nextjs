@@ -634,6 +634,7 @@ describe("getAddLimits", () => {
       // is what frees the place for another.
       canCreateFreeWorkspace: false,
       freeSlotHere: true,
+      freeOwned: 1,
       profileLevelAccess: false,
       voice: false,
     });
