@@ -162,8 +162,9 @@ describe("server actions — per-person rate limits (C8)", () => {
     signInAs("a");
     expect(await switchWorkspace(bPro)).toMatchObject({ ok: false, code: "rate_limited" });
 
-    // Once a is a member there, the same call is judged on Pro and passes —
-    // the Free-earned block doesn't hold against it.
+    // Once a is a member there (after the block — membership mid-block waits
+    // it out, like an upgrade), the same call is judged on Pro and passes.
+    resetRateLimitState();
     await ws.addMember(uid("b"), bPro, {
       email: "a@example.com",
       access: { mode: "all", role: "viewer" },
@@ -171,14 +172,18 @@ describe("server actions — per-person rate limits (C8)", () => {
     expect((await switchWorkspace(bPro)).ok).toBe(true);
   });
 
-  it("C8: a block lifts when the workspace is upgraded", async () => {
+  it("C8: an upgrade mid-block waits out the block, then gets the new numbers", async () => {
     signInAs("a");
     await bootstrapUser("a");
     mem.fill(uid("a"), "create", 25);
-    expect((await addTransaction(entry)).ok).toBe(false); // 26 > Free's 20 — blocked
+    const refused = await addTransaction(entry); // 26 > Free's 20 — blocked
+    expect(refused.ok).toBe(false);
+    const wait = (refused as { details: { retryAfterSeconds: number } }).details.retryAfterSeconds;
+
     await setWorkspacePlan(await workspaceIdOf("a"), "pro");
-    // No reset: the Free block doesn't hold against Pro's 40.
-    expect((await addTransaction(entry)).ok).toBe(true);
+    expect((await addTransaction(entry)).ok).toBe(false); // the block holds Free until it lifts
+    vi.setSystemTime(T0 + wait * 1000);
+    expect((await addTransaction(entry)).ok).toBe(true); // then Pro's 40 apply
   });
 
   it("fails open when there is no Durable Object binding", async () => {

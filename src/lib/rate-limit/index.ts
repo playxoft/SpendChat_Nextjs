@@ -1,5 +1,6 @@
 import "server-only";
 import { after } from "next/server";
+import { getPlanRangeForUser, type PlanRange } from "@/lib/entitlements";
 import { ApiError, rateLimited, retryAfterHeaders } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import {
@@ -7,14 +8,20 @@ import {
   PLAN_NAMES,
   RATE_LIMITS,
   isPersonalPlan,
-  planAtLeast,
   type PersonalPlan,
   type RateBucket,
 } from "@/lib/plans";
 import { memoizeForRequest } from "@/lib/request-cache";
 import { getRateLimiterStub, type RateLimiterStub } from "./binding";
 import { formatWait, rateLimitMessage } from "./classify";
-import { evaluate, type RateSnapshot, type RateWindowLabel } from "./sliding-window";
+import {
+  evaluate,
+  recordHit,
+  removeHit,
+  type RateSnapshot,
+  type RateVerdict,
+  type RateWindowLabel,
+} from "./sliding-window";
 
 /**
  * Per-person rate limits (abuse rule C8): every authenticated request counts
@@ -36,13 +43,21 @@ import { evaluate, type RateSnapshot, type RateWindowLabel } from "./sliding-win
  *  3. a refused hit is taken back after the response, so it doesn't use up the
  *     budget it was refused from and `Retry-After` stays true.
  *
- * **Blocked people cost nothing.** A refusal is remembered in this isolate,
- * with the plan it was judged by and the weight of the request, until its
- * `Retry-After` passes. A repeat at least that heavy, judged by the same plan
- * (or a lower one), is refused without a Durable Object call; one in a
- * workspace on a higher plan — or after an upgrade — is judged afresh, and so
- * is a lighter one (a refused 20-read export doesn't stop plain reads). A
- * block earned on the top plan refuses before anything else runs.
+ * **Blocked people cost (almost) nothing.** A refusal is remembered in this
+ * isolate as a block: the counts the Durable Object holds without the refused
+ * hit, and the person's plan range — the lowest and highest plan among their
+ * workspaces, looked up once per block. A later request is judged against
+ * those counts locally, at its own weight, so the wait it's told is right for
+ * it (a refused 20-read export doesn't stop a plain read). When every one of
+ * the person's workspaces is on the same plan — nearly everyone, and every
+ * script on a throwaway Free account — the plan is known, and a refusal is
+ * thrown by `startRateLimit` itself: no database read, no Durable Object call.
+ * Someone with workspaces on different plans has the plan of this request
+ * resolved first. Two consequences, accepted: an upgrade mid-block waits out
+ * the block (it holds the plan range from when it was made), and a request
+ * naming a workspace the person isn't in is told the wait for their own plan.
+ * Other isolates may have counted more in the meantime; at worst a request is
+ * passed to the Durable Object, which refuses it with the true wait.
  *
  * **Failing open — except AI.** With no binding at all (`next dev`, tests,
  * scripts) every request is allowed. With a binding whose object errors or
@@ -50,8 +65,9 @@ import { evaluate, type RateSnapshot, type RateWindowLabel } from "./sliding-win
  * must not take the app down — but an **AI** request is refused for a few
  * seconds: AI calls a paid provider, and nothing else limits how many calls
  * one person makes (the monthly allowance gives a failed call its action
- * back, and the charge's per-user lock only stops two running at once). Both
- * are logged (throttled).
+ * back, and the charge's per-user lock only stops two running at once). A
+ * refused AI hit that lands after the timeout is taken back. Both are logged
+ * (throttled).
  */
 
 /** How long a create or read waits for the Durable Object before failing open. */
@@ -69,8 +85,11 @@ const BLOCK_CACHE_MAX = 1_000;
 /** At most one "failed open/closed" warning per isolate in this long. */
 const FAILURE_WARNING_EVERY_MS = 60_000;
 
-/** No plan is higher: a block earned here can't be lifted by a workspace change. */
-const TOP_PLAN = PERSONAL_PLANS[PERSONAL_PLANS.length - 1]!;
+/** When the plan range can't be read, assume the widest: the plan is then resolved per request. */
+const UNKNOWN_RANGE: PlanRange = {
+  floor: PERSONAL_PLANS[0]!,
+  ceiling: PERSONAL_PLANS[PERSONAL_PLANS.length - 1]!,
+};
 
 export type PlanResolver = () => PersonalPlan | Promise<PersonalPlan>;
 
@@ -82,11 +101,15 @@ export type RateCheck = {
 type Hit = { stub: RateLimiterStub; snapshot: RateSnapshot; weight: number; undone: boolean };
 /** What counting a request came to: a hit to judge, or the limiter couldn't count it. */
 type Count = { kind: "hit"; hit: Hit } | { kind: "open" } | { kind: "closed" };
-/** A remembered refusal: until when, which window, judged on which plan, for how heavy a request. */
-type Block = { until: number; window: RateWindowLabel; plan: PersonalPlan; weight: number };
+/**
+ * A remembered refusal: the Durable Object's counts without the refused hit
+ * (`base`), the person's plan range then, and when the refused request itself
+ * would have passed (an upper bound for keeping the block around).
+ */
+type Block = { until: number; base: RateSnapshot; range: PlanRange };
 
 // Module state is per isolate and outlives a request on purpose: it holds only
-// "who is blocked until when, on which plan" and log throttles — never request data.
+// counts, plan names and log throttles — never request data.
 const blocked = new Map<string, Block>();
 let warnedUnavailable = false;
 let lastFailureWarningAt = Number.NEGATIVE_INFINITY;
@@ -104,10 +127,6 @@ function refusal(bucket: RateBucket, window: RateWindowLabel, retryAfterSeconds:
     window,
     retryAfterSeconds,
   });
-}
-
-function blockRefusal(bucket: RateBucket, block: Block, now: number): ApiError {
-  return refusal(bucket, block.window, Math.max(1, Math.ceil((block.until - now) / 1000)));
 }
 
 /** AI refused because the limiter couldn't count it (fail closed). */
@@ -132,6 +151,27 @@ function rememberBlock(key: string, block: Block, now: number): void {
     if (blocked.size >= BLOCK_CACHE_MAX) blocked.clear();
   }
   blocked.set(key, block);
+}
+
+/** How a request of `weight`, judged by `plan`, would fare against a block's counts right now. */
+function judgeFromBlock(
+  block: Block,
+  bucket: RateBucket,
+  weight: number,
+  plan: PersonalPlan,
+  now: number,
+): RateVerdict {
+  const windows = recordHit(block.base.windows, now, weight);
+  return evaluate({ at: now, windows }, RATE_LIMITS[plan][bucket], weight);
+}
+
+/** Run `fn` once the response is out (`waitUntil` on Workers), or now outside a request. */
+function afterResponse(fn: () => Promise<unknown>): void {
+  try {
+    after(fn);
+  } catch {
+    void fn(); // outside a request scope (tests, scripts)
+  }
 }
 
 function noteUnavailable(): void {
@@ -173,19 +213,32 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 /** Count the request on the person's Durable Object. Never rejects. */
 async function countHit(userId: string, bucket: RateBucket, weight: number): Promise<Count> {
   const ai = bucket === "ai";
+  let stub: RateLimiterStub | null = null;
+  let landing: Promise<RateSnapshot> | null = null;
   try {
-    const stub = getRateLimiterStub(userId);
+    stub = getRateLimiterStub(userId);
     if (!stub) {
       noteUnavailable();
       return { kind: "open" }; // no binding at all: dev, tests, scripts
     }
+    landing = stub.hit(bucket, weight);
     const timeout = ai ? AI_RATE_LIMIT_TIMEOUT_MS : RATE_LIMIT_TIMEOUT_MS;
-    const snapshot = await withTimeout(stub.hit(bucket, weight), timeout);
+    const snapshot = await withTimeout(landing, timeout);
     return { kind: "hit", hit: { stub, snapshot, weight, undone: false } };
   } catch (err) {
     // A binding that errors or is slow: AI fails closed, everything else open.
     noteFailure(bucket, ai, err);
-    return { kind: ai ? "closed" : "open" };
+    if (!ai) return { kind: "open" };
+    // A refused AI request mustn't count — but a slow hit may still land after
+    // the timeout. Take it back if and when it does.
+    if (stub && landing) {
+      const s = stub;
+      const pending = landing;
+      afterResponse(() =>
+        pending.then((snap) => s.undo(bucket, snap.at, weight)).catch(() => {}),
+      );
+    }
+    return { kind: "closed" };
   }
 }
 
@@ -198,50 +251,62 @@ async function planOrFree(resolvePlan: PlanResolver): Promise<PersonalPlan> {
   }
 }
 
+async function planRangeOf(userId: string): Promise<PlanRange> {
+  try {
+    return await getPlanRangeForUser(userId);
+  } catch {
+    return UNKNOWN_RANGE;
+  }
+}
+
 /** Give a refused hit back, after the response (`waitUntil` on Workers). */
 function takeBack(hit: Hit, bucket: RateBucket): void {
-  const run = () =>
+  afterResponse(() =>
     hit.stub.undo(bucket, hit.snapshot.at, hit.weight).catch((err: unknown) => {
       logger.debug(`Couldn't take back a refused request: ${describeError(err)}`, {
         event: "rate_limit.undo_failed",
         bucket,
       });
-    });
-  try {
-    after(run);
-  } catch {
-    void run(); // outside a request scope (tests, scripts)
-  }
+    }),
+  );
 }
 
 async function judge(
-  key: string,
+  userId: string,
   bucket: RateBucket,
   pending: Promise<Count>,
   resolvePlan: PlanResolver,
   knownPlan?: PersonalPlan,
 ): Promise<void> {
+  const key = `${userId}:${bucket}`;
   const count = await pending;
   if (count.kind === "open") return;
   if (count.kind === "closed") throw aiUnavailable();
   const { hit } = count;
-  if (evaluate(hit.snapshot, RATE_LIMITS.free[bucket], hit.weight).allowed) return;
+  if (evaluate(hit.snapshot, RATE_LIMITS.free[bucket], hit.weight).allowed) {
+    blocked.delete(key); // a block's counts are stale once a request gets through
+    return;
+  }
 
   const plan = knownPlan ?? (await planOrFree(resolvePlan));
   const verdict = evaluate(hit.snapshot, RATE_LIMITS[plan][bucket], hit.weight);
-  if (verdict.allowed) return;
+  if (verdict.allowed) {
+    blocked.delete(key);
+    return;
+  }
 
   // A request judged twice (a route that calls both API auth helpers) is taken
   // back, remembered and logged once.
   if (!hit.undone) {
     hit.undone = true;
     takeBack(hit, bucket);
+    const range = await planRangeOf(userId);
     const now = Date.now();
-    rememberBlock(
-      key,
-      { until: now + verdict.retryAfterSeconds * 1000, window: verdict.window, plan, weight: hit.weight },
-      now,
-    );
+    const base: RateSnapshot = {
+      at: hit.snapshot.at,
+      windows: removeHit(hit.snapshot.windows, hit.snapshot.at, hit.weight),
+    };
+    rememberBlock(key, { until: now + verdict.retryAfterSeconds * 1000, base, range }, now);
     logger.warn(
       `Someone went over the ${bucket} limit (${verdict.limit} per ${WINDOW_NAMES[verdict.window]} on ${PLAN_NAMES[plan]}); blocked for ${verdict.retryAfterSeconds}s`,
       {
@@ -263,34 +328,38 @@ async function judge(
  * `enforce` once the plan is at hand. Counts once per request however often
  * it's called (memoized in the request scope).
  *
- * When this isolate already holds a block for the person, for a request at
- * least this heavy: earned on the top plan, it throws the 429 straight away;
- * otherwise counting waits for the plan — the same plan or a lower one is
- * refused from the block, a higher one (another workspace, an upgrade) is
- * counted and judged afresh.
+ * When this isolate holds a block for the person (see the header): if all
+ * their workspaces are on one plan, the request is judged against the block
+ * right here, and a refusal is thrown before anything else runs; if their
+ * plans differ, `enforce` resolves this request's plan and judges against the
+ * block then. Only a request the block's counts would let through is counted
+ * on the Durable Object.
  */
 export function startRateLimit(userId: string, bucket: RateBucket, weight = 1): RateCheck {
   const key = `${userId}:${bucket}`;
   const now = Date.now();
-  const found = activeBlock(key, now);
-  // A lighter request than the one refused may still fit: let it be counted.
-  const block = found && weight >= found.weight ? found : null;
-  if (block?.plan === TOP_PLAN) throw blockRefusal(bucket, block, now);
+  const block = activeBlock(key, now);
   const count = () =>
     memoizeForRequest(`rate-limit:${key}`, () => countHit(userId, bucket, weight));
-  if (!block) {
-    const pending = count();
-    return { enforce: (resolvePlan) => judge(key, bucket, pending, resolvePlan) };
+
+  if (block && block.range.floor !== block.range.ceiling) {
+    // Workspaces on different plans: this request's plan decides.
+    return {
+      async enforce(resolvePlan) {
+        const plan = await planOrFree(resolvePlan);
+        const verdict = judgeFromBlock(block, bucket, weight, plan, Date.now());
+        if (!verdict.allowed) throw refusal(bucket, verdict.window, verdict.retryAfterSeconds);
+        return judge(userId, bucket, count(), resolvePlan, plan);
+      },
+    };
   }
-  return {
-    async enforce(resolvePlan) {
-      const plan = await planOrFree(resolvePlan);
-      if (!planAtLeast(plan, block.plan) || plan === block.plan) {
-        throw blockRefusal(bucket, block, Date.now());
-      }
-      return judge(key, bucket, count(), resolvePlan, plan);
-    },
-  };
+  if (block) {
+    // One plan across all their workspaces: judged on the spot.
+    const verdict = judgeFromBlock(block, bucket, weight, block.range.ceiling, now);
+    if (!verdict.allowed) throw refusal(bucket, verdict.window, verdict.retryAfterSeconds);
+  }
+  const pending = count();
+  return { enforce: (resolvePlan) => judge(userId, bucket, pending, resolvePlan) };
 }
 
 /** Count and judge in one go — for routes that already know the plan. */

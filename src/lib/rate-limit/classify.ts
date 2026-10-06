@@ -29,8 +29,12 @@ export function classifyApiRequest(method: string, pathname: string): RateBucket
  */
 export const EXPORT_WEIGHT = 20;
 
-/** Reads (by path) that count as more than one request. */
-const READ_WEIGHTS: Record<string, number> = {
+/**
+ * Reads (by path) that count as more than one request. Each weight must stay
+ * at or below the smallest read limit, or such a request could never pass —
+ * `tests/unit/rate-limit-classify.test.ts` checks every entry.
+ */
+export const READ_WEIGHTS: Readonly<Record<string, number>> = {
   "/api/v1/transactions/export": EXPORT_WEIGHT,
 };
 

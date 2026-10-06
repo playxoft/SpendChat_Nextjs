@@ -107,8 +107,25 @@ function userWorkspacesForRequest(userId: string) {
  * request is over Free's numbers, so it's off the hot path.
  */
 export async function getBestPlanForUser(userId: string): Promise<PersonalPlan> {
-  const list = await userWorkspacesForRequest(userId);
-  return list.reduce<PersonalPlan>((best, w) => (planAtLeast(w.plan, best) ? w.plan : best), "free");
+  return (await getPlanRangeForUser(userId)).ceiling;
+}
+
+/** The lowest and highest plan among the workspaces a person can open. */
+export type PlanRange = { floor: PersonalPlan; ceiling: PersonalPlan };
+
+/**
+ * The lowest and highest plan among every workspace the person can open
+ * (memoized per request; Free/Free when they have none). The rate limiter
+ * reads it once per block: someone whose workspaces are all on one plan can be
+ * refused from the block without looking anything up again.
+ */
+export async function getPlanRangeForUser(userId: string): Promise<PlanRange> {
+  const plans = (await userWorkspacesForRequest(userId)).map((w) => w.plan);
+  if (plans.length === 0) return { floor: "free", ceiling: "free" };
+  return {
+    floor: plans.reduce((low, p) => (planAtLeast(low, p) ? p : low)),
+    ceiling: plans.reduce((high, p) => (planAtLeast(p, high) ? p : high)),
+  };
 }
 
 /**

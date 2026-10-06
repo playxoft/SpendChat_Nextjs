@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   EXPORT_WEIGHT,
+  READ_WEIGHTS,
   bucketOfAction,
   classifyApiRequest,
   formatWait,
@@ -54,9 +55,16 @@ describe("request weights", () => {
   });
 
   it("C8: no weight exceeds the smallest read limit (or a request could never pass)", () => {
-    const smallest = Math.min(...PERSONAL_PLANS.map((p) => RATE_LIMITS[p].read.perMinute));
-    expect(EXPORT_WEIGHT).toBeLessThanOrEqual(smallest);
-    expect(EXPORT_WEIGHT).toBeLessThanOrEqual(MAX_REQUEST_WEIGHT);
+    const smallest = Math.min(
+      ...PERSONAL_PLANS.flatMap((p) => Object.values(RATE_LIMITS[p].read)),
+    );
+    expect(Object.keys(READ_WEIGHTS).length).toBeGreaterThan(0);
+    for (const [route, weight] of Object.entries(READ_WEIGHTS)) {
+      expect(Number.isInteger(weight) && weight >= 1, route).toBe(true);
+      expect(weight, route).toBeLessThanOrEqual(smallest);
+      expect(weight, route).toBeLessThanOrEqual(MAX_REQUEST_WEIGHT);
+    }
+    expect(READ_WEIGHTS["/api/v1/transactions/export"]).toBe(EXPORT_WEIGHT);
   });
 });
 

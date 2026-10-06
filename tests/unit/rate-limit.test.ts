@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getRateLimiterStub: vi.fn(),
+  getPlanRangeForUser: vi.fn(),
   after: vi.fn(),
   warn: vi.fn(),
   debug: vi.fn(),
 }));
 
 vi.mock("@/lib/rate-limit/binding", () => ({ getRateLimiterStub: mocks.getRateLimiterStub }));
+// The one database read the limiter makes itself: a person's plan range, once per block.
+vi.mock("@/lib/entitlements", () => ({ getPlanRangeForUser: mocks.getPlanRangeForUser }));
 vi.mock("next/server", () => ({ after: mocks.after }));
 vi.mock("@/lib/logger", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/logger")>();
@@ -70,9 +73,13 @@ async function refusalOf(run: () => Promise<void>): Promise<unknown> {
   return null;
 }
 
+/** Every workspace of the person on one plan (the common case), or a spread. */
+const onePlan = (plan: "free" | "plus" | "pro") => ({ floor: plan, ceiling: plan });
+
 beforeEach(() => {
   resetRateLimitState();
   vi.useFakeTimers({ toFake: ["Date"], now: T0 + 30_000 });
+  mocks.getPlanRangeForUser.mockResolvedValue(onePlan("free"));
   mocks.after.mockImplementation((fn: () => unknown) => {
     void fn();
   });
@@ -181,6 +188,24 @@ describe("failing closed — AI", () => {
     expect(mocks.warn.mock.calls[0]![0]).toBe(
       `Rate limit check failed closed (AI refused): no answer within ${AI_RATE_LIMIT_TIMEOUT_MS}ms`,
     );
+  });
+
+  it("C8: a refused AI hit that lands after the timeout is taken back", async () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"], now: T0 });
+    let land!: (s: RateSnapshot) => void;
+    const stub = {
+      hit: vi.fn(() => new Promise<RateSnapshot>((resolve) => (land = resolve))),
+      undo: vi.fn(async () => {}),
+    };
+    mocks.getRateLimiterStub.mockReturnValue(stub);
+    const pending = refusalOf(() => startRateLimit("u1", "ai").enforce(free));
+    await vi.advanceTimersByTimeAsync(AI_RATE_LIMIT_TIMEOUT_MS);
+    expect(await pending).toMatchObject({ status: 429 });
+    expect(stub.undo).not.toHaveBeenCalled(); // nothing to undo yet…
+
+    land(snapshotOf(1, T0 + 1_500)); // …the hit lands late,
+    await vi.waitFor(() => expect(stub.undo).toHaveBeenCalledWith("ai", T0 + 1_500, 1)); // and is taken back
   });
 
   it("C8: AI fails closed when the binding errors", async () => {
@@ -304,17 +329,24 @@ describe("judging", () => {
 });
 
 describe("blocked people", () => {
-  it("C8: a blocked person is refused from the isolate cache without calling the Durable Object", async () => {
+  it("C8: a blocked person is refused on the spot — no plan lookup, no database read, no Durable Object call", async () => {
     const stub = stubAnswering(snapshotOf(21));
     await expect(startRateLimit("u1", "create").enforce(free)).rejects.toThrow(ApiError);
     expect(stub.hit).toHaveBeenCalledTimes(1);
+    expect(mocks.getPlanRangeForUser).toHaveBeenCalledTimes(1); // once, for the block
 
-    // 10s later, same plan: refused from the block, with the remaining wait.
+    // 10s later: thrown by startRateLimit itself, with the remaining wait.
     vi.setSystemTime(T0 + 40_000);
-    expect(await refusalOf(() => startRateLimit("u1", "create").enforce(free))).toMatchObject({
-      status: 429,
-      details: { retryAfterSeconds: 23, window: "1m" },
-    });
+    const resolvePlan = vi.fn(free);
+    let thrown: unknown = null;
+    try {
+      startRateLimit("u1", "create").enforce(resolvePlan);
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toMatchObject({ status: 429, details: { retryAfterSeconds: 23, window: "1m" } });
+    expect(resolvePlan).not.toHaveBeenCalled();
+    expect(mocks.getPlanRangeForUser).toHaveBeenCalledTimes(1);
     expect(stub.hit).toHaveBeenCalledTimes(1);
     expect(mocks.warn).toHaveBeenCalledTimes(1);
 
@@ -324,30 +356,52 @@ describe("blocked people", () => {
     await expect(startRateLimit("u2", "create").enforce(free)).resolves.toBeUndefined();
   });
 
-  it("C8: a block earned on Free doesn't refuse in a Pro workspace, or after an upgrade", async () => {
+  it("C8: an upgrade mid-block waits out the block", async () => {
     stubAnswering(snapshotOf(21));
     await expect(startRateLimit("u1", "create").enforce(free)).rejects.toThrow(ApiError);
-
-    // The same person in a Pro workspace (or after upgrading): judged afresh
-    // against Pro's 40 — 22 requests pass.
+    // Now on Pro, which would allow 22 — but the block holds Free until it lifts.
     const stub = stubAnswering(snapshotOf(22));
+    expect(() => startRateLimit("u1", "create")).toThrow(ApiError);
+    vi.setSystemTime(T0 + 30_000 + 33_000);
     await expect(startRateLimit("u1", "create").enforce(pro)).resolves.toBeUndefined();
-    expect(stub.hit).toHaveBeenCalledTimes(1);
-    // Back in the Free workspace, the block still holds — no new hit.
-    await expect(startRateLimit("u1", "create").enforce(free)).rejects.toMatchObject({
-      status: 429,
-    });
     expect(stub.hit).toHaveBeenCalledTimes(1);
   });
 
-  it("C8: a block earned on Plus refuses in a Free workspace too", async () => {
-    stubAnswering(snapshotOf(31));
+  it("C8: with workspaces on different plans, a block earned on Free doesn't refuse in their Pro workspace", async () => {
+    mocks.getPlanRangeForUser.mockResolvedValue({ floor: "free", ceiling: "pro" });
+    stubAnswering(snapshotOf(21));
+    await expect(startRateLimit("u1", "create").enforce(free)).rejects.toThrow(ApiError);
+
+    // In the Pro workspace: judged against Pro's 40 — 22 requests pass.
+    const stub = stubAnswering(snapshotOf(22));
+    await expect(startRateLimit("u1", "create").enforce(pro)).resolves.toBeUndefined();
+    expect(stub.hit).toHaveBeenCalledTimes(1);
+  });
+
+  it("C8: with workspaces on different plans, a block refuses a lower plan without a new hit", async () => {
+    mocks.getPlanRangeForUser.mockResolvedValue({ floor: "free", ceiling: "plus" });
+    stubAnswering(snapshotOf(31)); // over Plus's 30
     await expect(startRateLimit("u1", "create").enforce(plus)).rejects.toThrow(ApiError);
     const stub = stubAnswering(snapshotOf(1));
-    await expect(startRateLimit("u1", "create").enforce(free)).rejects.toMatchObject({
-      status: 429,
-    });
+    // In their Free workspace: refused from the block, with Free's (longer) wait.
+    const inFree = await refusalOf(() => startRateLimit("u1", "create").enforce(free));
+    const inPlus = await refusalOf(() => startRateLimit("u1", "create").enforce(plus));
     expect(stub.hit).not.toHaveBeenCalled();
+    const wait = (e: unknown) => (e as { details: { retryAfterSeconds: number } }).details.retryAfterSeconds;
+    expect(wait(inFree)).toBe(52); // 30 + 1 > 20: rollover (30s) + 30 fading to 19 (22s)
+    expect(wait(inPlus)).toBe(32); // rollover (30s) + fade to 29 (2s)
+  });
+
+  it("C8: the wait a block names is right for the request's own weight", async () => {
+    stubAnswering(snapshotOf(121)); // a plain read over Free's 120
+    const plain = await refusalOf(() => startRateLimit("u1", "read").enforce(free));
+    const stub = stubAnswering(snapshotOf(1));
+    // An export (20 reads) against the same counts has longer to wait.
+    const heavy = await refusalOf(() => startRateLimit("u1", "read", 20).enforce(free));
+    expect(stub.hit).not.toHaveBeenCalled();
+    const wait = (e: unknown) => (e as { details: { retryAfterSeconds: number } }).details.retryAfterSeconds;
+    expect(wait(plain)).toBe(31); // rollover (30s) + 120 fading to 119 (0.5s)
+    expect(wait(heavy)).toBe(40); // rollover (30s) + 120 fading to 100 (10s)
   });
 
   it("C8: a refused export blocks the next export, not a plain read", async () => {
@@ -355,22 +409,29 @@ describe("blocked people", () => {
     await expect(startRateLimit("u1", "read", 20).enforce(free)).rejects.toThrow(ApiError);
 
     const stub = stubAnswering(snapshotOf(102)); // 101 + one plain read: fits
-    await expect(startRateLimit("u1", "read", 20).enforce(free)).rejects.toMatchObject({
-      status: 429,
-    });
+    expect(() => startRateLimit("u1", "read", 20)).toThrow(ApiError);
     expect(stub.hit).not.toHaveBeenCalled(); // the export was refused from the block
     await expect(startRateLimit("u1", "read").enforce(free)).resolves.toBeUndefined();
     expect(stub.hit).toHaveBeenCalledWith("read", 1); // the read was counted and passed
   });
 
-  it("C8: a block earned on the top plan refuses before anything else runs", async () => {
-    stubAnswering(snapshotOf(41)); // over Pro's 40
-    await expect(startRateLimit("u1", "create").enforce(pro)).rejects.toThrow(ApiError);
-    const stub = stubAnswering(snapshotOf(1));
-    // Thrown by startRateLimit itself — before the caller resolves a workspace.
-    expect(() => startRateLimit("u1", "create")).toThrow(ApiError);
-    await expect(enforceRateLimit("u1", "create", pro)).rejects.toMatchObject({ status: 429 });
-    expect(stub.hit).not.toHaveBeenCalled();
+  it("C8: a request the block lets through is counted, and clears the block", async () => {
+    stubAnswering(snapshotOf(121));
+    await expect(startRateLimit("u1", "read", 20).enforce(free)).rejects.toThrow(ApiError);
+    stubAnswering(snapshotOf(102));
+    await startRateLimit("u1", "read").enforce(free); // passes → block cleared
+    // The next export is counted on the Durable Object, not refused from the old block.
+    const stub = stubAnswering(snapshotOf(50));
+    await expect(startRateLimit("u1", "read", 20).enforce(free)).resolves.toBeUndefined();
+    expect(stub.hit).toHaveBeenCalledWith("read", 20);
+  });
+
+  it("C8: an unreadable plan range resolves each request's plan instead", async () => {
+    mocks.getPlanRangeForUser.mockRejectedValue(new Error("db down"));
+    stubAnswering(snapshotOf(21));
+    await expect(startRateLimit("u1", "create").enforce(free)).rejects.toThrow(ApiError);
+    const check = startRateLimit("u1", "create"); // not refused on the spot
+    await expect(check.enforce(free)).rejects.toMatchObject({ status: 429 });
   });
 
   it("C8: the block lifts once Retry-After has passed", async () => {
@@ -383,21 +444,22 @@ describe("blocked people", () => {
   });
 
   it("forgets expired blocks when the cache is full", async () => {
-    stubAnswering(snapshotOf(41));
+    stubAnswering(snapshotOf(21));
     for (let i = 0; i < 1_000; i++) {
-      await startRateLimit(`u${i}`, "create").enforce(pro).catch(() => {});
+      await startRateLimit(`u${i}`, "create").enforce(free).catch(() => {});
     }
     // All of those have expired; the next block sweeps them instead of growing.
     vi.setSystemTime(T0 + 30_000 + 120_000);
-    await startRateLimit("late", "create").enforce(pro).catch(() => {});
+    stubAnswering(snapshotOf(21, T0 + 150_000));
+    await startRateLimit("late", "create").enforce(free).catch(() => {});
     expect(() => startRateLimit("u0", "create")).not.toThrow();
     expect(() => startRateLimit("late", "create")).toThrow(ApiError);
   });
 
   it("starts over when the cache is full of live blocks", async () => {
-    stubAnswering(snapshotOf(41));
+    stubAnswering(snapshotOf(21));
     for (let i = 0; i <= 1_000; i++) {
-      await startRateLimit(`u${i}`, "create").enforce(pro).catch(() => {});
+      await startRateLimit(`u${i}`, "create").enforce(free).catch(() => {});
     }
     expect(() => startRateLimit("u0", "create")).not.toThrow();
     expect(() => startRateLimit("u1000", "create")).toThrow(ApiError);

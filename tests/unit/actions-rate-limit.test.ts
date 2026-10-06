@@ -29,6 +29,16 @@ function propertyName(p: ts.ObjectLiteralElementLike): string | null {
   return null;
 }
 
+/** A `userId` that names someone: not `undefined`, `null`, `void …` or a literal. */
+function namesSomeone(p: ts.ObjectLiteralElementLike): boolean {
+  if (ts.isShorthandPropertyAssignment(p)) return p.name.text !== "undefined";
+  if (!ts.isPropertyAssignment(p)) return false;
+  const value = p.initializer;
+  if (ts.isIdentifier(value) && value.text === "undefined") return false;
+  if (value.kind === ts.SyntaxKind.NullKeyword || ts.isVoidExpression(value)) return false;
+  return !ts.isLiteralExpression(value);
+}
+
 function runActionCalls(node: ts.Node): RunActionCall[] {
   const calls: RunActionCall[] = [];
   const visit = (n: ts.Node) => {
@@ -38,7 +48,7 @@ function runActionCalls(node: ts.Node): RunActionCall[] {
       const rateLimit = props.find((p) => propertyName(p) === "rateLimit");
       calls.push({
         label: label && ts.isStringLiteral(label) ? label.text : "?",
-        hasUserId: props.some((p) => propertyName(p) === "userId"),
+        hasUserId: props.some((p) => propertyName(p) === "userId" && namesSomeone(p)),
         rateLimit:
           rateLimit && ts.isPropertyAssignment(rateLimit) && ts.isStringLiteral(rateLimit.initializer)
             ? rateLimit.initializer.text
@@ -52,26 +62,32 @@ function runActionCalls(node: ts.Node): RunActionCall[] {
 }
 
 function exportedActions(): ExportedAction[] {
+  return readdirSync(ACTIONS_DIR)
+    .filter((f) => f.endsWith(".ts"))
+    .sort()
+    .flatMap((file) => actionsIn(file, readFileSync(path.join(ACTIONS_DIR, file), "utf8")));
+}
+
+/** The exported actions in one file's source, and the `runAction` calls in each. */
+function actionsIn(file: string, text: string): ExportedAction[] {
   const out: ExportedAction[] = [];
-  for (const file of readdirSync(ACTIONS_DIR).filter((f) => f.endsWith(".ts")).sort()) {
-    const source = ts.createSourceFile(
-      file,
-      readFileSync(path.join(ACTIONS_DIR, file), "utf8"),
-      ts.ScriptTarget.Latest,
-      true,
-    );
-    for (const stmt of source.statements) {
-      const exported = ts.canHaveModifiers(stmt)
-        ? ts.getModifiers(stmt)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
-        : false;
-      if (!exported) continue;
-      if (ts.isFunctionDeclaration(stmt) && stmt.name) {
-        out.push({ id: `${file}#${stmt.name.text}`, calls: runActionCalls(stmt) });
-      } else if (ts.isVariableStatement(stmt)) {
-        for (const decl of stmt.declarationList.declarations) {
-          if (ts.isIdentifier(decl.name) && decl.initializer && ts.isArrowFunction(decl.initializer)) {
-            out.push({ id: `${file}#${decl.name.text}`, calls: runActionCalls(decl.initializer) });
-          }
+  const source = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true);
+  for (const stmt of source.statements) {
+    const exported = ts.canHaveModifiers(stmt)
+      ? ts.getModifiers(stmt)?.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)
+      : false;
+    if (!exported) continue;
+    if (ts.isFunctionDeclaration(stmt) && stmt.name) {
+      out.push({ id: `${file}#${stmt.name.text}`, calls: runActionCalls(stmt) });
+    } else if (ts.isVariableStatement(stmt)) {
+      for (const decl of stmt.declarationList.declarations) {
+        const fn = decl.initializer;
+        if (
+          ts.isIdentifier(decl.name) &&
+          fn &&
+          (ts.isArrowFunction(fn) || ts.isFunctionExpression(fn))
+        ) {
+          out.push({ id: `${file}#${decl.name.text}`, calls: runActionCalls(fn) });
         }
       }
     }
@@ -80,6 +96,45 @@ function exportedActions(): ExportedAction[] {
 }
 
 const actions = exportedActions();
+
+describe("the checker itself", () => {
+  const sample = `
+    export async function good() { return runAction("good", fn, { userId: user.id }); }
+    export async function noMeta() { return runAction("noMeta", fn); }
+    export async function undefinedUser() { return runAction("undefinedUser", fn, { userId: undefined }); }
+    export async function nullUser() { return runAction("nullUser", fn, { userId: null }); }
+    export const arrow = async () => runAction("arrow", fn, { userId: user.id, rateLimit: "read" });
+    export const expr = async function () { return runAction("expr", fn, { workspaceId: w.id }); };
+    export const skipped = async function () { return list(); };
+  `;
+  const found = actionsIn("sample.ts", sample);
+
+  it("finds function declarations, arrow functions and function expressions", () => {
+    expect(found.map((a) => a.id)).toEqual([
+      "sample.ts#good",
+      "sample.ts#noMeta",
+      "sample.ts#undefinedUser",
+      "sample.ts#nullUser",
+      "sample.ts#arrow",
+      "sample.ts#expr",
+      "sample.ts#skipped",
+    ]);
+    expect(found.find((a) => a.id.endsWith("#skipped"))!.calls).toEqual([]);
+  });
+
+  it("C8: only a real userId counts — not a missing, undefined or null one", () => {
+    const named = Object.fromEntries(found.flatMap((a) => a.calls.map((c) => [c.label, c.hasUserId])));
+    expect(named).toEqual({
+      good: true,
+      noMeta: false,
+      undefinedUser: false,
+      nullUser: false,
+      arrow: true,
+      expr: false,
+    });
+    expect(found.find((a) => a.id.endsWith("#arrow"))!.calls[0]!.rateLimit).toBe("read");
+  });
+});
 
 describe("every server action is rate limited", () => {
   it("finds the actions (sanity)", () => {

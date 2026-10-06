@@ -19,6 +19,7 @@ import * as ws from "@/services/workspaces";
 import { createMemoryRateLimiter, type MemoryRateLimiter } from "../helpers/memory-rate-limiter";
 import { signInAs, uid } from "../helpers/session";
 import { bootstrapUser, setWorkspacePlan, workspaceIdOf } from "../helpers/seed";
+import { captureSql } from "../helpers/test-db";
 import { apiReq, jsonBody } from "./helpers";
 
 /**
@@ -150,13 +151,39 @@ describe("/api/v1 — per-person rate limits (C8)", () => {
     expect((await listTransactions(apiReq("/api/v1/transactions", inFree))).status).toBe(429);
   });
 
-  it("C8: a block lifts when the workspace is upgraded", async () => {
+  it("C8: an upgrade mid-block waits out the block, then gets the new numbers", async () => {
     signInAs("a");
     await bootstrapUser("a");
     mem.fill(uid("a"), "create", 25);
-    expect((await createTransaction(newEntry())).status).toBe(429); // 26 > Free's 20
+    const refused = await createTransaction(newEntry()); // 26 > Free's 20
+    expect(refused.status).toBe(429);
+    const wait = Number(refused.headers.get("Retry-After"));
+
     await setWorkspacePlan(await workspaceIdOf("a"), "pro");
+    expect((await createTransaction(newEntry())).status).toBe(429); // the block holds
+    vi.setSystemTime(T0 + wait * 1000);
     expect((await createTransaction(newEntry())).status).toBe(201); // within Pro's 40
+  });
+
+  it("C8: a blocked request costs no database read and no Durable Object call", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    mem.fill(uid("a"), "read", 120);
+    expect((await listTransactions(apiReq("/api/v1/transactions"))).status).toBe(429);
+
+    const hits = mem.calls.hit;
+    let res: Response | undefined;
+    const statements = await captureSql(async () => {
+      res = await listTransactions(apiReq("/api/v1/transactions"));
+    });
+    expect(res!.status).toBe(429);
+    expect(Number(res!.headers.get("Retry-After"))).toBeGreaterThan(0);
+    expect(mem.calls.hit).toBe(hits);
+    // Only the token → user mapping runs (in tests, the identity stub's upsert);
+    // the limiter itself reads nothing — no workspace, settings or plan lookup.
+    expect(statements.map((s) => s.text.split(/\s+/).slice(0, 3).join(" ").toLowerCase())).toEqual([
+      'insert into "users"',
+    ]);
   });
 
   it("C8: a CSV export counts as 20 reads", async () => {
