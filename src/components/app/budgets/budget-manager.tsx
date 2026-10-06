@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { BellOff, Pencil, PiggyBank, Plus } from "lucide-react";
+import { BellOff, Pencil, PiggyBank, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { countAlerts } from "@/lib/budgets";
 import { budgetsLimitLabel } from "@/lib/plan-limit";
 import { cn } from "@/lib/utils";
 import { LimitTooltip, LockGlyph, useAddLimits, useAddLock } from "../limit-lock";
+import { BudgetDeleteConfirm } from "./budget-delete-confirm";
 import { BudgetDialog, type BudgetChoices } from "./budget-dialog";
 import { BudgetRow, type BudgetItem } from "./budget-parts";
 
@@ -34,6 +35,9 @@ export function BudgetManager({
   monthLabel: string;
 }) {
   const [dialog, setDialog] = useState<{ mode: "create" } | { mode: "edit"; budget: BudgetItem } | null>(null);
+  // Delete straight from the row, for someone who may delete but not change
+  // a budget (an admin of a view-only workspace).
+  const [deleting, setDeleting] = useState<BudgetItem | null>(null);
   const lock = useAddLock("budgets");
   const limits = useAddLimits();
   const anyLeft = choices.workspace || choices.profiles.length > 0 || choices.categories.length > 0;
@@ -96,7 +100,7 @@ export function BudgetManager({
                     {!budget.emailAlerts && (
                       <BellOff aria-label="Email alerts off" className="size-4 text-muted-foreground" />
                     )}
-                    {budget.canManage && (
+                    {budget.canManage ? (
                       <Button
                         variant="ghost"
                         size="icon-sm"
@@ -106,7 +110,17 @@ export function BudgetManager({
                       >
                         <Pencil className="size-4" />
                       </Button>
-                    )}
+                    ) : budget.canDelete ? (
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        className="text-muted-foreground hover:text-foreground"
+                        aria-label={`Delete the ${budget.label} budget`}
+                        onClick={() => setDeleting(budget)}
+                      >
+                        <Trash2 className="size-4" />
+                      </Button>
+                    ) : null}
                   </div>
                 }
               />
@@ -124,6 +138,13 @@ export function BudgetManager({
         choices={choices}
         currency={currency}
         locale={locale}
+      />
+      <BudgetDeleteConfirm
+        budget={deleting}
+        open={deleting !== null}
+        onOpenChange={(v) => {
+          if (!v) setDeleting(null);
+        }}
       />
     </div>
   );

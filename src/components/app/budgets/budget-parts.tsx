@@ -22,7 +22,10 @@ export type BudgetItem = {
   percent: number;
   status: BudgetStatus;
   emailAlerts: boolean;
+  /** Can change it (the amount, the email switch). */
   canManage: boolean;
+  /** Can delete it — also in a view-only workspace, where changing can't. */
+  canDelete: boolean;
 };
 
 const BAR_TONE: Record<BudgetStatus, string> = {

@@ -58,6 +58,7 @@ export default async function BudgetsPage({
     status: b.status,
     emailAlerts: b.emailAlerts,
     canManage: b.canManage,
+    canDelete: b.canDelete,
   }));
 
   // What the form may still offer: the scopes this person manages that don't

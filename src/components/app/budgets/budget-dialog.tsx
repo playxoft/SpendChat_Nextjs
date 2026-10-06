@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { toast } from "sonner";
 import { Loader2, Trash2 } from "lucide-react";
-import { addBudget, deleteBudget, updateBudget } from "@/actions/budgets";
+import { addBudget, updateBudget } from "@/actions/budgets";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -38,6 +38,7 @@ import { AMOUNT_INTEGER_DIGITS_MAX } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 import { LimitPanel, LockedButton, useAddLock } from "../limit-lock";
 import { usePlan } from "../upgrade-dialog";
+import { BudgetDeleteConfirm } from "./budget-delete-confirm";
 import type { BudgetItem } from "./budget-parts";
 
 /** A profile or category the form can offer. */
@@ -93,6 +94,7 @@ export function BudgetDialog({
   const [amount, setAmount] = useState("");
   const [emailAlerts, setEmailAlerts] = useState(true);
   const [pending, startTransition] = useTransition();
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const { reportFailure, showUpgrade } = usePlan();
   const budgetLock = useAddLock("budgets");
   const createLock = editing ? null : budgetLock;
@@ -132,6 +134,12 @@ export function BudgetDialog({
       );
       return;
     }
+    // 0.001, or 0.4 in yen, is nothing once it's in whole minor units.
+    const decimals = getCurrency(currency).decimals;
+    if (Math.round(value * 10 ** decimals) <= 0) {
+      toast.error(`The amount must be at least ${1 / 10 ** decimals} ${currency}`);
+      return;
+    }
     if (!editing && scope !== "workspace" && !targetId) {
       toast.error(scope === "profile" ? "Pick a profile" : "Pick a category");
       return;
@@ -159,19 +167,6 @@ export function BudgetDialog({
         }
         toast.success("Budget added");
       }
-      onOpenChange(false);
-    });
-  }
-
-  function remove() {
-    if (!budget) return;
-    startTransition(async () => {
-      const res = await deleteBudget(budget.id);
-      if (!res.ok) {
-        reportFailure(res);
-        return;
-      }
-      toast.success("Budget deleted");
       onOpenChange(false);
     });
   }
@@ -275,8 +270,13 @@ export function BudgetDialog({
           </div>
 
           <DialogFooter className="gap-2 sm:justify-between">
-            {editing ? (
-              <Button type="button" variant="ghost" onClick={remove} disabled={pending}>
+            {budget?.canDelete ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setConfirmingDelete(true)}
+                disabled={pending}
+              >
                 <Trash2 className="size-4" /> Delete
               </Button>
             ) : (
@@ -289,6 +289,12 @@ export function BudgetDialog({
           </DialogFooter>
         </form>
       </DialogContent>
+      <BudgetDeleteConfirm
+        budget={budget ?? null}
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+        onDeleted={() => onOpenChange(false)}
+      />
     </Dialog>
   );
 }
