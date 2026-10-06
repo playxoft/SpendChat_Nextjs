@@ -1074,6 +1074,8 @@ export const SPLIT_EXPENSE_TITLE_MAX = TRANSACTION_TITLE_MAX;
 export const SPLIT_ADD_PEOPLE_MAX = SPLIT_GROUP_MAX_PEOPLE - 1;
 /** Expenses per page in a group (the web's "Show more"). */
 export const SPLIT_EXPENSES_PAGE = 50;
+/** Payments per page in a group (the web's "Show more"). */
+export const SPLIT_PAYMENTS_PAGE = 20;
 
 const splitGroupNameSchema = z
   .string()
@@ -1221,3 +1223,12 @@ export const addSplitShareToWorkspaceSchema = z.object({
   amount: amountSchema.optional(),
 });
 export type AddSplitShareToWorkspaceInput = z.input<typeof addSplitShareToWorkspaceSchema>;
+
+/**
+ * "Update my entry" after the expense changed. `amount` is in the entry's
+ * workspace currency and only read when it differs from the group's.
+ */
+export const updateSplitWorkspaceEntrySchema = z.object({
+  amount: amountSchema.optional(),
+});
+export type UpdateSplitWorkspaceEntryInput = z.input<typeof updateSplitWorkspaceEntrySchema>;

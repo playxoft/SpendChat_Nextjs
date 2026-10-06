@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { splitInvitePath } from "@/lib/invite-links";
+import { createMetadata } from "@/lib/seo";
 import { getCurrentUser } from "@/lib/auth";
 import { redactEmail } from "@/lib/email";
 import { getSplitInviteByToken } from "@/services/split-invites";
@@ -7,12 +9,24 @@ import { SplitInviteCard, SplitInviteGone } from "./split-invite-card";
 // Reads the session cookie and the DB — never cached.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Join a split group",
-  description: "Accept an invitation to share costs in a SpendChat split group.",
-  // Tokenised, per-person URLs; `/invite/` is also disallowed in robots.ts.
-  robots: { index: false, follow: false },
-};
+/**
+ * Built with `createMetadata` so the page states its own canonical / og:url
+ * rather than inheriting the homepage's. Tokenised, per-person URLs: never
+ * indexed (`noIndex`; `/invite/` is also disallowed in robots.ts).
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  return createMetadata({
+    title: "Join a split group",
+    description: "Accept an invitation to share costs in a SpendChat split group — see who paid what and who owes whom.",
+    path: splitInvitePath(token),
+    noIndex: true,
+  });
+}
 
 /**
  * The join page behind a split invite email (or a link the group's creator

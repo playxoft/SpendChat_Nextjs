@@ -2504,8 +2504,9 @@ paths:
         You become its creator (the only person who can rename it, add and
         remove people, or delete it). `members` invites up to 49 people (the
         group holds 50, you included). Someone whose email has an account gets
-        an in-app invitation and no email; someone without one gets a join
-        link (see `SplitAddedPerson.delivery`).
+        an in-app invitation; someone without one gets one email — the answer
+        is `invited` either way, and every pending person has an `inviteLink`.
+        429 `rate_limited` past 20 new groups (or 100 people added) per 24 h.
       requestBody:
         required: true
         content:
@@ -2532,6 +2533,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/split/groups/{id}:
     parameters:
@@ -2611,11 +2613,22 @@ paths:
       tags: [Split]
       summary: Add people by email (creator only)
       description: |
-        Someone already in the group comes back as `delivery: already`; someone
-        who left is invited again (same member id, history intact). Past 50
-        people (you included) the whole request is refused with 409
-        `split_group_full` (`details: { max, used }`) — no plan lifts it.
-        Adding yourself is 400.
+        Every new person comes back `status: invited` — whether or not the
+        address has an account (nothing in the response or the group tells the
+        two apart). Someone already in the group (the same inbox: `+tags` and
+        Gmail dots don't count) comes back `already`; someone you removed is
+        invited again on the same member id. Refused as a whole, before
+        anything is written:
+        - 400 your own address (any spelling);
+        - 422 two spellings of one inbox in the list;
+        - 409 `invite_cooldown` — someone declined or left this group in the
+          last 30 days (`details: { emails, until }`);
+        - 409 `conflict` — you already have 3 open invitations out to one of
+          them (`details: { emails }`);
+        - 429 `rate_limited` — more than 100 people added in 24 h, across all
+          your groups;
+        - 409 `split_group_full` past 50 people, you included
+          (`details: { max, used }`) — no plan lifts it.
       requestBody:
         required: true
         content:
@@ -2652,6 +2665,7 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
+        "429": { $ref: "#/components/responses/RateLimited" }
 
   /api/v1/split/groups/{id}/members/{memberId}:
     parameters:
@@ -2738,7 +2752,7 @@ paths:
                       total: { type: integer }
                       limit: { type: integer }
                       offset: { type: integer }
-                      currency: { type: string }
+                      currency: { $ref: "#/components/schemas/CurrencyMeta" }
                 required: [data, meta]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -2748,8 +2762,13 @@ paths:
       description: |
         The server computes every share from the inputs — never send share
         amounts for an `equal` split. Payer and participants must be people in
-        the group (422 otherwise). Leftover minor units (₹100 ÷ 3) go to the
-        payer first, then by join order.
+        the group (422 otherwise). Rounding: in an `equal` split the leftover
+        minor units (₹100 ÷ 3) go to the payer first, then by join order; in a
+        `percent` split each share is rounded down and the leftover goes to
+        the largest remainders first (ties: payer, then join order); `exact`
+        amounts must add up to the total. A 422 for bad sums has a neutral
+        `message` and the numbers in `details` (`sumMinor`/`totalMinor`, or
+        `bpSum`). An amount that rounds to 0 minor units (¥0.4) is 422.
       requestBody:
         required: true
         content:
@@ -2833,40 +2852,6 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
 
-  /api/v1/split/groups/{id}/members/{memberId}/invite-email:
-    parameters:
-      - $ref: "#/components/parameters/id"
-      - name: memberId
-        in: path
-        required: true
-        schema: { type: string, format: uuid }
-    post:
-      tags: [Split]
-      summary: Send someone their one invite email (creator only)
-      description: |
-        For a person without an account whose email didn't go at add time
-        (the creator's daily invite-email cap). A group emails an address at
-        most **once, ever** — 409 when they were already emailed, or when they
-        have an account (they see an in-app invitation instead). `emailed:
-        false` when today's cap is still spent: share `inviteLink` instead.
-      responses:
-        "200":
-          description: Whether the email went.
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  data:
-                    type: object
-                    properties: { emailed: { type: boolean } }
-                    required: [emailed]
-                required: [data]
-        "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/Forbidden" }
-        "404": { $ref: "#/components/responses/NotFound" }
-        "409": { $ref: "#/components/responses/Conflict" }
-
   /api/v1/split/groups/{id}/expenses/{expenseId}/add-to-workspace:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -2908,6 +2893,45 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/ValidationError" }
 
+  /api/v1/split/groups/{id}/expenses/{expenseId}/workspace-entry:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - name: expenseId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    put:
+      tags: [Split]
+      summary: Update my entry after the expense changed
+      description: |
+        When `myShare.changedSinceAdded` is true, sets the linked workspace
+        transaction's amount to the new share — in whichever workspace the
+        entry lives (`X-Workspace-Id` is ignored), through the normal
+        transaction rules (403 without edit access there). Only the amount
+        changes; category, profile, title, date and tags stay. Same currency
+        as the group → the share is the amount; different → send `amount` in
+        that workspace's currency (422 `amount_required` without it). 409 when
+        the share isn't in a workspace any more — add it again instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/SplitWorkspaceEntryInput" }
+      responses:
+        "200":
+          description: The updated transaction.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Transaction" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
   /api/v1/split/groups/{id}/settlements:
     parameters:
       - $ref: "#/components/parameters/id"
@@ -2934,7 +2958,7 @@ paths:
                       total: { type: integer }
                       limit: { type: integer }
                       offset: { type: integer }
-                      currency: { type: string }
+                      currency: { $ref: "#/components/schemas/CurrencyMeta" }
                 required: [data, meta]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
@@ -2998,9 +3022,16 @@ paths:
         Includes invitations sent to your email before you had an account.
         Only what you need to decide: the group's name, icon, currency, people
         count and who invited you — nothing inside the group until you join.
+        Paged: `limit` defaults to 20 here (max 100).
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, default: 20, minimum: 1, maximum: 100 }
+        - $ref: "#/components/parameters/offset"
       responses:
         "200":
-          description: Your pending invitations, newest first.
+          description: A page of your pending invitations, newest first.
           content:
             application/json:
               schema:
@@ -3009,7 +3040,13 @@ paths:
                   data:
                     type: array
                     items: { $ref: "#/components/schemas/SplitInvitation" }
-                required: [data]
+                  meta:
+                    type: object
+                    properties:
+                      total: { type: integer }
+                      limit: { type: integer }
+                      offset: { type: integer }
+                required: [data, meta]
         "401": { $ref: "#/components/responses/Unauthorized" }
 
   /api/v1/split/invitations/{memberId}/accept:
@@ -3273,7 +3310,7 @@ components:
                      conflict, validation_error, rate_limited, payload_too_large,
                      storage_quota_exceeded, ai_unavailable, ai_failed,
                      storage_unavailable, split_group_full, settle_first,
-                     amount_required, internal_error]
+                     amount_required, invite_cooldown, internal_error]
             message: { type: string }
             details:
               description: >
@@ -4433,22 +4470,15 @@ components:
         isYou: { type: boolean }
         balanceMinor: { type: integer, description: Positive = is owed; negative = owes. }
         balance: { type: string }
-        invitedByEmail:
-          type: [boolean, "null"]
-          description: Creator only (null otherwise) — whether this person was sent their one invite email.
         inviteLink:
           type: [string, "null"]
           format: uri
           description: |
-            Creator only, while the person is still `invited`: their join link
-            (`/invite/split/<token>`). It only works for the invited email, so
-            it's safe to share in a chat. Null otherwise.
-        canSendInviteEmail:
-          type: [boolean, "null"]
-          description: |
-            Creator only (null otherwise): `POST …/members/{memberId}/invite-email`
-            applies — still invited, no account, never emailed.
-      required: [id, name, email, status, isCreator, isYou, balanceMinor, balance, invitedByEmail, inviteLink, canSendInviteEmail]
+            Creator only, for everyone still `invited` — account or not, the
+            same for both: their join link (`/invite/split/<token>`). It only
+            works for the invited email, so it's safe to share in a chat. Null
+            otherwise.
+      required: [id, name, email, status, isCreator, isYou, balanceMinor, balance, inviteLink]
 
     SplitSuggestion:
       type: object
@@ -4519,16 +4549,15 @@ components:
       properties:
         memberId: { type: string, format: uuid }
         email: { type: string }
-        delivery:
+        status:
           type: string
-          enum: [in_app, email, link, already]
+          enum: [invited, already]
           description: |
-            `in_app` — they have an account and see an invitation in the app
-            (never an email). `email` — no account; their one invite email is
-            on its way. `link` — no account and no email went (the daily cap,
-            or they were emailed before): share the join link. `already` —
-            they were already in the group.
-      required: [memberId, email, delivery]
+            `invited` — they're in the group as invited. Deliberately the same
+            whether or not the address has an account (an account holder sees
+            an in-app invitation; anyone else gets one email): the response
+            never says which. `already` — they were already in the group.
+      required: [memberId, email, status]
 
     SplitExpenseInput:
       type: object
@@ -4601,7 +4630,12 @@ components:
                 amount: { type: string }
                 added: { type: boolean, description: Already in one of your workspaces. }
                 addedAt: { type: [string, "null"], format: date-time }
-              required: [shareId, amountMinor, amount, added, addedAt]
+                changedSinceAdded:
+                  type: boolean
+                  description: |
+                    Added, and the expense changed since — offer "Update my
+                    entry" (`PUT …/workspace-entry`).
+              required: [shareId, amountMinor, amount, added, addedAt, changedSinceAdded]
       required: [id, title, amountMinor, amount, splitType, occurredOn, createdAt, updatedAt, paidBy, shares, canEdit, myShare]
 
     SplitSettlementInput:
@@ -4660,3 +4694,14 @@ components:
             In the **workspace's** currency. Required only when it differs from
             the group's; ignored otherwise (the share is the amount).
       required: [profileId]
+
+    SplitWorkspaceEntryInput:
+      type: object
+      properties:
+        amount:
+          type: number
+          exclusiveMinimum: 0
+          maximum: 999999999.99
+          description: |
+            In the entry's **workspace** currency. Required only when it differs
+            from the group's; ignored otherwise (the new share is the amount).

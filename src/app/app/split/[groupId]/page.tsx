@@ -4,7 +4,7 @@ import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { todayISO } from "@/lib/dates";
 import { ApiError } from "@/lib/errors";
 import { getTimeZone } from "@/lib/timezone.server";
-import { SPLIT_EXPENSES_PAGE } from "@/lib/validation";
+import { SPLIT_EXPENSES_PAGE, SPLIT_PAYMENTS_PAGE } from "@/lib/validation";
 import { getCategories } from "@/lib/queries";
 import { getGroupDetail } from "@/services/split";
 import { listExpenses, listSettlements, writableProfiles } from "@/services/split-ledger";
@@ -13,9 +13,6 @@ import { SplitGroupView } from "@/components/app/split/split-group-view";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Split group" };
-
-/** Payments shown on the group page (newest first). */
-const PAYMENTS_SHOWN = 20;
 
 /**
  * One split group. Anyone who isn't a joined member gets the app's 404 — the
@@ -32,7 +29,7 @@ export default async function SplitGroupPage({
   const data = await Promise.all([
     getGroupDetail(user.id, groupId),
     listExpenses(user.id, groupId, { limit: SPLIT_EXPENSES_PAGE, offset: 0 }),
-    listSettlements(user.id, groupId, { limit: PAYMENTS_SHOWN, offset: 0 }),
+    listSettlements(user.id, groupId, { limit: SPLIT_PAYMENTS_PAGE, offset: 0 }),
   ]).catch((err: unknown) => {
     if (err instanceof ApiError && err.status === 404) notFound();
     throw err;
@@ -50,6 +47,7 @@ export default async function SplitGroupPage({
       expenses={expenses.items}
       expenseTotal={expenses.total}
       payments={payments.items}
+      paymentTotal={payments.total}
       userId={user.id}
       locale={workspace.locale}
       today={todayISO(timeZone)}

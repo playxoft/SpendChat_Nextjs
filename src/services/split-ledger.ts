@@ -3,6 +3,7 @@ import { and, asc, count, desc, eq, inArray, isNull, notInArray } from "drizzle-
 import { getDb } from "@/db";
 import {
   profiles,
+  transactions,
   splitExpenses,
   splitMembers,
   splitSettlements,
@@ -13,7 +14,7 @@ import {
 import { parseOrThrow } from "@/lib/api-response";
 import { ApiError, conflict, forbidden, notFound, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import { formatMoney, fromMinorUnits, toMinorUnits } from "@/lib/money";
+import { fromMinorUnits, toMinorUnits } from "@/lib/money";
 import {
   canDeleteSettlement,
   canEditExpense,
@@ -31,9 +32,11 @@ import {
   addSplitShareToWorkspaceSchema,
   splitExpenseSchema,
   splitSettlementSchema,
+  updateSplitWorkspaceEntrySchema,
 } from "@/lib/validation";
-import { accessibleProfileIds } from "@/lib/workspaces";
-import { createTransactionId } from "@/services/transactions";
+import { getTransactionById } from "@/lib/queries";
+import { accessibleProfileIds, getWorkspaceMoneyFormat } from "@/lib/workspaces";
+import { createTransactionId, updateTransaction } from "@/services/transactions";
 import { groupMembers, parseSplitId, requireJoined, type JoinedContext } from "@/services/split";
 import { z } from "zod";
 
@@ -53,6 +56,19 @@ const SETTLEMENT_NOT_FOUND = "Payment not found";
 const NOT_IN_GROUP = "Everyone in an expense has to be in the group";
 
 export type SplitPage = { limit: number; offset: number };
+
+/**
+ * An amount as minor units of `currency`, refusing one that rounds to nothing
+ * (¥0.4, $0.001) — which would otherwise reach a `> 0` check in the database
+ * and come back as a 500.
+ */
+export function positiveMinor(amount: number, currency: string): number {
+  const minor = toMinorUnits(amount, currency);
+  if (minor <= 0) {
+    throw validationError(`Amount is too small for ${currency}`, { amount: `Amount is too small for ${currency}` });
+  }
+  return minor;
+}
 
 type ExpenseData = z.output<typeof splitExpenseSchema>;
 
@@ -92,12 +108,14 @@ function planExpense(
   for (const id of [data.paidBy, ...participantIds(spec)]) {
     if (!allowed.has(id)) throw validationError(NOT_IN_GROUP);
   }
-  const totalMinor = toMinorUnits(data.amount, currency);
+  const totalMinor = positiveMinor(data.amount, currency);
   try {
-    const shares = computeShares(totalMinor, data.paidBy, spec, (m) => formatMoney(m, currency));
+    const shares = computeShares(totalMinor, data.paidBy, spec);
     return { totalMinor, shares, spec };
   } catch (err) {
-    if (err instanceof SplitMathError) throw validationError(err.message);
+    // The message stays neutral (it's logged); the sums go in `details`, and
+    // the dialog phrases them with `describeSplitError`.
+    if (err instanceof SplitMathError) throw validationError(err.message, err.details);
     throw err;
   }
 }
@@ -136,6 +154,11 @@ export type SplitExpenseView = {
     /** In one of the caller's workspaces (the transaction still exists). */
     added: boolean;
     addedAt: Date | null;
+    /**
+     * Added, but the expense was edited since and the share is no longer what
+     * the workspace entry was written for — offer "Update my entry".
+     */
+    changedSinceAdded: boolean;
   } | null;
 };
 
@@ -151,7 +174,7 @@ async function expenseViews(
       .select()
       .from(splitShares)
       .where(inArray(splitShares.expenseId, rows.map((r) => r.id))),
-    groupMembers(ctx.group.id, db),
+    groupMembers(ctx.group.id),
   ]);
   const names = new Map(members.map((m) => [m.id, memberLabel(m)]));
   const order = new Map(members.map((m, i) => [m.id, i]));
@@ -182,6 +205,10 @@ async function expenseViews(
             amountMinor: mine.amountMinor,
             added: mine.transactionId !== null,
             addedAt: mine.addedAt,
+            changedSinceAdded:
+              mine.transactionId !== null &&
+              mine.addedAmountMinor !== null &&
+              mine.addedAmountMinor !== mine.amountMinor,
           }
         : null,
     };
@@ -195,7 +222,7 @@ export async function listExpenses(
   page: SplitPage,
 ): Promise<{ items: SplitExpenseView[]; total: number; currency: string }> {
   const db = getDb();
-  const ctx = await requireJoined(userId, rawGroupId, db);
+  const ctx = await requireJoined(userId, rawGroupId);
   const [rows, [totalRow]] = await Promise.all([
     db
       .select()
@@ -220,7 +247,7 @@ export async function getExpense(
   rawExpenseId: unknown,
 ): Promise<{ expense: SplitExpenseView; currency: string }> {
   const db = getDb();
-  const ctx = await requireJoined(userId, rawGroupId, db);
+  const ctx = await requireJoined(userId, rawGroupId);
   const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
   const rows = await db
     .select()
@@ -394,7 +421,7 @@ export async function listSettlements(
   page: SplitPage,
 ): Promise<{ items: SplitSettlementView[]; total: number; currency: string }> {
   const db = getDb();
-  const ctx = await requireJoined(userId, rawGroupId, db);
+  const ctx = await requireJoined(userId, rawGroupId);
   const [rows, [totalRow], members] = await Promise.all([
     db
       .select()
@@ -404,7 +431,7 @@ export async function listSettlements(
       .limit(page.limit)
       .offset(page.offset),
     db.select({ n: count() }).from(splitSettlements).where(eq(splitSettlements.groupId, ctx.group.id)),
-    groupMembers(ctx.group.id, db),
+    groupMembers(ctx.group.id),
   ]);
   return {
     items: settlementViews(ctx, rows, members),
@@ -420,14 +447,14 @@ export async function getSettlement(
   rawSettlementId: unknown,
 ): Promise<{ settlement: SplitSettlementView; currency: string }> {
   const db = getDb();
-  const ctx = await requireJoined(userId, rawGroupId, db);
+  const ctx = await requireJoined(userId, rawGroupId);
   const settlementId = parseSplitId(rawSettlementId, SETTLEMENT_NOT_FOUND);
   const [rows, members] = await Promise.all([
     db
       .select()
       .from(splitSettlements)
       .where(and(eq(splitSettlements.id, settlementId), eq(splitSettlements.groupId, ctx.group.id))),
-    groupMembers(ctx.group.id, db),
+    groupMembers(ctx.group.id),
   ]);
   const [settlement] = settlementViews(ctx, rows, members);
   if (!settlement) throw notFound(SETTLEMENT_NOT_FOUND);
@@ -467,7 +494,7 @@ export async function recordSettlement(
         groupId: ctx.group.id,
         fromMemberId: data.fromMemberId,
         toMemberId: data.toMemberId,
-        amountMinor: toMinorUnits(data.amount, ctx.group.currency),
+        amountMinor: positiveMinor(data.amount, ctx.group.currency),
         settledOn: data.settledOn,
         createdBy: userId,
       })
@@ -551,7 +578,7 @@ export async function addShareToWorkspace(
 ): Promise<{ transactionId: string }> {
   const data = parseOrThrow(addSplitShareToWorkspaceSchema, input);
   const db = getDb();
-  const ctx = await requireJoined(userId, rawGroupId, db);
+  const ctx = await requireJoined(userId, rawGroupId);
   const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
   const [row] = await db
     .select({ expense: splitExpenses, share: splitShares })
@@ -575,6 +602,7 @@ export async function addShareToWorkspace(
   const amount = sameCurrency
     ? fromMinorUnits(row.share.amountMinor, workspace.currency)
     : data.amount!;
+  if (!sameCurrency) positiveMinor(amount, workspace.currency);
 
   const { id: transactionId } = await createTransactionId(
     userId,
@@ -596,10 +624,18 @@ export async function addShareToWorkspace(
       withinInsert: async (tx, id) => {
         const [claimed] = await tx
           .update(splitShares)
-          .set({ transactionId: id, addedAt: new Date() })
+          // The share this entry was written for — an edit to the expense
+          // after this point shows up as "changed since you added it".
+          .set({ transactionId: id, addedAt: new Date(), addedAmountMinor: row.share.amountMinor })
           .where(and(eq(splitShares.id, row.share.id), isNull(splitShares.transactionId)))
           .returning({ id: splitShares.id });
-        if (!claimed) throw conflict(ALREADY_ADDED);
+        if (claimed) return;
+        // Taken by another add — or gone with the expense, deleted mid-add.
+        const [still] = await tx
+          .select({ id: splitShares.id })
+          .from(splitShares)
+          .where(eq(splitShares.id, row.share.id));
+        throw still ? conflict(ALREADY_ADDED) : notFound("This expense was deleted");
       },
     },
   );
@@ -610,4 +646,80 @@ export async function addShareToWorkspace(
     sameCurrency,
   });
   return { transactionId };
+}
+
+/**
+ * "Update my entry": the expense changed after the caller added their share,
+ * so bring the linked workspace transaction back in line. Only the amount
+ * changes — category, profile, title, date and tags stay as the person left
+ * them — and it goes through `updateTransaction`, so the normal access checks
+ * apply in the transaction's own workspace (wherever it was added). Same
+ * currency → the new share exactly; another currency → the person confirms
+ * the amount in the workspace's currency (422 `amount_required`).
+ *
+ * If the linked transaction is gone, there's nothing to update: the share
+ * reads as not added, and the normal add applies again.
+ */
+export async function updateWorkspaceEntry(
+  userId: string,
+  rawGroupId: unknown,
+  rawExpenseId: unknown,
+  input: unknown,
+): Promise<{ transactionId: string; workspaceId: string }> {
+  const data = parseOrThrow(updateSplitWorkspaceEntrySchema, input);
+  const db = getDb();
+  const ctx = await requireJoined(userId, rawGroupId);
+  const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
+  const [row] = await db
+    .select({ share: splitShares, workspaceId: profiles.workspaceId })
+    .from(splitExpenses)
+    .innerJoin(
+      splitShares,
+      and(eq(splitShares.expenseId, splitExpenses.id), eq(splitShares.memberId, ctx.me.id)),
+    )
+    .leftJoin(transactions, eq(transactions.id, splitShares.transactionId))
+    .leftJoin(profiles, eq(profiles.id, transactions.profileId))
+    .where(and(eq(splitExpenses.id, expenseId), eq(splitExpenses.groupId, ctx.group.id)));
+  if (!row || row.share.amountMinor <= 0) throw notFound("You don't have a share in this expense");
+  const transactionId = row.share.transactionId;
+  if (!transactionId || !row.workspaceId) {
+    throw conflict("Your share isn't in a workspace any more — add it again instead");
+  }
+  const workspaceId = row.workspaceId;
+  const existing = await getTransactionById(userId, workspaceId, transactionId);
+  if (!existing) throw notFound("Your entry is in a workspace you can no longer open");
+
+  const money = await getWorkspaceMoneyFormat(workspaceId);
+  const sameCurrency = ctx.group.currency === money.currency;
+  if (!sameCurrency && data.amount === undefined) {
+    throw new ApiError(
+      422,
+      "amount_required",
+      `Enter what your share cost in ${money.currency} — that workspace keeps its books in ${money.currency}`,
+    );
+  }
+  const amount = sameCurrency ? fromMinorUnits(row.share.amountMinor, money.currency) : data.amount!;
+  if (!sameCurrency) positiveMinor(amount, money.currency);
+
+  const updated = await updateTransaction(userId, workspaceId, transactionId, {
+    type: existing.type,
+    amount,
+    categoryId: existing.categoryId,
+    profileId: existing.profileId,
+    title: existing.title ?? "",
+    description: existing.description ?? "",
+    occurredOn: existing.occurredOn,
+  });
+  if (!updated) throw notFound("Your entry is in a workspace you can no longer open");
+  await db
+    .update(splitShares)
+    .set({ addedAmountMinor: row.share.amountMinor })
+    .where(and(eq(splitShares.id, row.share.id), eq(splitShares.transactionId, transactionId)));
+  logger.info("Split share's workspace entry updated", {
+    event: "split.share_entry_updated",
+    expenseId,
+    transactionId,
+    sameCurrency,
+  });
+  return { transactionId, workspaceId };
 }

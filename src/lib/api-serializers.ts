@@ -417,15 +417,12 @@ export type ApiSplitMember = {
   isYou: boolean;
   balanceMinor: number;
   balance: string;
-  /** Creator only (null for everyone else): whether their one invite email went. */
-  invitedByEmail: boolean | null;
   /**
-   * Creator only, for someone still invited: their join link — works only for
-   * the invited email, so it's safe to share in a chat. Null otherwise.
+   * Creator only, for everyone still invited (account or not — the same for
+   * both): their join link. It works only for the invited email, so it's safe
+   * to share in a chat. Null otherwise.
    */
   inviteLink: string | null;
-  /** Creator only (null otherwise): "Send invite email" applies — no account, never emailed. */
-  canSendInviteEmail: boolean | null;
 };
 
 export function serializeSplitMember(m: SplitMemberView, currency: string): ApiSplitMember {
@@ -438,9 +435,7 @@ export function serializeSplitMember(m: SplitMemberView, currency: string): ApiS
     isYou: m.isYou,
     balanceMinor: m.netMinor,
     balance: majorString(m.netMinor, currency),
-    invitedByEmail: m.invitedByEmail,
     inviteLink: m.inviteToken ? `${siteConfig.url}${splitInvitePath(m.inviteToken)}` : null,
-    canSendInviteEmail: m.canSendInviteEmail,
   };
 }
 
@@ -497,7 +492,7 @@ export type ApiSplitAddedPerson = AddedPerson;
 
 /** What happened to each person an add named (returned to the creator only). */
 export function serializeSplitAdded(added: AddedPerson[]): ApiSplitAddedPerson[] {
-  return added.map((a) => ({ memberId: a.memberId, email: a.email, delivery: a.delivery }));
+  return added.map((a) => ({ memberId: a.memberId, email: a.email, status: a.status }));
 }
 
 export type ApiSplitExpense = {
@@ -525,6 +520,8 @@ export type ApiSplitExpense = {
     amount: string;
     added: boolean;
     addedAt: string | null;
+    /** Added, and the expense changed since — `PUT …/workspace-entry` brings the entry in line. */
+    changedSinceAdded: boolean;
   } | null;
 };
 
@@ -554,6 +551,7 @@ export function serializeSplitExpense(e: SplitExpenseView, currency: string): Ap
           amount: majorString(e.myShare.amountMinor, currency),
           added: e.myShare.added,
           addedAt: e.myShare.addedAt ? toIso(e.myShare.addedAt) : null,
+          changedSinceAdded: e.myShare.changedSinceAdded,
         }
       : null,
   };

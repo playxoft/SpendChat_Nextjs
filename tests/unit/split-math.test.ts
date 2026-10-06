@@ -3,7 +3,9 @@ import {
   BASIS_POINTS_TOTAL,
   canonicalOrder,
   computeShares,
+  describeSplitError,
   fromBasisPoints,
+  percentToInputString,
   netBalances,
   SplitMathError,
   suggestSettlements,
@@ -11,6 +13,7 @@ import {
   type MemberBalance,
 } from "@/lib/split-math";
 import { formatMoney } from "@/lib/money";
+import { parseAmountInput } from "@/lib/parse-amount";
 
 const sum = (xs: { amountMinor: number }[]) => xs.reduce((a, x) => a + x.amountMinor, 0);
 const byId = (xs: { memberId: string; amountMinor: number }[]) =>
@@ -98,16 +101,22 @@ describe("computeShares — exact", () => {
     ]);
   });
 
-  it("refuses shares that don't add up, naming both sums", () => {
-    const fmt = (m: number) => formatMoney(m, "INR", "en-IN");
-    expect(() =>
-      computeShares(
-        100_000,
-        "a",
-        { type: "exact", shares: [{ memberId: "a", amountMinor: 99_000 }] },
-        fmt,
-      ),
-    ).toThrow("Shares add up to ₹990.00, but the expense is ₹1,000.00");
+  it("refuses shares that don't add up — a neutral message, the sums in details", () => {
+    let caught: unknown;
+    try {
+      computeShares(100_000, "a", { type: "exact", shares: [{ memberId: "a", amountMinor: 99_000 }] });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(SplitMathError);
+    const err = caught as SplitMathError;
+    // The message is what gets logged: no amounts in it.
+    expect(err.message).toBe("The shares don't add up to the expense");
+    expect(err.details).toEqual({ sumMinor: 99_000, totalMinor: 100_000 });
+    // The dialog phrases the specifics for the person.
+    expect(describeSplitError(err, (m) => formatMoney(m, "INR", "en-IN"))).toBe(
+      "Shares add up to ₹990.00, but the expense is ₹1,000.00",
+    );
   });
 
   it("refuses negative or fractional shares and duplicates", () => {
@@ -195,9 +204,17 @@ describe("computeShares — percent", () => {
   });
 
   it("refuses percents that don't make 100, or are out of range", () => {
-    expect(() =>
-      computeShares(100, "a", { type: "percent", shares: [{ memberId: "a", bp: 9950 }] }),
-    ).toThrow("Percents add up to 99.5%, not 100%");
+    let caught: unknown;
+    try {
+      computeShares(100, "a", { type: "percent", shares: [{ memberId: "a", bp: 9950 }] });
+    } catch (err) {
+      caught = err;
+    }
+    expect((caught as SplitMathError).message).toBe("The percents don't add up to 100%");
+    expect(describeSplitError(caught as SplitMathError, String)).toBe("Percents add up to 99.5%, not 100%");
+    expect(describeSplitError(new SplitMathError("Pick who it's split between"), String)).toBe(
+      "Pick who it's split between",
+    );
     expect(() =>
       computeShares(100, "a", { type: "percent", shares: [{ memberId: "a", bp: 10_001 }] }),
     ).toThrow("Each percent must be between 0 and 100");
@@ -291,5 +308,22 @@ describe("suggestSettlements", () => {
       const after = netBalances(people, { paid, owed, sent, received });
       expect(after.every((n) => n.netMinor === 0)).toBe(true);
     }
+  });
+});
+
+describe("percentToInputString", () => {
+  it("writes a percent the way the viewer types numbers, so it parses back", () => {
+    expect(percentToInputString(3333, "en-US")).toBe("33.33");
+    expect(percentToInputString(3333, "de-DE")).toBe("33,33");
+    expect(percentToInputString(5000, "fr-FR")).toBe("50");
+    // Latin digits even where the locale writes others — or parsing fails.
+    expect(percentToInputString(1250, "ar-EG")).toMatch(/^12[.,٫]5$/);
+    for (const locale of ["en-US", "de-DE", "fr-FR", "en-IN"]) {
+      expect(parseAmountInput(percentToInputString(3333, locale), locale)).toBe(33.33);
+    }
+  });
+
+  it("falls back to plain digits for a locale Intl can't load", () => {
+    expect(percentToInputString(3333, "not a locale!")).toBe("33.33");
   });
 });

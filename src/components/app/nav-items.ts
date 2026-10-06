@@ -31,6 +31,14 @@ export const splitNavItem = {
  * this list, so the key and the cheat-sheet row are unaffected.
  */
 
+/**
+ * The invitations badge: `countInvitations` stops counting past 9, so ten or
+ * more reads "9+".
+ */
+export function invitationBadge(count: number): string {
+  return count > 9 ? "9+" : String(count);
+}
+
 export function isActive(pathname: string, href: string, exact: boolean): boolean {
   return exact ? pathname === href : pathname === href || pathname.startsWith(`${href}`);
 }

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getApiUser } from "@/lib/api-auth";
-import { parsePagination } from "@/lib/api-query";
+import { currencyMeta, parsePagination } from "@/lib/api-query";
 import { apiOk, handle, readJson } from "@/lib/api-response";
 import { serializeSplitSettlement } from "@/lib/api-serializers";
 import { getSettlement, listSettlements, recordSettlement } from "@/services/split-ledger";
@@ -11,7 +11,7 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /**
  * GET /api/v1/split/groups/:id/settlements — recorded payments, newest first.
- * `?limit=&offset=`; `meta: { total, limit, offset, currency }`.
+ * `?limit=&offset=`; `meta: { total, limit, offset, currency: CurrencyMeta }`.
  */
 export async function GET(request: NextRequest, ctx: Ctx) {
   return handle(async () => {
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     return apiOk(
       page.items.map((s) => serializeSplitSettlement(s, page.currency)),
       200,
-      { total: page.total, limit, offset, currency: page.currency },
+      { total: page.total, limit, offset, ...currencyMeta(page.currency) },
     );
   });
 }

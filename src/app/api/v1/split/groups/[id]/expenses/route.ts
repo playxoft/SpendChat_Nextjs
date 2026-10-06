@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { getApiUser } from "@/lib/api-auth";
-import { parsePagination } from "@/lib/api-query";
+import { currencyMeta, parsePagination } from "@/lib/api-query";
 import { apiOk, handle, readJson } from "@/lib/api-response";
 import { serializeSplitExpense } from "@/lib/api-serializers";
 import { createExpense, getExpense, listExpenses } from "@/services/split-ledger";
@@ -12,7 +12,7 @@ type Ctx = { params: Promise<{ id: string }> };
 /**
  * GET /api/v1/split/groups/:id/expenses — newest first, with every share and
  * the caller's own share (`myShare`). `?limit=&offset=`;
- * `meta: { total, limit, offset, currency }`.
+ * `meta: { total, limit, offset, currency: CurrencyMeta }`.
  */
 export async function GET(request: NextRequest, ctx: Ctx) {
   return handle(async () => {
@@ -23,7 +23,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     return apiOk(
       page.items.map((e) => serializeSplitExpense(e, page.currency)),
       200,
-      { total: page.total, limit, offset, currency: page.currency },
+      { total: page.total, limit, offset, ...currencyMeta(page.currency) },
     );
   });
 }

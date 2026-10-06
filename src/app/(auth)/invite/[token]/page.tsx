@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { invitePath } from "@/lib/invite-links";
+import { createMetadata } from "@/lib/seo";
 import { getCurrentUser } from "@/lib/auth";
 import { describeScope } from "@/lib/email-templates";
 import { getInviteByToken } from "@/services/workspaces";
@@ -7,12 +9,24 @@ import { InviteCard, InviteGone } from "./invite-card";
 // Reads the session cookie and the DB — never cached.
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "Join a workspace",
-  description: "Accept an invitation to a shared SpendChat workspace.",
-  // Tokenised, per-person URLs; also disallowed in robots.ts.
-  robots: { index: false, follow: false },
-};
+/**
+ * Built with `createMetadata` so the page states its own canonical / og:url
+ * rather than inheriting the homepage's. Tokenised, per-person URLs: never
+ * indexed (`noIndex`; `/invite/` is also disallowed in robots.ts).
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  return createMetadata({
+    title: "Join a workspace",
+    description: "Accept an invitation to a shared SpendChat workspace and start tracking money together.",
+    path: invitePath(token),
+    noIndex: true,
+  });
+}
 
 /**
  * The join page behind every invite email. Three states, decided here on the

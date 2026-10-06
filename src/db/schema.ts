@@ -1029,6 +1029,13 @@ export const splitGroups = pgTable(
  * - `invite_emailed_at` is the D1 marker: claimed with
  *   `UPDATE … WHERE invite_emailed_at IS NULL RETURNING`, so a group sends an
  *   address at most one email, ever. Never reset.
+ * - `email_key` is the address normalised to its inbox (`lib/email-key.ts`:
+ *   no `+tag`, no Gmail dots), so `zoe+trip@gmail.com` and `z.o.e@gmail.com`
+ *   are one person: unique per group, and what the per-invitee caps count.
+ *   Joining still binds to the exact `email`.
+ * - `invite_cooldown_until`: someone who declined or left can't be invited
+ *   back into this group before it (30 days). A removal by the creator sets
+ *   nothing — that's the creator's own decision to undo.
  */
 export const splitMembers = pgTable(
   "split_members",
@@ -1039,17 +1046,19 @@ export const splitMembers = pgTable(
       .references(() => splitGroups.id, { onDelete: "cascade" }),
     userId: uuid("user_id"),
     email: text("email"),
+    emailKey: text("email_key"),
     displayName: varchar("display_name", { length: SPLIT_MEMBER_NAME_MAX }),
     status: splitMemberStatusEnum("status").notNull().default("invited"),
     invitedBy: uuid("invited_by"),
     inviteToken: text("invite_token"),
     inviteEmailedAt: timestamp("invite_emailed_at", { withTimezone: true }),
+    inviteCooldownUntil: timestamp("invite_cooldown_until", { withTimezone: true }),
     joinedAt: timestamp("joined_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    // One row per address and per account in a group (nulls are distinct).
-    uniqueIndex("split_members_group_email_uq").on(t.groupId, t.email),
+    // One row per inbox and per account in a group (nulls are distinct).
+    uniqueIndex("split_members_group_email_key_uq").on(t.groupId, t.emailKey),
     uniqueIndex("split_members_group_user_uq").on(t.groupId, t.userId),
     // The join page's lookup.
     uniqueIndex("split_members_invite_token_uq").on(t.inviteToken),
@@ -1058,6 +1067,41 @@ export const splitMembers = pgTable(
     // Invitations still waiting for an account: the sign-up binding and the
     // invitations list's by-email arm. Partial, so it stays small.
     index("split_members_pending_email_idx").on(t.email).where(sql`${t.userId} is null`),
+    // The per-invitee cap: one inviter's open invitations to one inbox.
+    index("split_members_inviter_pending_idx")
+      .on(t.invitedBy, t.emailKey)
+      .where(sql`${t.status} = 'invited'`),
+  ],
+);
+
+/**
+ * Append-only counters for Split's anti-abuse caps (abuse rule D1 and the
+ * review of PR #96), kept apart from the group tables so deleting a group
+ * can't hand the budget back:
+ *
+ * - `group_created` — groups one person started (daily cap);
+ * - `member_added` — addresses one person added to groups (daily cap — also
+ *   what bounds probing addresses through any side channel);
+ * - `invite_emailed` — invite emails one *inbox* received, from anyone
+ *   (`recipient_key`, a SHA-256 of the `email_key` — never the address).
+ *
+ * `pnpm db:health:*` prunes it past its retention window, never below the
+ * longest window a cap reads (7 days).
+ */
+export const splitRateLog = pgTable(
+  "split_rate_log",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    event: text("event").notNull(),
+    actorId: uuid("actor_id"),
+    recipientKey: text("recipient_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("split_rate_log_actor_idx").on(t.actorId, t.event, t.createdAt),
+    index("split_rate_log_recipient_idx")
+      .on(t.recipientKey, t.event, t.createdAt)
+      .where(sql`${t.recipientKey} is not null`),
   ],
 );
 
@@ -1132,6 +1176,10 @@ export const splitShares = pgTable(
       onDelete: "set null",
     }),
     addedAt: timestamp("added_at", { withTimezone: true }),
+    // The share (group currency) the workspace entry was written or last
+    // updated for — when the expense is edited it differs from `amount_minor`
+    // and the UI offers "Update my entry".
+    addedAmountMinor: bigint("added_amount_minor", { mode: "number" }),
   },
   (t) => [
     check("split_shares_amount_not_negative", sql`${t.amountMinor} >= 0`),

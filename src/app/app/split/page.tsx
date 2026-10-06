@@ -23,7 +23,8 @@ export default async function SplitPage() {
   return (
     <SplitHome
       groups={groups}
-      invitations={invitations}
+      invitations={invitations.items}
+      invitationTotal={invitations.total}
       defaultCurrency={workspace.currency}
       locale={workspace.locale}
     />

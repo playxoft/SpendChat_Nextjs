@@ -36,8 +36,8 @@ ignores `X-Workspace-Id`. Everything here is additive.
 | `GET/POST /split/groups/{id}/expenses`, `GET/PUT/DELETE …/expenses/{expenseId}` | Expenses split `equal` / `exact` / `percent`; the server computes every share |
 | `GET/POST /split/groups/{id}/settlements`, `DELETE …/settlements/{settlementId}` | "Mark as paid" — record that one person paid another |
 | `GET /split/invitations`, `POST /split/invitations/{memberId}/accept` / `decline` | Groups waiting for you to join |
-| `POST /split/groups/{id}/members/{memberId}/invite-email` | Send someone their one invite email later (creator) — when the daily cap kept it from going |
 | `POST /split/groups/{id}/expenses/{expenseId}/add-to-workspace` | "Add my share to my workspace" — one expense in the current workspace (reads `X-Workspace-Id`) |
+| `PUT /split/groups/{id}/expenses/{expenseId}/workspace-entry` | "Update my entry" after the expense changed (`myShare.changedSinceAdded`) |
 
 **Rules worth mirroring in the UI**
 - Only a **joined** member can see a group; everyone else (invitees included)
@@ -47,20 +47,30 @@ ignores `X-Workspace-Id`. Everything here is additive.
 - 50 people per group, the creator included, on every plan → **409
   `split_group_full`** (`details: { max, used }`); no upgrade prompt.
 - Remove / leave need a zero balance → **409 `settle_first`**.
-- Every amount is in the group's `currency` (`…Minor` + string). Leftover
-  minor units go to the payer first, then by join order — don't recompute
-  shares client-side for display; read `shares`.
-- Someone without an account gets **one** invite email per group, ever
-  (`SplitAddedPerson.delivery: "email"`); past the creator's daily cap they're
-  still added (`delivery: "link"`) and the creator shares `SplitMember.inviteLink`
-  (creator only; it works only for the invited email).
+- Every amount is in the group's `currency` (`…Minor` + string; list `meta`
+  carries a `CurrencyMeta`). Rounding: equal splits give leftover minor units
+  to the payer first, then join order; percent splits to the largest
+  remainders first — don't recompute shares client-side for display; read
+  `shares`.
+- Adding people answers `status: "invited"` whether or not the address has an
+  account — the API never tells them apart. Account holders get an in-app
+  invitation; anyone else **one** email per group, ever (within daily caps).
+  The creator gets an `inviteLink` for every invited person (it works only for
+  the invited email).
+- Caps: 20 new groups and 100 people added per person per 24 h (429), 3 open
+  invitations from one person to one inbox (409 `conflict`), no re-invite for
+  30 days after someone declines or leaves (409 `invite_cooldown`), and 3
+  invite emails per inbox per week from everyone together. `+tags` and Gmail
+  dots are one inbox.
+- `GET /split/invitations` is paged (`meta.total`); a badge can show "9+".
 - Add-to-workspace: same currency → the share is the amount; different → ask
   the user what it cost them in the workspace's currency and send `amount`
   (422 `amount_required` otherwise). `myShare.added` flips to true; a second
-  add is 409.
+  add is 409. If the expense changes later, `myShare.changedSinceAdded` turns
+  true — offer "Update my entry" (`PUT …/workspace-entry`).
 
 **New error codes:** `split_group_full` (409), `settle_first` (409),
-`amount_required` (422).
+`invite_cooldown` (409), `amount_required` (422).
 
 **Flutter impact:** additive — nothing breaks. To ship Split in the app, add a
 Split tab outside the workspace switcher (don't send `X-Workspace-Id` there),

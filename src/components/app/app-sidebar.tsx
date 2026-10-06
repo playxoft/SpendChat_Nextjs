@@ -10,7 +10,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-list";
 import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
-import { hrefWithProfile, isActive, navItems, splitNavItem } from "./nav-items";
+import { hrefWithProfile, invitationBadge, isActive, navItems, splitNavItem } from "./nav-items";
 
 export function AppSidebar({
   email,
@@ -98,11 +98,11 @@ export function AppSidebar({
           <splitNavItem.icon className="size-4" />
           {splitNavItem.label}
           {splitInvitations > 0 && (
-            <span
-              className="rounded-full bg-primary px-1.5 text-[11px] font-medium leading-4 text-primary-foreground"
-              aria-label={`${splitInvitations} ${splitInvitations === 1 ? "invitation" : "invitations"}`}
-            >
-              {splitInvitations}
+            <span className="rounded-full bg-primary px-1.5 text-[11px] font-medium leading-4 text-primary-foreground">
+              <span aria-hidden>{invitationBadge(splitInvitations)}</span>
+              <span className="sr-only">
+                , {invitationBadge(splitInvitations)} {splitInvitations === 1 ? "invitation" : "invitations"}
+              </span>
             </span>
           )}
           <Kbd combo={splitNavItem.shortcut} className="ml-auto opacity-70" />

@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { addSplitMembers, removeSplitMember, sendSplitInviteEmail } from "@/actions/split";
+import { addSplitMembers, removeSplitMember } from "@/actions/split";
 import { splitInvitePath } from "@/lib/invite-links";
 import type { SplitMemberView } from "@/services/split";
 import { BalanceText } from "./balance-text";
@@ -58,8 +58,7 @@ export function MembersDialog({
       return;
     }
     setPending(true);
-    const res = await addSplitMembers(groupId, { members: list });
-    setPending(false);
+    const res = await addSplitMembers(groupId, { members: list }).finally(() => setPending(false));
     if (!res.ok) {
       toast.error(res.error);
       return;
@@ -80,23 +79,9 @@ export function MembersDialog({
     }
   }
 
-  async function sendEmail(m: SplitMemberView) {
-    setPending(true);
-    const res = await sendSplitInviteEmail(groupId, m.id);
-    setPending(false);
-    if (!res.ok) {
-      toast.error(res.error);
-      return;
-    }
-    if (res.emailed) toast.success(`We emailed ${m.name} an invite`);
-    else toast.error("You've sent today's invite emails — share their link instead, or try tomorrow");
-    router.refresh();
-  }
-
   async function remove(m: SplitMemberView) {
     setPending(true);
-    const res = await removeSplitMember(groupId, m.id);
-    setPending(false);
+    const res = await removeSplitMember(groupId, m.id).finally(() => setPending(false));
     if (!res.ok) {
       toast.error(res.error);
       return;
@@ -128,28 +113,17 @@ export function MembersDialog({
                   {m.status === "left" && <Badge variant="outline">Left</Badge>}
                 </p>
                 {m.email && <p className="truncate text-xs text-muted-foreground">{m.email}</p>}
-                {isCreator && m.status === "invited" && (
-                  <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-                    {m.inviteToken && (
-                      <button type="button" className="underline-offset-4 hover:underline" onClick={() => copyLink(m)}>
-                        Copy invite link
-                      </button>
-                    )}
-                    {m.canSendInviteEmail ? (
-                      <button
-                        type="button"
-                        className="underline-offset-4 hover:underline disabled:opacity-50"
-                        disabled={pending}
-                        onClick={() => sendEmail(m)}
-                      >
-                        Send invite email
-                      </button>
-                    ) : m.invitedByEmail ? (
-                      <span className="text-muted-foreground">Invite emailed</span>
-                    ) : (
-                      <span className="text-muted-foreground">Sees it in the app</span>
-                    )}
-                  </div>
+                {isCreator && m.status === "invited" && m.inviteToken && (
+                  <button
+                    type="button"
+                    className="mt-1 text-xs underline-offset-4 hover:underline"
+                    onClick={() => copyLink(m)}
+                  >
+                    Copy invite link
+                  </button>
+                )}
+                {isCreator && !m.isYou && m.status !== "left" && m.netMinor !== 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">Settle up first to remove them</p>
                 )}
               </div>
               <BalanceText netMinor={m.netMinor} currency={currency} locale={locale} className="text-xs" />
@@ -158,7 +132,6 @@ export function MembersDialog({
                   size="sm"
                   variant="ghost"
                   disabled={pending || m.netMinor !== 0}
-                  title={m.netMinor !== 0 ? "Settle up first" : undefined}
                   onClick={() => remove(m)}
                 >
                   Remove

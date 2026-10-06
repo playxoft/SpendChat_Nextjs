@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { hrefWithProfile, isActive, navItems, splitNavItem } from "./nav-items";
+import { hrefWithProfile, invitationBadge, isActive, navItems, splitNavItem } from "./nav-items";
 
 /** Settings used to be filtered out here; it is no longer in `navItems` at all
  *  (it lives in the profile/user menu), so the bar is the whole list again. */
@@ -46,10 +46,12 @@ export function BottomNav({ splitInvitations = 0 }: { splitInvitations?: number 
           <splitNavItem.icon className={cn("size-5", splitActive && "scale-105")} />
           {splitNavItem.label}
           {splitInvitations > 0 && (
-            <span
-              className="absolute top-2 left-1/2 ml-2 size-2 rounded-full bg-primary"
-              aria-label={`${splitInvitations} ${splitInvitations === 1 ? "invitation" : "invitations"}`}
-            />
+            <>
+              <span aria-hidden className="absolute top-2 left-1/2 ml-2 size-2 rounded-full bg-primary" />
+              <span className="sr-only">
+                , {invitationBadge(splitInvitations)} {splitInvitations === 1 ? "invitation" : "invitations"}
+              </span>
+            </>
           )}
         </Link>
       </div>

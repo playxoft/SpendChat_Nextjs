@@ -8,7 +8,7 @@ import * as split from "@/services/split";
 import * as ledger from "@/services/split-ledger";
 import { deleteAccount } from "@/services/settings";
 import { signInAs, uid } from "./helpers/session";
-import { getTestDb } from "./helpers/test-db";
+import { captureSql, getTestDb } from "./helpers/test-db";
 import { bootstrapUser, registerUser } from "./helpers/seed";
 
 const db = () => getTestDb();
@@ -76,12 +76,13 @@ describe("split groups", () => {
     vi.mocked(sendEmail).mockClear();
     signInAs("o");
     const res = ok(await actions.addSplitMembers(id, { members: [{ email: "asha@example.com", name: "Asha" }] }));
-    expect(res.added).toEqual([expect.objectContaining({ email: "asha@example.com", delivery: "in_app" })]);
+    expect(res.added).toEqual([{ memberId: expect.any(String), email: "asha@example.com", status: "invited" }]);
     expect(vi.mocked(sendEmail)).not.toHaveBeenCalled();
 
     // Not a member yet: the group is invisible, only the invitation shows.
     await expect(split.getGroupDetail(uid("asha"), id)).rejects.toMatchObject({ status: 404 });
-    const invitations = await split.listInvitations(me("asha"));
+    const { items: invitations, total } = await split.listInvitations(me("asha"));
+    expect(total).toBe(1);
     expect(invitations).toEqual([
       expect.objectContaining({ groupId: id, groupName: "Goa trip", inviterName: "o", peopleCount: 2 }),
     ]);
@@ -105,7 +106,7 @@ describe("split groups", () => {
     expect(row!.inviteToken).toMatch(/^[A-Za-z0-9_-]{32}$/);
 
     await registerUser("zoe");
-    const invitations = await split.listInvitations(me("zoe"));
+    const { items: invitations } = await split.listInvitations(me("zoe"));
     expect(invitations.map((i) => i.groupId)).toEqual([id]);
     await split.acceptInvitation(me("zoe"), invitations[0]!.memberId);
     const [joined] = await db().select().from(splitMembers).where(eq(splitMembers.id, row!.id));
@@ -132,9 +133,11 @@ describe("split groups", () => {
     const { added } = ok(await actions.addSplitMembers(id, { members: [{ email: "asha@example.com", name: "Asha" }] }));
     signInAs("asha");
     ok(await actions.declineSplitInvitation(added[0]!.memberId));
-    expect(await split.listInvitations(me("asha"))).toEqual([]);
+    expect(await split.listInvitations(me("asha"))).toEqual({ items: [], total: 0 });
     const [row] = await db().select().from(splitMembers).where(eq(splitMembers.id, added[0]!.memberId));
     expect(row).toMatchObject({ status: "left", inviteToken: null });
+    // Declining starts the 30-day "don't invite me back" window.
+    expect(row!.inviteCooldownUntil!.getTime()).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1000);
     expect((await split.getGroupDetail(uid("o"), id)).peopleCount).toBe(1);
   });
 
@@ -178,7 +181,6 @@ describe("split groups", () => {
     for (const m of forAsha.members) {
       expect(m.email).toBe(m.isYou ? "asha@example.com" : null);
       expect(m.inviteToken).toBeNull();
-      expect(m.invitedByEmail).toBeNull();
     }
     const invitations = await split.listInvitations(me("asha"));
     expect(JSON.stringify(invitations)).not.toContain("@");
@@ -202,7 +204,7 @@ describe("split groups", () => {
 
     // Re-adding someone already in is not an add.
     const same = ok(await actions.addSplitMembers(id, { members: [{ email: "p0@example.com", name: "P0" }] }));
-    expect(same.added[0]!.delivery).toBe("already");
+    expect(same.added[0]!.status).toBe("already");
   });
 
   it("D1: concurrent adds can't push a group past 50", async () => {
@@ -218,7 +220,18 @@ describe("split groups", () => {
           { email: `${tag}2@example.com`, name: `${tag}2` },
         ],
       });
-    const results = await Promise.allSettled([batch("x"), batch("y")]);
+    // PGlite runs one transaction at a time, so these two can't truly
+    // interleave here — this proves the count logic, not the locking. The
+    // locking is checked on the SQL itself: the group row is taken
+    // `FOR UPDATE` before anything is counted.
+    let results: PromiseSettledResult<unknown>[] = [];
+    const statements = await captureSql(async () => {
+      results = await Promise.allSettled([batch("x"), batch("y")]);
+    });
+    const lockAt = statements.findIndex((q) => /from "split_groups".*for update/is.test(q.text));
+    const countAt = statements.findIndex((q) => /select count\(\*\).*from "split_members"/is.test(q.text));
+    expect(lockAt).toBeGreaterThanOrEqual(0);
+    expect(countAt).toBeGreaterThan(lockAt);
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     expect(results.find((r) => r.status === "rejected")).toMatchObject({
       reason: { code: "split_group_full" },
@@ -325,7 +338,11 @@ describe("split expenses, balances and settling up", () => {
       ],
     });
     expect(exact).toMatchObject({ ok: false, code: "validation_error" });
-    expect((exact as { error: string }).error).toContain("Shares add up to");
+    // Neutral wording (it's logged); the sums travel in details for the dialog.
+    expect(exact).toMatchObject({
+      error: "The shares don't add up to the expense",
+      details: { sumMinor: 8000, totalMinor: 9000 },
+    });
 
     ok(
       await actions.createSplitExpense(id, {
@@ -518,15 +535,30 @@ describe("split expenses, balances and settling up", () => {
     expect(await actions.removeSplitMember(id, ownerId)).toMatchObject({ ok: false, code: "bad_request" });
     expect(await actions.removeSplitMember(id, ashaId)).toMatchObject({ ok: false, code: "not_found" });
 
+    // She left by choice: she can't be invited back for 30 days…
+    const tooSoon = await actions.addSplitMembers(id, { members: [{ email: "asha@example.com", name: "Asha" }] });
+    expect(tooSoon).toMatchObject({
+      ok: false,
+      code: "invite_cooldown",
+      details: { emails: ["asha@example.com"] },
+    });
+    // …and the refusal's message (which gets logged) names nobody.
+    expect((tooSoon as { error: string }).error).not.toContain("asha");
+    await db()
+      .update(splitMembers)
+      .set({ inviteCooldownUntil: new Date(Date.now() - 1000) })
+      .where(eq(splitMembers.id, ashaId));
     const { added } = ok(await actions.addSplitMembers(id, { members: [{ email: "asha@example.com", name: "Asha" }] }));
-    expect(added[0]).toMatchObject({ memberId: ashaId, delivery: "in_app" });
+    expect(added[0]).toMatchObject({ memberId: ashaId, status: "invited" });
     signInAs("asha");
     ok(await actions.acceptSplitInvitation(ashaId));
 
+    // A removal by the creator sets no cooldown: they can undo it right away.
     signInAs("o");
     ok(await actions.removeSplitMember(id, ashaId));
     const [row] = await db().select().from(splitMembers).where(eq(splitMembers.id, ashaId));
-    expect(row).toMatchObject({ status: "left", inviteToken: null });
+    expect(row).toMatchObject({ status: "left", inviteToken: null, inviteCooldownUntil: null });
+    ok(await actions.addSplitMembers(id, { members: [{ email: "asha@example.com", name: "Asha" }] }));
   });
 
   it("a former member can't be put on a new expense, but stays on old ones", async () => {
@@ -626,5 +658,99 @@ describe("account deletion and split", () => {
     const detail = await split.getGroupDetail(uid("o"), theirs);
     const former = detail.members.find((m) => m.id === ashaId)!;
     expect(former).toMatchObject({ name: "Deleted account", status: "left", netMinor: -500 });
+  });
+});
+
+describe("split review fixes", () => {
+  it("refuses a payment or expense that rounds to nothing, with a 422 not a 500", async () => {
+    const id = await newGroup("o", [], "JPY");
+    const ashaId = await joinAs(id, "asha");
+    const ownerId = (await split.getGroupDetail(uid("o"), id)).me.memberId;
+    signInAs("asha");
+    const payment = await actions.recordSplitSettlement(id, {
+      fromMemberId: ashaId,
+      toMemberId: ownerId,
+      amount: 0.4,
+      settledOn: today,
+    });
+    expect(payment).toMatchObject({ ok: false, code: "validation_error", error: "Amount is too small for JPY" });
+    const expense = await actions.createSplitExpense(id, {
+      title: "Gum",
+      amount: 0.4,
+      paidBy: ashaId,
+      occurredOn: today,
+      splitType: "equal",
+      memberIds: [ashaId],
+    });
+    expect(expense).toMatchObject({ ok: false, code: "validation_error", error: "Amount is too small for JPY" });
+  });
+
+  it("keeps names out of refusal messages (they end up in logs)", async () => {
+    const id = await newGroup();
+    const ashaId = await joinAs(id, "asha");
+    const ownerId = (await split.getGroupDetail(uid("o"), id)).me.memberId;
+    signInAs("o");
+    ok(
+      await actions.createSplitExpense(id, {
+        title: "Fuel",
+        amount: 50,
+        paidBy: ownerId,
+        occurredOn: today,
+        splitType: "equal",
+        memberIds: [ownerId, ashaId],
+      }),
+    );
+    const res = await actions.removeSplitMember(id, ashaId);
+    expect(res).toMatchObject({ ok: false, code: "settle_first" });
+    expect((res as { error: string }).error).not.toContain("ASHA");
+  });
+
+  it("deleting a group takes its row lock first", async () => {
+    const id = await newGroup();
+    const statements = await captureSql(() => split.deleteGroup(uid("o"), id));
+    const lockAt = statements.findIndex((q) => /from "split_groups".*for update/is.test(q.text));
+    const deleteAt = statements.findIndex((q) => /^delete from "split_groups"/i.test(q.text));
+    expect(lockAt).toBeGreaterThanOrEqual(0);
+    expect(deleteAt).toBeGreaterThan(lockAt);
+  });
+
+  it("pages invitations and caps the badge count", async () => {
+    await bootstrapUser("asha");
+    // Four inviters × three groups each (one inviter can only have 3 open to her).
+    for (const inviter of ["i1", "i2", "i3", "i4"]) {
+      await bootstrapUser(inviter);
+      signInAs(inviter);
+      for (let g = 0; g < 3; g++) {
+        ok(
+          await actions.createSplitGroup({
+            name: `${inviter}-${g}`,
+            currency: "USD",
+            members: [{ email: "asha@example.com", name: "Asha" }],
+          }),
+        );
+      }
+    }
+    expect(await split.countInvitations(me("asha"))).toBe(split.SPLIT_INVITATION_BADGE_MAX + 1);
+    const first = await split.listInvitations(me("asha"), { limit: 5, offset: 0 });
+    expect(first.total).toBe(12);
+    expect(first.items).toHaveLength(5);
+    signInAs("asha");
+    const rest = ok(await actions.loadSplitInvitations(10));
+    expect(rest.items).toHaveLength(2);
+    expect(ok(await actions.loadSplitInvitations(-1)).items).toHaveLength(12); // a bad offset reads from the start
+  });
+
+  it("pages payments for Show more", async () => {
+    const id = await newGroup();
+    const ashaId = await joinAs(id, "asha");
+    const ownerId = (await split.getGroupDetail(uid("o"), id)).me.memberId;
+    signInAs("o");
+    for (let i = 0; i < 3; i++) {
+      ok(await actions.recordSplitSettlement(id, { fromMemberId: ashaId, toMemberId: ownerId, amount: 1, settledOn: today }));
+    }
+    const page = ok(await actions.loadSplitSettlements(id, 2));
+    expect(page.items).toHaveLength(1);
+    expect(page.total).toBe(3);
+    expect(ok(await actions.loadSplitSettlements(id, 0)).items).toHaveLength(3);
   });
 });

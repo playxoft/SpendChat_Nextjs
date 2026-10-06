@@ -52,15 +52,34 @@ export async function captureSql(fn: () => Promise<unknown>): Promise<CapturedSt
   if (!client) throw new Error("Test DB not initialised — call initTestDb() first");
   const pglite = client;
   const original = pglite.query.bind(pglite);
+  const originalTransaction = pglite.transaction.bind(pglite);
   const seen: CapturedStatement[] = [];
-  (pglite as { query: typeof original }).query = ((text: string, ...rest: unknown[]) => {
+  const record = (text: string, rest: unknown[]) =>
     seen.push({ text, params: Array.isArray(rest[0]) ? (rest[0] as unknown[]) : [] });
+  (pglite as { query: typeof original }).query = ((text: string, ...rest: unknown[]) => {
+    record(text, rest);
     return (original as (...a: unknown[]) => unknown)(text, ...rest);
   }) as typeof original;
+  // Statements inside `db.transaction(...)` go through the transaction's own
+  // `query`, not the client's — wrap that too, so a test can see them.
+  (pglite as { transaction: typeof originalTransaction }).transaction = ((
+    cb: (tx: { query: (...a: unknown[]) => unknown }) => unknown,
+  ) =>
+    (originalTransaction as (cb: unknown) => unknown)(
+      (tx: { query: (text: string, ...rest: unknown[]) => unknown }) => {
+        const txQuery = tx.query.bind(tx);
+        tx.query = (text: string, ...rest: unknown[]) => {
+          record(text, rest);
+          return txQuery(text, ...rest);
+        };
+        return cb(tx);
+      },
+    )) as unknown as typeof originalTransaction;
   try {
     await fn();
   } finally {
     (pglite as { query: typeof original }).query = original;
+    (pglite as { transaction: typeof originalTransaction }).transaction = originalTransaction;
   }
   return seen;
 }
@@ -93,7 +112,7 @@ export async function resetTestDb(): Promise<void> {
        space_members, spaces, user_settings, workspace_invites, profile_access,
        workspace_members, workspaces, organizations, users, email_send_log,
        ai_usage_log, split_settlements, split_shares, split_expenses,
-       split_members, split_groups, neon_auth."user"
+       split_members, split_groups, split_rate_log, neon_auth."user"
      RESTART IDENTITY CASCADE;`,
   );
 }

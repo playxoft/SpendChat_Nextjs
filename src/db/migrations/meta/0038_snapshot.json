@@ -1,5 +1,5 @@
 {
-  "id": "b2328a38-d841-49d2-ae67-3693e19ea7fa",
+  "id": "904aa273-ca13-4190-8c7b-55988021d761",
   "prevId": "f98709f2-32fa-4963-80ef-350d83a9cedf",
   "version": "7",
   "dialect": "postgresql",
@@ -1971,6 +1971,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "email_key": {
+          "name": "email_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "display_name": {
           "name": "display_name",
           "type": "varchar(40)",
@@ -2003,6 +2009,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "invite_cooldown_until": {
+          "name": "invite_cooldown_until",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "joined_at": {
           "name": "joined_at",
           "type": "timestamp with time zone",
@@ -2018,8 +2030,8 @@
         }
       },
       "indexes": {
-        "split_members_group_email_uq": {
-          "name": "split_members_group_email_uq",
+        "split_members_group_email_key_uq": {
+          "name": "split_members_group_email_key_uq",
           "columns": [
             {
               "expression": "group_id",
@@ -2028,7 +2040,7 @@
               "nulls": "last"
             },
             {
-              "expression": "email",
+              "expression": "email_key",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2111,6 +2123,28 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "split_members_inviter_pending_idx": {
+          "name": "split_members_inviter_pending_idx",
+          "columns": [
+            {
+              "expression": "invited_by",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "email_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"split_members\".\"status\" = 'invited'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -2128,6 +2162,107 @@
           "onUpdate": "no action"
         }
       },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.split_rate_log": {
+      "name": "split_rate_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "uuidv7()"
+        },
+        "event": {
+          "name": "event",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "actor_id": {
+          "name": "actor_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "recipient_key": {
+          "name": "recipient_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "split_rate_log_actor_idx": {
+          "name": "split_rate_log_actor_idx",
+          "columns": [
+            {
+              "expression": "actor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "event",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "split_rate_log_recipient_idx": {
+          "name": "split_rate_log_recipient_idx",
+          "columns": [
+            {
+              "expression": "recipient_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "event",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "where": "\"split_rate_log\".\"recipient_key\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -2348,6 +2483,12 @@
         "added_at": {
           "name": "added_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "added_amount_minor": {
+          "name": "added_amount_minor",
+          "type": "bigint",
           "primaryKey": false,
           "notNull": false
         }

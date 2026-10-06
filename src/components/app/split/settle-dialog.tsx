@@ -16,7 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { recordSplitSettlement } from "@/actions/split";
-import { minorToInputString } from "@/lib/money";
+import { minorToInputString, toMinorUnits } from "@/lib/money";
 import { parseAmountInput } from "@/lib/parse-amount";
 
 export type SettleTarget = {
@@ -68,14 +68,17 @@ export function SettleDialog({
       toast.error("Enter the amount paid");
       return;
     }
+    if (toMinorUnits(value, currency) <= 0) {
+      toast.error(`Amount is too small for ${currency}`);
+      return;
+    }
     setPending(true);
     const res = await recordSplitSettlement(groupId, {
       fromMemberId: target.fromMemberId,
       toMemberId: target.toMemberId,
       amount: value,
       settledOn: date,
-    });
-    setPending(false);
+    }).finally(() => setPending(false));
     if (!res.ok) {
       toast.error(res.error);
       return;

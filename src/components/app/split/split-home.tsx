@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { acceptSplitInvitation, declineSplitInvitation } from "@/actions/split";
+import { acceptSplitInvitation, declineSplitInvitation, loadSplitInvitations } from "@/actions/split";
 import type { SplitGroupSummary, SplitInvitation } from "@/services/split";
 import { BalanceText } from "./balance-text";
 import { NewGroupDialog } from "./new-group-dialog";
@@ -14,25 +14,48 @@ import { NewGroupDialog } from "./new-group-dialog";
 /** `/app/split`: invitations waiting for an answer, then the groups you're in. */
 export function SplitHome({
   groups,
-  invitations,
+  invitations: firstPage,
+  invitationTotal,
   defaultCurrency,
   locale,
 }: {
   groups: SplitGroupSummary[];
   invitations: SplitInvitation[];
+  invitationTotal: number;
   defaultCurrency: string;
   locale: string;
 }) {
   const router = useRouter();
   const [creating, setCreating] = React.useState(false);
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [invitations, setInvitations] = React.useState(firstPage);
+  const [total, setTotal] = React.useState(invitationTotal);
+  const [seen, setSeen] = React.useState(firstPage);
+  if (firstPage !== seen) {
+    setSeen(firstPage);
+    setInvitations(firstPage);
+    setTotal(invitationTotal);
+  }
+  const [loadingMore, setLoadingMore] = React.useState(false);
+
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const res = await loadSplitInvitations(invitations.length);
+      if (!res.ok) return toast.error(res.error);
+      setInvitations([...invitations, ...res.items.filter((i) => !invitations.some((x) => x.memberId === i.memberId))]);
+      setTotal(res.total);
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   async function answer(inv: SplitInvitation, join: boolean) {
     setBusy(inv.memberId);
-    const res = join
-      ? await acceptSplitInvitation(inv.memberId)
-      : await declineSplitInvitation(inv.memberId);
-    setBusy(null);
+    const res = await (join
+      ? acceptSplitInvitation(inv.memberId)
+      : declineSplitInvitation(inv.memberId)
+    ).finally(() => setBusy(null));
     if (!res.ok) {
       toast.error(res.error);
       router.refresh();
@@ -95,6 +118,13 @@ export function SplitHome({
               </li>
             ))}
           </ul>
+          {invitations.length < total && (
+            <div className="flex justify-center">
+              <Button variant="outline" size="sm" disabled={loadingMore} onClick={loadMore}>
+                {loadingMore ? "Loading…" : `Show more (${total - invitations.length})`}
+              </Button>
+            </div>
+          )}
         </section>
       )}
 

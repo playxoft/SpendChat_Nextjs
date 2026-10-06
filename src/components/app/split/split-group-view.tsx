@@ -28,6 +28,8 @@ import {
   deleteSplitSettlement,
   leaveSplitGroup,
   loadSplitExpenses,
+  loadSplitSettlements,
+  updateSplitWorkspaceEntry,
 } from "@/actions/split";
 import { formatDateShort } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
@@ -40,6 +42,7 @@ import { ExpenseDialog, type ExpenseMember } from "./expense-dialog";
 import { GroupSettingsDialog } from "./group-settings-dialog";
 import { MembersDialog } from "./members-dialog";
 import { SettleDialog, type SettleTarget } from "./settle-dialog";
+import { UpdateEntryDialog, type UpdateEntryTarget } from "./update-entry-dialog";
 
 type Confirm =
   | { kind: "delete-group" }
@@ -56,7 +59,8 @@ export function SplitGroupView({
   detail,
   expenses: firstPage,
   expenseTotal,
-  payments,
+  payments: firstPayments,
+  paymentTotal,
   userId,
   locale,
   today,
@@ -66,6 +70,7 @@ export function SplitGroupView({
   expenses: SplitExpenseView[];
   expenseTotal: number;
   payments: SplitSettlementView[];
+  paymentTotal: number;
   userId: string;
   locale: string;
   today: string;
@@ -89,6 +94,17 @@ export function SplitGroupView({
     setExpenses(firstPage);
     setTotal(expenseTotal);
   }
+  const [payments, setPayments] = React.useState(firstPayments);
+  const [paymentsTotal, setPaymentsTotal] = React.useState(paymentTotal);
+  const [loadingPayments, setLoadingPayments] = React.useState(false);
+  const [seenPayments, setSeenPayments] = React.useState(firstPayments);
+  if (firstPayments !== seenPayments) {
+    setSeenPayments(firstPayments);
+    setPayments(firstPayments);
+    setPaymentsTotal(paymentTotal);
+  }
+  const [updatingEntry, setUpdatingEntry] = React.useState<string | null>(null);
+  const [entryTarget, setEntryTarget] = React.useState<UpdateEntryTarget | null>(null);
 
   const [adding, setAdding] = React.useState(false);
   const [editing, setEditing] = React.useState<SplitExpenseView | null>(null);
@@ -101,18 +117,46 @@ export function SplitGroupView({
 
   const active = detail.members.filter((m) => m.status !== "left");
   const expenseMembers = (expense: SplitExpenseView | null): ExpenseMember[] => {
-    const on = new Set(expense ? [expense.paidBy.memberId, ...expense.shares.map((s) => s.memberId)] : []);
     const list = active.map((m) => ({ id: m.id, name: m.name }));
-    for (const id of on) {
-      if (!list.some((m) => m.id === id)) list.push({ id, name: names.get(id) ?? "Former member" });
+    if (!expense) return list;
+    // People already on this expense stay on it, named as the expense names them.
+    const onIt = [expense.paidBy, ...expense.shares.map((s) => ({ memberId: s.memberId, name: s.name }))];
+    for (const p of onIt) {
+      if (!list.some((m) => m.id === p.memberId)) {
+        list.push({ id: p.memberId, name: p.name || names.get(p.memberId) || "Former member" });
+      }
     }
     return list;
   };
 
+  async function loadMorePayments() {
+    setLoadingPayments(true);
+    const res = await loadSplitSettlements(group.id, payments.length).finally(() => setLoadingPayments(false));
+    if (!res.ok) return toast.error(res.error);
+    setPayments([...payments, ...res.items.filter((p) => !payments.some((x) => x.id === p.id))]);
+    setPaymentsTotal(res.total);
+  }
+
+  /** "Update my entry": same currency goes straight through; another asks for the amount. */
+  async function updateEntry(e: SplitExpenseView) {
+    setUpdatingEntry(e.id);
+    const res = await updateSplitWorkspaceEntry(group.id, e.id, {}).finally(() => setUpdatingEntry(null));
+    if (res.ok) {
+      toast.success("Your entry is up to date");
+      router.refresh();
+      return;
+    }
+    if (res.code === "amount_required") {
+      setEntryTarget({ expenseId: e.id, title: e.title, message: res.error });
+      return;
+    }
+    toast.error(res.error);
+    router.refresh();
+  }
+
   async function loadMore() {
     setLoadingMore(true);
-    const res = await loadSplitExpenses(group.id, expenses.length);
-    setLoadingMore(false);
+    const res = await loadSplitExpenses(group.id, expenses.length).finally(() => setLoadingMore(false));
     if (!res.ok) return toast.error(res.error);
     setExpenses([...expenses, ...res.items.filter((e) => !expenses.some((x) => x.id === e.id))]);
     setTotal(res.total);
@@ -121,15 +165,15 @@ export function SplitGroupView({
   async function runConfirm() {
     if (!confirm) return;
     setBusy(true);
-    const res =
+    const res = await (
       confirm.kind === "delete-group"
-        ? await deleteSplitGroup(group.id)
+        ? deleteSplitGroup(group.id)
         : confirm.kind === "leave"
-          ? await leaveSplitGroup(group.id)
+          ? leaveSplitGroup(group.id)
           : confirm.kind === "delete-expense"
-            ? await deleteSplitExpense(group.id, confirm.expense.id)
-            : await deleteSplitSettlement(group.id, confirm.payment.id);
-    setBusy(false);
+            ? deleteSplitExpense(group.id, confirm.expense.id)
+            : deleteSplitSettlement(group.id, confirm.payment.id)
+    ).finally(() => setBusy(false));
     setConfirm(null);
     if (!res.ok) return toast.error(res.error);
     if (confirm.kind === "delete-group" || confirm.kind === "leave") {
@@ -308,7 +352,19 @@ export function SplitGroupView({
                     <span className="text-muted-foreground">
                       Your share <span className="font-medium text-foreground tabular-nums">{fmt(e.myShare.amountMinor)}</span>
                     </span>
-                    {e.myShare.added ? (
+                    {e.myShare.added && e.myShare.changedSinceAdded ? (
+                      <span className="inline-flex items-center gap-2">
+                        <span className="text-muted-foreground">Changed since you added it</span>
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          disabled={updatingEntry === e.id}
+                          onClick={() => updateEntry(e)}
+                        >
+                          {updatingEntry === e.id ? "Updating…" : "Update my entry"}
+                        </Button>
+                      </span>
+                    ) : e.myShare.added ? (
                       <span className="inline-flex items-center gap-1 text-muted-foreground">
                         <Check className="size-3.5" /> In your workspace
                       </span>
@@ -362,9 +418,22 @@ export function SplitGroupView({
               </li>
             ))}
           </ul>
+          {payments.length < paymentsTotal && (
+            <div className="flex justify-center">
+              <Button variant="outline" size="sm" disabled={loadingPayments} onClick={loadMorePayments}>
+                {loadingPayments ? "Loading…" : "Show more"}
+              </Button>
+            </div>
+          )}
         </section>
       )}
 
+      <UpdateEntryDialog
+        target={entryTarget}
+        onOpenChange={(open) => !open && setEntryTarget(null)}
+        groupId={group.id}
+        locale={locale}
+      />
       <ExpenseDialog
         open={adding || editing !== null}
         onOpenChange={(open) => {

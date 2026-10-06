@@ -26,14 +26,17 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   people by name and email. Everyone adds what they paid and sees who owes
   whom; SpendChat works out the shortest way to settle up, and **Mark as paid**
   records it when someone pays back. Split an expense equally, by exact
-  amounts or by percent; if it doesn't divide evenly, whoever paid takes the
-  leftover paisa, so nobody else is asked for more than their share.
+  amounts or by percent. When an equal split doesn't divide evenly, whoever
+  paid takes the leftover paisa first; in a percent split it goes to the share
+  closest to rounding up.
 - **Groups live outside workspaces** and are free on every plan: up to 50
-  people each (you included), as many groups and expenses as you like. Find
-  them under **Split** in the sidebar (or press `P`).
+  people each (you included), as many groups and expenses as you like (up to
+  20 new groups a day). Find them under **Split** in the sidebar (or press
+  `P`).
 - **Invitations in the app.** Add someone who already uses SpendChat and they
   see the invitation in the app — Join or Decline — with a badge on Split
-  until they answer.
+  until they answer. Someone who declines or leaves can't be invited back into
+  that group for 30 days.
 - **Who can do what.** The person who created a group renames it, adds and
   removes people, and can delete it. Everyone else adds expenses, edits the
   ones they added, and records payments they made or received. Only the
@@ -41,19 +44,24 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - **Invite anyone by email.** Someone without an account gets one email with a
   link to join — it only works for the address you invited, and they never get
   a second email about that group. Every group's People list has a **Copy
-  invite link** for anyone still invited, ready for WhatsApp.
+  invite link** for everyone still invited, ready for WhatsApp.
 - **Add my share to my workspace.** One tap puts your share of an expense into
   a profile in your current workspace as an ordinary expense. If the group
   uses another currency, you enter what it cost you in yours. Each share can
-  only be added once.
+  only be added once — and if the expense is edited afterwards, **Update my
+  entry** brings your workspace entry back in line.
 - Mobile API 6.9.0: `/api/v1/split/*` (groups, people, expenses, payments,
-  invitations, invite emails, add to workspace).
+  invitations, add to workspace, update my entry).
 
 ### Security
-- Invite emails to people without an account are capped at 30 a day per
-  person (on top of the existing 20 an hour), at most one per group per
-  address, and only sent after the add itself was allowed — so Split can't be
-  used to send bulk email from our domain.
+- Split can't be used to send bulk email from our domain or to pester people:
+  one invite email per group per address, ever; 30 invite emails a day per
+  sender (on top of the existing 20 an hour); 3 a week per inbox from everyone
+  together; 100 people added and 20 groups started per person a day; 3 open
+  invitations from one person to one inbox. `+tags` and Gmail dots count as
+  one inbox.
+- Adding someone to a group never reveals whether they already have a
+  SpendChat account — the answer and the group look the same either way.
 
 ## [0.33.0] — 2026-10-06
 

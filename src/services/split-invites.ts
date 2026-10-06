@@ -11,11 +11,13 @@ import {
   SPLIT_INVITE_EMAILS_PER_DAY,
 } from "@/lib/email-quota";
 import { siteUrl, splitInviteEmail } from "@/lib/email-templates";
+import { recipientHash } from "@/lib/email-key";
 import { forbidden, isUniqueViolation, conflict, notFound } from "@/lib/errors";
 import { splitInviteEmailPath } from "@/lib/invite-links";
 import { logger } from "@/lib/logger";
 import { memberLabel } from "@/lib/split-access";
 import { inviteTokenSchema } from "@/lib/validation";
+import { releaseEmails, reserveRecipientEmails } from "@/services/split-rate";
 
 /**
  * Split invites for people without an account: the one email (abuse rule D1)
@@ -28,11 +30,14 @@ import { inviteTokenSchema } from "@/lib/validation";
  *   invite_emailed_at IS NULL RETURNING`, so a retry, a double click, a
  *   remove-and-re-add or a second "send" can never send twice. Member rows are
  *   never deleted while the group exists, so the marker can't be lost either.
- * - *A daily cap per person,* reserved for the whole batch in one go
- *   (`reserveEmailSends`) after the claim. Rows past the cap are un-claimed —
- *   compared on the exact timestamp this call wrote, so a concurrent claim is
- *   never undone — and the person is still in the group; the creator shares
- *   their link instead.
+ * - *A cap per inbox, from every sender together:* at most
+ *   `SPLIT_EMAILS_PER_RECIPIENT` split invites per 7 days, counted on a
+ *   SHA-256 of the normalised address (`lib/email-key.ts` — `+tag` and Gmail
+ *   dots collapse), so one person can't be flooded from many accounts.
+ * - *A daily cap per sender,* reserved for the whole batch in one go
+ *   (`reserveEmailSends`). Rows past either cap are un-claimed — compared on
+ *   the exact timestamp this call wrote, so a concurrent claim is never undone
+ *   — and the person is still in the group; the creator has their link.
  * - *Only after every check passed:* callers run this after the add has
  *   committed, so a refused add (not the creator, group full) spends nothing.
  *
@@ -91,14 +96,22 @@ export async function emailNewInvitees(
       ),
     )
     .returning({ id: splitMembers.id, email: splitMembers.email, token: splitMembers.inviteToken });
-  const sendable = claimed.filter((c) => c.email && c.token);
-  if (sendable.length === 0) return new Set();
+  const sendable = await Promise.all(
+    claimed
+      .filter((c): c is { id: string; email: string; token: string } => Boolean(c.email && c.token))
+      .map(async (c) => ({ ...c, recipientKey: await recipientHash(c.email) })),
+  );
 
-  const granted = await reserveEmailSends(senderId, SPLIT_INVITE_EMAIL_KIND, sendable.length, {
+  // Per inbox first (every sender counts), then the sender's own quota.
+  const perInbox = await reserveRecipientEmails(senderId, sendable);
+  const granted = await reserveEmailSends(senderId, SPLIT_INVITE_EMAIL_KIND, perInbox.length, {
     perDay: SPLIT_INVITE_EMAILS_PER_DAY,
   });
-  const sending = sendable.slice(0, granted);
-  const overflow = [...sendable.slice(granted), ...claimed.filter((c) => !c.email || !c.token)];
+  const sending = perInbox.slice(0, granted).map((g) => g.item);
+  await releaseEmails(perInbox.slice(granted).map((g) => g.logId));
+
+  const sendingIds = new Set(sending.map((r) => r.id));
+  const overflow = claimed.filter((c) => !sendingIds.has(c.id));
   if (overflow.length) {
     await db
       .update(splitMembers)
@@ -112,7 +125,7 @@ export async function emailNewInvitees(
           eq(splitMembers.inviteEmailedAt, claimedAt),
         ),
       );
-    logger.warn(`Split invite emails over the daily cap: ${overflow.length} not sent`, {
+    logger.warn(`Split invite emails over a cap: ${overflow.length} not sent`, {
       event: "split.invite_email_capped",
       groupId,
       skipped: overflow.length,
@@ -124,24 +137,24 @@ export async function emailNewInvitees(
   if (!info) return new Set();
   for (const row of sending) {
     sendEmail({
-      to: row.email!,
+      to: row.email,
       ...splitInviteEmail({
         groupName: info.group.name,
         groupIcon: info.group.icon,
         inviterName: info.inviterName,
         peopleCount: info.peopleCount,
         currency: info.group.currency,
-        joinUrl: siteUrl(splitInviteEmailPath(row.token!)),
-        recipientEmail: row.email!,
+        joinUrl: siteUrl(splitInviteEmailPath(row.token)),
+        recipientEmail: row.email,
       }),
     });
-    logger.info(`Split invite emailed to ${redactEmail(row.email!)}`, {
+    logger.info(`Split invite emailed to ${redactEmail(row.email)}`, {
       event: "split.invite_emailed",
       groupId,
       memberId: row.id,
     });
   }
-  return new Set(sending.map((s) => s.id));
+  return sendingIds;
 }
 
 /* ------------------------------------------------------------------------- */

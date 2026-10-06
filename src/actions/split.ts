@@ -5,18 +5,21 @@ import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import {
   SPLIT_EXPENSES_PAGE,
+  SPLIT_PAYMENTS_PAGE,
   type AddSplitMembersInput,
   type CreateSplitGroupInput,
   type SplitExpenseInput,
   type SplitSettlementInput,
   type UpdateSplitGroupInput,
   type AddSplitShareToWorkspaceInput,
+  type UpdateSplitWorkspaceEntryInput,
 } from "@/lib/validation";
 import * as split from "@/services/split";
 import * as ledger from "@/services/split-ledger";
 import * as invites from "@/services/split-invites";
 import type { AddedPerson } from "@/services/split";
-import type { SplitExpenseView } from "@/services/split-ledger";
+import type { SplitInvitation } from "@/services/split";
+import type { SplitExpenseView, SplitSettlementView } from "@/services/split-ledger";
 
 /**
  * Split server actions — thin wrappers over `services/split*.ts`, which hold
@@ -164,6 +167,37 @@ export async function loadSplitExpenses(
   );
 }
 
+/** Read-only: the next page of a group's payments, for "Show more". */
+export async function loadSplitSettlements(
+  groupId: string,
+  offset: number,
+): Promise<ActionResult<{ items: SplitSettlementView[]; total: number; currency: string }>> {
+  const user = await requireUser();
+  return runAction(
+    "loadSplitSettlements",
+    async () => {
+      const safeOffset = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
+      return ledger.listSettlements(user.id, groupId, { limit: SPLIT_PAYMENTS_PAGE, offset: safeOffset });
+    },
+    { userId: user.id, groupId },
+  );
+}
+
+/** Read-only: the next page of the caller's invitations, for "Show more". */
+export async function loadSplitInvitations(
+  offset: number,
+): Promise<ActionResult<{ items: SplitInvitation[]; total: number }>> {
+  const user = await requireUser();
+  return runAction(
+    "loadSplitInvitations",
+    async () => {
+      const safeOffset = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
+      return split.listInvitations(user, { limit: split.SPLIT_INVITATIONS_PAGE, offset: safeOffset });
+    },
+    { userId: user.id },
+  );
+}
+
 export async function createSplitExpense(
   groupId: string,
   input: SplitExpenseInput,
@@ -256,23 +290,6 @@ export async function acceptSplitInvite(token: string): Promise<ActionResult<{ g
   );
 }
 
-/** The one invite email, for someone the daily cap skipped at add time (creator). */
-export async function sendSplitInviteEmail(
-  groupId: string,
-  memberId: string,
-): Promise<ActionResult<{ emailed: boolean }>> {
-  const user = await requireUser();
-  return runAction(
-    "sendSplitInviteEmail",
-    async () => {
-      const { emailed } = await split.sendInviteEmail(user.id, groupId, memberId);
-      revalidateSplit();
-      return { emailed };
-    },
-    { userId: user.id, groupId, memberId },
-  );
-}
-
 /** Put your share of an expense in the current workspace, as one expense. */
 export async function addSplitShareToWorkspace(
   groupId: string,
@@ -296,5 +313,23 @@ export async function addSplitShareToWorkspace(
       return { transactionId };
     },
     { userId: user.id, workspaceId: workspace.id, groupId, expenseId },
+  );
+}
+
+/** The expense changed since you added your share: bring your workspace entry in line. */
+export async function updateSplitWorkspaceEntry(
+  groupId: string,
+  expenseId: string,
+  input: UpdateSplitWorkspaceEntryInput,
+): Promise<ActionResult<{ transactionId: string }>> {
+  const user = await requireUser();
+  return runAction(
+    "updateSplitWorkspaceEntry",
+    async () => {
+      const { transactionId } = await ledger.updateWorkspaceEntry(user.id, groupId, expenseId, input);
+      revalidateApp();
+      return { transactionId };
+    },
+    { userId: user.id, groupId, expenseId },
   );
 }

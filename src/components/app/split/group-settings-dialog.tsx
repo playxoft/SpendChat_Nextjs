@@ -54,8 +54,7 @@ export function GroupSettingsDialog({
       name: name.trim(),
       icon,
       ...(currencyLocked ? {} : { currency }),
-    });
-    setPending(false);
+    }).finally(() => setPending(false));
     if (!res.ok) {
       toast.error(res.error);
       return;

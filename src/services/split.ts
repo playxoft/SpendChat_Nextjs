@@ -1,5 +1,6 @@
 import "server-only";
-import { and, asc, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { cache } from "react";
+import { and, asc, count, desc, eq, inArray, isNull, ne, or, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import {
@@ -16,15 +17,35 @@ import {
 import { parseOrThrow } from "@/lib/api-response";
 import type { SessionUser } from "@/lib/auth";
 import { findUserById } from "@/lib/directory";
-import { ApiError, badRequest, conflict, forbidden, isUniqueViolation, notFound } from "@/lib/errors";
+import { emailKey } from "@/lib/email-key";
+import {
+  ApiError,
+  badRequest,
+  conflict,
+  forbidden,
+  isUniqueViolation,
+  notFound,
+  tooManyRequests,
+  validationError,
+} from "@/lib/errors";
 import { generateInviteToken } from "@/lib/invite-links";
 import { emailNewInvitees } from "@/services/split-invites";
+import {
+  actorEventsToday,
+  lockActor,
+  logActorEvents,
+  SPLIT_ADDS_PER_DAY,
+  SPLIT_GROUPS_PER_DAY,
+  SPLIT_INVITE_COOLDOWN_DAYS,
+  SPLIT_PENDING_PER_INVITEE,
+} from "@/services/split-rate";
 import { logger } from "@/lib/logger";
 import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import {
   canManageGroup,
   canSeeEmail,
   memberLabel,
+  SPLIT_DELETED_MEMBER_NAME,
   type SplitViewer,
 } from "@/lib/split-access";
 import {
@@ -36,6 +57,7 @@ import {
 import {
   addSplitMembersSchema,
   createSplitGroupSchema,
+  SPLIT_MEMBER_NAME_MAX,
   updateSplitGroupSchema,
 } from "@/lib/validation";
 
@@ -49,7 +71,10 @@ import {
  * group — anyone else gets a 404, so a group's existence never leaks. The
  * creator manages it; members add expenses and settle up. Someone added by
  * email is `invited` until they join: an account holder sees an in-app
- * invitation (never an email), someone without one gets a join link.
+ * invitation (never an email), someone without one gets one email and a join
+ * link. **The creator can't tell which** — every add answers `invited`, every
+ * pending row has a copyable link — so adding people is no way to learn
+ * whether an address has an account (review of PR #96, S1).
  *
  * The 50-person cap (`SPLIT_GROUP_MAX_PEOPLE`, the creator included, the same
  * on every plan) counts `invited` + `joined` rows, and every add takes the
@@ -109,13 +134,24 @@ export type GroupLock = "update" | "share";
 export async function requireJoined(
   userId: string,
   rawGroupId: unknown,
-  db: DbOrTx = getDb(),
+  db?: DbOrTx,
   lock?: GroupLock,
 ): Promise<JoinedContext> {
   const groupId = parseSplitId(rawGroupId);
+  // A plain read (no transaction, no lock) is shared across one RSC render —
+  // the group page asks three times. React's `cache` is a pass-through
+  // everywhere else, so no write path ever sees a stale answer.
+  if (!db && !lock) return joinedRead(userId, groupId);
+  const exec = db ?? getDb();
   if (lock) {
-    await db.select({ id: splitGroups.id }).from(splitGroups).where(eq(splitGroups.id, groupId)).for(lock);
+    await exec.select({ id: splitGroups.id }).from(splitGroups).where(eq(splitGroups.id, groupId)).for(lock);
   }
+  return loadJoined(userId, groupId, exec);
+}
+
+const joinedRead = cache((userId: string, groupId: string) => loadJoined(userId, groupId, getDb()));
+
+async function loadJoined(userId: string, groupId: string, db: DbOrTx): Promise<JoinedContext> {
   const [row] = await db
     .select({ group: splitGroups, me: splitMembers })
     .from(splitMembers)
@@ -140,7 +176,7 @@ export async function requireJoined(
 export async function requireCreator(
   userId: string,
   rawGroupId: unknown,
-  db: DbOrTx = getDb(),
+  db?: DbOrTx,
   lock?: GroupLock,
 ): Promise<JoinedContext> {
   const ctx = await requireJoined(userId, rawGroupId, db, lock);
@@ -205,8 +241,17 @@ export async function memberBalances(
   return netBalances(memberIds, await ledgerTotals(memberIds, db));
 }
 
-/** Every row of a group: the creator first, then in join order. */
-export async function groupMembers(groupId: string, db: DbOrTx = getDb()): Promise<SplitMember[]> {
+/**
+ * Every row of a group: the creator first, then in join order. Without `db`
+ * it's a plain read, shared across one RSC render like `requireJoined`.
+ */
+export function groupMembers(groupId: string, db?: DbOrTx): Promise<SplitMember[]> {
+  return db ? loadMembers(groupId, db) : membersRead(groupId);
+}
+
+const membersRead = cache((groupId: string) => loadMembers(groupId, getDb()));
+
+function loadMembers(groupId: string, db: DbOrTx): Promise<SplitMember[]> {
   return db
     .select()
     .from(splitMembers)
@@ -278,15 +323,11 @@ export type SplitMemberView = {
   isCreator: boolean;
   isYou: boolean;
   netMinor: number;
-  /** Creator only, pending rows: the join link's token (phase 11 builds the URL). */
-  inviteToken: string | null;
-  /** Creator only: whether this person was sent their one invite email. */
-  invitedByEmail: boolean | null;
   /**
-   * Creator only: whether "Send invite email" applies — still invited, no
-   * account (account holders see an in-app invitation), never emailed.
+   * Creator only, for everyone still invited (with or without an account —
+   * the same for both, so it says nothing about which): the join link's token.
    */
-  canSendInviteEmail: boolean | null;
+  inviteToken: string | null;
 };
 
 export type SplitGroupDetail = {
@@ -328,10 +369,6 @@ export function viewMembers(
         isYou: m.id === ctx.me.id,
         netMinor: net.get(m.id) ?? 0,
         inviteToken: creatorView && m.status === "invited" ? m.inviteToken : null,
-        invitedByEmail: creatorView ? m.inviteEmailedAt !== null : null,
-        canSendInviteEmail: creatorView
-          ? m.status === "invited" && m.userId === null && m.inviteEmailedAt === null
-          : null,
       };
     })
     .filter((m) => m.status !== "left" || m.netMinor !== 0);
@@ -348,8 +385,8 @@ async function hasActivity(groupId: string, db: DbOrTx): Promise<boolean> {
 /** Everything the group page shows above the expense list. */
 export async function getGroupDetail(userId: string, rawGroupId: unknown): Promise<SplitGroupDetail> {
   const db = getDb();
-  const ctx = await requireJoined(userId, rawGroupId, db);
-  const rows = await groupMembers(ctx.group.id, db);
+  const ctx = await requireJoined(userId, rawGroupId);
+  const rows = await groupMembers(ctx.group.id);
   const [balances, activity] = await Promise.all([
     memberBalances(rows.map((m) => m.id), db),
     hasActivity(ctx.group.id, db),
@@ -385,21 +422,30 @@ export type AddedPerson = {
   /** Lowercased. Only ever returned to the creator who typed it. */
   email: string;
   /**
-   * `in_app` — they have an account and see an invitation in the app (no email);
-   * `email` — no account yet, and their one invite email is on its way;
-   * `link` — no account yet, and no email went (the daily cap, or they were
-   *          emailed before): the creator shares the join link;
+   * `invited` — they're in the group as invited, whatever happened next (an
+   * in-app invitation for an account holder; one email for anyone else). The
+   * same answer either way, so it reveals nothing about the address.
    * `already` — they were already in the group; nothing changed.
    */
-  delivery: "in_app" | "email" | "link" | "already";
+  status: "invited" | "already";
 };
 
 type Person = { email: string; name: string };
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Add people inside the caller's transaction, with the group row already
  * locked. Re-adding someone who left reactivates their row — same id, so their
  * history reconnects, and the same `invite_emailed_at`, so no second email.
+ *
+ * Refused, before anything is written (so a refusal spends no quota):
+ * - two addresses that are one inbox (`emailKey`), or the creator's own;
+ * - someone who declined or left this group in the last 30 days;
+ * - an inbox the creator already has 3 open invitations out to;
+ * - more than `SPLIT_ADDS_PER_DAY` new people from this creator in 24 hours;
+ * - a group past 50 people.
+ * None of these depend on whether an address has an account.
  */
 async function insertPeople(
   tx: Tx,
@@ -409,15 +455,23 @@ async function insertPeople(
   invitedBy: string,
 ): Promise<{ added: AddedPerson[]; pendingIds: string[] }> {
   if (people.length === 0) return { added: [], pendingIds: [] };
-  if (creatorEmail && people.some((p) => p.email === creatorEmail)) {
+  const keyed = people.map((p) => ({ ...p, key: emailKey(p.email) }));
+  if (creatorEmail && keyed.some((p) => p.key === emailKey(creatorEmail))) {
     throw badRequest("You're already in the group");
   }
-  const emails = people.map((p) => p.email);
-  const [existing, accounts, [active]] = await Promise.all([
+  if (new Set(keyed.map((p) => p.key)).size !== keyed.length) {
+    throw validationError("Two of these addresses go to the same inbox", {
+      members: "Two of these addresses go to the same inbox",
+    });
+  }
+  const keys = keyed.map((p) => p.key);
+  const emails = keyed.map((p) => p.email);
+  await lockActor(tx, invitedBy);
+  const [existing, accounts, [active], addsToday] = await Promise.all([
     tx
       .select()
       .from(splitMembers)
-      .where(and(eq(splitMembers.groupId, group.id), inArray(splitMembers.email, emails))),
+      .where(and(eq(splitMembers.groupId, group.id), inArray(splitMembers.emailKey, keys))),
     tx
       .select({ id: users.id, email: users.email })
       .from(users)
@@ -426,47 +480,98 @@ async function insertPeople(
       .select({ n: count() })
       .from(splitMembers)
       .where(and(eq(splitMembers.groupId, group.id), inArray(splitMembers.status, ACTIVE))),
+    actorEventsToday(tx, invitedBy, "member_added"),
   ]);
-  const byEmail = new Map(existing.map((m) => [m.email, m]));
+  const byKey = new Map(existing.map((m) => [m.emailKey, m]));
   const accountByEmail = new Map(accounts.map((a) => [a.email?.toLowerCase(), a.id]));
-
-  const joining = people.filter((p) => {
-    const row = byEmail.get(p.email);
+  const joining = keyed.filter((p) => {
+    const row = byKey.get(p.key);
     return !row || row.status === "left";
   });
+
+  const now = Date.now();
+  const cooling = joining.filter((p) => {
+    const until = byKey.get(p.key)?.inviteCooldownUntil;
+    return until != null && until.getTime() > now;
+  });
+  if (cooling.length) {
+    throw new ApiError(
+      409,
+      "invite_cooldown",
+      "Someone in the list recently left or turned down this group, so they can't be invited back yet",
+      {
+        emails: cooling.map((p) => p.email),
+        until: new Date(Math.max(...cooling.map((p) => byKey.get(p.key)!.inviteCooldownUntil!.getTime()))).toISOString(),
+      },
+    );
+  }
+
+  if (joining.length) {
+    const open = await tx
+      .select({ key: splitMembers.emailKey, n: count() })
+      .from(splitMembers)
+      .where(
+        and(
+          eq(splitMembers.invitedBy, invitedBy),
+          eq(splitMembers.status, "invited"),
+          inArray(
+            splitMembers.emailKey,
+            joining.map((p) => p.key),
+          ),
+          ne(splitMembers.groupId, group.id),
+        ),
+      )
+      .groupBy(splitMembers.emailKey);
+    const busy = new Set(open.filter((o) => o.n >= SPLIT_PENDING_PER_INVITEE).map((o) => o.key));
+    const swamped = joining.filter((p) => busy.has(p.key));
+    if (swamped.length) {
+      throw new ApiError(
+        409,
+        "conflict",
+        `Someone in the list already has ${SPLIT_PENDING_PER_INVITEE} open invitations from you — wait until they answer one`,
+        { emails: swamped.map((p) => p.email) },
+      );
+    }
+  }
+
+  if (addsToday + joining.length > SPLIT_ADDS_PER_DAY) {
+    throw tooManyRequests(
+      `You can add up to ${SPLIT_ADDS_PER_DAY} people a day across your groups — try again tomorrow`,
+    );
+  }
   const used = active?.n ?? 0;
   if (used + joining.length > SPLIT_GROUP_MAX_PEOPLE) throw groupFull(used);
 
   const added: AddedPerson[] = [];
   const pendingIds: string[] = [];
-  for (const person of people) {
-    const row = byEmail.get(person.email);
+  for (const person of keyed) {
+    const row = byKey.get(person.key);
     if (row && row.status !== "left") {
-      added.push({ memberId: row.id, email: person.email, delivery: "already" });
+      added.push({ memberId: row.id, email: person.email, status: "already" });
       continue;
     }
     const accountId = row?.userId ?? accountByEmail.get(person.email) ?? null;
     const values = {
+      email: person.email,
+      emailKey: person.key,
       displayName: person.name,
       status: "invited" as const,
       invitedBy,
       inviteToken: generateInviteToken(),
       userId: accountId,
       joinedAt: null,
+      inviteCooldownUntil: null,
     };
     const [saved] = row
       ? await tx.update(splitMembers).set(values).where(eq(splitMembers.id, row.id)).returning()
       : await tx
           .insert(splitMembers)
-          .values({ ...values, groupId: group.id, email: person.email })
+          .values({ ...values, groupId: group.id })
           .returning();
-    if (accountId) {
-      added.push({ memberId: saved!.id, email: person.email, delivery: "in_app" });
-    } else {
-      added.push({ memberId: saved!.id, email: person.email, delivery: "link" });
-      pendingIds.push(saved!.id);
-    }
+    added.push({ memberId: saved!.id, email: person.email, status: "invited" });
+    if (!accountId) pendingIds.push(saved!.id);
   }
+  await logActorEvents(tx, invitedBy, "member_added", joining.length);
   return { added, pendingIds };
 }
 
@@ -479,23 +584,19 @@ function rethrowAlreadyMember(err: unknown): never {
 
 /** The label the creator's own row gets: their account name, else a neutral word. */
 function creatorLabel(name: string | null | undefined): string {
-  return name?.trim().slice(0, 40) || "Organiser";
+  return name?.trim().slice(0, SPLIT_MEMBER_NAME_MAX) || "Organiser";
 }
 
-export type AddPeopleResult = { added: AddedPerson[]; pendingIds: string[] };
+export type AddPeopleResult = { added: AddedPerson[] };
 
 /**
  * After an add has committed — so a refused add never spends email quota —
  * send the new no-account people their one invite email (abuse rule D1,
- * `services/split-invites.ts`) and report who got one.
+ * `services/split-invites.ts`). Deliberately reports nothing back: whether an
+ * email went is exactly what would tell the creator who has an account.
  */
-async function deliverInvites(
-  senderId: string,
-  groupId: string,
-  result: AddPeopleResult,
-): Promise<AddedPerson[]> {
-  const emailed = await emailNewInvitees(senderId, groupId, result.pendingIds);
-  return result.added.map((a) => (emailed.has(a.memberId) ? { ...a, delivery: "email" as const } : a));
+async function deliverInvites(senderId: string, groupId: string, pendingIds: string[]): Promise<void> {
+  await emailNewInvitees(senderId, groupId, pendingIds);
 }
 
 /**
@@ -513,6 +614,13 @@ export async function createGroup(
   const db = getDb();
   const result = await db
     .transaction(async (tx) => {
+      // A daily cap on new groups, counted in the rate log so deleting a
+      // group doesn't hand the slot back.
+      await lockActor(tx, user.id);
+      if ((await actorEventsToday(tx, user.id, "group_created")) >= SPLIT_GROUPS_PER_DAY) {
+        throw tooManyRequests(`You can start up to ${SPLIT_GROUPS_PER_DAY} groups a day — try again tomorrow`);
+      }
+      await logActorEvents(tx, user.id, "group_created", 1);
       const [group] = await tx
         .insert(splitGroups)
         .values({
@@ -526,6 +634,7 @@ export async function createGroup(
         groupId: group!.id,
         userId: user.id,
         email: creatorEmail,
+        emailKey: creatorEmail ? emailKey(creatorEmail) : null,
         displayName: creatorLabel(account?.name),
         status: "joined",
         joinedAt: new Date(),
@@ -534,13 +643,13 @@ export async function createGroup(
       return { id: group!.id, ...people };
     })
     .catch(rethrowAlreadyMember);
-  const added = await deliverInvites(user.id, result.id, result);
+  await deliverInvites(user.id, result.id, result.pendingIds);
   logger.info(`Split group created with ${result.added.length} people invited`, {
     event: "split.group_created",
     groupId: result.id,
     invited: result.added.length,
   });
-  return { ...result, added };
+  return { id: result.id, added: result.added };
 }
 
 /** Add people to a group (creator only). The cap is checked under the group's row lock. */
@@ -559,13 +668,14 @@ export async function addMembers(
       return { groupId: group.id, ...(await insertPeople(tx, group, me.email, data.members, userId)) };
     })
     .catch(rethrowAlreadyMember);
-  const added = await deliverInvites(userId, result.groupId, result);
-  logger.info(`Split group gained ${result.added.filter((a) => a.delivery !== "already").length} people`, {
+  await deliverInvites(userId, result.groupId, result.pendingIds);
+  const fresh = result.added.filter((a) => a.status === "invited").length;
+  logger.info(`Split group gained ${fresh} people`, {
     event: "split.members_added",
     groupId: result.groupId,
-    added: result.added.filter((a) => a.delivery !== "already").length,
+    added: fresh,
   });
-  return { ...result, added };
+  return { groupId: result.groupId, added: result.added };
 }
 
 /**
@@ -603,9 +713,13 @@ export async function updateGroup(userId: string, rawGroupId: unknown, input: un
  */
 export async function deleteGroup(userId: string, rawGroupId: unknown): Promise<void> {
   const db = getDb();
-  const { group } = await requireCreator(userId, rawGroupId, db);
-  await db.transaction((tx) => deleteGroupsInTx(tx, [group.id]));
-  logger.info("Split group deleted", { event: "split.group_deleted", groupId: group.id });
+  const groupId = await db.transaction(async (tx) => {
+    // Locked first, so no expense, payment or add can land mid-delete.
+    const { group } = await requireCreator(userId, rawGroupId, tx, "update");
+    await deleteGroupsInTx(tx, [group.id]);
+    return group.id;
+  });
+  logger.info("Split group deleted", { event: "split.group_deleted", groupId });
 }
 
 /** The ordered delete behind `deleteGroup`, also used by account deletion. */
@@ -626,7 +740,8 @@ export async function forgetSplitUser(tx: Tx, userId: string): Promise<void> {
   const owned = await tx
     .select({ id: splitGroups.id })
     .from(splitGroups)
-    .where(eq(splitGroups.createdBy, userId));
+    .where(eq(splitGroups.createdBy, userId))
+    .for("update");
   await deleteGroupsInTx(
     tx,
     owned.map((g) => g.id),
@@ -636,18 +751,28 @@ export async function forgetSplitUser(tx: Tx, userId: string): Promise<void> {
     .set({
       userId: null,
       email: null,
-      displayName: "Deleted account",
+      emailKey: null,
+      displayName: SPLIT_DELETED_MEMBER_NAME,
       status: "left",
       inviteToken: null,
     })
     .where(eq(splitMembers.userId, userId));
 }
 
-/** Retire a row (remove / leave): history stays, the join link stops working. */
-async function retireMember(db: DbOrTx, memberId: string): Promise<void> {
+/** When someone who declined or left may be invited back into the group. */
+function cooldownUntil(): Date {
+  return new Date(Date.now() + SPLIT_INVITE_COOLDOWN_DAYS * DAY_MS);
+}
+
+/**
+ * Retire a row (remove / leave): history stays, the join link stops working.
+ * Leaving by choice also starts the re-invite cooldown; a removal doesn't —
+ * that was the creator's call to make and to undo.
+ */
+async function retireMember(db: DbOrTx, memberId: string, byChoice: boolean): Promise<void> {
   await db
     .update(splitMembers)
-    .set({ status: "left", inviteToken: null })
+    .set({ status: "left", inviteToken: null, ...(byChoice ? { inviteCooldownUntil: cooldownUntil() } : {}) })
     .where(eq(splitMembers.id, memberId));
 }
 
@@ -671,9 +796,10 @@ export async function removeMember(
     if (!row || row.status === "left") throw notFound("That person isn't in this group");
     const [balance] = await memberBalances([row.id], tx);
     if (balance!.netMinor !== 0) {
-      throw settleFirst(`${memberLabel(row)} still has a balance — settle up first`);
+      // Neutral on purpose: this message lands in log lines, and names don't.
+      throw settleFirst("That person still has a balance — settle up first");
     }
-    await retireMember(tx, row.id);
+    await retireMember(tx, row.id, false);
   });
   logger.info("Split group member removed", { event: "split.member_removed", memberId });
 }
@@ -686,37 +812,10 @@ export async function leaveGroup(userId: string, rawGroupId: unknown): Promise<v
     if (viewer.isCreator) throw badRequest("You created this group — delete it instead of leaving");
     const [balance] = await memberBalances([me.id], tx);
     if (balance!.netMinor !== 0) throw settleFirst("You still have a balance here — settle up first");
-    await retireMember(tx, me.id);
+    await retireMember(tx, me.id, true);
     return group.id;
   });
   logger.info("Split group member left", { event: "split.member_left", groupId });
-}
-
-/**
- * Send someone their one invite email later — when the daily cap kept it from
- * going at add time (creator only). Only for a pending person without an
- * account who was never emailed: 409 otherwise, because D1 allows one email
- * per group per address, ever.
- */
-export async function sendInviteEmail(
-  userId: string,
-  rawGroupId: unknown,
-  rawMemberId: unknown,
-): Promise<{ emailed: boolean }> {
-  const memberId = parseSplitId(rawMemberId, "That person isn't in this group");
-  const db = getDb();
-  const { group } = await requireCreator(userId, rawGroupId, db);
-  const [row] = await db
-    .select()
-    .from(splitMembers)
-    .where(and(eq(splitMembers.id, memberId), eq(splitMembers.groupId, group.id)));
-  if (!row || row.status !== "invited") throw notFound("That person isn't waiting to join");
-  if (row.userId !== null) {
-    throw conflict("They already have an account — they'll see the invitation in the app");
-  }
-  if (row.inviteEmailedAt !== null) throw conflict("They've already had their invite email");
-  const emailed = await emailNewInvitees(userId, group.id, [row.id]);
-  return { emailed: emailed.has(row.id) };
 }
 
 /* ------------------------------------------------------------------------- */
@@ -750,17 +849,28 @@ export type SplitInvitation = {
   invitedAt: Date;
 };
 
+/** Invitations per page (web and API). */
+export const SPLIT_INVITATIONS_PAGE = 20;
+
+/** A page of the caller's pending invitations, newest first, and how many there are. */
 export async function listInvitations(
   user: Pick<SessionUser, "id" | "email">,
-): Promise<SplitInvitation[]> {
+  page: { limit: number; offset: number } = { limit: SPLIT_INVITATIONS_PAGE, offset: 0 },
+): Promise<{ items: SplitInvitation[]; total: number }> {
   const db = getDb();
-  const rows = await db
-    .select({ member: splitMembers, group: splitGroups })
-    .from(splitMembers)
-    .innerJoin(splitGroups, eq(splitGroups.id, splitMembers.groupId))
-    .where(pendingForUser(user))
-    .orderBy(sql`${splitMembers.createdAt} desc`);
-  if (rows.length === 0) return [];
+  const [rows, [totalRow]] = await Promise.all([
+    db
+      .select({ member: splitMembers, group: splitGroups })
+      .from(splitMembers)
+      .innerJoin(splitGroups, eq(splitGroups.id, splitMembers.groupId))
+      .where(pendingForUser(user))
+      .orderBy(desc(splitMembers.createdAt), desc(splitMembers.id))
+      .limit(Math.min(Math.max(page.limit, 1), 100))
+      .offset(Math.max(page.offset, 0)),
+    db.select({ n: count() }).from(splitMembers).where(pendingForUser(user)),
+  ]);
+  const total = totalRow?.n ?? 0;
+  if (rows.length === 0) return { items: [], total };
   const groupIds = rows.map((r) => r.group.id);
   const [counts, inviters] = await Promise.all([
     db
@@ -783,7 +893,7 @@ export async function listInvitations(
       ),
   ]);
   const people = new Map(counts.map((c) => [c.groupId, c.n]));
-  return rows.map(({ member, group }) => {
+  const items = rows.map(({ member, group }) => {
     const inviter = inviters.find(
       (i) => i.groupId === group.id && i.userId !== null && i.userId === member.invitedBy,
     );
@@ -798,12 +908,26 @@ export async function listInvitations(
       invitedAt: member.createdAt,
     };
   });
+  return { items, total };
 }
 
-/** How many invitations wait for the caller — the nav badge. */
+/** The nav badge stops counting here and shows "9+". */
+export const SPLIT_INVITATION_BADGE_MAX = 9;
+
+/**
+ * How many invitations wait for the caller — the nav badge, on every app page.
+ * Counts at most `SPLIT_INVITATION_BADGE_MAX + 1` rows, so it stays one cheap
+ * indexed read however many invitations someone was sent.
+ */
 export async function countInvitations(user: Pick<SessionUser, "id" | "email">): Promise<number> {
   const db = getDb();
-  const [row] = await db.select({ n: count() }).from(splitMembers).where(pendingForUser(user));
+  const capped = db
+    .select({ one: sql<number>`1`.as("one") })
+    .from(splitMembers)
+    .where(pendingForUser(user))
+    .limit(SPLIT_INVITATION_BADGE_MAX + 1)
+    .as("capped");
+  const [row] = await db.select({ n: count() }).from(capped);
   return row?.n ?? 0;
 }
 
@@ -842,7 +966,7 @@ export async function declineInvitation(
   const db = getDb();
   const [declined] = await db
     .update(splitMembers)
-    .set({ status: "left", inviteToken: null })
+    .set({ status: "left", inviteToken: null, inviteCooldownUntil: cooldownUntil() })
     .where(and(eq(splitMembers.id, memberId), pendingForUser(user)))
     .returning({ groupId: splitMembers.groupId });
   if (!declined) throw notFound("That invitation is no longer open");

@@ -65,6 +65,7 @@ Every JSON response uses one of two shapes:
 | `storage_unavailable` | 503 | File storage (R2) isn't configured on the server (attachments off) |
 | `split_group_full` | 409 | A split group already holds 50 people (the creator included) — the same on every plan, so no upgrade helps. `details: { max, used }`. Since 6.9.0. |
 | `settle_first` | 409 | Removing someone from (or leaving) a split group while they still owe or are owed. Since 6.9.0. |
+| `invite_cooldown` | 409 | Adding someone to a split group they declined or left in the last 30 days. `details: { emails, until }`. Since 6.9.0. |
 | `amount_required` | 422 | "Add my share to my workspace" when the group's currency differs from the workspace's and no `amount` (in the workspace's currency) was sent. Since 6.9.0. |
 | `internal_error` | 500 | Unhandled server error (generic message; no internals leaked) |
 
@@ -511,9 +512,8 @@ negative when they **owe**.
       "status": "invited" | "joined" | "left",
       "isCreator": true, "isYou": false,
       "balanceMinor": 6666, "balance": "66.66",
-      "invitedByEmail": true | false | null,    // creator only (null for everyone else)
-      "inviteLink": "https://…/invite/split/<token>" | null,  // creator only, while invited; works only for that email
-      "canSendInviteEmail": true | false | null } // creator only: POST …/invite-email applies
+      "inviteLink": "https://…/invite/split/<token>" | null } // creator only, for everyone still invited
+                                                // (account or not); works only for that email
   ],
   "suggestions": [                              // payments that square everyone, biggest first
     { "fromMemberId": "uuid", "toMemberId": "uuid", "amountMinor": 3333, "amount": "33.33" }
@@ -530,7 +530,8 @@ negative when they **owe**.
                 "percent": null } ],            // percent splits: the percent entered
   "canEdit": true,                              // you added it, or you created the group
   "myShare": { "shareId": "uuid", "amountMinor": 3333, "amount": "33.33",
-               "added": false, "addedAt": null } | null }
+               "added": false, "addedAt": null,
+               "changedSinceAdded": false } | null }  // added, then the expense changed → "Update my entry"
 
 // SplitSettlement ("Mark as paid")
 { "id": "uuid", "from": { "memberId": "uuid", "name": "Asha" },
@@ -543,14 +544,15 @@ negative when they **owe**.
   "currency": "INR", "inviterName": "Ravi" | null, "peopleCount": 4, "invitedAt": "…" }
 
 // SplitAddedPerson — returned to the creator when people are added
-{ "memberId": "uuid", "email": "zoe@x.com",
-  "delivery": "in_app" | "email" | "link" | "already" }
+{ "memberId": "uuid", "email": "zoe@x.com", "status": "invited" | "already" }
 ```
-`delivery`: **`in_app`** — the email has an account, so they see an invitation
-in the app (never an email); **`email`** — no account yet, and their **one**
-invite email is on its way; **`link`** — no account and no email went (the
-creator's daily invite-email cap, or they were emailed before): share the join
-link; **`already`** — they were already in the group.
+`status`: **`invited`** — they're in the group as invited. Deliberately the
+same whether or not the address has an account (an account holder sees an
+in-app invitation; anyone else gets **one** email, within daily caps): nothing
+in the API tells the two apart, so adding people is no way to learn who uses
+SpendChat. Every invited person has an `inviteLink` for the creator to share.
+**`already`** — they were already in the group (the same inbox — `+tags` and
+Gmail dots don't make a new person).
 
 ### Settings
 User-level settings that follow the user across every workspace. **Currency and
@@ -845,26 +847,26 @@ records payments. Ids in paths are uuids; a malformed one is a 404.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `GET /split/groups` | — | 200 `data: SplitGroup[]` | Groups you've joined, newest first |
-| `POST /split/groups` | `{ name, icon?, currency, members?: [{ email, name }] }` | 201 `data: { group: SplitGroupDetail, added: SplitAddedPerson[] }` | You become the creator. ≤ 49 people (50 with you). 400 your own email in the list; 422 |
+| `POST /split/groups` | `{ name, icon?, currency, members?: [{ email, name }] }` | 201 `data: { group: SplitGroupDetail, added: SplitAddedPerson[] }` | You become the creator. ≤ 49 people (50 with you). Same refusals as adding people (below); **429 `rate_limited`** past 20 new groups in 24 h (deleted ones count) |
 | `GET /split/groups/{id}` | — | 200 `data: SplitGroupDetail` | 404 unless you've joined |
 | `PATCH /split/groups/{id}` | `{ name?, icon?, currency? }` (≥ 1; `icon: null`/`""` clears) | 200 `data: SplitGroupDetail` | Creator only. Currency only while there are no expenses or payments (409 `conflict`) |
 | `DELETE /split/groups/{id}` | — | 200 `data: { deleted: true }` | Creator only. Everything in the group goes; shares already added to workspaces stay there |
-| `POST /split/groups/{id}/members` | `{ members: [{ email, name }] }` (1–49) | 200 `data: { group, added }` | Creator only. Account holders get an in-app invitation; others a join link. Someone who left is re-invited on the same member id. **409 `split_group_full`** past 50 people (the creator included, every plan); 400 your own email |
+| `POST /split/groups/{id}/members` | `{ members: [{ email, name }] }` (1–49) | 200 `data: { group, added }` | Creator only. Account holders get an in-app invitation, anyone else one email — the response is `invited` either way. Someone you removed is re-invited on the same member id. Refused as a whole, before anything is written: 400 your own address (any spelling); 422 two spellings of one inbox; **409 `invite_cooldown`** someone who declined or left in the last 30 days (`details: { emails, until }`); **409 `conflict`** an inbox you already have 3 open invitations out to (`details: { emails }`); **429 `rate_limited`** past 100 people added in 24 h across your groups; **409 `split_group_full`** past 50 people (the creator included, every plan) |
 | `DELETE /split/groups/{id}/members/{memberId}` | — | 200 `data: { removed: true }` | Creator only. **409 `settle_first`** while they have a balance; 400 yourself |
 | `POST /split/groups/{id}/leave` | — | 200 `data: { left: true }` | **409 `settle_first`** while you have a balance; 400 for the creator (delete instead) |
-| `GET /split/groups/{id}/expenses?limit=&offset=` | — | 200 `data: SplitExpense[]`, `meta: { total, limit, offset, currency }` | Newest first (`occurredOn`, then created) |
-| `POST /split/groups/{id}/expenses` | `{ title, amount, paidBy, occurredOn, splitType, memberIds \| shares }` | 201 `data: SplitExpense` | Any joined member. `equal` → `memberIds`; `exact` → `shares: [{ memberId, amount }]` summing to `amount`; `percent` → `shares: [{ memberId, percent }]` (≤ 2 dp) summing to 100. **The server computes every share**; leftover minor units go to the payer first, then by join order. 422 (bad sums, someone not in the group) |
+| `GET /split/groups/{id}/expenses?limit=&offset=` | — | 200 `data: SplitExpense[]`, `meta: { total, limit, offset, currency: CurrencyMeta }` | Newest first (`occurredOn`, then created) |
+| `POST /split/groups/{id}/expenses` | `{ title, amount, paidBy, occurredOn, splitType, memberIds \| shares }` | 201 `data: SplitExpense` | Any joined member. `equal` → `memberIds`; `exact` → `shares: [{ memberId, amount }]` summing to `amount`; `percent` → `shares: [{ memberId, percent }]` (≤ 2 dp) summing to 100. **The server computes every share.** Rounding: `equal` → leftover minor units go to the payer first, then by join order; `percent` → shares rounded down, leftovers to the largest remainders first (ties: payer, then join order); `exact` → as entered. 422 for bad sums (neutral `message`; `details: { sumMinor, totalMinor }` or `{ bpSum }`), someone not in the group, or an amount that rounds to 0 minor units (¥0.4) |
 | `GET /split/groups/{id}/expenses/{expenseId}` | — | 200 `data: SplitExpense` | |
 | `PUT /split/groups/{id}/expenses/{expenseId}` | same as POST | 200 `data: SplitExpense` | Its author or the creator (403). People who left may stay on an expense they were already on |
 | `DELETE /split/groups/{id}/expenses/{expenseId}` | — | 200 `data: { deleted: true }` | Its author or the creator |
 | `GET /split/groups/{id}/settlements?limit=&offset=` | — | 200 `data: SplitSettlement[]`, `meta` as above | Newest first |
-| `POST /split/groups/{id}/settlements` | `{ fromMemberId, toMemberId, amount, settledOn }` | 201 `data: SplitSettlement` | "Mark as paid" (no money moves). The creator records any payment; a member only one they made or received (403). Partial payments fine |
+| `POST /split/groups/{id}/settlements` | `{ fromMemberId, toMemberId, amount, settledOn }` | 201 `data: SplitSettlement` | "Mark as paid" (no money moves). The creator records any payment; a member only one they made or received (403). Partial payments fine; 422 for an amount that rounds to 0 minor units |
 | `DELETE /split/groups/{id}/settlements/{settlementId}` | — | 200 `data: { deleted: true }` | Whoever recorded it, or the creator |
-| `GET /split/invitations` | — | 200 `data: SplitInvitation[]` | Includes invitations sent to your email before you had an account |
+| `GET /split/invitations?limit=&offset=` | — | 200 `data: SplitInvitation[]`, `meta: { total, limit, offset }` | Newest first; `limit` defaults to 20 here (max 100). Includes invitations sent to your email before you had an account |
 | `POST /split/invitations/{memberId}/accept` | — | 200 `data: SplitGroupDetail` | 404 not yours / no longer open |
-| `POST /split/invitations/{memberId}/decline` | — | 200 `data: { declined: true }` | Always allowed |
-| `POST /split/groups/{id}/members/{memberId}/invite-email` | — | 200 `data: { emailed }` | Creator only. Someone without an account whose one invite email didn't go at add time (the daily cap). `emailed: false` while today's cap is spent — share `inviteLink` instead. **409** when they were already emailed (one email per group, ever) or have an account (in-app invitation) |
-| `POST /split/groups/{id}/expenses/{expenseId}/add-to-workspace` | `{ profileId, categoryId?, title?, occurredOn?, amount? }` | 201 `data: Transaction` | **Reads `X-Workspace-Id`** (the current workspace). Your share as one expense in a profile you can write to (403; `plan_limit` in a view-only workspace). Same currency → the share is the amount; different → `amount` in the workspace's currency is required (**422 `amount_required`**). **409** when this share is already in a workspace — it can be added again only after that transaction is permanently deleted. 404 no share in it |
+| `POST /split/invitations/{memberId}/decline` | — | 200 `data: { declined: true }` | Always allowed. The group's creator can't invite you back for 30 days |
+| `POST /split/groups/{id}/expenses/{expenseId}/add-to-workspace` | `{ profileId, categoryId?, title?, occurredOn?, amount? }` | 201 `data: Transaction` | **Reads `X-Workspace-Id`** (the current workspace). Your share as one expense in a profile you can write to (403; `plan_limit` in a view-only workspace). Same currency → the share is the amount; different → `amount` in the workspace's currency is required (**422 `amount_required`**). **409** when this share is already in a workspace — it can be added again only after that transaction is permanently deleted. 404 no share in it, or the expense was deleted mid-add; 422 an amount that rounds to 0 |
+| `PUT /split/groups/{id}/expenses/{expenseId}/workspace-entry` | `{ amount? }` | 200 `data: Transaction` | "Update my entry" when `myShare.changedSinceAdded`. Works in whichever workspace the entry lives (header ignored), through the normal transaction rules; only the amount changes. Same currency → the new share; different → `amount` in that workspace's currency (**422 `amount_required`**). **409** when the share isn't in a workspace any more — add it again instead |
 
 ### Settings
 | Method & path | Body | Success | Notes / errors |

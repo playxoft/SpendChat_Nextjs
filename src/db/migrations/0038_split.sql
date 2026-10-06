@@ -29,12 +29,22 @@ CREATE TABLE "split_members" (
 	"group_id" uuid NOT NULL,
 	"user_id" uuid,
 	"email" text,
+	"email_key" text,
 	"display_name" varchar(40),
 	"status" "split_member_status" DEFAULT 'invited' NOT NULL,
 	"invited_by" uuid,
 	"invite_token" text,
 	"invite_emailed_at" timestamp with time zone,
+	"invite_cooldown_until" timestamp with time zone,
 	"joined_at" timestamp with time zone,
+	"created_at" timestamp with time zone DEFAULT now() NOT NULL
+);
+--> statement-breakpoint
+CREATE TABLE "split_rate_log" (
+	"id" uuid PRIMARY KEY DEFAULT uuidv7() NOT NULL,
+	"event" text NOT NULL,
+	"actor_id" uuid,
+	"recipient_key" text,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
@@ -59,6 +69,7 @@ CREATE TABLE "split_shares" (
 	"percent_bp" integer,
 	"transaction_id" uuid,
 	"added_at" timestamp with time zone,
+	"added_amount_minor" bigint,
 	CONSTRAINT "split_shares_amount_not_negative" CHECK ("split_shares"."amount_minor" >= 0)
 );
 --> statement-breakpoint
@@ -74,11 +85,14 @@ ALTER TABLE "split_shares" ADD CONSTRAINT "split_shares_transaction_id_transacti
 CREATE INDEX "split_expenses_group_date_idx" ON "split_expenses" USING btree ("group_id","occurred_on" DESC NULLS FIRST,"created_at" DESC NULLS FIRST,"id" DESC NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "split_expenses_paid_by_idx" ON "split_expenses" USING btree ("paid_by_member_id");--> statement-breakpoint
 CREATE INDEX "split_groups_created_by_idx" ON "split_groups" USING btree ("created_by");--> statement-breakpoint
-CREATE UNIQUE INDEX "split_members_group_email_uq" ON "split_members" USING btree ("group_id","email");--> statement-breakpoint
+CREATE UNIQUE INDEX "split_members_group_email_key_uq" ON "split_members" USING btree ("group_id","email_key");--> statement-breakpoint
 CREATE UNIQUE INDEX "split_members_group_user_uq" ON "split_members" USING btree ("group_id","user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "split_members_invite_token_uq" ON "split_members" USING btree ("invite_token");--> statement-breakpoint
 CREATE INDEX "split_members_user_status_idx" ON "split_members" USING btree ("user_id","status");--> statement-breakpoint
 CREATE INDEX "split_members_pending_email_idx" ON "split_members" USING btree ("email") WHERE "split_members"."user_id" is null;--> statement-breakpoint
+CREATE INDEX "split_members_inviter_pending_idx" ON "split_members" USING btree ("invited_by","email_key") WHERE "split_members"."status" = 'invited';--> statement-breakpoint
+CREATE INDEX "split_rate_log_actor_idx" ON "split_rate_log" USING btree ("actor_id","event","created_at");--> statement-breakpoint
+CREATE INDEX "split_rate_log_recipient_idx" ON "split_rate_log" USING btree ("recipient_key","event","created_at") WHERE "split_rate_log"."recipient_key" is not null;--> statement-breakpoint
 CREATE INDEX "split_settlements_group_date_idx" ON "split_settlements" USING btree ("group_id","settled_on" DESC NULLS FIRST,"created_at" DESC NULLS FIRST);--> statement-breakpoint
 CREATE INDEX "split_settlements_from_idx" ON "split_settlements" USING btree ("from_member_id");--> statement-breakpoint
 CREATE INDEX "split_settlements_to_idx" ON "split_settlements" USING btree ("to_member_id");--> statement-breakpoint

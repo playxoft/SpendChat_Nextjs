@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { addSplitShareToWorkspace } from "@/actions/split";
-import { formatMoney } from "@/lib/money";
+import { formatMoney, toMinorUnits } from "@/lib/money";
 import { parseAmountInput } from "@/lib/parse-amount";
 import { TRANSACTION_TITLE_MAX } from "@/lib/validation";
 import type { SplitExpenseView } from "@/services/split-ledger";
@@ -90,6 +90,10 @@ export function AddToWorkspaceDialog({
         toast.error(`Enter what it cost you in ${workspace.currency}`);
         return;
       }
+      if (toMinorUnits(v, workspace.currency) <= 0) {
+        toast.error(`Amount is too small for ${workspace.currency}`);
+        return;
+      }
       converted = v;
     }
     setPending(true);
@@ -99,8 +103,7 @@ export function AddToWorkspaceDialog({
       title: title.trim() || undefined,
       occurredOn: date,
       amount: converted,
-    });
-    setPending(false);
+    }).finally(() => setPending(false));
     if (!res.ok) {
       toast.error(res.error);
       if (res.code === "conflict") {
@@ -133,9 +136,9 @@ export function AddToWorkspaceDialog({
         ) : (
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label>Profile</Label>
+              <Label htmlFor="split-add-profile">Profile</Label>
               <Select value={profileId} onValueChange={setProfileId}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="split-add-profile" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -149,9 +152,9 @@ export function AddToWorkspaceDialog({
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label>Category</Label>
+              <Label htmlFor="split-add-category">Category</Label>
               <Select value={categoryId} onValueChange={setCategoryId}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="split-add-category" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>

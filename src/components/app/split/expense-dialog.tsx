@@ -29,7 +29,8 @@ import { formatMoney, minorToInputString, toMinorUnits } from "@/lib/money";
 import { parseAmountInput } from "@/lib/parse-amount";
 import {
   computeShares,
-  fromBasisPoints,
+  describeSplitError,
+  percentToInputString,
   SplitMathError,
   toBasisPoints,
   type ShareSpec,
@@ -51,7 +52,8 @@ function parse(value: string, locale: string): number | null {
  * Add or edit an expense: what, how much, who paid, and how it's divided —
  * equally between ticked people, by exact amounts, or by percent. The preview
  * runs the same `computeShares` the server runs, so it shows exactly the
- * shares that will be saved (including who gets a leftover paisa).
+ * shares that will be saved (including who gets a leftover paisa — the payer
+ * first in an equal split, the largest remainder first in a percent one).
  */
 export function ExpenseDialog({
   open,
@@ -105,7 +107,11 @@ export function ExpenseDialog({
         );
         setPercent(
           Object.fromEntries(
-            expense.shares.map((s) => [s.memberId, s.percentBp === null ? "" : String(fromBasisPoints(s.percentBp))]),
+            // In the viewer's own format ("33,33" in de-DE) so it parses back.
+            expense.shares.map((s) => [
+              s.memberId,
+              s.percentBp === null ? "" : percentToInputString(s.percentBp, locale),
+            ]),
           ),
         );
       } else {
@@ -128,6 +134,7 @@ export function ExpenseDialog({
   // Plain computations — the React Compiler memoizes them.
   const built = ((): { input?: SplitExpenseInput; spec?: ShareSpec; error?: string } => {
     if (total === null || total <= 0) return { error: "Enter the amount" };
+    if (toMinorUnits(total, currency) <= 0) return { error: `Amount is too small for ${currency}` };
     const base = { title: title.trim(), amount: total, paidBy, occurredOn: date };
     if (type === "equal") {
       const memberIds = members.filter((m) => ticked.has(m.id)).map((m) => m.id);
@@ -167,12 +174,15 @@ export function ExpenseDialog({
   const preview = ((): { shares?: Map<string, number>; error?: string } => {
     if (!built.spec || total === null) return { error: built.error };
     try {
-      const shares = computeShares(toMinorUnits(total, currency), paidBy, built.spec, (m) =>
-        formatMoney(m, currency, locale),
-      );
+      const shares = computeShares(toMinorUnits(total, currency), paidBy, built.spec);
       return { shares: new Map(shares.map((s) => [s.memberId, s.amountMinor])) };
     } catch (err) {
-      return { error: err instanceof SplitMathError ? err.message : "Check the amounts" };
+      return {
+        error:
+          err instanceof SplitMathError
+            ? describeSplitError(err, (m) => formatMoney(m, currency, locale))
+            : "Check the amounts",
+      };
     }
   })();
 
@@ -183,10 +193,10 @@ export function ExpenseDialog({
     const input = built.input;
     setPending(true);
     void (async () => {
-      const res = expense
-        ? await updateSplitExpense(groupId, expense.id, input)
-        : await createSplitExpense(groupId, input);
-      setPending(false);
+      const res = await (expense
+        ? updateSplitExpense(groupId, expense.id, input)
+        : createSplitExpense(groupId, input)
+      ).finally(() => setPending(false));
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -230,9 +240,9 @@ export function ExpenseDialog({
           </div>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <Label>Paid by</Label>
+              <Label htmlFor="split-expense-paid-by">Paid by</Label>
               <Select value={paidBy} onValueChange={setPaidBy}>
-                <SelectTrigger className="w-full">
+                <SelectTrigger id="split-expense-paid-by" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -306,7 +316,12 @@ export function ExpenseDialog({
               ))}
             </ul>
             <p className="min-h-4 text-xs text-muted-foreground" aria-live="polite">
-              {preview.error ?? "If it doesn't divide evenly, whoever paid takes the leftover."}
+              {preview.error ??
+                (type === "equal"
+                  ? "If it doesn't divide evenly, whoever paid takes the leftover first."
+                  : type === "percent"
+                    ? "Rounded to the smallest unit; any leftover goes to the share closest to rounding up."
+                    : "Amounts as entered — they need to add up to the total.")}
             </p>
           </div>
 
