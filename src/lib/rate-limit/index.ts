@@ -3,15 +3,17 @@ import { after } from "next/server";
 import { ApiError, rateLimited, retryAfterHeaders } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import {
+  PERSONAL_PLANS,
   PLAN_NAMES,
   RATE_LIMITS,
   isPersonalPlan,
+  planAtLeast,
   type PersonalPlan,
   type RateBucket,
 } from "@/lib/plans";
 import { memoizeForRequest } from "@/lib/request-cache";
 import { getRateLimiterStub, type RateLimiterStub } from "./binding";
-import { rateLimitMessage } from "./classify";
+import { formatWait, rateLimitMessage } from "./classify";
 import { evaluate, type RateSnapshot, type RateWindowLabel } from "./sliding-window";
 
 /**
@@ -34,25 +36,41 @@ import { evaluate, type RateSnapshot, type RateWindowLabel } from "./sliding-win
  *  3. a refused hit is taken back after the response, so it doesn't use up the
  *     budget it was refused from and `Retry-After` stays true.
  *
- * **Blocked people cost nothing.** A refusal is remembered in this isolate until
- * its `Retry-After` passes; repeats are refused before any Durable Object call
- * or database read.
+ * **Blocked people cost nothing.** A refusal is remembered in this isolate,
+ * with the plan it was judged by and the weight of the request, until its
+ * `Retry-After` passes. A repeat at least that heavy, judged by the same plan
+ * (or a lower one), is refused without a Durable Object call; one in a
+ * workspace on a higher plan — or after an upgrade — is judged afresh, and so
+ * is a lighter one (a refused 20-read export doesn't stop plain reads). A
+ * block earned on the top plan refuses before anything else runs.
  *
- * **Fails open.** No binding (`next dev`, tests, scripts), a Durable Object
- * error, or no answer within `RATE_LIMIT_TIMEOUT_MS` → the request is allowed
- * and a warning logged (throttled), because a broken limiter must never take
- * the app down with it. The AI charge keeps its own per-user lock as a backstop
- * (`ai-quota.ts`).
+ * **Failing open — except AI.** With no binding at all (`next dev`, tests,
+ * scripts) every request is allowed. With a binding whose object errors or
+ * doesn't answer in time, a create or read is allowed too — a broken limiter
+ * must not take the app down — but an **AI** request is refused for a few
+ * seconds: AI calls a paid provider, and nothing else limits how many calls
+ * one person makes (the monthly allowance gives a failed call its action
+ * back, and the charge's per-user lock only stops two running at once). Both
+ * are logged (throttled).
  */
 
-/** How long a request waits for the Durable Object before failing open. */
+/** How long a create or read waits for the Durable Object before failing open. */
 export const RATE_LIMIT_TIMEOUT_MS = 250;
+
+/** How long an AI request waits before failing closed — AI calls take seconds anyway. */
+export const AI_RATE_LIMIT_TIMEOUT_MS = 1_000;
+
+/** The wait an AI request is told when the limiter can't be reached. */
+export const AI_UNAVAILABLE_RETRY_SECONDS = 5;
 
 /** Blocked people remembered per isolate; past this, expired entries are swept. */
 const BLOCK_CACHE_MAX = 1_000;
 
-/** At most one "failed open" warning per isolate in this long. */
+/** At most one "failed open/closed" warning per isolate in this long. */
 const FAILURE_WARNING_EVERY_MS = 60_000;
+
+/** No plan is higher: a block earned here can't be lifted by a workspace change. */
+const TOP_PLAN = PERSONAL_PLANS[PERSONAL_PLANS.length - 1]!;
 
 export type PlanResolver = () => PersonalPlan | Promise<PersonalPlan>;
 
@@ -61,11 +79,14 @@ export type RateCheck = {
   enforce(resolvePlan: PlanResolver): Promise<void>;
 };
 
-type Hit = { stub: RateLimiterStub; snapshot: RateSnapshot; undone: boolean };
-type Block = { until: number; window: RateWindowLabel };
+type Hit = { stub: RateLimiterStub; snapshot: RateSnapshot; weight: number; undone: boolean };
+/** What counting a request came to: a hit to judge, or the limiter couldn't count it. */
+type Count = { kind: "hit"; hit: Hit } | { kind: "open" } | { kind: "closed" };
+/** A remembered refusal: until when, which window, judged on which plan, for how heavy a request. */
+type Block = { until: number; window: RateWindowLabel; plan: PersonalPlan; weight: number };
 
 // Module state is per isolate and outlives a request on purpose: it holds only
-// "who is blocked until when" and two log throttles — never request data.
+// "who is blocked until when, on which plan" and log throttles — never request data.
 const blocked = new Map<string, Block>();
 let warnedUnavailable = false;
 let lastFailureWarningAt = Number.NEGATIVE_INFINITY;
@@ -83,6 +104,18 @@ function refusal(bucket: RateBucket, window: RateWindowLabel, retryAfterSeconds:
     window,
     retryAfterSeconds,
   });
+}
+
+function blockRefusal(bucket: RateBucket, block: Block, now: number): ApiError {
+  return refusal(bucket, block.window, Math.max(1, Math.ceil((block.until - now) / 1000)));
+}
+
+/** AI refused because the limiter couldn't count it (fail closed). */
+function aiUnavailable(): ApiError {
+  return rateLimited(
+    `AI requests are paused for a moment. Try again in ${formatWait(AI_UNAVAILABLE_RETRY_SECONDS)}.`,
+    { bucket: "ai", retryAfterSeconds: AI_UNAVAILABLE_RETRY_SECONDS },
+  );
 }
 
 function activeBlock(key: string, now: number): Block | null {
@@ -112,14 +145,15 @@ function noteUnavailable(): void {
   });
 }
 
-function noteFailure(bucket: RateBucket, err: unknown): void {
+function noteFailure(bucket: RateBucket, closed: boolean, err: unknown): void {
   const now = Date.now();
   if (now - lastFailureWarningAt < FAILURE_WARNING_EVERY_MS) {
     suppressedFailures++;
     return;
   }
-  logger.warn(`Rate limit check failed open: ${describeError(err)}`, {
-    event: "rate_limit.failed_open",
+  const outcome = closed ? "closed (AI refused)" : "open";
+  logger.warn(`Rate limit check failed ${outcome}: ${describeError(err)}`, {
+    event: closed ? "rate_limit.failed_closed" : "rate_limit.failed_open",
     bucket,
     suppressed: suppressedFailures,
     error: err instanceof Error ? err : String(err),
@@ -136,19 +170,22 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** Count the request on the person's Durable Object; null = fail open. Never rejects. */
-async function countHit(userId: string, bucket: RateBucket): Promise<Hit | null> {
+/** Count the request on the person's Durable Object. Never rejects. */
+async function countHit(userId: string, bucket: RateBucket, weight: number): Promise<Count> {
+  const ai = bucket === "ai";
   try {
     const stub = getRateLimiterStub(userId);
     if (!stub) {
       noteUnavailable();
-      return null;
+      return { kind: "open" }; // no binding at all: dev, tests, scripts
     }
-    const snapshot = await withTimeout(stub.hit(bucket), RATE_LIMIT_TIMEOUT_MS);
-    return { stub, snapshot, undone: false };
+    const timeout = ai ? AI_RATE_LIMIT_TIMEOUT_MS : RATE_LIMIT_TIMEOUT_MS;
+    const snapshot = await withTimeout(stub.hit(bucket, weight), timeout);
+    return { kind: "hit", hit: { stub, snapshot, weight, undone: false } };
   } catch (err) {
-    noteFailure(bucket, err);
-    return null;
+    // A binding that errors or is slow: AI fails closed, everything else open.
+    noteFailure(bucket, ai, err);
+    return { kind: ai ? "closed" : "open" };
   }
 }
 
@@ -164,7 +201,7 @@ async function planOrFree(resolvePlan: PlanResolver): Promise<PersonalPlan> {
 /** Give a refused hit back, after the response (`waitUntil` on Workers). */
 function takeBack(hit: Hit, bucket: RateBucket): void {
   const run = () =>
-    hit.stub.undo(bucket, hit.snapshot.at).catch((err: unknown) => {
+    hit.stub.undo(bucket, hit.snapshot.at, hit.weight).catch((err: unknown) => {
       logger.debug(`Couldn't take back a refused request: ${describeError(err)}`, {
         event: "rate_limit.undo_failed",
         bucket,
@@ -180,15 +217,18 @@ function takeBack(hit: Hit, bucket: RateBucket): void {
 async function judge(
   key: string,
   bucket: RateBucket,
-  pending: Promise<Hit | null>,
+  pending: Promise<Count>,
   resolvePlan: PlanResolver,
+  knownPlan?: PersonalPlan,
 ): Promise<void> {
-  const hit = await pending;
-  if (!hit) return;
-  if (evaluate(hit.snapshot, RATE_LIMITS.free[bucket]).allowed) return;
+  const count = await pending;
+  if (count.kind === "open") return;
+  if (count.kind === "closed") throw aiUnavailable();
+  const { hit } = count;
+  if (evaluate(hit.snapshot, RATE_LIMITS.free[bucket], hit.weight).allowed) return;
 
-  const plan = await planOrFree(resolvePlan);
-  const verdict = evaluate(hit.snapshot, RATE_LIMITS[plan][bucket]);
+  const plan = knownPlan ?? (await planOrFree(resolvePlan));
+  const verdict = evaluate(hit.snapshot, RATE_LIMITS[plan][bucket], hit.weight);
   if (verdict.allowed) return;
 
   // A request judged twice (a route that calls both API auth helpers) is taken
@@ -197,7 +237,11 @@ async function judge(
     hit.undone = true;
     takeBack(hit, bucket);
     const now = Date.now();
-    rememberBlock(key, { until: now + verdict.retryAfterSeconds * 1000, window: verdict.window }, now);
+    rememberBlock(
+      key,
+      { until: now + verdict.retryAfterSeconds * 1000, window: verdict.window, plan, weight: hit.weight },
+      now,
+    );
     logger.warn(
       `Someone went over the ${bucket} limit (${verdict.limit} per ${WINDOW_NAMES[verdict.window]} on ${PLAN_NAMES[plan]}); blocked for ${verdict.retryAfterSeconds}s`,
       {
@@ -214,20 +258,39 @@ async function judge(
 }
 
 /**
- * Count one request by `userId` against `bucket` and return the check to
+ * Count one request by `userId` against `bucket` — weighing `weight` requests
+ * (1 unless it's a heavy read, see `classify.ts`) — and return the check to
  * `enforce` once the plan is at hand. Counts once per request however often
- * it's called (memoized in the request scope). Throws the 429 straight away
- * when this isolate already knows the person is blocked.
+ * it's called (memoized in the request scope).
+ *
+ * When this isolate already holds a block for the person, for a request at
+ * least this heavy: earned on the top plan, it throws the 429 straight away;
+ * otherwise counting waits for the plan — the same plan or a lower one is
+ * refused from the block, a higher one (another workspace, an upgrade) is
+ * counted and judged afresh.
  */
-export function startRateLimit(userId: string, bucket: RateBucket): RateCheck {
+export function startRateLimit(userId: string, bucket: RateBucket, weight = 1): RateCheck {
   const key = `${userId}:${bucket}`;
   const now = Date.now();
-  const block = activeBlock(key, now);
-  if (block) {
-    throw refusal(bucket, block.window, Math.max(1, Math.ceil((block.until - now) / 1000)));
+  const found = activeBlock(key, now);
+  // A lighter request than the one refused may still fit: let it be counted.
+  const block = found && weight >= found.weight ? found : null;
+  if (block?.plan === TOP_PLAN) throw blockRefusal(bucket, block, now);
+  const count = () =>
+    memoizeForRequest(`rate-limit:${key}`, () => countHit(userId, bucket, weight));
+  if (!block) {
+    const pending = count();
+    return { enforce: (resolvePlan) => judge(key, bucket, pending, resolvePlan) };
   }
-  const pending = memoizeForRequest(`rate-limit:${key}`, () => countHit(userId, bucket));
-  return { enforce: (resolvePlan) => judge(key, bucket, pending, resolvePlan) };
+  return {
+    async enforce(resolvePlan) {
+      const plan = await planOrFree(resolvePlan);
+      if (!planAtLeast(plan, block.plan) || plan === block.plan) {
+        throw blockRefusal(bucket, block, Date.now());
+      }
+      return judge(key, bucket, count(), resolvePlan, plan);
+    },
+  };
 }
 
 /** Count and judge in one go — for routes that already know the plan. */
@@ -235,9 +298,10 @@ export function enforceRateLimit(
   userId: string,
   bucket: RateBucket,
   resolvePlan: PlanResolver,
+  weight = 1,
 ): Promise<void> {
   try {
-    return startRateLimit(userId, bucket).enforce(resolvePlan);
+    return startRateLimit(userId, bucket, weight).enforce(resolvePlan);
   } catch (err) {
     return Promise.reject(err);
   }
@@ -253,9 +317,10 @@ export async function rateLimitedResponse(
   userId: string,
   bucket: RateBucket,
   resolvePlan: PlanResolver,
+  weight = 1,
 ): Promise<Response | null> {
   try {
-    await enforceRateLimit(userId, bucket, resolvePlan);
+    await enforceRateLimit(userId, bucket, resolvePlan, weight);
     return null;
   } catch (err) {
     if (!(err instanceof ApiError)) throw err;

@@ -17,6 +17,16 @@ export function isRateBucket(value: unknown): value is RateBucket {
 
 const isFiniteNumber = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 
+/** The most one request may count as — far above any weight we use, far below any limit's reach. */
+export const MAX_REQUEST_WEIGHT = 50;
+
+function checkWeight(weight: unknown): number {
+  if (!Number.isInteger(weight) || (weight as number) < 1 || (weight as number) > MAX_REQUEST_WEIGHT) {
+    throw new Error(`A request weighs 1–${MAX_REQUEST_WEIGHT}, not ${String(weight)}`);
+  }
+  return weight as number;
+}
+
 /** Stored counts, or `undefined` for anything that isn't three `[start, cur, prev]` triples. */
 function parseCounts(raw: unknown): BucketCounts | undefined {
   if (!Array.isArray(raw) || raw.length !== 3) return undefined;
@@ -49,20 +59,21 @@ export class RateCounter {
     this.storage.put(bucket, counts);
   }
 
-  /** Count one request at `now` and return the counts including it. */
-  hit(bucket: unknown, now: number): RateSnapshot {
+  /** Count one request (weighing `weight`) at `now` and return the counts including it. */
+  hit(bucket: unknown, now: number, weight: unknown = 1): RateSnapshot {
     if (!isRateBucket(bucket)) throw new Error(`Unknown rate-limit bucket: ${String(bucket)}`);
-    const counts = recordHit(this.load(bucket), now);
+    const counts = recordHit(this.load(bucket), now, checkWeight(weight));
     this.save(bucket, counts);
     return { at: now, windows: counts };
   }
 
-  /** Take back a request counted at `at` (one that was refused). */
-  undo(bucket: unknown, at: number): void {
+  /** Take back a request counted at `at` with `weight` (one that was refused). */
+  undo(bucket: unknown, at: number, weight: unknown = 1): void {
     if (!isRateBucket(bucket)) throw new Error(`Unknown rate-limit bucket: ${String(bucket)}`);
     if (!isFiniteNumber(at)) throw new Error("Undo needs the hit's timestamp");
+    const w = checkWeight(weight);
     const counts = this.load(bucket);
     if (!counts) return;
-    this.save(bucket, removeHit(counts, at));
+    this.save(bucket, removeHit(counts, at, w));
   }
 }

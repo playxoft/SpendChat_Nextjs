@@ -95,7 +95,11 @@ export function tooManyRequests(message = "Too many requests — try again later
 export type RateLimitedDetails = {
   /** What the request counted against: entries, views, or AI. */
   bucket: "create" | "read" | "ai";
-  /** The per-person window that's full (`lib/rate-limit`); absent for a one-off refusal. */
+  /**
+   * The per-person window that's full (`lib/rate-limit`). Absent when the
+   * refusal isn't about a full window: a second AI call while the previous one
+   * is still being charged, or AI paused because the limiter can't be reached.
+   */
   window?: "1m" | "5m" | "1h";
   /** Whole seconds until a retry would pass — also sent as the `Retry-After` header. */
   retryAfterSeconds: number;
@@ -124,14 +128,17 @@ export function retryAfterHeaders(err: ApiError): Record<string, string> | undef
 }
 
 /**
- * A refusal by the per-person rate limiter itself (it names a full window).
- * The limiter logs one warning per blocked episode, so the entry seams log
- * these at debug — a script looping on a valid token can't flood the logs.
+ * A rate-limiting refusal (`rateLimited()` — it names a bucket): the
+ * per-person limiter, or the AI charge lock refusing a second concurrent call.
+ * The limiter logs each block, and each failure to reach it, once (throttled),
+ * so the entry seams log these at debug — a script looping on a valid token
+ * can't flood the logs. (The invite-email cap's 429 names no bucket and is
+ * logged as usual.)
  */
 export function isRateLimitRefusal(err: ApiError): boolean {
   return (
     err.code === "rate_limited" &&
-    typeof (err.details as { window?: unknown } | undefined)?.window === "string"
+    typeof (err.details as { bucket?: unknown } | undefined)?.bucket === "string"
   );
 }
 

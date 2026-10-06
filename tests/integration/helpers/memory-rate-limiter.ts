@@ -43,13 +43,13 @@ export function createMemoryRateLimiter(): MemoryRateLimiter {
     calls,
     stubFor(userId) {
       return {
-        async hit(bucket) {
+        async hit(bucket, weight) {
           calls.hit++;
-          return counterFor(userId).hit(bucket, Date.now());
+          return counterFor(userId).hit(bucket, Date.now(), weight);
         },
-        async undo(bucket, at) {
+        async undo(bucket, at, weight) {
           calls.undo++;
-          counterFor(userId).undo(bucket, at);
+          counterFor(userId).undo(bucket, at, weight);
         },
       };
     },

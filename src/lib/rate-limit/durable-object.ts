@@ -24,11 +24,11 @@ export class RateLimiter extends DurableObject {
     this.counter = new RateCounter(ctx.storage.kv);
   }
 
-  hit(bucket: string): RateSnapshot {
-    return this.counter.hit(bucket, Date.now());
+  hit(bucket: string, weight = 1): RateSnapshot {
+    return this.counter.hit(bucket, Date.now(), weight);
   }
 
-  undo(bucket: string, at: number): void {
-    this.counter.undo(bucket, at);
+  undo(bucket: string, at: number, weight = 1): void {
+    this.counter.undo(bucket, at, weight);
   }
 }

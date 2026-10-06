@@ -85,9 +85,16 @@ export function rollBucket(counts: BucketCounts | undefined, now: number): Bucke
   return RATE_WINDOWS.map((w, i) => rollWindow(counts?.[i], w.ms, now)) as BucketCounts;
 }
 
-/** Record one request at `now`. */
-export function recordHit(counts: BucketCounts | undefined, now: number): BucketCounts {
-  return rollBucket(counts, now).map(([start, cur, prev]) => [start, cur + 1, prev]) as BucketCounts;
+/**
+ * Record one request at `now`. `weight` is how many requests it counts as — 1
+ * for nearly everything; a heavy read (a 5,000-row CSV export) counts as more.
+ */
+export function recordHit(
+  counts: BucketCounts | undefined,
+  now: number,
+  weight = 1,
+): BucketCounts {
+  return rollBucket(counts, now).map(([start, cur, prev]) => [start, cur + weight, prev]) as BucketCounts;
 }
 
 /**
@@ -96,12 +103,12 @@ export function recordHit(counts: BucketCounts | undefined, now: number): Bucket
  * it now: still the current one, or rolled into `prev`. Older than that, it no
  * longer counts and there's nothing to remove. Never goes below zero.
  */
-export function removeHit(counts: BucketCounts, at: number): BucketCounts {
+export function removeHit(counts: BucketCounts, at: number, weight = 1): BucketCounts {
   return RATE_WINDOWS.map((w, i) => {
     const [start, cur, prev] = counts[i]!;
     const hitSlot = slotStart(at, w.ms);
-    if (start === hitSlot) return [start, Math.max(0, cur - 1), prev];
-    if (start === hitSlot + w.ms) return [start, cur, Math.max(0, prev - 1)];
+    if (start === hitSlot) return [start, Math.max(0, cur - weight), prev];
+    if (start === hitSlot + w.ms) return [start, cur, Math.max(0, prev - weight)];
     return [start, cur, prev];
   }) as BucketCounts;
 }
@@ -116,39 +123,52 @@ export function estimate([start, cur, prev]: WindowCounts, size: number, now: nu
  * Milliseconds until a request refused by this window would pass it, assuming
  * no other requests in between and that the refused hit is taken back.
  *
- * With `c` hits in the current slot (excluding the refused one), `p` in the
- * previous one, `e` ms into the slot and a limit `L`:
- *  - if `c + 1 ≤ L` the retry fits as soon as `prev` has faded enough:
- *    `c + 1 + p·(W − e − t)/W ≤ L`  ⇒  `t = W − e − W·(L − c − 1)/p`;
+ * With `c` hits in the current slot (excluding the refused request's `w`), `p`
+ * in the previous one, `e` ms into the slot and a limit `L`:
+ *  - if `c + w ≤ L` the retry fits as soon as `prev` has faded enough:
+ *    `c + w + p·(W − e − t)/W ≤ L`  ⇒  `t = W − e − W·(L − c − w)/p`;
  *  - otherwise it has to wait for the slot to roll over, after which `c`
- *    becomes the fading `prev`: `c·(W − t′)/W + 1 ≤ L` ⇒ `t′ = W·(1 − (L − 1)/c)`,
+ *    becomes the fading `prev`: `c·(W − t′)/W + w ≤ L` ⇒ `t′ = W·(1 − (L − w)/c)`,
  *    so `t = (W − e) + t′`.
  * The estimate never rises while no requests arrive, so the latest of these
- * across the windows is exactly when every window passes.
+ * across the windows is exactly when every window passes. A request's weight
+ * must not exceed the smallest limit of its bucket (`tests/unit/rate-limit-
+ * classify.test.ts` guards it), or no wait would ever be enough.
  */
-export function waitMs(counts: WindowCounts, size: number, limit: number, now: number): number {
+export function waitMs(
+  counts: WindowCounts,
+  size: number,
+  limit: number,
+  now: number,
+  weight = 1,
+): number {
   const [start, cur, prev] = counts;
-  const c = cur - 1;
+  const c = cur - weight;
   const elapsed = Math.min(size, Math.max(0, now - start));
-  if (c + 1 <= limit) {
+  if (c + weight <= limit) {
     if (prev <= 0) return 0;
-    return Math.max(0, size - elapsed - (size * (limit - c - 1)) / prev);
+    return Math.max(0, size - elapsed - (size * (limit - c - weight)) / prev);
   }
-  return size - elapsed + size * (1 - (limit - 1) / c);
+  return size - elapsed + size * (1 - (limit - weight) / c);
 }
 
 /**
- * Judge a snapshot (counts that include this request) against a plan's limits
- * for the bucket. Allowed only if every window's estimate is within its limit.
+ * Judge a snapshot (counts that include this request, recorded with `weight`)
+ * against a plan's limits for the bucket. Allowed only if every window's
+ * estimate is within its limit.
  */
-export function evaluate(snapshot: RateSnapshot, limits: RateLimitNumbers): RateVerdict {
+export function evaluate(
+  snapshot: RateSnapshot,
+  limits: RateLimitNumbers,
+  weight = 1,
+): RateVerdict {
   let worst: { ms: number; window: RateWindowLabel; limit: number } | null = null;
   for (let i = 0; i < RATE_WINDOWS.length; i++) {
     const w = RATE_WINDOWS[i]!;
     const counts = snapshot.windows[i]!;
     const limit = limits[w.key];
     if (estimate(counts, w.ms, snapshot.at) <= limit + EPSILON) continue;
-    const ms = waitMs(counts, w.ms, limit, snapshot.at);
+    const ms = waitMs(counts, w.ms, limit, snapshot.at, weight);
     if (!worst || ms > worst.ms) worst = { ms, window: w.label, limit };
   }
   if (!worst) return { allowed: true };

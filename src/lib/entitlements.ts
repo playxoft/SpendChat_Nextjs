@@ -94,6 +94,11 @@ export async function getWorkspacePlan(workspaceId: string): Promise<PersonalPla
   return (await getWorkspaceEntitlements(workspaceId)).plan;
 }
 
+/** The workspaces the person can open, read once per request — for the two plan lookups below. */
+function userWorkspacesForRequest(userId: string) {
+  return memoizeForRequest(`user-workspaces:${userId}`, () => listUserWorkspaces(userId));
+}
+
 /**
  * The highest plan among every workspace the person can open (memoized per
  * request). What a request with no workspace in context — account settings,
@@ -101,11 +106,20 @@ export async function getWorkspacePlan(workspaceId: string): Promise<PersonalPla
  * so a paid member isn't held to Free's numbers there. Read only when such a
  * request is over Free's numbers, so it's off the hot path.
  */
-export function getBestPlanForUser(userId: string): Promise<PersonalPlan> {
-  return memoizeForRequest(`best-plan:${userId}`, async () => {
-    const list = await listUserWorkspaces(userId);
-    return list.reduce<PersonalPlan>((best, w) => (planAtLeast(w.plan, best) ? w.plan : best), "free");
-  });
+export async function getBestPlanForUser(userId: string): Promise<PersonalPlan> {
+  const list = await userWorkspacesForRequest(userId);
+  return list.reduce<PersonalPlan>((best, w) => (planAtLeast(w.plan, best) ? w.plan : best), "free");
+}
+
+/**
+ * The plan of `workspaceId` **as this person sees it**: the workspace's plan if
+ * they can open it, else Free. For rate limiting a server action by the
+ * workspace id it was handed — the id comes from the client, and a workspace
+ * the person isn't in must not lend them its plan.
+ */
+export async function getPlanForUserIn(userId: string, workspaceId: string): Promise<PersonalPlan> {
+  const list = await userWorkspacesForRequest(userId);
+  return list.find((w) => w.id === workspaceId)?.plan ?? "free";
 }
 
 // ── Errors ─────────────────────────────────────────────────────────────────

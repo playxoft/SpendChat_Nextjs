@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  EXPORT_WEIGHT,
   bucketOfAction,
-  bucketOfRequest,
   classifyApiRequest,
   formatWait,
   rateLimitMessage,
+  rateOfApiRequest,
+  rateOfRequest,
 } from "@/lib/rate-limit/classify";
+import { MAX_REQUEST_WEIGHT } from "@/lib/rate-limit/counter";
+import { PERSONAL_PLANS, RATE_LIMITS } from "@/lib/plans";
 import {
   ApiError,
   isRateLimitRefusal,
@@ -32,8 +36,27 @@ describe("classifyApiRequest", () => {
   });
 
   it("reads method and path off a Request", () => {
-    expect(bucketOfRequest(new Request("http://x/api/v1/ai/parse?y=1", { method: "POST" }))).toBe("ai");
-    expect(bucketOfRequest(new Request("http://x/api/v1/me"))).toBe("read");
+    expect(rateOfRequest(new Request("http://x/api/v1/ai/parse?y=1", { method: "POST" }))).toEqual({
+      bucket: "ai",
+      weight: 1,
+    });
+    expect(rateOfRequest(new Request("http://x/api/v1/me"))).toEqual({ bucket: "read", weight: 1 });
+  });
+});
+
+describe("request weights", () => {
+  it("C8: a CSV export counts as EXPORT_WEIGHT reads; everything else as one", () => {
+    expect(EXPORT_WEIGHT).toBe(20);
+    expect(rateOfApiRequest("GET", "/api/v1/transactions/export")).toEqual({ bucket: "read", weight: 20 });
+    expect(rateOfApiRequest("HEAD", "/api/v1/transactions/export")).toEqual({ bucket: "read", weight: 20 });
+    expect(rateOfApiRequest("GET", "/api/v1/transactions")).toEqual({ bucket: "read", weight: 1 });
+    expect(rateOfApiRequest("POST", "/api/v1/transactions/export")).toEqual({ bucket: "create", weight: 1 });
+  });
+
+  it("C8: no weight exceeds the smallest read limit (or a request could never pass)", () => {
+    const smallest = Math.min(...PERSONAL_PLANS.map((p) => RATE_LIMITS[p].read.perMinute));
+    expect(EXPORT_WEIGHT).toBeLessThanOrEqual(smallest);
+    expect(EXPORT_WEIGHT).toBeLessThanOrEqual(MAX_REQUEST_WEIGHT);
   });
 });
 
@@ -92,9 +115,9 @@ describe("rate_limited errors", () => {
     expect(retryAfterSecondsOf(new ApiError(403, "plan_limit", "x", { retryAfterSeconds: 5 }))).toBeNull();
   });
 
-  it("a one-off refusal (no window) isn't the limiter's", () => {
+  it("a refusal with no window (the AI charge lock, AI paused) is still a rate-limit refusal", () => {
     const busy = rateLimited("busy", { bucket: "ai", retryAfterSeconds: 1 });
-    expect(isRateLimitRefusal(busy)).toBe(false);
+    expect(isRateLimitRefusal(busy)).toBe(true);
     expect(retryAfterHeaders(busy)).toEqual({ "Retry-After": "1" });
   });
 });

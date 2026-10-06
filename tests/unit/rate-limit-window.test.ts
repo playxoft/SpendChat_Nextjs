@@ -187,6 +187,28 @@ describe("evaluate", () => {
   });
 });
 
+describe("weighted requests", () => {
+  it("C8: a request weighing 20 counts as 20 and is judged as such", () => {
+    // 101 reads, then an export weighing 20: 121 > 120.
+    const counts = recordHit(hits(101, T0 + 30_000), T0 + 30_000, 20);
+    expect(counts[0]).toEqual([T0, 121, 0]);
+    const verdict = evaluate(snap(counts, T0 + 30_000), { perMinute: 120, per5Minutes: 400, perHour: 2000 }, 20);
+    // Wait for the rollover (30s), then for 101 fading reads to leave room for
+    // 20 more: 101·(1 − t′/60) + 20 ≤ 120 ⇒ t′ ≈ 0.6s → 31s.
+    expect(verdict).toMatchObject({ allowed: false, window: "1m", retryAfterSeconds: 31 });
+    expect(removeHit(counts, T0 + 30_000, 20)[0]).toEqual([T0, 101, 0]);
+  });
+
+  it("C8: Retry-After for a weighted request while prev fades", () => {
+    // 100 reads last minute, 10 this minute, 30s in; an export (20) makes
+    // 30 + 100·½ = 80 > 70, so it's refused. A retry fits when
+    // 10 + 20 + 100·(30 − t)/60 ≤ 70 ⇒ t = 6s.
+    const counts = recordHit(hits(10, T0 + 30_000, hits(100, T0 - 10_000)), T0 + 30_000, 20);
+    const verdict = evaluate(snap(counts, T0 + 30_000), { perMinute: 70, per5Minutes: 1_000, perHour: 1_000 }, 20);
+    expect(verdict).toMatchObject({ allowed: false, retryAfterSeconds: 6 });
+  });
+});
+
 describe("waitMs", () => {
   it("is zero when nothing fades and the slot has room", () => {
     expect(waitMs([T0, 5, 0], MIN, 20, T0 + 1_000)).toBe(0);

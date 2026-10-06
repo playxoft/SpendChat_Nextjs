@@ -68,12 +68,13 @@ async function expectRefused(res: Response, bucket: string) {
 }
 
 describe("web routes outside the seams — per-person rate limits (C8)", () => {
-  it("C8: the CSV export is a read and is limited", async () => {
+  it("C8: the CSV export is a read weighing 20, and is limited", async () => {
     signInAs("a");
     await bootstrapUser("a");
-    expect((await exportCsv(new Request("http://localhost/api/transactions/export"))).status).toBe(200);
-    mem.fill(uid("a"), "read", 120);
-    await expectRefused(await exportCsv(new Request("http://localhost/api/transactions/export")), "read");
+    const csv = () => exportCsv(new Request("http://localhost/api/transactions/export"));
+    mem.fill(uid("a"), "read", 90);
+    expect((await csv()).status).toBe(200); // 90 + 20 = 110 ≤ 120
+    await expectRefused(await csv(), "read"); // 110 + 20 = 130 > 120
   });
 
   it("C8: vault uploads and transaction attachments are creates, refused before the body is read", async () => {

@@ -209,6 +209,38 @@ describe("/api/v1/ai — gating before the provider", () => {
     }
   });
 
+  it("C8: a second AI call while the first is still being charged gets 429 with Retry-After: 1", async () => {
+    const fetchSpy = noProviderCalls();
+    signInAs("a");
+    await bootstrapUser("a");
+
+    // PGlite is a single connection, so the per-user try-lock can't really be
+    // lost here; hand the charge a transaction whose try-lock comes back taken
+    // — exactly what a concurrent call holding it would see.
+    const db = getTestDb();
+    const transaction = vi
+      .spyOn(db, "transaction")
+      .mockImplementationOnce((async (run: (tx: unknown) => Promise<unknown>) =>
+        run({ execute: async () => ({ rows: [{ got: false }] }) })) as unknown as typeof db.transaction);
+
+    const res = await parse(
+      apiReq("/api/v1/ai/parse", { method: "POST", body: jsonBody({ text: "200 fruits" }) }),
+    );
+    expect(transaction).toHaveBeenCalledTimes(1);
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("1");
+    expect(await res.json()).toEqual({
+      error: {
+        code: "rate_limited",
+        message: "Another AI request of yours is still running — try again in a moment.",
+        details: { bucket: "ai", retryAfterSeconds: 1 },
+      },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(await quotaUsed("a")).toBe(0);
+    transaction.mockRestore();
+  });
+
   it("401s an unauthenticated caller", async () => {
     const fetchSpy = noProviderCalls();
     const req = new Request("http://localhost/api/v1/ai/transcribe", {

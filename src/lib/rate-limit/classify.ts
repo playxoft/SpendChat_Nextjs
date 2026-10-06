@@ -22,9 +22,30 @@ export function classifyApiRequest(method: string, pathname: string): RateBucket
   return m === "GET" || m === "HEAD" ? "read" : "create";
 }
 
-/** The bucket of a request, from its `Request` — see `classifyApiRequest`. */
-export function bucketOfRequest(request: Request): RateBucket {
-  return classifyApiRequest(request.method, new URL(request.url).pathname);
+/**
+ * How many reads a CSV export counts as. An export reads up to 5,000 rows in
+ * one request — as much as dozens of feed pages — so on Free it's 6 a minute
+ * rather than 120. Used by the API route and the web export route alike.
+ */
+export const EXPORT_WEIGHT = 20;
+
+/** Reads (by path) that count as more than one request. */
+const READ_WEIGHTS: Record<string, number> = {
+  "/api/v1/transactions/export": EXPORT_WEIGHT,
+};
+
+/** What a request counts as: its bucket, and how many requests it weighs (usually 1). */
+export type RequestRate = { bucket: RateBucket; weight: number };
+
+/** A REST request's bucket (`classifyApiRequest`) and weight. */
+export function rateOfApiRequest(method: string, pathname: string): RequestRate {
+  const bucket = classifyApiRequest(method, pathname);
+  return { bucket, weight: bucket === "read" ? (READ_WEIGHTS[pathname] ?? 1) : 1 };
+}
+
+/** The same, read off a `Request`. */
+export function rateOfRequest(request: Request): RequestRate {
+  return rateOfApiRequest(request.method, new URL(request.url).pathname);
 }
 
 /**

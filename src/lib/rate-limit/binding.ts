@@ -5,8 +5,8 @@ import type { RateSnapshot } from "./sliding-window";
 
 /** The two calls the limiter makes on a person's Durable Object. */
 export type RateLimiterStub = {
-  hit(bucket: RateBucket): Promise<RateSnapshot>;
-  undo(bucket: RateBucket, at: number): Promise<void>;
+  hit(bucket: RateBucket, weight: number): Promise<RateSnapshot>;
+  undo(bucket: RateBucket, at: number, weight: number): Promise<void>;
 };
 
 /**

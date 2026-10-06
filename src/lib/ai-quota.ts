@@ -99,9 +99,10 @@ type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
  * **Why the per-user lock, and why it's the try form.** It's taken first, and
  * it is what keeps the *blocking* allowance lock below safe: with it, at most
  * one transaction per person can ever be waiting there. Without it, a burst
- * from one account — the rate limiter fails open when its Durable Object is
- * unreachable, and a script doesn't wait its turn — would queue on the
- * allowance lock, each waiter holding a real Neon connection: a quota check
+ * from one account would queue on the allowance lock — the rate limiter counts
+ * requests per window, not how many are in flight, so a minute's budget can
+ * arrive all at once (and in `next dev` there is no limiter at all) — each
+ * waiter holding a real Neon connection: a quota check
  * that amplifies into connection exhaustion for every other user of the
  * database. `pg_try_advisory_xact_lock` returns immediately instead, and losing
  * the race *is* the answer: a second call arriving while this person's previous

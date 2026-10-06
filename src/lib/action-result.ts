@@ -1,4 +1,4 @@
-import { getBestPlanForUser, getWorkspaceEntitlements } from "@/lib/entitlements";
+import { getBestPlanForUser, getPlanForUserIn } from "@/lib/entitlements";
 import { ApiError, isRateLimitRefusal } from "@/lib/errors";
 import { describeError, logger, type LogMeta } from "@/lib/logger";
 import { setLogContext } from "@/lib/log-context";
@@ -122,13 +122,15 @@ async function runActionInner<T extends object>(
 
 /**
  * The plan an action is rate-limited by — looked up only when the person is
- * over Free's numbers (see `lib/rate-limit`). The workspace in `meta` when there
- * is one (the same memoized read the action's own limit checks use); for an
- * account-level action, the best plan among the person's workspaces.
+ * over Free's numbers (see `lib/rate-limit`). The plan of the workspace in
+ * `meta` when there is one — but only among the person's own workspaces: some
+ * actions take that id straight from the client (`switchWorkspace`,
+ * `updateWorkspace`…), and someone else's Pro workspace must not lend its
+ * numbers. For an account-level action, the best plan among their workspaces.
  */
 function actionPlan(userId: string, meta: LogMeta): PlanResolver {
-  return async () =>
+  return () =>
     typeof meta.workspaceId === "string"
-      ? (await getWorkspaceEntitlements(meta.workspaceId)).plan
+      ? getPlanForUserIn(userId, meta.workspaceId)
       : getBestPlanForUser(userId);
 }

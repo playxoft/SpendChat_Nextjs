@@ -15,6 +15,8 @@ import {
   loadMoreTransactions,
 } from "@/actions/transactions";
 import { setCollapsedSpaces, updateAccountName } from "@/actions/settings";
+import { switchWorkspace } from "@/actions/workspaces";
+import * as ws from "@/services/workspaces";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { resetRateLimitState } from "@/lib/rate-limit";
 import { createMemoryRateLimiter, type MemoryRateLimiter } from "./helpers/memory-rate-limiter";
@@ -147,6 +149,36 @@ describe("server actions — per-person rate limits (C8)", () => {
     expect((await updateAccountName("Ada")).ok).toBe(true);
     signInAs("b");
     expect(await updateAccountName("Bea")).toMatchObject({ ok: false, code: "rate_limited" });
+  });
+
+  it("C8: a workspace id the person isn't in can't lend its plan", async () => {
+    await bootstrapUser("a");
+    await bootstrapUser("b");
+    const bPro = await workspaceIdOf("b");
+    await setWorkspacePlan(bPro, "pro");
+    mem.fill(uid("a"), "read", 130); // over Free's 120, within Pro's 240
+
+    // a (Free) names b's Pro workspace: judged on Free, not on b's plan.
+    signInAs("a");
+    expect(await switchWorkspace(bPro)).toMatchObject({ ok: false, code: "rate_limited" });
+
+    // Once a is a member there, the same call is judged on Pro and passes —
+    // the Free-earned block doesn't hold against it.
+    await ws.addMember(uid("b"), bPro, {
+      email: "a@example.com",
+      access: { mode: "all", role: "viewer" },
+    });
+    expect((await switchWorkspace(bPro)).ok).toBe(true);
+  });
+
+  it("C8: a block lifts when the workspace is upgraded", async () => {
+    signInAs("a");
+    await bootstrapUser("a");
+    mem.fill(uid("a"), "create", 25);
+    expect((await addTransaction(entry)).ok).toBe(false); // 26 > Free's 20 — blocked
+    await setWorkspacePlan(await workspaceIdOf("a"), "pro");
+    // No reset: the Free block doesn't hold against Pro's 40.
+    expect((await addTransaction(entry)).ok).toBe(true);
   });
 
   it("fails open when there is no Durable Object binding", async () => {
