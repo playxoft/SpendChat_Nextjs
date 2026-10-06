@@ -43,7 +43,7 @@ import {
 import { countMembers, countProfilesInSpace, getAddLimits, getUsage } from "@/lib/entitlements";
 import { getProfiles, getTransactionById, listTrashedTransactions } from "@/lib/queries";
 import { signInAs, uid } from "./helpers/session";
-import { getTestDb } from "./helpers/test-db";
+import { captureSql, getTestDb } from "./helpers/test-db";
 import {
   bootstrapUser,
   defaultSpaceIdOf,
@@ -311,8 +311,11 @@ describe("a space with trashed profiles in it", () => {
     });
     expect((await profileRow(inOther))!.spaceId).toBe(other);
 
+    const before = (await profileRow(inOther))!.updatedAt.getTime();
     await deleteSpace(U, other, { moveProfilesTo: third });
     expect((await profileRow(inOther))!.spaceId).toBe(third);
+    // Moved like `moveProfileToSpace` moves one: the row says it changed.
+    expect((await profileRow(inOther))!.updatedAt.getTime()).toBeGreaterThan(before);
     expect((await restoreFromTrash(U, W, { profileIds: [inOther] })).counts.profiles).toBe(1);
   });
 
@@ -397,6 +400,23 @@ describe("Free's default delete (S4)", () => {
     expect(swept()).toHaveLength(0);
     expect(await deleteProfile(U, work, { transactions: "delete" })).toBe(true);
     expect(swept()).toContain("vault/keep-me.pdf");
+  });
+
+  /**
+   * The race: a file uploaded between `reject`'s "no live files" count and the
+   * vault delete was destroyed. The profile row is now locked `FOR UPDATE`
+   * before anything is counted — an upload's insert takes a key-share lock on
+   * it through the foreign key, so it lands either before the count (and is
+   * counted) or after the commit. A single-connection test database can't
+   * stage the concurrent upload, so this pins the lock as the transaction's
+   * first statement.
+   */
+  it("locks the profile before counting what it would delete", async () => {
+    const work = await seedProfile("a", "Work");
+    const sent = await captureSql(() => deleteProfile(U, work, { transactions: "delete" }));
+    const inTx = sent.filter((s) => s.tx !== null);
+    expect(inTx[0]!.text).toMatch(/from "profiles".*for update/s);
+    expect(inTx[0]!.params).toContain(work);
   });
 
   it("on Plus the default goes through — the files go to the trash with the profile", async () => {

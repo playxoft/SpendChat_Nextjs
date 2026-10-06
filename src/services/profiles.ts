@@ -439,6 +439,19 @@ export async function deleteProfile(
   let doomedKeys: (string | null)[];
   try {
     doomedKeys = await db.transaction(async (tx) => {
+      // The profile row first, `FOR UPDATE`: every write into the profile (a
+      // transaction, an upload) takes a key-share lock on it through its
+      // foreign key, so from here on nothing new lands in it until we commit —
+      // what the checks below count is what the disposal acts on. Without it a
+      // file uploaded between `reject`'s "no live files" count and the vault
+      // delete was destroyed on Free.
+      const [locked] = await tx
+        .select({ id: profiles.id })
+        .from(profiles)
+        .where(and(eq(profiles.id, id), notTrashed(profiles)))
+        .for("update");
+      if (!locked) throw new ProfileGone();
+
       const [{ total }] = await tx
         .select({ total: count() })
         .from(profiles)
