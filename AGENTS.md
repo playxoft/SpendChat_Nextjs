@@ -102,11 +102,13 @@ Authentication, secrets via Doppler.
   are pure in `src/lib/budgets.ts`, CRUD in `src/services/budgets.ts`. **Every budget number comes
   from `getMonthExpenseMatrix` (`src/lib/budget-spend.ts`)** — its one `where` decides which
   transactions count (expenses only, the calendar month of `occurred_on`, every profile of the
-  workspace, trashed rows excluded); never sum spending for a budget anywhere else. A budget is
-  shown only to admins and people who can read **every** profile it covers; managing it needs edit
-  access to every covered profile. **Every transaction write that can raise spending calls
-  `scheduleBudgetCheck` after it writes** (`src/services/budget-alerts.ts`; in the service layer,
-  so web and API are both covered) — a new write path (restore, import, "add my share") must too.
+  workspace, trashed rows and trashed profiles excluded); never sum spending for a budget anywhere
+  else. A budget is shown only to admins and people who can read **every** live profile it covers;
+  a budget on a trashed profile is hidden from everyone (and not counted toward the plan) until the
+  profile is restored. Managing it needs edit access to every covered profile. **Every
+  transaction write that can raise spending calls `scheduleBudgetCheck` after it writes**
+  (`src/services/budget-alerts.ts`; in the service layer, so web and API are both covered; trash
+  restore calls it too) — a new write path must as well.
   The check runs after the response through `afterResponse` (`src/lib/defer.ts`: Next's `after()`,
   `ctx.waitUntil` on Workers) and claims each alert once per budget × threshold × month in
   `budget_alerts` (never deleted; it fires again only for a higher amount; a claim that didn't fit

@@ -586,7 +586,9 @@ people who can **read every profile it covers** — the same number for everyone
 who sees it. Alerts in the app are yours to draw from `status`; the server
 emails admins and the budget's creator (while they can manage it) once per
 budget, per threshold, per month — again only if the amount is raised past the
-one it fired at — within a workspace pool of 30 alert emails a month.
+one it fired at — within a workspace pool of 30 alert emails a month. Nothing
+in the trash counts, and a budget on a profile in the trash is hidden (and
+doesn't count toward the plan) until the profile is restored.
 
 ### Settings
 User-level settings that follow the user across every workspace. **Currency and

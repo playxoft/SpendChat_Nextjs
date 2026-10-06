@@ -47,7 +47,9 @@ all profiles); anything else is a 404. Adding or changing one needs write
 access to every profile it covers (`canManage`); viewers only read. `canDelete`
 has the same reach as `canManage`, but isn't blocked by a view-only workspace.
 Alert emails go once per budget, threshold and month (again only if the amount
-is raised past the one it fired at), within 30 a month per workspace.
+is raised past the one it fired at), within 30 a month per workspace. Trashed
+transactions don't count, and a budget on a trashed profile is hidden (and
+doesn't count toward the plan) until the profile is restored.
 
 **New fields**
 
