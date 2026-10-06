@@ -507,7 +507,7 @@ can't add more until it's back under.
   "percent": 82,                  // floor(spent × 100 / amount); can pass 100
   "status": "ok" | "warn" | "over",  // warn ≥ 80%, over ≥ 100% — draw your alert from this
   "canManage": true,              // the caller can PATCH it (false in a view-only workspace)
-  "canDelete": true,              // the caller can DELETE it (an admin can, even view-only)
+  "canDelete": true,              // the caller can DELETE it: same reach as canManage, not blocked by view-only
   "createdBy": "uuid",
   "createdAt": "2026-10-06T10:00:00.000Z",
   "updatedAt": "2026-10-06T10:00:00.000Z"
@@ -669,7 +669,7 @@ the debug/about screen so a bug report names the exact deploy, and link
 | `GET /budgets?month=YYYY-MM` | — | 200 `data: Budget[]`, `meta: { month, currency }` | The budgets the caller can see, the whole workspace first, then profiles, then categories. `month` defaults to the current **UTC** month — send the device's own month. 422 bad `month`. |
 | `POST /budgets` | `BudgetInput` | 201 `data: Budget` | One per scope → **409**. **403 `plan_limit`** (`limit: "budgets"`) past the plan's cap; **403** without write access to every profile it covers; **403 `plan_limit` `freeWorkspaces`** in a view-only workspace. 422 income category, a profile/category not in this workspace (or one you can't read), bad amount. Accepts `?month=` for the returned progress. |
 | `PATCH /budgets/{id}` | `{ amount?, emailAlerts? }` (≥1) | 200 `data: Budget` | What it covers is fixed. 404 when the caller can't see it; 403 when they can see but not manage it. A new amount re-arms this month's alerts it no longer reaches. Accepts `?month=`. |
-| `DELETE /budgets/{id}` | — | 200 `data: { id, deleted: true }` | 404 / 403 as above. Allowed for an admin in a view-only workspace. |
+| `DELETE /budgets/{id}` | — | 200 `data: { id, deleted: true }` | 404 / 403 as above. Not blocked by a view-only workspace (`canDelete`). |
 
 ### Transactions
 | Method & path | Body | Success | Notes / errors |

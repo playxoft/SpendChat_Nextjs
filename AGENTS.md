@@ -98,9 +98,10 @@ Authentication, secrets via Doppler.
   so web and API are both covered) — a new write path (restore, import, "add my share") must too.
   The check runs after the response through `afterResponse` (`src/lib/defer.ts`: Next's `after()`,
   `ctx.waitUntil` on Workers) and claims each alert once per budget × threshold × month in
-  `budget_alerts` (never deleted; it fires again only for a higher amount, and unsent claims are
-  retried). Alert emails come from the workspace's own monthly pool (`reserveBudgetAlertEmails`,
-  `email-quota.ts`), never the writer's. In-app alerts are computed live — there is no
+  `budget_alerts` (never deleted; it fires again only for a higher amount; a claim that didn't fit
+  the pool or whose check failed before committing is retried, a failed send isn't). Alert emails
+  come from the workspace's own monthly pool (`budgetAlertEmailsLeft`, `email-quota.ts`), filled
+  claim by claim, never the writer's. In-app alerts are computed live — there is no
   notifications table. Put any other post-response DB work through `afterResponse` too.
 - **Every query is scoped to the authenticated user's access.** Reads live in `src/lib/queries.ts`,
   mutations in `src/actions/*` (server actions), both validated with Zod (`src/lib/validation.ts`).

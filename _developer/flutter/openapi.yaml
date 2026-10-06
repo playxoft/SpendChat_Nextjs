@@ -1625,8 +1625,8 @@ paths:
       tags: [Budgets]
       summary: Delete a budget
       description: |
-        Its alert history goes with it. 404 / 403 as for PATCH; an admin can
-        delete one in a view-only workspace.
+        Its alert history goes with it. 404 / 403 as for PATCH, except that a
+        view-only workspace doesn't block it (`canDelete`).
       responses:
         "200":
           description: Deletion acknowledged.
@@ -3577,7 +3577,7 @@ components:
           enum: [ok, warn, over]
           description: "`warn` at 80% or more, `over` at 100% or more — the in-app alert."
         canManage: { type: boolean, description: The caller can change it (never in a view-only workspace). }
-        canDelete: { type: boolean, description: "The caller can delete it — like `canManage`, but still true for an admin of a view-only workspace." }
+        canDelete: { type: boolean, description: "The caller can delete it — the same reach as `canManage`, but not blocked by a view-only workspace." }
         createdBy: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
