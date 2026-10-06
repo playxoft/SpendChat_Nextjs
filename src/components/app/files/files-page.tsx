@@ -96,6 +96,7 @@ export function FilesPageClient({
   filesCapped,
   storageUsedBytes,
   storageLimitBytes,
+  storageTrashBytes = 0,
 }: {
   folders: FolderDTO[];
   files: FileDTO[];
@@ -111,6 +112,8 @@ export function FilesPageClient({
    * `router.refresh()` that already follows every upload/delete. */
   storageUsedBytes: number;
   storageLimitBytes: number;
+  /** Bytes in the trash (part of `storageUsedBytes`). */
+  storageTrashBytes?: number;
 }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -553,7 +556,11 @@ export function FilesPageClient({
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="text-xl font-semibold">Files</h1>
         <div className="ml-auto flex flex-wrap items-center gap-2">
-          <StorageRing usedBytes={storageUsedBytes} limitBytes={storageLimitBytes} />
+          <StorageRing
+            usedBytes={storageUsedBytes}
+            limitBytes={storageLimitBytes}
+            trashBytes={storageTrashBytes}
+          />
           <div className="relative">
             <Search
               className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"

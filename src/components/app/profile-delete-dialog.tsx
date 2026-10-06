@@ -22,7 +22,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 import { deleteProfile, getProfileDeletionImpact } from "@/actions/profiles";
+import { TRASH_DAYS } from "@/lib/trash";
+import { toastMovedToTrash } from "./trash/trash-toast";
 import {
   hasDisposableContents,
   profileDisposalRequest,
@@ -60,6 +63,24 @@ function contentsSummary(counts: ProfileDeletionCounts): string {
 }
 
 /**
+ * What "Delete everything in it" does: the profile goes to the trash with its
+ * transactions — and with its vault on Plus/Pro. On Free the vault has no trash,
+ * so its files are deleted for good, and the option says so before the click.
+ */
+function deleteDescription(counts: ProfileDeletionCounts): string {
+  const recoverable = counts.filesRecoverable !== false;
+  if (counts.files > 0 && !recoverable) {
+    const rest = contentsSummary({ ...counts, files: 0 });
+    const lead =
+      rest === "nothing"
+        ? "The profile goes to the trash"
+        : `The profile and its ${rest} go to the trash`;
+    return `${lead} for ${TRASH_DAYS} days, but its ${plural(counts.files, "vault file")} ${counts.files === 1 ? "is" : "are"} deleted for good — Plus and Pro keep files in the trash too.`;
+  }
+  return `The profile and its ${contentsSummary(counts)} go to the trash. You can restore it for ${TRASH_DAYS} days.`;
+}
+
+/**
  * Confirms a profile delete and asks what to do with everything filed under
  * it — transactions, their receipts, and the vault: delete it all with the
  * profile (the default — deleting a profile usually means the whole thread was
@@ -83,6 +104,7 @@ export function ProfileDeleteDialog({
   open: boolean;
   onOpenChange: (v: boolean) => void;
 }) {
+  const router = useRouter();
   const [disposal, setDisposal] = React.useState<Disposal>("delete");
   const [target, setTarget] = React.useState(others[0]?.id ?? "");
   const [impact, setImpact] = React.useState<ImpactState>({ status: "loading" });
@@ -104,7 +126,12 @@ export function ProfileDeleteDialog({
     try {
       const res = await getProfileDeletionImpact(profile.id);
       if (!res.ok) return null;
-      return { transactions: res.transactions, files: res.files, attachments: res.attachments };
+      return {
+        transactions: res.transactions,
+        files: res.files,
+        attachments: res.attachments,
+        filesRecoverable: res.filesRecoverable,
+      };
     } catch {
       return null;
     }
@@ -177,7 +204,14 @@ export function ProfileDeleteDialog({
         profileDisposalRequest(confirmed, disposal, target),
       );
       if (res.ok) {
-        toast.success("Profile deleted");
+        toastMovedToTrash(
+          "Profile moved to trash",
+          { profileIds: [profile.id] },
+          {
+            description: `Restore it from the trash for ${TRASH_DAYS} days — everything in it comes back with it.`,
+            onRestored: () => router.refresh(),
+          },
+        );
         onOpenChange(false);
       } else {
         toast.error(res.error);
@@ -243,7 +277,7 @@ export function ProfileDeleteDialog({
             <OptionCard
               icon={<Trash2 className="size-4" />}
               label="Delete everything in it"
-              description={`All ${contentsSummary(counts!)} are permanently removed.`}
+              description={deleteDescription(counts!)}
               active={disposal === "delete"}
               onSelect={() => chooseDisposal("delete")}
             />

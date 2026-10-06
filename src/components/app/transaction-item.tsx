@@ -1,6 +1,7 @@
 "use client";
 
 import { memo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { CircleCheck, CircleX, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -22,6 +23,7 @@ import {
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
 import { deleteTransaction } from "@/actions/transactions";
+import { toastMovedToTrash } from "./trash/trash-toast";
 import { TransactionBubble, bubbleAmountLabel } from "./transaction-bubble";
 import { TransactionDialog } from "./transaction-dialog";
 import { useAttachmentViewer } from "./attachments/attachment-viewer";
@@ -78,6 +80,7 @@ export const TransactionItem = memo(function TransactionItem({
   const cardRef = useRef<HTMLDivElement>(null);
   const toggle = onToggleSelect ? (range: boolean) => onToggleSelect(row.id, range) : undefined;
   const openViewer = useAttachmentViewer();
+  const router = useRouter();
   // An edit patches the bubble / a delete hides it in the same commit as the
   // toast, then the server revalidation reconciles.
   const { row, removed, patch, remove } = useOptimisticRow(serverRow);
@@ -95,7 +98,9 @@ export const TransactionItem = memo(function TransactionItem({
     setConfirmingDelete(false);
     // Gone in the same commit as the toast, as the edit dialog's delete does.
     remove();
-    toast.success("Transaction deleted");
+    toastMovedToTrash("Moved to trash", { transactionIds: [row.id] }, {
+      onRestored: () => router.refresh(),
+    });
   }
 
   const amountLabel = bubbleAmountLabel(row.type, row.amountMinor, currency, locale);
@@ -171,8 +176,8 @@ export const TransactionItem = memo(function TransactionItem({
           <AlertDialogHeader>
             <AlertDialogTitle>Delete this transaction?</AlertDialogTitle>
             <AlertDialogDescription>
-              This removes it for good, along with any files attached to it, and updates your
-              balance. This can’t be undone.
+              It moves to the trash with any files attached to it, and your balance updates.
+              You can restore it for 30 days.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

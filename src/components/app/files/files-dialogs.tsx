@@ -54,6 +54,10 @@ import {
   type FileCategory,
 } from "@/lib/validation";
 import type { VaultTarget } from "./files-views";
+import { usePlan } from "../upgrade-dialog";
+import { toastMovedToTrash } from "../trash/trash-toast";
+import { PLAN_LIMITS, PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
+import { TRASH_DAYS } from "@/lib/trash";
 import { ColorSwatch, TagPicker } from "./vault-tags";
 
 /* ----------------------------- New folder --------------------------------- */
@@ -450,6 +454,9 @@ export function DeleteVaultItemDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
+  const { plan } = usePlan();
+  // Plus/Pro keep deleted files and folders in the trash; Free deletes for good.
+  const keepsTrash = PLAN_LIMITS[plan].fileTrash;
   const [pending, startTransition] = useTransition();
   const deletable = target && target.kind !== "txn" ? target : null;
   const isFile = deletable?.kind === "file";
@@ -470,7 +477,17 @@ export function DeleteVaultItemDialog({
         toast.error(res.error);
         return;
       }
-      toast.success(deletable.kind === "file" ? "File deleted" : "Folder deleted");
+      if (res.trashed) {
+        toastMovedToTrash(
+          "Moved to trash",
+          deletable.kind === "file"
+            ? { fileIds: [deletable.file.id] }
+            : { folderIds: [deletable.folder.id] },
+          { onRestored: () => router.refresh() },
+        );
+      } else {
+        toast.success(deletable.kind === "file" ? "File deleted" : "Folder deleted");
+      }
       onOpenChange(false);
       router.refresh();
     });
@@ -482,9 +499,13 @@ export function DeleteVaultItemDialog({
         <AlertDialogHeader>
           <AlertDialogTitle>Delete “{name}”?</AlertDialogTitle>
           <AlertDialogDescription>
-            {isFile
-              ? "The file is removed for everyone with access, along with any share links to it. This can't be undone."
-              : "The folder, everything inside it (including nested folders), and any share links to it are removed for everyone. This can't be undone."}
+            {keepsTrash
+              ? isFile
+                ? `The file moves to the trash for everyone with access, and its share links stop working. You can restore it for ${TRASH_DAYS} days.`
+                : `The folder and everything inside it move to the trash for everyone, and their share links stop working. You can restore them for ${TRASH_DAYS} days.`
+              : isFile
+                ? `The file is removed for everyone with access, along with any share links to it. This can't be undone — ${PLAN_NAMES[lowestPlanWith("fileTrash")]} and up keep deleted files in the trash for ${TRASH_DAYS} days.`
+                : `The folder, everything inside it (including nested folders), and any share links to it are removed for everyone. This can't be undone — ${PLAN_NAMES[lowestPlanWith("fileTrash")]} and up keep deleted folders in the trash for ${TRASH_DAYS} days.`}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

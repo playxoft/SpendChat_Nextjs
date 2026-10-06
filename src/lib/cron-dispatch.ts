@@ -45,10 +45,13 @@ export async function dispatchCronJob<Env, Ctx>(
       env,
       ctx,
     );
+    // Read the (small JSON) body to the end rather than cancel it: OpenNext is
+    // still writing the response when it returns, and cancelling the stream
+    // under it makes its writer throw "This ReadableStream is closed".
+    await response.text();
     if (!response.ok) {
       console.error(`[error] Cron job ${path} answered ${response.status}`);
     }
-    await response.body?.cancel();
   } finally {
     revokeCronToken(token);
   }

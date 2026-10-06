@@ -149,7 +149,9 @@ function ClearTransactionsRow({ profiles }: { profiles: ProfileOption[] }) {
       const res = await deleteAllTransactions(confirm, [...selected]);
       if (res.ok) {
         const n = res.deleted ?? 0;
-        toast.success(`Deleted ${n} transaction${n === 1 ? "" : "s"}`);
+        toast.success(`Moved ${n} transaction${n === 1 ? "" : "s"} to the trash`, {
+          description: "Restore them from the trash for 30 days.",
+        });
         setOpen(false);
         setConfirm("");
       } else {
@@ -163,7 +165,7 @@ function ClearTransactionsRow({ profiles }: { profiles: ProfileOption[] }) {
   return (
     <DangerRowShell
       title="Delete all transactions"
-      description="Permanently remove every transaction in the profiles you choose. Categories and settings are kept. This cannot be undone."
+      description="Move every transaction in the profiles you choose to the trash. You can restore them for 30 days; after that they're gone for good. Categories and settings are kept."
     >
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogTrigger asChild>
@@ -173,8 +175,8 @@ function ClearTransactionsRow({ profiles }: { profiles: ProfileOption[] }) {
           <DialogHeader>
             <DialogTitle>Delete transactions?</DialogTitle>
             <DialogDescription>
-              Choose which profiles to clear — every transaction in a selected profile is removed
-              for everyone. Type <span className="font-semibold">DELETE</span> to confirm.
+              Choose which profiles to clear — every transaction in a selected profile moves to
+              the trash for everyone. Type <span className="font-semibold">DELETE</span> to confirm.
             </DialogDescription>
           </DialogHeader>
 

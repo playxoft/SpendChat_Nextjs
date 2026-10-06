@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -38,6 +39,7 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { addTransaction, updateTransaction, deleteTransaction } from "@/actions/transactions";
+import { toastMovedToTrash } from "./trash/trash-toast";
 import { getCurrency } from "@/lib/currencies";
 import { amountPlaceholder, formatAmountInput, integerDigitCount, parseAmountInput, stripNonAmountChars } from "@/lib/parse-amount";
 import {
@@ -146,6 +148,7 @@ export function TransactionDialog({
   const [values, setValues] = useState<TransactionValues>(defaultValues ?? emptyValues);
   const [pending, startTransition] = useTransition();
   const [deletePending, startDeleteTransition] = useTransition();
+  const router = useRouter();
   const { handlePlanLimit } = usePlan();
   // Tags created from the picker inside this dialog, until the server prop
   // catches up — without them the chip for a tag you just made can't be
@@ -317,7 +320,9 @@ export function TransactionDialog({
         // Remove the row in this same commit so it disappears with the toast,
         // not a beat later when the server revalidation arrives.
         onDeleted?.();
-        toast.success("Transaction deleted");
+        toastMovedToTrash("Moved to trash", { transactionIds: [id] }, {
+          onRestored: () => router.refresh(),
+        });
         setOpen(false);
       } else {
         toast.error(res.error);
@@ -589,7 +594,8 @@ export function TransactionDialog({
                     <AlertDialogHeader>
                       <AlertDialogTitle>Delete this transaction?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This removes it for good and updates your balance. This can’t be undone.
+                        It moves to the trash and your balance updates. You can restore it for 30
+                        days.
                       </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>

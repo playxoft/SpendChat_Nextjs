@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.5.0.** Every API change bumps this version and is logged
+**API spec version: 6.7.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -98,9 +98,9 @@ action would go past one, the server answers **403** with
 
 | `limit` | Free / Plus / Pro | Returned by |
 |---|---|---|
-| `members` | 3 / 5 / 10 people (invites count) | The web's invite flow — v1 has no member endpoints |
+| `members` | 3 / 5 / 10 people (invites count) | The web's invite flow; `POST /trash/restore` of a profile that brings back people who could only reach the workspace through it (6.7.0) |
 | `spaces` | 2 / 6 / 15 (the default space counts) | `POST /spaces` |
-| `profilesPerSpace` | 3 / 5 / 10 per space | `POST /profiles`, `POST /profiles/{id}/space`, `DELETE /spaces/{id}` with a move |
+| `profilesPerSpace` | 3 / 5 / 10 per space | `POST /profiles`, `POST /profiles/{id}/space`, `DELETE /spaces/{id}` with a move, `POST /trash/restore` of a profile (6.7.0) |
 | `categories` | 20 / 30 / 50 (the 10 seeded defaults count) | `POST /categories` |
 | `tags` | 5 / 10 / 20 (the 2 seeded defaults count) | `POST /tags` |
 | `storage` | 1 / 5 / 20 GB | **413 `storage_quota_exceeded`** (not 403) on `POST /files` and `POST /transactions/{id}/attachments` — same `details` |
@@ -475,7 +475,8 @@ inside their space; `read` / `write` open it even in a space they're not in.
   "readOnly": false,           // view-only (extra free workspace) — render read-only
   "ai": { "used": 12, "limit": 50, "remaining": 38, "topUpRemaining": 0,
           "resetsAt": "2026-11-01T00:00:00.000Z" },   // first instant of next month, UTC
-  "storage": { "usedBytes": 52428800, "limitBytes": 1073741824 },
+  "storage": { "usedBytes": 52428800, "limitBytes": 1073741824,
+               "trashBytes": 1048576 },  // 6.7.0: the part of usedBytes in the trash
   "members":    { "used": 1, "limit": 3 },   // people incl. pending invites
   "spaces":     { "used": 1, "limit": 2 },
   "categories": { "used": 10, "limit": 20 }, // the 10 seeded defaults count
@@ -487,6 +488,27 @@ inside their space; `read` / `write` open it even in a space they're not in.
 ```
 `used` can exceed `limit` (a downgraded workspace keeps what it has) — it just
 can't add more until it's back under.
+
+### Trash models (6.7.0)
+```jsonc
+// TrashedTransaction — a Transaction plus:
+{ /* …Transaction fields… */
+  "deletedAt": "2026-10-06T23:18:04.123Z",
+  "deletedBy": { "id": "uuid" | null, "name": "Asha" | null },
+  "purgeAt": "2026-11-05T23:18:04.123Z",   // deletedAt + 30 days
+  "canRestore": true }                      // editor on its profile
+// TrashedFolder
+{ "id", "profileId", "profileName", "profileIcon", "name", "color",
+  "folders": 1, "files": 3, "sizeBytes": 1048576,   // what went with it
+  "deletedAt", "deletedByName", "purgeAt", "canRestore" }
+// TrashedFile
+{ "id", "profileId", "profileName", "profileIcon", "folderId", "name",
+  "contentType", "sizeBytes", "deletedAt", "deletedByName", "purgeAt", "canRestore" }
+// TrashedProfile (admins)
+{ "id", "name", "icon", "color", "spaceId", "spaceName",
+  "transactions": 120, "files": 3, "sizeBytes": 1048576,   // live contents
+  "deletedAt", "deletedByName", "purgeAt" }
+```
 
 ### Settings
 User-level settings that follow the user across every workspace. **Currency and
@@ -636,10 +658,10 @@ the debug/about screen so a bug report names the exact deploy, and link
 | `POST /transactions` | `TransactionInput` | 201 `data: Transaction` | 422 validation; **403** "You don't have permission to add transactions in this workspace" (no writable profile) |
 | `GET /transactions/{id}` | — | 200 `data: Transaction` | 404 "Transaction not found" (also when the id lives in another workspace — workspace-scoped) |
 | `PATCH /transactions/{id}` | `TransactionInput` (full body) | 200 `data: Transaction` | Full replacement of mutable fields. Workspace-scoped (cross-workspace id → 404). 422; 404; 403 (editor role required on its profile; also on target profile if `profileId` changes) |
-| `DELETE /transactions/{id}` | — | 200 `data: { id, deleted: true }` | Workspace-scoped (cross-workspace id → 404). 422 "Invalid transaction" (non-UUID); 404; 403 (editor) |
+| `DELETE /transactions/{id}` | — | 200 `data: { id, deleted: true, trashed: true }` | **Moves it to the trash** (6.7.0) — out of every read, restorable for 30 days with `POST /trash/restore`; its attachments stay with it. Workspace-scoped (cross-workspace id → 404). 422 "Invalid transaction" (non-UUID); 404 (also for a row already in the trash); 403 (editor) |
 | `POST /transactions/bulk` | `{ items: TransactionInput[] }` (1–500) | 201 `data: { count }` | 422; 403. Unknown categoryId → null; non-writable profileId → default profile |
 | `GET /transactions/export` | — | 200 `text/csv` | **Not the JSON envelope.** Filters only (no paging; max 5000 rows). Text cells that look like formulas are apostrophe-prefixed. See § CSV. |
-| `POST /transactions/delete-all` | `{ confirm: "DELETE", profileIds?: string[] }` | 200 `data: { deleted }` | **Workspace admins only** (403 otherwise). 400 "Type DELETE to confirm" if `confirm !== "DELETE"`. Deletes **every** transaction (any author) in the selected profiles of the current workspace; `profileIds` omitted/empty clears **all** profiles in the workspace (ids outside it are ignored). |
+| `POST /transactions/delete-all` | `{ confirm: "DELETE", profileIds?: string[] }` | 200 `data: { deleted, trashed: true }` | **Workspace admins only** (403 otherwise). 400 "Type DELETE to confirm" if `confirm !== "DELETE"`. Moves **every** live transaction (any author) in the selected profiles of the current workspace **to the trash** (6.7.0; restorable for 30 days); `profileIds` omitted/empty clears **all** profiles in the workspace (ids outside it are ignored). |
 
 ### Attachments (receipts / bills / invoices on a transaction)
 Access is inherited from the transaction's profile: **viewer** to see/fetch,
@@ -683,11 +705,11 @@ only color + tags — rename/move/delete/share/upload-into are 400s.
 | `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit, storage }` | The whole working set in one call (mirrors the web page load). Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. `storage` = workspace usage vs the plan's storage (see § meta). Also lazily creates the predefined folder for each profile the caller can **write** to — a viewer's read never creates rows, so a view-only user may not see it until an editor opens the vault (their transaction files are still returned in `transactionFiles`). |
 | `POST /files` | **multipart** — `profileId` (required), `folderId?`, files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. `<index>` counts file parts in send order (`files` before `file`) and is **not** renumbered around non-file parts. 400 no files / > 10 / predefined-folder destination; **413** file **or preview** > 5 MB (`payload_too_large`) or workspace quota exceeded (`storage_quota_exceeded`); 404 profile/folder not reachable |
 | `PATCH /files/{id}` | `{ name?, category?, tagIds?, folderId? }` (≥1; `category: null` clears, `folderId: null` → root) | 200 `data: VaultFile` | Editor. 400 "Nothing to update"; 422; 404 |
-| `DELETE /files/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Removes the stored object, its preview object, and share links to it. 422 non-UUID; 404 |
+| `DELETE /files/{id}` | — | 200 `data: { id, deleted: true, trashed }` | Editor. **Plus/Pro** (6.7.0): `trashed: true` — the file goes to the trash for 30 days (bytes kept, still counted toward storage; its share links stop working until it's restored). **Free**: `trashed: false` — removed for good with its stored object, preview and share links. 422 non-UUID; 404 |
 | `GET /files/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Same contract as `GET /attachments/{id}/url` (`?variant=thumb`, `?download=1`; ~5 min TTL; GET without the Authorization header). **Inline only for previewable types** — images, PDF, text/CSV/Markdown, and **every `video/*` or `audio/*` type the server recognizes** (don't hard-code the list: it's whatever `contentType` comes back as for a media file, currently 23 types incl. `video/x-m4v`→`video/mp4`, `video/3gpp2` and `audio/webm`). Anything else is served `attachment` even without `?download=1`, since the vault takes any MIME type and a stored HTML/SVG must never render in a WebView. Media is inline across the board because media bytes go to the decoder, never to a document parser. Whether a given container actually plays is the **player's** call — expect a decode failure on some formats and fall back to a download. The URL also carries a `Content-Type` matching the `contentType` in the response, so a file stored before its container could be named still arrives typed. `?variant=thumb` is always inline. 404 |
 | `POST /folders` | `{ profileId, name, parentId?, color?, tagIds? }` | 201 `data: Folder` | Editor. 409 duplicate sibling name (case-insensitive); 400 predefined-folder parent; 422; 404 |
 | `PATCH /folders/{id}` | `{ name?, color?, tagIds?, parentId? }` (≥1; `parentId: null` → root, `color: null` clears) | 200 `data: Folder` | Editor. Predefined folder: color+tags only (400 otherwise). 400 move-into-own-subtree / "Nothing to update"; 409 duplicate name; 422; 404 |
-| `DELETE /folders/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Deletes the whole subtree (nested folders, files, stored objects, share links). 400 predefined folder; 422; 404 |
+| `DELETE /folders/{id}` | — | 200 `data: { id, deleted: true, trashed }` | Editor. The whole subtree goes: on **Plus/Pro** (6.7.0) to the trash as one item (`trashed: true`, restorable together); on **Free** for good (`trashed: false` — nested folders, files, stored objects, share links). 400 predefined folder; 422; 404 |
 | `GET /file-tags` | — | 200 `data: FileTag[]` | Viewer. Name-ascending; `?profile=` scopes. (Also included in `GET /files` — this is for pickers.) |
 | `POST /file-tags` | `{ profileId, name, color }` | 201 `data: FileTag` | Editor. 409 duplicate name per profile (case-insensitive); 422 |
 | `PATCH /file-tags/{id}` | `{ name?, color? }` (≥1) | 200 `data: FileTag` | Editor. Every referencing item updates at once. 409; 422; 404 |
@@ -748,8 +770,8 @@ transaction carrying it without touching a transaction.
 | `GET /profiles` | — | 200 `data: Profile[]` | Accessible profiles in workspace, `sortOrder asc, createdAt asc`. Each carries `spaceId` and the caller's `access` (6.5.0). |
 | `POST /profiles` | `ProfileInput` `{ name, icon?, color?, spaceId? }` | 201 `data: Profile` | Requires **admin**. `spaceId` (6.5.0) = a space of the current workspace (404 otherwise); omitted → the first space. **403 `plan_limit`** `profilesPerSpace` when that space is full (3 / 5 / 10). 422; 409 duplicate name; 403/404 |
 | `PATCH /profiles/{id}` | `{ name?, icon?, color? }` | 200 `data: Profile` | Requires **admin** on the profile. 422; 404; 409; 403 (`plan_limit` `freeWorkspaces` in a view-only workspace) |
-| `DELETE /profiles/{id}?transactions=&to=` | — | 200 `data: { id, deleted: true }` | Requires admin. `transactions` = `delete` (remove them + their attachments), `move` (re-file under `to` first), or **`reject`, the default** — 409 "Move this profile's transactions to another profile first" while any remain. An **empty value is treated as absent** (`?transactions=` = the default; `&to=` = not given). 422 when `transactions=move` without `to`. Always **409 "You need at least one profile"** for the last one. 409 "Something was added to this profile while it was being deleted — try again" when a concurrent write lands mid-delete (nothing is changed; retry). **The profile's vault follows the same choice**: `move` re-files its files, folders, tags and share links under `to`; `delete` destroys them. A destination tag whose name matches one being moved is **merged** into it (the moved tag's id disappears). 404; 403 |
-| `GET /profiles/{id}/deletion-impact` | — | 200 `data: { transactions, files, attachments }` | Requires admin. Counts for the confirm step: `transactions` is what `?transactions=` decides the fate of; `attachments` are the receipts on those transactions and `files` the vault — all three follow the disposal, destroyed on `delete` and moved on `move`. Offer the choice whenever `transactions > 0` **or** `files > 0`. 422; 404; 403 |
+| `DELETE /profiles/{id}?transactions=&to=` | — | 200 `data: { id, deleted: true, trashed: true }` | Requires admin. **The profile goes to the trash as one unit** (6.7.0) — restorable for 30 days by a workspace admin with `POST /trash/restore` (`profileIds`), everything in it coming back with it. `transactions` = `delete` (they go to the trash with the profile), `move` (re-file live **and** trashed ones, plus the vault, under `to` first; the empty profile then goes to the trash), or **`reject`, the default** — 409 "Move this profile's transactions to another profile first" while any **live** ones remain. An **empty value is treated as absent** (`?transactions=` = the default; `&to=` = not given). 422 when `transactions=move` without `to`. Always **409 "You need at least one profile"** for the last live one. **The vault**: `move` re-files its files, folders, tags and share links under `to`; on `delete` it stays with the trashed profile on **Plus/Pro** and is **deleted for good on Free** (`deletion-impact` → `filesRecoverable`). A destination tag whose name matches one being moved is **merged** into it (the moved tag's id disappears). A trashed profile's name is free to reuse at once. 404 (also for a profile already in the trash); 403 |
+| `GET /profiles/{id}/deletion-impact` | — | 200 `data: { transactions, files, attachments, filesRecoverable }` | Requires admin. Counts for the confirm step (live rows only — anything already in the trash goes along silently): `transactions` is what `?transactions=` decides the fate of; `attachments` are the receipts on those transactions and `files` the vault. `filesRecoverable` (6.7.0) is false on Free, where `delete` removes the vault for good — word the warning from it. Offer the choice whenever `transactions > 0` **or** `files > 0`. 422; 404; 403 |
 | `POST /profiles/reorder` | `{ ids: uuid[] }` (1–200, full list — 6.5.0 raised it from 100: Pro allows 15 spaces × 10 profiles) | 200 `data: Profile[]` | Requires **admin** (like all profile management). 422; 403/404 |
 | `POST /profiles/{id}/move` | `{ toProfileId: uuid }` | 200 `data: { moved }` | Requires **editor** on both; same workspace. 422 "Invalid profiles" (bad/equal/cross-workspace ids); 403/404 |
 | `POST /profiles/{id}/space` | `{ spaceId: uuid }` | 200 `data: Profile` | 6.5.0. Move the profile into another space of **its** workspace (path id decides; header ignored). Workspace **admin**. Who sees it follows the new space's members, plus anyone with an override on the profile (overrides move with it). Same space → no-op. **403 `plan_limit`** `profilesPerSpace` when the destination is full; 422 malformed id/`spaceId`; 404 space not in that workspace |
@@ -771,6 +793,32 @@ the workspace **admin** role (403 otherwise).
 | `POST /spaces/reorder` | `{ ids: uuid[] }` (full ordered list, no duplicates) | 200 `data: Space[]` | 400 an id that isn't a space of this workspace; 422 duplicates |
 | `GET /spaces/{id}/access` | — | 200 `data: SpaceAccess` | Members (with their space role), the space's profiles, overrides on them, and `canEditOverrides` (Plus/Pro). |
 | `PUT /spaces/{id}/members` | `{ userId, role: "viewer" \| "editor" \| null }` | 200 `data: SpaceAccess` (after the change) | Add a workspace member to the space, change their role, or take them out (`null` — also clears their overrides on this space's profiles). Target must be a non-admin member (400 "Add them to the workspace first" / "Admins already see every space"). 422 |
+
+### Trash (6.7.0 — current workspace via `X-Workspace-Id`)
+Deleting a transaction (every plan), a file or folder (**Plus/Pro**) or a whole
+profile moves it to the **trash** for **30 days**; a daily purge then deletes it
+for good, so an item can outlive its 30 days by up to a day (`purgeAt` is the
+earliest it can go; until it's actually gone it can be restored). **Every read
+excludes the trash** — lists, totals, analytics, exports, search, `GET /files`,
+single-item GETs (404) — and so does every write: editing, tagging, attaching
+to or moving into something in the trash is a 404. A **trashed profile hides
+everything in it** and is listed on its own (admins only). Trashed bytes still
+count toward the workspace's storage until they're purged (`GET /usage` →
+`storage.trashBytes`), and share links to anything in the trash stop working
+until it's restored.
+
+**Access**: viewers see trashed items on profiles they can view; **restore and
+delete for good need editor** on the item's profile (`canRestore` says so per
+item); profiles need the workspace **admin** role. Ids the caller can't act on
+are **skipped and counted** (`skipped`), never an error.
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `GET /trash/transactions?limit=&cursor=` | — | 200 `data: TrashedTransaction[]`, `meta: { nextCursor, currency }` | Most recently deleted first. **Keyset-paged**: `limit` 1–200 (default 50); pass `meta.nextCursor` back as `cursor` (opaque string; `null` on the last page). 422 malformed cursor. Rows of a trashed profile aren't listed (the profile is). |
+| `GET /trash/files` | — | 200 `data: { folders: TrashedFolder[], files: TrashedFile[] }` | A folder carries everything that went to the trash with it (`folders`, `files`, `sizeBytes`) — those aren't listed on their own. `files` are files deleted by themselves (≤ 500, newest first). Empty on Free unless the workspace was downgraded with files still in it. |
+| `GET /trash/profiles` | — | 200 `data: TrashedProfile[]` | Workspace **admins**; anyone else gets `[]`. |
+| `POST /trash/restore` | `{ transactionIds?, fileIds?, folderIds?, profileIds? }` (each ≤ 500, ≥ 1 id overall) | 200 `data: { restored: { transactions, files, folders, profiles }, skipped }` | A transaction comes back as it was — a category or tag deleted meanwhile stays gone. A file goes back into its folder if that folder is live, else to the top level; a folder brings back what went to the trash *with* it (a parent still in the trash → top level; a taken name → "Name (restored)"). A profile brings back everything in it; it must fit its space's `profilesPerSpace` and the people it brings back must fit `members` — else **403 `plan_limit`**, checked before anything else in the request is restored (a taken name → "Name (restored)"). 422 empty/malformed selection. |
+| `POST /trash/delete` | same as restore | 200 `data: { deleted: { … }, skipped }` | **Deletes for good** — rows and stored files; can't be undone. A folder takes everything under it. |
+| `POST /trash/empty` | — | 200 `data: { deleted: { … }, remaining }` | Everything the caller can edit (and, for admins, trashed profiles). Bounded per request — **call again while `remaining > 0`**. 403 when the caller can edit nothing here. |
 
 ### Settings
 | Method & path | Body | Success | Notes / errors |

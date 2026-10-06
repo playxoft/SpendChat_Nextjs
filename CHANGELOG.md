@@ -14,9 +14,42 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.5.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.7.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.34.0] — 2026-10-07
+
+### Added
+- **Trash.** Deleting no longer has to be final. A deleted transaction, a whole
+  profile, and — on Plus and Pro — a file or folder goes to the trash and stays
+  there for 30 days, then it's gone for good. Open **Trash** from the account
+  menu to see what's there, who deleted it and how long it has left, and to
+  restore it or delete it for good — one item, a selection, or the whole trash.
+- **Undo.** Deleting a transaction (one or a selection), a file, a folder or a
+  profile shows an **Undo** right in the confirmation, so a slip costs one tap.
+- **Your storage, explained.** The trash keeps counting toward storage until
+  it's emptied or purged — the files page's storage popover and the "storage
+  full" message now say how much of it is in the trash, with a link to empty
+  it.
+
+### Changed
+- **Deleting a profile sends it to the trash as one unit** — its transactions,
+  receipts and (on Plus and Pro) files come back with it when a workspace admin
+  restores it. Its name is free to reuse straight away. On Free the profile's
+  files are still deleted for good, and the dialog says so before you confirm.
+- **"Delete all transactions"** in Settings moves them to the trash instead of
+  erasing them, so a wrong profile in the list is no longer a disaster.
+- A profile in the trash doesn't count toward a space's profile limit, and
+  people who could only see that one profile don't take a member seat — until
+  it's restored, which checks the limits again.
+- A share link to something in the trash stops working, and works again if it's
+  restored.
+
+### Fixed
+- Clearing transactions from Settings used to leave their receipts' files in
+  storage forever; they're now removed with everything else when the trash is
+  emptied or purged.
 
 ## [0.33.0] — 2026-10-06
 
