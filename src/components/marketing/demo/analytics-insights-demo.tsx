@@ -17,12 +17,15 @@ import {
 import { lowestPlanWith, PLAN_NAMES } from "@/lib/plans";
 import { plansWith } from "@/lib/plan-copy";
 import { cn } from "@/lib/utils";
+import { DEMO_MONTHS, DemoTrendCard } from "./analytics-trend-demo";
 
 /**
  * The "Insights & trends" half of the analytics demo — what the paid plans add.
  *
  * Seeded, made-up numbers (USD minor units, scaled into the visitor's currency
- * like every demo), but the judgements are the app's own: the month-end figure
+ * like every demo), but the judgements are the app's own. It ends with the
+ * overview's "Income vs. expenses" trend as these plans see it — with what was
+ * kept and the savings rate — since that's where the app puts them: the month-end figure
  * comes from `projectMonthEnd` over three earlier months, the calendar's
  * shading from `heatThresholds`/`heatLevel`, and the percentages and "3×"
  * multiples from the helpers the app's sentences use (`lib/insights.ts`).
@@ -61,15 +64,9 @@ const COMPARISONS = [
   { label: "Same month last year", value: 151_900 },
 ];
 
-/** Twelve months, oldest first, labelled by initial so nothing depends on today's date. */
-const CASH_FLOW = [
-  [235_000, 191_400], [218_000, 176_900], [235_000, 204_100], [200_000, 168_300],
-  [212_000, 198_600], [235_000, 209_150], [218_000, 214_000], [235_000, 186_700],
-  [200_000, 207_300], [235_000, 189_900], [218_000, 181_200], [235_000, 196_800],
-].map(([income, expense]) => ({ income: income!, expense: expense! }));
-const CASH_LABELS = ["O", "N", "D", "J", "F", "M", "A", "M", "J", "J", "A", "S"];
-const INCOME_12 = CASH_FLOW.reduce((a, m) => a + m.income, 0);
-const EXPENSE_12 = CASH_FLOW.reduce((a, m) => a + m.expense, 0);
+/** The same seeded year as the overview's trend, for the "what you kept" note. */
+const INCOME_12 = DEMO_MONTHS.reduce((a, m) => a + m.income, 0);
+const EXPENSE_12 = DEMO_MONTHS.reduce((a, m) => a + m.expense, 0);
 
 const TRENDS = [
   { name: "Food & Dining", icon: "🍽️", series: [12_400, 11_600, 12_800, 12_100, 11_900, 8_600], usual: 6_130, soFar: 8_600 },
@@ -172,7 +169,6 @@ export function AnalyticsInsightsDemo({ money }: { money: DemoMoneyFormat }) {
 
   const calendar = HISTORY[1]!;
   const thresholds = heatThresholds(calendar);
-  const cashTop = Math.max(...CASH_FLOW.flatMap((m) => [m.income, m.expense]));
   const unusualRatio = UNUSUAL.amount / UNUSUAL.typical;
 
   return (
@@ -256,23 +252,14 @@ export function AnalyticsInsightsDemo({ money }: { money: DemoMoneyFormat }) {
         </Panel>
       </div>
 
-      <Panel title="Cash flow" description="Income, spending and what you kept — over the range you pick">
-        <p className="text-sm">
-          Kept <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{percentLabel(kept)}</span> of
-          income — {fmt(INCOME_12 - EXPENSE_12)} over the year.
-        </p>
-        <div className="mt-3 flex h-24 items-end gap-1.5" aria-hidden>
-          {CASH_FLOW.map((m, i) => (
-            <div key={i} className="flex h-full flex-1 flex-col justify-end gap-1">
-              <div className="flex flex-1 items-end gap-0.5">
-                <span className="flex-1 rounded-t-sm bg-emerald-500" style={{ height: `${(m.income / cashTop) * 100}%` }} />
-                <span className="flex-1 rounded-t-sm bg-foreground/55" style={{ height: `${(m.expense / cashTop) * 100}%` }} />
-              </div>
-              <span className="text-center text-[10px] text-muted-foreground">{CASH_LABELS[i]}</span>
-            </div>
-          ))}
-        </div>
-      </Panel>
+      {/* Not a card of its own in the app: on these plans the overview's
+          "Income vs. expenses" trend adds what was kept and the savings rate. */}
+      <DemoTrendCard
+        range="year"
+        money={money}
+        kept
+        description={`The overview's trend over 12 months — on ${plansWith("advancedAnalytics")} with what you kept in each and your savings rate`}
+      />
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Panel title="Spending calendar" description="Each day's spending in the range — darker costs more">

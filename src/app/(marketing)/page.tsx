@@ -341,8 +341,8 @@ export default function LandingPage() {
                 See where the money actually went
               </h2>
               <p className="mt-3 leading-relaxed text-muted-foreground">
-                A category breakdown, month-by-month totals, and income against
-                expenses — for any date range you pick. There are no dashboards
+                A category breakdown, and income against expenses in columns by
+                day, week or month — for any date range you pick. There are no dashboards
                 to build and nothing to configure: open it and the answer is
                 already there.
               </p>

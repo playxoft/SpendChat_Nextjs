@@ -208,7 +208,7 @@ const groups = [
       {
         icon: ChartColumn,
         title: "Analytics",
-        body: `See where the money actually went: a category breakdown, month-by-month totals, and income against expenses across any date range you pick. On ${plansWith("advancedAnalytics")}, Insights & trends adds a month-end projection, cash flow with your savings rate, and the recurring and unusual spends worth knowing about.`,
+        body: `See where the money actually went: a category breakdown, and income against expenses in columns by day, week, month or year across any date range you pick. On ${plansWith("advancedAnalytics")}, that chart adds what you kept and your savings rate, and Insights & trends adds a month-end projection and the recurring and unusual spends worth knowing about.`,
       },
       {
         icon: Paperclip,

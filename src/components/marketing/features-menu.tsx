@@ -35,7 +35,7 @@ export function FeaturesMenu({
     >
       {(close) => (
         <>
-          <div className="grid gap-x-2 gap-y-4 sm:grid-cols-3">
+          <div className="scrollbar-slim grid min-h-0 flex-1 gap-x-2 gap-y-4 overflow-y-auto sm:grid-cols-3">
             {FEATURE_GROUPS.map((group) => {
               const items = featuresInGroup(group.id);
               if (items.length === 0) return null;
@@ -77,7 +77,7 @@ export function FeaturesMenu({
             })}
           </div>
 
-          <div className="mt-2 border-t pt-2">
+          <div className="mt-2 shrink-0 border-t pt-2">
             <Link
               href="/features"
               onClick={() => {

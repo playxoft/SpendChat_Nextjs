@@ -36,7 +36,7 @@ export function ToolsMenu({
     >
       {(close) => (
         <>
-          <div className="scrollbar-slim grid max-h-[min(34rem,calc(100dvh-8rem))] grid-cols-3 gap-x-2 overflow-y-auto">
+          <div className="scrollbar-slim grid max-h-[34rem] min-h-0 flex-1 grid-cols-3 gap-x-2 overflow-y-auto">
             {columns.map((column, i) => (
               <div key={i} className="flex min-w-0 flex-col gap-3">
                 {column.map((group) => (
@@ -67,7 +67,7 @@ export function ToolsMenu({
             ))}
           </div>
 
-          <div className="mt-2 border-t pt-2">
+          <div className="mt-2 shrink-0 border-t pt-2">
             <Link
               href="/tools"
               onClick={() => {
