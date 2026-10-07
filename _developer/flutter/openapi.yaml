@@ -3264,7 +3264,11 @@ paths:
       description: |
         Same body as POST. Someone who has since left may stay on an expense
         they were already on. A share already added to a workspace keeps that
-        state through the edit.
+        state through the edit. On an expense with several `payers`, send
+        `payers`: a body with only the older `paidBy` is accepted only when it
+        names the current main payer and keeps `amount` unchanged (the payers
+        then stay as they are); otherwise it's 422 `payers_required`, so an
+        older client can't wipe the other payers' credit.
       requestBody:
         required: true
         content:
@@ -3814,7 +3818,8 @@ components:
                      conflict, validation_error, rate_limited, payload_too_large,
                      storage_quota_exceeded, ai_unavailable, ai_failed,
                      storage_unavailable, split_group_full, settle_first,
-                     amount_required, invite_cooldown, internal_error]
+                     amount_required, invite_cooldown, payers_required,
+                     internal_error]
             message: { type: string }
             details:
               description: >

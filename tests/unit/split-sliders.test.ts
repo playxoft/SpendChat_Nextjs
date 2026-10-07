@@ -5,6 +5,7 @@ import {
   rescaleSliders,
   sliderStep,
   slidersFrom,
+  snapToTotal,
   syncSliders,
   withPeople,
   type SliderState,
@@ -121,5 +122,15 @@ describe("sliderStep", () => {
     expect(sliderStep(9000, 200)).toBe(20);
     expect(sliderStep(100_000, 200)).toBe(500);
     expect(sliderStep(60)).toBe(1);
+  });
+});
+
+describe("snapToTotal", () => {
+  it("lets a slider reach a total that isn't a multiple of its step", () => {
+    // ₹1,201 in ₹5 steps: Radix stops at ₹1,200 — within a step of the end is the end.
+    expect(snapToTotal(120_000, 120_100, 500)).toBe(120_100);
+    expect(snapToTotal(119_500, 120_100, 500)).toBe(119_500);
+    expect(snapToTotal(120_100, 120_100, 500)).toBe(120_100);
+    expect(snapToTotal(0, 120_100, 500)).toBe(0);
   });
 });

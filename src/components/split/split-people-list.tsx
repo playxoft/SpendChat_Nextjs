@@ -4,7 +4,7 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
-import type { SliderState } from "@/lib/split-sliders";
+import { snapToTotal, type SliderState } from "@/lib/split-sliders";
 import { cn } from "@/lib/utils";
 
 /**
@@ -29,7 +29,30 @@ export type SliderBinding = {
   /** A value as words — "₹30.00", "25%". */
   format: (units: number) => string;
   onMove: (id: string, units: number) => void;
+  /** While saving: the thumbs don't move (a disabled fieldset doesn't reach them). */
+  disabled?: boolean;
 };
+
+/** The slider for one person in a binding — the same in every list. */
+function BoundSlider({ binding, person, what }: { binding: SliderBinding; person: SplitPerson; what: string }) {
+  const { state, step } = binding;
+  const value = state.values[person.id] ?? 0;
+  return (
+    <Slider
+      value={[value]}
+      min={0}
+      max={Math.max(state.total, 1)}
+      step={step}
+      disabled={binding.disabled || state.total === 0 || state.ids.length < 2}
+      onValueChange={([v]) => {
+        if (v !== undefined) binding.onMove(person.id, snapToTotal(v, state.total, step));
+      }}
+      thumbLabel={`${what} for ${person.isYou ? "you" : person.name}`}
+      valueText={binding.format(value)}
+      className="flex-1"
+    />
+  );
+}
 
 function PersonName({ person, className }: { person: SplitPerson; className?: string }) {
   return (
@@ -61,8 +84,7 @@ export function ShareSliderRow({
   /** What the slider sets, for its accessible name: "Share", "Paid". */
   what?: string;
 }) {
-  const value = binding.state.values[person.id] ?? 0;
-  const text = binding.format(value);
+  const text = binding.format(binding.state.values[person.id] ?? 0);
   return (
     <div className="flex flex-col gap-1.5 py-2">
       <div className="flex min-w-0 items-center gap-2">
@@ -71,19 +93,7 @@ export function ShareSliderRow({
         <span className="shrink-0 text-sm font-medium tabular-nums">{aside ?? text}</span>
       </div>
       <div className="flex items-center gap-3">
-        <Slider
-          value={[value]}
-          min={0}
-          max={Math.max(binding.state.total, 1)}
-          step={binding.step}
-          disabled={disabled || binding.state.total === 0 || binding.state.ids.length < 2}
-          onValueChange={([v]) => {
-            if (v !== undefined) binding.onMove(person.id, v);
-          }}
-          thumbLabel={`${what} for ${person.isYou ? "you" : person.name}`}
-          valueText={text}
-          className="flex-1"
-        />
+        <BoundSlider binding={disabled ? { ...binding, disabled: true } : binding} person={person} what={what} />
         {aside !== undefined && (
           <span className="w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{text}</span>
         )}
@@ -194,19 +204,7 @@ export function SplitPeopleList({
               </div>
               {withSlider && (
                 <div className="mt-2 flex items-center gap-3 pl-6.5">
-                  <Slider
-                    value={[sliders.state.values[p.id] ?? 0]}
-                    min={0}
-                    max={Math.max(sliders.state.total, 1)}
-                    step={sliders.step}
-                    disabled={sliders.state.total === 0 || sliders.state.ids.length < 2}
-                    onValueChange={([v]) => {
-                      if (v !== undefined) sliders.onMove(p.id, v);
-                    }}
-                    thumbLabel={`Share for ${p.isYou ? "you" : p.name}`}
-                    valueText={sliders.format(sliders.state.values[p.id] ?? 0)}
-                    className="flex-1"
-                  />
+                  <BoundSlider binding={sliders} person={p} what="Share" />
                   {sliderAside !== undefined && (
                     <span className="w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
                       {sliderAside(p.id)}

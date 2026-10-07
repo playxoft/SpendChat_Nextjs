@@ -41,7 +41,13 @@ import {
 import { getTransactionById } from "@/lib/queries";
 import { accessibleProfileIds, getWorkspaceMoneyFormat } from "@/lib/workspaces";
 import { createTransactionId, deleteTransaction, updateTransaction } from "@/services/transactions";
-import { groupMembers, parseSplitId, requireJoined, type JoinedContext } from "@/services/split";
+import {
+  effectivePayers,
+  groupMembers,
+  parseSplitId,
+  requireJoined,
+  type JoinedContext,
+} from "@/services/split";
 import { z } from "zod";
 
 /**
@@ -116,11 +122,15 @@ export function planExpense(
   members: SplitMember[],
   data: ExpenseData,
   keep: Set<string> = new Set(),
+  /** Editing: keep these payers as stored, whatever `data` says about who paid. */
+  storedPayers?: ShareAmount[],
 ): ExpensePlan {
   const currency = ctx.group.currency;
   const allowed = new Set(members.filter((m) => m.status !== "left" || keep.has(m.id)).map((m) => m.id));
   const spec = shareSpecOf(data, currency);
-  const payerInput = splitPayersOf(data);
+  const payerInput: { memberId: string; amount?: number }[] = storedPayers
+    ? storedPayers.map((p) => ({ memberId: p.memberId }))
+    : splitPayersOf(data);
   for (const id of [...payerInput.map((p) => p.memberId), ...participantIds(spec)]) {
     if (!allowed.has(id)) throw validationError(NOT_IN_GROUP);
   }
@@ -128,11 +138,12 @@ export function planExpense(
   try {
     const payers = payerAmounts(
       totalMinor,
-      payerInput.map((p) =>
-        p.amount === undefined
-          ? { memberId: p.memberId }
-          : { memberId: p.memberId, amountMinor: toMinorUnits(p.amount, currency) },
-      ),
+      storedPayers ??
+        payerInput.map((p) =>
+          p.amount !== undefined
+            ? { memberId: p.memberId, amountMinor: toMinorUnits(p.amount, currency) }
+            : { memberId: p.memberId },
+        ),
     );
     const primary = primaryPayer(payers);
     const shares = computeShares(totalMinor, primary, spec);
@@ -144,6 +155,15 @@ export function planExpense(
     throw err;
   }
 }
+
+/** What each payer of these expenses paid — the same rule the balances use (`effectivePayers`). */
+function readPayers(db: Db | Tx, expenseIds: string[]) {
+  const paid = effectivePayers(db);
+  return db.select().from(paid).where(inArray(paid.expenseId, expenseIds));
+}
+
+/** 422 `payers_required` — a one-payer edit of an expense several people paid. */
+const PAYERS_REQUIRED = "This expense has several payers — send payers";
 
 /** An expense's payer rows, as `split_expense_payers` stores them. */
 export function payerRows(expenseId: string, plan: Pick<ExpensePlan, "payers">) {
@@ -205,17 +225,17 @@ async function expenseViews(
   const ids = rows.map((r) => r.id);
   const [shares, payerRowsAll, members] = await Promise.all([
     db.select().from(splitShares).where(inArray(splitShares.expenseId, ids)),
-    db.select().from(splitExpensePayers).where(inArray(splitExpensePayers.expenseId, ids)),
+    readPayers(db, ids),
     groupMembers(ctx.group.id),
   ]);
   const names = new Map(members.map((m) => [m.id, memberLabel(m)]));
   const order = new Map(members.map((m, i) => [m.id, i]));
   return rows.map((e): SplitExpenseView => {
     const mine = shares.find((s) => s.expenseId === e.id && s.memberId === ctx.me.id);
-    const paid = payerRowsAll.filter((p) => p.expenseId === e.id);
-    // Every expense has payer rows (0042 back-filled the older ones); the
-    // fallback only keeps a view whole if one were ever missing.
-    const payers = (paid.length ? paid : [{ memberId: e.paidByMemberId, amountMinor: e.amountMinor }])
+    // No payer rows (an expense from before 0.38.0) reads as its main payer
+    // paying it all — `effectivePayers`, the rule the balances use too.
+    const payers = payerRowsAll
+      .filter((p) => p.expenseId === e.id)
       .map((p) => ({ memberId: p.memberId, name: names.get(p.memberId) ?? "", amountMinor: p.amountMinor }))
       .sort(
         (a, b) =>
@@ -341,12 +361,18 @@ export async function createExpense(
   return { id };
 }
 
+/**
+ * The expense an edit or delete is about, locked `FOR UPDATE` before anything
+ * of it is read — so two edits at once take turns, and the second reads the
+ * shares and payers the first wrote rather than replacing them from a stale copy.
+ */
 async function loadExpense(tx: Tx, ctx: JoinedContext, rawExpenseId: unknown) {
   const expenseId = parseSplitId(rawExpenseId, EXPENSE_NOT_FOUND);
   const [expense] = await tx
     .select()
     .from(splitExpenses)
-    .where(and(eq(splitExpenses.id, expenseId), eq(splitExpenses.groupId, ctx.group.id)));
+    .where(and(eq(splitExpenses.id, expenseId), eq(splitExpenses.groupId, ctx.group.id)))
+    .for("update");
   if (!expense) throw notFound(EXPENSE_NOT_FOUND);
   if (!canEditExpense(ctx.viewer, expense)) {
     throw forbidden("Only the person who added this expense, or the group's creator, can change it");
@@ -372,10 +398,7 @@ export async function updateExpense(
     const expense = await loadExpense(tx, ctx, rawExpenseId);
     const [existing, paidBefore] = await Promise.all([
       tx.select().from(splitShares).where(eq(splitShares.expenseId, expense.id)),
-      tx
-        .select({ memberId: splitExpensePayers.memberId })
-        .from(splitExpensePayers)
-        .where(eq(splitExpensePayers.expenseId, expense.id)),
+      readPayers(tx, [expense.id]),
     ]);
     // Who may stay on it though they've left the group: whoever paid, and
     // whoever still has a share (a 0 row kept for a workspace link doesn't count).
@@ -384,7 +407,19 @@ export async function updateExpense(
       ...paidBefore.map((p) => p.memberId),
       ...existing.filter((s) => s.amountMinor > 0).map((s) => s.memberId),
     ]);
-    const plan = planExpense(ctx, await groupMembers(ctx.group.id, tx), data, keep);
+    // An older client edits with one `paidBy`. On an expense several people
+    // paid, replacing the payers with that one would wipe the others' credit.
+    // Naming the main payer with the amount unchanged is an edit of something
+    // else — the payers stay as they are; anything else has to send `payers`.
+    let storedPayers: ShareAmount[] | undefined;
+    if (data.payers === undefined && paidBefore.length > 1) {
+      const sameAmount = toMinorUnits(data.amount, ctx.group.currency) === expense.amountMinor;
+      if (data.paidBy !== expense.paidByMemberId || !sameAmount) {
+        throw new ApiError(422, "payers_required", PAYERS_REQUIRED);
+      }
+      storedPayers = paidBefore.map((p) => ({ memberId: p.memberId, amountMinor: p.amountMinor }));
+    }
+    const plan = planExpense(ctx, await groupMembers(ctx.group.id, tx), data, keep, storedPayers);
 
     await tx
       .update(splitExpenses)

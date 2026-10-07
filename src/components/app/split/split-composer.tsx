@@ -68,6 +68,10 @@ export function SplitComposer({
   const [sent, setSent] = React.useState(0);
   const [peopleOpen, setPeopleOpen] = React.useState(false);
   const amountRef = React.useRef<HTMLInputElement>(null);
+  const equalRef = React.useRef<HTMLButtonElement>(null);
+  // The control that was focused when a send started, to go back to if it fails.
+  const activeAtSend = React.useRef<HTMLElement | null>(null);
+  const [failed, setFailed] = React.useState(0);
   const peopleId = React.useId();
   const panelId = React.useId();
   const fmt = (minor: number) => formatMoney(minor, currency, locale);
@@ -86,6 +90,10 @@ export function SplitComposer({
   React.useEffect(() => {
     if (sent > 0) amountRef.current?.focus();
   }, [sent]);
+  // A failed send re-enables the fields; put focus back where it was.
+  React.useEffect(() => {
+    if (failed > 0) (activeAtSend.current ?? amountRef.current)?.focus();
+  }, [failed]);
 
   // People joining or leaving: keep the selection to people who are here,
   // include newcomers by default, and fall back to you as the payer.
@@ -108,7 +116,11 @@ export function SplitComposer({
   const type = editor.splitType;
   const shares = editor.preview.shares;
   const percentText = (bp: number) => `${percentToInputString(bp, locale)}%`;
-  const panelOpen = type !== "equal" || editor.payers !== null;
+  // The sliders and the people list share the space above the controls, one
+  // at a time: on a 320×568 phone either one (≤ 35dvh) still leaves the
+  // newest bubbles in view between the chat header and the composer.
+  const slidersApply = type !== "equal" || editor.payers !== null;
+  const panelOpen = slidersApply && !peopleOpen;
   const everyone = editor.includedIds.length === members.length;
 
   async function submit() {
@@ -130,6 +142,7 @@ export function SplitComposer({
       toast.error(editor.preview.error ?? "Pick who it's split between");
       return;
     }
+    activeAtSend.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setPending(true);
     const res = await createSplitExpense(
       groupId,
@@ -137,26 +150,33 @@ export function SplitComposer({
     ).finally(() => setPending(false));
     if (!res.ok) {
       toast.error(res.error);
+      setFailed((n) => n + 1);
       return;
     }
     setAmount("");
     setTitle("");
     // Who's in it and who paid carry over to the next one; the split goes
-    // back to equal (its sliders were for this amount).
-    editor.setSplitType("equal");
+    // back to equal and every slider forgets this expense's adjustments.
+    editor.resetSliders();
     setSent((n) => n + 1);
     onSent?.(date);
     router.refresh();
   }
 
+  const pickType = (value: SplitType) => {
+    editor.setSplitType(value);
+    // The sliders show in place of the people list.
+    if (value !== "equal") setPeopleOpen(false);
+  };
   const typeButton = (value: SplitType, label: string, content: React.ReactNode) => (
     <button
+      ref={value === "equal" ? equalRef : undefined}
       type="button"
       aria-pressed={type === value}
       aria-label={label}
       aria-controls={value !== "equal" && panelOpen ? panelId : undefined}
       title={label}
-      onClick={() => editor.setSplitType(value)}
+      onClick={() => pickType(value)}
       className={cn(
         "inline-flex items-center gap-1 rounded-full px-2 py-1 text-xs",
         type === value ? "bg-background font-medium shadow-sm" : "text-muted-foreground hover:text-foreground",
@@ -181,8 +201,14 @@ export function SplitComposer({
           {/* The extension: sliders for several payers and for an exact or
               percent split, growing above the controls. */}
           {panelOpen && (
-            <div id={panelId} className="scrollbar-slim max-h-[30dvh] overflow-y-auto rounded-xl border bg-muted/20">
-              <PayerSliders editor={editor} people={people} totalMinor={totalMinor} format={fmt} />
+            <div id={panelId} className="scrollbar-slim max-h-[35dvh] overflow-y-auto rounded-xl border bg-muted/20">
+              <PayerSliders
+                editor={editor}
+                people={people}
+                totalMinor={totalMinor}
+                format={fmt}
+                disabled={pending}
+              />
               {type !== "equal" && (
                 <section aria-label={SPLIT_TITLE[type]} className={cn("px-3 pb-1", editor.payers && "border-t")}>
                   <div className="flex items-center gap-2 pt-1.5">
@@ -192,7 +218,11 @@ export function SplitComposer({
                       variant="ghost"
                       size="sm"
                       className="h-7 gap-1 px-2 text-xs"
-                      onClick={() => editor.setSplitType("equal")}
+                      onClick={() => {
+                        editor.setSplitType("equal");
+                        // This button goes with its panel; land on "=" instead of the page.
+                        equalRef.current?.focus();
+                      }}
                     >
                       <X className="size-3.5" /> Split equally
                     </Button>
@@ -216,12 +246,19 @@ export function SplitComposer({
                             aside={type === "percent" ? (share !== undefined ? fmt(share) : "—") : undefined}
                             binding={
                               type === "exact"
-                                ? { state: editor.exact, step: editor.moneyStep, format: fmt, onMove: editor.moveExact }
+                                ? {
+                                    state: editor.exact,
+                                    step: editor.moneyStep,
+                                    format: fmt,
+                                    onMove: editor.moveExact,
+                                    disabled: pending,
+                                  }
                                 : {
                                     state: editor.percent,
                                     step: editor.percentStep,
                                     format: percentText,
                                     onMove: editor.movePercent,
+                                    disabled: pending,
                                   }
                             }
                           />
@@ -244,69 +281,75 @@ export function SplitComposer({
                 onIncludedChange={editor.setIncluded}
                 avatar={(p) => <MemberAvatar id={p.id} name={p.name} size="sm" />}
                 shareText={(id) => (shares?.has(id) ? fmt(shares.get(id)!) : null)}
-                className="scrollbar-slim max-h-[30dvh] overflow-y-auto"
+                className="scrollbar-slim max-h-[35dvh] overflow-y-auto"
               />
             </div>
           )}
 
           {/* Quick controls — one recessed group, scrolling sideways on the
-              narrowest phones rather than wrapping. */}
-          <div className="no-scrollbar flex h-9 min-w-0 items-center gap-1.5 overflow-x-auto rounded-full border bg-muted/40 px-0.5 py-0.5">
-            <PaidByPicker
-              compact
-              members={members}
-              meMemberId={meMemberId}
-              payerIds={editor.payerIds}
-              included={editor.included}
-              onChange={editor.setPayerIds}
-            />
+              narrowest phones rather than wrapping; the expand button stays
+              pinned at the end, so it's never scrolled out of reach. */}
+          <div className="flex h-9 min-w-0 items-center rounded-full border bg-muted/40">
+            <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-0.5 py-0.5">
+              <PaidByPicker
+                compact
+                members={members}
+                meMemberId={meMemberId}
+                payerIds={editor.payerIds}
+                included={editor.included}
+                onChange={(ids) => {
+                  editor.setPayerIds(ids);
+                  // A second payer brings up their sliders, in place of the people list.
+                  if (ids.length > 1) setPeopleOpen(false);
+                }}
+              />
 
-            <div
-              role="group"
-              aria-label="How it's split"
-              className="inline-flex h-8 shrink-0 items-center rounded-full border bg-muted/50 p-0.5"
-            >
-              {typeButton(
-                "equal",
-                "Split equally",
-                <>
-                  <Equal className="size-3.5" /> <span className="hidden sm:inline">Equally</span>
-                </>,
-              )}
-              {typeButton("exact", "Split by amounts", symbol)}
-              {typeButton("percent", "Split by percent", <Percent className="size-3.5" />)}
+              <div
+                role="group"
+                aria-label="How it's split"
+                className="inline-flex h-8 shrink-0 items-center rounded-full border bg-muted/50 p-0.5"
+              >
+                {typeButton(
+                  "equal",
+                  "Split equally",
+                  <>
+                    <Equal className="size-3.5" /> <span className="hidden sm:inline">Equally</span>
+                  </>,
+                )}
+                {typeButton("exact", "Split by amounts", symbol)}
+                {typeButton("percent", "Split by percent", <Percent className="size-3.5" />)}
+              </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 shrink-0 gap-1.5 rounded-full bg-background"
+                aria-expanded={peopleOpen}
+                aria-controls={peopleOpen ? peopleId : undefined}
+                aria-label={`Split between ${everyone ? "everyone" : `${editor.includedIds.length} of ${members.length} people`}`}
+                onClick={() => setPeopleOpen((o) => !o)}
+              >
+                <Users className="size-3.5" />
+                {everyone ? `All ${members.length}` : `${editor.includedIds.length} of ${members.length}`}
+                <ChevronDown className={cn("size-3.5 opacity-60 transition-transform", peopleOpen && "rotate-180")} />
+              </Button>
+
+              <DatePicker
+                value={date}
+                max={today}
+                onChange={setDate}
+                compact
+                dense
+                locale={locale}
+                className="h-8 w-auto shrink-0"
+              />
             </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 shrink-0 gap-1.5 rounded-full bg-background"
-              aria-expanded={peopleOpen}
-              aria-controls={peopleOpen ? peopleId : undefined}
-              aria-label={`Split between ${everyone ? "everyone" : `${editor.includedIds.length} of ${members.length} people`}`}
-              onClick={() => setPeopleOpen((o) => !o)}
-            >
-              <Users className="size-3.5" />
-              {everyone ? `All ${members.length}` : `${editor.includedIds.length} of ${members.length}`}
-              <ChevronDown className={cn("size-3.5 opacity-60 transition-transform", peopleOpen && "rotate-180")} />
-            </Button>
-
-            <DatePicker
-              value={date}
-              max={today}
-              onChange={setDate}
-              compact
-              dense
-              locale={locale}
-              className="h-8 w-auto shrink-0"
-            />
-
             <Button
               type="button"
               variant="ghost"
               size="icon"
-              className="ml-auto size-8 shrink-0 rounded-full"
+              className="mx-0.5 size-8 shrink-0 rounded-full"
               aria-label="Open the full editor"
               title="More options"
               onClick={() => onExpand({ ...editor.snapshot(), title: title.trim(), amount, date })}
