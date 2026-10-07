@@ -407,9 +407,16 @@ export function NavMenu({
             menu that overlays page content is very visible. The panel appears
             instantly instead, which for a hover menu is arguably better
             anyway. */}
+        {/* Never taller than the room below the trigger (less this element's
+            `pt-2` and a 1rem margin), as a flex column: a panel whose list
+            scrolls (`min-h-0 flex-1`) keeps its footer — "All tools" — in view
+            on a short laptop screen instead of pushing it off the bottom. */}
         <div
-          style={{ width: `min(${panelWidthRem}rem, calc(100vw - ${VIEWPORT_MARGIN_REM * 2}rem))` }}
-          className="rounded-2xl border bg-popover p-3 text-popover-foreground shadow-xl ring-1 ring-foreground/10"
+          style={{
+            width: `min(${panelWidthRem}rem, calc(100vw - ${VIEWPORT_MARGIN_REM * 2}rem))`,
+            maxHeight: `calc(100dvh - ${anchor.top}px - 1.5rem)`,
+          }}
+          className="flex flex-col rounded-2xl border bg-popover p-3 text-popover-foreground shadow-xl ring-1 ring-foreground/10"
         >
           <PanelContent render={children} close={close} />
         </div>

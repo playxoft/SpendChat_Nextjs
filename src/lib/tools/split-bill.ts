@@ -504,6 +504,51 @@ export function readyToImport(
 /** What a group with no name is called once it's in the app, which needs one. */
 export const UNNAMED_GROUP = "Our group";
 
+/**
+ * How the import page starts, given whether a fresh "send invites" intent for
+ * this draft was claimed (`lib/tools/split-send-intent.ts`):
+ * - `send` — the intent is there and nothing is missing: create and invite now;
+ * - `ask-me` — the intent is there, only "which one is you?" is unclear;
+ * - `confirm` — nothing is missing but nobody asked to send: one screen that
+ *   lists who will be invited, and a button;
+ * - `form` — something is missing (or "you" is unclear without an intent).
+ * Without a claimed intent it never sends: a link alone, an old draft or a
+ * "Save" click always lands on a screen with a button.
+ */
+export type ImportStart = "send" | "ask-me" | "confirm" | "form";
+
+export function importStart(
+  draft: SplitDraft,
+  myEmail: string | null | undefined,
+  intentClaimed: boolean,
+): ImportStart {
+  const me = resolveMe(draft, myEmail);
+  if (me && readyToImport(draft, me, myEmail)) return intentClaimed ? "send" : "confirm";
+  if (!me && intentClaimed && draft.people.some((p) => readyToImport(draft, p.id, myEmail))) return "ask-me";
+  return "form";
+}
+
+/**
+ * A short, stable hash of the draft's content — the same for the copy in
+ * memory and the one read back from storage (both go through
+ * `sanitizeDraft` first). It ties a send intent to the exact draft it was
+ * given for, and is the import's idempotency key. cyrb53, in base 36.
+ */
+export function draftHash(draft: SplitDraft): string {
+  const canonical = JSON.stringify(sanitizeDraft(JSON.parse(JSON.stringify(draft))) ?? draft);
+  let h1 = 0xdeadbeef;
+  let h2 = 0x41c6ce57;
+  for (let i = 0; i < canonical.length; i++) {
+    const ch = canonical.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+  }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507) ^ Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  const n = 4294967296 * (2097151 & h2) + (h1 >>> 0);
+  return `d-${n.toString(36)}`;
+}
+
 /* ------------------------------------------------------------------------- */
 /* Import                                                                     */
 /* ------------------------------------------------------------------------- */
@@ -551,6 +596,7 @@ export function buildImportInput({
 }): SplitImportInput {
   const invalid = new Set(computeLedger(draft).invalid);
   return {
+    key: draftHash(draft),
     name: name.trim() || UNNAMED_GROUP,
     icon,
     currency: draft.currency,

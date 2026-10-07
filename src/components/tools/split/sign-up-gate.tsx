@@ -27,18 +27,25 @@ import { SPLIT_SIGN_IN_HREF, SPLIT_SIGN_UP_HREF } from "@/lib/split-import";
 
 export type GateKind = "save" | "share" | "invite";
 
+/**
+ * Prompts that send invites straight after sign-in (when every email is there)
+ * — they say so, and continuing records the one-time intent that allows it.
+ * "save" never sends on its own: the app shows who'd be invited and waits.
+ */
+export const SENDS_INVITES: Record<GateKind, boolean> = { save: false, share: true, invite: true };
+
 const COPY: Record<GateKind, { title: string; lead: string }> = {
   save: {
     title: "Keep this group, free",
-    lead: "Create a free account and the group comes with you — everyone in it, every expense, every balance.",
+    lead: "Create a free account and the group comes with you — everyone in it, every expense, every balance. Nobody is invited until you say so.",
   },
   share: {
     title: "Share it with the group",
-    lead: "A screenshot is out of date the moment someone pays for the next round. Save the group free and invite everyone — they see the same balances, kept up to date.",
+    lead: "A screenshot is out of date the moment someone pays for the next round. Sign up free and the group is created and everyone whose email you added is invited straight away — they see the same balances, kept up to date.",
   },
   invite: {
     title: "Send everyone an invite",
-    lead: "Create a free account and the group is saved with an invite for everyone whose email you added — by email, or in the app if they already use SpendChat. Missing an email? Add it on the next screen.",
+    lead: "Sign up free and the group is created and everyone whose email you added is invited straight away — by email, or in the app if they already use SpendChat. Missing an email? You'll add it on the next screen first.",
   },
 };
 
@@ -65,6 +72,7 @@ export function SignUpGate({
   open,
   location,
   onOpenChange,
+  onContinue,
 }: {
   /** Which prompt — kept while it closes, so the copy doesn't change mid-animation. */
   kind: GateKind;
@@ -72,6 +80,8 @@ export function SignUpGate({
   /** The tracking location, e.g. `tool_split-bill-calculator_gate`. */
   location: string;
   onOpenChange: (open: boolean) => void;
+  /** Called as the visitor heads off to sign up or in — the tool records its send intent here. */
+  onContinue?: (kind: GateKind) => void;
 }) {
   const copy = COPY[kind];
   const track = (label: string) => JSON.stringify({ location, label: `${kind}_${label}` });
@@ -99,12 +109,22 @@ export function SignUpGate({
 
         <div className="flex flex-col gap-2 pt-1">
           <Button asChild className="h-11 rounded-xl">
-            <Link href={SPLIT_SIGN_UP_HREF} data-track-event="cta_click" data-track-params={track("sign_up")}>
+            <Link
+              href={SPLIT_SIGN_UP_HREF}
+              data-track-event="cta_click"
+              data-track-params={track("sign_up")}
+              onClick={() => onContinue?.(kind)}
+            >
               Create my free account <ArrowRight />
             </Link>
           </Button>
           <Button asChild variant="ghost" className="h-10 rounded-xl">
-            <Link href={SPLIT_SIGN_IN_HREF} data-track-event="cta_click" data-track-params={track("sign_in")}>
+            <Link
+              href={SPLIT_SIGN_IN_HREF}
+              data-track-event="cta_click"
+              data-track-params={track("sign_in")}
+              onClick={() => onContinue?.(kind)}
+            >
               I already have an account
             </Link>
           </Button>

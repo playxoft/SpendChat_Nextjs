@@ -10,6 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { clearDraft, useStoredDraft } from "@/components/tools/split/draft-store";
+import {
+  claimSendIntentFor,
+  clearImportingMarker,
+  markImportingFor,
+  mayAlreadyBeImported,
+} from "@/components/tools/split/send-intent";
 import { importSplitDraft } from "@/actions/split-import";
 import { formatMoney } from "@/lib/money";
 import { SETTLED_UP } from "@/lib/split-display";
@@ -20,6 +26,7 @@ import {
   DRAFT_NAME_MAX,
   emailProblems,
   importOrder,
+  importStart,
   normalizeEmail,
   personLabel,
   readyToImport,
@@ -33,37 +40,40 @@ import { cn } from "@/lib/utils";
 /**
  * `/app/split/import`: the group from the free split calculator, made real.
  *
- * When the visitor came from one of the calculator's sign-up prompts
- * (`?from=tool`) and the draft already has everything — it's clear which
- * person is you, and everyone else has a valid, distinct email — the group is
- * created and everyone invited straight away, with progress and the result on
- * screen. If only "which one is you?" is unclear, that one question is asked
- * first. Otherwise (or after any refusal) it's a form: emails prefilled from
- * the draft, problems marked on their rows, nothing left out without saying so.
+ * It sends invites without a click here only when the visitor asked for that
+ * a moment ago: a fresh, one-time "send invites" intent for exactly this draft
+ * (`lib/tools/split-send-intent.ts`), recorded by the calculator's "Send
+ * invites" / "Share with the group" prompts and claimed once, in one tab.
+ * Then, if it's clear which person is you and everyone else has a valid,
+ * distinct email, the group is created and everyone invited straight away; if
+ * only "which one is you?" is unclear, that's asked first.
+ *
+ * Without an intent — a "Save" click, an old draft, a link opened later — it
+ * never sends on its own: a draft with everything gets one confirm screen that
+ * lists who will be invited, anything else gets the form (emails prefilled,
+ * problems on their rows, nothing left out without saying so). A reload while
+ * a request was out lands on the form with a "check your groups" note, and the
+ * server refuses the same draft twice either way (its idempotency key).
  */
 
 type Phase =
+  | { kind: "checking" }
   | { kind: "form" }
+  | { kind: "confirm" }
   | { kind: "ask-me" }
   | { kind: "creating" }
-  | { kind: "done"; groupId: string; invited: number; name: string };
+  | { kind: "done"; name: string }
+  | { kind: "already" };
 
 type Outcome =
-  | { ok: true; groupId: string; invited: number; name: string }
+  | { ok: true; name: string }
+  | { ok: "already" }
   | { ok: false; me: string; error: string; named?: unknown; overrides: Record<string, string> };
 
 /** The draft whose import is running — so a re-mounted page (Strict Mode, a fast refresh) never sends it twice. */
 let inFlight: SplitDraft | null = null;
 
-export function SplitImport({
-  locale,
-  myEmail,
-  fromTool = false,
-}: {
-  locale: string;
-  myEmail: string | null;
-  fromTool?: boolean;
-}) {
+export function SplitImport({ locale, myEmail }: { locale: string; myEmail: string | null }) {
   const draft = useStoredDraft();
   if (draft === undefined) return <ImportSkeleton />;
   if (draft === null) return <NothingToImport />;
@@ -74,7 +84,6 @@ export function SplitImport({
       draft={draft}
       locale={locale}
       myEmail={myEmail}
-      fromTool={fromTool}
     />
   );
 }
@@ -83,13 +92,11 @@ function ImportFlow({
   draft,
   locale,
   myEmail,
-  fromTool,
 }: {
   draft: SplitDraft;
   locale: string;
   /** The signed-in account's address: it finds "you" in the draft, and can't be someone else's. */
   myEmail: string | null;
-  fromTool: boolean;
 }) {
   const router = useRouter();
   const resolved = resolveMe(draft, myEmail);
@@ -100,12 +107,8 @@ function ImportFlow({
   );
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [banner, setBanner] = useState<string | null>(null);
-  const [phase, setPhase] = useState<Phase>(() => {
-    if (!fromTool) return { kind: "form" };
-    if (resolved) return readyToImport(draft, resolved, myEmail) ? { kind: "creating" } : { kind: "form" };
-    // Everything is there except who you are: ask that, once.
-    return draft.people.some((p) => readyToImport(draft, p.id, myEmail)) ? { kind: "ask-me" } : { kind: "form" };
-  });
+  // Storage is read in an effect (it decides how to start), so the first paint is "checking".
+  const [phase, setPhase] = useState<Phase>({ kind: "checking" });
 
   const fmt = (minor: number) => formatMoney(minor, draft.currency, locale);
   const label = (id: string) => personLabel(draft.people, id);
@@ -115,32 +118,53 @@ function ImportFlow({
 
   /**
    * Send it, and say how it went — no state is touched here, so the arrival
-   * effect can start it and apply the outcome when it lands.
+   * effect can start it and apply the outcome when it lands. An "importing"
+   * marker brackets the request: a reload while it's out finds the marker and
+   * asks the visitor to check their groups instead of sending blind.
    */
   async function send(me: string, groupName: string, overrides: Record<string, string>): Promise<Outcome | null> {
     if (inFlight === draft) return null;
     inFlight = draft;
+    markImportingFor(draft);
+    let res: Awaited<ReturnType<typeof importSplitDraft>>;
     try {
-      const res = await importSplitDraft(buildImportInput({ draft, name: groupName, meId: me, emails: overrides }));
-      if (!res.ok) {
-        inFlight = null;
-        return { ok: false, me, error: res.error, named: (res.details as { emails?: unknown } | undefined)?.emails, overrides };
-      }
-      // The browser's copy goes quietly, so this page doesn't flash "nothing to bring in".
-      clearDraft({ quiet: true });
-      toast.success(resultLine(res.invited));
-      router.push(`/app/split/${res.groupId}`);
-      return { ok: true, groupId: res.groupId, invited: res.invited, name: groupName.trim() || UNNAMED_GROUP };
+      res = await importSplitDraft(buildImportInput({ draft, name: groupName, meId: me, emails: overrides }));
     } catch {
+      // The outcome is unknown, so the marker stays: a retry (or a reload)
+      // is told to check first, and the server's key refuses a repeat anyway.
       inFlight = null;
-      return { ok: false, me, error: "Couldn't reach SpendChat — check your connection and try again.", overrides };
+      return {
+        ok: false,
+        me,
+        error: "Couldn't reach SpendChat. Check your groups before trying again — it may have gone through.",
+        overrides,
+      };
     }
+    clearImportingMarker();
+    if (!res.ok && res.code === "already_imported") {
+      clearDraft({ quiet: true });
+      return { ok: "already" };
+    }
+    if (!res.ok) {
+      inFlight = null;
+      return { ok: false, me, error: res.error, named: (res.details as { emails?: unknown } | undefined)?.emails, overrides };
+    }
+    // The browser's copy goes quietly, so this page doesn't flash "nothing to bring in".
+    clearDraft({ quiet: true });
+    // The result is said once, in the toast — it stays up on the group page.
+    toast.success(resultLine(res.invited));
+    router.push(`/app/split/${res.groupId}`);
+    return { ok: true, name: groupName.trim() || UNNAMED_GROUP };
   }
 
   function apply(outcome: Outcome | null) {
     if (!outcome) return;
+    if (outcome.ok === "already") {
+      setPhase({ kind: "already" });
+      return;
+    }
     if (outcome.ok) {
-      setPhase({ kind: "done", groupId: outcome.groupId, invited: outcome.invited, name: outcome.name });
+      setPhase({ kind: "done", name: outcome.name });
       return;
     }
     // Refusals about particular people (a cooldown, too many open invites,
@@ -159,14 +183,25 @@ function ImportFlow({
     setPhase({ kind: "form" });
   }
 
-  // Arrived ready from the calculator: the first render is already "creating".
-  const autoStart = useEffectEvent(() => {
-    if (phase.kind === "creating" && resolved && inFlight !== draft) {
-      void send(resolved, draft.name, {}).then(apply);
-    }
+  // How to start: claim this draft's send intent (once, in one tab), then decide.
+  const begin = useEffectEvent(() => {
+    void claimSendIntentFor(draft).then((claimed) => {
+      if (mayAlreadyBeImported(draft)) {
+        setBanner("Check your groups — we may have already created this one. Creating it again won't make a second copy.");
+        setPhase({ kind: "form" });
+        return;
+      }
+      const how = importStart(draft, myEmail, claimed);
+      if (how === "send" && resolved) {
+        setPhase({ kind: "creating" });
+        void send(resolved, draft.name, {}).then(apply);
+        return;
+      }
+      setPhase({ kind: how === "send" ? "form" : how });
+    });
   });
   useEffect(() => {
-    autoStart();
+    begin();
   }, []);
 
   /** The form's problems: missing, malformed, duplicate or your own address. */
@@ -215,6 +250,69 @@ function ImportFlow({
 
   const groupName = (phase.kind === "done" ? phase.name : name.trim() || draft.name.trim()) || UNNAMED_GROUP;
 
+  if (phase.kind === "checking") return <ImportSkeleton />;
+
+  if (phase.kind === "already") {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <div className="rounded-xl border p-8 text-center" role="status">
+          <Check className="mx-auto mb-3 size-6 text-muted-foreground" aria-hidden />
+          <h1 className="font-medium">This group is already in Split</h1>
+          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+            It was created a moment ago — from another tab, or before a reload. Nothing was made twice.
+          </p>
+          <Button asChild className="mt-4">
+            <Link href="/app/split">Go to Split</Link>
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (phase.kind === "confirm" && meId) {
+    const expenses = `${draft.expenses.length} ${draft.expenses.length === 1 ? "expense" : "expenses"}`;
+    return (
+      <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold tracking-tight">Create “{groupName}” and invite everyone?</h1>
+          <p className="text-sm text-muted-foreground">
+            From the free split calculator: {expenses}, {fmt(ledger.totalMinor)} in all. Nothing has been sent yet.
+          </p>
+        </div>
+        <ul className="divide-y rounded-xl border text-sm">
+          <li className="flex items-baseline justify-between gap-3 px-3 py-2.5">
+            <span className="min-w-0 truncate font-medium">{label(meId)}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">You — no invite needed</span>
+          </li>
+          {others.map((p) => (
+            <li key={p.id} className="flex items-baseline justify-between gap-3 px-3 py-2.5">
+              <span className="min-w-0 truncate">{label(p.id)}</span>
+              <span className="min-w-0 truncate text-muted-foreground">{normalizeEmail(p.email)}</span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-muted-foreground">
+          Each of them gets an invitation to join — by email, or in the app if they already use SpendChat. Only you
+          see these addresses.
+        </p>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+          <Button type="button" variant="ghost" onClick={() => setPhase({ kind: "form" })}>
+            Change something
+          </Button>
+          <Button
+            type="button"
+            onClick={() => {
+              setPhase({ kind: "creating" });
+              void send(meId, draft.name, {}).then(apply);
+            }}
+          >
+            Create group and send invites
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   if (phase.kind === "creating" || phase.kind === "done") {
     const done = phase.kind === "done";
     const inviting = draft.people.length - 1;
@@ -230,19 +328,14 @@ function ImportFlow({
           >
             {done ? <Check className="size-5" aria-hidden /> : <Loader2 className="size-5 animate-spin" aria-hidden />}
           </span>
-          <h1 className="font-medium">{done ? resultLine(phase.invited) : `Creating “${groupName}”…`}</h1>
+          <h1 className="font-medium">{done ? `Opening “${groupName}”…` : `Creating “${groupName}”…`}</h1>
           <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
             {done
-              ? `“${groupName}” is ready, with every expense from the calculator. Opening it now…`
+              ? "It's ready, with every expense from the calculator."
               : inviting > 0
                 ? `Adding ${expenses} and inviting ${inviting} ${inviting === 1 ? "person" : "people"}.`
                 : `Adding ${expenses}.`}
           </p>
-          {done && (
-            <Button asChild className="mt-4">
-              <Link href={`/app/split/${phase.groupId}`}>Open the group</Link>
-            </Button>
-          )}
         </div>
       </div>
     );

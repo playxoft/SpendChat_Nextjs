@@ -45,7 +45,8 @@ import { cn } from "@/lib/utils";
 import { ExpenseDialog } from "./expense-dialog";
 import { PeopleEditor } from "./people-editor";
 import { clearDraft, dismissNudge, setDraft, useDraft, useNudgeDismissed } from "./draft-store";
-import { SignUpGate, type GateKind } from "./sign-up-gate";
+import { SENDS_INVITES, SignUpGate, type GateKind } from "./sign-up-gate";
+import { recordSendIntentFor } from "./send-intent";
 
 /**
  * The free split calculator: name the group, add people by name, add what was
@@ -276,15 +277,15 @@ export function SplitBillTool() {
                 <div className="relative rounded-xl border border-dashed p-4 pr-10">
                   <p className="text-sm font-medium">Send this to the group?</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Save it free and invite everyone. Once they join, they all see the live balance — so nobody has to chase anyone.
+                    Save it free, then invite everyone — once they join, they all see the live balance, so nobody has to chase anyone. You&apos;ll see who gets invited before anything is sent.
                   </p>
                   <Link
                     href={SPLIT_SIGN_UP_HREF}
                     data-track-event="cta_click"
-                    data-track-params={JSON.stringify({ location: NUDGE_LOCATION, label: "save_and_invite" })}
+                    data-track-params={JSON.stringify({ location: NUDGE_LOCATION, label: "save_group" })}
                     className="mt-2 inline-flex items-center gap-1 text-sm font-medium hover:underline"
                   >
-                    Save &amp; invite them, free <ArrowRight className="size-3.5" />
+                    Save the group, free <ArrowRight className="size-3.5" />
                   </Link>
                   <Button
                     type="button"
@@ -368,6 +369,9 @@ export function SplitBillTool() {
         open={gate.open}
         location={GATE_LOCATION}
         onOpenChange={(open) => setGate({ ...gate, open })}
+        // Only "Send invites" / "Share with the group" may send without a click
+        // in the app — and only for this exact draft, for a short while.
+        onContinue={(kind) => SENDS_INVITES[kind] && recordSendIntentFor(draft)}
       />
     </>
   );

@@ -31,15 +31,15 @@ const link = "underline underline-offset-4";
 const faqs = [
   {
     q: "How do I see where my money goes each month?",
-    a: "Open Analytics. You get income, expenses and the net between them for the range you pick, a category breakdown as a ring and a ranked list, and a trend of recent months. There is nothing to configure first.",
+    a: "Open Analytics. You get income, expenses and the net between them for the range you pick, a category breakdown as a ring and a ranked list, and income against expenses over the same range, in columns by day, week, month or year. There is nothing to configure first.",
   },
   {
     q: "What's included on the Free plan?",
-    a: `On ${FREE}: the income, expenses and net cards and the category breakdown — expenses or income — for any range and any profile, plus the last six months of income against expenses, this month's budgets and a print layout. Insights & trends shows on ${FREE} too, over sample numbers under a lock, so you can see what it adds; none of your transactions are read for it.`,
+    a: `On ${FREE}: the income, expenses and net cards and the category breakdown — expenses or income — for any range and any profile, plus income against expenses over that range, this month's budgets and a print layout. Insights & trends shows on ${FREE} too, over sample numbers under a lock, so you can see what it adds; none of your transactions are read for it.`,
   },
   {
     q: "What do Insights & trends add?",
-    a: `On ${PAID}: a projection of where this month's spending will land, compared with last month, your usual month and the same month last year; category trends against your usual by the same day; cash flow with how much income you kept over the range you pick; a spending calendar; recurring payments and unusual spends; spending by payee, tag and profile; and a few plain-language notes on what stands out.`,
+    a: `On ${PAID}: a projection of where this month's spending will land, compared with last month, your usual month and the same month last year; category trends against your usual by the same day; on the income-against-expenses chart, what you kept in each column and your savings rate over the range you pick; a spending calendar; recurring payments and unusual spends; spending by payee, tag and profile; and a few plain-language notes on what stands out.`,
   },
   {
     q: "How is the month-end projection worked out?",
@@ -51,7 +51,7 @@ const faqs = [
   },
   {
     q: "Can I analyse any date range, or only whole months?",
-    a: "Any range: this month, three, six or twelve months, all time, or two dates of your choosing. The cards, the income-against-expenses chart (with cash flow and savings rate on paid plans), the category breakdown, the spending calendar, unusual spends and the payee, tag and profile breakdowns follow it; the projection, category trends and recurring payments are about now, so they stay anchored to today.",
+    a: "Any range: this month, three, six or twelve months, all time, or two dates of your choosing. The cards, the income-against-expenses chart (with what you kept and your savings rate on paid plans), the category breakdown, the spending calendar, unusual spends and the payee, tag and profile breakdowns follow it; the projection, category trends and recurring payments are about now, so they stay anchored to today.",
   },
   {
     q: "Are analytics per profile?",
@@ -111,10 +111,13 @@ export default function AnalyticsPage() {
           more than one source; freelancers are often surprised by the split.
         </p>
         <p>
-          On {FREE}, the last six months sit underneath as income against
-          expenses, one bar each, because the two move for different reasons: a
-          month where income dropped and one where spending jumped can net out
-          the same and mean completely different things. When the range is this
+          Underneath, income and expenses stand side by side over the same
+          range — a column per day for a month, per week for a quarter, per
+          month for a year or more — because the two move for different
+          reasons: a month where income dropped and one where spending jumped
+          can net out the same and mean completely different things. On{" "}
+          {PAID} the same chart adds a line for what you kept in each column and
+          your savings rate over the range. When the range is this
           month, your{" "}
           <Link href={featureLink("budgets")} className={link}>
             budgets
@@ -147,9 +150,9 @@ export default function AnalyticsPage() {
           <strong>Category trends</strong> compare each of your biggest
           categories with your usual <em>by the same day of the month</em> —
           comparing a half-finished month with whole ones would make everything
-          look like it&apos;s falling. <strong>Cash flow</strong> lays twelve
-          months of income and spending side by side, with how much you kept —
-          your savings rate, for the year and month by month.
+          look like it&apos;s falling. And the income-against-expenses chart
+          in the overview gains what you kept and your savings rate — pick
+          twelve months to read the year month by month.
         </p>
       </FeatureSection>
 
@@ -221,7 +224,7 @@ export default function AnalyticsPage() {
           },
           {
             title: "Freelancers with uneven income",
-            body: "Income beside spending, month by month, with how much you kept, is the clearest read on whether a quiet month was a blip.",
+            body: "Income beside spending over any range, and on the paid plans how much you kept, is the clearest read on whether a quiet month was a blip.",
           },
           {
             title: "Households comparing months",

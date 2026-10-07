@@ -45,11 +45,11 @@ const faqs = [
   },
   {
     q: "Can everyone in the group see the balance?",
-    a: `Add everyone's email — here in the calculator or when you save — and save the group to SpendChat: each person gets an invite, by email or in the app if they already use SpendChat. Once they join, each person sees the same expenses and balances, can add what they paid for, and marks payments as paid — so the balance is always current, for groups of up to ${SPLIT_GROUP_MAX_PEOPLE} people. The group you built here comes with you when you sign up.`,
+    a: `Add everyone's email — here in the calculator or after you save — and send the invites from SpendChat: each person gets one, by email or in the app if they already use SpendChat. Once they join, each person sees the same expenses and balances, can add what they paid for, and marks payments as paid — so the balance is always current, for groups of up to ${SPLIT_GROUP_MAX_PEOPLE} people. The group you built here comes with you when you sign up.`,
   },
   {
     q: "Is what I type stored anywhere?",
-    a: "Only in your browser, until you choose to save it. The names, emails and amounts stay on this device and aren't sent to SpendChat or to analytics. Start over clears it.",
+    a: "Only in your browser, until you save the group or send invites. The names, emails and amounts stay on this device and aren't sent to SpendChat or to analytics. Nobody is emailed unless you press Send invites (or confirm in the app after saving). Start over clears it.",
   },
 ];
 
@@ -74,7 +74,7 @@ export default function SplitBillCalculatorPage() {
           <li>Name the group and pick its currency — one currency per group, like a trip&apos;s budget.</li>
           <li>
             Add everyone by name — you&apos;re first; press Enter to add the next person. An email is optional:
-            add one and that person is invited automatically when you save the group.
+            with one, that person can be invited when the group goes into SpendChat.
           </li>
           <li>
             Add each expense: what it was, how much, who paid, and who it was for. Untick anyone who
@@ -164,7 +164,7 @@ export default function SplitBillCalculatorPage() {
         </p>
         <p>
           It&apos;s free for everyone on every plan, for groups of up to {SPLIT_GROUP_MAX_PEOPLE} people —
-          and the group you built here comes with you when you sign up. You only add the emails.
+          and the group you built here comes with you when you sign up. You add any missing emails and send the invites when you&apos;re ready.
         </p>
         <Button asChild className={marketingCta}>
           <Link

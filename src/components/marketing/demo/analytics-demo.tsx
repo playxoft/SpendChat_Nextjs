@@ -11,80 +11,75 @@ import {
 import { LazyCategoryChart } from "@/components/marketing/lazy-category-chart";
 import { DemoFrame } from "./demo-frame";
 import { AnalyticsInsightsDemo } from "./analytics-insights-demo";
+import { DEMO_RANGES, DemoTrendCard, demoRangeTotals, type DemoRange } from "./analytics-trend-demo";
 import { demoAmount, useDemoMoney, type DemoMoneyFormat } from "@/hooks/use-demo-currency";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
-type Range = "month" | "quarter" | "year";
+type Range = DemoRange;
 type View = "overview" | "insights";
 type Kind = "expense" | "income";
 
 /**
- * Short labels, matching the app's own range toggle (`AnalyticsFilters`).
- * "Last 3 months" is two words longer than the control has room for on a phone,
- * and the segment it sits in is a fixed-height pill — the label doesn't get to
- * wrap, it gets clipped.
+ * Each range's categories, as shares of its spending. The amounts are worked
+ * out from the range's totals (`demoRangeTotals`) so the breakdown, the cards
+ * and the trend add up to the same figures.
  */
-const RANGES: { id: Range; label: string }[] = [
-  { id: "month", label: "This month" },
-  { id: "quarter", label: "3 months" },
-  { id: "year", label: "This year" },
-];
-
-/** Minor units throughout, exactly like the app's aggregates. */
-const BREAKDOWN: Record<Range, Record<Kind, { name: string; icon: string; value: number }[]>> = {
-  month: {
-    expense: [
-      { name: "Housing", icon: "🏠", value: 120000 },
-      { name: "Groceries", icon: "🛒", value: 51350 },
-      { name: "Food & Dining", icon: "🍽️", value: 18400 },
-      { name: "Transport", icon: "🚆", value: 12600 },
-      { name: "Utilities", icon: "💡", value: 6800 },
-    ],
-    income: [
-      { name: "Salary", icon: "💼", value: 200000 },
-      { name: "Freelance", icon: "🧾", value: 35000 },
-    ],
-  },
-  quarter: {
-    expense: [
-      { name: "Housing", icon: "🏠", value: 360000 },
-      { name: "Groceries", icon: "🛒", value: 148900 },
-      { name: "Food & Dining", icon: "🍽️", value: 61200 },
-      { name: "Transport", icon: "🚆", value: 39800 },
-      { name: "Utilities", icon: "💡", value: 21400 },
-      { name: "Health", icon: "⚕️", value: 14600 },
-    ],
-    income: [
-      { name: "Salary", icon: "💼", value: 600000 },
-      { name: "Freelance", icon: "🧾", value: 92500 },
-    ],
-  },
-  year: {
-    expense: [
-      { name: "Housing", icon: "🏠", value: 960000 },
-      { name: "Groceries", icon: "🛒", value: 402700 },
-      { name: "Food & Dining", icon: "🍽️", value: 168900 },
-      { name: "Transport", icon: "🚆", value: 104300 },
-      { name: "Utilities", icon: "💡", value: 58200 },
-      { name: "Health", icon: "⚕️", value: 41100 },
-      { name: "Entertainment", icon: "🎬", value: 33800 },
-    ],
-    income: [
-      { name: "Salary", icon: "💼", value: 1600000 },
-      { name: "Freelance", icon: "🧾", value: 248000 },
-    ],
-  },
+const EXPENSE_WEIGHTS: Record<Range, { name: string; icon: string; weight: number }[]> = {
+  month: [
+    { name: "Housing", icon: "🏠", weight: 120000 },
+    { name: "Groceries", icon: "🛒", weight: 51350 },
+    { name: "Food & Dining", icon: "🍽️", weight: 18400 },
+    { name: "Transport", icon: "🚆", weight: 12600 },
+    { name: "Utilities", icon: "💡", weight: 6800 },
+  ],
+  quarter: [
+    { name: "Housing", icon: "🏠", weight: 360000 },
+    { name: "Groceries", icon: "🛒", weight: 148900 },
+    { name: "Food & Dining", icon: "🍽️", weight: 61200 },
+    { name: "Transport", icon: "🚆", weight: 39800 },
+    { name: "Utilities", icon: "💡", weight: 21400 },
+    { name: "Health", icon: "⚕️", weight: 14600 },
+  ],
+  year: [
+    { name: "Housing", icon: "🏠", weight: 1440000 },
+    { name: "Groceries", icon: "🛒", weight: 402700 },
+    { name: "Food & Dining", icon: "🍽️", weight: 168900 },
+    { name: "Transport", icon: "🚆", weight: 104300 },
+    { name: "Utilities", icon: "💡", weight: 58200 },
+    { name: "Health", icon: "⚕️", weight: 41100 },
+    { name: "Entertainment", icon: "🎬", weight: 33800 },
+  ],
 };
 
-const TREND = [
-  { month: "Mar", income: 218000, expense: 191400 },
-  { month: "Apr", income: 200000, expense: 176900 },
-  { month: "May", income: 235000, expense: 204100 },
-  { month: "Jun", income: 200000, expense: 168300 },
-  { month: "Jul", income: 212000, expense: 198600 },
-  { month: "Aug", income: 235000, expense: 209150 },
-];
+/** `total` split by `weights` in whole minor units, the leftover to the largest shares. */
+function apportion(total: number, weights: number[]): number[] {
+  const sum = weights.reduce((a, b) => a + b, 0);
+  const parts = weights.map((w) => Math.floor((total * w) / sum));
+  let left = total - parts.reduce((a, b) => a + b, 0);
+  for (let i = 0; left > 0; i = (i + 1) % parts.length, left--) parts[i]! += 1;
+  return parts;
+}
+
+/** Minor units throughout, exactly like the app's aggregates. */
+const BREAKDOWN = Object.fromEntries(
+  DEMO_RANGES.map(({ id }) => {
+    const totals = demoRangeTotals(id);
+    const months = DEMO_RANGES.findIndex((r) => r.id === id);
+    const salary = 200000 * [1, 3, 12][months]!;
+    const amounts = apportion(totals.expense, EXPENSE_WEIGHTS[id].map((c) => c.weight));
+    return [
+      id,
+      {
+        expense: EXPENSE_WEIGHTS[id].map((c, i) => ({ name: c.name, icon: c.icon, value: amounts[i]! })),
+        income: [
+          { name: "Salary", icon: "💼", value: salary },
+          { name: "Freelance", icon: "🧾", value: totals.income - salary },
+        ],
+      },
+    ];
+  }),
+) as Record<Range, Record<Kind, { name: string; icon: string; value: number }[]>>;
 
 function StatCard({
   label,
@@ -169,11 +164,12 @@ function CategoryRanking({
 }
 
 /**
- * The analytics page: three totals, a category breakdown, and six months of
- * income against expenses — and, behind the "Insights & trends" tab, what the
- * paid plans add (`analytics-insights-demo.tsx`).
+ * The analytics page: three totals, a category breakdown, and income against
+ * expenses over the range you pick, in columns by day, week or month
+ * (`analytics-trend-demo.tsx`) — and, behind the "Insights & trends" tab, what
+ * the paid plans add (`analytics-insights-demo.tsx`).
  *
- * The stat cards and trend rows are the app's markup; the chart is the app's
+ * The stat cards are the app's markup and the trend is its `buildTrend`; the chart is the app's
  * `CategoryPieChart`, through the lazy wrapper the homepage uses. Changing the
  * range or flipping between expense and income swaps the real dataset, so the
  * chart, the totals and the breakdown all move together — the point being that
@@ -207,17 +203,6 @@ export function AnalyticsDemo() {
     );
     return { income, expense, net: income - expense };
   }, [range, money]);
-
-  const trend = useMemo(
-    () =>
-      TREND.map((t) => ({
-        month: t.month,
-        income: demoAmount(t.income, money),
-        expense: demoAmount(t.expense, money),
-      })),
-    [money],
-  );
-  const maxTrend = Math.max(...trend.flatMap((t) => [t.income, t.expense]), 1);
 
   return (
     <DemoFrame
@@ -270,7 +255,7 @@ export function AnalyticsDemo() {
               view !== "overview" && "hidden",
             )}
           >
-            {RANGES.map((r) => (
+            {DEMO_RANGES.map((r) => (
               <button
                 key={r.id}
                 type="button"
@@ -363,63 +348,12 @@ export function AnalyticsDemo() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Last 6 months</CardTitle>
-                <CardDescription>Income vs. expenses</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="mb-4 flex items-center gap-4 text-xs text-muted-foreground">
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="size-2.5 rounded-full bg-emerald-500" /> Income
-                  </span>
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="size-2.5 rounded-full bg-foreground/60" /> Expense
-                  </span>
-                </div>
-                {/* Each month reads out in words before it's drawn.
-                    The two bars used to be the only place the month's income and
-                    expense existed: two empty `<div>`s whose widths were the data,
-                    told apart by colour alone. Nothing could read them out, and
-                    nobody who can't compare an emerald bar to a grey one could tell
-                    which was which — WCAG 1.1.1 and 1.4.1 in one row. So the
-                    amounts are labelled text now and the bars are `aria-hidden`
-                    decoration for the shape, which is all they were ever good for.
-                    The line wraps rather than truncating, because a high-multiplier
-                    currency makes three amounts much wider than this card. */}
-                <ul className="space-y-3">
-                  {trend.map((t) => (
-                    <li key={t.month} className="space-y-1.5">
-                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
-                        <span className="font-medium">{t.month}</span>
-                        <span className="tabular-nums text-emerald-600 dark:text-emerald-400">
-                          {formatMoney(t.income, money.code, money.locale)} in
-                        </span>
-                        <span className="tabular-nums text-muted-foreground">
-                          {formatMoney(t.expense, money.code, money.locale)} out
-                        </span>
-                        <span className="ml-auto tabular-nums text-muted-foreground">
-                          net{" "}
-                          {formatMoney(t.income - t.expense, money.code, money.locale, {
-                            signed: true,
-                          })}
-                        </span>
-                      </div>
-                      <div className="space-y-1" aria-hidden>
-                        <div
-                          className="h-2.5 rounded-full bg-emerald-500/70"
-                          style={{ width: `${(t.income / maxTrend) * 100}%` }}
-                        />
-                        <div
-                          className="h-2.5 rounded-full bg-foreground/60"
-                          style={{ width: `${(t.expense / maxTrend) * 100}%` }}
-                        />
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              </CardContent>
-            </Card>
+            <DemoTrendCard
+              range={range}
+              money={money}
+              kept={false}
+              description="Over the range you pick — one column per day, week or month"
+            />
           </>
         )}
       </div>

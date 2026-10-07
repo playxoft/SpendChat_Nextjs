@@ -40,7 +40,11 @@ export const SPLIT_EMAILS_PER_RECIPIENT_DAYS = 7;
 type Db = ReturnType<typeof getDb>;
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
-export type SplitRateEvent = "group_created" | "member_added" | "invite_emailed";
+/**
+ * `draft_imported` is the calculator import's idempotency record:
+ * `recipient_key` holds the draft's hash (`services/split-import.ts`).
+ */
+export type SplitRateEvent = "group_created" | "member_added" | "invite_emailed" | "draft_imported";
 
 /** Advisory-lock namespaces (1–5 are taken by the AI, email and workspace locks). */
 const ACTOR_LOCK = 7;

@@ -155,7 +155,7 @@ export const FEATURES: Feature[] = [
     label: "Analytics",
     title: "Spending Analytics — Where Your Money Goes",
     h1: "See where the money actually went",
-    description: `Income, spending and a category breakdown for any range — plus a month-end projection, cash flow and spending insights on ${INSIGHTS_PLANS}.`,
+    description: `Income, spending and a category breakdown for any range — plus a month-end projection, your savings rate and spending insights on ${INSIGHTS_PLANS}.`,
     blurb: "Category breakdown for any range; projections and insights on paid plans.",
     icon: "ChartColumn",
     group: "understand",
