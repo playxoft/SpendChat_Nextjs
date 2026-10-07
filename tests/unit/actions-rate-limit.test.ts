@@ -184,7 +184,7 @@ describe("every server action is rate limited", () => {
         "updateVoiceLanguages",
       ].sort(),
     );
-    expect(byBucket("ai")).toEqual(["parseTransactionsWithAI", "transcribeVoiceNote"]);
+    expect(byBucket("ai")).toEqual(["askAi", "parseTransactionsWithAI", "transcribeVoiceNote"]);
     // Anything else spelled out is a typo the limiter would read as "create".
     const odd = actions.flatMap((a) =>
       a.calls.filter((c) => c.rateLimit !== null && !["read", "ai", "create"].includes(c.rateLimit)),

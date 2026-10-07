@@ -367,7 +367,13 @@ describe("voice", () => {
     const form = new FormData();
     form.append("audio", new Blob([AUDIO as unknown as BlobPart], { type: "audio/webm" }));
     form.append("durationMs", "5000");
-    expect(await transcribeVoiceNoteAction(form)).toEqual({ ok: true, text: "200 fruits" });
+    // The action also hands back what's left, read under the charge's lock —
+    // the composer's "AI actions left" line moves without asking again.
+    expect(await transcribeVoiceNoteAction(form)).toEqual({
+      ok: true,
+      text: "200 fruits",
+      ai: { remaining: PLAN_LIMITS.pro.aiActionsPerMonth - 2, limit: PLAN_LIMITS.pro.aiActionsPerMonth },
+    });
 
     expect(await ledger("a")).toEqual([
       expect.objectContaining({ kind: "voice_transcribe", units: 1, plan: "pro", audioMs: 60_000 }),
@@ -424,11 +430,28 @@ describe("voice", () => {
     await bootstrapUser("a");
 
     expect((await parse({ text: "200 fruits", source: "voice" })).status).toBe(200);
-    expect((await parseTransactionsWithAI("200 fruits", { source: "voice" })).ok).toBe(true);
+    // Charged, so the composer's "AI actions left" line gets the new count.
+    expect(await parseTransactionsWithAI("200 fruits", { source: "voice" })).toMatchObject({
+      ok: true,
+      ai: { remaining: PLAN_LIMITS.free.aiActionsPerMonth - 2, limit: PLAN_LIMITS.free.aiActionsPerMonth },
+    });
     expect((await ledger("a")).map((r) => [r.kind, r.units])).toEqual([
       ["transaction_parse", 1],
       ["transaction_parse", 1],
     ]);
+  });
+
+  it("hands back no count for the free parse after a paid clip — the line stays where the clip left it", async () => {
+    stubGemini();
+    signInAs("a");
+    await bootstrapUser("a");
+    await setWorkspacePlan(await workspaceIdOf("a"), "pro");
+
+    expect((await transcribe(20_000)).status).toBe(200);
+    expect(await parseTransactionsWithAI("200 fruits", { source: "voice" })).toMatchObject({
+      ok: true,
+      ai: null,
+    });
   });
 
   it("doesn't let one user's paid clip make a teammate's parse free", async () => {

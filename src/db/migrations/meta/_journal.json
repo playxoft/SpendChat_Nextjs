@@ -288,6 +288,13 @@
       "when": 1791317523601,
       "tag": "0040_split",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791362928693,
+      "tag": "0041_ai_chat",
+      "breakpoints": true
     }
   ]
 }

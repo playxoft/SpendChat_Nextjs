@@ -5,8 +5,9 @@ import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 
 /**
  * The AI transport layer: the shared config/error vocabulary plus one generic
- * adapter per API protocol, for both text completion (`callProvider`) and
- * speech-to-text (`transcribeProvider`). **No model ids and no curated model
+ * adapter per API protocol, for structured text completion (`callProvider`),
+ * speech-to-text (`transcribeProvider`) and free-form chat answers
+ * (`chatProviderWithUsage`, for Ask). **No model ids and no curated model
  * list live here** — only the request/response shape of each protocol. Which
  * model runs is resolved from the environment by `ai-model-registry.ts`.
  *
@@ -231,7 +232,7 @@ function openAiTranscriptionUsage(json: OpenAiTranscriptionResponse): AiUsage | 
 }
 
 /** Which caller a request belongs to — names the log event, nothing more. */
-type Feature = "parse" | "transcribe";
+type Feature = "parse" | "transcribe" | "chat";
 
 /**
  * POST and read the body, with one timeout covering **both**. Aborting only
@@ -624,6 +625,146 @@ export async function transcribeProviderWithUsage(
     if (err instanceof ApiError) throw err;
     logger.error(`AI transcribe request errored: ${describeError(err)}`, {
       event: "ai.transcribe.error",
+      provider: cfg.provider,
+      error: err,
+    });
+    throw aiFailed();
+  }
+}
+
+// ── Chat (Ask) ──────────────────────────────────────────────────────────────
+// A question about the workspace's money, answered in Markdown from a data
+// summary that rides in the system prompt (`lib/ai-chat.ts`). Unlike the parse
+// adapters above there is no JSON mode and no schema: the answer is prose for a
+// person to read, and the renderer treats it as untrusted Markdown.
+
+/** One turn of an Ask conversation, as the adapters send it. */
+export type ChatTurn = { role: "user" | "assistant"; content: string };
+
+/**
+ * Output budget for one answer. A short answer with a ranked table is a few
+ * hundred tokens; the headroom is for thinking models, whose reasoning draws
+ * from this same budget when no thinking config is sent (none is — Gemini 3.x
+ * rejects the 2.5-era `thinkingBudget`, see `transcribeGemini`). A ceiling,
+ * not a spend: unused tokens aren't billed.
+ */
+const CHAT_MAX_OUTPUT_TOKENS = 4096;
+
+/** A little freedom in the wording; the numbers come from the data either way. */
+const CHAT_TEMPERATURE = 0.2;
+
+/** More input than a parse and prose out, so a longer ceiling — still bounded. */
+const CHAT_TIMEOUT_MS = 45_000;
+
+async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): Promise<ProviderReply> {
+  const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
+  const json = (await post(
+    `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`,
+    { "x-goog-api-key": cfg.apiKey },
+    {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: turns.map((t) => ({
+        role: t.role === "assistant" ? "model" : "user",
+        parts: [{ text: t.content }],
+      })),
+      generationConfig: {
+        responseMimeType: "text/plain",
+        temperature: CHAT_TEMPERATURE,
+        maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
+      },
+    },
+    "gemini",
+    "chat",
+    CHAT_TIMEOUT_MS,
+  )) as GeminiResponse;
+
+  const candidate = json.candidates?.[0];
+  const text = (candidate?.content?.parts ?? []).map((p) => p.text ?? "").join("");
+  if (!text.trim()) {
+    noContent("gemini", "chat", {
+      finishReason: candidate?.finishReason ?? null,
+      blockReason: json.promptFeedback?.blockReason ?? null,
+    });
+  }
+  return { text, usage: geminiUsage(json) };
+}
+
+async function chatOpenAI(cfg: ModelConfig, system: string, turns: ChatTurn[]): Promise<ProviderReply> {
+  const base = cfg.baseUrl || "https://api.openai.com/v1";
+  const json = (await post(
+    `${base.replace(/\/$/, "")}/chat/completions`,
+    { Authorization: `Bearer ${cfg.apiKey}` },
+    {
+      model: cfg.model,
+      messages: [{ role: "system", content: system }, ...turns],
+      temperature: CHAT_TEMPERATURE,
+      // `max_tokens` for the same portability reason as `callOpenAI`.
+      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
+    },
+    "openai",
+    "chat",
+    CHAT_TIMEOUT_MS,
+  )) as OpenAiResponse;
+
+  const choice = json.choices?.[0];
+  const message = choice?.message;
+  if (message?.refusal || typeof message?.content !== "string" || !message.content.trim()) {
+    noContent("openai", "chat", {
+      refused: Boolean(message?.refusal),
+      finishReason: choice?.finish_reason ?? null,
+    });
+  }
+  return { text: message.content, usage: openAiUsage(json) };
+}
+
+async function chatAnthropic(cfg: ModelConfig, system: string, turns: ChatTurn[]): Promise<ProviderReply> {
+  const base = cfg.baseUrl || "https://api.anthropic.com/v1";
+  const json = (await post(
+    `${base.replace(/\/$/, "")}/messages`,
+    { "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" },
+    {
+      model: cfg.model,
+      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
+      temperature: CHAT_TEMPERATURE,
+      system,
+      messages: turns,
+    },
+    "anthropic",
+    "chat",
+    CHAT_TIMEOUT_MS,
+  )) as AnthropicResponse;
+
+  const text = (json.content ?? [])
+    .filter((b) => b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text)
+    .join("");
+  if (!text.trim()) noContent("anthropic", "chat", { stopReason: json.stop_reason ?? null });
+  return { text, usage: anthropicUsage(json) };
+}
+
+/**
+ * Answer the last user turn of an Ask conversation, normalizing failures like
+ * `callProvider`. `turns` must alternate and end with the user's question —
+ * Anthropic rejects anything else, and the others answer the wrong message.
+ */
+export async function chatProviderWithUsage(
+  cfg: ModelConfig,
+  system: string,
+  turns: ChatTurn[],
+): Promise<ProviderReply> {
+  try {
+    switch (cfg.provider) {
+      case "openai":
+        return await chatOpenAI(cfg, system, turns);
+      case "anthropic":
+        return await chatAnthropic(cfg, system, turns);
+      case "gemini":
+        return await chatGemini(cfg, system, turns);
+    }
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    logger.error(`AI chat request errored: ${describeError(err)}`, {
+      event: "ai.chat.error",
       provider: cfg.provider,
       error: err,
     });
