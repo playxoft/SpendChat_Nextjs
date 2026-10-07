@@ -133,7 +133,7 @@ export function CashFlowChart({
 
 export function CashFlowLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
         <span aria-hidden className="size-2.5 rounded-sm bg-emerald-500" /> Income
       </span>

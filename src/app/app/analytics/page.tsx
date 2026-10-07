@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { unstable_rethrow } from "next/navigation";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import {
   getCategoryBreakdown,
@@ -10,9 +11,14 @@ import {
 } from "@/lib/queries";
 import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
 import { formatDateLabel, monthKey, monthLabel, monthRange, todayISO } from "@/lib/dates";
-import { advancedAnalyticsAllowed, getWorkspaceEntitlements } from "@/lib/entitlements";
+import {
+  advancedAnalyticsAllowed,
+  getWorkspaceEntitlements,
+  type WorkspaceEntitlements,
+} from "@/lib/entitlements";
 import { getAdvancedAnalytics } from "@/lib/insights-queries";
-import { buildAdvancedAnalytics, calendarWindow, firstDayOfWeek } from "@/lib/insights";
+import { buildAdvancedAnalytics, calendarWindow, firstDayOfWeek, monthCount } from "@/lib/insights";
+import { describeError, logger } from "@/lib/logger";
 import { sampleAdvancedRaw } from "@/lib/insights-sample";
 import { listBudgets } from "@/services/budgets";
 import { BudgetRow } from "@/components/app/budgets/budget-parts";
@@ -25,6 +31,7 @@ import { AnalyticsResultsSkeleton } from "@/components/app/analytics-skeleton";
 import {
   InsightsSection,
   InsightsSectionSkeleton,
+  InsightsUnavailable,
 } from "@/components/app/analytics/insights-section";
 import { ANALYTICS_SHELL, BODY, WIDGET_GRID, WidgetCard } from "@/components/app/analytics/widget";
 import { CategoryPieChart } from "@/components/app/category-pie-chart";
@@ -86,8 +93,11 @@ export default async function AnalyticsPage({
     ? "All time"
     : `${formatDateLabel(from ?? start, locale)} – ${formatDateLabel(to ?? end, locale)}`;
   // Remount the streamed results on any filter change so the skeleton shows
-  // immediately instead of holding the previous numbers.
-  const streamKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}|${parsed.type ?? "all"}`;
+  // immediately instead of holding the previous numbers. The insights don't
+  // follow the Type filter, so their key leaves it out — changing it doesn't
+  // re-run (or blank) them.
+  const insightsKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}`;
+  const streamKey = `${insightsKey}|${parsed.type ?? "all"}`;
   // Budgets are monthly, so they show when the range is exactly this month.
   const showBudgets = from === start && to === end;
   const window = calendarWindow(today, from, to);
@@ -127,7 +137,13 @@ export default async function AnalyticsPage({
 
       <Suspense
         key={streamKey}
-        fallback={<AnalyticsResultsSkeleton trend={!advanced} budgets={showBudgets ? undefined : 0} />}
+        fallback={
+          <AnalyticsResultsSkeleton
+            trend={!advanced}
+            budgets={showBudgets ? undefined : 0}
+            type={parsed.type ?? "expense"}
+          />
+        }
       >
         <AnalyticsResults
           userId={user.id}
@@ -145,7 +161,10 @@ export default async function AnalyticsPage({
       </Suspense>
 
       {advanced ? (
-        <Suspense key={`insights|${streamKey}`} fallback={<InsightsSectionSkeleton />}>
+        <Suspense
+          key={`insights|${insightsKey}`}
+          fallback={<InsightsSectionSkeleton calendarMonths={monthCount(window)} />}
+        >
           <AdvancedResults
             userId={user.id}
             workspaceId={workspace.id}
@@ -155,7 +174,8 @@ export default async function AnalyticsPage({
             currency={currency}
             locale={locale}
             today={today}
-            rangeLabel={rangeLabel}
+            entitlements={entitlements}
+            profiles={profiles}
           />
         </Suspense>
       ) : (
@@ -170,7 +190,6 @@ export default async function AnalyticsPage({
           })}
           currency={currency}
           locale={locale}
-          rangeLabel={rangeLabel}
         />
       )}
 
@@ -183,13 +202,18 @@ export default async function AnalyticsPage({
   );
 }
 
-/** "Insights & trends" with the workspace's numbers (Plus and Pro), streamed on its own. */
+/**
+ * "Insights & trends" with the workspace's numbers (Plus and Pro), streamed on
+ * its own. A failure here is contained: it's logged and the section says it
+ * couldn't load, while the overview above — already on screen — stays.
+ */
 async function AdvancedResults({
   userId,
   workspaceId,
-  rangeLabel,
   currency,
   locale,
+  entitlements,
+  profiles,
   ...opts
 }: {
   userId: string;
@@ -200,10 +224,27 @@ async function AdvancedResults({
   currency: string;
   locale: string;
   today: string;
-  rangeLabel: string;
+  /** Already read by the page — an RSC render has no request memo to share them. */
+  entitlements: WorkspaceEntitlements;
+  profiles: Awaited<ReturnType<typeof getProfiles>>;
 }) {
-  const data = await getAdvancedAnalytics(userId, workspaceId, { ...opts, currency, locale });
-  return <InsightsSection data={data} currency={currency} locale={locale} rangeLabel={rangeLabel} />;
+  let data;
+  try {
+    data = await getAdvancedAnalytics(
+      userId,
+      workspaceId,
+      { ...opts, currency, locale },
+      { entitlements, profiles },
+    );
+  } catch (err) {
+    unstable_rethrow(err);
+    logger.error(`Analytics insights failed to load: ${describeError(err)}`, {
+      event: "analytics.insights_failed",
+      error: err,
+    });
+    return <InsightsUnavailable />;
+  }
+  return <InsightsSection data={data} currency={currency} locale={locale} />;
 }
 
 async function AnalyticsResults({

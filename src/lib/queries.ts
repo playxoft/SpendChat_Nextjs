@@ -812,8 +812,14 @@ export async function getMonthlyTrend(
   return rows.map((r) => ({ month: r.month, type: r.type, total: Number(r.total) }));
 }
 
-/** The workspace's shared category list, in income/expense then name order. */
-export async function getCategories(workspaceId: string) {
+/**
+ * The workspace's shared category list, in income/expense then name order.
+ * Memoized per RSC render like `getTags`: the app layout and a page beneath it
+ * (the analytics insights) read it in the same pass.
+ */
+export const getCategories = cache(getCategoriesUncached);
+
+async function getCategoriesUncached(workspaceId: string) {
   const db = getDb();
   return db
     .select()
@@ -828,8 +834,8 @@ export async function getCategories(workspaceId: string) {
  * Memoized per request: the app layout and both the tracker and transactions
  * pages ask for this list, and layout and page render in the same RSC pass —
  * without `cache()` that is two identical round trips on every load of the two
- * busiest routes. (`getCategories`/`getProfiles` beside it have the same shape
- * and are not yet memoized; that is worth doing, but not from this change.)
+ * busiest routes. (`getCategories` and `getProfiles` beside it are memoized
+ * the same way.)
  */
 export const getTags = cache(getTagsUncached);
 
@@ -912,8 +918,14 @@ export async function getTagsWithUsage(
   return rows.map((r) => ({ ...serializeTxnTag(r), usage: r.usage }));
 }
 
-/** Profiles in the workspace the user can at least view, in sidebar order. */
-export async function getProfiles(userId: string, workspaceId: string) {
+/**
+ * Profiles in the workspace the user can at least view, in sidebar order.
+ * Memoized per RSC render (the layout and the page both read it); outside a
+ * render — actions, route handlers — every call reads afresh.
+ */
+export const getProfiles = cache(getProfilesUncached);
+
+async function getProfilesUncached(userId: string, workspaceId: string) {
   const db = getDb();
   return db
     .select()

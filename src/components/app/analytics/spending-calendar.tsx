@@ -2,7 +2,15 @@
 
 import * as React from "react";
 import { formatDateLabel, monthLabel } from "@/lib/dates";
-import type { CalendarDay, CalendarMonth, HeatLevel, WeekdayStat } from "@/lib/insights";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  CALENDAR_WEEKS,
+  formatRounded,
+  type CalendarDay,
+  type CalendarMonth,
+  type HeatLevel,
+  type WeekdayStat,
+} from "@/lib/insights";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
@@ -44,6 +52,40 @@ function shortWeekday(weekday: number, locale: string): string {
   });
 }
 
+/** The months' grid — the same for the calendar and its placeholder. */
+function monthsGridClass(count: number): string {
+  // Numbers fit while the months are few and the cells big.
+  return cn(
+    "grid gap-4",
+    count <= 2
+      ? "grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]"
+      : "grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))]",
+  );
+}
+
+/**
+ * Under the calendars: what's being pointed at (one line, never wrapping, so
+ * pointing never moves anything) and the shade key on its own line.
+ */
+function CalendarFooter({ text }: { text: string }) {
+  return (
+    <div className="space-y-1 text-xs text-muted-foreground">
+      <p aria-live="polite" className="h-4 truncate tabular-nums print:hidden">
+        {text}
+      </p>
+      <span className="flex h-4 items-center gap-1" aria-hidden>
+        Less
+        {([0, 1, 2, 3, 4] as const).map((l) => (
+          <span key={l} className={cn("size-2.5 rounded-[2px]", LEVEL_BG[l])} />
+        ))}
+        More
+      </span>
+    </div>
+  );
+}
+
+const POINT_AT = "Point at a day to see what went out.";
+
 /**
  * The spending calendar: a month grid per month of the window, each day shaded
  * by how much went out. Pointing at (or tapping) a day names it and its total
@@ -63,28 +105,19 @@ export function SpendingCalendar({
 }) {
   const [hover, setHover] = React.useState<CalendarDay | null>(null);
   const heads = weekdayHeads(locale, firstDay);
-  // Numbers fit while the months are few and the cells big.
   const numbers = months.length <= 2;
 
   return (
     <div className="min-w-0 space-y-3">
-      <div
-        className={cn(
-          "grid gap-4",
-          numbers
-            ? "grid-cols-[repeat(auto-fill,minmax(13rem,1fr))]"
-            : "grid-cols-[repeat(auto-fill,minmax(8.5rem,1fr))]",
-        )}
-        onMouseLeave={() => setHover(null)}
-      >
+      <div className={monthsGridClass(months.length)} onMouseLeave={() => setHover(null)}>
         {months.map((m) => (
           <figure key={m.month} className="min-w-0 max-w-72">
-            <figcaption className="mb-1.5 text-xs font-medium text-muted-foreground">
+            <figcaption className="mb-1.5 h-4 text-xs leading-4 font-medium text-muted-foreground">
               {monthLabel(m.month, locale)}
             </figcaption>
             <div className="grid grid-cols-7 gap-0.5 sm:gap-1" role="presentation">
               {heads.map((h, i) => (
-                <span key={i} aria-hidden className="text-center text-[10px] leading-4 text-muted-foreground">
+                <span key={i} aria-hidden className="h-4 text-center text-[10px] leading-4 text-muted-foreground">
                   {h}
                 </span>
               ))}
@@ -104,7 +137,8 @@ export function SpendingCalendar({
                     {numbers ? d.day : null}
                   </span>
                 ) : (
-                  <span key={`pad-${i}`} aria-hidden />
+                  // Padding keeps its square, so a short month's empty last row still has height.
+                  <span key={`pad-${i}`} aria-hidden className="aspect-square" />
                 ),
               )}
             </div>
@@ -112,23 +146,48 @@ export function SpendingCalendar({
         ))}
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <p aria-live="polite" className="min-h-4 tabular-nums print:hidden">
-          {hover
+      <CalendarFooter
+        text={
+          hover
             ? `${formatDateLabel(hover.date, locale)} · ${hover.inWindow ? formatMoney(hover.total, currency, locale) : "outside the range"}`
-            : "Point at a day to see what went out."}
-        </p>
-        <span className="inline-flex items-center gap-1" aria-hidden>
-          Less
-          {([0, 1, 2, 3, 4] as const).map((l) => (
-            <span key={l} className={cn("size-2.5 rounded-[2px]", LEVEL_BG[l])} />
-          ))}
-          More
-        </span>
-      </div>
+            : POINT_AT
+        }
+      />
     </div>
   );
 }
+
+/**
+ * The calendar while it loads: the same grid, the same number of months, each
+ * with its caption, weekday row and `CALENDAR_WEEKS` rows of squares, and the
+ * same footer — so it is the calendar's exact size at every width.
+ */
+export function SpendingCalendarSkeleton({ months }: { months: number }) {
+  return (
+    <div className="min-w-0 space-y-3" aria-hidden>
+      <div className={monthsGridClass(months)}>
+        {Array.from({ length: months }, (_, m) => (
+          <div key={m} className="min-w-0 max-w-72">
+            <div className="mb-1.5 flex h-4 items-center">
+              <Skeleton className="h-3 w-16" />
+            </div>
+            <div className="grid grid-cols-7 gap-0.5 sm:gap-1">
+              {Array.from({ length: 7 }, (_, i) => (
+                <span key={`h-${i}`} className="h-4" />
+              ))}
+              {Array.from({ length: CALENDAR_WEEKS * 7 }, (_, i) => (
+                <Skeleton key={i} className="aspect-square rounded-[3px]" />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <CalendarFooter text={POINT_AT} />
+    </div>
+  );
+}
+
+const WEEKDAY_ROW = "grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 text-xs leading-4";
 
 /** Average spending per weekday, the week starting on `firstDay`. */
 export function WeekdayBars({
@@ -148,7 +207,7 @@ export function WeekdayBars({
   return (
     <ul className="space-y-1.5">
       {ordered.map((w) => (
-        <li key={w.weekday} className="grid grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2 text-xs">
+        <li key={w.weekday} className={WEEKDAY_ROW}>
           <span className="text-muted-foreground">{shortWeekday(w.weekday, locale)}</span>
           <span className="h-2 overflow-hidden rounded-full bg-muted">
             <span
@@ -156,7 +215,26 @@ export function WeekdayBars({
               style={{ width: `${(w.average / max) * 100}%` }}
             />
           </span>
-          <span className="tabular-nums">{formatMoney(w.average, currency, locale)}</span>
+          <span className="tabular-nums">{formatRounded(w.average, currency, locale)}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** `WeekdayBars` while it loads, row for row. */
+export function WeekdayBarsSkeleton() {
+  return (
+    <ul className="space-y-1.5" aria-hidden>
+      {Array.from({ length: 7 }, (_, i) => (
+        <li key={i} className={WEEKDAY_ROW}>
+          <span className="flex h-4 items-center">
+            <Skeleton className="h-3 w-7" />
+          </span>
+          <span className="h-2 rounded-full bg-muted" />
+          <span className="flex h-4 items-center">
+            <Skeleton className="h-3 w-12" />
+          </span>
         </li>
       ))}
     </ul>

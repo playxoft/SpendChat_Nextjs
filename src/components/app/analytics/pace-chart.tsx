@@ -120,7 +120,7 @@ export function PaceChart({
 /** The chart's key, in HTML above it. */
 export function PaceLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
         <span aria-hidden className="h-0.5 w-4 rounded-full bg-foreground" /> This month
       </span>

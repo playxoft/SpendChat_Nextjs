@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { profiles, spaceMembers, spaces, transactions, workspaceMembers } from "@/db/schema";
+import { getWorkspaceEntitlements } from "@/lib/entitlements";
 import { getAdvancedAnalytics } from "@/lib/insights-queries";
+import { getProfiles } from "@/lib/queries";
 import { createTxnTag } from "@/services/tags";
 import { signInAs, uid } from "./helpers/session";
 import {
@@ -101,6 +103,30 @@ describe("getAdvancedAnalytics — the plan gate", () => {
     for (const st of statements) expect(st.text).not.toMatch(/"transactions"/); // …and nothing else
   });
 
+  it("takes the plan the page already read — for this workspace only", async () => {
+    const plus = await getWorkspaceEntitlements(W);
+    await setWorkspacePlan(W, "free");
+    const free = { ...plus, plan: "free" as const, limits: { ...plus.limits, advancedAnalytics: false } };
+    // The page's own read decides, without reading the plan again…
+    await expect(getAdvancedAnalytics(U, W, opts(), { entitlements: free })).rejects.toMatchObject({
+      code: "plan_limit",
+    });
+    // …but one for another workspace is ignored, and the plan read afresh.
+    await expect(
+      getAdvancedAnalytics(U, W, opts(), { entitlements: { ...plus, workspaceId: work } }),
+    ).rejects.toMatchObject({ code: "plan_limit" });
+    await setWorkspacePlan(W, "plus");
+    const statements = await captureSql(() => getAdvancedAnalytics(U, W, opts(), { entitlements: plus }));
+    expect(statements.some((st) => /from "workspaces"/.test(st.text))).toBe(false);
+  });
+
+  it("scopes to the profiles the page passes, which are the caller's own list", async () => {
+    const mine = await getProfiles(U, W);
+    const d = await getAdvancedAnalytics(U, W, opts(), { profiles: mine.filter((p) => p.id === work) });
+    expect(d.pace.soFar).toBe(30000);
+    expect(d.breakdown.profiles).toBeNull();
+  });
+
   it("serves Plus and Pro", async () => {
     await expect(getAdvancedAnalytics(U, W, opts())).resolves.toMatchObject({ today: TODAY });
     await setWorkspacePlan(W, "pro");
@@ -140,6 +166,28 @@ describe("getAdvancedAnalytics — the numbers", () => {
     expect(d.calendar.months.map((m) => m.month)).toEqual(["2026-06"]);
     expect(d.calendar.total).toBe(150000 + 2000 + 8000 + 200000 + 30000);
     expect(d.trends.rows[0]).toMatchObject({ name: "Housing", soFar: 150000, usualToDate: 150000 });
+  });
+
+  it("groups a payment whose title carries its month", async () => {
+    const health = await categoryId(A, "Health", "expense");
+    const titles = ["Gym Feb 2026", "Gym March", "Gym - Apr", "Gym May 2026", "Gym (June)"];
+    for (const [i, title] of titles.entries()) {
+      await insertTxn(A, {
+        type: "expense",
+        amountMinor: 4000,
+        occurredOn: `2026-0${i + 2}-15`,
+        categoryId: health,
+        title,
+        profileId: personal,
+      });
+    }
+    const d = await getAdvancedAnalytics(U, W, opts());
+    expect(d.recurring.items.find((r) => r.categoryId === health)).toMatchObject({
+      label: "Gym",
+      typical: 4000,
+      occurrences: 5,
+      nextDate: "2026-07-15",
+    });
   });
 
   it("narrows to one profile, and leaves the per-profile breakdown out", async () => {

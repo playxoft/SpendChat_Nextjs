@@ -10,6 +10,8 @@ import {
   WIDGET_GRID,
   WidgetCardSkeleton,
 } from "@/components/app/analytics/widget";
+import { monthRange, todayISO } from "@/lib/dates";
+import { calendarWindow, monthCount } from "@/lib/insights";
 import { PLAN_LIMITS } from "@/lib/plans";
 
 /**
@@ -23,6 +25,24 @@ import { PLAN_LIMITS } from "@/lib/plans";
  * only). The page passes both when it knows them; in `loading.tsx` they come
  * from the plan the layout already resolved (`usePlan`) and from the URL.
  */
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * The months the spending calendar will show for the URL's range — the page's
+ * own rule (`calendarWindow`), with today from the browser. Only for
+ * `loading.tsx`; the page passes the exact count to its own fallback.
+ */
+function calendarMonthsFromUrl(sp: URLSearchParams | null): number {
+  const today = todayISO();
+  if (sp?.get("span") === "all") return monthCount(calendarWindow(today));
+  const { start, end } = monthRange(today);
+  const from = sp?.get("from");
+  const to = sp?.get("to");
+  return monthCount(
+    calendarWindow(today, from && DATE_RE.test(from) ? from : start, to && DATE_RE.test(to) ? to : end),
+  );
+}
 
 /** Whether the URL's range is the current month (the default view). */
 function rangeIsThisMonth(sp: URLSearchParams | null): boolean {
@@ -54,14 +74,18 @@ function StatCardsSkeleton() {
 export function AnalyticsResultsSkeleton({
   trend,
   budgets,
+  type,
 }: {
   /** The 6-month trend card (Free). Defaults from the plan. */
   trend?: boolean;
   /** Placeholder budget rows; defaults from the workspace's budgets and the URL. */
   budgets?: number;
+  /** The Type filter, which names the category card. Defaults from the URL. */
+  type?: "income" | "expense";
 }) {
   const { plan, addLimits } = usePlan();
   const sp = useSearchParams();
+  const income = (type ?? sp?.get("type")) === "income";
   const showTrend = trend ?? !PLAN_LIMITS[plan].advancedAnalytics;
   const budgetRows =
     budgets ?? (rangeIsThisMonth(sp) ? Math.min(addLimits?.budgets?.used ?? 0, 6) : 0);
@@ -72,7 +96,15 @@ export function AnalyticsResultsSkeleton({
 
       {budgetRows > 0 ? (
         <div className={WIDGET_GRID}>
-          <WidgetCardSkeleton span="full" titleWidth="w-40" descriptionWidth="w-72">
+          <WidgetCardSkeleton
+            span="full"
+            title="Budgets this month"
+            description={
+              <>
+                Spending against each monthly limit. <span className="underline underline-offset-4">Manage budgets</span>
+              </>
+            }
+          >
             <div className="space-y-4">
               {Array.from({ length: budgetRows }, (_, i) => (
                 <div key={i} className="flex items-start gap-3">
@@ -90,7 +122,12 @@ export function AnalyticsResultsSkeleton({
       ) : null}
 
       <div className={WIDGET_GRID}>
-        <WidgetCardSkeleton span="full" titleWidth="w-44" descriptionWidth="w-52" bodyClassName={BODY.categories}>
+        <WidgetCardSkeleton
+          span="full"
+          title={income ? "Income by category" : "Spending by category"}
+          description={`${income ? "Income" : "Expenses"} for the selected range`}
+          bodyClassName={BODY.categories}
+        >
           <div className="flex flex-col items-center gap-6 sm:flex-row">
             <Skeleton className="size-56 shrink-0 rounded-full" />
             <div className="w-full flex-1 space-y-0.5">
@@ -102,7 +139,12 @@ export function AnalyticsResultsSkeleton({
         </WidgetCardSkeleton>
 
         {showTrend ? (
-          <WidgetCardSkeleton span="full" titleWidth="w-28" descriptionWidth="w-36" bodyClassName={BODY.trend}>
+          <WidgetCardSkeleton
+            span="full"
+            title="Last 6 months"
+            description="Income vs. expenses"
+            bodyClassName={BODY.trend}
+          >
             <SkeletonLine className="h-3 w-40" lineClassName="mb-4 h-4" />
             <div className="space-y-3">
               {Array.from({ length: 6 }, (_, i) => (
@@ -124,7 +166,13 @@ export function AnalyticsResultsSkeleton({
 }
 
 /** "Insights & trends" while it loads: locked (Free) or streaming (Plus/Pro). */
-export function InsightsSkeleton({ locked }: { locked?: boolean }) {
+export function InsightsSkeleton() {
   const { plan } = usePlan();
-  return <InsightsSectionSkeleton locked={locked ?? !PLAN_LIMITS[plan].advancedAnalytics} />;
+  const sp = useSearchParams();
+  return (
+    <InsightsSectionSkeleton
+      locked={!PLAN_LIMITS[plan].advancedAnalytics}
+      calendarMonths={calendarMonthsFromUrl(sp)}
+    />
+  );
 }
