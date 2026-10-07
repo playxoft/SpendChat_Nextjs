@@ -343,10 +343,14 @@ export async function askQuestion(
       pgCode: postgresCode(err),
       chatId: existing?.id ?? null,
     });
+    // The answer goes back to the asker — it was paid for — in `details`,
+    // which `runAction` returns but never logs; with it, the count the charge
+    // left, so the "actions left" line still moves.
     throw new ApiError(
       500,
       "ai_chat_not_saved",
-      "Got an answer but couldn't save it — please try again.",
+      "Here's your answer, but it couldn't be saved to this chat.",
+      { answer, ai: { remaining: charge.remaining ?? 0, limit: charge.limit } },
     );
   }
 }

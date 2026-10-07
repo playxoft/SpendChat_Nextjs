@@ -39,6 +39,16 @@ import { AnswerMarkdown } from "./answer-markdown";
 import { askHref } from "./ask-paths";
 import { ChatList } from "./chat-list";
 
+/** The answer and count an `ai_chat_not_saved` failure carries, if well-formed. */
+function unsavedAnswerOf(details: unknown): { answer: string; ai: AiActionsLeft } | null {
+  if (!details || typeof details !== "object") return null;
+  const d = details as { answer?: unknown; ai?: { remaining?: unknown; limit?: unknown } };
+  if (typeof d.answer !== "string" || !d.ai) return null;
+  const { remaining, limit } = d.ai;
+  if (typeof remaining !== "number" || typeof limit !== "number") return null;
+  return { answer: d.answer, ai: { remaining, limit } };
+}
+
 /** Questions that show what Ask is for — tapping one fills the box, it doesn't send. */
 const SUGGESTIONS = [
   "How much did I spend on food last month?",
@@ -80,7 +90,12 @@ export function AskView({
   workspaceName: string;
 }) {
   const router = useRouter();
-  const profile = useSearchParams().get("profile");
+  const searchParams = useSearchParams();
+  const profile = searchParams.get("profile");
+  // The chat in the address bar. Read from the URL rather than the `chatId`
+  // prop because it moves the moment `replaceState` does, before the server
+  // catches up — so "New chat" clicked right after a first answer is seen.
+  const urlChatId = searchParams.get("c");
   const { plan, reportFailure } = usePlan();
   // Ask spends the workspace's shared AI actions, so it takes edit access,
   // like the composer's AI mode. A viewer reads their chats but gets a note
@@ -88,9 +103,9 @@ export function AskView({
   const { canWrite } = usePermissions();
   // The chat on screen: the page's, until a first answer creates one.
   const [currentChatId, setCurrentChatId] = useState(chatId);
-  // The `chatId` prop as last seen, to tell a navigation from the prop
-  // catching up with a chat this view created itself.
-  const [shownChatId, setShownChatId] = useState(chatId);
+  // The URL's chat as last seen, to tell a navigation from the URL catching
+  // up with a chat this view created itself.
+  const [shownUrlChatId, setShownUrlChatId] = useState(urlChatId);
   const [messages, setMessages] = useState(initialMessages);
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -98,15 +113,15 @@ export function AskView({
   const [asking, startAsking] = useTransition();
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  if (chatId !== shownChatId) {
-    setShownChatId(chatId);
+  if (urlChatId !== shownUrlChatId) {
+    setShownUrlChatId(urlChatId);
     // Another chat was opened (the list, "New chat"): start from what the
-    // server read for it. The prop arriving with the id of the chat this view
-    // just created is no navigation — that chat is already on screen, and so
-    // is anything typed since.
-    if (chatId !== currentChatId) {
-      setCurrentChatId(chatId);
-      setMessages(initialMessages);
+    // server read for it. The URL taking the id of the chat this view just
+    // created is no navigation — that chat is already on screen, and so is
+    // anything typed since.
+    if (urlChatId !== currentChatId) {
+      setCurrentChatId(urlChatId);
+      setMessages(urlChatId === chatId ? initialMessages : []);
       setPendingQuestion(null);
       setText("");
     }
@@ -143,14 +158,14 @@ export function AskView({
   });
   useEffect(() => {
     const prev = lastScroll.current;
-    lastScroll.current = { chat: shownChatId, count };
+    lastScroll.current = { chat: shownUrlChatId, count };
     if (count === 0) return;
-    const opened = prev.chat !== shownChatId || count - prev.count > 2;
+    const opened = prev.chat !== shownUrlChatId || count - prev.count > 2;
     window.scrollTo({
       top: document.documentElement.scrollHeight,
       behavior: opened ? "instant" : "smooth",
     });
-  }, [count, shownChatId]);
+  }, [count, shownUrlChatId]);
 
   function ask(raw: string) {
     const question = raw.trim();
@@ -165,6 +180,22 @@ export function AskView({
       // and above all, no navigation back to it.
       if (!mounted.current || currentChatRef.current !== askedIn) return;
       setPendingQuestion(null);
+      if (!res.ok && res.code === "ai_chat_not_saved") {
+        // Paid for and answered, just not stored: show it (it won't be there
+        // after a reload) and count the action it cost.
+        const unsaved = unsavedAnswerOf(res.details);
+        if (unsaved) {
+          setAiLeft(unsaved.ai);
+          const at = new Date().toISOString();
+          setMessages((m) => [
+            ...m,
+            { id: `unsaved-q-${at}`, role: "user", content: question, createdAt: at },
+            { id: `unsaved-a-${at}`, role: "assistant", content: unsaved.answer, createdAt: at },
+          ]);
+        }
+        reportFailure(res);
+        return;
+      }
       if (!res.ok) {
         const limit = planLimitOf(res);
         if (limit?.limit === "aiActions" && limit.max !== undefined) {
