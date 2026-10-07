@@ -293,6 +293,7 @@ describe("askAi — what a question costs", () => {
     const { spy } = stubGemini();
     vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
+    vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("APP_ENV", "production");
     signInAs("own");
     await bootstrapUser("own");
@@ -304,7 +305,7 @@ describe("askAi — what a question costs", () => {
     expect(await db().select().from(aiChats)).toHaveLength(0);
   });
 
-  it("outside production with no model, answers with a sample from the data — no provider, no charge, stored like any answer", async () => {
+  it("in dev with no model, answers with a sample from the data — no provider, no charge, stored like any answer", async () => {
     const { spy } = stubGemini();
     vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
@@ -350,6 +351,22 @@ describe("askAi — what a question costs", () => {
     expect(followUp).toMatchObject({ ok: true, created: false });
     expect(await deleteAiChat(res.chat.id)).toEqual({ ok: true });
     expect(await ledger("own")).toEqual([]);
+  });
+
+  it("on a deployed Worker with APP_ENV unset, fails plainly instead of handing out samples", async () => {
+    const { spy } = stubGemini();
+    vi.stubEnv("AI_CHAT_MODEL", "");
+    vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_ENV", undefined);
+    signInAs("own");
+    await bootstrapUser("own");
+
+    const res = await askAi({ question: "How much on food?" });
+    expect(res).toMatchObject({ ok: false, code: "ai_unavailable", error: CHAT_UNAVAILABLE_MESSAGE });
+    expect(spy).not.toHaveBeenCalled();
+    expect(await ledger("own")).toEqual([]);
+    expect(await db().select().from(aiChats)).toHaveLength(0);
   });
 
   it("keeps edit access required for samples too", async () => {
