@@ -32,7 +32,7 @@ import {
   updateSplitWorkspaceEntry,
 } from "@/actions/split";
 import type { SplitViewer } from "@/lib/split-access";
-import { balanceChipText, compareFeed, feedCursor, mergeFeed } from "@/lib/split-display";
+import { balanceChipText, compareFeed, feedCursor, keepThroughRefresh, mergeFeed } from "@/lib/split-display";
 import { formatDateLabel, formatDateShort } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { SPLIT_FEED_PAGE } from "@/lib/validation";
@@ -108,7 +108,11 @@ export function SplitChat({
     setTotal(feedTotal);
     if (older[0]) {
       if (firstPage.length === 0) setOlder([]);
-      else setResync({ page: firstPage, until: older[0] });
+      else {
+        const kept = keepThroughRefresh(older, seen);
+        setOlder(kept);
+        setResync({ page: firstPage, until: kept[0] ?? older[0] });
+      }
     }
   }
   const items = mergeFeed(older, firstPage);
@@ -118,8 +122,9 @@ export function SplitChat({
     if (!resync) return;
     let cancelled = false;
     void (async () => {
-      // Walk back from the new page's oldest item until we pass where the
-      // earlier pages reached (or run out). Usually one read.
+      // Walk back from the new page's oldest item until we pass the oldest one
+      // that was on screen (or reach the start) — one read per earlier page
+      // loaded, never further. If a read fails, what's on screen stays.
       let reread: SplitFeedItem[] = [];
       let from = resync.page[0];
       while (from) {

@@ -111,3 +111,13 @@ export function mergeFeed<T extends FeedPlaced>(previous: readonly T[], page: re
   const onPage = new Set(page.map((i) => i.id));
   return [...previous.filter((i) => !onPage.has(i.id) && compareFeed(i, oldest) < 0), ...page];
 }
+
+/**
+ * At a refresh, fold the page that was newest into what "Show earlier" loaded,
+ * until the re-read behind the new newest page lands. An item the new page
+ * pushed off is otherwise in neither list — and if that re-read fails, it
+ * would stay gone, with "Show earlier" paging from below it.
+ */
+export function keepThroughRefresh<T extends FeedPlaced>(older: readonly T[], previousPage: readonly T[]): T[] {
+  return previousPage.length > 0 ? mergeFeed(older, previousPage) : [...older];
+}
