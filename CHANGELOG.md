@@ -18,6 +18,57 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.37.0] — 2026-10-07
+
+### Added
+- **Ask — chat with your money.** A new page under Tracker (press `C`): ask in
+  plain words — "How much did I spend on food last month?", "Top 5 expenses this
+  month", "Compare this month to last month" — and get the answer from the
+  transactions you can see, with headings, lists and tables. Each question uses
+  1 AI action. Keep as many chats as you like (new, rename, delete); on a
+  computer the list sits right beside the sidebar, on a phone it opens from the
+  top of the page. Your chats are yours alone.
+- **Insights & trends on Analytics (Plus and Pro):** where this month's spending
+  is heading, compared with last month, your usual and a year ago; 12 months of
+  cash flow with your savings rate; category trends; a spending calendar;
+  recurring payments and unusual spends spotted for you; and spending by payee,
+  tag and profile — with short plain-language notes on what changed. Free shows
+  a locked preview with sample numbers. The plan comparison lists it.
+- **A free split bill calculator** at `/tools/split-bill-calculator`: split a
+  dinner, a trip or the flat's bills equally, by exact amounts or by percent,
+  and see who pays whom. No sign-up; it's saved in your browser. Saving,
+  sharing or inviting by email asks you to sign up, and the group comes with
+  you — add everyone's email and it's created in SpendChat in one go.
+- **Feature pages for Budgets, Split and Trash & undo**, each with a live demo.
+- Adding people to a split group shows how many it will hold, out of 50
+  ("4/50"), before you add them.
+
+### Changed
+- **Split groups are now a chat.** Expenses appear as messages — what you paid
+  on the right — with who paid, how it's split and where you stand ("You lent
+  ₹1,200", "You owe ₹300", "Not involved"); payments are small lines in the
+  conversation. Add an expense from the bottom of the group like adding a
+  transaction. The header shows where you stand — "You're owed ₹1,200", "You
+  owe ₹300" or "Settled Up" — and opens balances and settling up in one tap.
+  The Split page reads like a chat list, most recent first.
+- **The AI box on the tracker shows how many AI actions are left this month**
+  ("38 of 50 AI actions left this month") and updates after every use; at zero
+  it shows how to upgrade.
+- Click a slice in "Spending by category" and it grows while the rest fade,
+  with its name, amount and share in the middle; legend rows select a category
+  too, by mouse or keyboard.
+- The phone's bottom bar has five slots — Tracker, Ask, Transactions, Split and
+  More (Analytics, Budgets, Files) — so every label fits.
+- `/compare/splitwise` describes SpendChat's Split, and where Splitwise is still
+  ahead.
+
+### Fixed
+- Menu items never wrap onto two lines any more — menus widen to fit their
+  longest item.
+- Analytics no longer widens when the data arrives: the loading placeholders
+  match the final cards.
+- Clicking the category chart no longer draws a box around it.
+
 ## [0.36.1] — 2026-10-07
 
 ### Changed
