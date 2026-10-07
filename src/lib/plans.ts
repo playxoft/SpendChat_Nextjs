@@ -61,6 +61,13 @@ export type PlanLimits = {
   profileLevelAccess: boolean;
   /** Pay-as-you-go AI top-ups (`TOPUP`). */
   topUps: boolean;
+  /**
+   * The analytics page's "Insights & trends": month-end projection, 12-month
+   * cash flow, category trends, the spending calendar, recurring payments and
+   * unusual spends. Free keeps the overview, the category breakdown, the
+   * 6-month trend and budgets.
+   */
+  advancedAnalytics: boolean;
 };
 
 export const PLAN_LIMITS: Record<PersonalPlan, PlanLimits> = {
@@ -77,6 +84,7 @@ export const PLAN_LIMITS: Record<PersonalPlan, PlanLimits> = {
     fileTrash: false,
     profileLevelAccess: false,
     topUps: false,
+    advancedAnalytics: false,
   },
   plus: {
     members: 5,
@@ -91,6 +99,7 @@ export const PLAN_LIMITS: Record<PersonalPlan, PlanLimits> = {
     fileTrash: true,
     profileLevelAccess: true,
     topUps: true,
+    advancedAnalytics: true,
   },
   pro: {
     members: 10,
@@ -105,12 +114,13 @@ export const PLAN_LIMITS: Record<PersonalPlan, PlanLimits> = {
     fileTrash: true,
     profileLevelAccess: true,
     topUps: true,
+    advancedAnalytics: true,
   },
 };
 
 /** The cheapest plan that unlocks a boolean feature — what an upgrade hint names. */
 export function lowestPlanWith(
-  feature: "voice" | "fileTrash" | "profileLevelAccess" | "topUps",
+  feature: "voice" | "fileTrash" | "profileLevelAccess" | "topUps" | "advancedAnalytics",
 ): PersonalPlan {
   return PERSONAL_PLANS.find((p) => PLAN_LIMITS[p][feature]) ?? "pro";
 }

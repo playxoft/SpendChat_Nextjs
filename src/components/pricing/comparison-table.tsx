@@ -53,6 +53,11 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
         { label: "Chat-style entry & bulk add", cell: everywhere(true) },
         { label: "Filters, analytics & search", cell: everywhere(true) },
         {
+          label: "Insights and trends",
+          hint: "Month-end projection, 12 months of cash flow, category trends, a spending calendar, and the recurring payments and unusual spends it spots for you.",
+          cell: (p) => PLAN_LIMITS[p].advancedAnalytics,
+        },
+        {
           label: "Categories",
           hint: `Including the ${count(DEFAULT_CATEGORIES.length)} starter ones.`,
           cell: (p) => count(PLAN_LIMITS[p].categories),

@@ -100,7 +100,10 @@ const NOUNS = {
 type MeterKind = keyof typeof NOUNS;
 
 /** "Plus and Pro" / "Plus or Pro" — the paid plans, named from the catalogue. */
-function paidPlans(join: "and" | "or", feature?: "profileLevelAccess" | "fileTrash"): string {
+function paidPlans(
+  join: "and" | "or",
+  feature?: "profileLevelAccess" | "fileTrash" | "advancedAnalytics",
+): string {
   const names = PERSONAL_PLANS.filter((p) =>
     feature ? PLAN_LIMITS[p][feature] : p !== "free",
   ).map((p) => PLAN_NAMES[p]);
@@ -194,6 +197,19 @@ export function fileTrashLock(plan: PersonalPlan): AddLock {
     reason: `On ${PLAN_NAMES[plan]}, deleting a file or folder is final. ${on} keep them in the trash for 30 days.`,
     cta: cta(upgradeTo),
     info: { limit: "fileTrash", plan, upgradeTo },
+  };
+}
+
+/** The analytics page's "Insights & trends" section, on a plan without it. */
+export function advancedAnalyticsLock(plan: PersonalPlan): AddLock {
+  const upgradeTo =
+    PERSONAL_PLANS.find((p) => planAtLeast(p, plan) && PLAN_LIMITS[p].advancedAnalytics) ?? null;
+  const on = paidPlans("and", "advancedAnalytics");
+  return {
+    title: `Insights and trends are on ${on}`,
+    reason: `See your month-end projection, 12-month cash flow, category trends, recurring payments and unusual spends on ${on}.`,
+    cta: cta(upgradeTo),
+    info: { limit: "advancedAnalytics", plan, upgradeTo },
   };
 }
 

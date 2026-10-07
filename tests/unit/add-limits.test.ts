@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { PLAN_LIMITS, type PersonalPlan } from "@/lib/plans";
 import {
   addLock,
+  advancedAnalyticsLock,
   newWorkspaceLock,
   profileAccessLock,
   readOnlyLock,
@@ -216,5 +217,17 @@ describe("addLock", () => {
       .concat(readOnlyLock("free"), addLock({ ...limits, canCreateFreeWorkspace: false }, "workspaces"))
       .flatMap((l) => (l ? [l.title, l.reason] : []));
     for (const t of texts) expect(t).not.toMatch(/grace|grandfather|delet/i);
+  });
+});
+
+describe("advancedAnalyticsLock", () => {
+  it("names the plans that include insights and opens the upgrade dialog for Plus", () => {
+    const lock = advancedAnalyticsLock("free");
+    expect(lock.title).toBe("Insights and trends are on Plus and Pro");
+    expect(lock.cta).toBe("Upgrade");
+    expect(lock.info).toEqual({ limit: "advancedAnalytics", plan: "free", upgradeTo: "plus" });
+    expect(limitPitch(lock.info).pitch).toMatch(/^Plus adds a month-end projection/);
+    expect(PLAN_LIMITS.free.advancedAnalytics).toBe(false);
+    expect(PLAN_LIMITS.plus.advancedAnalytics && PLAN_LIMITS.pro.advancedAnalytics).toBe(true);
   });
 });

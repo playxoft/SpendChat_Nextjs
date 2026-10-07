@@ -85,6 +85,10 @@ Authentication, secrets via Doppler.
   ship — there is no grace period. The UI reads `getAddLimits` to show a limit *before* a
   create form is submitted. AI actions are a monthly allowance per workspace counted from
   `ai_usage_log.units`. Until billing exists, `pnpm plan:set:dev` changes a dev workspace's plan.
+  Analytics' "Insights & trends" (`advancedAnalytics`, Plus+) is a read gate, not an add
+  limit: `getAdvancedAnalytics` (`src/lib/insights-queries.ts`) asserts it before reading
+  anything, the judgement maths (projection, unusual, recurring) is pure in `src/lib/insights.ts`,
+  and Free sees the same section over `insights-sample.ts` numbers, locked.
   Transaction/profile reads scope to accessible profiles in the *current* workspace
   (`user_settings.last_workspace_id`, `X-Workspace-Id` header on the API); `transactions.user_id`
   is attribution, not access. Categories and tags are **per-workspace** (shared by every member;
