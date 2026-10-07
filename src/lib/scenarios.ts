@@ -248,6 +248,13 @@ export const FEATURE_SCENARIOS: Record<string, Scenario[]> = {
       place: "Cape Town",
       body: "The balance says one thing and your memory of the month says another. A category breakdown closes that gap quickly, and it tends to close it with one line item you'd rather it hadn't.",
     },
+    {
+      id: "analytics-pace",
+      icon: "ChartColumn",
+      label: "Week two, not payday",
+      place: "Lisbon",
+      body: "The statement arrives after the money has gone. A month-end projection on the 12th — what's gone out, plus what the rest of a month usually costs — is the version you can still act on.",
+    },
   ],
   budgets: [
     {
