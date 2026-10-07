@@ -81,7 +81,7 @@ const faqs = [
   },
   {
     q: "Can I keep a budget in SpendChat?",
-    a: "Yes, a simple one — not envelopes. Set a monthly limit for the whole workspace, one profile or one category, watch it fill up on the Budgets page, and get a heads-up in the app and by email at 80% and 100%. What SpendChat doesn't do is assign every unit of income to a job before it's spent; if you want that discipline, YNAB is built for exactly that.",
+    a: "Yes, a simple one — not envelopes. Set a monthly limit for the whole workspace, a space, one profile or one category, watch it fill up on the Budgets page, and get a heads-up in the app and by email at 80% and 100%. What SpendChat doesn't do is assign every unit of income to a job before it's spent; if you want that discipline, YNAB is built for exactly that.",
   },
 ];
 

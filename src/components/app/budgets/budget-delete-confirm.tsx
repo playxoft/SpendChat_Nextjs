@@ -27,7 +27,7 @@ export function BudgetDeleteConfirm({
   onOpenChange,
   onDeleted,
 }: {
-  budget: { id: string; label: string } | null;
+  budget: { id: string; title: string } | null;
   open: boolean;
   onOpenChange: (v: boolean) => void;
   /** After a successful delete (e.g. to close the edit dialog behind it). */
@@ -54,7 +54,7 @@ export function BudgetDeleteConfirm({
     <AlertDialog open={open} onOpenChange={(o) => !pending && onOpenChange(o)}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete the {budget?.label ?? ""} budget?</AlertDialogTitle>
+          <AlertDialogTitle>Delete “{budget?.title ?? ""}”?</AlertDialogTitle>
           <AlertDialogDescription>
             Its limit and alerts go. Your transactions aren&apos;t touched, and you can set a new
             budget any time.

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { BUDGET_SCOPES, isMonthKey } from "./budgets";
+import { BUDGET_DESCRIPTION_MAX, BUDGET_SCOPES, BUDGET_TITLE_MAX, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
 import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX } from "./split-import";
@@ -1350,39 +1350,64 @@ export const budgetMonthSchema = z
 
 const budgetEmailAlertsSchema = z.boolean().optional();
 
+/** What people call a budget ("Groceries this month"). */
+export const budgetTitleSchema = z
+  .string()
+  .trim()
+  .min(1, "Give the budget a title")
+  .max(BUDGET_TITLE_MAX, `Title is too long (max ${BUDGET_TITLE_MAX} characters)`);
+
+/** An optional note; blank clears it. */
+export const budgetDescriptionSchema = z
+  .string()
+  .trim()
+  .max(BUDGET_DESCRIPTION_MAX, `Description is too long (max ${BUDGET_DESCRIPTION_MAX} characters)`)
+  .transform((v) => (v === "" ? null : v));
+
+/** The fields every new budget shares. A missing title gets the suggested one. */
+const newBudgetFields = {
+  amount: amountSchema,
+  emailAlerts: budgetEmailAlertsSchema,
+  title: budgetTitleSchema.optional(),
+  description: budgetDescriptionSchema.nullish(),
+};
+
 /**
- * A new monthly budget: the whole workspace, one profile, or one expense
- * category. `amount` is in major units of the workspace currency, like a
- * transaction's.
+ * A new monthly budget: the whole workspace, one space, one profile, or one
+ * expense category. `amount` is in major units of the workspace currency, like
+ * a transaction's.
  */
 export const createBudgetSchema = z.discriminatedUnion("scope", [
-  z.object({
-    scope: z.literal("workspace"),
-    amount: amountSchema,
-    emailAlerts: budgetEmailAlertsSchema,
-  }),
-  z.object({
-    scope: z.literal("profile"),
-    profileId: z.string().uuid("Pick a profile"),
-    amount: amountSchema,
-    emailAlerts: budgetEmailAlertsSchema,
-  }),
+  z.object({ scope: z.literal("workspace"), ...newBudgetFields }),
+  z.object({ scope: z.literal("space"), spaceId: z.string().uuid("Pick a space"), ...newBudgetFields }),
+  z.object({ scope: z.literal("profile"), profileId: z.string().uuid("Pick a profile"), ...newBudgetFields }),
   z.object({
     scope: z.literal("category"),
     categoryId: z.string().uuid("Pick a category"),
-    amount: amountSchema,
-    emailAlerts: budgetEmailAlertsSchema,
+    ...newBudgetFields,
   }),
 ]);
 export type CreateBudgetInput = z.input<typeof createBudgetSchema>;
 
-/** Change a budget's amount or its email alerts. What it covers is fixed. */
+/**
+ * Change a budget's amount, email alerts, title or description (null or blank
+ * clears it). What it covers is fixed.
+ */
 export const updateBudgetSchema = z
   .object({
     amount: amountSchema.optional(),
     emailAlerts: z.boolean().optional(),
+    title: budgetTitleSchema.optional(),
+    description: budgetDescriptionSchema.nullish(),
   })
-  .refine((v) => v.amount !== undefined || v.emailAlerts !== undefined, "Nothing to update");
+  .refine(
+    (v) =>
+      v.amount !== undefined ||
+      v.emailAlerts !== undefined ||
+      v.title !== undefined ||
+      v.description !== undefined,
+    "Nothing to update",
+  );
 export type UpdateBudgetInput = z.input<typeof updateBudgetSchema>;
 
 // ── Ask (AI chat over your transactions) ───────────────────────────────────

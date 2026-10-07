@@ -122,8 +122,10 @@ Authentication, secrets via Doppler.
   `createTransactionId` (so budget checks fire) and links it on `split_shares.transaction_id`;
   "Update my entry" / "Remove from my workspace" go through `updateTransaction` /
   `deleteTransaction` (the trash). A trashed linked entry still counts as added.
-- **Budgets** — monthly spending limits for the whole workspace, one profile, or one expense
-  category (across every profile); one per scope; capped per plan (`PLAN_LIMITS.budgets`). Rules
+- **Budgets** — monthly spending limits for the whole workspace, one space (its live profiles as
+  they are now — a moved profile takes its month along), one profile, or one expense category
+  (across every profile); one per scope, each with a title and an optional note; a space budget is
+  deleted with its space; capped per plan (`PLAN_LIMITS.budgets`). Rules
   are pure in `src/lib/budgets.ts`, CRUD in `src/services/budgets.ts`. **Every budget number comes
   from `getMonthExpenseMatrix` (`src/lib/budget-spend.ts`)** — its one `where` decides which
   transactions count (expenses only, the calendar month of `occurred_on`, every profile of the

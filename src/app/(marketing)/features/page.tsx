@@ -218,7 +218,7 @@ const groups = [
       {
         icon: PiggyBank,
         title: "Budgets that speak up",
-        body: `Set a monthly budget for the whole workspace, one profile or one category. The bar turns amber at 80% and red at 100%, and admins and whoever set it get an email at each — so you hear about it in week three, not on the statement. ${PLAN_NAMES.free} includes ${budgetsAllowance("free")}; ${PLAN_NAMES.plus} and ${PLAN_NAMES.pro} include more.`,
+        body: `Set a monthly budget for the whole workspace, a space, one profile or one category. The bar turns amber at 80% and red at 100%, and admins and whoever set it get an email at each — so you hear about it in week three, not on the statement. ${PLAN_NAMES.free} includes ${budgetsAllowance("free")}; ${PLAN_NAMES.plus} and ${PLAN_NAMES.pro} include more.`,
       },
       {
         icon: Search,

@@ -628,11 +628,14 @@ Gmail dots don't make a new person).
 ```jsonc
 {
   "id": "uuid",
-  "scope": "workspace" | "profile" | "category",
+  "scope": "workspace" | "space" | "profile" | "category",   // space: since 6.10.0
   "profileId": "uuid" | null,     // set when scope = profile
   "categoryId": "uuid" | null,    // set when scope = category (an expense category)
-  "label": "Groceries",           // "Whole workspace", or the profile's / category's name
-  "icon": "🛒" | null,            // the profile's / category's emoji
+  "spaceId": "uuid" | null,       // set when scope = space (6.10.0)
+  "title": "Groceries this month",  // what people call it, ≤ 60 (6.10.0)
+  "description": "Cook at home more" | null,  // optional note, ≤ 140 (6.10.0)
+  "label": "Groceries",           // what it covers: "Whole workspace", or the space's / profile's / category's name
+  "icon": "🛒" | null,            // the space's / profile's / category's emoji
   "period": "monthly",
   "amountMinor": 500000,          // the monthly limit, minor units
   "emailAlerts": true,            // email admins + the creator at 80% / 100%
@@ -649,7 +652,10 @@ Gmail dots don't make a new person).
 ```
 Spending counts **expenses only**, in the calendar month of each transaction's
 `occurredOn`, across **every** profile the budget covers (a category budget
-covers that category in all profiles). A budget is listed only to admins and to
+covers that category in all profiles; a space budget covers every live profile
+in the space **as it is now** — a profile moved to another space takes its
+month with it). A space budget is deleted with its space, like a category
+budget with its category. A budget is listed only to admins and to
 people who can **read every profile it covers** — the same number for everyone
 who sees it. Alerts in the app are yours to draw from `status`; the server
 emails admins and the budget's creator (while they can manage it) once per
@@ -803,8 +809,8 @@ the debug/about screen so a bug report names the exact deploy, and link
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
 | `GET /budgets?month=YYYY-MM` | — | 200 `data: Budget[]`, `meta: { month, currency }` | The budgets the caller can see, the whole workspace first, then profiles, then categories. `month` defaults to the current **UTC** month — send the device's own month. 422 bad `month`. |
-| `POST /budgets` | `BudgetInput` | 201 `data: Budget` | One per scope → **409**. **403 `plan_limit`** (`limit: "budgets"`) past the plan's cap; **403** without write access to every profile it covers; **403 `plan_limit` `freeWorkspaces`** in a view-only workspace. 422 income category, a profile/category not in this workspace (or one you can't read), bad amount. Accepts `?month=` for the returned progress. |
-| `PATCH /budgets/{id}` | `{ amount?, emailAlerts? }` (≥1) | 200 `data: Budget` | What it covers is fixed. 404 when the caller can't see it; 403 when they can see but not manage it. A new amount re-arms this month's alerts it no longer reaches. Accepts `?month=`. |
+| `POST /budgets` | `BudgetInput` | 201 `data: Budget` | One per scope (one per space, profile, category) → **409**. **403 `plan_limit`** (`limit: "budgets"`) past the plan's cap; **403** without write access to every profile it covers; **403 `plan_limit` `freeWorkspaces`** in a view-only workspace. 422 income category, a space/profile/category not in this workspace (or one you can't see), bad amount, bad title/description. No `title` → the suggested one. Accepts `?month=` for the returned progress. |
+| `PATCH /budgets/{id}` | `{ amount?, emailAlerts?, title?, description? }` (≥1; `description: null` or `""` clears it) | 200 `data: Budget` | What it covers is fixed. 404 when the caller can't see it; 403 when they can see but not manage it. A threshold that already fired this month fires again only for an amount above the one it fired at. Accepts `?month=`. |
 | `DELETE /budgets/{id}` | — | 200 `data: { id, deleted: true }` | 404 / 403 as above. Not blocked by a view-only workspace (`canDelete`). |
 
 ### Transactions
@@ -1025,10 +1031,15 @@ are **skipped and counted** (`skipped`), never an error.
 
 ## 8. Request body validation (mirror these client-side)
 
-`BudgetInput` (6.8.0):
-- `scope` — `workspace | profile | category`, **required**.
-- `profileId` — uuid, **required** when `scope = profile`; `categoryId` — uuid of
-  an **expense** category, **required** when `scope = category`.
+`BudgetInput` (6.8.0; `space`, `title`, `description` since 6.10.0):
+- `scope` — `workspace | space | profile | category`, **required**.
+- `spaceId` — uuid of a space you can see, **required** when `scope = space`
+  (managing it needs write access to every live profile in it);
+  `profileId` — uuid, **required** when `scope = profile`; `categoryId` — uuid
+  of an **expense** category, **required** when `scope = category`.
+- `title` — trimmed, 1–60, optional: without one the server uses the suggested
+  title ("All spending this month", "Home space", "Groceries this month").
+- `description` — trimmed, ≤ 140, optional; blank is stored as `null`.
 - `amount` — the monthly limit, same rules as a transaction's `amount` (major
   units, `> 0`, `≤ 999,999,999.99`), **required**.
 - `emailAlerts` — boolean, optional (default `true`).

@@ -40,7 +40,11 @@ export function BudgetManager({
   const [deleting, setDeleting] = useState<BudgetItem | null>(null);
   const lock = useAddLock("budgets");
   const limits = useAddLimits();
-  const anyLeft = choices.workspace || choices.profiles.length > 0 || choices.categories.length > 0;
+  const anyLeft =
+    choices.workspace ||
+    choices.spaces.length > 0 ||
+    choices.profiles.length > 0 ||
+    choices.categories.length > 0;
   const alerts = countAlerts(budgets.map((b) => b.status));
 
   return (
@@ -77,7 +81,7 @@ export function BudgetManager({
           <div className="space-y-1">
             <p className="font-medium">Know before the month runs out</p>
             <p className="max-w-sm text-sm text-muted-foreground">
-              Set a monthly limit for the whole workspace, one profile or one category.
+              Set a monthly limit for the whole workspace, a space, a profile or a category.
               You&apos;ll see it fill up here, and get a heads-up at 80% and 100%.
             </p>
           </div>
@@ -105,7 +109,7 @@ export function BudgetManager({
                         variant="ghost"
                         size="icon-sm"
                         className="text-muted-foreground hover:text-foreground"
-                        aria-label={`Edit the ${budget.label} budget`}
+                        aria-label={`Edit ${budget.title}`}
                         onClick={() => setDialog({ mode: "edit", budget })}
                       >
                         <Pencil className="size-4" />
@@ -115,7 +119,7 @@ export function BudgetManager({
                         variant="ghost"
                         size="icon-sm"
                         className="text-muted-foreground hover:text-foreground"
-                        aria-label={`Delete the ${budget.label} budget`}
+                        aria-label={`Delete ${budget.title}`}
                         onClick={() => setDeleting(budget)}
                       >
                         <Trash2 className="size-4" />

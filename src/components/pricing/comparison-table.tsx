@@ -62,7 +62,7 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
         { label: "Tags", cell: (p) => count(PLAN_LIMITS[p].tags) },
         {
           label: "Monthly budgets",
-          hint: "For the whole workspace, a profile or a category, with alerts at 80% and 100%.",
+          hint: "For the whole workspace, a space, a profile or a category, with alerts at 80% and 100%.",
           cell: (p) => budgetsLimitLabel(p),
         },
         {

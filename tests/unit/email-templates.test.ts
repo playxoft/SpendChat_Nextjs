@@ -351,10 +351,11 @@ function escapeAttr(url: string): string {
 
 describe("budgetAlertEmail", () => {
   const href = `${siteConfig.url}/app/budgets?workspace=ws_1`;
+  const groceries = { title: "Groceries this month", scopeText: "Category · Groceries" };
   const base: BudgetAlertEmailInput = {
     workspaceName: "Home",
     monthLabel: "October 2026",
-    items: [{ label: "Groceries", spentMinor: 412000, amountMinor: 500000, threshold: 80 }],
+    items: [{ ...groceries, spentMinor: 412000, amountMinor: 500000, threshold: 80 }],
     money: { currency: "INR", locale: "en-IN" },
     href,
     reason: "admin",
@@ -363,25 +364,34 @@ describe("budgetAlertEmail", () => {
 
   it("80%: says how much is used, in the workspace's money, in both bodies", () => {
     const mail = budgetAlertEmail(base);
-    expect(mail.subject).toBe("Groceries: 82% of the October 2026 budget used");
+    expect(mail.subject).toBe("82% of the October 2026 budget used: Groceries this month");
     const line = `${inr(412000)} of ${inr(500000)} — 82% used`;
     expect(visibleText(mail.html)).toContain(line);
-    expect(mail.text).toContain(`- Groceries: ${line}`);
-    expect(visibleText(mail.html)).toContain("Groceries is at 82%");
+    expect(mail.text).toContain(`- Groceries this month (Category · Groceries): ${line}`);
+    expect(visibleText(mail.html)).toContain("82% used: Groceries this month");
     expect(mail.text).toContain("You still have room");
+  });
+
+  it("shows the budget's title, what it covers and its note", () => {
+    const mail = budgetAlertEmail({
+      ...base,
+      items: [{ ...groceries, description: "Cook at home", spentMinor: 412000, amountMinor: 500000, threshold: 80 }],
+    });
+    expect(visibleText(mail.html)).toContain("Category · Groceries · Cook at home");
+    expect(mail.text).toContain("- Groceries this month (Category · Groceries · Cook at home):");
   });
 
   it("100%: says how far over, or 'all used' when it's exactly spent", () => {
     const over = budgetAlertEmail({
       ...base,
-      items: [{ label: "Groceries", spentMinor: 560000, amountMinor: 500000, threshold: 100 }],
+      items: [{ ...groceries, spentMinor: 560000, amountMinor: 500000, threshold: 100 }],
     });
-    expect(over.subject).toBe("Groceries is over budget for October 2026");
+    expect(over.subject).toBe("Over budget for October 2026: Groceries this month");
     expect(over.text).toContain(`${inr(60000)} over`);
     expect(over.text).toContain("Nothing is blocked");
     const exact = budgetAlertEmail({
       ...base,
-      items: [{ label: "Groceries", spentMinor: 500000, amountMinor: 500000, threshold: 100 }],
+      items: [{ ...groceries, spentMinor: 500000, amountMinor: 500000, threshold: 100 }],
     });
     expect(exact.text).toContain("— all used");
   });
@@ -390,13 +400,13 @@ describe("budgetAlertEmail", () => {
     const mail = budgetAlertEmail({
       ...base,
       items: [
-        { label: "Whole workspace", spentMinor: 900000, amountMinor: 1000000, threshold: 80 },
-        { label: "Rent", spentMinor: 2500000, amountMinor: 2000000, threshold: 100 },
+        { title: "All spending", scopeText: "Whole workspace", spentMinor: 900000, amountMinor: 1000000, threshold: 80 },
+        { title: "Rent", scopeText: "Space · Flat", spentMinor: 2500000, amountMinor: 2000000, threshold: 100 },
       ],
     });
     expect(mail.subject).toBe("2 budgets in Home need a look");
-    expect(mail.text).toContain("- Whole workspace:");
-    expect(mail.text).toContain("- Rent:");
+    expect(mail.text).toContain("- All spending (Whole workspace):");
+    expect(mail.text).toContain("- Rent (Space · Flat):");
     expect(visibleText(mail.html)).toContain("2 budgets need a look");
   });
 
@@ -413,16 +423,27 @@ describe("budgetAlertEmail", () => {
     expect(creator.text).toContain("turn off its email alerts on the Budgets page");
   });
 
-  it("escapes names people typed — a category or workspace name is never markup", () => {
+  it("escapes what people typed — a title, a note or a workspace name is never markup", () => {
     const mail = budgetAlertEmail({
       ...base,
       workspaceName: `<a href="https://evil.example">Verify</a>`,
-      items: [{ label: "<b>Food</b>", spentMinor: 900, amountMinor: 1000, threshold: 80 }],
+      items: [
+        {
+          title: "<b>Food</b>",
+          scopeText: "Category · <i>x</i>",
+          description: `<img src="https://evil.example/t.gif">`,
+          spentMinor: 900,
+          amountMinor: 1000,
+          threshold: 80,
+        },
+      ],
     });
     expect(mail.html).not.toContain("<b>Food</b>");
+    expect(mail.html).not.toContain("<i>x</i>");
+    expect(mail.html).not.toContain(`<img src="https://evil.example`);
     expect(mail.html).not.toContain(`<a href="https://evil.example">`);
     expect(mail.html).toContain("&lt;b&gt;Food&lt;/b&gt;");
     // The text twin carries the same words, unescaped.
-    expect(mail.text).toContain("- <b>Food</b>:");
+    expect(mail.text).toContain("- <b>Food</b> (Category · <i>x</i> · <img");
   });
 });

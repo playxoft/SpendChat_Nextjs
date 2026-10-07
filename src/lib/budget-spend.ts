@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { and, eq, gte, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import { profiles, transactions } from "@/db/schema";
 import { monthBounds, type SpendCell } from "@/lib/budgets";
@@ -20,8 +20,8 @@ import { notTrashed } from "@/lib/trash-scope";
  *  - **nothing in the trash** — neither a trashed transaction nor anything in
  *   a trashed profile (`notTrashed`, here and nowhere else).
  *
- * `profile_id in (…)` with the month range lets the planner walk
- * `transactions_profile_date_idx` once per profile, the way the feed does.
+ * Joined to the workspace's live profiles with the month range, the planner
+ * walks `transactions_profile_date_idx` once per profile, the way the feed does.
  */
 export async function getMonthExpenseMatrix(
   workspaceId: string,
@@ -29,31 +29,31 @@ export async function getMonthExpenseMatrix(
   db: Pick<ReturnType<typeof getDb>, "select"> = getDb(),
 ): Promise<SpendCell[]> {
   const { first, last } = monthBounds(monthKey);
+  // Each profile's space is read as it is *now*: a space budget measures the
+  // profiles in the space today, so moving a profile moves its month with it.
   const rows = await db
     .select({
       profileId: transactions.profileId,
+      spaceId: profiles.spaceId,
       categoryId: transactions.categoryId,
       total: sql<string>`sum(${transactions.amountMinor})::text`,
     })
     .from(transactions)
+    .innerJoin(profiles, eq(profiles.id, transactions.profileId))
     .where(
       and(
         notTrashed(transactions),
-        inArray(
-          transactions.profileId,
-          db
-            .select({ id: profiles.id })
-            .from(profiles)
-            .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles))),
-        ),
+        eq(profiles.workspaceId, workspaceId),
+        notTrashed(profiles),
         eq(transactions.type, "expense"),
         gte(transactions.occurredOn, first),
         lte(transactions.occurredOn, last),
       ),
     )
-    .groupBy(transactions.profileId, transactions.categoryId);
+    .groupBy(transactions.profileId, profiles.spaceId, transactions.categoryId);
   return rows.map((r) => ({
     profileId: r.profileId,
+    spaceId: r.spaceId,
     categoryId: r.categoryId,
     totalMinor: Number(r.total),
   }));
