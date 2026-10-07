@@ -711,7 +711,7 @@ describe("split expenses, balances and settling up", () => {
     });
   });
 
-  it("0042's backfill gives an expense from before payers one payer row for the whole amount", async () => {
+  it("0043's backfill gives an expense from before payers one payer row for the whole amount", async () => {
     const { id, ownerId, ashaId } = await trio();
     signInAs("o");
     const { id: expenseId } = ok(
@@ -727,6 +727,13 @@ describe("split expenses, balances and settling up", () => {
     const before = (await split.getGroupDetail(uid("o"), id)).members.map((m) => m.netMinor);
     // As it was before the migration: no payer rows at all.
     await db().delete(splitExpensePayers).where(eq(splitExpensePayers.expenseId, expenseId));
+    // Until it runs, the view and the balances read it the same way: the main
+    // payer paid it all, and the balances still sum to zero.
+    const { expense } = await ledger.getExpense(uid("o"), id, expenseId);
+    expect(expense.payers).toEqual([{ memberId: ashaId, name: "ASHA", amountMinor: 5000 }]);
+    const nets = (await split.getGroupDetail(uid("o"), id)).members.map((m) => m.netMinor);
+    expect(nets).toEqual(before);
+    expect(nets.reduce((a, n) => a + n, 0)).toBe(0);
     const migration = readFileSync(path.resolve(process.cwd(), "src/db/migrations/0043_split_payers.sql"), "utf8");
     const backfill = migration.slice(migration.indexOf("-- ── Backfill (hand-written)"));
     expect(backfill).toContain("INSERT INTO");
@@ -735,6 +742,67 @@ describe("split expenses, balances and settling up", () => {
       { expenseId, memberId: ashaId, amountMinor: 5000 },
     ]);
     expect((await split.getGroupDetail(uid("o"), id)).members.map((m) => m.netMinor)).toEqual(before);
+  });
+
+  it("an edit with only the older paidBy can't wipe the other payers' credit", async () => {
+    const { id, ownerId, ashaId, raviId } = await trio();
+    signInAs("o");
+    const body = {
+      title: "Villa",
+      amount: 90,
+      occurredOn: today,
+      splitType: "equal" as const,
+      memberIds: [ownerId, ashaId, raviId],
+    };
+    const { id: expenseId } = ok(
+      await actions.createSplitExpense(id, {
+        ...body,
+        payers: [
+          { memberId: ownerId, amount: 30 },
+          { memberId: ashaId, amount: 60 },
+        ],
+      }),
+    );
+    const payers = async () => (await ledger.getExpense(uid("o"), id, expenseId)).expense.payers;
+    const before = await payers();
+
+    // The main payer (Asha) and the same amount: an edit of something else — the payers stay.
+    ok(await actions.updateSplitExpense(id, expenseId, { ...body, title: "Villa (2 nights)", paidBy: ashaId }));
+    expect(await payers()).toEqual(before);
+    expect((await ledger.getExpense(uid("o"), id, expenseId)).expense.title).toBe("Villa (2 nights)");
+
+    // Another payer, or a new amount, needs `payers`.
+    for (const change of [{ paidBy: ownerId }, { paidBy: ashaId, amount: 120 }]) {
+      await expect(ledger.updateExpense(uid("o"), id, expenseId, { ...body, ...change })).rejects.toMatchObject({
+        status: 422,
+        code: "payers_required",
+      });
+    }
+    expect(await payers()).toEqual(before);
+
+    // With `payers`, anything goes — including back to one payer.
+    ok(await actions.updateSplitExpense(id, expenseId, { ...body, payers: [{ memberId: raviId }] }));
+    expect(await payers()).toEqual([{ memberId: raviId, name: "RAVI", amountMinor: 9000 }]);
+  });
+
+  it("an edit or delete locks the expense before reading its shares and payers", async () => {
+    const { id, ownerId, ashaId } = await trio();
+    signInAs("o");
+    const body = { title: "Taxi", amount: 20, occurredOn: today, splitType: "equal" as const, memberIds: [ownerId, ashaId] };
+    const { id: expenseId } = ok(await actions.createSplitExpense(id, { ...body, paidBy: ownerId }));
+    const statements = await captureSql(() => ledger.updateExpense(uid("o"), id, expenseId, { ...body, paidBy: ashaId }));
+    const lockAt = statements.findIndex((q) => /from "split_expenses".*for update/is.test(q.text));
+    const sharesAt = statements.findIndex((q) => /^select.*from "split_shares"/is.test(q.text));
+    const payersAt = statements.findIndex((q) => /^select.*from "split_expense_payers"/is.test(q.text));
+    expect(lockAt).toBeGreaterThanOrEqual(0);
+    expect(sharesAt).toBeGreaterThan(lockAt);
+    expect(payersAt).toBeGreaterThan(lockAt);
+
+    const deleting = await captureSql(() => ledger.deleteExpense(uid("o"), id, expenseId));
+    const deleteLockAt = deleting.findIndex((q) => /from "split_expenses".*for update/is.test(q.text));
+    const deleteAt = deleting.findIndex((q) => /^delete from "split_expenses"/is.test(q.text));
+    expect(deleteLockAt).toBeGreaterThanOrEqual(0);
+    expect(deleteAt).toBeGreaterThan(deleteLockAt);
   });
 });
 

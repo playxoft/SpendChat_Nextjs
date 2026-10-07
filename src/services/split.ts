@@ -1,6 +1,6 @@
 import "server-only";
 import { cache } from "react";
-import { and, asc, count, desc, eq, gt, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, inArray, isNull, ne, or, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
 import {
@@ -195,13 +195,39 @@ function toTotals(rows: { memberId: string; total: number }[]): Totals {
   return Object.fromEntries(rows.map((r) => [r.memberId, r.total]));
 }
 
-const sumMinor = (
-  col:
-    | typeof splitExpensePayers.amountMinor
-    | typeof splitShares.amountMinor
-    | typeof splitSettlements.amountMinor,
-) =>
+const sumMinor = (col: AnyColumn | SQL.Aliased) =>
   sql<number>`coalesce(sum(${col}), 0)::bigint`.mapWith(Number);
+
+/**
+ * What each expense's payers paid: its `split_expense_payers` rows — or, for an
+ * expense with none (written before 0.38.0, or a row lost some other way), its
+ * main payer for the whole amount. The one rule the balances and every view of
+ * an expense share, so a payer-less expense credits the same person
+ * everywhere and the balances still sum to zero. A subquery: filter it by
+ * `expenseId` or `memberId` (Postgres pushes either into both arms).
+ */
+export function effectivePayers(db: DbOrTx) {
+  return db
+    .select({
+      expenseId: splitExpensePayers.expenseId,
+      memberId: splitExpensePayers.memberId,
+      amountMinor: splitExpensePayers.amountMinor,
+    })
+    .from(splitExpensePayers)
+    .unionAll(
+      db
+        .select({
+          expenseId: splitExpenses.id,
+          memberId: splitExpenses.paidByMemberId,
+          amountMinor: splitExpenses.amountMinor,
+        })
+        .from(splitExpenses)
+        // An anti-join, built with the query builder so every column is qualified.
+        .leftJoin(splitExpensePayers, eq(splitExpensePayers.expenseId, splitExpenses.id))
+        .where(isNull(splitExpensePayers.expenseId)),
+    )
+    .as("paid");
+}
 
 /**
  * Per-member ledger sums for some members — four `GROUP BY` queries, never a
@@ -209,13 +235,14 @@ const sumMinor = (
  */
 async function ledgerTotals(memberIds: string[], db: DbOrTx) {
   if (memberIds.length === 0) return { paid: {}, owed: {}, sent: {}, received: {} };
+  const payers = effectivePayers(db);
   const [paid, owed, sent, received] = await Promise.all([
     db
       // Each payer is credited with what they paid (one row for a single payer).
-      .select({ memberId: splitExpensePayers.memberId, total: sumMinor(splitExpensePayers.amountMinor) })
-      .from(splitExpensePayers)
-      .where(inArray(splitExpensePayers.memberId, memberIds))
-      .groupBy(splitExpensePayers.memberId),
+      .select({ memberId: payers.memberId, total: sumMinor(payers.amountMinor) })
+      .from(payers)
+      .where(inArray(payers.memberId, memberIds))
+      .groupBy(payers.memberId),
     db
       .select({ memberId: splitShares.memberId, total: sumMinor(splitShares.amountMinor) })
       .from(splitShares)
@@ -347,13 +374,14 @@ async function lastActivities(
       .where(inArray(splitSettlements.groupId, groupIds))
       .orderBy(splitSettlements.groupId, desc(splitSettlements.createdAt), desc(splitSettlements.id)),
   ]);
+  const payersOf = effectivePayers(db);
   const paid = expenses.length
     ? await db
         .select()
-        .from(splitExpensePayers)
+        .from(payersOf)
         .where(
           inArray(
-            splitExpensePayers.expenseId,
+            payersOf.expenseId,
             expenses.map((e) => e.id),
           ),
         )
@@ -383,10 +411,8 @@ async function lastActivities(
       amountMinor: e.amountMinor,
       payerName: names.get(e.payer) ?? "",
       payerIsYou: myMemberIds.has(e.payer),
-      payers: (paid.some((p) => p.expenseId === e.id)
-        ? paid.filter((p) => p.expenseId === e.id)
-        : [{ memberId: e.payer, amountMinor: e.amountMinor }]
-      )
+      payers: paid
+        .filter((p) => p.expenseId === e.id)
         .sort(
           (a, b) =>
             b.amountMinor - a.amountMinor ||

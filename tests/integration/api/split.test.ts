@@ -339,6 +339,29 @@ describe("/api/v1/split", () => {
     expect(both.status).toBe(422);
     const none = await json<unknown>(await post({}));
     expect(none.status).toBe(422);
+
+    // An older client's PUT with one `paidBy` can't collapse the two payers into one.
+    const put = (payload: Record<string, unknown>) =>
+      putExpense(
+        apiReq(`/api/v1/split/groups/${group.id}/expenses/${created.body.data.id}`, {
+          method: "PUT",
+          body: jsonBody({
+            title: "Hotel",
+            amount: 3000,
+            occurredOn: "2026-10-01",
+            splitType: "equal",
+            memberIds: [ownerId, ashaId],
+            ...payload,
+          }),
+        }),
+        ctx({ id: group.id, expenseId: created.body.data.id }),
+      );
+    const collapsed = await json<unknown>(await put({ paidBy: ownerId }));
+    expect(collapsed.status).toBe(422);
+    expect(collapsed.body.error!.code).toBe("payers_required");
+    const kept = await json<Expense>(await put({ paidBy: ashaId, title: "Hotel, 2 nights" }));
+    expect(kept.status).toBe(200);
+    expect(kept.body.data.payers.map((p) => p.amountMinor)).toEqual([2000, 1000]);
   });
 
   it("declines an invitation", async () => {
