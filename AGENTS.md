@@ -227,8 +227,13 @@ Authentication, secrets via Doppler.
   rule come for free — and it rides in the system prompt. One question = one AI
   action (`chargeAiChat`, refunded on our failures). Chats (`ai_chats` /
   `ai_chat_messages`) are **private to their author within a workspace** — admins
-  can't open them; anything else is a 404. Answers are untrusted Markdown: render
-  them only through `AnswerMarkdown` (no HTML, no images, safe links only).
+  can't open them; anything else is a 404. Asking needs edit access (it spends the
+  workspace's shared AI actions). Removal from a workspace (`removeMember`, leaving
+  included) deletes the person's chats there; **narrowing access does not** — a
+  space, profile or role change keeps the chat history, answers included, built
+  from what they could see at the time. Answers are untrusted Markdown: render
+  them only through `AnswerMarkdown` (no HTML, no images, safe links that show
+  their host).
 - Keep the design minimal and neutral (no gradients); income uses a single emerald accent.
   **One exception:** AI affordances (the composer's Manual/AI toggle, AI mode's
   primary actions and Ask's send button) use a blue→violet gradient, so "this calls a model" is visually

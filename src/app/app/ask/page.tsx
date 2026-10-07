@@ -3,7 +3,8 @@ import { notFound } from "next/navigation";
 import { getAppContext } from "@/lib/auth";
 import { isChatConfigured } from "@/lib/ai-chat";
 import { ApiError } from "@/lib/errors";
-import { aiActionsLeftFor, getChat, listChatsForRender } from "@/services/ai-chat";
+import { aiActionsLeftFor, getChat, listChats } from "@/services/ai-chat";
+import { AskPanel } from "@/components/app/ask/ask-panel";
 import { AskView } from "@/components/app/ask/ask-view";
 
 export const dynamic = "force-dynamic";
@@ -16,8 +17,8 @@ export const metadata: Metadata = {
 /**
  * Ask: questions about your money, answered from your transactions. `/app/ask`
  * is a new chat; `/app/ask?c=<id>` opens one of your own (anyone else's is a
- * 404). The chat list sits in the layout's `@panel` slot on desktop and in a
- * sheet on smaller screens.
+ * 404). The chat list is a column beside the sidebar on desktop (`AskPanel`,
+ * part of this page — see there for why) and a sheet on smaller screens.
  */
 export default async function AskPage({
   searchParams,
@@ -30,7 +31,7 @@ export default async function AskPage({
   const configured = isChatConfigured();
 
   const [chats, opened, allowance] = await Promise.all([
-    listChatsForRender(user.id, workspace.id),
+    listChats(user.id, workspace.id),
     chatParam
       ? getChat(user.id, workspace.id, chatParam).catch((err: unknown) => {
           if (err instanceof ApiError && err.status === 404) return null;
@@ -45,17 +46,22 @@ export default async function AskPage({
   if (chatParam && !opened) notFound();
 
   return (
-    <AskView
-      // One mount per chat: opening another one — or the first answer giving a
-      // new chat its id — starts from the stored messages.
-      key={opened?.chat.id ?? "new"}
-      chatId={opened?.chat.id ?? null}
-      title={opened?.chat.title ?? null}
-      initialMessages={opened?.messages ?? []}
-      chats={chats}
-      configured={configured}
-      allowance={allowance}
-      workspaceName={workspace.name}
-    />
+    <div className="flex">
+      <AskPanel chats={chats} />
+      <div className="min-w-0 flex-1">
+        <AskView
+          // No `key`: the view stays mounted when a first answer gives the chat
+          // its id (a draft typed meanwhile survives), and resets itself when
+          // another chat is opened — see `AskView`.
+          chatId={opened?.chat.id ?? null}
+          title={opened?.chat.title ?? null}
+          initialMessages={opened?.messages ?? []}
+          chats={chats}
+          configured={configured}
+          allowance={allowance}
+          workspaceName={workspace.name}
+        />
+      </div>
+    </div>
   );
 }

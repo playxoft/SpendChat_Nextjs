@@ -28,12 +28,7 @@ export const dynamic = "force-dynamic";
 
 export default async function AppLayout({
   children,
-  panel,
-}: Readonly<{
-  children: React.ReactNode;
-  /** A second column beside the sidebar — only Ask has one (`@panel/ask`). */
-  panel: React.ReactNode;
-}>) {
+}: Readonly<{ children: React.ReactNode }>) {
   const { user, settings, workspace } = await getAppContext();
   const email = user.email;
   const [timeZone, country] = await Promise.all([getTimeZone(), requestCountry()]);
@@ -98,7 +93,6 @@ export default async function AppLayout({
         budgetAlerts={budgetAlerts}
         splitInvitations={splitInvitations}
       />
-      {panel}
       <div className="flex min-w-0 flex-1 flex-col">
         <AppTopbar
           email={email}

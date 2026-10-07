@@ -1,6 +1,11 @@
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ANSWER_LINK_REL, safeLinkUrl } from "@/lib/markdown-safety";
+import {
+  ANSWER_LINK_REL,
+  linkDestination,
+  linkTextShowsDestination,
+  safeLinkUrl,
+} from "@/lib/markdown-safety";
 import { cn } from "@/lib/utils";
 
 /**
@@ -12,9 +17,12 @@ import { cn } from "@/lib/utils";
  *   answer can become a tag, a script or an event handler.
  * - **No images.** They'd load on sight, and an image URL can carry data out
  *   without a click. Dropped along with their alt text.
- * - **Safe links only** (`safeLinkUrl`: absolute http, https, mailto), opening
- *   in a new tab with `rel="noopener noreferrer nofollow"`. Anything else
- *   keeps its text and loses the link.
+ * - **Safe links only** (`safeLinkUrl`: absolute http, https, a plain mailto),
+ *   opening in a new tab with `rel="noopener noreferrer nofollow"`. Anything
+ *   else keeps its text and loses the link.
+ * - **Every link shows where it goes**: unless its text already is the URL,
+ *   the host follows it ("View details · x.io ↗"). A note can carry a link
+ *   into a teammate's answer; its text can't hide the destination.
  *
  * Headings shift down two levels (`#` → h3), so an answer can't add a second
  * h1 to the page or outrank the chat's own title. Tables scroll sideways inside
@@ -54,6 +62,14 @@ function props<P extends { node?: unknown; className?: string }>(
   return { ...rest, className: cn(ours, className) };
 }
 
+/** The plain text inside a hast node — what a link actually says on screen. */
+function textOf(node: unknown): string {
+  if (!node || typeof node !== "object") return "";
+  const n = node as { type?: string; value?: unknown; children?: unknown[] };
+  if (n.type === "text" && typeof n.value === "string") return n.value;
+  return Array.isArray(n.children) ? n.children.map(textOf).join("") : "";
+}
+
 const COMPONENTS: Components = {
   h1: (p) => <h3 {...props(p, cn(heading, "text-base"))} />,
   h2: (p) => <h4 {...props(p, cn(heading, "text-base"))} />,
@@ -70,9 +86,10 @@ const COMPONENTS: Components = {
   ),
   li: (p) => <li {...props(p, "pl-0.5")} />,
   strong: (p) => <strong {...props(p, "font-semibold text-foreground")} />,
-  a: ({ href, children, ...p }) => {
+  a: ({ href, children, node, ...p }) => {
     const safe = safeLinkUrl(href);
     if (!safe) return <span>{children}</span>;
+    const showsDestination = linkTextShowsDestination(textOf(node), safe);
     return (
       <a
         {...props(p, "font-medium text-foreground underline underline-offset-2 hover:text-muted-foreground")}
@@ -81,6 +98,14 @@ const COMPONENTS: Components = {
         rel={ANSWER_LINK_REL}
       >
         {children}
+        {!showsDestination && (
+          <span className="font-normal text-muted-foreground"> · {linkDestination(safe)}</span>
+        )}
+        <span aria-hidden className="font-normal text-muted-foreground no-underline">
+          {" "}
+          ↗
+        </span>
+        <span className="sr-only"> (opens in a new tab)</span>
       </a>
     );
   },

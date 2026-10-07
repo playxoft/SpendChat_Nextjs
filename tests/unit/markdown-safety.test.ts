@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ANSWER_LINK_REL, safeLinkUrl } from "@/lib/markdown-safety";
+import {
+  ANSWER_LINK_REL,
+  linkDestination,
+  linkTextShowsDestination,
+  safeLinkUrl,
+} from "@/lib/markdown-safety";
 import { AnswerMarkdown } from "@/components/app/ask/answer-markdown";
 
 /**
@@ -34,10 +39,30 @@ describe("safeLinkUrl", () => {
     "//evil.example/x",
     "#top",
     "https://",
+    "mailto:me@example.com?subject=Refund&body=Click%20here",
+    "mailto:me@example.com?body=hi",
+    "mailto:me@example.com,them@example.com",
+    "mailto:me@example.com%3Fsubject=x",
+    "mailto:",
     "not a url",
     "",
   ])("refuses %j", (raw) => {
     expect(safeLinkUrl(raw)).toBeNull();
+  });
+
+  it("names a link's destination: the host without www, punycode for look-alikes, a mailto's address", () => {
+    expect(linkDestination("https://www.x.io/a?b=1")).toBe("x.io");
+    expect(linkDestination(safeLinkUrl("https://pаypal.com/login")!)).toBe("xn--pypal-4ve.com");
+    expect(linkDestination("mailto:me@example.com")).toBe("me@example.com");
+  });
+
+  it("knows when a link's text already is its destination", () => {
+    expect(linkTextShowsDestination("https://x.io/a", "https://x.io/a")).toBe(true);
+    expect(linkTextShowsDestination("www.x.io", "http://www.x.io/")).toBe(true);
+    expect(linkTextShowsDestination("x.io", "https://x.io/deep/path")).toBe(true);
+    expect(linkTextShowsDestination("me@example.com", "mailto:me@example.com")).toBe(true);
+    expect(linkTextShowsDestination("View details", "https://x.io/a")).toBe(false);
+    expect(linkTextShowsDestination("https://bank.example", "https://evil.example/")).toBe(false);
   });
 
   it("refuses non-strings", () => {
@@ -89,6 +114,26 @@ describe("AnswerMarkdown", () => {
     expect(html).toContain('target="_blank"');
     expect(html).toContain(`rel="${ANSWER_LINK_REL}"`);
     expect(ANSWER_LINK_REL).toBe("noopener noreferrer nofollow");
+  });
+
+  it("shows where a link goes when its text says something else", () => {
+    const text = (html: string) => html.replace(/<[^>]+>/g, "");
+    // A note's disguised link: the text claims one thing, the host says another.
+    const disguised = render("[Your bank — verify now](https://evil.example/login)");
+    expect(text(disguised)).toContain("Your bank — verify now · evil.example ↗");
+    const lookalike = render("[https://bank.example](https://www.bank-example.io/x)");
+    expect(text(lookalike)).toContain("https://bank.example · bank-example.io ↗");
+    // A bare URL (or autolink) already says where it goes — no repeat.
+    const bareUrl = render("<https://example.com/a>");
+    expect(text(bareUrl)).toContain("https://example.com/a ↗");
+    expect(text(bareUrl)).not.toContain("·");
+    // Mailto shows its address; one with a pre-written body isn't a link at all.
+    expect(text(render("[write to us](mailto:help@example.com)"))).toContain(
+      "write to us · help@example.com ↗",
+    );
+    const prewritten = render("[support](mailto:help@example.com?subject=Refund&body=Send%20your%20PIN)");
+    expect(prewritten).not.toContain("<a");
+    expect(prewritten).not.toContain("PIN");
   });
 
   it("keeps an unsafe link's text but not the link", () => {

@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  aiChats,
   profileAccess,
   profileOverrides,
   profiles,
@@ -1191,6 +1192,13 @@ export async function removeMember(
     .returning({ userId: workspaceMembers.userId });
   if (removed.length === 0) throw notFound("Member not found");
   await clearSpaceAccess(db, workspaceId, memberId);
+  // Their Ask chats here go with them (messages cascade): each answer was
+  // built from this workspace's transactions, and someone who can no longer
+  // open the workspace shouldn't keep a copy of what it said. Chats in their
+  // other workspaces are untouched.
+  await db
+    .delete(aiChats)
+    .where(and(eq(aiChats.workspaceId, workspaceId), eq(aiChats.userId, memberId)));
 
   // Don't leave them staring at a workspace they can no longer open.
   await db
