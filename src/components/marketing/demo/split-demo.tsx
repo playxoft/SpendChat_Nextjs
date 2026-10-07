@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ArrowRight, Check } from "lucide-react";
+import { SETTLED_UP } from "@/lib/split-display";
 import { Button } from "@/components/ui/button";
 import { DemoFrame } from "./demo-frame";
 import { DemoReplay } from "./demo-replay";
@@ -154,7 +155,7 @@ export function SplitDemo() {
             </div>
             {settled && (
               <span className="inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium">
-                <Check className="size-3.5" /> Settled Up
+                <Check className="size-3.5" /> {SETTLED_UP}
               </span>
             )}
           </div>
@@ -221,7 +222,7 @@ export function SplitDemo() {
                   <li key={b.memberId} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
                     <span>{nameOf(b.memberId)}</span>
                     {b.netMinor === 0 ? (
-                      <span className="text-xs text-muted-foreground">settled up</span>
+                      <span className="text-xs text-muted-foreground">{SETTLED_UP}</span>
                     ) : b.netMinor > 0 ? (
                       <span className="text-xs tabular-nums text-emerald-600 dark:text-emerald-400">
                         {b.memberId === "m1" ? "you're owed" : "is owed"} {fmt(b.netMinor)}

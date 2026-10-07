@@ -95,7 +95,7 @@ export default function SplitPage() {
         steps={[
           {
             title: "Start a group",
-            body: `Name it, pick its currency, and add people by name and email — up to ${MAX}, you included. They get a link to join.`,
+            body: `Name it, pick its currency, and add people by name and email — up to ${MAX}, you included. Each gets an invite to join.`,
           },
           {
             title: "Add what was spent",
@@ -214,7 +214,7 @@ export default function SplitPage() {
           is free and needs no account: name the group, add people, add
           expenses, and it shows the balances and who pays whom, with the same
           maths as the app. It keeps your draft in your browser. When you want
-          everyone to have the link and see the balance live, create an account
+          everyone to see the balance live, create an account
           and the group comes with you.
         </p>
       </FeatureSection>

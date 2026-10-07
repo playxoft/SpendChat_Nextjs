@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowRight, BellOff, Link2, RefreshCw, type LucideIcon } from "lucide-react";
+import { ArrowRight, BellOff, Mail, RefreshCw, type LucideIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,7 +17,7 @@ import { SPLIT_SIGN_IN_HREF, SPLIT_SIGN_UP_HREF } from "@/lib/split-import";
  * The split calculator's sign-up prompts. Everything a visitor needs to work
  * out who owes whom is free and open; what an account adds is the part a
  * browser tab can't do — other people. So the prompt opens only when the
- * visitor asks for exactly that (save, share a link, invite by email), and
+ * visitor asks for exactly that (save, share with the group, invite by email), and
  * it sells the outcome rather than the account.
  *
  * Both buttons carry `?next=/app/split/import`: the draft lives in this
@@ -33,25 +33,25 @@ const COPY: Record<GateKind, { title: string; lead: string }> = {
     lead: "Create a free account and the group comes with you — everyone in it, every expense, every balance.",
   },
   share: {
-    title: "Send a link that stays up to date",
-    lead: "A screenshot is out of date the moment someone pays for the next round. Save the group and share a link instead.",
+    title: "Share it with the group",
+    lead: "A screenshot is out of date the moment someone pays for the next round. Save the group free and invite everyone — they see the same balances, kept up to date.",
   },
   invite: {
     title: "Invite everyone by email",
-    lead: "Save the group free, add each person's email, and they each get one invite to join.",
+    lead: "Save the group free and add each person's email. Each of them gets an invite — by email, or in the app if they already use SpendChat.",
   },
 };
 
 const OUTCOMES: { icon: LucideIcon; title: string; body: string }[] = [
   {
-    icon: Link2,
-    title: "Everyone gets a link",
-    body: "Each person gets an invite and joins in a click. Nothing to install.",
+    icon: Mail,
+    title: "Everyone gets an invite",
+    body: "By email, or in the app if they already use SpendChat. Joining takes a free account — nothing to install.",
   },
   {
     icon: RefreshCw,
     title: "Everyone sees the balance live",
-    body: "Anyone adds an expense, and the totals update for the whole group.",
+    body: "Once they've joined, anyone adds an expense and the totals update for the whole group.",
   },
   {
     icon: BellOff,

@@ -16,5 +16,5 @@ export const metadata: Metadata = { title: "Bring your group in" };
 export default async function SplitImportPage() {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
-  return <SplitImport locale={workspace.locale} />;
+  return <SplitImport locale={workspace.locale} myEmail={user.email} />;
 }

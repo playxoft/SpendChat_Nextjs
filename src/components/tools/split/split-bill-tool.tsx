@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import {
   ArrowRight,
   Copy,
-  Link2,
+  Share2,
   Mail,
   Pencil,
   Plus,
@@ -24,6 +24,7 @@ import { trackEvent } from "@/lib/analytics";
 import { CURRENCIES } from "@/lib/currencies";
 import { formatMoney } from "@/lib/money";
 import { siteConfig } from "@/lib/site";
+import { SETTLED_UP } from "@/lib/split-display";
 import { SPLIT_SIGN_UP_HREF } from "@/lib/split-import";
 import {
   computeLedger,
@@ -52,7 +53,7 @@ import { SignUpGate, type GateKind } from "./sign-up-gate";
  * spent — and see everyone's balance and who pays whom to settle it,
  * worked out with the app's own split maths. Saved in this browser as you go.
  *
- * What needs other people — saving the group for everyone, a live link,
+ * What needs other people — saving the group for everyone, sharing it,
  * inviting by email — opens a sign-up prompt (`SignUpGate`), and the group
  * carries over to the app after sign-up (`/app/split/import`).
  */
@@ -341,7 +342,7 @@ export function SplitBillTool() {
                 ) : (
                   <p className="mt-2">
                     <span className="inline-flex rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                      Settled Up
+                      {SETTLED_UP}
                     </span>
                   </p>
                 )}
@@ -351,7 +352,7 @@ export function SplitBillTool() {
                 <div className="relative rounded-xl border border-dashed p-4 pr-10">
                   <p className="text-sm font-medium">Send this to the group?</p>
                   <p className="mt-1 text-sm text-muted-foreground">
-                    Save it free and everyone gets a link with the live balance — so nobody has to chase anyone.
+                    Save it free and invite everyone. Once they join, they all see the live balance — so nobody has to chase anyone.
                   </p>
                   <Link
                     href={SPLIT_SIGN_UP_HREF}
@@ -403,7 +404,7 @@ export function SplitBillTool() {
               <Save /> Save group
             </Button>
             <Button type="button" variant="outline" className="h-9 rounded-lg" onClick={() => openGate("share")}>
-              <Link2 /> Share link
+              <Share2 /> Share with the group
             </Button>
             {hasResult && (
               <Button type="button" variant="outline" className="h-9 rounded-lg" onClick={copySummary}>
@@ -446,7 +447,7 @@ export function SplitBillTool() {
 }
 
 function BalanceWords({ netMinor, fmt }: { netMinor: number; fmt: (minor: number) => string }) {
-  if (netMinor === 0) return <span className="shrink-0 text-muted-foreground">settled up</span>;
+  if (netMinor === 0) return <span className="shrink-0 text-muted-foreground">{SETTLED_UP}</span>;
   if (netMinor > 0) {
     return (
       <span className="shrink-0 text-emerald-600 tabular-nums dark:text-emerald-400">gets back {fmt(netMinor)}</span>

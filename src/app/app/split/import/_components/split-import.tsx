@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { clearDraft, useStoredDraft } from "@/components/tools/split/draft-store";
 import { importSplitDraft } from "@/actions/split-import";
 import { formatMoney } from "@/lib/money";
+import { SETTLED_UP } from "@/lib/split-display";
 import {
   buildImportInput,
   computeLedger,
@@ -33,7 +34,7 @@ import { cn } from "@/lib/utils";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-export function SplitImport({ locale }: { locale: string }) {
+export function SplitImport({ locale, myEmail }: { locale: string; myEmail: string | null }) {
   const draft = useStoredDraft();
   if (draft === undefined) return <ImportSkeleton />;
   if (draft === null) return <NothingToImport />;
@@ -43,11 +44,21 @@ export function SplitImport({ locale }: { locale: string }) {
       key={`${draft.people.map((p) => p.id).join(",")}|${draft.expenses.length}`}
       draft={draft}
       locale={locale}
+      myEmail={myEmail}
     />
   );
 }
 
-function ImportForm({ draft, locale }: { draft: SplitDraft; locale: string }) {
+function ImportForm({
+  draft,
+  locale,
+  myEmail,
+}: {
+  draft: SplitDraft;
+  locale: string;
+  /** The signed-in account's address — typing it for someone else is a mix-up. */
+  myEmail: string | null;
+}) {
   const router = useRouter();
   const [name, setName] = useState(draft.name.trim());
   const [meId, setMeId] = useState(draft.people[0]!.id);
@@ -65,10 +76,12 @@ function ImportForm({ draft, locale }: { draft: SplitDraft; locale: string }) {
   function validate(): Record<string, string> {
     const found: Record<string, string> = {};
     const seen = new Map<string, string>();
+    const mine = myEmail?.trim().toLowerCase() || null;
     for (const p of others) {
       const email = (emails[p.id] ?? "").trim().toLowerCase();
       if (!email) found[p.id] = "Add their email";
       else if (!EMAIL.test(email)) found[p.id] = "That doesn't look like an email address";
+      else if (email === mine) found[p.id] = "That's you — pick it as “you” instead";
       else if (seen.has(email)) found[p.id] = `Same email as ${label(seen.get(email)!)}`;
       else seen.set(email, p.id);
     }
@@ -233,7 +246,7 @@ function ImportForm({ draft, locale }: { draft: SplitDraft; locale: string }) {
                   b.netMinor === 0 && "text-muted-foreground",
                 )}
               >
-                {b.netMinor === 0 ? "settled up" : b.netMinor > 0 ? `is owed ${fmt(b.netMinor)}` : `owes ${fmt(-b.netMinor)}`}
+                {b.netMinor === 0 ? SETTLED_UP : b.netMinor > 0 ? `is owed ${fmt(b.netMinor)}` : `owes ${fmt(-b.netMinor)}`}
               </span>
             </li>
           ))}
