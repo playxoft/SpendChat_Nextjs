@@ -25,6 +25,8 @@ const RESOLVED_DYNAMICALLY = new Set([
   "AI_PARSE_MODEL_CURRENT",
   "AI_TRANSCRIBE_MODEL",
   "AI_TRANSCRIBE_MODEL_CURRENT",
+  "AI_CHAT_MODEL",
+  "AI_CHAT_MODEL_CURRENT",
 ]);
 
 /** Supplied by the platform, never by a `.env` file. */

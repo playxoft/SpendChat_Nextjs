@@ -29,7 +29,8 @@ import type { TxnTagDTO } from "@/lib/tags";
 import { MAX_INPUT_CHARS, parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
 import { MAX_AUDIO_BYTES } from "@/lib/ai-limits";
 import { isSupportedAudioType, parseClipDurationMs, transcribeVoiceNote } from "@/lib/ai-transcribe";
-import { chargeAiParse, chargeVoiceTranscribe, withAiCharge } from "@/lib/ai-quota";
+import { chargeAiParse, chargeVoiceTranscribe, withAiCharge, type AiCharge } from "@/lib/ai-quota";
+import type { AiActionsLeft } from "@/lib/ai-limits";
 import { assertVoiceAllowed } from "@/lib/entitlements";
 import { getTimeZone } from "@/lib/timezone.server";
 import { todayISO } from "@/lib/dates";
@@ -67,6 +68,15 @@ const loadOlderFeedSchema = z.object({
   }),
   limit: z.number().int().min(1).max(100).optional(),
 });
+
+/**
+ * The "AI actions left" line after a charged call, read under the charge's own
+ * locks — so the composer can update it without asking again. Null for a call
+ * that charged nothing (a dictated note's parse), which leaves the line as is.
+ */
+function actionsLeft(charge: AiCharge): AiActionsLeft | null {
+  return charge.remaining === null ? null : { remaining: charge.remaining, limit: charge.limit };
+}
 
 function revalidateApp() {
   revalidatePath("/app");
@@ -280,7 +290,7 @@ export async function addBulkTransactions(drafts: BulkDraft[]): Promise<ActionRe
 export async function parseTransactionsWithAI(
   text: string,
   opts?: { source?: "typed" | "voice" },
-): Promise<ActionResult<{ drafts: AiParsedDraft[]; tags: TxnTagDTO[] }>> {
+): Promise<ActionResult<{ drafts: AiParsedDraft[]; tags: TxnTagDTO[]; ai: AiActionsLeft | null }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
@@ -322,7 +332,7 @@ export async function parseTransactionsWithAI(
         // in theirs — and a name it can't resolve is a tag the user watches
         // vanish. `/api/v1/ai/parse` already hands mobile the resolved ids for
         // the same reason; this is the web half of that.
-        return { drafts, tags };
+        return { drafts, tags, ai: actionsLeft(charge) };
       });
     },
     { userId: user.id, rateLimit: "ai", workspaceId: workspace.id },
@@ -361,7 +371,7 @@ export async function parseTransactionsWithAI(
  */
 export async function transcribeVoiceNoteAction(
   formData: FormData,
-): Promise<ActionResult<{ text: string }>> {
+): Promise<ActionResult<{ text: string; ai: AiActionsLeft | null }>> {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return runAction(
@@ -409,7 +419,7 @@ export async function transcribeVoiceNoteAction(
           categoryNames: categories.map((c) => c.name),
           onUsage,
         });
-        return { text };
+        return { text, ai: actionsLeft(charge) };
       });
     },
     { userId: user.id, rateLimit: "ai", workspaceId: workspace.id },

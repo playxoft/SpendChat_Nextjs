@@ -1329,3 +1329,43 @@ export const updateBudgetSchema = z
   })
   .refine((v) => v.amount !== undefined || v.emailAlerts !== undefined, "Nothing to update");
 export type UpdateBudgetInput = z.input<typeof updateBudgetSchema>;
+
+// ── Ask (AI chat over your transactions) ───────────────────────────────────
+
+/**
+ * Longest chat title. Also the `ai_chats.title` column width, so the database
+ * rejects exactly what the app does. A new chat is titled from its first
+ * question, cut to `AI_CHAT_AUTO_TITLE_MAX` (`chatTitleFrom`); a rename may use
+ * the full width.
+ */
+export const AI_CHAT_TITLE_MAX = 80;
+
+/**
+ * Longest question one message may ask, in characters. A question is a
+ * sentence or two; the cap keeps a paste from turning one AI action into a
+ * prompt the size of a document. The composer enforces it too.
+ */
+export const AI_CHAT_QUESTION_MAX = 1000;
+
+const aiChatIdSchema = z.string().uuid("That chat doesn't exist");
+
+/** One question to Ask, in a chat or (no `chatId`) starting a new one. */
+export const askAiSchema = z.object({
+  chatId: aiChatIdSchema.optional(),
+  question: z
+    .string()
+    .trim()
+    .min(1, "Type a question first")
+    .max(AI_CHAT_QUESTION_MAX, `Keep it under ${AI_CHAT_QUESTION_MAX} characters`),
+});
+export type AskAiInput = z.input<typeof askAiSchema>;
+
+export const renameAiChatSchema = z.object({
+  chatId: aiChatIdSchema,
+  title: z
+    .string()
+    .trim()
+    .min(1, "Give the chat a name")
+    .max(AI_CHAT_TITLE_MAX, `Keep it under ${AI_CHAT_TITLE_MAX} characters`),
+});
+export type RenameAiChatInput = z.input<typeof renameAiChatSchema>;

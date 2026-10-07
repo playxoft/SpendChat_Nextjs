@@ -216,6 +216,24 @@ function capLock(
   return { title, reason, cta: cta(upgradeTo), info: { limit, plan, max, used, upgradeTo } };
 }
 
+/**
+ * The workspace's monthly AI actions are spent: "Free includes 50 AI actions a
+ * month — upgrade to Plus for 300." Shown on the AI composers (the tracker's AI
+ * mode, Ask) once their "actions left" line reaches 0, before a send fails.
+ */
+export function aiActionsLock(plan: PersonalPlan, max: number, used: number = max): AddLock {
+  return capLock(
+    plan,
+    "No AI actions left this month",
+    "aiActionsPerMonth",
+    "aiActions",
+    max,
+    used,
+    ["AI action", "AI actions"],
+    (n) => `includes ${quantity(n, "AI action")} a month`,
+  );
+}
+
 const METER_KEY: Record<MeterKind, NumericPlanLimit> = {
   spaces: "spaces",
   categories: "categories",

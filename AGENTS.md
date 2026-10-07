@@ -201,9 +201,10 @@ Authentication, secrets via Doppler.
   entries (`{model_id, api_key, provider?, base_url?}`) plus the name of the
   active one — resolved by `resolveModelFromEnv()` in `src/lib/ai-model-registry.ts`:
   `AI_PARSE_MODEL(_CURRENT)` for text→drafts, `AI_TRANSCRIBE_MODEL(_CURRENT)` for
-  voice→text. The pairs are **independent on purpose** and never fall back to one
-  another: parsing runs on any chat model, transcription needs one that accepts
-  audio (Anthropic has no speech model at all). Adding a feature means adding a
+  voice→text, `AI_CHAT_MODEL(_CURRENT)` for Ask (questions answered in Markdown
+  from a data summary, `src/lib/ai-chat.ts`). The pairs are **independent on
+  purpose** and never fall back to one another: parsing runs on any chat model,
+  transcription needs one that accepts audio (Anthropic has no speech model at all). Adding a feature means adding a
   pair, an adapter in `ai-provider.ts` if the protocol is new, and the secret to
   the `wrangler.toml` list — unset simply disables that feature.
 - **Voice entry** (`m`, held) records in the browser, transcribes server-side, and
@@ -216,9 +217,17 @@ Authentication, secrets via Doppler.
   makes code-mixed speech work. Whisper-style hosts take a single language code,
   so the same list degrades to a vocabulary hint there; don't add a `language`
   parameter to that adapter, since pinning one language transliterates the rest.
+- **Ask** (`/app/ask`, `c`) answers questions about the workspace's money. The
+  model never queries anything: `gatherChatData` (`src/services/ai-chat.ts`) builds
+  a bounded summary through `src/lib/queries.ts` — so access scoping and the trash
+  rule come for free — and it rides in the system prompt. One question = one AI
+  action (`chargeAiChat`, refunded on our failures). Chats (`ai_chats` /
+  `ai_chat_messages`) are **private to their author within a workspace** — admins
+  can't open them; anything else is a 404. Answers are untrusted Markdown: render
+  them only through `AnswerMarkdown` (no HTML, no images, safe links only).
 - Keep the design minimal and neutral (no gradients); income uses a single emerald accent.
-  **One exception:** AI affordances (the composer's Manual/AI toggle and AI mode's
-  primary actions) use a blue→violet gradient, so "this calls a model" is visually
+  **One exception:** AI affordances (the composer's Manual/AI toggle, AI mode's
+  primary actions and Ask's send button) use a blue→violet gradient, so "this calls a model" is visually
   distinct from ordinary entry. Don't extend it to anything else, and don't add a
   second gradient — if a new surface needs one, it reuses this one.
 

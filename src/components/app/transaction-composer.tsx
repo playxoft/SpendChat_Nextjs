@@ -63,6 +63,7 @@ import {
   TAG_MARKER_RE as TAG_RE,
 } from "@/lib/composer-markers";
 import type { Category, Profile } from "@/db/schema";
+import type { AiActionsLeft } from "@/lib/ai-limits";
 
 // How much text the amount chip holds. Nine whole digits is the real cap
 // (`AMOUNT_INTEGER_DIGITS_MAX`, enforced per keystroke below); this only stops a
@@ -82,6 +83,7 @@ export function TransactionComposer({
   density = "normal",
   isMobileHint = false,
   voiceLanguages,
+  aiAllowance,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
   /** The workspace's tags, for the "#" picker. Shared by every member, so this
@@ -105,6 +107,8 @@ export function TransactionComposer({
   isMobileHint?: boolean;
   /** Languages AI mode's mic expects (from user settings). */
   voiceLanguages: string[];
+  /** The workspace's AI actions left this month, streamed by the page for AI mode's count. */
+  aiAllowance?: Promise<AiActionsLeft | null> | null;
 }) {
   // Manual (fields) vs AI (free-text note → reviewed drafts) entry. Persisted in
   // localStorage so a refresh / re-login reopens the same mode (see the store).
@@ -1213,6 +1217,7 @@ export function TransactionComposer({
               // Manual/AI toggle jumps between them on switch (see the grid note).
               density={effectiveDensity}
               voiceLanguages={voiceLanguages}
+              aiAllowance={aiAllowance}
             />
           </div>
 

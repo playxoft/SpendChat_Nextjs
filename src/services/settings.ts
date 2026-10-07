@@ -2,6 +2,7 @@ import "server-only";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  aiChats,
   organizations,
   profileAccess,
   profileOverrides,
@@ -281,6 +282,10 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
 
       // Transactions the user authored in workspaces shared with them.
       await tx.delete(transactions).where(eq(transactions.userId, userId));
+      // Their Ask chats, in every workspace — the ones in workspaces they own
+      // would cascade below, but chats in someone else's are only theirs to
+      // take. Messages go with each chat (FK cascade).
+      await tx.delete(aiChats).where(eq(aiChats.userId, userId));
       if (ownedIds.length > 0) {
         // Members/invites cascade with the workspace rows.
         await tx.delete(workspaces).where(inArray(workspaces.id, ownedIds));

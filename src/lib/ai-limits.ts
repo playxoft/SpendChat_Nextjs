@@ -50,3 +50,16 @@ export const MAX_AUDIO_BYTES = 4 * 1024 * 1024;
  * text still fits the composer with room to edit.
  */
 export const MAX_TRANSCRIPT_CHARS = 2400;
+
+/**
+ * The workspace's AI actions left this month, for the "38 of 50 AI actions
+ * left this month" line on the composers. Pages stream it from
+ * `getAiAllowance`; every charged action returns a fresh one, read under the
+ * charge's own locks, so the line moves after each use without another query.
+ */
+export type AiActionsLeft = {
+  remaining: number;
+  limit: number;
+  /** When the allowance refills (ISO) — known from the page load, not from an action. */
+  resetsAt?: string;
+};

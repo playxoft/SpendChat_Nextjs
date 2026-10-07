@@ -111,7 +111,8 @@ export async function resetTestDb(): Promise<void> {
        space_members, spaces, user_settings, workspace_invites, profile_access,
        workspace_members, workspaces, organizations, users, email_send_log,
        ai_usage_log, split_settlements, split_shares, split_expenses,
-       split_members, split_groups, split_rate_log, neon_auth."user"
+       split_members, split_groups, split_rate_log, ai_chat_messages, ai_chats,
+       neon_auth."user"
      RESTART IDENTITY CASCADE;`,
   );
 }

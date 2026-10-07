@@ -8,8 +8,9 @@ import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badg
 
 /** Settings used to be filtered out here; it is no longer in `navItems` at all
  *  (it lives in the profile/user menu), so the bar is the whole list again —
- *  plus Split, which sits outside the workspace sections. Six items, so the
- *  labels are `text-xs` to fit a 360px screen. */
+ *  plus Split, which sits outside the workspace sections. Seven items, so the
+ *  labels are `text-xs`: their widths add up to ~300px, which fits a 360px
+ *  screen because each item sizes to its label rather than an equal share. */
 const BOTTOM_NAV_ITEMS = navItems;
 
 export function BottomNav({
