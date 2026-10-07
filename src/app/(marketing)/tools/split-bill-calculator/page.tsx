@@ -57,8 +57,9 @@ export default function SplitBillCalculatorPage() {
   return (
     <ToolPage
       slug={SLUG}
-      cta="Going away together? Save the group and everyone sees the balance live."
+      cta="Going away together? Save the group and invite everyone to see the live balance."
       ctaHref={SPLIT_SIGN_UP_HREF}
+      saves
       faqs={faqs}
       intro={
         <p>
@@ -153,7 +154,7 @@ export default function SplitBillCalculatorPage() {
           <Link href={featureLink("split")} className={link}>
             Split in SpendChat
           </Link>{" "}
-          keeps the group going. Everyone gets an invite and joins in a click. Anyone can add
+          keeps the group going. Everyone gets an invite — by email, or in the app if they already use SpendChat — and joins with a free account. Anyone can add
           what they paid for, and the balances update for the whole group — so nobody keeps the
           spreadsheet, and nobody has to chase anyone. Mark a payment as paid and it drops off the
           list. Your own share of any expense can go straight into your own expense tracking, too.
