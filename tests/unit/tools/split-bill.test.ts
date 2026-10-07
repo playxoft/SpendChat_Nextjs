@@ -75,7 +75,7 @@ describe("the tool's caps match the app's", () => {
 describe("defaultDraft / isBlankDraft / exampleDraft", () => {
   it("starts with two unnamed people and nothing spent", () => {
     const d = defaultDraft("EUR");
-    expect(d).toMatchObject({ v: 1, name: "", currency: "EUR", expenses: [] });
+    expect(d).toMatchObject({ v: 2, name: "", currency: "EUR", expenses: [] });
     expect(d.people).toHaveLength(2);
     expect(isBlankDraft(d)).toBe(true);
   });

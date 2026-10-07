@@ -36,19 +36,31 @@ import {
  * same person in both places.
  */
 
-/** Bump when the stored shape changes incompatibly; an older draft then starts fresh. */
-export const SPLIT_DRAFT_VERSION = 1;
+/**
+ * The stored shape's version. v2 added an optional email per person; a v1
+ * draft is read as v2 with no emails (`sanitizeDraft` migrates it). Bump when
+ * the shape changes, and teach `sanitizeDraft` to read the old one.
+ */
+export const SPLIT_DRAFT_VERSION = 2;
+/** Versions `sanitizeDraft` can still read. */
+const READABLE_VERSIONS = new Set([1, 2]);
 
 /** The same caps the app enforces — `tests/unit/tools/split-bill.test.ts` pins them to `validation.ts`. */
 export const DRAFT_NAME_MAX = 40;
 export const DRAFT_PERSON_NAME_MAX = 40;
+/** Same as the app's invite email cap. */
+export const DRAFT_EMAIL_MAX = 100;
 export const DRAFT_TITLE_MAX = 40;
 /** Largest amount, in major units (9 whole digits). */
 export const DRAFT_AMOUNT_MAX = 999_999_999.99;
 export const DRAFT_PEOPLE_MAX = SPLIT_GROUP_MAX_PEOPLE;
 export const DRAFT_EXPENSES_MAX = SPLIT_IMPORT_EXPENSES_MAX;
 
-export type DraftPerson = { id: string; name: string };
+/**
+ * Someone in the group. `email` is optional and kept as typed: with one, the
+ * person is invited automatically when the group is brought into the app.
+ */
+export type DraftPerson = { id: string; name: string; email?: string };
 
 /** How an expense is divided — the inputs, in minor units / basis points. */
 export type DraftSplit =
@@ -92,7 +104,11 @@ export function defaultDraft(currency = "USD"): SplitDraft {
 
 /** True when there's nothing worth keeping — no expense and nobody named. */
 export function isBlankDraft(draft: SplitDraft): boolean {
-  return draft.expenses.length === 0 && !draft.name.trim() && draft.people.every((p) => !p.name.trim());
+  return (
+    draft.expenses.length === 0 &&
+    !draft.name.trim() &&
+    draft.people.every((p) => !p.name.trim() && !p.email?.trim())
+  );
 }
 
 /**
@@ -233,7 +249,7 @@ function readSplit(raw: unknown, people: Set<string>): DraftSplit | null {
  * their whole group. Caps match the app's.
  */
 export function sanitizeDraft(raw: unknown): SplitDraft | null {
-  if (!isObject(raw) || raw.v !== SPLIT_DRAFT_VERSION) return null;
+  if (!isObject(raw) || typeof raw.v !== "number" || !READABLE_VERSIONS.has(raw.v)) return null;
   if (typeof raw.currency !== "string" || !isSupportedCurrency(raw.currency)) return null;
   if (!Array.isArray(raw.people) || !Array.isArray(raw.expenses)) return null;
 
@@ -243,7 +259,9 @@ export function sanitizeDraft(raw: unknown): SplitDraft | null {
     if (people.length >= DRAFT_PEOPLE_MAX) break;
     if (!isObject(p) || !isRef(p.id) || ids.has(p.id)) continue;
     ids.add(p.id);
-    people.push({ id: p.id, name: text(p.name, DRAFT_PERSON_NAME_MAX) });
+    // v1 had no emails; reading one as v2 just leaves them out.
+    const email = text(p.email, DRAFT_EMAIL_MAX);
+    people.push({ id: p.id, name: text(p.name, DRAFT_PERSON_NAME_MAX), ...(email ? { email } : {}) });
   }
   if (people.length === 0) return null;
 
@@ -402,6 +420,88 @@ export function importOrder(draft: SplitDraft, meId: string): string[] {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Emails                                                                     */
+/* ------------------------------------------------------------------------- */
+
+/** An email as the app compares it: trimmed and lowercased. */
+export function normalizeEmail(email: string | null | undefined): string {
+  return (email ?? "").trim().toLowerCase();
+}
+
+/**
+ * A light check — something@something.tld — enough to catch a typo before
+ * the server's stricter one. The app's `inviteEmailSchema` has the last word.
+ */
+export function looksLikeEmail(email: string): boolean {
+  const e = normalizeEmail(email);
+  return e.length <= DRAFT_EMAIL_MAX && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+}
+
+/**
+ * What's wrong with each person's email, by person id: not an email, or the
+ * same inbox as someone listed earlier. Blank emails are fine (they're
+ * optional) and aren't listed. `skip` leaves one person out — "you", whose
+ * own address doesn't matter.
+ */
+export function emailProblems(
+  people: readonly DraftPerson[],
+  { skip, mine }: { skip?: string | null; mine?: string | null } = {},
+): Record<string, string> {
+  const problems: Record<string, string> = {};
+  const seen = new Map<string, string>();
+  const self = normalizeEmail(mine);
+  for (const p of people) {
+    if (p.id === skip) continue;
+    const email = normalizeEmail(p.email);
+    if (!email) continue;
+    if (!looksLikeEmail(email)) problems[p.id] = "Check this email";
+    else if (self && email === self) problems[p.id] = "That's you — pick this row as “you” instead";
+    else if (seen.has(email)) problems[p.id] = `Same email as ${personLabel(people, seen.get(email)!)}`;
+    else seen.set(email, p.id);
+  }
+  return problems;
+}
+
+/**
+ * Which person in the draft is the signed-in account, or `null` when that
+ * can't be told and the page should ask:
+ * - the person whose email is the account's own, when exactly one is;
+ * - otherwise the first person — the row the calculator labels "You" — as
+ *   long as it has no email (an address there that isn't yours means it may
+ *   not be you).
+ */
+export function resolveMe(draft: SplitDraft, myEmail: string | null | undefined): string | null {
+  const mine = normalizeEmail(myEmail);
+  if (mine) {
+    const matches = draft.people.filter((p) => normalizeEmail(p.email) === mine);
+    if (matches.length === 1) return matches[0]!.id;
+    if (matches.length > 1) return null;
+  }
+  const first = draft.people[0];
+  return first && !normalizeEmail(first.email) ? first.id : null;
+}
+
+/**
+ * Whether the group can be brought in with no form at all: "you" is known,
+ * everyone else has a valid email that's unique and isn't yours, and every
+ * expense adds up (so nothing would be left out).
+ */
+export function readyToImport(
+  draft: SplitDraft,
+  meId: string | null,
+  myEmail: string | null | undefined,
+): boolean {
+  if (!meId || !draft.people.some((p) => p.id === meId)) return false;
+  const others = draft.people.filter((p) => p.id !== meId);
+  if (others.some((p) => !normalizeEmail(p.email))) return false;
+  if (Object.keys(emailProblems(draft.people, { skip: meId, mine: myEmail })).length) return false;
+  return computeLedger(draft).invalid.length === 0;
+}
+
+/** What a group with no name is called once it's in the app, which needs one. */
+export const UNNAMED_GROUP = "Our group";
+
+/* ------------------------------------------------------------------------- */
 /* Import                                                                     */
 /* ------------------------------------------------------------------------- */
 
@@ -436,24 +536,29 @@ export function buildImportInput({
   draft,
   name,
   meId,
-  emails,
+  emails = {},
   icon = null,
 }: {
   draft: SplitDraft;
   name: string;
   meId: string;
-  emails: Readonly<Record<string, string>>;
+  /** Overrides by person id; anyone not in it uses the email saved in the draft. */
+  emails?: Readonly<Record<string, string>>;
   icon?: string | null;
 }): SplitImportInput {
   const invalid = new Set(computeLedger(draft).invalid);
   return {
-    name: name.trim(),
+    name: name.trim() || UNNAMED_GROUP,
     icon,
     currency: draft.currency,
     me: { ref: meId, name: personLabel(draft.people, meId) },
     people: draft.people
       .filter((p) => p.id !== meId)
-      .map((p) => ({ ref: p.id, name: personLabel(draft.people, p.id), email: (emails[p.id] ?? "").trim().toLowerCase() })),
+      .map((p) => ({
+        ref: p.id,
+        name: personLabel(draft.people, p.id),
+        email: normalizeEmail(emails?.[p.id] ?? p.email),
+      })),
     expenses: draft.expenses
       .filter((e) => !invalid.has(e.id))
       .map((e) => toImportExpense(e, draft.currency, e.title.trim() || UNTITLED_EXPENSE)),
