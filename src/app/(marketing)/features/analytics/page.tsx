@@ -39,7 +39,7 @@ const faqs = [
   },
   {
     q: "What do Insights & trends add?",
-    a: `On ${PAID}: a projection of where this month's spending will land, compared with last month, your usual month and the same month last year; category trends against your usual by the same day; twelve months of cash flow with how much income you kept; a spending calendar; recurring payments and unusual spends; spending by payee, tag and profile; and a few plain-language notes on what stands out.`,
+    a: `On ${PAID}: a projection of where this month's spending will land, compared with last month, your usual month and the same month last year; category trends against your usual by the same day; cash flow with how much income you kept over the range you pick; a spending calendar; recurring payments and unusual spends; spending by payee, tag and profile; and a few plain-language notes on what stands out.`,
   },
   {
     q: "How is the month-end projection worked out?",
@@ -51,7 +51,7 @@ const faqs = [
   },
   {
     q: "Can I analyse any date range, or only whole months?",
-    a: "Any range: this month, three, six or twelve months, all time, or two dates of your choosing. The cards, the category breakdown, the spending calendar, unusual spends and the payee, tag and profile breakdowns follow it; the projection, category trends, cash flow and recurring payments are about now, so they stay anchored to today.",
+    a: "Any range: this month, three, six or twelve months, all time, or two dates of your choosing. The cards, the income-against-expenses chart (with cash flow and savings rate on paid plans), the category breakdown, the spending calendar, unusual spends and the payee, tag and profile breakdowns follow it; the projection, category trends and recurring payments are about now, so they stay anchored to today.",
   },
   {
     q: "Are analytics per profile?",

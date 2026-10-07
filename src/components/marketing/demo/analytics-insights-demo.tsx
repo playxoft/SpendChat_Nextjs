@@ -256,7 +256,7 @@ export function AnalyticsInsightsDemo({ money }: { money: DemoMoneyFormat }) {
         </Panel>
       </div>
 
-      <Panel title="Cash flow" description="Income, spending and what you kept — last 12 months">
+      <Panel title="Cash flow" description="Income, spending and what you kept — over the range you pick">
         <p className="text-sm">
           Kept <span className="font-semibold tabular-nums text-emerald-600 dark:text-emerald-400">{percentLabel(kept)}</span> of
           income — {fmt(INCOME_12 - EXPENSE_12)} over the year.
