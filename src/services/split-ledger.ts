@@ -96,7 +96,7 @@ function participantIds(spec: ShareSpec): string[] {
  * participants must be people in the group now — or, when editing, people
  * already on this expense (someone who has since left stays on it).
  */
-function planExpense(
+export function planExpense(
   ctx: JoinedContext,
   members: SplitMember[],
   data: ExpenseData,
@@ -120,7 +120,7 @@ function planExpense(
   }
 }
 
-function percentFor(spec: ShareSpec, memberId: string): number | null {
+export function percentFor(spec: ShareSpec, memberId: string): number | null {
   return spec.type === "percent" ? (spec.shares.find((s) => s.memberId === memberId)?.bp ?? null) : null;
 }
 

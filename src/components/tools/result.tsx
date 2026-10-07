@@ -225,15 +225,18 @@ export function ResultActions({
 export function ToolCta({
   slug,
   message,
+  href = "/sign-up",
   className,
 }: {
   slug: string;
   message: string;
+  /** Where it signs people up to — a tool whose work carries over passes its own `?next=`. */
+  href?: string;
   className?: string;
 }) {
   return (
     <Link
-      href="/sign-up"
+      href={href}
       data-track-event="cta_click"
       data-track-params={JSON.stringify({ location: `tool_${slug}`, label: "tool_result_cta" })}
       className={cn(

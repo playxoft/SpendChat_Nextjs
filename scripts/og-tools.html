@@ -14,7 +14,7 @@
       age-calculator compound-interest-calculator sip-calculator credit-card-payoff-calculator \
       simple-interest-calculator loan-calculator loan-comparison-calculator net-worth-calculator \
       fire-calculator savings-challenge when-can-i-afford-it freelance-rate-calculator fd-calculator \
-      currency-converter inflation-calculator; do
+      currency-converter inflation-calculator split-bill-calculator; do
       "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
         --headless=new --disable-gpu --hide-scrollbars \
         --force-device-scale-factor=1 --window-size=1200,630 \
@@ -93,7 +93,7 @@
 
     <script>
       const CARDS = {
-        index: ["Free financial calculators", "GST, EMI, SIP, invoices, dates and more — all free.", "22 free tools", "GST · EMI · Invoice"],
+        index: ["Free financial calculators", "GST, EMI, SIP, invoices, dates and more — all free.", "23 free tools", "GST · EMI · Invoice"],
         "invoice-generator": ["Free Invoice Generator", "Line items, GST or VAT, any currency — save as PDF.", "Invoice INV-0007 · total", "₹37,501.50"],
         "quotation-generator": ["Free Quotation Maker", "Quotes and estimates that turn into invoices.", "Quotation · valid 30 days", "₹85,000.00"],
         "percentage-calculator": ["Percentage Calculator", "X% of Y, increase, decrease and change.", "15% of 200", "= 30"],
@@ -116,6 +116,7 @@
         "when-can-i-afford-it": ["When Can I Afford It?", "A savings goal calculator.", "$2,000, $350 saved, $150/mo?", "11 months"],
         "net-worth-calculator": ["Net Worth Calculator", "What you own minus what you owe.", "Own $392,000, owe $230,500?", "$161,500"],
         "fire-calculator": ["FIRE Calculator", "FIRE number, Coast and Lean FIRE.", "Spend $40k a year at 4%?", "$1,000,000"],
+        "split-bill-calculator": ["Split Bill Calculator", "Who owes whom after a trip or a dinner.", "₹3,600 dinner, 3 friends?", "₹1,200 each"],
       };
       const slug = new URLSearchParams(location.search).get("t") || "index";
       const [title, sub, q, a] = CARDS[slug] || CARDS.index;

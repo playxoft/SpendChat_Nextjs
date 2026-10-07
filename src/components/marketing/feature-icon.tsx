@@ -7,10 +7,13 @@ import {
   MessageSquare,
   Mic,
   Paperclip,
+  PiggyBank,
   ShieldCheck,
   Sparkles,
+  Split,
   Table2,
   Tags,
+  Trash2,
   Users,
   type LucideIcon,
 } from "lucide-react";
@@ -32,10 +35,13 @@ const ICONS: Record<string, LucideIcon> = {
   MessageSquare,
   Mic,
   Paperclip,
+  PiggyBank,
   ShieldCheck,
   Sparkles,
+  Split,
   Table2,
   Tags,
+  Trash2,
   Users,
 };
 

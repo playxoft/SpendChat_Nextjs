@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BUDGET_SCOPES, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
+import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX } from "./split-import";
 import {
   CURRENCIES,
   PAID_PERSONAL_PLANS,
@@ -1283,6 +1284,62 @@ export const updateSplitWorkspaceEntrySchema = z.object({
   amount: amountSchema.optional(),
 });
 export type UpdateSplitWorkspaceEntryInput = z.input<typeof updateSplitWorkspaceEntrySchema>;
+
+/**
+ * A group brought in from the free split calculator (`lib/split-import.ts`).
+ * People are named by the draft's short keys; this checks the shape and the
+ * people, and each expense is then checked again by `splitExpenseSchema` once
+ * its keys are member ids — so an imported expense meets exactly the rules of
+ * one typed into the app.
+ */
+const splitDraftRefSchema = z
+  .string()
+  .regex(SPLIT_DRAFT_REF_PATTERN, "That draft doesn't look right — open the calculator and try again");
+const splitImportExpenseBase = {
+  title: z.string(),
+  amount: z.number(),
+  paidBy: splitDraftRefSchema,
+  occurredOn: z.string(),
+};
+const splitImportExpenseSchema = z.discriminatedUnion("splitType", [
+  z.object({
+    ...splitImportExpenseBase,
+    splitType: z.literal("equal"),
+    memberIds: z.array(splitDraftRefSchema).max(splitParticipantsMax),
+  }),
+  z.object({
+    ...splitImportExpenseBase,
+    splitType: z.literal("exact"),
+    shares: z.array(z.object({ memberId: splitDraftRefSchema, amount: z.number() })).max(splitParticipantsMax),
+  }),
+  z.object({
+    ...splitImportExpenseBase,
+    splitType: z.literal("percent"),
+    shares: z.array(z.object({ memberId: splitDraftRefSchema, percent: z.number() })).max(splitParticipantsMax),
+  }),
+]);
+
+export const splitImportSchema = z
+  .object({
+    name: splitGroupNameSchema,
+    icon: splitIconSchema.nullish(),
+    currency: splitCurrencySchema,
+    me: z.object({ ref: splitDraftRefSchema, name: splitPersonSchema.shape.name }),
+    people: z
+      .array(splitPersonSchema.extend({ ref: splitDraftRefSchema }))
+      .max(SPLIT_ADD_PEOPLE_MAX, `A group holds up to ${SPLIT_GROUP_MAX_PEOPLE} people`)
+      .refine(
+        (people) => new Set(people.map((p) => p.email)).size === people.length,
+        "That email is in the list twice",
+      ),
+    expenses: z
+      .array(splitImportExpenseSchema)
+      .max(SPLIT_IMPORT_EXPENSES_MAX, `A group can bring in up to ${SPLIT_IMPORT_EXPENSES_MAX} expenses at once`),
+  })
+  .refine(
+    (v) => new Set([v.me.ref, ...v.people.map((p) => p.ref)]).size === v.people.length + 1,
+    "Two people in the draft share a key — open the calculator and try again",
+  );
 
 // ── Budgets ────────────────────────────────────────────────────────────────
 

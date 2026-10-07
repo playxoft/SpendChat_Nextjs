@@ -448,7 +448,7 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * - a group past 50 people.
  * None of these depend on whether an address has an account.
  */
-async function insertPeople(
+export async function insertPeople(
   tx: Tx,
   group: SplitGroup,
   creatorEmail: string | null,
