@@ -114,7 +114,10 @@ export function chatAnswerMode(): ChatAnswerMode {
  * `APP_ENV` is unset or misspelled, which must not hand out free answers.
  */
 export function sampleAnswersAllowed(): boolean {
-  return process.env.NODE_ENV !== "production" || process.env.APP_ENV === "beta";
+  // Widened on purpose: the generated Worker types pin APP_ENV to the
+  // production value, but the beta Worker and an unset var are real too.
+  const appEnv: string | undefined = process.env.APP_ENV;
+  return process.env.NODE_ENV !== "production" || appEnv === "beta";
 }
 
 // ── The data ────────────────────────────────────────────────────────────────
