@@ -10,7 +10,11 @@
  * **Leftover units are assigned deterministically**, and never depend on how
  * a client listed people. One canonical order breaks every tie: the payer
  * first (when they're part of the split), then everyone else by member id
- * (uuidv7, so join order).
+ * (uuidv7, so join order). With several payers, "the payer" is the main one —
+ * whoever paid the most, ties by member id (`primaryPayer`).
+ *
+ * **Several people can pay** (`payerAmounts`): the total divides evenly
+ * between them unless they say what each paid, which must then add up to it.
  * - **Equal:** ₹100 three ways is ₹33.34 + ₹33.33 + ₹33.33 — the leftover
  *   paisa go one each in canonical order, so the payer absorbs them first and
  *   nobody else is asked for more than an even share.
@@ -147,9 +151,56 @@ export function computeShares(totalMinor: number, payerId: string, spec: ShareSp
   return parts.map((p) => ({ memberId: p.memberId, amountMinor: p.floor + (extra.has(p.memberId) ? 1 : 0) }));
 }
 
+/** Who paid for an expense: amounts for all of them, or for none (then it divides evenly). */
+export type PayerInput = { memberId: string; amountMinor?: number };
+
+/**
+ * What each payer paid, by member id. Without amounts the total divides evenly
+ * between them, leftover units one each by member id; with amounts they're
+ * taken as given and must add up to the total. A payer at 0 paid nothing and
+ * is left out.
+ */
+export function payerAmounts(totalMinor: number, payers: readonly PayerInput[]): ShareAmount[] {
+  assertAmount(totalMinor, "The amount");
+  if (totalMinor === 0) throw new SplitMathError("Amount must be greater than 0");
+  if (payers.length === 0) throw new SplitMathError("Pick who paid");
+  const ids = payers.map((p) => p.memberId);
+  if (new Set(ids).size !== ids.length) throw new SplitMathError("Someone is in Paid by twice");
+  const given = payers.filter((p) => p.amountMinor !== undefined).length;
+  if (given === 0) {
+    const order = [...ids].sort();
+    const base = Math.floor(totalMinor / order.length);
+    const leftover = totalMinor - base * order.length;
+    return order
+      .map((memberId, i) => ({ memberId, amountMinor: base + (i < leftover ? 1 : 0) }))
+      .filter((p) => p.amountMinor > 0);
+  }
+  if (given !== payers.length) {
+    throw new SplitMathError("Give an amount for everyone who paid, or for nobody");
+  }
+  for (const p of payers) assertAmount(p.amountMinor!, "Each amount paid");
+  const sum = payers.reduce((acc, p) => acc + p.amountMinor!, 0);
+  if (sum !== totalMinor) {
+    throw new SplitMathError("The amounts paid don't add up to the expense", { paidSumMinor: sum, totalMinor });
+  }
+  return payers
+    .filter((p) => p.amountMinor! > 0)
+    .map((p) => ({ memberId: p.memberId, amountMinor: p.amountMinor! }))
+    .sort((a, b) => (a.memberId < b.memberId ? -1 : 1));
+}
+
+/** The main payer: whoever paid the most, ties by member id. */
+export function primaryPayer(payers: readonly ShareAmount[]): string {
+  const [first] = [...payers].sort(
+    (a, b) => b.amountMinor - a.amountMinor || (a.memberId < b.memberId ? -1 : a.memberId > b.memberId ? 1 : 0),
+  );
+  if (!first) throw new SplitMathError("Pick who paid");
+  return first.memberId;
+}
+
 /** Per-member sums, as the four `GROUP BY` queries return them. Missing = 0. */
 export type LedgerTotals = {
-  /** Expenses this member paid for. */
+  /** What this member paid towards expenses. */
   paid: Readonly<Record<string, number>>;
   /** This member's shares of expenses. */
   owed: Readonly<Record<string, number>>;
@@ -223,6 +274,9 @@ export function describeSplitError(err: SplitMathError, format: (minor: number) 
   const d = err.details;
   if (d?.sumMinor !== undefined && d.totalMinor !== undefined) {
     return `Shares add up to ${format(d.sumMinor)}, but the expense is ${format(d.totalMinor)}`;
+  }
+  if (d?.paidSumMinor !== undefined && d.totalMinor !== undefined) {
+    return `Amounts paid add up to ${format(d.paidSumMinor)}, but the expense is ${format(d.totalMinor)}`;
   }
   if (d?.bpSum !== undefined) return `Percents add up to ${fromBasisPoints(d.bpSum)}%, not 100%`;
   return err.message;

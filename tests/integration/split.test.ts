@@ -1,6 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { eq } from "drizzle-orm";
-import { splitGroups, splitMembers, splitShares } from "@/db/schema";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { eq, sql } from "drizzle-orm";
+import { splitExpensePayers, splitGroups, splitMembers, splitShares } from "@/db/schema";
 import { sendEmail } from "@/lib/email";
 import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import { feedCursor } from "@/lib/split-display";
@@ -627,6 +629,112 @@ describe("split expenses, balances and settling up", () => {
     expect(await db().select().from(splitGroups).where(eq(splitGroups.id, id))).toEqual([]);
     expect(await db().select().from(splitMembers).where(eq(splitMembers.groupId, id))).toEqual([]);
     await expect(split.getGroupDetail(uid("asha"), id)).rejects.toMatchObject({ status: 404 });
+    expect(await db().select().from(splitExpensePayers)).toEqual([]);
+  });
+
+  it("several people can pay: each is credited what they paid, evenly unless told", async () => {
+    const { id, ownerId, ashaId, raviId } = await trio();
+    signInAs("o");
+    const net = async () =>
+      Object.fromEntries((await split.getGroupDetail(uid("o"), id)).members.map((m) => [m.id, m.netMinor]));
+
+    // ₹90, paid by o and Asha (evenly), split three ways.
+    const { id: expenseId } = ok(
+      await actions.createSplitExpense(id, {
+        title: "Cab",
+        amount: 90,
+        payers: [{ memberId: ashaId }, { memberId: ownerId }],
+        occurredOn: today,
+        splitType: "equal",
+        memberIds: [ownerId, ashaId, raviId],
+      }),
+    );
+    expect(await net()).toEqual({ [ownerId]: 1500, [ashaId]: 1500, [raviId]: -3000 });
+    const { expense } = await ledger.getExpense(uid("ravi"), id, expenseId);
+    // A tie: the main payer is the earlier member — o, who created the group.
+    expect(expense.paidBy.memberId).toBe(ownerId);
+    expect(expense.payers).toEqual([
+      { memberId: ownerId, name: "o", amountMinor: 4500 },
+      { memberId: ashaId, name: "ASHA", amountMinor: 4500 },
+    ]);
+
+    // Edit: Asha paid ₹60 of it, o ₹30 — payers are replaced, and Asha is now the main payer.
+    ok(
+      await actions.updateSplitExpense(id, expenseId, {
+        title: "Cab",
+        amount: 90,
+        payers: [
+          { memberId: ownerId, amount: 30 },
+          { memberId: ashaId, amount: 60 },
+        ],
+        occurredOn: today,
+        splitType: "equal",
+        memberIds: [ownerId, ashaId, raviId],
+      }),
+    );
+    expect(await net()).toEqual({ [ownerId]: 0, [ashaId]: 3000, [raviId]: -3000 });
+    expect((await ledger.getExpense(uid("o"), id, expenseId)).expense.paidBy.memberId).toBe(ashaId);
+    expect(await db().select().from(splitExpensePayers).where(eq(splitExpensePayers.expenseId, expenseId))).toHaveLength(2);
+
+    // Amounts that don't add up, and someone outside the group, are refused.
+    const bad = await actions.updateSplitExpense(id, expenseId, {
+      title: "Cab",
+      amount: 90,
+      payers: [
+        { memberId: ownerId, amount: 30 },
+        { memberId: ashaId, amount: 30 },
+      ],
+      occurredOn: today,
+      splitType: "equal",
+      memberIds: [ownerId, ashaId],
+    });
+    expect(bad.ok).toBe(false);
+    const stranger = await actions.createSplitExpense(id, {
+      title: "Cab",
+      amount: 90,
+      payers: [{ memberId: ownerId }, { memberId: "0199a000-0000-7000-8000-000000000000" }],
+      occurredOn: today,
+      splitType: "equal",
+      memberIds: [ownerId],
+    });
+    expect(stranger.ok).toBe(false);
+    expect(await net()).toEqual({ [ownerId]: 0, [ashaId]: 3000, [raviId]: -3000 });
+
+    // The groups list names everyone who paid.
+    const [group] = await split.listGroups(uid("o"));
+    expect(group!.lastActivity).toMatchObject({
+      kind: "expense",
+      payers: [
+        { name: "ASHA", isYou: false },
+        { name: "o", isYou: true },
+      ],
+    });
+  });
+
+  it("0042's backfill gives an expense from before payers one payer row for the whole amount", async () => {
+    const { id, ownerId, ashaId } = await trio();
+    signInAs("o");
+    const { id: expenseId } = ok(
+      await actions.createSplitExpense(id, {
+        title: "Old",
+        amount: 50,
+        paidBy: ashaId,
+        occurredOn: today,
+        splitType: "equal",
+        memberIds: [ownerId, ashaId],
+      }),
+    );
+    const before = (await split.getGroupDetail(uid("o"), id)).members.map((m) => m.netMinor);
+    // As it was before the migration: no payer rows at all.
+    await db().delete(splitExpensePayers).where(eq(splitExpensePayers.expenseId, expenseId));
+    const migration = readFileSync(path.resolve(process.cwd(), "src/db/migrations/0042_split_payers.sql"), "utf8");
+    const backfill = migration.slice(migration.indexOf("-- ── Backfill (hand-written)"));
+    expect(backfill).toContain("INSERT INTO");
+    await db().execute(sql.raw(backfill));
+    expect(await db().select().from(splitExpensePayers).where(eq(splitExpensePayers.expenseId, expenseId))).toEqual([
+      { expenseId, memberId: ashaId, amountMinor: 5000 },
+    ]);
+    expect((await split.getGroupDetail(uid("o"), id)).members.map((m) => m.netMinor)).toEqual(before);
   });
 });
 

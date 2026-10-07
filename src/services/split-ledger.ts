@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import {
   profiles,
   transactions,
+  splitExpensePayers,
   splitExpenses,
   splitMembers,
   splitSettlements,
@@ -23,6 +24,8 @@ import {
 } from "@/lib/split-access";
 import {
   computeShares,
+  payerAmounts,
+  primaryPayer,
   SplitMathError,
   toBasisPoints,
   type ShareAmount,
@@ -31,6 +34,7 @@ import {
 import {
   addSplitShareToWorkspaceSchema,
   splitExpenseSchema,
+  splitPayersOf,
   splitSettlementSchema,
   updateSplitWorkspaceEntrySchema,
 } from "@/lib/validation";
@@ -91,33 +95,59 @@ function participantIds(spec: ShareSpec): string[] {
   return spec.type === "equal" ? spec.memberIds : spec.shares.map((s) => s.memberId);
 }
 
+export type ExpensePlan = {
+  totalMinor: number;
+  shares: ShareAmount[];
+  spec: ShareSpec;
+  /** What each payer paid, summing to `totalMinor`. */
+  payers: ShareAmount[];
+  /** Whoever paid the most — `split_expenses.paid_by_member_id`. */
+  primary: string;
+};
+
 /**
- * Validate an expense against the group and compute its shares. Payer and
- * participants must be people in the group now — or, when editing, people
- * already on this expense (someone who has since left stays on it).
+ * Validate an expense against the group and work out who paid what and every
+ * share. Payers and participants must be people in the group now — or, when
+ * editing, people already on this expense (someone who has since left stays
+ * on it). A payer needn't be in the split: paying for someone else is fine.
  */
 export function planExpense(
   ctx: JoinedContext,
   members: SplitMember[],
   data: ExpenseData,
   keep: Set<string> = new Set(),
-): { totalMinor: number; shares: ShareAmount[]; spec: ShareSpec } {
+): ExpensePlan {
   const currency = ctx.group.currency;
   const allowed = new Set(members.filter((m) => m.status !== "left" || keep.has(m.id)).map((m) => m.id));
   const spec = shareSpecOf(data, currency);
-  for (const id of [data.paidBy, ...participantIds(spec)]) {
+  const payerInput = splitPayersOf(data);
+  for (const id of [...payerInput.map((p) => p.memberId), ...participantIds(spec)]) {
     if (!allowed.has(id)) throw validationError(NOT_IN_GROUP);
   }
   const totalMinor = positiveMinor(data.amount, currency);
   try {
-    const shares = computeShares(totalMinor, data.paidBy, spec);
-    return { totalMinor, shares, spec };
+    const payers = payerAmounts(
+      totalMinor,
+      payerInput.map((p) =>
+        p.amount === undefined
+          ? { memberId: p.memberId }
+          : { memberId: p.memberId, amountMinor: toMinorUnits(p.amount, currency) },
+      ),
+    );
+    const primary = primaryPayer(payers);
+    const shares = computeShares(totalMinor, primary, spec);
+    return { totalMinor, shares, spec, payers, primary };
   } catch (err) {
     // The message stays neutral (it's logged); the sums go in `details`, and
     // the dialog phrases them with `describeSplitError`.
     if (err instanceof SplitMathError) throw validationError(err.message, err.details);
     throw err;
   }
+}
+
+/** An expense's payer rows, as `split_expense_payers` stores them. */
+export function payerRows(expenseId: string, plan: Pick<ExpensePlan, "payers">) {
+  return plan.payers.map((p) => ({ expenseId, memberId: p.memberId, amountMinor: p.amountMinor }));
 }
 
 export function percentFor(spec: ShareSpec, memberId: string): number | null {
@@ -144,7 +174,10 @@ export type SplitExpenseView = {
   occurredOn: string;
   createdAt: Date;
   updatedAt: Date;
+  /** The main payer — whoever paid the most (ties by member id). */
   paidBy: { memberId: string; name: string };
+  /** Everyone who paid and how much, the most first; one entry when one person paid. */
+  payers: { memberId: string; name: string; amountMinor: number }[];
   shares: SplitShareView[];
   canEdit: boolean;
   /** The caller's share, if they're in this expense. */
@@ -169,17 +202,25 @@ async function expenseViews(
   db: Db,
 ): Promise<SplitExpenseView[]> {
   if (rows.length === 0) return [];
-  const [shares, members] = await Promise.all([
-    db
-      .select()
-      .from(splitShares)
-      .where(inArray(splitShares.expenseId, rows.map((r) => r.id))),
+  const ids = rows.map((r) => r.id);
+  const [shares, payerRowsAll, members] = await Promise.all([
+    db.select().from(splitShares).where(inArray(splitShares.expenseId, ids)),
+    db.select().from(splitExpensePayers).where(inArray(splitExpensePayers.expenseId, ids)),
     groupMembers(ctx.group.id),
   ]);
   const names = new Map(members.map((m) => [m.id, memberLabel(m)]));
   const order = new Map(members.map((m, i) => [m.id, i]));
   return rows.map((e): SplitExpenseView => {
     const mine = shares.find((s) => s.expenseId === e.id && s.memberId === ctx.me.id);
+    const paid = payerRowsAll.filter((p) => p.expenseId === e.id);
+    // Every expense has payer rows (0042 back-filled the older ones); the
+    // fallback only keeps a view whole if one were ever missing.
+    const payers = (paid.length ? paid : [{ memberId: e.paidByMemberId, amountMinor: e.amountMinor }])
+      .map((p) => ({ memberId: p.memberId, name: names.get(p.memberId) ?? "", amountMinor: p.amountMinor }))
+      .sort(
+        (a, b) =>
+          b.amountMinor - a.amountMinor || (order.get(a.memberId) ?? 0) - (order.get(b.memberId) ?? 0),
+      );
     return {
       id: e.id,
       title: e.title,
@@ -189,6 +230,7 @@ async function expenseViews(
       createdAt: e.createdAt,
       updatedAt: e.updatedAt,
       paidBy: { memberId: e.paidByMemberId, name: names.get(e.paidByMemberId) ?? "" },
+      payers,
       // 0 rows (kept only for a workspace link, or a percent share that
       // rounded to nothing) aren't part of the split.
       shares: shares
@@ -278,12 +320,13 @@ export async function createExpense(
         groupId: ctx.group.id,
         title: data.title,
         amountMinor: plan.totalMinor,
-        paidByMemberId: data.paidBy,
+        paidByMemberId: plan.primary,
         splitType: data.splitType,
         occurredOn: data.occurredOn,
         createdBy: userId,
       })
       .returning({ id: splitExpenses.id });
+    await tx.insert(splitExpensePayers).values(payerRows(expense!.id, plan));
     await tx.insert(splitShares).values(
       plan.shares.map((s) => ({
         expenseId: expense!.id,
@@ -327,11 +370,18 @@ export async function updateExpense(
   await db.transaction(async (tx) => {
     const ctx = await requireJoined(userId, rawGroupId, tx, "share");
     const expense = await loadExpense(tx, ctx, rawExpenseId);
-    const existing = await tx.select().from(splitShares).where(eq(splitShares.expenseId, expense.id));
+    const [existing, paidBefore] = await Promise.all([
+      tx.select().from(splitShares).where(eq(splitShares.expenseId, expense.id)),
+      tx
+        .select({ memberId: splitExpensePayers.memberId })
+        .from(splitExpensePayers)
+        .where(eq(splitExpensePayers.expenseId, expense.id)),
+    ]);
     // Who may stay on it though they've left the group: whoever paid, and
     // whoever still has a share (a 0 row kept for a workspace link doesn't count).
     const keep = new Set([
       expense.paidByMemberId,
+      ...paidBefore.map((p) => p.memberId),
       ...existing.filter((s) => s.amountMinor > 0).map((s) => s.memberId),
     ]);
     const plan = planExpense(ctx, await groupMembers(ctx.group.id, tx), data, keep);
@@ -341,12 +391,15 @@ export async function updateExpense(
       .set({
         title: data.title,
         amountMinor: plan.totalMinor,
-        paidByMemberId: data.paidBy,
+        paidByMemberId: plan.primary,
         splitType: data.splitType,
         occurredOn: data.occurredOn,
         updatedAt: new Date(),
       })
       .where(eq(splitExpenses.id, expense.id));
+    // Payers carry nothing but who and how much: replaced wholesale.
+    await tx.delete(splitExpensePayers).where(eq(splitExpensePayers.expenseId, expense.id));
+    await tx.insert(splitExpensePayers).values(payerRows(expense.id, plan));
     // Someone dropped from the expense: their share goes — unless it's linked
     // to their workspace entry, in which case it stays at 0, so the link and
     // "changed since you added it" survive and they can remove the entry.

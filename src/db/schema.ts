@@ -1377,9 +1377,16 @@ export const splitRateLog = pgTable(
 );
 
 /**
- * One shared expense, paid by one member, divided among some of them. The
- * shares are always computed on the server from `split_type` and the input
- * (`lib/split-math.ts`), never taken from the client.
+ * One shared expense, paid by one or more members (`split_expense_payers`),
+ * divided among some of them. The shares are always computed on the server
+ * from `split_type` and the input (`lib/split-math.ts`), never taken from the
+ * client.
+ *
+ * `paid_by_member_id` is the *main* payer — whoever paid the most, ties by
+ * member id (`primaryPayer`). It's what the leftover rule puts first, what a
+ * one-line label names ("Asha and 2 others paid") and what the API's
+ * single-payer `paidBy` reports; what each payer paid lives in
+ * `split_expense_payers`, and only that counts towards balances.
  */
 export const splitExpenses = pgTable(
   "split_expenses",
@@ -1418,6 +1425,31 @@ export const splitExpenses = pgTable(
     ),
     // FK maintenance + "what did this member pay".
     index("split_expenses_paid_by_idx").on(t.paidByMemberId),
+  ],
+);
+
+/**
+ * Who paid for an expense, and how much each — one row per payer, summing to
+ * the expense's `amount_minor` (checked on the server before it's written).
+ * An expense paid by one person has one row for the whole amount. Balances
+ * credit each payer with their row; nobody who paid nothing has one.
+ */
+export const splitExpensePayers = pgTable(
+  "split_expense_payers",
+  {
+    expenseId: uuid("expense_id")
+      .notNull()
+      .references(() => splitExpenses.id, { onDelete: "cascade" }),
+    memberId: uuid("member_id")
+      .notNull()
+      .references(() => splitMembers.id, { onDelete: "restrict" }),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.expenseId, t.memberId] }),
+    check("split_expense_payers_amount_positive", sql`${t.amountMinor} > 0`),
+    // Balances (paid per member) + FK maintenance.
+    index("split_expense_payers_member_idx").on(t.memberId),
   ],
 );
 
@@ -1542,6 +1574,7 @@ export type SplitMember = typeof splitMembers.$inferSelect;
 export type SplitMemberStatus = (typeof splitMemberStatusEnum.enumValues)[number];
 export type SplitExpense = typeof splitExpenses.$inferSelect;
 export type SplitShare = typeof splitShares.$inferSelect;
+export type SplitExpensePayer = typeof splitExpensePayers.$inferSelect;
 export type SplitSettlement = typeof splitSettlements.$inferSelect;
 export type SplitType = (typeof splitTypeEnum.enumValues)[number];
 export type Budget = typeof budgets.$inferSelect;

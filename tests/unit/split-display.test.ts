@@ -10,6 +10,8 @@ import {
   dayInZone,
   initialsOf,
   myPart,
+  myPartText,
+  payersLabel,
   SETTLED_UP,
 } from "@/lib/split-display";
 import { parseAmountInput } from "@/lib/parse-amount";
@@ -27,7 +29,7 @@ describe("initialsOf", () => {
 describe("myPart", () => {
   const expense = (payer: string, total: number, mine: number | null) => ({
     amountMinor: total,
-    paidBy: { memberId: payer },
+    payers: [{ memberId: payer, amountMinor: total }],
     myShare: mine === null ? null : { amountMinor: mine },
   });
 
@@ -44,6 +46,37 @@ describe("myPart", () => {
     expect(myPart(expense("asha", 9000, 3000), "me")).toEqual({ kind: "owe", amountMinor: 3000 });
     expect(myPart(expense("asha", 9000, null), "me")).toEqual({ kind: "none" });
     expect(myPart(expense("asha", 9000, 0), "me")).toEqual({ kind: "none" });
+  });
+
+  it("several payers: what you paid less your share", () => {
+    const shared = (mePaid: number, mine: number) => ({
+      amountMinor: 9000,
+      payers: [
+        { memberId: "asha", amountMinor: 9000 - mePaid },
+        { memberId: "me", amountMinor: mePaid },
+      ],
+      myShare: { amountMinor: mine },
+    });
+    expect(myPart(shared(4500, 3000), "me")).toEqual({ kind: "lent", amountMinor: 1500 });
+    expect(myPart(shared(1000, 3000), "me")).toEqual({ kind: "owe", amountMinor: 2000 });
+    expect(myPart(shared(3000, 3000), "me")).toEqual({ kind: "even" });
+    expect(myPartText({ kind: "even" }, String)).toBe("You paid your share");
+    expect(myPartText({ kind: "owe", amountMinor: 2000 }, (m) => `₹${m / 100}`)).toBe("You owe ₹20");
+  });
+});
+
+describe("payersLabel", () => {
+  const you = { name: "Nitheesh", isYou: true };
+  const asha = { name: "Asha", isYou: false };
+  const ben = { name: "Ben", isYou: false };
+  it("names one or two payers, and counts the rest", () => {
+    expect(payersLabel([you])).toBe("You");
+    expect(payersLabel([asha])).toBe("Asha");
+    expect(payersLabel([asha, you])).toBe("Asha and you");
+    expect(payersLabel([you, asha])).toBe("Asha and you");
+    expect(payersLabel([asha, ben])).toBe("Asha and Ben");
+    expect(payersLabel([asha, ben, you])).toBe("You and 2 others");
+    expect(payersLabel([ben, asha, { name: "Chloe", isYou: false }])).toBe("Ben and 2 others");
   });
 });
 

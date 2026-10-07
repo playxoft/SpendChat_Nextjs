@@ -7,6 +7,8 @@ import {
   fromBasisPoints,
   percentToInputString,
   netBalances,
+  payerAmounts,
+  primaryPayer,
   SplitMathError,
   suggestSettlements,
   toBasisPoints,
@@ -325,5 +327,65 @@ describe("percentToInputString", () => {
 
   it("falls back to plain digits for a locale Intl can't load", () => {
     expect(percentToInputString(3333, "not a locale!")).toBe("33.33");
+  });
+});
+
+describe("payerAmounts — several people paid", () => {
+  it("divides evenly without amounts, leftover units one each by member id", () => {
+    expect(payerAmounts(1001, [{ memberId: "b" }, { memberId: "a" }])).toEqual([
+      { memberId: "a", amountMinor: 501 },
+      { memberId: "b", amountMinor: 500 },
+    ]);
+    expect(payerAmounts(500, [{ memberId: "a" }])).toEqual([{ memberId: "a", amountMinor: 500 }]);
+  });
+
+  it("takes amounts as given when they add up, dropping anyone at 0", () => {
+    expect(
+      payerAmounts(9000, [
+        { memberId: "b", amountMinor: 6000 },
+        { memberId: "a", amountMinor: 3000 },
+        { memberId: "c", amountMinor: 0 },
+      ]),
+    ).toEqual([
+      { memberId: "a", amountMinor: 3000 },
+      { memberId: "b", amountMinor: 6000 },
+    ]);
+  });
+
+  it("refuses amounts that don't add up, a mix of given and missing, duplicates and nobody", () => {
+    const err = (() => {
+      try {
+        payerAmounts(9000, [
+          { memberId: "a", amountMinor: 3000 },
+          { memberId: "b", amountMinor: 3000 },
+        ]);
+      } catch (e) {
+        return e;
+      }
+    })();
+    expect(err).toBeInstanceOf(SplitMathError);
+    expect((err as SplitMathError).details).toEqual({ paidSumMinor: 6000, totalMinor: 9000 });
+    expect(describeSplitError(err as SplitMathError, (m) => formatMoney(m, "INR", "en-IN"))).toBe(
+      "Amounts paid add up to ₹60.00, but the expense is ₹90.00",
+    );
+    expect(() => payerAmounts(9000, [{ memberId: "a", amountMinor: 9000 }, { memberId: "b" }])).toThrow(
+      SplitMathError,
+    );
+    expect(() => payerAmounts(9000, [{ memberId: "a" }, { memberId: "a" }])).toThrow("Someone is in Paid by twice");
+    expect(() => payerAmounts(9000, [])).toThrow("Pick who paid");
+    expect(() => payerAmounts(9000, [{ memberId: "a", amountMinor: 0 }, { memberId: "b", amountMinor: 0 }])).toThrow(
+      SplitMathError,
+    );
+  });
+
+  it("the main payer paid the most, ties by member id — and takes an equal split's leftover first", () => {
+    expect(primaryPayer([{ memberId: "a", amountMinor: 100 }, { memberId: "b", amountMinor: 300 }])).toBe("b");
+    expect(primaryPayer([{ memberId: "b", amountMinor: 200 }, { memberId: "a", amountMinor: 200 }])).toBe("a");
+    const payers = payerAmounts(1000, [{ memberId: "c" }, { memberId: "b" }]);
+    expect(computeShares(1000, primaryPayer(payers), { type: "equal", memberIds: ["a", "b", "c"] })).toEqual([
+      { memberId: "b", amountMinor: 334 },
+      { memberId: "a", amountMinor: 333 },
+      { memberId: "c", amountMinor: 333 },
+    ]);
   });
 });

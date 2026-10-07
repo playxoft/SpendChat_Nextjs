@@ -538,7 +538,10 @@ export type ApiSplitExpense = {
   occurredOn: string;
   createdAt: string;
   updatedAt: string;
+  /** The main payer — whoever paid the most (ties by member id). */
   paidBy: { memberId: string; name: string };
+  /** Everyone who paid and how much, the most first; one entry when one person paid. */
+  payers: { memberId: string; name: string; amountMinor: number; amount: string }[];
   shares: {
     memberId: string;
     name: string;
@@ -570,6 +573,12 @@ export function serializeSplitExpense(e: SplitExpenseView, currency: string): Ap
     createdAt: toIso(e.createdAt),
     updatedAt: toIso(e.updatedAt),
     paidBy: e.paidBy,
+    payers: e.payers.map((p) => ({
+      memberId: p.memberId,
+      name: p.name,
+      amountMinor: p.amountMinor,
+      amount: majorString(p.amountMinor, currency),
+    })),
     shares: e.shares.map((s) => ({
       memberId: s.memberId,
       name: s.name,

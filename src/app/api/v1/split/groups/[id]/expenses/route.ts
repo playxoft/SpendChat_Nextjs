@@ -30,8 +30,10 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 
 /**
  * POST /api/v1/split/groups/:id/expenses — add an expense (any joined member).
- * Body: { title, amount, paidBy, occurredOn, splitType, … } where `splitType`
- * is `equal` (+ `memberIds`), `exact` (+ `shares: [{memberId, amount}]`, summing
+ * Body: { title, amount, payers | paidBy, occurredOn, splitType, … } where
+ * `payers` is `[{memberId, amount?}]` (amounts for all or none — none divides
+ * it evenly) or, the older shape, `paidBy` one member id; `splitType` is
+ * `equal` (+ `memberIds`), `exact` (+ `shares: [{memberId, amount}]`, summing
  * to `amount`) or `percent` (+ `shares: [{memberId, percent}]`, summing to 100).
  * The server computes every share. 201 → the expense.
  */
