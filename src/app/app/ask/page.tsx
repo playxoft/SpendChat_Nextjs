@@ -28,8 +28,8 @@ export default async function AskPage({
   const sp = await searchParams;
   const chatParam = Array.isArray(sp.c) ? sp.c[0] : sp.c;
   const { user, workspace } = await getAppContext();
-  // Same page either way: no model means sample answers outside production
-  // and a plain per-question error in it — never a "not set up" screen.
+  // Same page either way: no model means sample answers in dev and beta and a
+  // plain per-question error anywhere else — never a "not set up" screen.
   const mode = chatAnswerMode();
 
   const [chats, opened, allowance] = await Promise.all([

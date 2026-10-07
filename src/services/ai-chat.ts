@@ -62,7 +62,7 @@ export type ChatMessageDTO = {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
-  /** A sample answer (no model, outside production) — the page captions it, quietly. */
+  /** A sample answer (no model, in dev, tests or beta) — the page captions it, quietly. */
   sample: boolean;
 };
 
@@ -298,7 +298,7 @@ export type AskResult = {
  * stripped by the schema), the chat's ownership (404), edit access to the
  * workspace (403 — Ask spends the workspace's shared AI actions, so it needs
  * what the composer's AI mode needs), then how this server answers
- * (`chatAnswerMode`): with no model, a sample answer outside production
+ * (`chatAnswerMode`): with no model, a sample answer in dev, tests and beta
  * (`answerWithSample` — no charge, no ledger row, no provider call) or, in
  * production, 503 "Couldn't answer right now" — both before any charge. With a
  * model: the charge — one AI action against the workspace's monthly allowance
@@ -390,7 +390,7 @@ function aiUnavailableForChat(): ApiError {
 }
 
 /**
- * The no-model path outside production: a sample answer from the asker's own
+ * The no-model path in dev, tests and beta: a sample answer from the asker's own
  * data (`buildSampleAnswer`), stored like any answer so chats, rename and
  * delete all work — but no charge, no ledger row and no provider call. Its
  * message row records `units = 0`, which is what marks it as a sample.

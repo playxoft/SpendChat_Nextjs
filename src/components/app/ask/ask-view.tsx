@@ -72,7 +72,7 @@ const SUGGESTIONS = [
  * links only); questions render as plain text.
  *
  * The page is the same whether or not the server has a model: without one, a
- * question gets a sample answer outside production (captioned, quietly) and a
+ * question gets a sample answer in dev and beta (captioned, quietly) and a
  * plain inline error in production — never a "not set up" banner.
  */
 export function AskView({
@@ -89,7 +89,7 @@ export function AskView({
   initialMessages: ChatMessageDTO[];
   chats: ChatSummary[];
   /**
-   * No model, outside production: answers are samples (`buildSampleAnswer`)
+   * No model, in dev, tests or beta: answers are samples (`buildSampleAnswer`)
    * that cost nothing, so a spent allowance doesn't lock the composer.
    */
   sampleAnswers: boolean;

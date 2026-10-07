@@ -84,12 +84,13 @@ export function resolveChatModel(): ModelConfig {
 /**
  * How Ask answers on this server:
  *  - `"model"` — `AI_CHAT_MODEL` resolves; a question costs one AI action.
- *  - `"sample"` — no model, outside production (`APP_ENV` isn't "production":
- *    a local run, tests, the beta Worker). A question gets `buildSampleAnswer`,
+ *  - `"sample"` — no model, and `sampleAnswersAllowed()`: a local run, tests,
+ *    or the beta Worker — nothing else. A question gets `buildSampleAnswer`,
  *    built from the same data with no model and no charge, so the whole page
  *    can be tried without a key.
- *  - `"unavailable"` — no model in production: a question fails with
- *    `CHAT_UNAVAILABLE_MESSAGE`, uncharged.
+ *  - `"unavailable"` — no model anywhere else, production and any deploy that
+ *    can't prove it isn't: a question fails with `CHAT_UNAVAILABLE_MESSAGE`,
+ *    uncharged.
  * The page looks the same in all three; nothing announces which one it is.
  */
 export type ChatAnswerMode = "model" | "sample" | "unavailable";
@@ -99,10 +100,21 @@ export function chatAnswerMode(): ChatAnswerMode {
     resolveChatModel();
     return "model";
   } catch {
-    // The same test `lib/version.ts` uses: APP_ENV is set to "production" on
-    // the production Worker only (wrangler.toml).
-    return process.env.APP_ENV === "production" ? "unavailable" : "sample";
+    return sampleAnswersAllowed() ? "sample" : "unavailable";
   }
+}
+
+/**
+ * Where a question with no model may get a free sample answer — an explicit
+ * allow-list, never "anything that isn't production":
+ *  - a local run or the test suite: `NODE_ENV` isn't "production" (`next dev`,
+ *    vitest). Every deployed build is "production" — Next inlines it.
+ *  - the beta Worker: `APP_ENV` is exactly "beta" (wrangler.toml).
+ * Everything else counts as production — including a deployed Worker whose
+ * `APP_ENV` is unset or misspelled, which must not hand out free answers.
+ */
+export function sampleAnswersAllowed(): boolean {
+  return process.env.NODE_ENV !== "production" || process.env.APP_ENV === "beta";
 }
 
 // ── The data ────────────────────────────────────────────────────────────────
@@ -418,7 +430,7 @@ export function chatTitleFrom(question: string): string {
 const SAMPLE_CATEGORY_ROWS = 5;
 
 /**
- * Ask's answer when there's no model outside production (`chatAnswerMode()`
+ * Ask's answer when there's no model in dev, tests or beta (`chatAnswerMode()`
  * is "sample"): a short summary of this month so far, built from the same
  * `ChatData` a model would get — so it's the asker's real numbers, scoped and
  * trash-free like any answer. Deterministic, and it doesn't read the question.

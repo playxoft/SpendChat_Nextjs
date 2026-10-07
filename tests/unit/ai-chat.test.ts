@@ -345,27 +345,51 @@ describe("the model — its own env pair, never the parse model's", () => {
     expect(CHAT_UNAVAILABLE_MESSAGE).not.toMatch(/set up|configur|model|key/i);
   });
 
-  it("answers with samples outside production when there's no model — unset or misconfigured", () => {
+  it("answers with samples locally and in tests when there's no model — unset or misconfigured", () => {
     vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
-    vi.stubEnv("APP_ENV", "development");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("APP_ENV", undefined);
     expect(chatAnswerMode()).toBe("sample");
-    vi.stubEnv("APP_ENV", "beta");
+    vi.stubEnv("NODE_ENV", "test");
     expect(chatAnswerMode()).toBe("sample");
     vi.stubEnv("AI_CHAT_MODEL", "not json");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "x");
     expect(chatAnswerMode()).toBe("sample");
   });
 
-  it("is unavailable in production when there's no model", () => {
-    vi.stubEnv("AI_CHAT_MODEL", "");
-    vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
-    vi.stubEnv("APP_ENV", "production");
-    expect(chatAnswerMode()).toBe("unavailable");
+  // Every deployed build is NODE_ENV=production; only APP_ENV tells them apart.
+  describe("on a deployed Worker (NODE_ENV=production) with no model", () => {
+    function deployed(appEnv: string | undefined) {
+      vi.stubEnv("AI_CHAT_MODEL", "");
+      vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_ENV", appEnv);
+      return chatAnswerMode();
+    }
+
+    it("samples on beta only", () => {
+      expect(deployed("beta")).toBe("sample");
+    });
+
+    it("is unavailable in production", () => {
+      expect(deployed("production")).toBe("unavailable");
+    });
+
+    it("treats an unset APP_ENV as production — a misconfigured deploy hands out nothing free", () => {
+      expect(deployed(undefined)).toBe("unavailable");
+      expect(deployed("")).toBe("unavailable");
+    });
+
+    it("treats anything but exactly 'beta' as production", () => {
+      expect(deployed("development")).toBe("unavailable");
+      expect(deployed("Beta")).toBe("unavailable");
+      expect(deployed("staging")).toBe("unavailable");
+    });
   });
 });
 
-describe("buildSampleAnswer — the no-model answer outside production", () => {
+describe("buildSampleAnswer — the no-model answer in dev, tests and beta", () => {
   const URL_ = "https://spendchat.example/app/analytics";
 
   it("summarises this month so far in every piece of Markdown an answer can use", () => {
