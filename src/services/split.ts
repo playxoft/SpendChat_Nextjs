@@ -4,6 +4,7 @@ import { and, asc, count, desc, eq, gt, inArray, isNull, ne, or, sql } from "dri
 import { z } from "zod";
 import { getDb } from "@/db";
 import {
+  splitExpensePayers,
   splitExpenses,
   splitGroups,
   splitMembers,
@@ -194,7 +195,12 @@ function toTotals(rows: { memberId: string; total: number }[]): Totals {
   return Object.fromEntries(rows.map((r) => [r.memberId, r.total]));
 }
 
-const sumMinor = (col: typeof splitExpenses.amountMinor | typeof splitShares.amountMinor | typeof splitSettlements.amountMinor) =>
+const sumMinor = (
+  col:
+    | typeof splitExpensePayers.amountMinor
+    | typeof splitShares.amountMinor
+    | typeof splitSettlements.amountMinor,
+) =>
   sql<number>`coalesce(sum(${col}), 0)::bigint`.mapWith(Number);
 
 /**
@@ -205,10 +211,11 @@ async function ledgerTotals(memberIds: string[], db: DbOrTx) {
   if (memberIds.length === 0) return { paid: {}, owed: {}, sent: {}, received: {} };
   const [paid, owed, sent, received] = await Promise.all([
     db
-      .select({ memberId: splitExpenses.paidByMemberId, total: sumMinor(splitExpenses.amountMinor) })
-      .from(splitExpenses)
-      .where(inArray(splitExpenses.paidByMemberId, memberIds))
-      .groupBy(splitExpenses.paidByMemberId),
+      // Each payer is credited with what they paid (one row for a single payer).
+      .select({ memberId: splitExpensePayers.memberId, total: sumMinor(splitExpensePayers.amountMinor) })
+      .from(splitExpensePayers)
+      .where(inArray(splitExpensePayers.memberId, memberIds))
+      .groupBy(splitExpensePayers.memberId),
     db
       .select({ memberId: splitShares.memberId, total: sumMinor(splitShares.amountMinor) })
       .from(splitShares)
@@ -289,8 +296,11 @@ export type SplitActivity =
       kind: "expense";
       title: string;
       amountMinor: number;
+      /** The main payer (whoever paid the most). */
       payerName: string;
       payerIsYou: boolean;
+      /** Everyone who paid, the most first — one entry when one person paid. */
+      payers: { name: string; isYou: boolean }[];
       at: Date;
     }
   | {
@@ -315,6 +325,7 @@ async function lastActivities(
   const [expenses, payments] = await Promise.all([
     db
       .selectDistinctOn([splitExpenses.groupId], {
+        id: splitExpenses.id,
         groupId: splitExpenses.groupId,
         title: splitExpenses.title,
         amountMinor: splitExpenses.amountMinor,
@@ -336,8 +347,23 @@ async function lastActivities(
       .where(inArray(splitSettlements.groupId, groupIds))
       .orderBy(splitSettlements.groupId, desc(splitSettlements.createdAt), desc(splitSettlements.id)),
   ]);
+  const paid = expenses.length
+    ? await db
+        .select()
+        .from(splitExpensePayers)
+        .where(
+          inArray(
+            splitExpensePayers.expenseId,
+            expenses.map((e) => e.id),
+          ),
+        )
+    : [];
   const memberIds = [
-    ...new Set([...expenses.map((e) => e.payer), ...payments.flatMap((p) => [p.from, p.to])]),
+    ...new Set([
+      ...expenses.map((e) => e.payer),
+      ...paid.map((p) => p.memberId),
+      ...payments.flatMap((p) => [p.from, p.to]),
+    ]),
   ];
   const names = new Map(
     memberIds.length
@@ -357,6 +383,16 @@ async function lastActivities(
       amountMinor: e.amountMinor,
       payerName: names.get(e.payer) ?? "",
       payerIsYou: myMemberIds.has(e.payer),
+      payers: (paid.some((p) => p.expenseId === e.id)
+        ? paid.filter((p) => p.expenseId === e.id)
+        : [{ memberId: e.payer, amountMinor: e.amountMinor }]
+      )
+        .sort(
+          (a, b) =>
+            b.amountMinor - a.amountMinor ||
+            (a.memberId === e.payer ? -1 : b.memberId === e.payer ? 1 : a.memberId < b.memberId ? -1 : 1),
+        )
+        .map((p) => ({ name: names.get(p.memberId) ?? "", isYou: myMemberIds.has(p.memberId) })),
       at: e.at,
     });
   }

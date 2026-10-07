@@ -277,6 +277,70 @@ describe("/api/v1/split", () => {
     expect(delExpense.status).toBe(200);
   });
 
+  it("several payers: `payers` in and out, the older `paidBy` still accepted", async () => {
+    const { group } = await newGroup();
+    await bootstrapUser("asha");
+    signInAs("o");
+    const { body } = await json<{ group: Detail; added: Added[] }>(
+      await addMembers(
+        apiReq(`/api/v1/split/groups/${group.id}/members`, {
+          method: "POST",
+          body: jsonBody({ members: [{ email: "asha@example.com", name: "Asha" }] }),
+        }),
+        ctx({ id: group.id }),
+      ),
+    );
+    const ashaId = body.data.added[0]!.memberId;
+    signInAs("asha");
+    await acceptInvitation(apiReq("/x", { method: "POST" }), ctx({ memberId: ashaId }));
+    signInAs("o");
+    const ownerId = group.me.memberId;
+    type Expense = {
+      id: string;
+      paidBy: { memberId: string };
+      payers: { memberId: string; amountMinor: number; amount: string }[];
+    };
+    const post = (payload: Record<string, unknown>) =>
+      createExpense(
+        apiReq(`/api/v1/split/groups/${group.id}/expenses`, {
+          method: "POST",
+          body: jsonBody({
+            title: "Hotel",
+            amount: 3000,
+            occurredOn: "2026-10-01",
+            splitType: "equal",
+            memberIds: [ownerId, ashaId],
+            ...payload,
+          }),
+        }),
+        ctx({ id: group.id }),
+      );
+
+    const created = await json<Expense>(
+      await post({ payers: [{ memberId: ownerId, amount: 1000 }, { memberId: ashaId, amount: 2000 }] }),
+    );
+    expect(created.status).toBe(201);
+    expect(created.body.data.paidBy.memberId).toBe(ashaId);
+    expect(created.body.data.payers).toEqual([
+      { memberId: ashaId, name: "Asha", amountMinor: 2000, amount: "2000" },
+      { memberId: ownerId, name: expect.any(String), amountMinor: 1000, amount: "1000" },
+    ]);
+    const detail = await json<Detail>(await getGroup(apiReq("/x"), ctx({ id: group.id })));
+    expect(detail.body.data.members.find((m) => m.id === ashaId)!.balanceMinor).toBe(500);
+
+    const single = await json<Expense>(await post({ paidBy: ownerId }));
+    expect(single.body.data.payers).toEqual([expect.objectContaining({ memberId: ownerId, amountMinor: 3000 })]);
+
+    const mismatch = await json<unknown>(
+      await post({ payers: [{ memberId: ownerId, amount: 1000 }, { memberId: ashaId, amount: 1000 }] }),
+    );
+    expect(mismatch.status).toBe(422);
+    const both = await json<unknown>(await post({ paidBy: ownerId, payers: [{ memberId: ashaId }] }));
+    expect(both.status).toBe(422);
+    const none = await json<unknown>(await post({}));
+    expect(none.status).toBe(422);
+  });
+
   it("declines an invitation", async () => {
     const { group } = await newGroup();
     await bootstrapUser("asha");

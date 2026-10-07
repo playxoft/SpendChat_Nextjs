@@ -3207,14 +3207,18 @@ paths:
       summary: Add an expense (any joined member)
       description: |
         The server computes every share from the inputs — never send share
-        amounts for an `equal` split. Payer and participants must be people in
-        the group (422 otherwise). Rounding: in an `equal` split the leftover
-        minor units (₹100 ÷ 3) go to the payer first, then by join order; in a
+        amounts for an `equal` split. Payers and participants must be people in
+        the group (422 otherwise). Several people can pay: send `payers`
+        (amounts for all or none — none divides it evenly) or the older single
+        `paidBy`; each payer is credited what they paid. Rounding: in an
+        `equal` split the leftover minor units (₹100 ÷ 3) go to the main payer
+        (whoever paid the most) first, then by join order; in a
         `percent` split each share is rounded down and the leftover goes to
         the largest remainders first (ties: payer, then join order); `exact`
         amounts must add up to the total. A 422 for bad sums has a neutral
-        `message` and the numbers in `details` (`sumMinor`/`totalMinor`, or
-        `bpSum`). An amount that rounds to 0 minor units (¥0.4) is 422.
+        `message` and the numbers in `details` (`sumMinor`/`totalMinor`,
+        `bpSum`, or `paidSumMinor`/`totalMinor` for payers). An amount that
+        rounds to 0 minor units (¥0.4) is 422.
       requestBody:
         required: true
         content:
@@ -5311,10 +5315,33 @@ components:
         `exact` → `shares[].amount` (major units, summing to `amount`);
         `percent` → `shares[].percent` (≤ 2 decimals, summing to 100).
         People with 0 are left out of the expense.
+
+        Who paid: send **either** `payers` (one or more) **or** the older
+        single `paidBy` — exactly one of them (422 for both or neither).
+        `payers[].amount` is given for all payers or for none: none divides
+        `amount` evenly between them (leftover minor units one each by join
+        order); all must add up to `amount` (422, `details: { paidSumMinor,
+        totalMinor }`). A payer at 0 is left out. Payers needn't be in the
+        split. The main payer — whoever paid the most, ties by join order —
+        is who an `equal` split's leftover goes to first.
       properties:
         title: { type: string, minLength: 1, maxLength: 40 }
         amount: { type: number, exclusiveMinimum: 0, maximum: 999999999.99 }
-        paidBy: { type: string, format: uuid, description: A member id. }
+        payers:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: Who paid, and optionally how much each (all or none).
+          items:
+            type: object
+            properties:
+              memberId: { type: string, format: uuid }
+              amount: { type: number, minimum: 0, description: Major units. }
+            required: [memberId]
+        paidBy:
+          type: string
+          format: uuid
+          description: One member paid it all — the older shape of `payers`. Send one or the other.
         occurredOn: { type: string, format: date }
         splitType: { type: string, enum: [equal, exact, percent] }
         memberIds:
@@ -5333,7 +5360,7 @@ components:
               amount: { type: number, minimum: 0 }
               percent: { type: number, minimum: 0, maximum: 100 }
             required: [memberId]
-      required: [title, amount, paidBy, occurredOn, splitType]
+      required: [title, amount, occurredOn, splitType]
 
     SplitExpense:
       type: object
@@ -5348,10 +5375,22 @@ components:
         updatedAt: { type: string, format: date-time }
         paidBy:
           type: object
+          description: The main payer — whoever paid the most (ties by join order).
           properties:
             memberId: { type: string, format: uuid }
             name: { type: string }
           required: [memberId, name]
+        payers:
+          type: array
+          description: Everyone who paid and how much, the most first; one entry when one person paid.
+          items:
+            type: object
+            properties:
+              memberId: { type: string, format: uuid }
+              name: { type: string }
+              amountMinor: { type: integer }
+              amount: { type: string }
+            required: [memberId, name, amountMinor, amount]
         shares:
           type: array
           items:
@@ -5386,7 +5425,7 @@ components:
                     Added, and the expense changed since — offer "Update my
                     entry" (`PUT …/workspace-entry`).
               required: [shareId, amountMinor, amount, added, addedAt, changedSinceAdded]
-      required: [id, title, amountMinor, amount, splitType, occurredOn, createdAt, updatedAt, paidBy, shares, canEdit, myShare]
+      required: [id, title, amountMinor, amount, splitType, occurredOn, createdAt, updatedAt, paidBy, payers, shares, canEdit, myShare]
 
     SplitSettlementInput:
       type: object

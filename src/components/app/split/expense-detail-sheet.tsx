@@ -12,7 +12,7 @@ import {
 import { formatDateLabel } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { fromBasisPoints } from "@/lib/split-math";
-import { myPart } from "@/lib/split-display";
+import { myPart, payersLabel } from "@/lib/split-display";
 import type { SplitExpenseView } from "@/services/split-ledger";
 import { MemberAvatar } from "./member-avatar";
 
@@ -57,17 +57,39 @@ export function ExpenseDetailSheet({
   const share = expense?.myShare ?? null;
   return (
     <Sheet open={expense !== null} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="data-[side=right]:w-full data-[side=right]:sm:max-w-md">
+      <SheetContent
+        side="right"
+        closeOnOutsideClick
+        className="data-[side=right]:w-full data-[side=right]:sm:max-w-md"
+      >
         {expense && (
           <>
             <SheetHeader>
               <SheetTitle className="pr-8">{expense.title}</SheetTitle>
               <SheetDescription>
                 {fmt(expense.amountMinor)} · {formatDateLabel(expense.occurredOn, locale)} ·{" "}
-                {expense.paidBy.memberId === meMemberId ? "you" : expense.paidBy.name} paid
+                {payersLabel(expense.payers.map((p) => ({ name: p.name, isYou: p.memberId === meMemberId })))} paid
               </SheetDescription>
             </SheetHeader>
             <div className="space-y-6 overflow-y-auto px-4 pb-6">
+              {expense.payers.length > 1 && (
+                <section aria-labelledby="split-detail-payers" className="space-y-2">
+                  <h3 id="split-detail-payers" className="text-sm font-medium">
+                    Paid by
+                  </h3>
+                  <ul className="space-y-2">
+                    {expense.payers.map((p) => (
+                      <li key={p.memberId} className="flex items-center gap-2.5 text-sm">
+                        <MemberAvatar id={p.memberId} name={p.name} size="sm" />
+                        <span className="min-w-0 flex-1 truncate">
+                          {p.memberId === meMemberId ? `${p.name} (you)` : p.name}
+                        </span>
+                        <span className="tabular-nums">{fmt(p.amountMinor)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
               <section aria-labelledby="split-detail-shares" className="space-y-2">
                 <h3 id="split-detail-shares" className="text-sm font-medium">
                   {SPLIT_LABEL[expense.splitType]}
@@ -99,7 +121,9 @@ export function ExpenseDetailSheet({
                       ? `You owe ${fmt(part.amountMinor)}`
                       : part?.kind === "own"
                         ? "You paid this just for yourself"
-                        : "You're not part of this expense"}
+                        : part?.kind === "even"
+                          ? "You paid your share"
+                          : "You're not part of this expense"}
                 </p>
                 {share && share.amountMinor === 0 && share.added ? (
                   <div className="space-y-2 rounded-lg border p-3 text-sm">

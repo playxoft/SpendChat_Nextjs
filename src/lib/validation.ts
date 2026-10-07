@@ -1194,6 +1194,12 @@ const splitPercentSchema = z.coerce
   .max(100, "Percent can't be over 100")
   .refine((p) => Math.abs(p * 100 - Math.round(p * 100)) < 1e-6, "Use at most two decimals");
 
+const splitParticipantsMax = SPLIT_GROUP_MAX_PEOPLE;
+const splitShareAmountSchema = z.coerce
+  .number()
+  .finite()
+  .min(0, "Amounts can't be negative")
+  .max(TRANSACTION_AMOUNT_MAX, "Amount is too large (max 9 digits)");
 const splitExpenseBase = {
   title: z
     .string()
@@ -1201,17 +1207,27 @@ const splitExpenseBase = {
     .min(1, "Add a title")
     .max(SPLIT_EXPENSE_TITLE_MAX, `Title is too long (max ${SPLIT_EXPENSE_TITLE_MAX} characters)`),
   amount: amountSchema,
-  paidBy: splitIdSchema,
+  /** One person paid it all. The older shape; `payers` says the same for one. */
+  paidBy: splitIdSchema.optional(),
+  /**
+   * Who paid: amounts for all of them (adding up to `amount`) or for none, in
+   * which case it divides evenly between them.
+   */
+  payers: z
+    .array(z.object({ memberId: splitIdSchema, amount: splitShareAmountSchema.optional() }))
+    .min(1, "Pick who paid")
+    .max(splitParticipantsMax)
+    .optional(),
   occurredOn: dateSchema,
 };
-const splitParticipantsMax = SPLIT_GROUP_MAX_PEOPLE;
 
 /**
  * An expense and how to divide it. The shares sent here are *inputs* — member
  * ids (equal), amounts (exact) or percents — and the server computes every
  * stored share from them (`lib/split-math.ts`).
  */
-export const splitExpenseSchema = z.discriminatedUnion("splitType", [
+export const splitExpenseSchema = z
+  .discriminatedUnion("splitType", [
   z.object({
     ...splitExpenseBase,
     splitType: z.literal("equal"),
@@ -1224,11 +1240,7 @@ export const splitExpenseSchema = z.discriminatedUnion("splitType", [
       .array(
         z.object({
           memberId: splitIdSchema,
-          amount: z.coerce
-            .number()
-            .finite()
-            .min(0, "Amounts can't be negative")
-            .max(TRANSACTION_AMOUNT_MAX, "Amount is too large (max 9 digits)"),
+          amount: splitShareAmountSchema,
         }),
       )
       .min(1, "Pick who it's split between")
@@ -1242,8 +1254,22 @@ export const splitExpenseSchema = z.discriminatedUnion("splitType", [
       .min(1, "Pick who it's split between")
       .max(splitParticipantsMax),
   }),
-]);
+  ])
+  .superRefine((v, ctx) => {
+    if (v.paidBy === undefined && v.payers === undefined) {
+      ctx.addIssue({ code: "custom", message: "Pick who paid", path: ["payers"] });
+    } else if (v.paidBy !== undefined && v.payers !== undefined) {
+      ctx.addIssue({ code: "custom", message: "Send payers or paidBy, not both", path: ["paidBy"] });
+    }
+  });
 export type SplitExpenseInput = z.input<typeof splitExpenseSchema>;
+
+/** Who paid an expense, whichever shape it came in. */
+export function splitPayersOf(
+  data: Pick<z.output<typeof splitExpenseSchema>, "paidBy" | "payers">,
+): { memberId: string; amount?: number }[] {
+  return data.payers ?? (data.paidBy !== undefined ? [{ memberId: data.paidBy }] : []);
+}
 
 /** "Mark as paid": `from` paid `to` this much. */
 export const splitSettlementSchema = z

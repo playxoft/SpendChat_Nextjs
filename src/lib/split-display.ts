@@ -20,23 +20,60 @@ export type MyPart =
   | { kind: "lent"; amountMinor: number }
   | { kind: "owe"; amountMinor: number }
   | { kind: "own" }
+  | { kind: "even" }
   | { kind: "none" };
 
 /**
- * "You lent ₹X" when you paid and others share it; "You owe ₹Y" when someone
- * else paid and you're in it; "own" when you paid only for yourself; "none"
- * ("Not involved") otherwise.
+ * Where you stand: what you paid towards it less your share. "You lent ₹X"
+ * when you paid more than your share; "You owe ₹Y" when you paid less (or
+ * nothing) and you're in it; "own" when you paid it all just for yourself;
+ * "even" when you paid exactly your share of a shared one; "none" ("Not
+ * involved") otherwise.
  */
 export function myPart(
-  expense: { amountMinor: number; paidBy: { memberId: string }; myShare: { amountMinor: number } | null },
+  expense: {
+    amountMinor: number;
+    payers: readonly { memberId: string; amountMinor: number }[];
+    myShare: { amountMinor: number } | null;
+  },
   myMemberId: string,
 ): MyPart {
   const mine = expense.myShare?.amountMinor ?? 0;
-  if (expense.paidBy.memberId === myMemberId) {
-    const lent = expense.amountMinor - mine;
-    return lent > 0 ? { kind: "lent", amountMinor: lent } : { kind: "own" };
+  const paid = expense.payers.reduce((acc, p) => acc + (p.memberId === myMemberId ? p.amountMinor : 0), 0);
+  const net = paid - mine;
+  if (net > 0) return { kind: "lent", amountMinor: net };
+  if (net < 0) return { kind: "owe", amountMinor: -net };
+  if (paid > 0) return mine === expense.amountMinor ? { kind: "own" } : { kind: "even" };
+  return { kind: "none" };
+}
+
+/** The words for `myPart` — the bubble's line, and its spoken label. */
+export function myPartText(part: MyPart, format: (minor: number) => string): string {
+  switch (part.kind) {
+    case "lent":
+      return `You lent ${format(part.amountMinor)}`;
+    case "owe":
+      return `You owe ${format(part.amountMinor)}`;
+    case "own":
+      return "Just you";
+    case "even":
+      return "You paid your share";
+    default:
+      return "Not involved";
   }
-  return mine > 0 ? { kind: "owe", amountMinor: mine } : { kind: "none" };
+}
+
+/**
+ * Who paid, as one subject: "You", "Asha", "Asha and you", "Asha and Ben",
+ * "You and 2 others". `payers` the most first, as the views list them.
+ */
+export function payersLabel(payers: readonly { name: string; isYou: boolean }[]): string {
+  const you = payers.some((p) => p.isYou);
+  const others = payers.filter((p) => !p.isYou).map((p) => p.name || "Someone");
+  if (others.length === 0) return you ? "You" : "Someone";
+  if (payers.length === 1) return others[0]!;
+  if (payers.length === 2) return you ? `${others[0]} and you` : `${others[0]} and ${others[1]}`;
+  return `${you ? "You" : others[0]} and ${payers.length - 1} others`;
 }
 
 /** A balance as a status: "You're owed ₹X", "You owe ₹Y" or "Settled Up" (Title Case on purpose). */

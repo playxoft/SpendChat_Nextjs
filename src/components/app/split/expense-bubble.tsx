@@ -9,10 +9,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { formatMoney } from "@/lib/money";
-import { myPart } from "@/lib/split-display";
+import { myPart, myPartText, payersLabel } from "@/lib/split-display";
 import { cn } from "@/lib/utils";
 import type { SplitExpenseView } from "@/services/split-ledger";
-import { MemberAvatar } from "./member-avatar";
+import { AvatarStack, MemberAvatar } from "./member-avatar";
 
 const SPLIT_LABEL: Record<SplitExpenseView["splitType"], string> = {
   equal: "split equally",
@@ -25,7 +25,8 @@ const SPLIT_LABEL: Record<SplitExpenseView["splitType"], string> = {
  * the corner nearest the avatar squared off, `animate-rise`), with what a split
  * needs: title and amount, who paid and how it's split, and where the viewer
  * stands on it ("You lent ₹X", "You owe ₹Y", "Not involved"). What the viewer
- * paid sits on the right, like a sent message; everyone else's on the left.
+ * paid (or paid towards) sits on the right, like a sent message; everyone
+ * else's on the left. Several payers read "Asha and you paid".
  * Tapping it opens the details; editing and deleting are in its menu.
  */
 export function ExpenseBubble({
@@ -48,19 +49,12 @@ export function ExpenseBubble({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const mine = expense.paidBy.memberId === meMemberId;
+  const mine = expense.payers.some((p) => p.memberId === meMemberId);
   const part = myPart(expense, meMemberId);
   const fmt = (m: number) => formatMoney(m, currency, locale);
-  const payer = mine ? "You" : expense.paidBy.name;
+  const payer = payersLabel(expense.payers.map((p) => ({ name: p.name, isYou: p.memberId === meMemberId })));
   const people = expense.shares.length;
-  const partText =
-    part.kind === "lent"
-      ? `You lent ${fmt(part.amountMinor)}`
-      : part.kind === "owe"
-        ? `You owe ${fmt(part.amountMinor)}`
-        : part.kind === "own"
-          ? "Just you"
-          : "Not involved";
+  const partText = myPartText(part, fmt);
   const workspaceNote = expense.myShare?.added
     ? expense.myShare.changedSinceAdded
       ? "Changed since you added it to your workspace"
@@ -74,7 +68,15 @@ export function ExpenseBubble({
         mine && "ml-auto flex-row-reverse",
       )}
     >
-      <MemberAvatar id={expense.paidBy.memberId} name={expense.paidBy.name} />
+      {expense.payers.length > 1 ? (
+        <AvatarStack
+          people={expense.payers.map((p) => ({ id: p.memberId, name: p.name }))}
+          max={2}
+          className={cn("shrink-0 flex-col -space-x-0 -space-y-2", mine && "items-end")}
+        />
+      ) : (
+        <MemberAvatar id={expense.paidBy.memberId} name={expense.paidBy.name} />
+      )}
       <div
         role="button"
         tabIndex={0}
@@ -107,7 +109,7 @@ export function ExpenseBubble({
               "font-medium",
               part.kind === "lent" && "text-emerald-600 dark:text-emerald-400",
               part.kind === "owe" && "text-foreground",
-              (part.kind === "none" || part.kind === "own") && "text-muted-foreground",
+              (part.kind === "none" || part.kind === "own" || part.kind === "even") && "text-muted-foreground",
             )}
           >
             {partText}

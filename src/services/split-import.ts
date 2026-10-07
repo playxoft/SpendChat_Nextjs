@@ -1,7 +1,7 @@
 import "server-only";
 import { and, eq, gt, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { splitExpenses, splitGroups, splitMembers, splitShares, users } from "@/db/schema";
+import { splitExpensePayers, splitExpenses, splitGroups, splitMembers, splitShares, users } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
 import type { SessionUser } from "@/lib/auth";
 import { CONVERTED_FROM_MAX_ACCOUNT_AGE_DAYS, type ConvertedFrom } from "@/lib/attribution";
@@ -13,7 +13,7 @@ import { mapImportExpense } from "@/lib/split-import";
 import { splitExpenseSchema, splitImportSchema, SPLIT_MEMBER_NAME_MAX } from "@/lib/validation";
 import { emailNewInvitees } from "@/services/split-invites";
 import { groupMembers, insertPeople, type AddedPerson, type JoinedContext } from "@/services/split";
-import { planExpense, percentFor } from "@/services/split-ledger";
+import { payerRows, planExpense, percentFor } from "@/services/split-ledger";
 import { actorEventsToday, lockActor, logActorEvents, SPLIT_GROUPS_PER_DAY } from "@/services/split-rate";
 
 /**
@@ -107,6 +107,7 @@ export async function importSplitDraft(
 
       // One row per expense (each needs its id back), then every share at once.
       const shareRows: (typeof splitShares.$inferInsert)[] = [];
+      const paidRows: (typeof splitExpensePayers.$inferInsert)[] = [];
       for (const { expense, plan } of planned) {
         const [row] = await tx
           .insert(splitExpenses)
@@ -114,12 +115,13 @@ export async function importSplitDraft(
             groupId: group!.id,
             title: expense.title,
             amountMinor: plan.totalMinor,
-            paidByMemberId: expense.paidBy,
+            paidByMemberId: plan.primary,
             splitType: expense.splitType,
             occurredOn: expense.occurredOn,
             createdBy: user.id,
           })
           .returning({ id: splitExpenses.id });
+        paidRows.push(...payerRows(row!.id, plan));
         for (const s of plan.shares) {
           shareRows.push({
             expenseId: row!.id,
@@ -129,6 +131,7 @@ export async function importSplitDraft(
           });
         }
       }
+      if (paidRows.length) await tx.insert(splitExpensePayers).values(paidRows);
       if (shareRows.length) await tx.insert(splitShares).values(shareRows);
 
       await tagConvertedSignup(tx, user.id, "tool:split");
