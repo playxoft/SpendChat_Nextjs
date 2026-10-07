@@ -140,7 +140,7 @@ describe("gatherChatData — what an answer can see", () => {
     expect(text).not.toContain("trashed taxi");
     expect(text).not.toContain("old rent");
     // The totals are live-only too.
-    expect(text).toContain(`${TODAY.slice(0, 7)} | 0.00 | 12.50 | -12.50`);
+    expect(text).toContain(`${TODAY.slice(0, 7)} (to date) | 0.00 | 12.50 | -12.50`);
     expect(text).not.toContain("99.00");
     expect(text).not.toContain("77.00");
   });
@@ -166,6 +166,26 @@ describe("gatherChatData — what an answer can see", () => {
     expect(owners).toContain("kids shoes");
   });
 
+  it("runs 'this month' to today: later rows are listed apart, and last month's same days are summed", async () => {
+    await bootstrapUser("own");
+    const W = await workspaceIdOf("own");
+    const T = "2026-10-07";
+    await insertTxn("own", { type: "expense", amountMinor: 1000, occurredOn: "2026-10-05", title: "so far lunch" });
+    await insertTxn("own", { type: "expense", amountMinor: 50000, occurredOn: "2026-10-20", title: "future rent" });
+    await insertTxn("own", { type: "expense", amountMinor: 2000, occurredOn: "2026-09-03", title: "early sept" });
+    await insertTxn("own", { type: "expense", amountMinor: 4000, occurredOn: "2026-09-25", title: "late sept" });
+
+    const text = buildChatContext(await gatherChatData(uid("own"), workspaceOf(W), T));
+    expect(text).toContain("2026-10 (to date) | 0.00 | 10.00 | -10.00");
+    expect(text).toContain("2026-10-01 to 2026-10-07 | 0.00 | 10.00 | -10.00");
+    expect(text).toContain("2026-09-01 to 2026-09-07 | 0.00 | 20.00 | -20.00");
+    expect(text).toContain("2026-09 | 0.00 | 60.00 | -60.00");
+    expect(text).toContain("## Dated after today");
+    expect(text).toMatch(/## Dated after today[^\n]*\n[^\n]*\n2026-10-20 \| expense \| 500\.00 \| - \| future rent/);
+    // Only there — not among this month's largest or the recent rows.
+    expect(text.split("future rent")).toHaveLength(2);
+  });
+
   it("never reads another workspace", async () => {
     await bootstrapUser("own");
     await bootstrapUser("oth");
@@ -176,7 +196,7 @@ describe("gatherChatData — what an answer can see", () => {
     expect(text).not.toContain("other secret");
     // Nothing anywhere for "own": every list is empty, every total zero.
     expect(text).toContain("(none)");
-    expect(text).toContain(`${TODAY.slice(0, 7)} | 0.00 | 0.00 | 0.00`);
+    expect(text).toContain(`${TODAY.slice(0, 7)} (to date) | 0.00 | 0.00 | 0.00`);
   });
 });
 

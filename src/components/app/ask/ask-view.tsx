@@ -52,9 +52,11 @@ const SUGGESTIONS = [
  * button only, since that's the button that calls a model.
  *
  * The conversation lives in client state while the page is open. A first
- * answer gives the chat its id, and the URL moves to it (`?c=…`) — the page is
- * keyed by chat, so that remount re-reads the stored messages from the server.
- * Later answers only refresh the server parts (the chat list's order).
+ * answer gives the chat its id: the URL takes it in place (`?c=…`, through
+ * `history.replaceState`) and the view stays mounted, so a follow-up being
+ * typed meanwhile survives; `router.refresh()` then brings the chat list up to
+ * date. Opening another chat or "New chat" changes the `chatId` prop, and the
+ * view starts over from what the server read for it.
  *
  * Answers render as Markdown through `AnswerMarkdown` (no HTML, no images, safe
  * links only); questions render as plain text.
@@ -84,34 +86,84 @@ export function AskView({
   // like the composer's AI mode. A viewer reads their chats but gets a note
   // where the composer would be — never a button that can only fail.
   const { canWrite } = usePermissions();
+  // The chat on screen: the page's, until a first answer creates one.
+  const [currentChatId, setCurrentChatId] = useState(chatId);
+  // The `chatId` prop as last seen, to tell a navigation from the prop
+  // catching up with a chat this view created itself.
+  const [shownChatId, setShownChatId] = useState(chatId);
   const [messages, setMessages] = useState(initialMessages);
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [aiLeft, setAiLeft] = useState<AiActionsLeft | null>(null);
   const [asking, startAsking] = useTransition();
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const endRef = useRef<HTMLDivElement>(null);
+
+  if (chatId !== shownChatId) {
+    setShownChatId(chatId);
+    // Another chat was opened (the list, "New chat"): start from what the
+    // server read for it. The prop arriving with the id of the chat this view
+    // just created is no navigation — that chat is already on screen, and so
+    // is anything typed since.
+    if (chatId !== currentChatId) {
+      setCurrentChatId(chatId);
+      setMessages(initialMessages);
+      setPendingQuestion(null);
+      setText("");
+    }
+  }
+
+  // What an answer that arrives late checks before touching anything: is this
+  // view still mounted, and still on the chat the question was asked in?
+  const mounted = useRef(false);
+  const currentChatRef = useRef(currentChatId);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    currentChatRef.current = currentChatId;
+  }, [currentChatId]);
 
   const left = aiLeft ?? allowance;
   const spent = left !== null && left.remaining <= 0;
   const lock = spent ? aiActionsLock(plan, left.limit) : null;
   const busy = asking || pendingQuestion !== null;
 
-  // Open at the newest message, then follow each new one.
+  // Open at the newest message, then follow each new one. The window's own
+  // bottom, not the last bubble's: the composer (sticky) and, on a phone, the
+  // bottom nav sit over the last stretch of the viewport, and the page's end
+  // is laid out below both — so this is the one target nothing covers.
+  // Jump (no animation) on opening a chat; glide for a new message.
   const count = messages.length + (pendingQuestion ? 1 : 0);
-  const first = useRef(true);
+  const lastScroll = useRef<{ chat: string | null | undefined; count: number }>({
+    chat: undefined,
+    count: 0,
+  });
   useEffect(() => {
-    endRef.current?.scrollIntoView({ block: "end", behavior: first.current ? "instant" : "smooth" });
-    first.current = false;
-  }, [count]);
+    const prev = lastScroll.current;
+    lastScroll.current = { chat: shownChatId, count };
+    if (count === 0) return;
+    const opened = prev.chat !== shownChatId || count - prev.count > 2;
+    window.scrollTo({
+      top: document.documentElement.scrollHeight,
+      behavior: opened ? "instant" : "smooth",
+    });
+  }, [count, shownChatId]);
 
   function ask(raw: string) {
     const question = raw.trim();
     if (!question || busy || spent || !configured || !canWrite) return;
+    const askedIn = currentChatId;
     setPendingQuestion(question);
     setText("");
     startAsking(async () => {
-      const res = await askAi({ chatId: chatId ?? undefined, question });
+      const res = await askAi({ chatId: askedIn ?? undefined, question });
+      // Left Ask, or opened another chat, while this was being answered: the
+      // answer is stored in its own chat; nothing here is about it any more —
+      // and above all, no navigation back to it.
+      if (!mounted.current || currentChatRef.current !== askedIn) return;
       setPendingQuestion(null);
       if (!res.ok) {
         const limit = planLimitOf(res);
@@ -125,14 +177,16 @@ export function AskView({
       }
       setAiLeft(res.ai);
       setMessages((m) => [...m, ...res.messages]);
-      if (res.chat.id !== chatId) {
-        // A new chat (or one deleted elsewhere and brought back): move to its
-        // address. The page remounts on it and reads the messages back.
-        router.replace(askHref({ chatId: res.chat.id, profile }), { scroll: false });
-      } else {
-        // Same chat: it moved to the top of the list.
-        router.refresh();
+      if (res.chat.id !== askedIn) {
+        // A new chat (or one deleted elsewhere and brought back): the URL takes
+        // its id in place — Next's router follows `replaceState` — and the view
+        // stays mounted, keeping a follow-up already being typed.
+        setCurrentChatId(res.chat.id);
+        currentChatRef.current = res.chat.id;
+        window.history.replaceState(null, "", askHref({ chatId: res.chat.id, profile }));
       }
+      // The chat list: a new row, or this one moved to the top.
+      router.refresh();
     });
   }
 
@@ -184,7 +238,6 @@ export function AskView({
             )}
           </ol>
         )}
-        <div ref={endRef} />
       </div>
 
       {configured && !canWrite && (

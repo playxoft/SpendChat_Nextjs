@@ -1,35 +1,30 @@
-"use client";
-
-import { usePathname } from "next/navigation";
 import type { ChatSummary } from "@/services/ai-chat";
 import { ChatList } from "./chat-list";
-import { ASK_PATH } from "./ask-paths";
 
 /**
  * Ask's chat list as a second column, flush against the sidebar's right edge
- * (Notion-style), full height beside the page. Rendered by the app layout's
- * `@panel` slot, which only has a page for `/app/ask`.
+ * (Notion-style) and as tall as the window below the top bar, staying put
+ * while the conversation scrolls.
  *
- * The pathname check is load-bearing: on a client-side navigation to a route
- * the slot has no page for, Next keeps the slot's *last* page mounted (a slot
- * remembers its active state on soft navigation). Without the check, leaving
- * Ask for the tracker would bring this column along.
+ * It's part of the Ask *page*, not a layout or a parallel-route slot, on
+ * purpose:
+ *  - A slot beside the sidebar has to match every `/app` URL, or Next keeps
+ *    its last segment on a client-side navigation and re-requests that old Ask
+ *    URL on every later refresh (`reuseActiveSegmentInDefaultSlot`).
+ *  - An `ask/layout.tsx` isn't re-rendered when only `?c=` changes, so the list
+ *    would go stale, and it sits outside `ask/loading.tsx`.
+ * In the page, the list is read with the chat and refreshed with it.
  *
  * Desktop only, from `lg` up — below that, beside a 240px sidebar it would
  * squeeze the conversation to a strip. Smaller screens get the same list in a
  * sheet from the page's header (`AskHeader`).
  */
 export function AskPanel({ chats }: { chats: ChatSummary[] }) {
-  const pathname = usePathname();
-  if (pathname !== ASK_PATH) return null;
   return (
     <aside
       aria-label="Your chats"
-      className="sticky top-0 hidden h-svh w-64 shrink-0 flex-col border-r bg-background lg:flex print:hidden"
+      className="sticky top-14 hidden h-[calc(100svh-3.5rem)] w-64 shrink-0 flex-col border-r bg-background pt-3 lg:flex print:hidden"
     >
-      <div className="flex h-14 shrink-0 items-center px-5">
-        <p className="text-sm font-semibold">Chats</p>
-      </div>
       <ChatList chats={chats} className="flex-1" />
     </aside>
   );

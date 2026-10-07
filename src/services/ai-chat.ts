@@ -1,5 +1,4 @@
 import "server-only";
-import { cache } from "react";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { aiChatMessages, aiChats, type AiChat } from "@/db/schema";
@@ -10,7 +9,10 @@ import {
   CHAT_MONTHS,
   CHAT_RECENT_TRANSACTIONS,
   CHAT_TOP_EXPENSES,
+  CHAT_UPCOMING,
+  nextDay,
   resolveChatModel,
+  sameDayLastMonth,
   type ChatData,
   type ChatTxn,
 } from "@/lib/ai-chat";
@@ -24,6 +26,7 @@ import { describeError, logger } from "@/lib/logger";
 import {
   getCategoryBreakdown,
   getMonthlyTotals,
+  getSummary,
   listTransactions,
   type CategoryBreakdownRow,
   type TransactionRow,
@@ -98,12 +101,6 @@ export async function listChats(userId: string, workspaceId: string): Promise<Ch
     .limit(CHAT_LIST_LIMIT);
   return rows.map(summary);
 }
-
-/**
- * `listChats`, memoized for one render: the chat page (its phone sheet) and
- * the desktop panel beside it both list the chats in the same RSC pass.
- */
-export const listChatsForRender = cache(listChats);
 
 /**
  * The workspace's AI actions left this month, for the composers' count — a
@@ -197,8 +194,11 @@ function categoryTotals(rows: CategoryBreakdownRow[]) {
  * Everything one answer is built from, for the asker in this workspace. Every
  * read is a `lib/queries.ts` read — scoped to the profiles the asker can see
  * here (`accessibleProfileIdList`) and excluding the trash — so Ask can never
- * know more than the tracker shows the same person. Eight small reads, in
+ * know more than the tracker shows the same person. Ten small reads, in
  * parallel; the profile list behind them is memoized for the request.
+ *
+ * "This month" runs to today: a row dated later is in no total and no list
+ * but its own (`upcoming`), so a future-dated bill can't inflate "so far".
  */
 export async function gatherChatData(
   userId: string,
@@ -206,9 +206,10 @@ export async function gatherChatData(
   today: string,
 ): Promise<ChatData> {
   const ws = workspace.id;
-  const thisMonth = monthRange(today);
+  const thisMonth = { start: monthRange(today).start, end: today };
   const lastMonth = monthRange(monthStartBack(today, 1));
   const firstMonth = monthStartBack(today, CHAT_MONTHS - 1);
+  const sameDay = sameDayLastMonth(today);
   const largest = (range: { start: string; end: string }) =>
     listTransactions(userId, ws, {
       type: "expense",
@@ -219,17 +220,34 @@ export async function gatherChatData(
       dir: "asc",
       limit: CHAT_TOP_EXPENSES,
     });
-  const [months, thisExpense, thisIncome, lastExpense, lastIncome, topThis, topLast, recent] =
-    await Promise.all([
-      getMonthlyTotals(userId, ws, { from: firstMonth, to: thisMonth.end }),
-      getCategoryBreakdown(userId, ws, "expense", { from: thisMonth.start, to: thisMonth.end }),
-      getCategoryBreakdown(userId, ws, "income", { from: thisMonth.start, to: thisMonth.end }),
-      getCategoryBreakdown(userId, ws, "expense", { from: lastMonth.start, to: lastMonth.end }),
-      getCategoryBreakdown(userId, ws, "income", { from: lastMonth.start, to: lastMonth.end }),
-      largest(thisMonth),
-      largest(lastMonth),
-      listTransactions(userId, ws, { limit: CHAT_RECENT_TRANSACTIONS }),
-    ]);
+  const [
+    months,
+    thisExpense,
+    thisIncome,
+    lastExpense,
+    lastIncome,
+    topThis,
+    topLast,
+    sameDays,
+    recent,
+    upcoming,
+  ] = await Promise.all([
+    getMonthlyTotals(userId, ws, { from: firstMonth, to: today }),
+    getCategoryBreakdown(userId, ws, "expense", { from: thisMonth.start, to: thisMonth.end }),
+    getCategoryBreakdown(userId, ws, "income", { from: thisMonth.start, to: thisMonth.end }),
+    getCategoryBreakdown(userId, ws, "expense", { from: lastMonth.start, to: lastMonth.end }),
+    getCategoryBreakdown(userId, ws, "income", { from: lastMonth.start, to: lastMonth.end }),
+    largest(thisMonth),
+    largest(lastMonth),
+    getSummary(userId, ws, { from: lastMonth.start, to: sameDay }),
+    listTransactions(userId, ws, { to: today, limit: CHAT_RECENT_TRANSACTIONS }),
+    listTransactions(userId, ws, {
+      from: nextDay(today),
+      sort: "date",
+      dir: "asc",
+      limit: CHAT_UPCOMING,
+    }),
+  ]);
   return {
     workspaceName: workspace.name,
     currency: workspace.currency,
@@ -241,7 +259,9 @@ export async function gatherChatData(
       lastMonth: { expense: categoryTotals(lastExpense), income: categoryTotals(lastIncome) },
     },
     topExpenses: { thisMonth: topThis.map(chatTxn), lastMonth: topLast.map(chatTxn) },
+    sameDaysLastMonth: { through: sameDay, income: sameDays.income, expense: sameDays.expense },
     recent: recent.map(chatTxn),
+    upcoming: upcoming.map(chatTxn),
   };
 }
 
