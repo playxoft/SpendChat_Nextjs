@@ -210,7 +210,7 @@ describe("sanitizeDraft", () => {
 });
 
 describe("computeLedger", () => {
-  it("nets balances and settles in the fewest payments (the page's worked example)", () => {
+  it("nets balances and lists who pays whom (the page's worked example)", () => {
     const d = draft({
       expenses: [
         expense({ id: "e0001", title: "Cabin", amountMinor: 300_000 }),

@@ -244,7 +244,7 @@ const groups = [
       {
         icon: Split,
         title: "Split with anyone",
-        body: `A trip, a flat or a dinner: up to ${SPLIT_GROUP_MAX_PEOPLE} people, splits that are equal, exact or by percent, and a list of the fewest payments that settle everyone up. Free on every plan, and kept apart from your own books.`,
+        body: `A trip, a flat or a dinner: up to ${SPLIT_GROUP_MAX_PEOPLE} people, splits that are equal, exact or by percent, and a short list of who pays whom to settle everyone up. Free on every plan, and kept apart from your own books.`,
       },
       {
         icon: Tags,

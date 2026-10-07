@@ -7,10 +7,14 @@ import {
 } from "@/components/marketing/compare-page";
 import { getComparison } from "@/lib/compare";
 import { featureLink } from "@/lib/features";
+import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import { createMetadata } from "@/lib/seo";
+import { toolPath } from "@/lib/tools";
 
 const SLUG = "splitwise";
 const c = getComparison(SLUG)!;
+const MAX = SPLIT_GROUP_MAX_PEOPLE;
+const link = "underline underline-offset-4";
 
 export const metadata = createMetadata({
   title: c.title,
@@ -21,12 +25,17 @@ export const metadata = createMetadata({
 const rows: CompareRow[] = [
   {
     label: "Made for",
-    spendchat: "Recording what you spend and earn, alone or with people you live with.",
+    spendchat: "Recording what you spend and earn, alone or with people you live with — and splitting costs with friends.",
     competitor: "Settling who owes whom after shared expenses: trips, flatmates, couples.",
   },
   {
+    label: "Splitting with friends",
+    spendchat: `Split groups of up to ${MAX} people, free on every plan: equal, exact or percent splits, balances, who pays whom, and Mark as paid.`,
+    competitor: "The whole app: groups and one-to-one friendships, unequal splits, recurring bills, settle-up links to payment apps.",
+  },
+  {
     label: "Adding an entry",
-    spendchat: "Type it like a message, paste a whole day and confirm the drafts, or say it.",
+    spendchat: "Type it like a message, paste a whole day and confirm the drafts, or say it. A shared expense is a short form.",
     competitor: "A form per expense: amount, payer, how to split it across the group.",
   },
   {
@@ -53,8 +62,13 @@ const rows: CompareRow[] = [
   },
   {
     label: "Sharing",
-    spendchat: "Workspaces with viewer, editor and admin roles; invite by email.",
+    spendchat: "Split groups for trips and flats; workspaces with viewer, editor and admin roles for shared books. Invite by email.",
     competitor: "Groups and friendships; everyone in a group edits the same ledger.",
+  },
+  {
+    label: "Currencies",
+    spendchat: "One currency per split group, and per workspace. No conversion.",
+    competitor: "More than a hundred currencies; currency conversion on Pro.",
   },
   {
     label: "Export",
@@ -80,7 +94,15 @@ const faqs = [
   },
   {
     q: "Can SpendChat split a bill between friends?",
-    a: "No. SpendChat records the transaction and, in a shared workspace, shows who added it, but it does not compute who owes whom or settle balances between people. If splitting is the job, Splitwise is the right tool, and many people use both.",
+    a: `Yes. A split group holds up to ${MAX} people and is free on every plan: split each expense equally, by exact amounts or by percent, see everyone's balance and who pays whom, and press Mark as paid when someone settles. SpendChat records payments; it doesn't send money or link to payment apps. The free split bill calculator does the same maths without an account.`,
+  },
+  {
+    q: "What does Splitwise still do better?",
+    a: "Splitting is all Splitwise does, and it shows: native iOS and Android apps, one-to-one balances with a friend outside any group, recurring bills, more than a hundred currencies with conversion on Pro, settle-up links to payment apps, and receipt scanning that assigns line items to people on Pro. A SpendChat split group has one currency and runs in the browser.",
+  },
+  {
+    q: "Which should I use for a group trip?",
+    a: "If your friends already keep their balances in Splitwise, or the trip spans several currencies, stay with Splitwise. If you want it free with no ads or daily limit, in a browser with nothing to install, and your own share to land in your own spending record, use a SpendChat split group.",
   },
   {
     q: "Does the free Splitwise plan limit how many expenses I can add?",
@@ -98,14 +120,18 @@ export default function SplitwiseComparisonPage() {
       slug={SLUG}
       rows={rows}
       faqs={faqs}
-      relatedFeatures={["workspaces", "multiple-profiles", "export-and-print", "chat-expense-tracker"]}
+      relatedFeatures={["split", "workspaces", "multiple-profiles", "chat-expense-tracker"]}
       intro={
         <>
           <p>
-            These two get compared because both involve money and other people, but they
-            answer different questions. Splitwise answers &ldquo;who owes whom?&rdquo; after
-            a trip or a shared flat. SpendChat answers &ldquo;where did my money go this
-            month?&rdquo;, for you alone or for a household logging into one feed.
+            Splitwise answers &ldquo;who owes whom?&rdquo; after a trip or a shared flat,
+            and it&apos;s built around nothing else. SpendChat starts from &ldquo;where did
+            my money go this month?&rdquo; — for you alone or a household logging into one
+            feed — and now splits costs with friends too, in free split groups.
+          </p>
+          <p>
+            So the overlap is real. This page is about where each one is the better fit,
+            including the parts of splitting Splitwise still does better.
           </p>
         </>
       }
@@ -144,7 +170,7 @@ export default function SplitwiseComparisonPage() {
         </p>
       </CompareSection>
 
-      <CompareSection title="What SpendChat does instead">
+      <CompareSection title="What SpendChat does">
         <p>
           SpendChat is a{" "}
           <Link href={featureLink("chat-expense-tracker")} className="underline underline-offset-4">
@@ -161,32 +187,62 @@ export default function SplitwiseComparisonPage() {
           rights, each entry labelled with who added it.
         </p>
         <p>
-          What it does not do is arithmetic between people. There is no &ldquo;you owe
-          Priya 340&rdquo;. If your household wants one shared record of what was spent,
-          SpendChat fits; if three friends want to settle a trip, Splitwise does.
+          For costs shared with friends there are{" "}
+          <Link href={featureLink("split")} className={link}>
+            split groups
+          </Link>
+          , free on every plan and kept apart from your own books. Add people by email (up
+          to {MAX}, you included), add each expense split equally, by exact amounts or by
+          percent, and everyone in the group sees the same balances and the same list of
+          who pays whom. When someone settles, they press Mark as paid. Your share of any
+          expense can go into your own spending record with Add my share, so the trip shows
+          up in your month at the amount it really cost you. To try it without an account,
+          the{" "}
+          <Link href={toolPath("split-bill-calculator")} className={link}>
+            free split bill calculator
+          </Link>{" "}
+          runs the same maths in your browser.
+        </p>
+      </CompareSection>
+
+      <CompareSection title="Where Splitwise is still ahead">
+        <p>
+          Splitwise has done one job for years, and on splitting alone it has more. It has
+          native iOS and Android apps; SpendChat runs in the browser. It keeps one-to-one
+          balances with a friend outside any group; in SpendChat that&apos;s a two-person
+          group. It handles recurring bills, more than a hundred currencies with conversion
+          on Pro, and settle-up links to payment apps, and Pro scans receipts and assigns
+          line items to people. A SpendChat split group has one currency, fixed once the
+          first expense is in, and records payments rather than making them.
+        </p>
+        <p>
+          Where SpendChat is ahead is everything around the split: no ads and no daily
+          expense limit on the free plan, a record of your own spending as the main
+          feature, and the open-source code behind it.
         </p>
       </CompareSection>
 
       <CompareVerdict
         competitor={c.competitor}
         theirs={[
-          "Debts between people simplified into the fewest payments, which is the whole point of the app.",
-          "A group ledger everyone edits, with settle-up links to payment apps.",
+          "Splitting is the whole app: friendships as well as groups, recurring bills, and settle-up links to payment apps.",
+          "Native iOS and Android apps, and more than a hundred currencies with conversion on Pro.",
           "Receipt scanning that assigns line items to people, on Pro.",
         ]}
         ours={[
           "Your own spending as the main feature, with categories, profiles and a monthly balance, not a workaround group.",
-          "Entry in seconds: a message, a pasted day, or your voice on Pro, with no daily limit and no ads.",
-          "Everything exported to CSV in one go, and code you can read.",
+          "Free split groups with no ads and no daily limit, and your share of a trip goes straight into your own books.",
+          "Entry in seconds — a message, a pasted day, or your voice on Pro — everything exported to CSV, and code you can read.",
         ]}
       />
 
       <CompareSection title="Using both">
         <p>
-          The common pattern is Splitwise for the trip and SpendChat for the month. When a
-          Splitwise balance settles, the amount you actually paid is one line in your
-          SpendChat feed, categorised the way you think about it. Neither app needs a bank
-          login for any of this.
+          If your friends already run their trips in Splitwise, keep the trip there and use
+          SpendChat for the month: when a Splitwise balance settles, the amount you actually
+          paid is one line in your SpendChat feed, categorised the way you think about it.
+          If the group is starting fresh, a SpendChat split group does both jobs in one place.
+          Neither app needs a bank login for any of this.
         </p>
       </CompareSection>
     </ComparePage>

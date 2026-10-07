@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
  *
  * Every share, balance and suggested payment on screen comes from
  * `src/lib/split-math.ts` — `computeShares` for each expense, `netBalances`
- * for who's up and who's down, `suggestSettlements` for the fewest payments
+ * for who's up and who's down, `suggestSettlements` for who pays whom
  * that clear it — the functions the server runs before it stores anything. So
  * switching the dinner from Equal to Percent moves the leftover cent exactly
  * where the app would put it.
