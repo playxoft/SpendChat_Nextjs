@@ -183,7 +183,8 @@ export function BudgetDialog({
       toast.error(`Pick a ${TARGET_NOUN[scope]}`);
       return;
     }
-    const cleanTitle = title.trim();
+    // A cleared title on a new budget falls back to the suggestion, as the server would.
+    const cleanTitle = title.trim() || (budget ? "" : suggestion(scope, targetId));
     if (!cleanTitle) {
       toast.error("Give the budget a title");
       return;
@@ -300,7 +301,8 @@ export function BudgetDialog({
                 placeholder="Groceries this month"
                 onChange={(e) => {
                   setTitle(e.target.value);
-                  setTitleEdited(true);
+                  // Clearing the field hands it back to the suggestion.
+                  setTitleEdited(e.target.value.trim() !== "");
                 }}
               />
             </div>
