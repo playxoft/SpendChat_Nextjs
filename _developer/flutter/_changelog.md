@@ -19,6 +19,33 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.10.0 — 2026-10-07
+
+Everything here is additive.
+
+**Split expenses can have several payers.** `SplitExpenseInput` takes
+`payers: [{ memberId, amount? }]` — amounts for all payers or none; none divides
+`amount` evenly by join order; given amounts must add up to `amount`, otherwise
+422 with `details: { paidSumMinor, totalMinor }`. The single `paidBy` is still
+accepted; send one or the other (422 for both or neither). `SplitExpense` gains
+`payers: [{ memberId, name, amountMinor, amount }]` (most paid first). `paidBy`
+stays and is now the main payer (most paid, ties by join order), who takes an
+equal split's leftover first. Balances credit each payer with what they paid.
+
+**Space budgets, titles and notes.** `Budget.scope` can be `space` (new
+`spaceId`): it counts every live profile in the space as it is now, shows only
+to people who can read all of them (admins always), is managed by those who can
+edit all of them, and is deleted with its space. Every budget has a `title`
+(1–60; server-suggested when omitted on create) and an optional `description`
+(≤ 140; `null` or `""` clears it). `POST /budgets` takes `scope: "space"` +
+`spaceId`, `title`, `description`; `PATCH` takes `title`, `description`; one
+budget per space (409).
+
+**Flutter impact:** none required — old requests and the response's `paidBy`
+and budget `label` still work. To use them: read `payers` and send `payers`
+instead of `paidBy` for multi-payer expenses; offer a "Space" budget scope,
+treat `scope: "space"` as known, and show `title` (and `description`).
+
 ## 6.9.0 — 2026-10-07
 
 **Split** — groups for sharing costs between people (a trip, a flat, a
