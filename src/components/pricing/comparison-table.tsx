@@ -85,7 +85,7 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
         },
         {
           label: "Trend over your chosen range",
-          hint: "Money in and out by day, week or month.",
+          hint: "Money in and out by day, week, month or year.",
           cell: everywhere(true),
         },
         {

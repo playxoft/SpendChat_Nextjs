@@ -15,11 +15,18 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { usePlan } from "@/components/app/upgrade-dialog";
 import { advancedAnalyticsLock } from "@/lib/add-limits";
-import { formatDateLabel, formatDateShort } from "@/lib/dates";
+import { formatDateShort } from "@/lib/dates";
 import { formatCompact, formatRounded, percentLabel } from "@/lib/insights";
 import { formatMoney } from "@/lib/money";
 import { lowestPlanWith, PLAN_NAMES } from "@/lib/plans";
-import { BUCKET_LABEL, type Trend, type TrendBucket, type TrendPoint } from "@/lib/trend";
+import {
+  BUCKET_LABEL,
+  dayTicks,
+  trendColumnName,
+  type Trend,
+  type TrendBucket,
+  type TrendPoint,
+} from "@/lib/trend";
 
 /**
  * "Income vs. expenses" over the page's range: income (emerald) and expenses
@@ -41,27 +48,11 @@ function monthShort(month: string, locale: string, withYear: boolean): string {
   return withYear ? `${name} ’${String(y).slice(2)}` : name;
 }
 
-/** The axis label for a column: "7", "Oct 5", "Oct" / "Oct ’25", "2025". */
+/** The axis label for a week, month or year column: "Oct 5", "Oct" / "Oct ’25", "2025". (Days: `dayTicks`.) */
 function tickLabel(key: string, bucket: TrendBucket, locale: string, multiYear: boolean): string {
-  if (bucket === "day") return String(Number(key.slice(8, 10)));
   if (bucket === "week") return formatDateShort(key, locale);
   if (bucket === "month") return monthShort(key, locale, multiYear);
   return key;
-}
-
-/** The tooltip's and the table's name for a column. */
-function columnName(p: TrendPoint, bucket: TrendBucket, locale: string): string {
-  if (bucket === "day") return formatDateLabel(p.from, locale);
-  if (bucket === "week") return `${formatDateShort(p.from, locale)} – ${formatDateShort(p.to, locale)}`;
-  if (bucket === "month") {
-    const [y, m] = p.key.split("-").map(Number);
-    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString(locale, {
-      month: "long",
-      year: "numeric",
-      timeZone: "UTC",
-    });
-  }
-  return p.key;
 }
 
 export function TrendLegend({ kept }: { kept: boolean }) {
@@ -85,6 +76,10 @@ export function TrendLegend({ kept }: { kept: boolean }) {
 function TrendChart({ trend, currency, locale }: { trend: Trend; currency: string; locale: string }) {
   const multiYear = trend.span.from.slice(0, 4) !== trend.span.to.slice(0, 4);
   const kept = trend.kept !== undefined;
+  // Day columns are labelled every few days, with the month where it changes;
+  // the others let the chart thin their labels to fit.
+  const days = trend.bucket === "day" ? dayTicks(trend.points, locale) : null;
+  const dayLabel = new Map(days?.map((t) => [t.key, t.label]));
   return (
     <div className={`${CHART_HEIGHT} w-full text-foreground`}>
       <ResponsiveContainer width="100%" height="100%">
@@ -98,12 +93,15 @@ function TrendChart({ trend, currency, locale }: { trend: Trend; currency: strin
           <CartesianGrid vertical={false} stroke="var(--border)" />
           <XAxis
             dataKey="key"
-            tickFormatter={(k: string) => tickLabel(k, trend.bucket, locale, multiYear)}
+            tickFormatter={(k: string) =>
+              days ? (dayLabel.get(k) ?? "") : tickLabel(k, trend.bucket, locale, multiYear)
+            }
             tick={{ fill: "var(--muted-foreground)", fontSize: 11 }}
             tickLine={false}
             axisLine={{ stroke: "var(--border)" }}
-            interval="preserveStartEnd"
-            minTickGap={8}
+            {...(days
+              ? { ticks: days.map((t) => t.key), interval: 0 as const }
+              : { interval: "preserveStartEnd" as const, minTickGap: 8 })}
           />
           <YAxis
             tickFormatter={(v: number) => formatCompact(v, currency, locale)}
@@ -126,7 +124,7 @@ function TrendChart({ trend, currency, locale }: { trend: Trend; currency: strin
               ];
               return (
                 <div className="rounded-md border bg-popover px-2.5 py-1.5 text-xs shadow-sm">
-                  <p className="mb-0.5 font-medium">{columnName(p, trend.bucket, locale)}</p>
+                  <p className="mb-0.5 font-medium">{trendColumnName(p, trend.bucket, locale)}</p>
                   {rows.map(([label, v]) => (
                     <p key={label} className="flex justify-between gap-4 tabular-nums">
                       <span className="text-muted-foreground">{label}</span>
@@ -214,7 +212,7 @@ export function TrendBody({ trend, currency, locale }: { trend: Trend; currency:
         <tbody>
           {trend.points.map((p) => (
             <tr key={p.key}>
-              <th scope="row">{columnName(p, trend.bucket, locale)}</th>
+              <th scope="row">{trendColumnName(p, trend.bucket, locale)}</th>
               <td>{formatMoney(p.income, currency, locale)}</td>
               <td>{formatMoney(p.expense, currency, locale)}</td>
               {p.net !== undefined ? <td>{formatMoney(p.net, currency, locale)}</td> : null}

@@ -1,3 +1,4 @@
+import { formatDateLabel, formatDateShort } from "@/lib/dates";
 import {
   addDays,
   daysBetween,
@@ -159,3 +160,60 @@ export const BUCKET_LABEL: Record<TrendBucket, string> = {
   month: "By month",
   year: "By year",
 };
+
+// ── Labels ─────────────────────────────────────────────────────────────────
+
+const utcDate = (iso: string) => new Date(`${iso}T00:00:00Z`);
+
+/** "Jul 15 – 31, 2026" / "15 – 31 Jul 2026" — a span of days, in the locale's own form. */
+function dayRange(from: string, to: string, locale: string): string {
+  return new Intl.DateTimeFormat(locale, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  }).formatRange(utcDate(from), utcDate(to));
+}
+
+/**
+ * A column's name for the tooltip and the table: the day, the week's days, or
+ * the month or year — or, when the range clips a month or year, the days it
+ * actually covers ("Jul 15 – 31, 2026", not "July 2026").
+ */
+export function trendColumnName(p: TrendPoint, bucket: TrendBucket, locale: string): string {
+  if (bucket === "day") return formatDateLabel(p.from, locale);
+  if (bucket === "week") return dayRange(p.from, p.to, locale);
+  if (bucket === "month") {
+    if (p.from !== monthStart(p.key) || p.to !== monthEnd(p.key)) return dayRange(p.from, p.to, locale);
+    return utcDate(p.from).toLocaleDateString(locale, { month: "long", year: "numeric", timeZone: "UTC" });
+  }
+  if (p.from !== `${p.key}-01-01` || p.to !== `${p.key}-12-31`) return dayRange(p.from, p.to, locale);
+  return p.key;
+}
+
+/** Day columns get about this many axis labels, whatever the width. */
+export const DAY_TICKS_MAX = 7;
+
+/**
+ * The day columns' axis labels — every few days so they fit a phone — named
+ * with their month at the first label and wherever the month changes
+ * ("Sep 28 · 30 · Oct 2 · 4"), plain day numbers otherwise.
+ */
+export function dayTicks(
+  points: TrendPoint[],
+  locale: string,
+  max = DAY_TICKS_MAX,
+): { key: string; label: string }[] {
+  const step = Math.max(1, Math.ceil(points.length / max));
+  const out: { key: string; label: string }[] = [];
+  let month = "";
+  for (let i = 0; i < points.length; i += step) {
+    const key = points[i].key;
+    out.push({
+      key,
+      label: key.slice(0, 7) === month ? String(Number(key.slice(8, 10))) : formatDateShort(key, locale),
+    });
+    month = key.slice(0, 7);
+  }
+  return out;
+}
