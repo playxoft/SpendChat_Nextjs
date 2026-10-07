@@ -237,13 +237,45 @@ describe("projectMonthEnd", () => {
     expect(projectionCurve({ soFar: 0, day: 27, daysInMonth: 30, history: [bill] }).rest).toEqual([0, 0, 600]);
   });
 
-  it("leaves out an earlier month with no days left to compare, and falls back to pace", () => {
-    // 30 March, seen against a 28-day February only.
+  it("reads a shorter month's end against this month's end", () => {
+    // 30 March, seen against a 28-day February: its last day maps to the 31st.
     const feb = new Array<number>(28).fill(100);
     expect(projectMonthEnd({ soFar: 3000, day: 30, daysInMonth: 31, history: [feb] })).toEqual({
       projected: 3100,
-      method: "pace",
+      method: "history",
     });
+  });
+
+  it("keeps a one-off as a one-off, whatever the earlier months' lengths", () => {
+    // 20,000 paid on each month's last day; 27th of a 31-day month, 4 days left.
+    const lastDayBill = (days: number) => [...new Array<number>(days - 1).fill(0), 20000];
+    for (const history of [[28], [29], [30], [31], [28, 31, 30], [29, 31, 31]]) {
+      const curve = projectionCurve({
+        soFar: 0,
+        day: 27,
+        daysInMonth: 31,
+        history: history.map(lastDayBill),
+      });
+      expect(curve.rest, `histories ${history.join("/")}`).toEqual([0, 0, 0, 20000]);
+    }
+    // A bill early in the month isn't still to come on the 27th.
+    const firstDayBill = (days: number) => [20000, ...new Array<number>(days - 1).fill(0)];
+    expect(projectMonthEnd({ soFar: 20000, day: 27, daysInMonth: 31, history: [28, 31].map(firstDayBill) }))
+      .toEqual({ projected: 20000, method: "history" });
+  });
+
+  it("matches a longer month's days left by dropping its most ordinary days, not its bills", () => {
+    // 10 February (18 days left) against January: 100 a day and a 5,000 bill on the 31st.
+    const jan = [...new Array<number>(30).fill(100), 5100];
+    const { rest } = projectionCurve({ soFar: 1000, day: 10, daysInMonth: 28, history: [jan] });
+    expect(rest).toHaveLength(18);
+    expect(rest.at(-1)).toBe(17 * 100 + 5100);
+  });
+
+  it("tops a shorter month up with its ordinary day", () => {
+    // 3 March (28 days left) against a steady 28-day February.
+    const feb = new Array<number>(28).fill(100);
+    expect(projectionCurve({ soFar: 300, day: 3, daysInMonth: 31, history: [feb] }).rest.at(-1)).toBe(2800);
   });
 });
 
@@ -276,9 +308,9 @@ describe("paceSummary", () => {
     expect(p.usual).toEqual({ total: 1050, toDate: 350, months: 2 });
     expect(p.lastYear).toEqual({ total: 1000, toDate: 350 });
     expect(p.method).toBe("history");
-    // 500 + the mean of 21 days at Sep's rate after the 10th (800 over 20 days
-    // → 840) and Aug's (600 over 21 days → 600).
-    expect(p.projected).toBe(1220);
+    // 500 + the mean of what was still to come at this point in Sep (its 800
+    // bill on the 25th) and Aug (600 on the 28th): one-offs stay one-offs.
+    expect(p.projected).toBe(1200);
   });
 
   it("draws so-far up to today, the projection from today to the end, and last month", () => {

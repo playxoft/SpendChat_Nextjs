@@ -10,8 +10,8 @@ import {
   WIDGET_GRID,
   WidgetCardSkeleton,
 } from "@/components/app/analytics/widget";
-import { monthRange, todayISO } from "@/lib/dates";
-import { calendarWindow, monthCount } from "@/lib/insights";
+import { monthRange } from "@/lib/dates";
+import { CALENDAR_MAX_MONTHS, monthCount } from "@/lib/insights";
 import { PLAN_LIMITS } from "@/lib/plans";
 
 /**
@@ -28,33 +28,45 @@ import { PLAN_LIMITS } from "@/lib/plans";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-/**
- * The months the spending calendar will show for the URL's range — the page's
- * own rule (`calendarWindow`), with today from the browser. Only for
- * `loading.tsx`; the page passes the exact count to its own fallback.
- */
-function calendarMonthsFromUrl(sp: URLSearchParams | null): number {
-  const today = todayISO();
-  if (sp?.get("span") === "all") return monthCount(calendarWindow(today));
-  const { start, end } = monthRange(today);
-  const from = sp?.get("from");
-  const to = sp?.get("to");
-  return monthCount(
-    calendarWindow(today, from && DATE_RE.test(from) ? from : start, to && DATE_RE.test(to) ? to : end),
-  );
+/** A valid `YYYY-MM-DD` from the URL, or null. */
+function urlDate(sp: URLSearchParams | null, key: string): string | null {
+  const v = sp?.get(key);
+  return v && DATE_RE.test(v) ? v : null;
 }
 
-/** Whether the URL's range is the current month (the default view). */
+/*
+ * The two guesses below read the URL alone — never a clock — so the server's
+ * render of `loading.tsx` and the browser's hydration of it always agree (the
+ * server's "today" is UTC; the page's is the viewer's zone). The page passes
+ * its own exact values to its own fallbacks.
+ */
+
+/**
+ * How many months the spending calendar will show: none in the URL is the
+ * page's default range, this month (1); "All time" is always the last 12; an
+ * explicit range is its months, at most 12. (A custom range running into
+ * months still to come would show fewer — those months aren't drawn yet.)
+ */
+function calendarMonthsFromUrl(sp: URLSearchParams | null): number {
+  if (sp?.get("span") === "all") return CALENDAR_MAX_MONTHS;
+  const from = urlDate(sp, "from");
+  const to = urlDate(sp, "to");
+  if (!from || !to) return 1;
+  return Math.min(CALENDAR_MAX_MONTHS, Math.max(1, monthCount({ from, to })));
+}
+
+/**
+ * Whether budgets will show: the default range (this month), or an explicit
+ * range that is one whole month — the "This month" preset writes exactly that.
+ */
 function rangeIsThisMonth(sp: URLSearchParams | null): boolean {
-  if (!sp) return true;
-  if (sp.get("span") === "all") return false;
-  const from = sp.get("from");
-  const to = sp.get("to");
+  if (sp?.get("span") === "all") return false;
+  const from = urlDate(sp, "from");
+  const to = urlDate(sp, "to");
   if (!from && !to) return true;
-  const now = new Date();
-  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  return from === `${month}-01` && to === `${month}-${String(last).padStart(2, "0")}`;
+  if (!from || !to) return false;
+  const { start, end } = monthRange(from);
+  return from === start && to === end;
 }
 
 /** Income / Expenses / Net, at the stat cards' exact line heights. */

@@ -331,25 +331,48 @@ function cumulative(values: number[]): number[] {
 }
 
 /**
- * What the rest of one earlier month cost, laid over *this* month's remaining
- * days and accumulated day by day: that month's spending after `day`, kept at
- * its own per-day rate, stretched (or squeezed) to `remaining` days. Months
- * differ in length, so summing an earlier month to its own end would project a
- * 28-day February with a 31-day month's tail. Null when that month has no days
- * after `day` (February, seen from the 30th).
+ * What the rest of one earlier month cost, laid over *this* month's `remaining`
+ * days and accumulated day by day. Its real days are kept — a one-off stays a
+ * one-off — and only their number is matched to this month's days left:
+ *
+ *  - **Which days are still to come** is read from the nearer end of that
+ *    month: a day in its first half counts if it falls after `day` (so rent on
+ *    the 1st is never "still to come" on the 3rd), a day in its second half if
+ *    it's within `remaining` days of that month's end (so a bill on the last
+ *    day of a 28-day February maps to the last day of March).
+ *  - **Matching the count**: a longer month gives up its most ordinary days
+ *    (those nearest its median), a shorter one is topped up with ordinary days
+ *    (its median) — never by scaling the amounts, which would turn one bill
+ *    into a daily rate.
+ *
+ * So a steady 100 a day projects 100 for each day left, and a bill on each
+ * month's last day projects exactly that bill, whatever the months' lengths.
  */
-function restCurve(daily: number[], day: number, remaining: number): number[] | null {
-  const rest = daily.slice(day);
-  if (rest.length === 0) return null;
-  const cum = [0, ...cumulative(rest)];
-  const scale = remaining / rest.length;
-  return Array.from({ length: remaining }, (_, i) => {
-    const p = ((i + 1) * rest.length) / remaining;
-    const lo = Math.floor(p);
-    const frac = p - lo;
-    const value = frac > 0 ? cum[lo] + frac * (cum[lo + 1] - cum[lo]) : cum[lo];
-    return value * scale;
+function restCurve(daily: number[], day: number, remaining: number): number[] {
+  const half = Math.floor(daily.length / 2);
+  const early: number[] = [];
+  const late: number[] = [];
+  daily.forEach((value, i) => {
+    const d = i + 1;
+    if (d <= half && d > day) early.push(value);
+    if (d > half && d > daily.length - remaining) late.push(value);
   });
+  let days = [...early, ...late];
+  const ordinary = median(days);
+  if (days.length > remaining) {
+    const drop = new Set(
+      days
+        .map((value, i) => ({ i, distance: Math.abs(value - ordinary) }))
+        .sort((a, b) => a.distance - b.distance || b.i - a.i)
+        .slice(0, days.length - remaining)
+        .map((x) => x.i),
+    );
+    days = days.filter((_, i) => !drop.has(i));
+  } else if (days.length < remaining) {
+    // Topped up where the two halves meet, so both ends keep their dates.
+    days = [...early, ...new Array<number>(remaining - days.length).fill(ordinary), ...late];
+  }
+  return cumulative(days);
 }
 
 /**
@@ -361,9 +384,9 @@ function restCurve(daily: number[], day: number, remaining: number): number[] | 
  * and on its own it is badly wrong at the start of a month: rent paid on the
  * 1st makes day 3 project ten rents. So when there is history, the projection
  * is **what has been spent so far, plus what the rest of a month usually
- * costs** — the mean, over recent months, of their spending after today's day
- * of the month at their per-day rate (`restCurve`). Rent then counts once, in
- * "so far". With no history, straight-line pace — and not before
+ * costs** — the mean, over recent months, of their spending still to come
+ * at this point, matched to this month's days left (`restCurve`). Rent then
+ * counts once, in "so far". With no history, straight-line pace — and not before
  * `PACE_MIN_DAY` ("early": too soon to tell).
  */
 export function projectionCurve(input: {
@@ -376,9 +399,7 @@ export function projectionCurve(input: {
   const { soFar, day, daysInMonth, history } = input;
   const remaining = daysInMonth - day;
   if (remaining <= 0) return { method: "complete", rest: [] };
-  const curves = history
-    .map((h) => restCurve(h, day, remaining))
-    .filter((c): c is number[] => c !== null);
+  const curves = history.map((h) => restCurve(h, day, remaining));
   if (curves.length > 0) {
     return {
       method: "history",
