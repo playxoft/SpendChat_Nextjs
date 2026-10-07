@@ -1,11 +1,15 @@
 import { describe, it, expect } from "vitest";
 import {
   BUCKET_LABEL,
+  DAY_TICKS_MAX,
   TREND_MIN_DAYS,
   bucketFor,
   buildTrend,
+  dayTicks,
   needsDaily,
+  trendColumnName,
   trendSpan,
+  type TrendPoint,
 } from "@/lib/trend";
 
 describe("trendSpan — the range, never less than a month", () => {
@@ -107,5 +111,43 @@ describe("buildTrend", () => {
       ["2026", 200, 70],
     ]);
     expect(years.points[0]).toMatchObject({ from: "2022-06-01", to: "2022-12-31" });
+  });
+});
+
+describe("labels", () => {
+  /** ICU puts thin spaces around the range dash; compare with plain ones. */
+  const plain = (s: string) => s.replace(/\s/g, " ");
+  const point = (key: string, from: string, to: string): TrendPoint => ({ key, from, to, income: 0, expense: 0 });
+
+  it("names whole periods as such, and clipped ones by the days they cover", () => {
+    expect(trendColumnName(point("2026-07", "2026-07-01", "2026-07-31"), "month", "en-US")).toBe("July 2026");
+    expect(plain(trendColumnName(point("2026-07", "2026-07-15", "2026-07-31"), "month", "en-US"))).toBe(
+      "Jul 15 – 31, 2026",
+    );
+    expect(trendColumnName(point("2025", "2025-01-01", "2025-12-31"), "year", "en-US")).toBe("2025");
+    expect(plain(trendColumnName(point("2026", "2026-01-01", "2026-10-07"), "year", "en-US"))).toBe(
+      "Jan 1 – Oct 7, 2026",
+    );
+    expect(plain(trendColumnName(point("2026-12-28", "2026-12-28", "2027-01-03"), "week", "en-US"))).toBe(
+      "Dec 28, 2026 – Jan 3, 2027",
+    );
+    expect(trendColumnName(point("2026-10-05", "2026-10-05", "2026-10-05"), "day", "en-US")).toBe("Oct 5, 2026");
+    expect(plain(trendColumnName(point("2026-07", "2026-07-15", "2026-07-31"), "month", "en-GB"))).toBe(
+      "15 – 31 Jul 2026",
+    );
+  });
+
+  it("labels day columns every few days, with the month first and where it changes", () => {
+    const span = { from: "2026-09-08", to: "2026-10-07" };
+    const t = buildTrend({ span, firstDay: 1 });
+    const ticks = dayTicks(t.points, "en-US");
+    expect(ticks.length).toBeLessThanOrEqual(DAY_TICKS_MAX);
+    expect(ticks.map((x) => x.label)).toEqual(["Sep 8", "13", "18", "23", "28", "Oct 3"]);
+    // Every label is a real column.
+    expect(ticks.every((x) => t.points.some((p) => p.key === x.key))).toBe(true);
+    const october = dayTicks(buildTrend({ span: { from: "2026-10-01", to: "2026-10-31" }, firstDay: 1 }).points, "en-US");
+    expect(october[0].label).toBe("Oct 1");
+    expect(october.slice(1).every((x) => /^\d+$/.test(x.label))).toBe(true);
+    expect(dayTicks(october.map((x) => point(x.key, x.key, x.key)), "en-US", 100)).toHaveLength(october.length);
   });
 });
