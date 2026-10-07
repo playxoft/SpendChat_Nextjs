@@ -2,7 +2,7 @@ import { z } from "zod";
 import { BUDGET_DESCRIPTION_MAX, BUDGET_SCOPES, BUDGET_TITLE_MAX, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
-import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX } from "./split-import";
+import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX, SPLIT_IMPORT_KEY_PATTERN } from "./split-import";
 import {
   CURRENCIES,
   PAID_PERSONAL_PLANS,
@@ -1345,6 +1345,7 @@ const splitImportExpenseSchema = z.discriminatedUnion("splitType", [
 
 export const splitImportSchema = z
   .object({
+    key: z.string().regex(SPLIT_IMPORT_KEY_PATTERN, "That draft doesn't look right — open the calculator and try again"),
     name: splitGroupNameSchema,
     icon: splitIconSchema.nullish(),
     currency: splitCurrencySchema,

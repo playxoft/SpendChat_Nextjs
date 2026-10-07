@@ -135,8 +135,8 @@ export function PeopleEditor({
         })}
       </ul>
       <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-        Emails are optional. Add them and everyone is invited as soon as you save the group — or leave
-        them blank and add them then.
+        Emails are optional. With one, that person is invited when the group is created in SpendChat —
+        you&apos;ll see who before anything is sent, unless you press Send invites.
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
         <Button type="button" variant="outline" className="h-10 rounded-xl" onClick={onAdd} disabled={atCap}>

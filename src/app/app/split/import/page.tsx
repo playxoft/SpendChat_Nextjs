@@ -13,14 +13,8 @@ export const metadata: Metadata = { title: "Bring your group in" };
  * person has an email. The draft only exists in the browser, so the page is
  * a client component; the server lends the number format.
  */
-export default async function SplitImportPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ from?: string | string[] }>;
-}) {
+export default async function SplitImportPage() {
   const user = await requireUser();
-  const [workspace, { from }] = await Promise.all([getCurrentWorkspace(user.id), searchParams]);
-  // `?from=tool`: sent here by one of the calculator's sign-up prompts — when
-  // the draft has everything, the group is created without a form.
-  return <SplitImport locale={workspace.locale} myEmail={user.email} fromTool={from === "tool"} />;
+  const workspace = await getCurrentWorkspace(user.id);
+  return <SplitImport locale={workspace.locale} myEmail={user.email} />;
 }

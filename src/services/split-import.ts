@@ -1,15 +1,15 @@
 import "server-only";
-import { and, eq, gt, sql } from "drizzle-orm";
+import { and, count, eq, gt, gte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { splitExpensePayers, splitExpenses, splitGroups, splitMembers, splitShares, users } from "@/db/schema";
+import { splitExpensePayers, splitExpenses, splitGroups, splitMembers, splitRateLog, splitShares, users } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
 import type { SessionUser } from "@/lib/auth";
 import { CONVERTED_FROM_MAX_ACCOUNT_AGE_DAYS, type ConvertedFrom } from "@/lib/attribution";
 import { findUserById } from "@/lib/directory";
 import { emailKey } from "@/lib/email-key";
-import { conflict, isUniqueViolation, tooManyRequests, validationError } from "@/lib/errors";
+import { ApiError, conflict, isUniqueViolation, tooManyRequests, validationError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import { mapImportExpense } from "@/lib/split-import";
+import { mapImportExpense, SPLIT_IMPORT_REPEAT_WINDOW_MS } from "@/lib/split-import";
 import { splitExpenseSchema, splitImportSchema, SPLIT_MEMBER_NAME_MAX } from "@/lib/validation";
 import { emailNewInvitees } from "@/services/split-invites";
 import { groupMembers, insertPeople, type AddedPerson, type JoinedContext } from "@/services/split";
@@ -32,7 +32,24 @@ import { actorEventsToday, lockActor, logActorEvents, SPLIT_GROUPS_PER_DAY } fro
  *   swapped for member ids (`lib/split-import.ts`).
  * The caller becomes the creator, exactly as with "New group". Invite emails
  * go out only after the commit, as `createGroup` does.
+ *
+ * **Idempotent per draft.** The input carries the draft's hash as `key`; a
+ * second import with the same key from the same person within
+ * `SPLIT_IMPORT_REPEAT_WINDOW_MS` is refused (409 `already_imported`) — two
+ * tabs, a double click or a reload mid-request can't make the group twice.
+ * The record is a `draft_imported` row in the split rate log, written in the
+ * same transaction under the actor lock, so a refused import (rolled back)
+ * leaves the key free to try again.
  */
+
+/** 409 `already_imported` — this draft was brought in moments ago. */
+function alreadyImported(): ApiError {
+  return new ApiError(
+    409,
+    "already_imported",
+    "This group was already brought in — you'll find it in Split",
+  );
+}
 
 export type SplitImportResult = { groupId: string; added: AddedPerson[]; expenses: number };
 
@@ -53,6 +70,20 @@ export async function importSplitDraft(
   const result = await db
     .transaction(async (tx) => {
       await lockActor(tx, user.id);
+      // Under the actor lock, so two concurrent imports of one draft serialise here.
+      const [seen] = await tx
+        .select({ n: count() })
+        .from(splitRateLog)
+        .where(
+          and(
+            eq(splitRateLog.actorId, user.id),
+            eq(splitRateLog.event, "draft_imported"),
+            eq(splitRateLog.recipientKey, data.key),
+            gte(splitRateLog.createdAt, new Date(Date.now() - SPLIT_IMPORT_REPEAT_WINDOW_MS)),
+          ),
+        );
+      if ((seen?.n ?? 0) > 0) throw alreadyImported();
+      await tx.insert(splitRateLog).values({ actorId: user.id, event: "draft_imported", recipientKey: data.key });
       if ((await actorEventsToday(tx, user.id, "group_created")) >= SPLIT_GROUPS_PER_DAY) {
         throw tooManyRequests(`You can start up to ${SPLIT_GROUPS_PER_DAY} groups a day — try again tomorrow`);
       }
