@@ -5,12 +5,11 @@ import { unstable_rethrow } from "next/navigation";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import {
   getCategoryBreakdown,
-  getMonthlyTrend,
   getProfiles,
   getSummary,
 } from "@/lib/queries";
 import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
-import { formatDateLabel, monthKey, monthLabel, monthRange, todayISO } from "@/lib/dates";
+import { formatDateLabel, monthKey, monthRange, todayISO } from "@/lib/dates";
 import {
   advancedAnalyticsAllowed,
   getWorkspaceEntitlements,
@@ -19,6 +18,7 @@ import {
 import { getAdvancedAnalytics } from "@/lib/insights-queries";
 import { buildAdvancedAnalytics, calendarWindow, firstDayOfWeek, monthCount } from "@/lib/insights";
 import { describeError, logger } from "@/lib/logger";
+import { getTrend } from "@/lib/trend.server";
 import { sampleAdvancedRaw } from "@/lib/insights-sample";
 import { listBudgets } from "@/services/budgets";
 import { BudgetRow } from "@/components/app/budgets/budget-parts";
@@ -35,6 +35,7 @@ import {
 } from "@/components/app/analytics/insights-section";
 import { ANALYTICS_SHELL, BODY, WIDGET_GRID, WidgetCard } from "@/components/app/analytics/widget";
 import { CategoryPieChart } from "@/components/app/category-pie-chart";
+import { TrendBody } from "@/components/app/analytics/trend-card";
 import { PrintButton } from "@/components/app/print-button";
 
 export const dynamic = "force-dynamic";
@@ -43,16 +44,6 @@ export const metadata: Metadata = {
   title: "Analytics",
   robots: { index: false, follow: false },
 };
-
-function lastNMonths(n: number, today: string): string[] {
-  const [y, m] = today.split("-").map(Number);
-  const out: string[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(Date.UTC(y, m - 1 - i, 1));
-    out.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
-  }
-  return out;
-}
 
 export default async function AnalyticsPage({
   searchParams,
@@ -140,7 +131,7 @@ export default async function AnalyticsPage({
         key={streamKey}
         fallback={
           <AnalyticsResultsSkeleton
-            trend={!advanced}
+            kept={advanced}
             budgets={showBudgets ? undefined : 0}
             type={parsed.type ?? "expense"}
           />
@@ -157,7 +148,8 @@ export default async function AnalyticsPage({
           locale={locale}
           today={today}
           showBudgets={showBudgets}
-          showTrend={!advanced}
+          kept={advanced}
+          firstDay={firstDayOfWeek(locale)}
         />
       </Suspense>
 
@@ -259,7 +251,8 @@ async function AnalyticsResults({
   locale,
   today,
   showBudgets,
-  showTrend,
+  kept,
+  firstDay,
 }: {
   userId: string;
   workspaceId: string;
@@ -271,36 +264,25 @@ async function AnalyticsResults({
   locale: string;
   today: string;
   showBudgets: boolean;
-  /** The 6-month trend — Free; Plus and Pro get the 12-month cash flow instead. */
-  showTrend: boolean;
+  /** Plus and Pro: the trend adds what was kept and the savings rate (cash flow). */
+  kept: boolean;
+  firstDay: 0 | 1;
 }) {
   const filters = { from, to, profileId };
   // The Type filter scopes the category breakdown; without it we keep the
   // default expense view. The overview cards and trend stay the full picture.
   const breakdownType = type ?? "expense";
-  const months = lastNMonths(6, today);
-  const fromISO = `${months[0]}-01`;
 
-  const [summary, breakdown, trendRows, budgets] = await Promise.all([
+  const [summary, breakdown, trend, budgets] = await Promise.all([
     getSummary(userId, workspaceId, filters),
     getCategoryBreakdown(userId, workspaceId, breakdownType, filters),
-    showTrend ? getMonthlyTrend(userId, workspaceId, fromISO, profileId) : Promise.resolve([]),
+    getTrend(userId, workspaceId, { from, to, profileId, today, firstDay, kept }),
     showBudgets ? listBudgets(userId, workspaceId, monthKey(today)) : Promise.resolve([]),
   ]);
   // One profile selected: its own budget. All profiles: every budget the viewer can see.
   const shownBudgets = profileId
     ? budgets.filter((b) => b.scope === "profile" && b.profileId === profileId)
     : budgets;
-
-  const series = months.map((mm) => ({ month: mm, income: 0, expense: 0 }));
-  const idx = new Map(series.map((s, i) => [s.month, i]));
-  for (const r of trendRows) {
-    const i = idx.get(r.month);
-    if (i === undefined) continue;
-    if (r.type === "income") series[i].income = r.total;
-    else series[i].expense = r.total;
-  }
-  const maxTrend = Math.max(...series.flatMap((s) => [s.income, s.expense]), 1);
 
   const pieData = breakdown.map((b) => ({
     name: b.categoryName ?? "Uncategorized",
@@ -355,45 +337,14 @@ async function AnalyticsResults({
           <CategoryPieChart data={pieData} currency={currency} locale={locale} />
         </WidgetCard>
 
-        {showTrend ? (
-          <WidgetCard
-            span="full"
-            title="Last 6 months"
-            description="Income vs. expenses"
-            bodyClassName={BODY.trend}
-          >
-            <div className="mb-4 flex items-center gap-4 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-emerald-500" /> Income
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-foreground/60" /> Expense
-              </span>
-            </div>
-            <ul className="space-y-3">
-              {series.map((s) => (
-                <li key={s.month} className="flex items-center gap-3">
-                  <span className="w-12 shrink-0 text-xs text-muted-foreground">
-                    {monthLabel(`${s.month}-01`, locale)}
-                  </span>
-                  <div className="flex-1 space-y-1">
-                    <div
-                      className="h-2.5 rounded-full bg-emerald-500/70"
-                      style={{ width: `${(s.income / maxTrend) * 100}%` }}
-                    />
-                    <div
-                      className="h-2.5 rounded-full bg-foreground/60"
-                      style={{ width: `${(s.expense / maxTrend) * 100}%` }}
-                    />
-                  </div>
-                  <span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                    {formatMoney(s.income - s.expense, currency, locale)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </WidgetCard>
-        ) : null}
+        <WidgetCard
+          span="full"
+          title="Income vs. expenses"
+          description="Money in and out over the selected range"
+          bodyClassName={BODY.trend}
+        >
+          <TrendBody trend={trend} currency={currency} locale={locale} />
+        </WidgetCard>
       </div>
     </>
   );

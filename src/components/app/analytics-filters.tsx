@@ -17,6 +17,20 @@ import {
 import { parseISODate, toISODate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
+/**
+ * The filter row: every control exactly `h-9` (36px) — the range toggle (its
+ * 28px buttons fill the 36px box: 1px border + 3px padding each side), the
+ * date picker and the type select. Where they fit, one row; on a phone the
+ * toggle takes a row (scrolling if it must) and the date and type share the
+ * next one, or each take a full row of their own — they grow to fill it
+ * rather than leave a ragged edge.
+ */
+const FILTER_ROW = "flex flex-wrap items-center gap-2 print:hidden";
+const SEGMENTED =
+  "no-scrollbar flex h-9 min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-lg border bg-muted/40 p-[3px]";
+const DATE_CONTROL = "h-9 flex-1 sm:flex-none";
+const TYPE_CONTROL = "h-9 min-w-32 flex-1 data-[size=default]:h-9 sm:w-32 sm:flex-none";
+
 const RANGES = [
   { key: "1", label: "This month", months: 1 },
   { key: "3", label: "3 months", months: 3 },
@@ -99,10 +113,10 @@ export function AnalyticsFilters({ today, locale }: { today: string; locale?: st
   const hasFilters = !!from || !!to || span === "all" || type !== "all";
 
   return (
-    <div className="flex flex-wrap items-center gap-2 print:hidden">
+    <div className={FILTER_ROW}>
       {/* Segmented range toggle: scrolls horizontally on narrow screens
           instead of pushing the page wider than the viewport. */}
-      <div className="no-scrollbar flex h-9 min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-md border bg-muted/40 p-1">
+      <div className={SEGMENTED}>
         {RANGES.map((r) => {
           const active = activeKey === r.key;
           return (
@@ -126,10 +140,19 @@ export function AnalyticsFilters({ today, locale }: { today: string; locale?: st
         })}
       </div>
 
-      <DateRangeFilter from={effFrom} to={effTo} today={today} locale={locale} onChange={handleRange} />
+      <DateRangeFilter
+        from={effFrom}
+        to={effTo}
+        today={today}
+        locale={locale}
+        onChange={handleRange}
+        className={DATE_CONTROL}
+      />
 
       <Select value={type} onValueChange={(v) => update({ type: v === "all" ? undefined : v })}>
-        <SelectTrigger className="h-9 w-32" aria-label="Type">
+        {/* The trigger's own size rule (`data-[size=default]:h-8`) outranks a
+            plain `h-9`, so the height is set on the same variant. */}
+        <SelectTrigger className={TYPE_CONTROL} aria-label="Type">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -162,8 +185,8 @@ export function AnalyticsFilters({ today, locale }: { today: string; locale?: st
  */
 export function AnalyticsFiltersSkeleton() {
   return (
-    <div className="flex flex-wrap items-center gap-2 print:hidden" aria-hidden>
-      <div className="no-scrollbar flex h-9 min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-md border bg-muted/40 p-1">
+    <div className={FILTER_ROW} aria-hidden>
+      <div className={SEGMENTED}>
         {RANGES.map((r) => (
           <span
             key={r.key}
@@ -173,8 +196,8 @@ export function AnalyticsFiltersSkeleton() {
           </span>
         ))}
       </div>
-      <Skeleton className="h-8 w-[12.5rem] rounded-lg" />
-      <Skeleton className="h-9 w-32 rounded-md" />
+      <Skeleton className={cn(DATE_CONTROL, "min-w-[11rem] rounded-lg sm:w-[12.5rem]")} />
+      <Skeleton className={cn(TYPE_CONTROL, "rounded-lg")} />
     </div>
   );
 }

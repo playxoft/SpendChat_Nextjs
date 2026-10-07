@@ -750,6 +750,42 @@ export async function getMonthlyTotals(
   return [...byMonth.values()].sort((a, b) => a.month.localeCompare(b.month));
 }
 
+export type DayTotals = { date: string; income: number; expense: number };
+
+/**
+ * Per-day income/expense totals (minor units), keyed "YYYY-MM-DD" — the
+ * analytics trend's day and week buckets (`lib/trend.ts`). Grouped in SQL
+ * under the same access scoping, trash rule and filters as the feed; the trend
+ * always bounds it with `from`/`to`.
+ */
+export async function getDailyTotals(
+  userId: string,
+  workspaceId: string,
+  f: TxnFilters = {},
+): Promise<DayTotals[]> {
+  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  if (profileIds.length === 0) return [];
+  const db = getDb();
+  const rows = await db
+    .select({
+      date: transactions.occurredOn,
+      type: transactions.type,
+      total: sql<string>`coalesce(sum(${transactions.amountMinor}), 0)`,
+    })
+    .from(transactions)
+    .where(buildConditions(profileIds, f))
+    .groupBy(transactions.occurredOn, transactions.type);
+
+  const byDate = new Map<string, DayTotals>();
+  for (const r of rows) {
+    const d = byDate.get(r.date) ?? { date: r.date, income: 0, expense: 0 };
+    if (r.type === "income") d.income = Number(r.total);
+    else d.expense = Number(r.total);
+    byDate.set(r.date, d);
+  }
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export type CategoryBreakdownRow = {
   categoryId: string | null;
   categoryName: string | null;

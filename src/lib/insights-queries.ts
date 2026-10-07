@@ -299,7 +299,7 @@ function emptyRaw(categories: AdvancedRaw["categories"]): AdvancedRaw {
  *  - **date range**: the spending calendar, the weekday pattern, unusual
  *    spending (its last 12 months — `calendarWindow`) and the breakdowns (the
  *    whole range);
- *  - the cards about *now* — insights, pace, cash flow, category trends,
+ *  - the cards about *now* — insights, pace, category trends,
  *    recurring payments — are anchored to today and ignore the range.
  */
 export async function getAdvancedAnalytics(

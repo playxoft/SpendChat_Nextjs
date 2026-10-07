@@ -62,10 +62,11 @@ export type PlanLimits = {
   /** Pay-as-you-go AI top-ups (`TOPUP`). */
   topUps: boolean;
   /**
-   * The analytics page's "Insights & trends": month-end projection, 12-month
-   * cash flow, category trends, the spending calendar, recurring payments and
-   * unusual spends. Free keeps the overview, the category breakdown, the
-   * 6-month trend and budgets.
+   * The analytics page's "Insights & trends": month-end projection and
+   * insights, cash flow and savings rate on the trend, category trends, the
+   * spending calendar, recurring payments, unusual spends and the payee / tag /
+   * profile breakdowns. Free keeps the overview, the category donut, budgets
+   * and the trend over the chosen range.
    */
   advancedAnalytics: boolean;
 };
