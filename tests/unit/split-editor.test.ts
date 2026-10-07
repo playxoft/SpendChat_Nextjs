@@ -10,6 +10,15 @@ import { PayerSliders } from "@/components/app/split/payer-sliders";
 import { SplitComposer } from "@/components/app/split/split-composer";
 import { SplitPeopleList } from "@/components/split/split-people-list";
 import { evenSliders } from "@/lib/split-sliders";
+import {
+  editorFrom,
+  viewEditor,
+  withIncluded,
+  withPayerIds,
+  withSliderMoved,
+  withSlidersReset,
+  withSplitType,
+} from "@/lib/split-editor";
 
 /**
  * The expense editor the chat composer and the app's expense dialog share,
@@ -136,5 +145,57 @@ describe("split people list and composer render", () => {
     expect(html).toContain("Select all");
     expect(html).toContain("Deselect all");
     expect(html.match(/role="slider"/g)).toHaveLength(2);
+  });
+});
+
+describe("the editor model across sends", () => {
+  const ctx = (totalMinor: number) => ({
+    order: ["a", "b", "c"],
+    meMemberId: "a",
+    currency: "INR",
+    totalMinor,
+    format: (m: number) => `₹${m / 100}`,
+  });
+
+  it("a send forgets this expense's sliders but keeps who's in it and who paid", () => {
+    let s = editorFrom({ splitType: "equal", included: ["a", "b", "c"], payers: [{ memberId: "a" }] }, 0);
+    // First expense: ₹90 by amounts with a at ₹60; a and b paid, a all of it.
+    s = withSplitType(s, "exact");
+    s = withSliderMoved(s, viewEditor(s, ctx(9000)), "exact", "a", 6000);
+    s = withPayerIds(s, ["a", "b"]);
+    s = withSliderMoved(s, viewEditor(s, ctx(9000)), "payers", "a", 9000);
+    let v = viewEditor(s, ctx(9000));
+    expect(v.exact.values).toEqual({ a: 6000, b: 1500, c: 1500 });
+    expect(v.payers?.values).toEqual({ a: 9000, b: 0 });
+
+    // Sent: the composer clears the amount and resets the sliders.
+    s = withSlidersReset(s);
+    v = viewEditor(s, ctx(0));
+    expect(v.splitType).toBe("equal");
+    expect(v.payerIds).toEqual(["a", "b"]);
+    expect(v.includedIds).toEqual(["a", "b", "c"]);
+
+    // The next ₹90 by amounts starts even again — not from the last one's proportions.
+    s = withSplitType(s, "exact");
+    v = viewEditor(s, ctx(9000));
+    expect(v.exact.values).toEqual({ a: 3000, b: 3000, c: 3000 });
+    expect(v.payers?.values).toEqual({ a: 4500, b: 4500 });
+  });
+
+  it("payers stay in the split: unticking one drops them, and someone always pays", () => {
+    let s = editorFrom({ splitType: "equal", included: ["a", "b", "c"], payers: [{ memberId: "b" }, { memberId: "c" }] }, 0);
+    s = withIncluded(s, ["a", "b"], { order: ["a", "b", "c"], meMemberId: "a" });
+    expect(s.payerIds).toEqual(["b"]);
+    s = withIncluded(s, ["a", "c"], { order: ["a", "b", "c"], meMemberId: "a" });
+    expect(s.payerIds).toEqual(["a"]);
+    expect(withPayerIds(s, []).payerIds).toEqual(["a"]);
+  });
+
+  it("saved amounts that don't add up start even", () => {
+    const s = editorFrom(
+      { splitType: "exact", included: ["a", "b"], payers: [{ memberId: "a" }], exact: { a: 100, b: 100 } },
+      1000,
+    );
+    expect(viewEditor(s, ctx(1000)).exact.values).toEqual({ a: 500, b: 500 });
   });
 });

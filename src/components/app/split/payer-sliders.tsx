@@ -14,12 +14,15 @@ export function PayerSliders({
   people,
   totalMinor,
   format,
+  disabled,
   className,
 }: {
   editor: ExpenseEditor;
   people: SplitPerson[];
   totalMinor: number;
   format: (minor: number) => string;
+  /** While saving. */
+  disabled?: boolean;
   className?: string;
 }) {
   const state = editor.payers;
@@ -37,7 +40,7 @@ export function PayerSliders({
               person={person}
               avatar={<MemberAvatar id={id} name={person.name} size="sm" />}
               what="Paid"
-              disabled={totalMinor === 0}
+              disabled={disabled || totalMinor === 0}
               binding={{ state, step: editor.moneyStep, format, onMove: editor.movePayer }}
             />
           );

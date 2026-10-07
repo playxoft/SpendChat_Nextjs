@@ -228,6 +228,15 @@ export function syncSliders(
 }
 
 /**
+ * Where a dragged (or End-key) value lands: Radix snaps to multiples of the
+ * step, so with a total that isn't one (₹1,201 in ₹5 steps) the far end would
+ * stop short at ₹1,200. Anything within a step of the total is the total.
+ */
+export function snapToTotal(value: number, total: number, step: number): number {
+  return total - value < step ? total : value;
+}
+
+/**
  * A step that gives a slider about 100–200 positions in "round" units (1, 2
  * or 5 × 10ⁿ) — so dragging or arrow keys land on tidy numbers. The values
  * rebalancing produces needn't sit on it.

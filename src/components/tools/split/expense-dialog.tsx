@@ -15,7 +15,7 @@ import { DateField, NumberField, Segmented, SelectField, TextField } from "@/com
 import { SplitPeopleList, type SplitPerson } from "@/components/split/split-people-list";
 import { formatMoney, minorToInputString, toMinorUnits } from "@/lib/money";
 import { BASIS_POINTS_TOTAL, describeSplitError, percentToInputString, SplitMathError } from "@/lib/split-math";
-import { moveSlider, sliderStep, syncSliders, type SliderState } from "@/lib/split-sliders";
+import { moveSlider, sliderStep, slidersFrom, syncSliders, type SliderState } from "@/lib/split-sliders";
 import { currencySymbol, parseNumber } from "@/lib/tools/format";
 import {
   DRAFT_AMOUNT_MAX,
@@ -54,6 +54,8 @@ type FormState = {
   /** Slider states as last moved; brought up to date with who's in and the amount on each render. */
   exact: SliderState | null;
   percent: SliderState | null;
+  /** The saved amounts or percents didn't add up (an older draft), so they start even. */
+  startedEven: boolean;
 };
 
 function initialState(
@@ -73,15 +75,19 @@ function initialState(
       ticked: people.map((p) => p.id),
       exact: null,
       percent: null,
+      startedEven: false,
     };
   }
   const split = expense.split;
-  const saved = (shares: { id: string; value: number }[], total: number): SliderState => ({
-    ids: shares.map((s) => s.id),
-    values: Object.fromEntries(shares.map((s) => [s.id, s.value])),
-    total,
-    touched: [],
-  });
+  // Saved values that add up are kept; ones that don't (a draft from before
+  // the sliders, or edited by hand) start even — the leftover to the payer
+  // first, then in the draft's order, as the split maths would.
+  const saved = (shares: { id: string; value: number }[], total: number): SliderState => {
+    const ids = shares.map((s) => s.id);
+    const order = ids.includes(expense.paidBy) ? [expense.paidBy, ...ids.filter((id) => id !== expense.paidBy)] : ids;
+    return slidersFrom(ids, total, Object.fromEntries(shares.map((s) => [s.id, s.value])), order);
+  };
+  const addsUp = (shares: { value: number }[], total: number) => shares.reduce((a, s) => a + s.value, 0) === total;
   return {
     title: expense.title,
     amount: minorToInputString(expense.amountMinor, currency, locale),
@@ -95,6 +101,9 @@ function initialState(
         : null,
     percent:
       split.type === "percent" ? saved(split.shares.map((s) => ({ id: s.id, value: s.bp })), BASIS_POINTS_TOTAL) : null,
+    startedEven:
+      (split.type === "exact" && !addsUp(split.shares.map((s) => ({ value: s.minor })), expense.amountMinor)) ||
+      (split.type === "percent" && !addsUp(split.shares.map((s) => ({ value: s.bp })), BASIS_POINTS_TOTAL)),
   };
 }
 
@@ -275,14 +284,14 @@ function ExpenseForm({
                 state: exact,
                 step: sliderStep(exact.total, 200),
                 format: fmt,
-                onMove: (id, v) => set({ exact: moveSlider(exact, id, v) }),
+                onMove: (id, v) => set({ exact: moveSlider(exact, id, v), startedEven: false }),
               }
             : state.type === "percent"
               ? {
                   state: percent,
                   step: sliderStep(BASIS_POINTS_TOTAL),
                   format: percentText,
-                  onMove: (id, v) => set({ percent: moveSlider(percent, id, v) }),
+                  onMove: (id, v) => set({ percent: moveSlider(percent, id, v), startedEven: false }),
                 }
               : null
         }
@@ -296,7 +305,9 @@ function ExpenseForm({
           <p className="text-muted-foreground">
             {state.type === "exact" && amount.minor === undefined
               ? "Enter the amount to set each person's part."
-              : "Slide to set each part — the others rebalance, so it always adds up."}
+              : state.startedEven
+                ? "Its parts didn't add up, so they start evenly — slide to set them, then save."
+                : "Slide to set each part — the others rebalance, so it always adds up."}
           </p>
         ) : null}
       </div>
