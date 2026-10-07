@@ -18,6 +18,7 @@ import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { CurrencyCombobox } from "@/components/app/currency-combobox";
 import { createSplitGroup } from "@/actions/split";
 import { SPLIT_ADD_PEOPLE_MAX, SPLIT_GROUP_NAME_MAX } from "@/lib/validation";
+import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import { EMPTY_PERSON, filledPeople, PeopleFields, type PersonDraft } from "./people-fields";
 import { toastAdded } from "./added-toast";
 
@@ -110,7 +111,16 @@ export function NewGroupDialog({
             </p>
           </div>
           <div className="space-y-1.5">
-            <Label>People</Label>
+            <div className="flex items-baseline justify-between gap-2">
+              <Label>People</Label>
+              {/* You, plus everyone filled in below, out of the cap. */}
+              <span
+                className="text-xs text-muted-foreground tabular-nums"
+                aria-label={`${1 + filledPeople(people).length} of ${SPLIT_GROUP_MAX_PEOPLE} people`}
+              >
+                {1 + filledPeople(people).length}/{SPLIT_GROUP_MAX_PEOPLE}
+              </span>
+            </div>
             <PeopleFields rows={people} onChange={setPeople} max={SPLIT_ADD_PEOPLE_MAX} />
             <p className="text-xs text-muted-foreground">
               Only you see their emails. You can add more people later — up to 50 including you.
