@@ -65,12 +65,15 @@ export function DateRangeFilter({
   today,
   locale,
   onChange,
+  className,
 }: {
   from: string;
   to: string;
   today: string;
   locale?: string;
   onChange: (next: { from?: string; to?: string }) => void;
+  /** The trigger's size and flex behaviour in its row (the analytics filters match heights). */
+  className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
 
@@ -142,7 +145,11 @@ export function DateRangeFilter({
         <Button
           type="button"
           variant="outline"
-          className={cn("min-w-[11rem] justify-start gap-2 font-normal", !from && !to && "text-muted-foreground")}
+          className={cn(
+            "min-w-[11rem] justify-start gap-2 font-normal",
+            !from && !to && "text-muted-foreground",
+            className,
+          )}
           aria-label="Date range"
         >
           <CalendarRange className="size-4 opacity-60" />

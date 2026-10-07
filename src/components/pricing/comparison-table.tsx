@@ -34,6 +34,8 @@ type Cell = string | boolean;
 type Row = { label: string; hint?: string; cell: (plan: PersonalPlan) => Cell };
 
 const everywhere = (c: Cell) => () => c;
+/** The analytics page's "Insights & trends" rows — the plan flag, from the catalogue. */
+const insights = (plan: PersonalPlan): Cell => PLAN_LIMITS[plan].advancedAnalytics;
 
 /**
  * Every row is read from `@/lib/plans` (limits) or `@/lib/pricing` (prices),
@@ -51,12 +53,7 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
       rows: [
         { label: "Transactions", cell: everywhere("Unlimited") },
         { label: "Chat-style entry & bulk add", cell: everywhere(true) },
-        { label: "Filters, analytics & search", cell: everywhere(true) },
-        {
-          label: "Insights and trends",
-          hint: "Month-end projection, 12 months of cash flow, category trends, a spending calendar, and the recurring payments and unusual spends it spots for you.",
-          cell: (p) => PLAN_LIMITS[p].advancedAnalytics,
-        },
+        { label: "Filters & search", cell: everywhere(true) },
         {
           label: "Categories",
           hint: `Including the ${count(DEFAULT_CATEGORIES.length)} starter ones.`,
@@ -74,6 +71,44 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
           cell: everywhere(`${TRASH_DAYS} days`),
         },
         { label: "CSV & PDF export", hint: "On every plan, always. Your data is yours.", cell: everywhere(true) },
+      ],
+    },
+    {
+      // Free's view of the analytics page, then what "Insights & trends"
+      // (`advancedAnalytics`) adds — one row per card group.
+      title: "Analytics",
+      rows: [
+        {
+          label: "Overview, category donut and budgets",
+          hint: "Income, expenses and net for any range, by category, beside this month's budgets.",
+          cell: everywhere(true),
+        },
+        {
+          label: "Trend over your chosen range",
+          hint: "Money in and out by day, week or month.",
+          cell: everywhere(true),
+        },
+        {
+          label: "Month-end projection and insights",
+          hint: "Where the month is heading against last month, your usual month and a year ago, in plain words.",
+          cell: insights,
+        },
+        {
+          label: "Cash flow and savings rate",
+          hint: "What you kept over the range, and the share of your income saved.",
+          cell: insights,
+        },
+        {
+          label: "Category trends and spending calendar",
+          hint: "Each category against its usual, and the days and weekdays that cost the most.",
+          cell: insights,
+        },
+        {
+          label: "Recurring and unusual spends",
+          hint: "Monthly payments spotted for you, and entries far above their usual.",
+          cell: insights,
+        },
+        { label: "Spending by payee, tag and profile", cell: insights },
       ],
     },
     {

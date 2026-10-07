@@ -171,6 +171,7 @@ const REGISTRY = {
   listTransactionIds: "transactions",
   getSummary: "transactions",
   getMonthlyTotals: "transactions",
+  getDailyTotals: "transactions",
   getCategoryBreakdown: "transactions",
   getMonthlyTrend: "transactions",
   getTagsWithUsage: "transactions",
@@ -251,6 +252,10 @@ describe("every transaction read excludes the trash", () => {
     expect(await queries.getSummary(U, W)).toEqual({ income: 3000, expense: 1000, balance: 2000 });
     expect(await queries.getMonthlyTotals(U, W)).toEqual([
       { month: "2026-06", income: 3000, expense: 1000 },
+    ]);
+    expect(await queries.getDailyTotals(U, W, { from: "2026-06-01", to: "2026-06-30" })).toEqual([
+      { date: "2026-06-01", income: 0, expense: 1000 },
+      { date: "2026-06-03", income: 3000, expense: 0 },
     ]);
     const breakdown = await queries.getCategoryBreakdown(U, W, "expense");
     expect(breakdown.map((r) => [r.categoryId, r.total])).toEqual([[groceries, 1000]]);

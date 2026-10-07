@@ -207,7 +207,7 @@ export function advancedAnalyticsLock(plan: PersonalPlan): AddLock {
   const on = paidPlans("and", "advancedAnalytics");
   return {
     title: `Insights and trends are on ${on}`,
-    reason: `See your month-end projection, 12-month cash flow, category trends, recurring payments and unusual spends on ${on}.`,
+    reason: `See your month-end projection, what you kept and your savings rate, category trends, recurring payments and unusual spends on ${on}.`,
     cta: cta(upgradeTo),
     info: { limit: "advancedAnalytics", plan, upgradeTo },
   };
