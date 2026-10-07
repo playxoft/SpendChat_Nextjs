@@ -37,8 +37,8 @@ const COPY: Record<GateKind, { title: string; lead: string }> = {
     lead: "A screenshot is out of date the moment someone pays for the next round. Save the group free and invite everyone — they see the same balances, kept up to date.",
   },
   invite: {
-    title: "Invite everyone by email",
-    lead: "Save the group free and add each person's email. Each of them gets an invite — by email, or in the app if they already use SpendChat.",
+    title: "Send everyone an invite",
+    lead: "Create a free account and the group is saved with an invite for everyone whose email you added — by email, or in the app if they already use SpendChat. Missing an email? Add it on the next screen.",
   },
 };
 

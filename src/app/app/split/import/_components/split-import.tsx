@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useEffectEvent, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Calculator } from "lucide-react";
+import { Calculator, Check, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,9 +16,15 @@ import { SETTLED_UP } from "@/lib/split-display";
 import {
   buildImportInput,
   computeLedger,
+  DRAFT_EMAIL_MAX,
   DRAFT_NAME_MAX,
+  emailProblems,
   importOrder,
+  normalizeEmail,
   personLabel,
+  readyToImport,
+  resolveMe,
+  UNNAMED_GROUP,
   type SplitDraft,
 } from "@/lib/tools/split-bill";
 import { toolPath } from "@/lib/tools";
@@ -26,113 +32,251 @@ import { cn } from "@/lib/utils";
 
 /**
  * `/app/split/import`: the group from the free split calculator, made real.
- * The visitor built it by name only; the app invites people by email, so this
- * asks for one per person (and which of them is you), shows the balances as
- * they'll be saved, then creates the group, its people and its expenses in
- * one go (`services/split-import.ts`) and clears the browser's copy.
+ *
+ * When the visitor came from one of the calculator's sign-up prompts
+ * (`?from=tool`) and the draft already has everything — it's clear which
+ * person is you, and everyone else has a valid, distinct email — the group is
+ * created and everyone invited straight away, with progress and the result on
+ * screen. If only "which one is you?" is unclear, that one question is asked
+ * first. Otherwise (or after any refusal) it's a form: emails prefilled from
+ * the draft, problems marked on their rows, nothing left out without saying so.
  */
 
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+type Phase =
+  | { kind: "form" }
+  | { kind: "ask-me" }
+  | { kind: "creating" }
+  | { kind: "done"; groupId: string; invited: number; name: string };
 
-export function SplitImport({ locale, myEmail }: { locale: string; myEmail: string | null }) {
+type Outcome =
+  | { ok: true; groupId: string; invited: number; name: string }
+  | { ok: false; me: string; error: string; named?: unknown; overrides: Record<string, string> };
+
+/** The draft whose import is running — so a re-mounted page (Strict Mode, a fast refresh) never sends it twice. */
+let inFlight: SplitDraft | null = null;
+
+export function SplitImport({
+  locale,
+  myEmail,
+  fromTool = false,
+}: {
+  locale: string;
+  myEmail: string | null;
+  fromTool?: boolean;
+}) {
   const draft = useStoredDraft();
   if (draft === undefined) return <ImportSkeleton />;
   if (draft === null) return <NothingToImport />;
-  // Keyed on the draft's shape, so a change from another tab starts the form afresh.
+  // Keyed on the draft's shape, so a change from another tab starts afresh.
   return (
-    <ImportForm
+    <ImportFlow
       key={`${draft.people.map((p) => p.id).join(",")}|${draft.expenses.length}`}
       draft={draft}
       locale={locale}
       myEmail={myEmail}
+      fromTool={fromTool}
     />
   );
 }
 
-function ImportForm({
+function ImportFlow({
   draft,
   locale,
   myEmail,
+  fromTool,
 }: {
   draft: SplitDraft;
   locale: string;
-  /** The signed-in account's address — typing it for someone else is a mix-up. */
+  /** The signed-in account's address: it finds "you" in the draft, and can't be someone else's. */
   myEmail: string | null;
+  fromTool: boolean;
 }) {
   const router = useRouter();
+  const resolved = resolveMe(draft, myEmail);
+  const [meId, setMeId] = useState<string | null>(resolved);
   const [name, setName] = useState(draft.name.trim());
-  const [meId, setMeId] = useState(draft.people[0]!.id);
-  const [emails, setEmails] = useState<Record<string, string>>({});
+  const [emails, setEmails] = useState<Record<string, string>>(() =>
+    Object.fromEntries(draft.people.map((p) => [p.id, p.email?.trim() ?? ""])),
+  );
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [pending, setPending] = useState(false);
+  const [banner, setBanner] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>(() => {
+    if (!fromTool) return { kind: "form" };
+    if (resolved) return readyToImport(draft, resolved, myEmail) ? { kind: "creating" } : { kind: "form" };
+    // Everything is there except who you are: ask that, once.
+    return draft.people.some((p) => readyToImport(draft, p.id, myEmail)) ? { kind: "ask-me" } : { kind: "form" };
+  });
 
   const fmt = (minor: number) => formatMoney(minor, draft.currency, locale);
   const label = (id: string) => personLabel(draft.people, id);
   const others = draft.people.filter((p) => p.id !== meId);
-  // The balances as the app will store them: it creates you first, then everyone
-  // else in order — the order `computeShares` breaks a leftover cent's tie in.
-  const ledger = computeLedger(draft, importOrder(draft, meId));
+  const ledger = computeLedger(draft, meId ? importOrder(draft, meId) : undefined);
+  const leftOut = draft.expenses.filter((e) => ledger.invalid.includes(e.id));
 
-  function validate(): Record<string, string> {
-    const found: Record<string, string> = {};
-    const seen = new Map<string, string>();
-    const mine = myEmail?.trim().toLowerCase() || null;
-    for (const p of others) {
-      const email = (emails[p.id] ?? "").trim().toLowerCase();
-      if (!email) found[p.id] = "Add their email";
-      else if (!EMAIL.test(email)) found[p.id] = "That doesn't look like an email address";
-      else if (email === mine) found[p.id] = "That's you — pick it as “you” instead";
-      else if (seen.has(email)) found[p.id] = `Same email as ${label(seen.get(email)!)}`;
-      else seen.set(email, p.id);
+  /**
+   * Send it, and say how it went — no state is touched here, so the arrival
+   * effect can start it and apply the outcome when it lands.
+   */
+  async function send(me: string, groupName: string, overrides: Record<string, string>): Promise<Outcome | null> {
+    if (inFlight === draft) return null;
+    inFlight = draft;
+    try {
+      const res = await importSplitDraft(buildImportInput({ draft, name: groupName, meId: me, emails: overrides }));
+      if (!res.ok) {
+        inFlight = null;
+        return { ok: false, me, error: res.error, named: (res.details as { emails?: unknown } | undefined)?.emails, overrides };
+      }
+      // The browser's copy goes quietly, so this page doesn't flash "nothing to bring in".
+      clearDraft({ quiet: true });
+      toast.success(resultLine(res.invited));
+      router.push(`/app/split/${res.groupId}`);
+      return { ok: true, groupId: res.groupId, invited: res.invited, name: groupName.trim() || UNNAMED_GROUP };
+    } catch {
+      inFlight = null;
+      return { ok: false, me, error: "Couldn't reach SpendChat — check your connection and try again.", overrides };
+    }
+  }
+
+  function apply(outcome: Outcome | null) {
+    if (!outcome) return;
+    if (outcome.ok) {
+      setPhase({ kind: "done", groupId: outcome.groupId, invited: outcome.invited, name: outcome.name });
+      return;
+    }
+    // Refusals about particular people (a cooldown, too many open invites,
+    // an inbox already in) name their addresses: mark those rows too.
+    if (Array.isArray(outcome.named)) {
+      const named = outcome.named;
+      const flagged: Record<string, string> = {};
+      for (const p of draft.people) {
+        if (p.id === outcome.me) continue;
+        if (named.includes(normalizeEmail(outcome.overrides[p.id] ?? p.email))) flagged[p.id] = outcome.error;
+      }
+      setErrors(flagged);
+    }
+    setMeId(outcome.me);
+    setBanner(`The group wasn't created yet: ${outcome.error}`);
+    setPhase({ kind: "form" });
+  }
+
+  // Arrived ready from the calculator: the first render is already "creating".
+  const autoStart = useEffectEvent(() => {
+    if (phase.kind === "creating" && resolved && inFlight !== draft) {
+      void send(resolved, draft.name, {}).then(apply);
+    }
+  });
+  useEffect(() => {
+    autoStart();
+  }, []);
+
+  /** The form's problems: missing, malformed, duplicate or your own address. */
+  function validate(me: string): Record<string, string> {
+    const people = draft.people.map((p) => ({ ...p, email: emails[p.id] ?? "" }));
+    const found = emailProblems(people, { skip: me, mine: myEmail });
+    for (const p of people) {
+      if (p.id !== me && !normalizeEmail(p.email) && !found[p.id]) found[p.id] = "Add their email";
     }
     return found;
   }
 
-  async function submit(e: FormEvent) {
+  function submit(e: FormEvent) {
     e.preventDefault();
+    setBanner(null);
+    if (!meId) {
+      setBanner("Pick which one is you first.");
+      return;
+    }
     if (!name.trim()) {
       toast.error("Give the group a name");
       return;
     }
-    const found = validate();
+    const found = validate(meId);
     setErrors(found);
     if (Object.keys(found).length) return;
+    setPhase({ kind: "creating" });
+    void send(meId, name, emails).then(apply);
+  }
 
-    setPending(true);
-    let res: Awaited<ReturnType<typeof importSplitDraft>>;
-    try {
-      res = await importSplitDraft(buildImportInput({ draft, name, meId, emails }));
-    } catch {
-      setPending(false);
-      toast.error("Couldn't reach SpendChat — check your connection and try again");
-      return;
+  function pickMe(id: string) {
+    setMeId(id);
+    if (readyToImport(draft, id, myEmail)) {
+      setPhase({ kind: "creating" });
+      void send(id, draft.name, {}).then(apply);
+    } else {
+      setPhase({ kind: "form" });
     }
-    if (!res.ok) {
-      setPending(false);
-      // Refusals about particular people (a cooldown, too many open invites)
-      // name their addresses; show the message on those rows too.
-      const named = (res.details as { emails?: unknown } | undefined)?.emails;
-      if (Array.isArray(named)) {
-        const flagged: Record<string, string> = {};
-        for (const p of others) {
-          if (named.includes((emails[p.id] ?? "").trim().toLowerCase())) flagged[p.id] = "Can't be invited right now";
-        }
-        setErrors(flagged);
-      }
-      toast.error(res.error);
-      return;
-    }
-    // Stays "Creating…" until the group page takes over; the browser's copy goes
-    // quietly, so this page doesn't flash "nothing to bring in" on the way out.
-    clearDraft({ quiet: true });
-    toast.success(`${name.trim()} is ready — everyone's invited`);
-    router.push(`/app/split/${res.groupId}`);
   }
 
   function discard() {
     clearDraft();
     toast("The calculator's group was cleared from this browser");
     router.push("/app/split");
+  }
+
+  const groupName = (phase.kind === "done" ? phase.name : name.trim() || draft.name.trim()) || UNNAMED_GROUP;
+
+  if (phase.kind === "creating" || phase.kind === "done") {
+    const done = phase.kind === "done";
+    const inviting = draft.people.length - 1;
+    const expenses = `${draft.expenses.length} ${draft.expenses.length === 1 ? "expense" : "expenses"}`;
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <div className="rounded-xl border p-8 text-center" role="status" aria-live="polite">
+          <span
+            className={cn(
+              "mx-auto mb-3 flex size-10 items-center justify-center rounded-full border",
+              done && "border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
+            )}
+          >
+            {done ? <Check className="size-5" aria-hidden /> : <Loader2 className="size-5 animate-spin" aria-hidden />}
+          </span>
+          <h1 className="font-medium">{done ? resultLine(phase.invited) : `Creating “${groupName}”…`}</h1>
+          <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
+            {done
+              ? `“${groupName}” is ready, with every expense from the calculator. Opening it now…`
+              : inviting > 0
+                ? `Adding ${expenses} and inviting ${inviting} ${inviting === 1 ? "person" : "people"}.`
+                : `Adding ${expenses}.`}
+          </p>
+          {done && (
+            <Button asChild className="mt-4">
+              <Link href={`/app/split/${phase.groupId}`}>Open the group</Link>
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (phase.kind === "ask-me") {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold tracking-tight">Which one is you?</h1>
+          <p className="text-sm text-muted-foreground">
+            Everyone else gets an invite to “{groupName}” as soon as you pick — you&apos;re in it already.
+          </p>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {draft.people.map((p) => (
+            <Button
+              key={p.id}
+              type="button"
+              variant="outline"
+              className="h-auto justify-start rounded-xl px-3 py-2.5 text-left"
+              onClick={() => pickMe(p.id)}
+            >
+              <span className="min-w-0">
+                <span className="block truncate font-medium">{label(p.id)}</span>
+                {p.email?.trim() && (
+                  <span className="block truncate text-xs font-normal text-muted-foreground">{p.email.trim()}</span>
+                )}
+              </span>
+            </Button>
+          ))}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -146,6 +290,12 @@ function ImportForm({
         </p>
       </div>
 
+      {banner && (
+        <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm">
+          {banner}
+        </p>
+      )}
+
       <div className="space-y-1.5">
         <Label htmlFor="split-import-name">Group name</Label>
         <Input
@@ -155,9 +305,7 @@ function ImportForm({
           placeholder="Goa trip"
           maxLength={DRAFT_NAME_MAX}
         />
-        <p className="text-xs text-muted-foreground">
-          Amounts stay in {draft.currency}, as in the calculator.
-        </p>
+        <p className="text-xs text-muted-foreground">Amounts stay in {draft.currency}, as in the calculator.</p>
       </div>
 
       <fieldset className="space-y-2">
@@ -176,6 +324,7 @@ function ImportForm({
                 onChange={() => {
                   setMeId(p.id);
                   setErrors({});
+                  setBanner(null);
                 }}
                 className="accent-foreground"
               />
@@ -185,7 +334,7 @@ function ImportForm({
         </div>
       </fieldset>
 
-      {others.length > 0 && (
+      {meId && others.length > 0 && (
         <section aria-labelledby="split-import-emails" className="space-y-2">
           <h2 id="split-import-emails" className="text-sm font-medium">
             Everyone else&apos;s email
@@ -210,6 +359,7 @@ function ImportForm({
                       inputMode="email"
                       autoComplete="off"
                       placeholder="name@example.com"
+                      maxLength={DRAFT_EMAIL_MAX}
                       value={emails[p.id] ?? ""}
                       aria-invalid={error ? true : undefined}
                       aria-describedby={error ? `${id}-error` : undefined}
@@ -228,41 +378,59 @@ function ImportForm({
         </section>
       )}
 
-      <section aria-labelledby="split-import-balances" className="space-y-2">
-        <h2 id="split-import-balances" className="text-sm font-medium">
-          Balances once it&apos;s in
-        </h2>
-        <ul className="divide-y rounded-xl border text-sm">
-          {ledger.balances.map((b) => (
-            <li key={b.id} className="flex items-baseline justify-between gap-3 px-3 py-2.5">
-              <span className="min-w-0 truncate">
-                {label(b.id)}
-                {b.id === meId && <span className="ml-1.5 text-xs text-muted-foreground">(you)</span>}
-              </span>
-              <span
-                className={cn(
-                  "shrink-0 tabular-nums",
-                  b.netMinor > 0 && "text-emerald-600 dark:text-emerald-400",
-                  b.netMinor === 0 && "text-muted-foreground",
-                )}
-              >
-                {b.netMinor === 0 ? SETTLED_UP : b.netMinor > 0 ? `is owed ${fmt(b.netMinor)}` : `owes ${fmt(-b.netMinor)}`}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
+      {leftOut.length > 0 && (
+        <p className="rounded-xl border border-dashed px-3 py-2.5 text-sm text-muted-foreground">
+          {leftOut.length === 1 ? "One expense doesn't" : `${leftOut.length} expenses don't`} add up and won&apos;t be
+          brought in: {leftOut.map((e) => e.title.trim() || "Untitled").join(", ")}. Fix{" "}
+          {leftOut.length === 1 ? "it" : "them"} in the{" "}
+          <Link href={toolPath("split-bill-calculator")} className="underline underline-offset-4">
+            calculator
+          </Link>{" "}
+          first if you want {leftOut.length === 1 ? "it" : "them"} too.
+        </p>
+      )}
+
+      {meId && (
+        <section aria-labelledby="split-import-balances" className="space-y-2">
+          <h2 id="split-import-balances" className="text-sm font-medium">
+            Balances once it&apos;s in
+          </h2>
+          <ul className="divide-y rounded-xl border text-sm">
+            {ledger.balances.map((b) => (
+              <li key={b.id} className="flex items-baseline justify-between gap-3 px-3 py-2.5">
+                <span className="min-w-0 truncate">
+                  {label(b.id)}
+                  {b.id === meId && <span className="ml-1.5 text-xs text-muted-foreground">(you)</span>}
+                </span>
+                <span
+                  className={cn(
+                    "shrink-0 tabular-nums",
+                    b.netMinor > 0 && "text-emerald-600 dark:text-emerald-400",
+                    b.netMinor === 0 && "text-muted-foreground",
+                  )}
+                >
+                  {b.netMinor === 0 ? SETTLED_UP : b.netMinor > 0 ? `is owed ${fmt(b.netMinor)}` : `owes ${fmt(-b.netMinor)}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
-        <Button type="button" variant="ghost" className="text-muted-foreground" onClick={discard} disabled={pending}>
+        <Button type="button" variant="ghost" className="text-muted-foreground" onClick={discard}>
           Discard this group
         </Button>
-        <Button type="submit" disabled={pending}>
-          {pending ? "Creating…" : "Create group and invite"}
-        </Button>
+        <Button type="submit">Create group and invite</Button>
       </div>
     </form>
   );
+}
+
+/** "Group created — 4 people invited". Counts people invited, by email or in the app. */
+function resultLine(invited: number): string {
+  if (invited === 0) return "Group created";
+  return `Group created — ${invited} ${invited === 1 ? "person" : "people"} invited`;
 }
 
 function NothingToImport() {

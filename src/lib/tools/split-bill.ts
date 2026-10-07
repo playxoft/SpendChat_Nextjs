@@ -1,4 +1,5 @@
 import { getCurrency, isSupportedCurrency } from "@/lib/currencies";
+import { emailKey } from "@/lib/email-key";
 import { fromMinorUnits } from "@/lib/money";
 import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import {
@@ -438,10 +439,11 @@ export function looksLikeEmail(email: string): boolean {
 }
 
 /**
- * What's wrong with each person's email, by person id: not an email, or the
- * same inbox as someone listed earlier. Blank emails are fine (they're
- * optional) and aren't listed. `skip` leaves one person out — "you", whose
- * own address doesn't matter.
+ * What's wrong with each person's email, by person id: not an email, your own
+ * (`mine`), or the same inbox as someone listed earlier — compared the way the
+ * app does (`emailKey`: `+tags` and Gmail dots collapse), so the server never
+ * refuses a pair this let through. Blank emails are fine (they're optional)
+ * and aren't listed. `skip` leaves one person out — "you".
  */
 export function emailProblems(
   people: readonly DraftPerson[],
@@ -449,15 +451,16 @@ export function emailProblems(
 ): Record<string, string> {
   const problems: Record<string, string> = {};
   const seen = new Map<string, string>();
-  const self = normalizeEmail(mine);
+  const self = normalizeEmail(mine) ? emailKey(normalizeEmail(mine)) : null;
   for (const p of people) {
     if (p.id === skip) continue;
     const email = normalizeEmail(p.email);
     if (!email) continue;
+    const key = emailKey(email);
     if (!looksLikeEmail(email)) problems[p.id] = "Check this email";
-    else if (self && email === self) problems[p.id] = "That's you — pick this row as “you” instead";
-    else if (seen.has(email)) problems[p.id] = `Same email as ${personLabel(people, seen.get(email)!)}`;
-    else seen.set(email, p.id);
+    else if (self && key === self) problems[p.id] = "That's you — pick this row as “you” instead";
+    else if (seen.has(key)) problems[p.id] = `Same inbox as ${personLabel(people, seen.get(key)!)}`;
+    else seen.set(key, p.id);
   }
   return problems;
 }
@@ -473,7 +476,7 @@ export function emailProblems(
 export function resolveMe(draft: SplitDraft, myEmail: string | null | undefined): string | null {
   const mine = normalizeEmail(myEmail);
   if (mine) {
-    const matches = draft.people.filter((p) => normalizeEmail(p.email) === mine);
+    const matches = draft.people.filter((p) => normalizeEmail(p.email) && emailKey(normalizeEmail(p.email)) === emailKey(mine));
     if (matches.length === 1) return matches[0]!.id;
     if (matches.length > 1) return null;
   }

@@ -1,11 +1,10 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   ArrowRight,
   Copy,
   Share2,
-  Mail,
   Pencil,
   Plus,
   RotateCcw,
@@ -31,7 +30,6 @@ import {
   DRAFT_EXPENSES_MAX,
   DRAFT_NAME_MAX,
   DRAFT_PEOPLE_MAX,
-  DRAFT_PERSON_NAME_MAX,
   exampleDraft,
   isBlankDraft,
   nextId,
@@ -45,6 +43,7 @@ import {
 import { toolPath } from "@/lib/tools";
 import { cn } from "@/lib/utils";
 import { ExpenseDialog } from "./expense-dialog";
+import { PeopleEditor } from "./people-editor";
 import { clearDraft, dismissNudge, setDraft, useDraft, useNudgeDismissed } from "./draft-store";
 import { SignUpGate, type GateKind } from "./sign-up-gate";
 
@@ -64,8 +63,6 @@ const NUDGE_LOCATION = `tool_${SLUG}_nudge`;
 
 const CURRENCY_OPTIONS = CURRENCIES.map((c) => ({ value: c.code, label: `${c.code} — ${c.name}` }));
 
-const input =
-  "h-11 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-base outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 dark:bg-input/30";
 
 export function SplitBillTool() {
   const draft = useDraft();
@@ -138,7 +135,6 @@ export function SplitBillTool() {
   }
 
   const hasResult = ledger.totalMinor > 0;
-  const atPeopleCap = draft.people.length >= DRAFT_PEOPLE_MAX;
   const atExpenseCap = draft.expenses.length >= DRAFT_EXPENSES_MAX;
 
   return (
@@ -164,86 +160,14 @@ export function SplitBillTool() {
             />
           </div>
 
-          <section aria-labelledby="split-people">
-            <div className="flex items-baseline justify-between gap-3 border-b pb-2">
-              <h2 id="split-people" className="text-base font-semibold">
-                People
-              </h2>
-              <span className="text-sm text-muted-foreground tabular-nums">
-                {draft.people.length} of {DRAFT_PEOPLE_MAX}
-              </span>
-            </div>
-            <ul className="mt-3 space-y-2">
-              {draft.people.map((p, i) => (
-                <li key={p.id} className="flex items-center gap-2">
-                  <div className="relative min-w-0 flex-1">
-                    <input
-                      ref={(el) => {
-                        if (el && focusId.current === p.id) {
-                          focusId.current = null;
-                          el.focus();
-                        }
-                      }}
-                      type="text"
-                      value={p.name}
-                      maxLength={DRAFT_PERSON_NAME_MAX}
-                      placeholder={i === 0 ? "Your name" : "Their name"}
-                      aria-label={i === 0 ? "Your name" : `Person ${i + 1}'s name`}
-                      autoComplete="off"
-                      enterKeyHint={i === draft.people.length - 1 ? "next" : "done"}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && i === draft.people.length - 1 && !e.nativeEvent.isComposing) {
-                          e.preventDefault();
-                          addPerson();
-                        }
-                      }}
-                      onChange={(e) =>
-                        update({
-                          people: draft.people.map((x) => (x.id === p.id ? { ...x, name: e.target.value } : x)),
-                        })
-                      }
-                      className={cn(input, i === 0 && "pr-14")}
-                    />
-                    {i === 0 && (
-                      <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">
-                        You
-                      </span>
-                    )}
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="size-11 shrink-0 rounded-xl text-muted-foreground"
-                    aria-label={`Remove ${label(p.id)}`}
-                    disabled={draft.people.length <= 1}
-                    onClick={() => removePerson(p.id)}
-                  >
-                    <X />
-                  </Button>
-                </li>
-              ))}
-            </ul>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                className="h-10 rounded-xl"
-                onClick={addPerson}
-                disabled={atPeopleCap}
-              >
-                <Plus /> Add a person
-              </Button>
-              <Button type="button" variant="ghost" className="h-10 rounded-xl" onClick={() => openGate("invite")}>
-                <Mail /> Add people by email
-              </Button>
-            </div>
-            {atPeopleCap && (
-              <p className="mt-2 text-xs text-muted-foreground">
-                A group holds up to {DRAFT_PEOPLE_MAX} people, you included.
-              </p>
-            )}
-          </section>
+          <PeopleEditor
+            people={draft.people}
+            focusId={focusId}
+            onChange={(people) => update({ people })}
+            onAdd={addPerson}
+            onRemove={removePerson}
+            onInvite={() => openGate("invite")}
+          />
 
           <section aria-labelledby="split-expenses">
             <div className="flex items-baseline justify-between gap-3 border-b pb-2">
@@ -399,23 +323,26 @@ export function SplitBillTool() {
             </ResultEmpty>
           )}
 
-          <div className="flex flex-wrap gap-2">
-            <Button type="button" className="h-9 rounded-lg" onClick={() => openGate("save")}>
-              <Save /> Save group
-            </Button>
-            <Button type="button" variant="outline" className="h-9 rounded-lg" onClick={() => openGate("share")}>
-              <Share2 /> Share with the group
-            </Button>
-            {hasResult && (
-              <Button type="button" variant="outline" className="h-9 rounded-lg" onClick={copySummary}>
-                <Copy /> Copy summary
-              </Button>
-            )}
-            {!blank && (
-              <Button type="button" variant="ghost" className="h-9 rounded-lg" onClick={startOver}>
-                <RotateCcw /> Start over
-              </Button>
-            )}
+          {/* One row, never wrapped: labels shorten as the panel narrows (a
+              container query on the row itself), and on the narrowest phones
+              Copy and Start over keep only their icons. If even that doesn't
+              fit, the row scrolls sideways. Each button's name is its full label. */}
+          <div className="@container -mx-1 overflow-x-auto px-1 pb-1">
+            <div className="flex w-max min-w-full flex-nowrap gap-2">
+              <ActionButton icon={<Save />} full="Save group" short="Save" onClick={() => openGate("save")} primary />
+              <ActionButton
+                icon={<Share2 />}
+                full="Share with the group"
+                short="Share"
+                onClick={() => openGate("share")}
+              />
+              {hasResult && (
+                <ActionButton icon={<Copy />} full="Copy summary" short="Copy" onClick={copySummary} compact />
+              )}
+              {!blank && (
+                <ActionButton icon={<RotateCcw />} full="Start over" short="Reset" onClick={startOver} ghost compact />
+              )}
+            </div>
           </div>
           <p className="text-xs leading-relaxed text-muted-foreground">
             Saved in this browser as you go. Save the group to share it — it carries over when you sign up.
@@ -443,6 +370,48 @@ export function SplitBillTool() {
         onOpenChange={(open) => setGate({ ...gate, open })}
       />
     </>
+  );
+}
+
+/**
+ * A result action whose label fits the room: the full label from 34rem of row
+ * width, a short one from 22rem, and below that — for `compact` buttons — the
+ * icon alone. `aria-label` is always the full label.
+ */
+function ActionButton({
+  icon,
+  full,
+  short,
+  onClick,
+  primary,
+  ghost,
+  compact,
+}: {
+  icon: ReactNode;
+  full: string;
+  short: string;
+  onClick: () => void;
+  primary?: boolean;
+  ghost?: boolean;
+  compact?: boolean;
+}) {
+  return (
+    <Button
+      type="button"
+      variant={primary ? "default" : ghost ? "ghost" : "outline"}
+      className="h-9 shrink-0 rounded-lg"
+      aria-label={full}
+      title={full}
+      onClick={onClick}
+    >
+      {icon}
+      <span aria-hidden className="hidden @[34rem]:inline">
+        {full}
+      </span>
+      <span aria-hidden className={cn("@[34rem]:hidden", compact && "hidden @[22rem]:inline")}>
+        {short}
+      </span>
+    </Button>
   );
 }
 
