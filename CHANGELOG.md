@@ -32,9 +32,10 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - **A title and a note on every budget**, suggested from what it covers
   ("Groceries this month", "Home space") and shown in the list, analytics and
   alert emails. Existing budgets get a title automatically.
-- **Optional emails in the split calculator.** Arrive from the calculator after
-  signing up and the group is created and everyone invited without another
-  form; missing or problem emails are asked for row by row.
+- **Optional emails in the split calculator.** Press Send invites, sign up, and
+  the group is created and everyone invited without another form; "Save" shows
+  who will be invited and waits for you. Missing or problem emails are asked for
+  row by row, and a group is never created twice from two tabs or a reload.
 - **A Tools menu on the site** listing every free tool with its own icon, in
   three columns, with a link to all tools.
 
