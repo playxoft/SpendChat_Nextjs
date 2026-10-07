@@ -73,7 +73,7 @@ export function UserMenu({
           </Avatar>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 p-1.5">
+      <DropdownMenuContent align="end" className="min-w-72 p-1.5">
         <DropdownMenuLabel className="flex items-center gap-3 px-2 py-2 font-normal">
           <Avatar className="size-9">
             {image ? <AvatarImage src={image} alt="" /> : null}

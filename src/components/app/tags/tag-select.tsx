@@ -152,7 +152,7 @@ export function TagSelect({
           </Button>
           )}
         </DropdownMenuTrigger>
-        <DropdownMenuContent align={align} className="w-64">
+        <DropdownMenuContent align={align} className="min-w-64">
           {all.length === 0 ? (
             <p className="px-2 py-2 text-sm text-muted-foreground">
               {canCreate ? "No tags yet — create the first one." : "No tags in this workspace yet."}

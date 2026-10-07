@@ -586,7 +586,7 @@ function SpaceHeader({
                 <MoreHorizontal className="size-3.5" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="min-w-48">
               <DropdownMenuItem onSelect={onRename}>
                 <Pencil className="size-4" /> Rename
               </DropdownMenuItem>

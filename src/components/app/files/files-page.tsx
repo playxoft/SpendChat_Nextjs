@@ -688,7 +688,7 @@ export function FilesPageClient({
                 Tags{tagFilter.length > 0 ? ` (${tagFilter.length})` : ""}
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuContent align="end" className="min-w-56">
               {tags.length === 0 ? (
                 <DropdownMenuItem disabled>No tags yet</DropdownMenuItem>
               ) : (
