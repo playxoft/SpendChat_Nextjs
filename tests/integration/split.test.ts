@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { splitGroups, splitMembers, splitShares } from "@/db/schema";
 import { sendEmail } from "@/lib/email";
 import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
+import { feedCursor } from "@/lib/split-display";
 import * as actions from "@/actions/split";
 import * as split from "@/services/split";
 import * as ledger from "@/services/split-ledger";
@@ -758,7 +759,7 @@ describe("split review fixes", () => {
     ok(await expense("Dinner", "2026-09-03"));
 
     // Oldest first within the page, newest at the bottom, payments in between.
-    const all = await ledger.listGroupFeed(uid("asha"), id, { limit: 10, offset: 0 });
+    const all = await ledger.listGroupFeed(uid("asha"), id, { limit: 10 });
     expect(all.total).toBe(4);
     expect(all.currency).toBe("INR");
     expect(
@@ -767,12 +768,22 @@ describe("split review fixes", () => {
     // Same day: the payment was added before Lunch, so it comes first.
     expect(all.items[1]!.date).toBe("2026-09-02");
 
-    // The newest page first; "Show earlier" reads the next one back.
-    const newest = ok(await actions.loadSplitFeed(id, 0));
-    expect(newest.items.map((i) => i.id)).toEqual(all.items.map((i) => i.id));
-    const earlier = ok(await actions.loadSplitFeed(id, 3));
-    expect(earlier.items.map((i) => (i.kind === "expense" ? i.expense.title : "payment"))).toEqual(["Breakfast"]);
-    expect(ok(await actions.loadSplitFeed(id, -1)).items).toHaveLength(4); // a bad offset reads from the start
+    // The newest page first; "Show earlier" reads back from the oldest item on screen.
+    const label = (i: ledger.SplitFeedItem) => (i.kind === "expense" ? i.expense.title : "payment");
+    const newest = await ledger.listGroupFeed(uid("asha"), id, { limit: 2 });
+    expect(newest.items.map(label)).toEqual(["Lunch", "Dinner"]);
+    // A keyset, not an offset: deleting what's on screen doesn't shift the next page.
+    ok(await actions.deleteSplitExpense(id, newest.items[1]!.id));
+    const earlier = ok(await actions.loadSplitFeed(id, feedCursor(newest.items[0]!)));
+    expect(earlier.items.map(label)).toEqual(["Breakfast", "payment"]);
+    expect(earlier.total).toBe(3);
+    // Same day as the cursor: only what was added before it.
+    expect(ok(await actions.loadSplitFeed(id, feedCursor(earlier.items[1]!))).items.map(label)).toEqual([
+      "Breakfast",
+    ]);
+    expect(ok(await actions.loadSplitFeed(id, feedCursor(earlier.items[0]!))).items).toEqual([]);
+    // A malformed cursor is refused, not read as "from the start".
+    expect((await actions.loadSplitFeed(id, { day: "yesterday", at: "noon", id: "x" })).ok).toBe(false);
 
     // The expense views carry the viewer's share, as the bubbles need.
     const dinner = all.items[3]!;
@@ -780,7 +791,7 @@ describe("split review fixes", () => {
 
     // Strangers still get a 404.
     await bootstrapUser("eve");
-    await expect(ledger.listGroupFeed(uid("eve"), id, { limit: 10, offset: 0 })).rejects.toMatchObject({
+    await expect(ledger.listGroupFeed(uid("eve"), id, { limit: 10 })).rejects.toMatchObject({
       status: 404,
     });
   });

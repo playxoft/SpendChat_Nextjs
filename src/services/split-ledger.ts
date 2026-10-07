@@ -436,26 +436,43 @@ function settlementViews(
 /* The group's chat feed: expenses and payments, interleaved                  */
 /* ------------------------------------------------------------------------- */
 
+/**
+ * Where "Show earlier" picks up: the oldest item already loaded, by the feed's
+ * own order (its date, when it was added, its id). A keyset rather than an
+ * offset, so items added or deleted meanwhile don't shift the next page.
+ * `at` round-trips exactly: both tables keep millisecond `created_at`.
+ */
+export const splitFeedCursorSchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  at: z.iso.datetime(),
+  id: z.string().uuid(),
+});
+export type SplitFeedCursor = z.infer<typeof splitFeedCursorSchema>;
+
 export type SplitFeedItem =
   | { kind: "expense"; id: string; date: string; at: Date; expense: SplitExpenseView }
   | { kind: "payment"; id: string; date: string; at: Date; payment: SplitSettlementView };
 
 /**
  * A page of the group's activity — expenses and recorded payments together, in
- * the order they happened (by their date, then when they were added). Paged
- * from the newest; each page comes back oldest-first, ready to render as a
- * chat with the latest at the bottom. Web only: the API keeps its two lists.
+ * the order they happened (by their date, then when they were added). The
+ * newest page, or the one just before `before`; each comes back oldest-first,
+ * ready to render as a chat with the latest at the bottom. Web only: the API
+ * keeps its two lists.
  */
 export async function listGroupFeed(
   userId: string,
   rawGroupId: unknown,
-  page: SplitPage,
+  page: { limit: number; before?: unknown },
 ): Promise<{ items: SplitFeedItem[]; total: number; currency: string }> {
   const db = getDb();
   const ctx = await requireJoined(userId, rawGroupId);
   const groupId = ctx.group.id;
   const limit = Math.min(Math.max(page.limit, 1), 200);
-  const offset = Math.max(page.offset, 0);
+  const before =
+    page.before === undefined || page.before === null
+      ? null
+      : parseOrThrow(splitFeedCursorSchema, page.before);
   const [{ rows: ordered }, [expenseCount], [paymentCount]] = await Promise.all([
     db.execute<{ id: string; kind: "expense" | "payment" }>(sql`
       select id, kind from (
@@ -467,8 +484,13 @@ export async function listGroupFeed(
                ${splitSettlements.createdAt} as at
           from ${splitSettlements} where ${splitSettlements.groupId} = ${groupId}
       ) feed
+      ${
+        before
+          ? sql`where (day, at, id) < (${before.day}::date, ${before.at}::timestamptz, ${before.id}::uuid)`
+          : sql``
+      }
       order by day desc, at desc, id desc
-      limit ${limit} offset ${offset}`),
+      limit ${limit}`),
     db.select({ n: count() }).from(splitExpenses).where(eq(splitExpenses.groupId, groupId)),
     db.select({ n: count() }).from(splitSettlements).where(eq(splitSettlements.groupId, groupId)),
   ]);

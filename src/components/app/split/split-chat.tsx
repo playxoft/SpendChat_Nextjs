@@ -32,6 +32,10 @@ import {
   updateSplitWorkspaceEntry,
 } from "@/actions/split";
 import type { SplitViewer } from "@/lib/split-access";
+import { balanceChipText, compareFeed, feedCursor, mergeFeed } from "@/lib/split-display";
+import { formatDateLabel, formatDateShort } from "@/lib/dates";
+import { formatMoney } from "@/lib/money";
+import { SPLIT_FEED_PAGE } from "@/lib/validation";
 import type { SplitGroupDetail } from "@/services/split";
 import type { SplitExpenseView, SplitFeedItem, SplitSettlementView } from "@/services/split-ledger";
 import { AddToWorkspaceDialog, type ShareWorkspace } from "./add-to-workspace-dialog";
@@ -87,17 +91,58 @@ export function SplitChat({
   const names = new Map(detail.members.map((m) => [m.id, m.name]));
   const active = detail.members.filter((m) => m.status !== "left");
   const myNet = detail.members.find((m) => m.isYou)?.netMinor ?? 0;
+  const people = active.map((m) => ({ id: m.id, name: m.name }));
 
-  // The feed: the server's newest page, plus whatever "Show earlier" added on top.
-  const [items, setItems] = React.useState(firstPage);
+  // The feed: the server's newest page, under whatever "Show earlier" loaded
+  // (`older`, oldest-first). Paging is by keyset, so nothing added or deleted
+  // meanwhile shifts it.
+  const [older, setOlder] = React.useState<SplitFeedItem[]>([]);
   const [total, setTotal] = React.useState(feedTotal);
   const [seen, setSeen] = React.useState(firstPage);
+  // A refresh (after any change) brings a new newest page. Earlier pages stay
+  // on screen, and are re-read behind it so an edit, a delete or a back-dated
+  // add among them shows too — `resync` is that pending re-read.
+  const [resync, setResync] = React.useState<{ page: SplitFeedItem[]; until: SplitFeedItem } | null>(null);
   if (firstPage !== seen) {
     setSeen(firstPage);
-    setItems(firstPage);
     setTotal(feedTotal);
+    if (older[0]) {
+      if (firstPage.length === 0) setOlder([]);
+      else setResync({ page: firstPage, until: older[0] });
+    }
   }
+  const items = mergeFeed(older, firstPage);
   const [loadingEarlier, setLoadingEarlier] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!resync) return;
+    let cancelled = false;
+    void (async () => {
+      // Walk back from the new page's oldest item until we pass where the
+      // earlier pages reached (or run out). Usually one read.
+      let reread: SplitFeedItem[] = [];
+      let from = resync.page[0];
+      while (from) {
+        const res = await loadSplitFeed(group.id, feedCursor(from));
+        if (cancelled) return;
+        if (!res.ok) break; // keep what's on screen
+        reread = [...res.items, ...reread];
+        setTotal(res.total);
+        const oldest = res.items[0];
+        const reachedStart = res.items.length < SPLIT_FEED_PAGE;
+        if (reachedStart || !oldest || compareFeed(oldest, resync.until) <= 0) {
+          // At the very start, the re-read is everything there is.
+          setOlder((current) => (reachedStart ? reread : mergeFeed(current, reread)));
+          break;
+        }
+        from = oldest;
+      }
+      if (!cancelled) setResync(null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [resync, group.id]);
 
   // Newest at the bottom, like a chat: land there, and follow anything new.
   const lastId = items[items.length - 1]?.id ?? "";
@@ -134,12 +179,24 @@ export function SplitChat({
   };
 
   async function loadEarlier() {
+    const oldest = items[0];
+    if (!oldest) return;
     setLoadingEarlier(true);
-    const res = await loadSplitFeed(group.id, items.length).finally(() => setLoadingEarlier(false));
+    const res = await loadSplitFeed(group.id, feedCursor(oldest)).finally(() => setLoadingEarlier(false));
     if (!res.ok) return toast.error(res.error);
-    const known = new Set(items.map((i) => i.id));
-    setItems([...res.items.filter((i) => !known.has(i.id)), ...items]);
+    setOlder((current) => {
+      const known = new Set(current.map((i) => i.id));
+      return [...res.items.filter((i) => !known.has(i.id)), ...current];
+    });
     setTotal(res.total);
+  }
+
+  /** A sent expense that won't land at the bottom (it's dated earlier) says where it went. */
+  function onSent(date: string) {
+    const newest = items[items.length - 1];
+    if (!newest || date >= newest.date) return;
+    const label = date.slice(0, 4) === today.slice(0, 4) ? formatDateShort(date, locale) : formatDateLabel(date, locale);
+    toast.success(`Added to ${label}`);
   }
 
   async function removeEntry(e: SplitExpenseView) {
@@ -190,6 +247,8 @@ export function SplitChat({
       return;
     }
     toast.success(confirm.kind === "delete-expense" ? "Expense deleted" : "Payment undone");
+    const gone = confirm.kind === "delete-expense" ? confirm.expense.id : confirm.payment.id;
+    setOlder((current) => current.filter((i) => i.id !== gone));
     router.refresh();
   }
 
@@ -214,16 +273,19 @@ export function SplitChat({
                 className="flex shrink-0 items-center gap-1.5 rounded-full text-xs text-muted-foreground hover:text-foreground"
                 aria-label={`${detail.peopleCount} people — see who's in the group`}
               >
-                <AvatarStack people={active.map((m) => ({ id: m.id, name: m.name }))} max={3} />
+                {/* Two faces on a phone, three from `sm` — the chip needs the room. */}
+                <AvatarStack people={people} max={2} className="sm:hidden" />
+                <AvatarStack people={people} max={3} className="hidden sm:flex" />
                 <span>{detail.peopleCount}</span>
               </button>
               <button
                 type="button"
                 onClick={() => setBalancesOpen(true)}
-                className="min-w-0 rounded-full"
-                aria-label="Balances and settling up"
+                className="flex min-w-0 rounded-full"
+                // The chip's words lead, so the balance is what's announced.
+                aria-label={`${balanceChipText(myNet, formatMoney(Math.abs(myNet), currency, locale)).full} — balances and settling up`}
               >
-                <BalanceChip netMinor={myNet} currency={currency} locale={locale} className="max-w-full truncate" />
+                <BalanceChip netMinor={myNet} currency={currency} locale={locale} compact />
               </button>
             </div>
           </div>
@@ -283,7 +345,7 @@ export function SplitChat({
           locale={locale}
           timeZone={timeZone}
           today={today}
-          loadingEarlier={loadingEarlier}
+          loadingEarlier={loadingEarlier || resync !== null}
           onLoadEarlier={loadEarlier}
           onOpenExpense={setDetailOf}
           onEditExpense={setEditing}
@@ -301,6 +363,7 @@ export function SplitChat({
         members={composerMembers}
         meMemberId={me.memberId}
         onExpand={setDraft}
+        onSent={onSent}
       />
 
       <ExpenseDetailSheet

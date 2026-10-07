@@ -18,7 +18,7 @@ import * as ledger from "@/services/split-ledger";
 import * as invites from "@/services/split-invites";
 import type { AddedPerson } from "@/services/split";
 import type { SplitInvitation } from "@/services/split";
-import type { SplitFeedItem } from "@/services/split-ledger";
+import type { SplitFeedCursor, SplitFeedItem } from "@/services/split-ledger";
 
 /**
  * Split server actions — thin wrappers over `services/split*.ts`, which hold
@@ -150,18 +150,18 @@ export async function declineSplitInvitation(memberId: string): Promise<ActionRe
   );
 }
 
-/** Read-only: an earlier page of a group's chat (expenses and payments), for "Show earlier". */
+/**
+ * Read-only: the page of a group's chat (expenses and payments) just before
+ * `before` — the oldest item already on screen — for "Show earlier".
+ */
 export async function loadSplitFeed(
   groupId: string,
-  offset: number,
+  before: SplitFeedCursor,
 ): Promise<ActionResult<{ items: SplitFeedItem[]; total: number; currency: string }>> {
   const user = await requireUser();
   return runAction(
     "loadSplitFeed",
-    async () => {
-      const safeOffset = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
-      return ledger.listGroupFeed(user.id, groupId, { limit: SPLIT_FEED_PAGE, offset: safeOffset });
-    },
+    async () => ledger.listGroupFeed(user.id, groupId, { limit: SPLIT_FEED_PAGE, before }),
     { userId: user.id, groupId, rateLimit: "read" },
   );
 }

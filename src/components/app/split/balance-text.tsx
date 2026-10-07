@@ -1,5 +1,5 @@
 import { formatMoney } from "@/lib/money";
-import { balanceStatus, SETTLED_UP } from "@/lib/split-display";
+import { balanceChipText, balanceStatus, SETTLED_UP } from "@/lib/split-display";
 import { cn } from "@/lib/utils";
 
 /**
@@ -41,32 +41,46 @@ export function BalanceText({
 
 /**
  * The caller's balance as a status chip — "You're owed ₹1,200", "You owe ₹300"
- * or "Settled Up" — for the chat header and the groups list.
+ * or "Settled Up" — for the chat header and the groups list. `compact` shows
+ * the short form ("+₹1,200", "−₹300") below `sm`, where a phone's header row
+ * has room for little else; the full words stay its accessible name. Long
+ * amounts end in an ellipsis rather than a hard clip.
  */
 export function BalanceChip({
   netMinor,
   currency,
   locale,
+  compact = false,
   className,
 }: {
   netMinor: number;
   currency: string;
   locale: string;
+  compact?: boolean;
   className?: string;
 }) {
   const status = balanceStatus(netMinor);
-  const amount = formatMoney(Math.abs(netMinor), currency, locale);
+  const text = balanceChipText(netMinor, formatMoney(Math.abs(netMinor), currency, locale));
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center rounded-full px-2 py-0.5 text-xs font-medium whitespace-nowrap tabular-nums",
+        "inline-flex max-w-full min-w-0 shrink items-center rounded-full px-2 py-0.5 text-xs font-medium tabular-nums",
         status === "owed" && "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
         status === "owe" && "bg-muted text-foreground",
         status === "settled" && "bg-muted text-muted-foreground",
         className,
       )}
     >
-      {status === "owed" ? `You're owed ${amount}` : status === "owe" ? `You owe ${amount}` : SETTLED_UP}
+      {compact ? (
+        <>
+          <span aria-hidden className="truncate sm:hidden">
+            {text.short}
+          </span>
+          <span className="sr-only sm:not-sr-only sm:truncate">{text.full}</span>
+        </>
+      ) : (
+        <span className="truncate">{text.full}</span>
+      )}
     </span>
   );
 }

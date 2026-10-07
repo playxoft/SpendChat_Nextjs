@@ -29,7 +29,7 @@ export default async function SplitGroupPage({
   const [workspace, timeZone] = await Promise.all([getCurrentWorkspace(user.id), getTimeZone()]);
   const data = await Promise.all([
     getGroupDetail(user.id, groupId),
-    listGroupFeed(user.id, groupId, { limit: SPLIT_FEED_PAGE, offset: 0 }),
+    listGroupFeed(user.id, groupId, { limit: SPLIT_FEED_PAGE }),
   ]).catch((err: unknown) => {
     if (err instanceof ApiError && err.status === 404) notFound();
     throw err;
