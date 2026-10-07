@@ -585,7 +585,7 @@ describe("split expenses, balances and settling up", () => {
     expect(detail.members.some((m) => m.id === raviId)).toBe(false);
   });
 
-  it("pages expenses newest first and loads more through the read action", async () => {
+  it("lists expenses newest first, one at a time too", async () => {
     const { id, ownerId } = await trio();
     signInAs("o");
     for (const [i, day] of ["2026-09-01", "2026-09-03", "2026-09-02"].entries()) {
@@ -600,11 +600,9 @@ describe("split expenses, balances and settling up", () => {
         }),
       );
     }
-    const first = ok(await actions.loadSplitExpenses(id, 0));
+    const first = await ledger.listExpenses(uid("o"), id, { limit: 10, offset: 0 });
     expect(first.items.map((e) => e.occurredOn)).toEqual(["2026-09-03", "2026-09-02", "2026-09-01"]);
     expect(first.total).toBe(3);
-    const past = ok(await actions.loadSplitExpenses(id, -5));
-    expect(past.items).toHaveLength(3);
     const got = await ledger.getExpense(uid("o"), id, first.items[0]!.id);
     expect(got.expense.title).toBe("E1");
     await expect(ledger.getExpense(uid("o"), id, "nope")).rejects.toMatchObject({ status: 404 });
@@ -740,17 +738,90 @@ describe("split review fixes", () => {
     expect(ok(await actions.loadSplitInvitations(-1)).items).toHaveLength(12); // a bad offset reads from the start
   });
 
-  it("pages payments for Show more", async () => {
+  it("the chat feed interleaves expenses and payments in order, and pages back in time", async () => {
     const id = await newGroup();
     const ashaId = await joinAs(id, "asha");
     const ownerId = (await split.getGroupDetail(uid("o"), id)).me.memberId;
     signInAs("o");
-    for (let i = 0; i < 3; i++) {
-      ok(await actions.recordSplitSettlement(id, { fromMemberId: ashaId, toMemberId: ownerId, amount: 1, settledOn: today }));
-    }
-    const page = ok(await actions.loadSplitSettlements(id, 2));
-    expect(page.items).toHaveLength(1);
-    expect(page.total).toBe(3);
-    expect(ok(await actions.loadSplitSettlements(id, 0)).items).toHaveLength(3);
+    const expense = (title: string, day: string) =>
+      actions.createSplitExpense(id, {
+        title,
+        amount: 10,
+        paidBy: ownerId,
+        occurredOn: day,
+        splitType: "equal",
+        memberIds: [ownerId, ashaId],
+      });
+    ok(await expense("Breakfast", "2026-09-01"));
+    ok(await actions.recordSplitSettlement(id, { fromMemberId: ashaId, toMemberId: ownerId, amount: 5, settledOn: "2026-09-02" }));
+    ok(await expense("Lunch", "2026-09-02"));
+    ok(await expense("Dinner", "2026-09-03"));
+
+    // Oldest first within the page, newest at the bottom, payments in between.
+    const all = await ledger.listGroupFeed(uid("asha"), id, { limit: 10, offset: 0 });
+    expect(all.total).toBe(4);
+    expect(all.currency).toBe("INR");
+    expect(
+      all.items.map((i) => (i.kind === "expense" ? i.expense.title : `paid ${i.payment.amountMinor}`)),
+    ).toEqual(["Breakfast", "paid 500", "Lunch", "Dinner"]);
+    // Same day: the payment was added before Lunch, so it comes first.
+    expect(all.items[1]!.date).toBe("2026-09-02");
+
+    // The newest page first; "Show earlier" reads the next one back.
+    const newest = ok(await actions.loadSplitFeed(id, 0));
+    expect(newest.items.map((i) => i.id)).toEqual(all.items.map((i) => i.id));
+    const earlier = ok(await actions.loadSplitFeed(id, 3));
+    expect(earlier.items.map((i) => (i.kind === "expense" ? i.expense.title : "payment"))).toEqual(["Breakfast"]);
+    expect(ok(await actions.loadSplitFeed(id, -1)).items).toHaveLength(4); // a bad offset reads from the start
+
+    // The expense views carry the viewer's share, as the bubbles need.
+    const dinner = all.items[3]!;
+    expect(dinner.kind === "expense" && dinner.expense.myShare?.amountMinor).toBe(500);
+
+    // Strangers still get a 404.
+    await bootstrapUser("eve");
+    await expect(ledger.listGroupFeed(uid("eve"), id, { limit: 10, offset: 0 })).rejects.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("the groups list carries each group's last activity", async () => {
+    const id = await newGroup();
+    const ashaId = await joinAs(id, "asha");
+    const ownerId = (await split.getGroupDetail(uid("o"), id)).me.memberId;
+    const empty = await newGroup("o"); // a second group, still empty
+    let groups = await split.listGroups(uid("o"));
+    expect(groups.find((g) => g.id === empty)!.lastActivity).toBeNull();
+
+    signInAs("asha");
+    ok(
+      await actions.createSplitExpense(id, {
+        title: "Taxi",
+        amount: 30,
+        paidBy: ashaId,
+        occurredOn: today,
+        splitType: "equal",
+        memberIds: [ownerId, ashaId],
+      }),
+    );
+    groups = await split.listGroups(uid("o"));
+    expect(groups.find((g) => g.id === id)!.lastActivity).toMatchObject({
+      kind: "expense",
+      title: "Taxi",
+      amountMinor: 3000,
+      payerName: "ASHA",
+      payerIsYou: false,
+    });
+
+    signInAs("o");
+    ok(await actions.recordSplitSettlement(id, { fromMemberId: ownerId, toMemberId: ashaId, amount: 15, settledOn: today }));
+    groups = await split.listGroups(uid("o"));
+    expect(groups.find((g) => g.id === id)!.lastActivity).toMatchObject({
+      kind: "payment",
+      amountMinor: 1500,
+      fromIsYou: true,
+      toName: "ASHA",
+      toIsYou: false,
+    });
   });
 });

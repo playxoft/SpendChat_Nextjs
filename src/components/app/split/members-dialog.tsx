@@ -18,6 +18,7 @@ import type { SplitMemberView } from "@/services/split";
 import { BalanceText } from "./balance-text";
 import { EMPTY_PERSON, filledPeople, PeopleFields, type PersonDraft } from "./people-fields";
 import { toastAdded } from "./added-toast";
+import { cn } from "@/lib/utils";
 
 /**
  * Who's in the group. Everyone sees names and balances; the creator also sees
@@ -144,7 +145,22 @@ export function MembersDialog({
         {isCreator &&
           (room > 0 ? (
             <form onSubmit={add} className="space-y-2">
-              <p className="text-sm font-medium">Add people</p>
+              <div className="flex items-baseline justify-between gap-2">
+                <p className="text-sm font-medium">Add people</p>
+                {/* Everyone in the group (invited included) plus the rows filled
+                    in here, out of the cap — so the limit shows before Add. */}
+                <span
+                  className={cn(
+                    "text-xs tabular-nums",
+                    peopleCount + filledPeople(people).length > maxPeople
+                      ? "text-destructive"
+                      : "text-muted-foreground",
+                  )}
+                  aria-label={`${peopleCount + filledPeople(people).length} of ${maxPeople} people`}
+                >
+                  {peopleCount + filledPeople(people).length}/{maxPeople}
+                </span>
+              </div>
               <PeopleFields rows={people} onChange={setPeople} max={room} />
               <div className="flex justify-end">
                 <Button type="submit" disabled={pending}>

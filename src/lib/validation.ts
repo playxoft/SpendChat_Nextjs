@@ -1123,10 +1123,8 @@ export const SPLIT_ICON_MAX = 16;
 export const SPLIT_EXPENSE_TITLE_MAX = TRANSACTION_TITLE_MAX;
 /** People one request may add: everyone but the creator. */
 export const SPLIT_ADD_PEOPLE_MAX = SPLIT_GROUP_MAX_PEOPLE - 1;
-/** Expenses per page in a group (the web's "Show more"). */
-export const SPLIT_EXPENSES_PAGE = 50;
-/** Payments per page in a group (the web's "Show more"). */
-export const SPLIT_PAYMENTS_PAGE = 20;
+/** Expenses and payments per page of a group's chat (the web's "Show earlier"). */
+export const SPLIT_FEED_PAGE = 50;
 
 const splitGroupNameSchema = z
   .string()

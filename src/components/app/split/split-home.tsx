@@ -7,9 +7,26 @@ import { toast } from "sonner";
 import { Plus, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { acceptSplitInvitation, declineSplitInvitation, loadSplitInvitations } from "@/actions/split";
-import type { SplitGroupSummary, SplitInvitation } from "@/services/split";
-import { BalanceText } from "./balance-text";
+import type { SplitActivity, SplitGroupSummary, SplitInvitation } from "@/services/split";
+import { formatDateShort } from "@/lib/dates";
+import { formatMoney } from "@/lib/money";
+import { BalanceChip } from "./balance-text";
 import { NewGroupDialog } from "./new-group-dialog";
+
+/** The preview line under a group's name — what happened last. */
+function activityLine(a: SplitActivity | null, currency: string, locale: string): string {
+  if (!a) return "No expenses yet — add the first one";
+  const amount = formatMoney(a.amountMinor, currency, locale);
+  if (a.kind === "expense") return `${a.payerIsYou ? "You" : a.payerName} paid ${amount} · ${a.title}`;
+  return `${a.fromIsYou ? "You" : a.fromName} paid ${a.toIsYou ? "you" : a.toName} ${amount}`;
+}
+
+/** "14:05" today, "3 Oct" before — in the viewer's timezone, the chat-list way. */
+function whenLabel(at: Date, today: string, locale: string, timeZone: string): string {
+  const day = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(at);
+  if (day === today) return at.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", timeZone });
+  return formatDateShort(day, locale);
+}
 
 /** `/app/split`: invitations waiting for an answer, then the groups you're in. */
 export function SplitHome({
@@ -18,13 +35,21 @@ export function SplitHome({
   invitationTotal,
   defaultCurrency,
   locale,
+  today,
+  timeZone,
 }: {
   groups: SplitGroupSummary[];
   invitations: SplitInvitation[];
   invitationTotal: number;
   defaultCurrency: string;
   locale: string;
+  today: string;
+  timeZone: string;
 }) {
+  // A chat list: the group with the latest activity first.
+  const ordered = [...groups].sort(
+    (a, b) => (b.lastActivity?.at ?? b.createdAt).getTime() - (a.lastActivity?.at ?? a.createdAt).getTime(),
+  );
   const router = useRouter();
   const [creating, setCreating] = React.useState(false);
   const [busy, setBusy] = React.useState<string | null>(null);
@@ -146,28 +171,32 @@ export function SplitHome({
           </div>
         ) : (
           <ul className="divide-y rounded-xl border">
-            {groups.map((g) => (
+            {ordered.map((g) => (
               <li key={g.id}>
                 <Link
                   href={`/app/split/${g.id}`}
-                  className="flex items-center gap-3 p-3 transition-colors hover:bg-accent/50"
+                  className="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/50"
                 >
-                  <span aria-hidden className="text-2xl">
+                  <span
+                    aria-hidden
+                    className="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted text-xl"
+                  >
                     {g.icon ?? "🧾"}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate font-medium">{g.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {g.peopleCount} {g.peopleCount === 1 ? "person" : "people"} · {g.currency}
-                    </p>
+                    <div className="flex items-baseline gap-2">
+                      <p className="min-w-0 flex-1 truncate font-medium">{g.name}</p>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {whenLabel(g.lastActivity?.at ?? g.createdAt, today, locale, timeZone)}
+                      </span>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                        {activityLine(g.lastActivity, g.currency, locale)}
+                      </p>
+                      <BalanceChip netMinor={g.myNetMinor} currency={g.currency} locale={locale} />
+                    </div>
                   </div>
-                  <BalanceText
-                    netMinor={g.myNetMinor}
-                    currency={g.currency}
-                    locale={locale}
-                    you
-                    className="text-sm"
-                  />
                 </Link>
               </li>
             ))}

@@ -279,7 +279,102 @@ export type SplitGroupSummary = {
   /** The caller's balance in this group (positive = is owed). */
   myNetMinor: number;
   createdAt: Date;
+  /** The newest expense or payment — the chat list's preview line. Web only. */
+  lastActivity: SplitActivity | null;
 };
+
+/** One line of "what happened last" in a group, for the groups list. */
+export type SplitActivity =
+  | {
+      kind: "expense";
+      title: string;
+      amountMinor: number;
+      payerName: string;
+      payerIsYou: boolean;
+      at: Date;
+    }
+  | {
+      kind: "payment";
+      amountMinor: number;
+      fromName: string;
+      fromIsYou: boolean;
+      toName: string;
+      toIsYou: boolean;
+      at: Date;
+    };
+
+/**
+ * The newest expense and payment of each group, whichever came later. Two
+ * `DISTINCT ON` reads however many groups there are, plus one for the names.
+ */
+async function lastActivities(
+  groupIds: string[],
+  myMemberIds: Set<string>,
+  db: DbOrTx,
+): Promise<Map<string, SplitActivity>> {
+  const [expenses, payments] = await Promise.all([
+    db
+      .selectDistinctOn([splitExpenses.groupId], {
+        groupId: splitExpenses.groupId,
+        title: splitExpenses.title,
+        amountMinor: splitExpenses.amountMinor,
+        payer: splitExpenses.paidByMemberId,
+        at: splitExpenses.createdAt,
+      })
+      .from(splitExpenses)
+      .where(inArray(splitExpenses.groupId, groupIds))
+      .orderBy(splitExpenses.groupId, desc(splitExpenses.createdAt), desc(splitExpenses.id)),
+    db
+      .selectDistinctOn([splitSettlements.groupId], {
+        groupId: splitSettlements.groupId,
+        amountMinor: splitSettlements.amountMinor,
+        from: splitSettlements.fromMemberId,
+        to: splitSettlements.toMemberId,
+        at: splitSettlements.createdAt,
+      })
+      .from(splitSettlements)
+      .where(inArray(splitSettlements.groupId, groupIds))
+      .orderBy(splitSettlements.groupId, desc(splitSettlements.createdAt), desc(splitSettlements.id)),
+  ]);
+  const memberIds = [
+    ...new Set([...expenses.map((e) => e.payer), ...payments.flatMap((p) => [p.from, p.to])]),
+  ];
+  const names = new Map(
+    memberIds.length
+      ? (
+          await db
+            .select({ id: splitMembers.id, displayName: splitMembers.displayName })
+            .from(splitMembers)
+            .where(inArray(splitMembers.id, memberIds))
+        ).map((m) => [m.id, memberLabel(m)])
+      : [],
+  );
+  const out = new Map<string, SplitActivity>();
+  for (const e of expenses) {
+    out.set(e.groupId, {
+      kind: "expense",
+      title: e.title,
+      amountMinor: e.amountMinor,
+      payerName: names.get(e.payer) ?? "",
+      payerIsYou: myMemberIds.has(e.payer),
+      at: e.at,
+    });
+  }
+  for (const p of payments) {
+    const current = out.get(p.groupId);
+    if (current && current.at >= p.at) continue;
+    out.set(p.groupId, {
+      kind: "payment",
+      amountMinor: p.amountMinor,
+      fromName: names.get(p.from) ?? "",
+      fromIsYou: myMemberIds.has(p.from),
+      toName: names.get(p.to) ?? "",
+      toIsYou: myMemberIds.has(p.to),
+      at: p.at,
+    });
+  }
+  return out;
+}
 
 /** The groups the caller has joined, newest first, each with their balance. */
 export async function listGroups(userId: string): Promise<SplitGroupSummary[]> {
@@ -293,13 +388,14 @@ export async function listGroups(userId: string): Promise<SplitGroupSummary[]> {
   if (rows.length === 0) return [];
 
   const groupIds = rows.map((r) => r.group.id);
-  const [counts, balances] = await Promise.all([
+  const [counts, balances, activity] = await Promise.all([
     db
       .select({ groupId: splitMembers.groupId, n: count() })
       .from(splitMembers)
       .where(and(inArray(splitMembers.groupId, groupIds), inArray(splitMembers.status, ACTIVE)))
       .groupBy(splitMembers.groupId),
     memberBalances(rows.map((r) => r.memberId), db),
+    lastActivities(groupIds, new Set(rows.map((r) => r.memberId)), db),
   ]);
   const people = new Map(counts.map((c) => [c.groupId, c.n]));
   const net = new Map(balances.map((b) => [b.memberId, b.netMinor]));
@@ -312,6 +408,7 @@ export async function listGroups(userId: string): Promise<SplitGroupSummary[]> {
     peopleCount: people.get(group.id) ?? 0,
     myNetMinor: net.get(memberId) ?? 0,
     createdAt: group.createdAt,
+    lastActivity: activity.get(group.id) ?? null,
   }));
 }
 
