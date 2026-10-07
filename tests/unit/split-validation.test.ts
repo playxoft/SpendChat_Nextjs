@@ -99,7 +99,7 @@ describe("split expense schema", () => {
   });
 
   it("takes who paid as payers (with or without amounts) or the older single paidBy — one of them", () => {
-    const { paidBy: _paidBy, ...noPayer } = base;
+    const noPayer = { title: base.title, amount: base.amount, occurredOn: base.occurredOn };
     const equal = { splitType: "equal" as const, memberIds: [A, B] };
     const both = splitExpenseSchema.safeParse({ ...noPayer, ...equal, payers: [{ memberId: A }, { memberId: B }] });
     expect(both.success && splitPayersOf(both.data)).toEqual([{ memberId: A }, { memberId: B }]);

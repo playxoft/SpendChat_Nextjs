@@ -41,7 +41,11 @@ export function BalancesSheet({
   const me = detail.members.find((m) => m.isYou);
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <SheetContent side="right" className="data-[side=right]:w-full data-[side=right]:sm:max-w-md">
+      <SheetContent
+        side="right"
+        closeOnOutsideClick
+        className="data-[side=right]:w-full data-[side=right]:sm:max-w-md"
+      >
         <SheetHeader>
           <SheetTitle>Balances</SheetTitle>
           <SheetDescription asChild>

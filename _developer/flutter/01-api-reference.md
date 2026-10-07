@@ -570,7 +570,9 @@ negative when they **owe**.
 { "id": "uuid", "title": "Dinner", "amountMinor": 10000, "amount": "100.00",
   "splitType": "equal" | "exact" | "percent", "occurredOn": "2026-10-01",
   "createdAt": "…", "updatedAt": "…",
-  "paidBy": { "memberId": "uuid", "name": "Ravi" },
+  "paidBy": { "memberId": "uuid", "name": "Ravi" },   // the main payer (paid the most)
+  "payers": [ { "memberId": "uuid", "name": "Ravi", "amountMinor": 10000,
+                "amount": "100.00" } ],         // everyone who paid, the most first
   "shares": [ { "memberId": "uuid", "name": "Ravi", "amountMinor": 3334, "amount": "33.34",
                 "percent": null } ],            // percent splits: the percent entered
   "canEdit": true,                              // you added it, or you created the group
@@ -968,7 +970,7 @@ records payments. Ids in paths are uuids; a malformed one is a 404.
 | `DELETE /split/groups/{id}/members/{memberId}` | — | 200 `data: { removed: true }` | Creator only. **409 `settle_first`** while they have a balance; 400 yourself |
 | `POST /split/groups/{id}/leave` | — | 200 `data: { left: true }` | **409 `settle_first`** while you have a balance; 400 for the creator (delete instead) |
 | `GET /split/groups/{id}/expenses?limit=&offset=` | — | 200 `data: SplitExpense[]`, `meta: { total, limit, offset, currency: CurrencyMeta }` | Newest first (`occurredOn`, then created) |
-| `POST /split/groups/{id}/expenses` | `{ title, amount, paidBy, occurredOn, splitType, memberIds \| shares }` | 201 `data: SplitExpense` | Any joined member. `equal` → `memberIds`; `exact` → `shares: [{ memberId, amount }]` summing to `amount`; `percent` → `shares: [{ memberId, percent }]` (≤ 2 dp) summing to 100. **The server computes every share.** Rounding: `equal` → leftover minor units go to the payer first, then by join order; `percent` → shares rounded down, leftovers to the largest remainders first (ties: payer, then join order); `exact` → as entered. 422 for bad sums (neutral `message`; `details: { sumMinor, totalMinor }` or `{ bpSum }`), someone not in the group, or an amount that rounds to 0 minor units (¥0.4) |
+| `POST /split/groups/{id}/expenses` | `{ title, amount, payers \| paidBy, occurredOn, splitType, memberIds \| shares }` | 201 `data: SplitExpense` | Any joined member. Who paid: `payers: [{ memberId, amount? }]` (several people; amounts for all — summing to `amount` — or for none, which divides it evenly by join order) or the older single `paidBy` — one of the two. Each payer is credited what they paid in balances. `equal` → `memberIds`; `exact` → `shares: [{ memberId, amount }]` summing to `amount`; `percent` → `shares: [{ memberId, percent }]` (≤ 2 dp) summing to 100. **The server computes every share.** Rounding: `equal` → leftover minor units go to the (main) payer first — whoever paid the most — then by join order; `percent` → shares rounded down, leftovers to the largest remainders first (ties: payer, then join order); `exact` → as entered. 422 for bad sums (neutral `message`; `details: { sumMinor, totalMinor }`, `{ bpSum }` or `{ paidSumMinor, totalMinor }`), both or neither of `payers`/`paidBy`, someone not in the group, or an amount that rounds to 0 minor units (¥0.4) |
 | `GET /split/groups/{id}/expenses/{expenseId}` | — | 200 `data: SplitExpense` | |
 | `PUT /split/groups/{id}/expenses/{expenseId}` | same as POST | 200 `data: SplitExpense` | Its author or the creator (403). People who left may stay on an expense they were already on |
 | `DELETE /split/groups/{id}/expenses/{expenseId}` | — | 200 `data: { deleted: true }` | Its author or the creator |
@@ -1109,8 +1111,9 @@ Split (6.9.0):
 (a supported ISO code), members? (≤ 49 × SplitPersonInput, no email twice) }`.
 `SplitPersonInput` — `{ email (≤ 100, lowercased), name (1–40, required — it's
 what the group sees) }`.
-`SplitExpenseInput` — `{ title (1–40), amount (> 0, ≤ 999,999,999.99), paidBy
-(member uuid), occurredOn (YYYY-MM-DD), splitType }` plus `memberIds` (1–50) for
+`SplitExpenseInput` — `{ title (1–40), amount (> 0, ≤ 999,999,999.99), payers
+(1–50 × { memberId, amount? (≥ 0) } — amounts for all or none) | paidBy (member
+uuid, the older one-payer shape), occurredOn (YYYY-MM-DD), splitType }` plus `memberIds` (1–50) for
 `equal`, or `shares` (1–50) of `{ memberId, amount (≥ 0) }` for `exact` / `{
 memberId, percent (0–100, ≤ 2 decimals) }` for `percent`. Nobody twice.
 `SplitSettlementInput` — `{ fromMemberId, toMemberId (different), amount (> 0),

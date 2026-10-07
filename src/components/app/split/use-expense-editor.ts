@@ -164,7 +164,21 @@ export function useExpenseEditor({
     return { ...base, payers: who, splitType: "equal", memberIds: includedIds };
   }
 
+  /** Where things stand, to carry into another editor (the composer's expand button). */
+  function snapshot(): EditorStart {
+    return {
+      splitType: raw.splitType,
+      included: includedIds,
+      payers: paidAmounts.map((p) =>
+        payers && totalMinor > 0 ? { memberId: p.memberId, amountMinor: p.amountMinor } : { memberId: p.memberId },
+      ),
+      ...(totalMinor > 0 ? { exact: { ...exact.values } } : {}),
+      percent: { ...percent.values },
+    };
+  }
+
   return {
+    snapshot,
     splitType: raw.splitType,
     setSplitType: (splitType: SplitType) => setRaw((r) => ({ ...r, splitType })),
     included,
