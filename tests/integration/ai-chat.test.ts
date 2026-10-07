@@ -22,7 +22,7 @@ import {
   userSettings,
   workspaceMembers,
 } from "@/db/schema";
-import { buildChatContext } from "@/lib/ai-chat";
+import { buildChatContext, CHAT_UNAVAILABLE_MESSAGE } from "@/lib/ai-chat";
 import { ASK_NEEDS_EDIT_MESSAGE } from "@/lib/ai-limits";
 import { logger } from "@/lib/logger";
 import { monthStartBack, todayISO } from "@/lib/dates";
@@ -289,17 +289,81 @@ describe("askAi — what a question costs", () => {
     expect((await aiActionsLeftFor(W))?.remaining).toBe(0);
   });
 
-  it("is 'not set up' without its own model — even with a parse model — and charges nothing", async () => {
+  it("in production with no model of its own — even with a parse model — fails that question plainly, uncharged", async () => {
     const { spy } = stubGemini();
     vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
+    vi.stubEnv("APP_ENV", "production");
     signInAs("own");
     await bootstrapUser("own");
 
     const res = await askAi({ question: "How much on food?" });
-    expect(res).toMatchObject({ ok: false, code: "ai_unavailable", error: "Ask isn't set up on this server." });
+    expect(res).toMatchObject({ ok: false, code: "ai_unavailable", error: CHAT_UNAVAILABLE_MESSAGE });
     expect(spy).not.toHaveBeenCalled();
     expect(await ledger("own")).toEqual([]);
+    expect(await db().select().from(aiChats)).toHaveLength(0);
+  });
+
+  it("outside production with no model, answers with a sample from the data — no provider, no charge, stored like any answer", async () => {
+    const { spy } = stubGemini();
+    vi.stubEnv("AI_CHAT_MODEL", "");
+    vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
+    vi.stubEnv("APP_ENV", "development");
+    signInAs("own");
+    await bootstrapUser("own");
+    const W = await workspaceIdOf("own");
+    await insertTxn("own", {
+      type: "expense",
+      amountMinor: 1250,
+      occurredOn: THIS_MONTH_DAY,
+      title: "live lunch",
+    });
+
+    const res = await askAi({ question: "Top 5 expenses this month" });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(spy).not.toHaveBeenCalled();
+    expect(await ledger("own")).toEqual([]);
+    expect(res.ai).toBeNull();
+
+    const answer = res.messages.find((m) => m.role === "assistant")!;
+    expect(answer.sample).toBe(true);
+    // Markdown the renderer has to handle: heading, paragraph, table, list, link.
+    expect(answer.content).toMatch(/^## .+ so far\n\nBy day \d+ of \d+ you've spent \*\*\$12\.50\*\*/);
+    expect(answer.content).toContain("| Category | Spent |\n| --- | ---: |");
+    expect(answer.content).toContain("- Largest expense: **live lunch** — $12.50");
+    expect(answer.content).toMatch(/\[See the full breakdown in Analytics\]\(https?:\/\/[^)]+\/app\/analytics\)$/);
+
+    // Stored like any answer (units 0 marks the sample), so chats work as usual.
+    const [stored] = await db()
+      .select({ units: aiChatMessages.units })
+      .from(aiChatMessages)
+      .where(and(eq(aiChatMessages.chatId, res.chat.id), eq(aiChatMessages.role, "assistant")));
+    expect(stored?.units).toBe(0);
+    const opened = await getChat(uid("own"), W, res.chat.id);
+    expect(opened.messages.map((m) => [m.role, m.sample])).toEqual([
+      ["user", false],
+      ["assistant", true],
+    ]);
+    expect(await renameAiChat({ chatId: res.chat.id, title: "Sample" })).toMatchObject({ ok: true });
+    const followUp = await askAi({ chatId: res.chat.id, question: "And last month?" });
+    expect(followUp).toMatchObject({ ok: true, created: false });
+    expect(await deleteAiChat(res.chat.id)).toEqual({ ok: true });
+    expect(await ledger("own")).toEqual([]);
+  });
+
+  it("keeps edit access required for samples too", async () => {
+    vi.stubEnv("AI_CHAT_MODEL", "");
+    vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
+    vi.stubEnv("APP_ENV", "development");
+    await bootstrapUser("own");
+    await addMember("own", "mem", "viewer");
+    signInAs("mem");
+    expect(await askAi({ question: "Top 5 expenses this month" })).toMatchObject({
+      ok: false,
+      code: "forbidden",
+    });
+    expect(await db().select().from(aiChats)).toHaveLength(0);
   });
 
   it("checks the question before anything else", async () => {

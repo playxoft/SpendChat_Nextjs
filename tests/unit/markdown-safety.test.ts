@@ -159,6 +159,35 @@ describe("AnswerMarkdown", () => {
     expect(html).not.toContain('href="javascript');
   });
 
+  it("renders a sample answer whole — heading, table, list, and a link that shows its host", async () => {
+    const { buildSampleAnswer } = await import("@/lib/ai-chat");
+    const md = buildSampleAnswer(
+      {
+        workspaceName: "Home",
+        currency: "USD",
+        locale: "en-US",
+        today: "2026-10-07",
+        months: [{ month: "2026-10", income: 0, expense: 1250 }],
+        categories: {
+          thisMonth: { expense: [{ name: "Food", totalMinor: 1250 }], income: [] },
+          lastMonth: { expense: [], income: [] },
+        },
+        topExpenses: { thisMonth: [], lastMonth: [] },
+        sameDaysLastMonth: { through: "2026-09-07", income: 0, expense: 0 },
+        recent: [],
+        upcoming: [],
+      },
+      "https://spendchat.example/app/analytics",
+    );
+    const html = render(md);
+    expect(html).toContain("<h4");
+    expect(html).toMatch(/<table[\s\S]*Food[\s\S]*\$12\.50/);
+    expect(html).toContain("<ul");
+    expect(html).toContain('href="https://spendchat.example/app/analytics"');
+    expect(html).toContain('target="_blank"');
+    expect(html.replace(/<[^>]+>/g, "")).toContain("See the full breakdown in Analytics · spendchat.example ↗");
+  });
+
   it("puts no hast `node` attribute on the DOM", () => {
     expect(render("**a** [b](https://example.com)")).not.toContain("node=");
   });

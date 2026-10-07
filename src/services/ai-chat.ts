@@ -4,7 +4,11 @@ import { getDb } from "@/db";
 import { aiChatMessages, aiChats, type AiChat } from "@/db/schema";
 import {
   askChatModel,
+  buildSampleAnswer,
+  chatAnswerMode,
   chatTitleFrom,
+  CHAT_UNAVAILABLE_MESSAGE,
+  cleanAnswer,
   CHAT_HISTORY_MESSAGES,
   CHAT_MONTHS,
   CHAT_RECENT_TRANSACTIONS,
@@ -23,6 +27,7 @@ import { monthRange, monthStartBack } from "@/lib/dates";
 import { getAiAllowance } from "@/lib/entitlements";
 import { ApiError, forbidden, notFound } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
+import { siteConfig } from "@/lib/site";
 import {
   getCategoryBreakdown,
   getMonthlyTotals,
@@ -57,6 +62,8 @@ export type ChatMessageDTO = {
   role: "user" | "assistant";
   content: string;
   createdAt: string;
+  /** A sample answer (no model, outside production) — the page captions it, quietly. */
+  sample: boolean;
 };
 
 /** Most chats the list shows (newest first). */
@@ -72,7 +79,14 @@ function summary(row: Pick<AiChat, "id" | "title" | "updatedAt">): ChatSummary {
 }
 
 function messageDTO(row: typeof aiChatMessages.$inferSelect): ChatMessageDTO {
-  return { id: row.id, role: row.role, content: row.content, createdAt: row.createdAt.toISOString() };
+  return {
+    id: row.id,
+    role: row.role,
+    content: row.content,
+    createdAt: row.createdAt.toISOString(),
+    // A real answer always cost an action; only a sample is stored at 0.
+    sample: row.role === "assistant" && row.units === 0,
+  };
 }
 
 /** The caller's own chat in this workspace, or 404. */
@@ -273,7 +287,8 @@ export type AskResult = {
   created: boolean;
   /** The question and its answer, as stored. */
   messages: ChatMessageDTO[];
-  ai: AiActionsLeft;
+  /** The count after this answer's charge — null for a sample, which charged nothing. */
+  ai: AiActionsLeft | null;
 };
 
 /**
@@ -282,9 +297,11 @@ export type AskResult = {
  * In order, cheapest first: the question's shape (control characters already
  * stripped by the schema), the chat's ownership (404), edit access to the
  * workspace (403 — Ask spends the workspace's shared AI actions, so it needs
- * what the composer's AI mode needs), the model's configuration (503 "not set
- * up" — before the charge, so an unconfigured server writes no ledger row),
- * then the charge — one AI action against the workspace's monthly allowance
+ * what the composer's AI mode needs), then how this server answers
+ * (`chatAnswerMode`): with no model, a sample answer outside production
+ * (`answerWithSample` — no charge, no ledger row, no provider call) or, in
+ * production, 503 "Couldn't answer right now" — both before any charge. With a
+ * model: the charge — one AI action against the workspace's monthly allowance
  * (403 `plan_limit` when it's spent).
  *
  * **What a failure costs.** The data read and the provider call run inside
@@ -307,6 +324,11 @@ export async function askQuestion(
   const existing = chatId ? await ownedChat(userId, workspace.id, chatId) : null;
   if (!(await canWriteInWorkspace(userId, workspace.id))) {
     throw forbidden(ASK_NEEDS_EDIT_MESSAGE);
+  }
+  const mode = chatAnswerMode();
+  if (mode === "unavailable") throw aiUnavailableForChat();
+  if (mode === "sample") {
+    return answerWithSample({ userId, workspace, existing, question, today });
   }
   const history = existing ? await newestMessages(existing.id, CHAT_HISTORY_MESSAGES) : [];
   const cfg = resolveChatModel();
@@ -362,6 +384,41 @@ function postgresCode(err: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
+/** Production with no model: the same plain message a model failure would get. */
+function aiUnavailableForChat(): ApiError {
+  return new ApiError(503, "ai_unavailable", CHAT_UNAVAILABLE_MESSAGE);
+}
+
+/**
+ * The no-model path outside production: a sample answer from the asker's own
+ * data (`buildSampleAnswer`), stored like any answer so chats, rename and
+ * delete all work — but no charge, no ledger row and no provider call. Its
+ * message row records `units = 0`, which is what marks it as a sample.
+ */
+async function answerWithSample(opts: {
+  userId: string;
+  workspace: Pick<WorkspaceSummary, "id" | "name" | "currency" | "locale">;
+  existing: AiChat | null;
+  question: string;
+  today: string;
+}): Promise<AskResult> {
+  const { userId, workspace, existing, question, today } = opts;
+  const askedAt = new Date();
+  const data = await gatherChatData(userId, workspace, today);
+  const answer = cleanAnswer(buildSampleAnswer(data, `${siteConfig.url}/app/analytics`));
+  const answeredAt = new Date(Math.max(Date.now(), askedAt.getTime() + 1));
+  return saveAnswer({
+    userId,
+    workspaceId: workspace.id,
+    existing,
+    question,
+    answer,
+    askedAt,
+    answeredAt,
+    charge: null,
+  });
+}
+
 /** Store a question and its answer, creating the chat on its first answer. */
 async function saveAnswer(opts: {
   userId: string;
@@ -371,7 +428,8 @@ async function saveAnswer(opts: {
   answer: string;
   askedAt: Date;
   answeredAt: Date;
-  charge: AiCharge;
+  /** What the answer cost; null for a sample, stored at 0 units. */
+  charge: AiCharge | null;
 }): Promise<AskResult> {
   const { userId, workspaceId, existing, question, answer, askedAt, answeredAt, charge } = opts;
   return getDb().transaction(async (tx) => {
@@ -412,7 +470,7 @@ async function saveAnswer(opts: {
           chatId: chat!.id,
           role: "assistant",
           content: answer,
-          units: charge.units,
+          units: charge?.units ?? 0,
           createdAt: answeredAt,
         },
       ])
@@ -423,7 +481,7 @@ async function saveAnswer(opts: {
       messages: rows
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
         .map(messageDTO),
-      ai: { remaining: charge.remaining ?? 0, limit: charge.limit },
+      ai: charge ? { remaining: charge.remaining ?? 0, limit: charge.limit } : null,
     };
   });
 }

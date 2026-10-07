@@ -489,7 +489,8 @@ export const aiChats = pgTable(
  * after the answer arrives — a failed call stores nothing — with `created_at`
  * set by the app (asked, then answered), so the pair always sorts in order.
  * `units` is what the answer cost in AI actions (assistant rows only); the
- * charge itself lives in `ai_usage_log`, like every AI call's.
+ * charge itself lives in `ai_usage_log`, like every AI call's. 0 marks a
+ * sample answer — no model, outside production — which nothing paid for.
  */
 export const aiChatMessages = pgTable(
   "ai_chat_messages",

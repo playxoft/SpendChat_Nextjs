@@ -235,7 +235,10 @@ Authentication, secrets via Doppler.
   space, profile or role change keeps the chat history, answers included, built
   from what they could see at the time. Answers are untrusted Markdown: render
   them only through `AnswerMarkdown` (no HTML, no images, safe links that show
-  their host).
+  their host). **No model, same page:** outside production (`APP_ENV` isn't
+  "production") a question gets `buildSampleAnswer` — this month's numbers from the
+  same data, stored with `units = 0`, never charged — and in production a plain
+  "Couldn't answer right now" on that question. Never a "not set up" banner.
 - Keep the design minimal and neutral (no gradients); income uses a single emerald accent.
   **One exception:** AI affordances (the composer's Manual/AI toggle, AI mode's
   primary actions and Ask's send button) use a blue→violet gradient, so "this calls a model" is visually

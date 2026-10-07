@@ -70,13 +70,17 @@ const SUGGESTIONS = [
  *
  * Answers render as Markdown through `AnswerMarkdown` (no HTML, no images, safe
  * links only); questions render as plain text.
+ *
+ * The page is the same whether or not the server has a model: without one, a
+ * question gets a sample answer outside production (captioned, quietly) and a
+ * plain inline error in production — never a "not set up" banner.
  */
 export function AskView({
   chatId,
   title,
   initialMessages,
   chats,
-  configured,
+  sampleAnswers,
   allowance,
   workspaceName,
 }: {
@@ -84,8 +88,11 @@ export function AskView({
   title: string | null;
   initialMessages: ChatMessageDTO[];
   chats: ChatSummary[];
-  /** Whether this server has an Ask model (`AI_CHAT_MODEL`); without one, nothing can be asked. */
-  configured: boolean;
+  /**
+   * No model, outside production: answers are samples (`buildSampleAnswer`)
+   * that cost nothing, so a spent allowance doesn't lock the composer.
+   */
+  sampleAnswers: boolean;
   allowance: AiActionsLeft | null;
   workspaceName: string;
 }) {
@@ -108,6 +115,8 @@ export function AskView({
   const [shownUrlChatId, setShownUrlChatId] = useState(urlChatId);
   const [messages, setMessages] = useState(initialMessages);
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
+  // The last question that got no answer, shown in the thread with its error.
+  const [failed, setFailed] = useState<{ question: string; error: string } | null>(null);
   const [text, setText] = useState("");
   const [aiLeft, setAiLeft] = useState<AiActionsLeft | null>(null);
   const [asking, startAsking] = useTransition();
@@ -123,6 +132,7 @@ export function AskView({
       setCurrentChatId(urlChatId);
       setMessages(urlChatId === chatId ? initialMessages : []);
       setPendingQuestion(null);
+      setFailed(null);
       setText("");
     }
   }
@@ -142,7 +152,7 @@ export function AskView({
   }, [currentChatId]);
 
   const left = aiLeft ?? allowance;
-  const spent = left !== null && left.remaining <= 0;
+  const spent = !sampleAnswers && left !== null && left.remaining <= 0;
   const lock = spent ? aiActionsLock(plan, left.limit) : null;
   const busy = asking || pendingQuestion !== null;
 
@@ -151,7 +161,7 @@ export function AskView({
   // bottom nav sit over the last stretch of the viewport, and the page's end
   // is laid out below both — so this is the one target nothing covers.
   // Jump (no animation) on opening a chat; glide for a new message.
-  const count = messages.length + (pendingQuestion ? 1 : 0);
+  const count = messages.length + (pendingQuestion ? 1 : 0) + (failed ? 1 : 0);
   const lastScroll = useRef<{ chat: string | null | undefined; count: number }>({
     chat: undefined,
     count: 0,
@@ -169,8 +179,9 @@ export function AskView({
 
   function ask(raw: string) {
     const question = raw.trim();
-    if (!question || busy || spent || !configured || !canWrite) return;
+    if (!question || busy || spent || !canWrite) return;
     const askedIn = currentChatId;
+    setFailed(null);
     setPendingQuestion(question);
     setText("");
     startAsking(async () => {
@@ -189,8 +200,14 @@ export function AskView({
           const at = new Date().toISOString();
           setMessages((m) => [
             ...m,
-            { id: `unsaved-q-${at}`, role: "user", content: question, createdAt: at },
-            { id: `unsaved-a-${at}`, role: "assistant", content: unsaved.answer, createdAt: at },
+            { id: `unsaved-q-${at}`, role: "user", content: question, createdAt: at, sample: false },
+            {
+              id: `unsaved-a-${at}`,
+              role: "assistant",
+              content: unsaved.answer,
+              createdAt: at,
+              sample: false,
+            },
           ]);
         }
         reportFailure(res);
@@ -198,15 +215,22 @@ export function AskView({
       }
       if (!res.ok) {
         const limit = planLimitOf(res);
-        if (limit?.limit === "aiActions" && limit.max !== undefined) {
-          setAiLeft({ remaining: Math.max(0, limit.max - (limit.used ?? limit.max)), limit: limit.max });
+        if (limit) {
+          // A plan limit opens the upgrade dialog, as everywhere; the question
+          // goes back in the box for after.
+          if (limit.limit === "aiActions" && limit.max !== undefined) {
+            setAiLeft({ remaining: Math.max(0, limit.max - (limit.used ?? limit.max)), limit: limit.max });
+          }
+          reportFailure(res);
+          setText((current) => current || question);
+          return;
         }
-        reportFailure(res, "Couldn't get an answer — try again.");
-        // Give the question back so it can be sent again as it was.
-        setText((current) => current || question);
+        // Anything else stays with the question it belongs to, in the thread,
+        // with a way to send it again — no toast, no banner.
+        setFailed({ question, error: res.error || "Couldn't answer right now." });
         return;
       }
-      setAiLeft(res.ai);
+      if (res.ai) setAiLeft(res.ai);
       setMessages((m) => [...m, ...res.messages]);
       if (res.chat.id !== askedIn) {
         // A new chat (or one deleted elsewhere and brought back): the URL takes
@@ -239,18 +263,14 @@ export function AskView({
     });
   }
 
-  const empty = messages.length === 0 && !pendingQuestion;
+  const empty = messages.length === 0 && !pendingQuestion && !failed;
 
   return (
     <div className="flex min-h-[calc(100svh-7.5rem)] flex-col md:min-h-[calc(100svh-3.5rem)]">
       <AskHeader title={title} chats={chats} profile={profile} />
 
       <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
-        {!configured ? (
-          <NotSetUp />
-        ) : empty ? (
-          <EmptyState workspaceName={workspaceName} onPick={canWrite ? suggest : null} />
-        ) : null}
+        {empty && <EmptyState workspaceName={workspaceName} onPick={canWrite ? suggest : null} />}
 
         {!empty && (
           <ol className="space-y-5" aria-label="Messages">
@@ -258,8 +278,28 @@ export function AskView({
               m.role === "user" ? (
                 <UserBubble key={m.id} text={m.content} />
               ) : (
-                <AnswerBubble key={m.id} text={m.content} />
+                <AnswerBubble key={m.id} text={m.content} sample={m.sample} />
               ),
+            )}
+            {failed && !pendingQuestion && (
+              <>
+                <UserBubble text={failed.question} />
+                <li className="flex justify-end">
+                  <p role="alert" className="flex items-center gap-2 text-xs text-destructive">
+                    {failed.error}
+                    {canWrite && (
+                      <button
+                        type="button"
+                        onClick={() => ask(failed.question)}
+                        disabled={busy}
+                        className="font-medium text-foreground underline-offset-2 hover:underline disabled:opacity-50"
+                      >
+                        Try again
+                      </button>
+                    )}
+                  </p>
+                </li>
+              </>
             )}
             {pendingQuestion && (
               <>
@@ -271,7 +311,7 @@ export function AskView({
         )}
       </div>
 
-      {configured && !canWrite && (
+      {!canWrite && (
         <div className="sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0 print:hidden">
           <p
             role="note"
@@ -283,7 +323,7 @@ export function AskView({
         </div>
       )}
 
-      {configured && canWrite && (
+      {canWrite && (
         <div className="sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0 print:hidden">
           <div className="mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background p-2.5 shadow-lg md:bg-background/95 md:backdrop-blur-sm">
             {lock && <LimitPanel lock={lock} hint="Ask is back when your actions refill on the 1st." />}
@@ -317,7 +357,8 @@ export function AskView({
             </div>
             <div className="flex items-center justify-between gap-3 px-0.5">
               <p className="min-w-0 truncate text-xs text-muted-foreground">
-                Answers come from your transactions. Each question uses 1 AI action.
+                Answers come from your transactions.
+                {!sampleAnswers && " Each question uses 1 AI action."}
               </p>
               <AiActionsLeftLine allowance={null} latest={left} className="shrink-0" />
             </div>
@@ -378,7 +419,7 @@ function UserBubble({ text }: { text: string }) {
   );
 }
 
-function AnswerBubble({ text }: { text: string }) {
+function AnswerBubble({ text, sample }: { text: string; sample: boolean }) {
   const [copied, setCopied] = useState(false);
   async function copy() {
     try {
@@ -406,6 +447,8 @@ function AnswerBubble({ text }: { text: string }) {
           {copied ? <Check /> : <Copy />}
           {copied ? "Copied" : "Copy"}
         </Button>
+        {/* Honest, not loud: built from your data without a model. */}
+        {sample && <span className="ml-1 text-xs text-muted-foreground">Sample answer</span>}
       </div>
     </li>
   );
@@ -468,25 +511,6 @@ function EmptyState({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-function NotSetUp() {
-  return (
-    <div className="mx-auto mt-10 max-w-md rounded-xl border bg-muted/30 p-5 text-center sm:mt-16">
-      <span className="mx-auto flex size-10 items-center justify-center rounded-full border bg-background text-muted-foreground">
-        <Sparkles className="size-5" />
-      </span>
-      <h2 className="mt-3 text-base font-semibold">Ask isn&apos;t set up on this server</h2>
-      <p className="mt-1 text-sm text-muted-foreground">
-        Its AI model hasn&apos;t been configured, so questions can&apos;t be answered here yet.
-        Everything else in SpendChat works as usual.
-      </p>
-      <p className="mt-3 text-xs text-muted-foreground">
-        Running this server? Set <code className="font-mono">AI_CHAT_MODEL</code> and{" "}
-        <code className="font-mono">AI_CHAT_MODEL_CURRENT</code>.
-      </p>
     </div>
   );
 }
