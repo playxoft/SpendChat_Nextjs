@@ -225,11 +225,13 @@ Authentication, secrets via Doppler.
   model never queries anything: `gatherChatData` (`src/services/ai-chat.ts`) builds
   a bounded summary through `src/lib/queries.ts` — so access scoping and the trash
   rule come for free — and it rides in the system prompt. One question = one AI
-  action (`chargeAiChat`, refunded on our failures). Chats (`ai_chats` /
+  action (`chargeAiChat`): refunded when the data read or the model call fails;
+  a failed *save* after the model answered keeps the charge. Chats (`ai_chats` /
   `ai_chat_messages`) are **private to their author within a workspace** — admins
   can't open them; anything else is a 404. Asking needs edit access (it spends the
-  workspace's shared AI actions). Removal from a workspace (`removeMember`, leaving
-  included) deletes the person's chats there; **narrowing access does not** — a
+  workspace's shared AI actions). Removal from a workspace — `removeCollaborator`
+  (Settings → Remove / Leave) and `removeMember`, both through `forgetAskChats` in
+  `src/services/workspaces.ts` — deletes the person's chats there; **narrowing access does not** — a
   space, profile or role change keeps the chat history, answers included, built
   from what they could see at the time. Answers are untrusted Markdown: render
   them only through `AnswerMarkdown` (no HTML, no images, safe links that show

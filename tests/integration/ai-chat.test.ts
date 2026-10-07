@@ -11,6 +11,7 @@ vi.mock("@/lib/r2", () => ({
 
 import { and, asc, eq } from "drizzle-orm";
 import { askAi, deleteAiChat, renameAiChat } from "@/actions/ai-chat";
+import { removeCollaborator } from "@/actions/workspaces";
 import {
   aiChatMessages,
   aiChats,
@@ -376,8 +377,17 @@ describe("askAi — what a question costs", () => {
     ];
 
     const res = await askAi({ question: "SECRET-QUESTION on food?" });
-    expect(res).toMatchObject({ ok: false, code: "ai_chat_not_saved" });
-    expect(JSON.stringify(res)).not.toContain("SECRET");
+    // The asker still gets the answer they paid for, and the count it left —
+    // in the result's details, which are returned and never logged.
+    expect(res).toEqual({
+      ok: false,
+      code: "ai_chat_not_saved",
+      error: "Here's your answer, but it couldn't be saved to this chat.",
+      details: {
+        answer: "SECRET-ANSWER Food is $12.50.",
+        ai: { remaining: PLAN_LIMITS.free.aiActionsPerMonth - 1, limit: PLAN_LIMITS.free.aiActionsPerMonth },
+      },
+    });
     // The model did the work: no refund.
     expect(await ledger("own")).toEqual([{ kind: "ai_chat", units: 1, inputTokens: 1500 }]);
     expect(await db().select().from(aiChats)).toHaveLength(0);
@@ -479,7 +489,8 @@ describe("chats are private to their author, in their workspace", () => {
     const owners = await askAi({ question: "Owner's own chat" });
     if (!there.ok || !home.ok || !owners.ok) throw new Error("expected answers");
 
-    await removeMember(uid("own"), W, uid("mem"));
+    // The settings page's Remove, as the admin clicks it.
+    expect(await removeCollaborator(W, uid("mem"))).toEqual({ ok: true });
 
     expect(await db().select().from(aiChats).where(eq(aiChats.id, there.chat.id))).toEqual([]);
     expect(
@@ -489,14 +500,25 @@ describe("chats are private to their author, in their workspace", () => {
     expect((await listChats(uid("own"), W)).map((c) => c.id)).toEqual([owners.chat.id]);
   });
 
-  it("leaving a workspace takes your chats there too", async () => {
+  it("leaving a workspace (the settings page's Leave) takes your chats there too", async () => {
     stubGemini();
     await bootstrapUser("own");
     const W = await addMember("own", "mem");
     signInAs("mem");
     const there = await askAi({ question: "In own's workspace" });
     if (!there.ok) throw new Error(there.error);
-    await removeMember(uid("mem"), W, uid("mem"));
+    expect(await removeCollaborator(W, uid("mem"))).toEqual({ ok: true });
+    expect(await db().select().from(aiChats).where(eq(aiChats.userId, uid("mem")))).toEqual([]);
+  });
+
+  it("removeMember goes through the same cleanup", async () => {
+    stubGemini();
+    await bootstrapUser("own");
+    const W = await addMember("own", "mem");
+    signInAs("mem");
+    const there = await askAi({ question: "In own's workspace" });
+    if (!there.ok) throw new Error(there.error);
+    await removeMember(uid("own"), W, uid("mem"));
     expect(await db().select().from(aiChats).where(eq(aiChats.userId, uid("mem")))).toEqual([]);
   });
 
