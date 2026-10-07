@@ -42,7 +42,8 @@ export function ExpenseBubble({
   meMemberId: string;
   currency: string;
   locale: string;
-  timeLabel: string;
+  /** Null when the expense was added on a different day than it's dated (the divider shows its date). */
+  timeLabel: string | null;
   onOpen: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -52,11 +53,24 @@ export function ExpenseBubble({
   const fmt = (m: number) => formatMoney(m, currency, locale);
   const payer = mine ? "You" : expense.paidBy.name;
   const people = expense.shares.length;
+  const partText =
+    part.kind === "lent"
+      ? `You lent ${fmt(part.amountMinor)}`
+      : part.kind === "owe"
+        ? `You owe ${fmt(part.amountMinor)}`
+        : part.kind === "own"
+          ? "Just you"
+          : "Not involved";
+  const workspaceNote = expense.myShare?.added
+    ? expense.myShare.changedSinceAdded
+      ? "Changed since you added it to your workspace"
+      : "In your workspace"
+    : null;
 
   return (
     <div
       className={cn(
-        "group flex w-full max-w-[85%] items-end gap-2 animate-rise sm:max-w-sm sm:gap-2.5",
+        "group flex w-full max-w-[85%] items-end gap-1.5 animate-rise sm:max-w-sm sm:gap-2",
         mine && "ml-auto flex-row-reverse",
       )}
     >
@@ -66,15 +80,17 @@ export function ExpenseBubble({
         tabIndex={0}
         onClick={onOpen}
         onKeyDown={(e) => {
+          // Only the bubble's own keys — never one bubbling up from inside it.
+          if (e.target !== e.currentTarget) return;
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
             onOpen();
           }
         }}
-        aria-label={`${expense.title}, ${fmt(expense.amountMinor)}, paid by ${payer}`}
+        aria-label={`${expense.title}, ${fmt(expense.amountMinor)}, ${payer} paid. ${partText}.${workspaceNote ? ` ${workspaceNote}.` : ""}`}
         className={cn(
-          "min-w-0 flex-1 cursor-pointer rounded-2xl border px-3 py-2 shadow-sm outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 sm:px-3.5 sm:py-2.5",
-          mine ? "rounded-br-sm bg-card" : "rounded-bl-sm bg-card",
+          "min-w-0 flex-1 cursor-pointer rounded-2xl border bg-card px-3 py-2 shadow-sm outline-none transition-colors hover:bg-muted/40 focus-visible:ring-2 focus-visible:ring-ring/50 sm:px-3.5 sm:py-2.5",
+          mine ? "rounded-br-sm" : "rounded-bl-sm",
         )}
       >
         <div className="flex items-start justify-between gap-3">
@@ -94,54 +110,41 @@ export function ExpenseBubble({
               (part.kind === "none" || part.kind === "own") && "text-muted-foreground",
             )}
           >
-            {part.kind === "lent"
-              ? `You lent ${fmt(part.amountMinor)}`
-              : part.kind === "owe"
-                ? `You owe ${fmt(part.amountMinor)}`
-                : part.kind === "own"
-                  ? "Just you"
-                  : "Not involved"}
+            {partText}
           </span>
-          {expense.myShare?.added &&
-            (expense.myShare.changedSinceAdded ? (
-              <span className="inline-flex items-center gap-1 text-muted-foreground" title="Changed since you added it to your workspace">
-                <RefreshCw className="size-3" aria-hidden />
-                <span className="sr-only">Changed since you added it to your workspace</span>
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1 text-muted-foreground" title="In your workspace">
-                <Check className="size-3" aria-hidden />
-                <span className="sr-only">In your workspace</span>
-              </span>
-            ))}
-          <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-muted-foreground">
-            {timeLabel}
-            {expense.canEdit && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon-xs"
-                    aria-label={`Options for ${expense.title}`}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => e.stopPropagation()}
-                  >
-                    <MoreHorizontal />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
-                  <DropdownMenuItem onSelect={onEdit}>
-                    <Pencil /> Edit
-                  </DropdownMenuItem>
-                  <DropdownMenuItem variant="destructive" onSelect={onDelete}>
-                    <Trash2 /> Delete
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
-          </span>
+          {workspaceNote && (
+            <span aria-hidden className="inline-flex items-center text-muted-foreground" title={workspaceNote}>
+              {expense.myShare?.changedSinceAdded ? <RefreshCw className="size-3" /> : <Check className="size-3" />}
+            </span>
+          )}
+          {timeLabel && <span className="ml-auto shrink-0 text-muted-foreground">{timeLabel}</span>}
         </div>
       </div>
+      {/* Outside the bubble, so it isn't a control nested in a control — and
+          its keys never reach the bubble's. Faint until the row is hovered or
+          it's focused; always shown on touch screens. */}
+      {expense.canEdit && (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              aria-label={`Options for ${expense.title}`}
+              className="shrink-0 self-center opacity-50 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+            >
+              <MoreHorizontal />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align={mine ? "start" : "end"}>
+            <DropdownMenuItem onSelect={onEdit}>
+              <Pencil /> Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onSelect={onDelete}>
+              <Trash2 /> Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

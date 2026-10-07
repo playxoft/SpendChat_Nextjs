@@ -20,15 +20,11 @@ import { createSplitExpense } from "@/actions/split";
 import { getCurrency } from "@/lib/currencies";
 import { toMinorUnits } from "@/lib/money";
 import { parseAmountInput } from "@/lib/parse-amount";
+import { acceptAmountInput } from "@/lib/split-display";
 import { cn } from "@/lib/utils";
 import { SPLIT_EXPENSE_TITLE_MAX } from "@/lib/validation";
 import type { ExpenseDraft, ExpenseMember, SplitType } from "./expense-dialog";
 import { MemberAvatar } from "./member-avatar";
-
-/** Amount characters only: digits and the separators a locale might use. */
-function amountChars(value: string): string {
-  return value.replace(/[^\d.,\s']/g, "");
-}
 
 /**
  * The chat's composer — the tracker's manual input, for a split: amount and
@@ -57,8 +53,8 @@ export function SplitComposer({
   meMemberId: string;
   /** Open the full editor with what's typed so far. */
   onExpand: (draft: ExpenseDraft) => void;
-  /** After an expense was added from here. */
-  onSent?: () => void;
+  /** After an expense was added from here, with the date it went in under. */
+  onSent?: (date: string) => void;
 }) {
   const router = useRouter();
   const [amount, setAmount] = React.useState("");
@@ -67,7 +63,14 @@ export function SplitComposer({
   const [date, setDate] = React.useState(today);
   const [included, setIncluded] = React.useState<Set<string>>(() => new Set(members.map((m) => m.id)));
   const [pending, setPending] = React.useState(false);
+  const [sent, setSent] = React.useState(0);
   const amountRef = React.useRef<HTMLInputElement>(null);
+
+  // Back to the amount for the next one — after the send has re-enabled the
+  // fields (focusing a still-disabled input does nothing).
+  React.useEffect(() => {
+    if (sent > 0) amountRef.current?.focus();
+  }, [sent]);
 
   // People joining or leaving: keep the selection to people who are here,
   // and include newcomers by default.
@@ -127,8 +130,8 @@ export function SplitComposer({
     }
     setAmount("");
     setTitle("");
-    amountRef.current?.focus();
-    onSent?.();
+    setSent((n) => n + 1);
+    onSent?.(date);
     router.refresh();
   }
 
@@ -265,7 +268,10 @@ export function SplitComposer({
                 inputMode="decimal"
                 placeholder="0"
                 value={amount}
-                onChange={(e) => setAmount(amountChars(e.target.value))}
+                onChange={(e) => {
+                  const typed = e.target.value;
+                  setAmount((prev) => acceptAmountInput(prev, typed, locale));
+                }}
                 aria-label="Amount"
                 className={cn("h-9 w-24 tabular-nums sm:w-28 md:text-base", symbol.length > 1 ? "pl-9" : "pl-7")}
               />

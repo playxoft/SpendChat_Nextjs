@@ -17,8 +17,9 @@ import type { SettleTarget } from "./settle-dialog";
 
 /**
  * Balances and settling up, out of the chat's way: everyone's balance, then
- * the fewest payments that square the group, each with "Mark as paid" for
- * whoever may record it.
+ * a short list of payments that squares the group (matched greedily — few,
+ * not guaranteed the fewest), each with "Mark as paid" for whoever may
+ * record it.
  */
 export function BalancesSheet({
   open,

@@ -5,13 +5,20 @@ import { Button } from "@/components/ui/button";
 import { DayDivider } from "@/components/app/day-divider";
 import { dayDividerLabel } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
+import { dayInZone } from "@/lib/split-display";
 import { cn } from "@/lib/utils";
 import type { SplitExpenseView, SplitFeedItem, SplitSettlementView } from "@/services/split-ledger";
 import { ExpenseBubble } from "./expense-bubble";
 
-/** In the viewer's timezone (from the server), so server and browser render the same text. */
-function timeLabel(value: Date | string, locale: string, timeZone: string): string {
-  const d = value instanceof Date ? value : new Date(value);
+/**
+ * When it was added, in the viewer's timezone (from the server, so server and
+ * browser render the same text) — or null when that's a different day from
+ * the one it's dated, where a clock time under that day's divider would
+ * contradict it.
+ */
+function timeLabel(at: Date | string, date: string, locale: string, timeZone: string): string | null {
+  const d = at instanceof Date ? at : new Date(at);
+  if (dayInZone(d, timeZone) !== date) return null;
   return d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit", timeZone });
 }
 
@@ -38,6 +45,7 @@ function PaymentLine({
   const from = payment.from.memberId === meMemberId ? "You" : payment.from.name;
   const to = payment.to.memberId === meMemberId ? "you" : payment.to.name;
   const text = `${from} paid ${to} ${formatMoney(payment.amountMinor, currency, locale)}`;
+  const time = timeLabel(payment.createdAt, payment.settledOn, locale, timeZone);
   const toYou = payment.to.memberId === meMemberId;
   return (
     <div className="flex justify-center animate-rise">
@@ -48,7 +56,7 @@ function PaymentLine({
         )}
       >
         <span className="truncate">{text}</span>
-        <span className="shrink-0 opacity-70">· {timeLabel(payment.createdAt, locale, timeZone)}</span>
+        {time && <span className="shrink-0 opacity-70">· {time}</span>}
         {payment.canDelete && (
           <button
             type="button"
@@ -141,7 +149,7 @@ export function SplitFeed({
                   meMemberId={meMemberId}
                   currency={currency}
                   locale={locale}
-                  timeLabel={timeLabel(item.at, locale, timeZone)}
+                  timeLabel={timeLabel(item.at, item.date, locale, timeZone)}
                   onOpen={() => onOpenExpense(item.expense)}
                   onEdit={() => onEditExpense(item.expense)}
                   onDelete={() => onDeleteExpense(item.expense)}
