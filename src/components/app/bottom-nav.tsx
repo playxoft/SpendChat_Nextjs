@@ -71,7 +71,7 @@ export function BottomNav({
         <DropdownMenu>
           <DropdownMenuTrigger
             className={cn(
-              "relative outline-none",
+              "relative outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
               slot,
               moreActive ? "text-foreground" : "text-muted-foreground",
             )}
