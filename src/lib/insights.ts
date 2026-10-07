@@ -139,6 +139,9 @@ export function formatCompact(minor: number, currency: string, locale: string): 
     style: "currency",
     currency: c.code,
     notation: "compact",
+    // Explicit, because ICU versions disagree on the default for compact
+    // currency: Node 22 prints "$0.0" where newer ones print "$0".
+    minimumFractionDigits: 0,
     maximumFractionDigits: 1,
   }).format(fromMinorUnits(minor, currency));
 }

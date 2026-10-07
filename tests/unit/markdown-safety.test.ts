@@ -117,7 +117,15 @@ describe("AnswerMarkdown", () => {
   });
 
   it("shows where a link goes when its text says something else", () => {
-    const text = (html: string) => html.replace(/<[^>]+>/g, "");
+    // Strip tags until none are left, so nested or split tags can't survive.
+    const text = (html: string) => {
+      let out = html;
+      for (let prev = ""; prev !== out; ) {
+        prev = out;
+        out = out.replace(/<[^>]*>/g, "");
+      }
+      return out;
+    };
     // A note's disguised link: the text claims one thing, the host says another.
     const disguised = render("[Your bank — verify now](https://evil.example/login)");
     expect(text(disguised)).toContain("Your bank — verify now · evil.example ↗");
