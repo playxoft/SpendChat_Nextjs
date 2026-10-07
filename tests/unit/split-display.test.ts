@@ -3,6 +3,7 @@ import {
   acceptAmountInput,
   compareFeed,
   feedCursor,
+  keepThroughRefresh,
   mergeFeed,
   balanceChipText,
   balanceStatus,
@@ -122,5 +123,16 @@ describe("feed paging", () => {
 
   it("an empty page means nothing is left", () => {
     expect(mergeFeed([a, b], [])).toEqual([]);
+  });
+
+  it("a refresh that pushes an item off the newest page keeps it, even if the re-read fails", () => {
+    // [a] came from "Show earlier"; the newest page was [b, c]; e was added,
+    // so the new newest page is [c, e] and b fell off it.
+    const e = item("00000000-0000-7000-8000-000000000005", "2026-09-04", "2026-09-04T10:00:00.000Z");
+    expect(mergeFeed([a], [c, e]).map((i) => i.id)).toEqual([a.id, c.id, e.id]); // b lost
+    const kept = keepThroughRefresh([a], [b, c]);
+    expect(mergeFeed(kept, [c, e])).toEqual([a, b, c, e]); // the re-read failed: b stays
+    expect(mergeFeed(mergeFeed(kept, [a, b]), [c, e])).toEqual([a, b, c, e]); // it landed
+    expect(keepThroughRefresh([a], [])).toEqual([a]);
   });
 });
