@@ -1349,23 +1349,48 @@ export const AI_CHAT_QUESTION_MAX = 1000;
 
 const aiChatIdSchema = z.string().uuid("That chat doesn't exist");
 
+/**
+ * Control characters that may not reach an Ask message: all of C0 except tab
+ * and newline, and DEL. NUL is the one that bites — Postgres `text` refuses it,
+ * so a question carrying one used to get all the way through a paid model call
+ * and then fail at the insert — but none of the others belong in a question,
+ * an answer or a title either.
+ */
+const ASK_CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F]/g;
+
+/** Text with the control characters Ask stores no copy of taken out (tab and newline kept). */
+export function stripControlChars(text: string): string {
+  return text.replace(ASK_CONTROL_CHARS, "");
+}
+
 /** One question to Ask, in a chat or (no `chatId`) starting a new one. */
 export const askAiSchema = z.object({
   chatId: aiChatIdSchema.optional(),
   question: z
     .string()
-    .trim()
-    .min(1, "Type a question first")
-    .max(AI_CHAT_QUESTION_MAX, `Keep it under ${AI_CHAT_QUESTION_MAX} characters`),
+    .transform(stripControlChars)
+    .pipe(
+      z
+        .string()
+        .trim()
+        .min(1, "Type a question first")
+        .max(AI_CHAT_QUESTION_MAX, `Keep it under ${AI_CHAT_QUESTION_MAX} characters`),
+    ),
 });
 export type AskAiInput = z.input<typeof askAiSchema>;
 
 export const renameAiChatSchema = z.object({
   chatId: aiChatIdSchema,
+  // A title is one line: tabs and newlines go too, as spaces.
   title: z
     .string()
-    .trim()
-    .min(1, "Give the chat a name")
-    .max(AI_CHAT_TITLE_MAX, `Keep it under ${AI_CHAT_TITLE_MAX} characters`),
+    .transform((t) => stripControlChars(t).replace(/[\t\n]+/g, " "))
+    .pipe(
+      z
+        .string()
+        .trim()
+        .min(1, "Give the chat a name")
+        .max(AI_CHAT_TITLE_MAX, `Keep it under ${AI_CHAT_TITLE_MAX} characters`),
+    ),
 });
 export type RenameAiChatInput = z.input<typeof renameAiChatSchema>;

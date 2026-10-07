@@ -22,12 +22,15 @@ import {
   workspaceMembers,
 } from "@/db/schema";
 import { buildChatContext } from "@/lib/ai-chat";
+import { ASK_NEEDS_EDIT_MESSAGE } from "@/lib/ai-limits";
+import { logger } from "@/lib/logger";
 import { monthStartBack, todayISO } from "@/lib/dates";
 import { PLAN_LIMITS } from "@/lib/plans";
 import { aiActionsLeftFor, gatherChatData, getChat, listChats } from "@/services/ai-chat";
 import { deleteProfile } from "@/services/profiles";
 import { deleteAccount } from "@/services/settings";
 import { deleteTransaction } from "@/services/transactions";
+import { removeMember } from "@/services/workspaces";
 import { signInAs, uid } from "./helpers/session";
 import {
   bootstrapUser,
@@ -97,14 +100,17 @@ async function ledger(alias: string) {
     .orderBy(asc(aiUsageLog.createdAt));
 }
 
-/** `mem` joins `own`'s workspace as a viewer in its default space only, and opens it. */
-async function addMember(ownerAlias: string, memberAlias: string) {
+/**
+ * `mem` joins `own`'s workspace in its default space only — an editor unless
+ * told otherwise (Ask needs edit access) — and opens it.
+ */
+async function addMember(ownerAlias: string, memberAlias: string, role: "viewer" | "editor" = "editor") {
   const W = await workspaceIdOf(ownerAlias);
   await bootstrapUser(memberAlias);
-  await db().insert(workspaceMembers).values({ workspaceId: W, userId: uid(memberAlias), role: "viewer" });
+  await db().insert(workspaceMembers).values({ workspaceId: W, userId: uid(memberAlias), role });
   await db()
     .insert(spaceMembers)
-    .values({ spaceId: await defaultSpaceIdOf(W), userId: uid(memberAlias), role: "viewer" });
+    .values({ spaceId: await defaultSpaceIdOf(W), userId: uid(memberAlias), role });
   await db().update(userSettings).set({ lastWorkspaceId: W }).where(eq(userSettings.userId, uid(memberAlias)));
   return W;
 }
@@ -149,7 +155,7 @@ describe("gatherChatData — what an answer can see", () => {
       .returning({ id: profiles.id });
     await insertTxn("own", { type: "expense", amountMinor: 1250, occurredOn: THIS_MONTH_DAY, title: "live lunch" });
     await insertTxn("own", { type: "expense", amountMinor: 4000, occurredOn: LAST_MONTH_DAY, profileId: kids!.id, title: "kids shoes" });
-    await addMember("own", "mem");
+    await addMember("own", "mem", "viewer");
 
     const theirs = buildChatContext(await gatherChatData(uid("mem"), workspaceOf(W), TODAY));
     expect(theirs).toContain("live lunch");
@@ -285,13 +291,85 @@ describe("askAi — what a question costs", () => {
     expect(await ledger("own")).toEqual([]);
   });
 
-  it("lets a viewer ask — it reads only what they can see", async () => {
-    stubGemini();
+  it("needs edit access — a viewer can't spend the workspace's shared actions", async () => {
+    const { spy } = stubGemini();
     await bootstrapUser("own");
-    await addMember("own", "mem");
+    await addMember("own", "mem", "viewer");
     signInAs("mem");
-    const res = await askAi({ question: "Top 5 expenses this month" });
+    expect(await askAi({ question: "Top 5 expenses this month" })).toMatchObject({
+      ok: false,
+      code: "forbidden",
+      error: ASK_NEEDS_EDIT_MESSAGE,
+    });
+    expect(spy).not.toHaveBeenCalled();
+    expect(await ledger("mem")).toEqual([]);
+
+    // An editor in the same workspace asks fine.
+    await addMember("own", "ed");
+    signInAs("ed");
+    expect((await askAi({ question: "Top 5 expenses this month" })).ok).toBe(true);
+  });
+
+  it("strips control characters from the question and the answer — a NUL can't fail the save", async () => {
+    stubGemini({ answer: "Food\u0000 is **$12.50**\u0007." });
+    signInAs("own");
+    await bootstrapUser("own");
+    const res = await askAi({ question: "How much\u0000 on food?" });
     expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const stored = await db()
+      .select({ role: aiChatMessages.role, content: aiChatMessages.content })
+      .from(aiChatMessages)
+      .where(eq(aiChatMessages.chatId, res.chat.id))
+      .orderBy(asc(aiChatMessages.createdAt));
+    expect(stored).toEqual([
+      { role: "user", content: "How much on food?" },
+      { role: "assistant", content: "Food is **$12.50**." },
+    ]);
+    expect(res.chat.title).toBe("How much on food?");
+    expect(await ledger("own")).toEqual([{ kind: "ai_chat", units: 1, inputTokens: 1500 }]);
+  });
+
+  it("keeps the charge when saving fails after the model answered — and logs neither text", async () => {
+    stubGemini({ answer: "SECRET-ANSWER Food is $12.50." });
+    signInAs("own");
+    await bootstrapUser("own");
+    // The charge is the first transaction; the save, the second, fails the way
+    // a driver error does — quoting the statement's parameters in its message.
+    const testDb = db();
+    const realTransaction = testDb.transaction.bind(testDb);
+    let calls = 0;
+    vi.spyOn(testDb, "transaction").mockImplementation(((fn: Parameters<typeof realTransaction>[0]) =>
+      ++calls === 2
+        ? Promise.reject(
+            Object.assign(
+              new Error('Failed query: insert into "ai_chat_messages" params: SECRET-QUESTION,SECRET-ANSWER'),
+              { cause: { code: "22021" } },
+            ),
+          )
+        : realTransaction(fn)) as typeof testDb.transaction);
+    const logged = [
+      vi.spyOn(logger, "error"),
+      vi.spyOn(logger, "warn"),
+      vi.spyOn(logger, "info"),
+      vi.spyOn(logger, "debug"),
+    ];
+
+    const res = await askAi({ question: "SECRET-QUESTION on food?" });
+    expect(res).toMatchObject({ ok: false, code: "ai_chat_not_saved" });
+    expect(JSON.stringify(res)).not.toContain("SECRET");
+    // The model did the work: no refund.
+    expect(await ledger("own")).toEqual([{ kind: "ai_chat", units: 1, inputTokens: 1500 }]);
+    expect(await db().select().from(aiChats)).toHaveLength(0);
+
+    const messages = logged.flatMap((spy) => spy.mock.calls.map((c) => String(c[0])));
+    expect(messages).toContain("An Ask answer was paid for but couldn't be saved");
+    expect(messages.filter((m) => m.includes("SECRET"))).toEqual([]);
+    const saveFailed = logged[0]!.mock.calls.find((c) => c[0] === "An Ask answer was paid for but couldn't be saved");
+    expect(saveFailed?.[1]).toMatchObject({ event: "ai.chat.save_failed", pgCode: "22021", errorName: "Error" });
+    expect(JSON.stringify(saveFailed?.[1])).not.toContain("SECRET");
+    for (const spy of logged) spy.mockRestore();
+    vi.mocked(testDb.transaction).mockRestore();
   });
 });
 
@@ -367,6 +445,39 @@ describe("chats are private to their author, in their workspace", () => {
     expect(await deleteAiChat(chatId)).toEqual({ ok: true });
     expect(await listChats(uid("own"), W)).toEqual([]);
     expect(await db().select().from(aiChatMessages).where(eq(aiChatMessages.chatId, chatId))).toHaveLength(0);
+  });
+
+  it("removal from a workspace takes the person's chats there — not elsewhere, not anyone else's", async () => {
+    stubGemini();
+    await bootstrapUser("own");
+    const W = await addMember("own", "mem");
+    signInAs("mem");
+    const there = await askAi({ question: "In own's workspace" });
+    await db().update(userSettings).set({ lastWorkspaceId: await workspaceIdOf("mem") }).where(eq(userSettings.userId, uid("mem")));
+    const home = await askAi({ question: "In my own" });
+    signInAs("own");
+    const owners = await askAi({ question: "Owner's own chat" });
+    if (!there.ok || !home.ok || !owners.ok) throw new Error("expected answers");
+
+    await removeMember(uid("own"), W, uid("mem"));
+
+    expect(await db().select().from(aiChats).where(eq(aiChats.id, there.chat.id))).toEqual([]);
+    expect(
+      await db().select().from(aiChatMessages).where(eq(aiChatMessages.chatId, there.chat.id)),
+    ).toEqual([]);
+    expect((await listChats(uid("mem"), await workspaceIdOf("mem"))).map((c) => c.id)).toEqual([home.chat.id]);
+    expect((await listChats(uid("own"), W)).map((c) => c.id)).toEqual([owners.chat.id]);
+  });
+
+  it("leaving a workspace takes your chats there too", async () => {
+    stubGemini();
+    await bootstrapUser("own");
+    const W = await addMember("own", "mem");
+    signInAs("mem");
+    const there = await askAi({ question: "In own's workspace" });
+    if (!there.ok) throw new Error(there.error);
+    await removeMember(uid("mem"), W, uid("mem"));
+    expect(await db().select().from(aiChats).where(eq(aiChats.userId, uid("mem")))).toEqual([]);
   });
 
   it("account deletion removes the person's chats — in their workspace and in others'", async () => {

@@ -3,7 +3,16 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowUp, Check, Copy, Loader2, MessagesSquare, Sparkles, SquarePen } from "lucide-react";
+import {
+  ArrowUp,
+  Check,
+  Copy,
+  Loader2,
+  Lock,
+  MessagesSquare,
+  Sparkles,
+  SquarePen,
+} from "lucide-react";
 import { askAi } from "@/actions/ai-chat";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -16,7 +25,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { aiActionsLock } from "@/lib/add-limits";
-import type { AiActionsLeft } from "@/lib/ai-limits";
+import { ASK_NEEDS_EDIT_MESSAGE, type AiActionsLeft } from "@/lib/ai-limits";
 import { planLimitOf } from "@/lib/plan-limit";
 import { AI_CHAT_QUESTION_MAX } from "@/lib/validation";
 import { cn } from "@/lib/utils";
@@ -24,6 +33,7 @@ import type { ChatMessageDTO, ChatSummary } from "@/services/ai-chat";
 import { AI_BTN } from "../ai-accent";
 import { AiActionsLeftLine } from "../ai-actions-left";
 import { LimitPanel, LockedButton } from "../limit-lock";
+import { usePermissions } from "../permissions";
 import { usePlan } from "../upgrade-dialog";
 import { AnswerMarkdown } from "./answer-markdown";
 import { askHref } from "./ask-paths";
@@ -70,6 +80,10 @@ export function AskView({
   const router = useRouter();
   const profile = useSearchParams().get("profile");
   const { plan, reportFailure } = usePlan();
+  // Ask spends the workspace's shared AI actions, so it takes edit access,
+  // like the composer's AI mode. A viewer reads their chats but gets a note
+  // where the composer would be — never a button that can only fail.
+  const { canWrite } = usePermissions();
   const [messages, setMessages] = useState(initialMessages);
   const [pendingQuestion, setPendingQuestion] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -93,7 +107,7 @@ export function AskView({
 
   function ask(raw: string) {
     const question = raw.trim();
-    if (!question || busy || spent || !configured) return;
+    if (!question || busy || spent || !configured || !canWrite) return;
     setPendingQuestion(question);
     setText("");
     startAsking(async () => {
@@ -150,7 +164,7 @@ export function AskView({
         {!configured ? (
           <NotSetUp />
         ) : empty ? (
-          <EmptyState workspaceName={workspaceName} onPick={suggest} />
+          <EmptyState workspaceName={workspaceName} onPick={canWrite ? suggest : null} />
         ) : null}
 
         {!empty && (
@@ -173,7 +187,19 @@ export function AskView({
         <div ref={endRef} />
       </div>
 
-      {configured && (
+      {configured && !canWrite && (
+        <div className="sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0 print:hidden">
+          <p
+            role="note"
+            className="mx-auto flex max-w-3xl items-center gap-2 rounded-2xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+          >
+            <Lock aria-hidden className="size-4 shrink-0" />
+            {ASK_NEEDS_EDIT_MESSAGE}
+          </p>
+        </div>
+      )}
+
+      {configured && canWrite && (
         <div className="sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0 print:hidden">
           <div className="mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background p-2.5 shadow-lg md:bg-background/95 md:backdrop-blur-sm">
             {lock && <LimitPanel lock={lock} hint="Ask is back when your actions refill on the 1st." />}
@@ -329,7 +355,8 @@ function EmptyState({
   onPick,
 }: {
   workspaceName: string;
-  onPick: (q: string) => void;
+  /** Fills the composer — null when there's no composer (a viewer), so no chips. */
+  onPick: ((q: string) => void) | null;
 }) {
   return (
     <div className="flex flex-col items-center px-2 pt-10 text-center sm:pt-16">
@@ -341,20 +368,22 @@ function EmptyState({
         Answers come from the transactions you can see in {workspaceName} — totals, top expenses,
         month-on-month changes.
       </p>
-      <div className="mt-6 flex max-w-xl flex-wrap justify-center gap-2">
-        {SUGGESTIONS.map((q) => (
-          <Button
-            key={q}
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onPick(q)}
-            className="h-auto rounded-full px-3 py-1.5 text-left whitespace-normal"
-          >
-            {q}
-          </Button>
-        ))}
-      </div>
+      {onPick && (
+        <div className="mt-6 flex max-w-xl flex-wrap justify-center gap-2">
+          {SUGGESTIONS.map((q) => (
+            <Button
+              key={q}
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => onPick(q)}
+              className="h-auto rounded-full px-3 py-1.5 text-left whitespace-normal"
+            >
+              {q}
+            </Button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

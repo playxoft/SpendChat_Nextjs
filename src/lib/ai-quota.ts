@@ -279,9 +279,9 @@ export async function chargeVoiceTranscribe(
 }
 
 /**
- * Charge one question to Ask: one action, like a typed note. Ask is a read —
- * anyone who can open the workspace may use it — so the only gate here is the
- * allowance; the caller has already checked the question and the model.
+ * Charge one question to Ask: one action, like a typed note. The caller has
+ * already checked the question, the asker's edit access and the model; the
+ * only gate here is the allowance.
  */
 export async function chargeAiChat(userId: string, workspaceId: string): Promise<AiCharge> {
   return chargeUnderLocks(userId, workspaceId, async () => ({ kind: AI_KIND.chat, units: 1 }));

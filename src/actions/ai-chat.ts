@@ -19,10 +19,10 @@ import * as chats from "@/services/ai-chat";
 
 /**
  * Ask one question about the workspace's money. Costs one AI action, so it is
- * rate limited in the `ai` bucket (abuse rule C8) and charged against the
- * workspace's monthly allowance — see `askQuestion` for the order of checks
- * and the refund on our failures. Viewers may ask: it reads only what they can
- * already see.
+ * rate limited in the `ai` bucket (abuse rule C8), needs edit access like the
+ * composer's AI mode (the allowance is the workspace's, shared), and is charged
+ * against the monthly allowance — see `askQuestion` for the order of checks
+ * and the refund on our failures.
  */
 export async function askAi(input: AskAiInput): Promise<ActionResult<chats.AskResult>> {
   const user = await requireUser();

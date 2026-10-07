@@ -763,10 +763,14 @@ export async function chatProviderWithUsage(
     }
   } catch (err) {
     if (err instanceof ApiError) throw err;
-    logger.error(`AI chat request errored: ${describeError(err)}`, {
+    // The error's *name* only. A JSON parse failure's message quotes the start
+    // of the body it choked on — which here is the model's reply about the
+    // user's money — and this message is what ships to the log vendor.
+    const kind = err instanceof Error ? err.name : typeof err;
+    logger.error(`AI chat request errored (${kind})`, {
       event: "ai.chat.error",
       provider: cfg.provider,
-      error: err,
+      errorName: kind,
     });
     throw aiFailed();
   }

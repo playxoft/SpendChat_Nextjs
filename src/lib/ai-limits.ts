@@ -63,3 +63,11 @@ export type AiActionsLeft = {
   /** When the allowance refills (ISO) — known from the page load, not from an action. */
   resetsAt?: string;
 };
+
+/**
+ * Why Ask has no composer for a viewer, and the 403 a direct call gets. Ask
+ * spends the workspace's shared AI actions, so — like the composer's AI mode —
+ * it needs edit access; a read-only member can't drain the allowance.
+ */
+export const ASK_NEEDS_EDIT_MESSAGE =
+  "Ask uses the workspace's AI actions — ask an admin for edit access.";
