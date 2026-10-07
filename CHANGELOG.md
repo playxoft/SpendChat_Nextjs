@@ -18,6 +18,22 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.36.1] — 2026-10-07
+
+### Changed
+- **Your account lives top right now, on every page.** A round profile picture
+  (or your initial) opens a bigger menu: your name and email, the workspace's
+  plan in one line with an Upgrade button (Pro just shows its name), Settings
+  (with its `S` shortcut), Trash, and Sign out in red. It used to sit at the
+  bottom of the sidebar on a computer.
+- **The theme button sits beside it and simply flips light ↔ dark** in one
+  click. "System" is still a choice in Settings → Appearance.
+- **The plan comparison now covers the trash, files and Split** — on `/pricing`
+  and the in-app Plans page: 30 days of trash for transactions on every plan
+  and for files on Plus and Pro, receipts and share links, invites by email,
+  and Split groups of up to 50 people. The plan cards and the pricing FAQ say
+  what happens when you delete something.
+
 ## [0.36.0] — 2026-10-07
 
 ### Added

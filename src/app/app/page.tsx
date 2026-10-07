@@ -169,7 +169,7 @@ export default async function ChatPage({
       <div className="flex min-h-full flex-col">
         <header
           data-tracker-header
-          className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0"
+          className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm"
         >
           <div className="mx-auto max-w-3xl px-4 pt-3 pb-2">
             {/* Profile + balance share the first row on mobile (WhatsApp-style);

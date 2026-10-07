@@ -4,17 +4,14 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
-import { ThemeCapsule } from "@/components/theme-toggle";
 import { Separator } from "@/components/ui/separator";
 import { Kbd } from "@/components/ui/kbd";
 import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-list";
-import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
 import { hrefWithProfile, invitationBadge, isActive, navItems, splitNavItem } from "./nav-items";
 import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badge";
 
 export function AppSidebar({
-  email,
   profiles,
   spaces,
   collapsedSpaces,
@@ -23,7 +20,6 @@ export function AppSidebar({
   budgetAlerts,
   splitInvitations = 0,
 }: {
-  email: string | null;
   profiles: SidebarProfile[];
   spaces: SidebarSpace[];
   collapsedSpaces: string[];
@@ -114,13 +110,6 @@ export function AppSidebar({
         </Link>
       </nav>
 
-      <div className="flex shrink-0 items-center justify-between border-t px-3 py-1.5">
-        <span className="text-xs text-muted-foreground">Theme</span>
-        <ThemeCapsule />
-      </div>
-      <div className="flex shrink-0 items-center border-t p-3">
-        <UserMenu email={email} />
-      </div>
     </aside>
   );
 }

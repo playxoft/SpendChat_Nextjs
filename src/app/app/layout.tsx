@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import { getAppContext, getUserWorkspaces } from "@/lib/auth";
 import { canWriteInWorkspace } from "@/lib/workspaces";
 import { getAddLimits } from "@/lib/entitlements";
-import { getCategories, getProfiles, getTags } from "@/lib/queries";
+import { getAccountProfile, getCategories, getProfiles, getTags } from "@/lib/queries";
 import { normalizeUiPrefs } from "@/lib/validation";
 import { listSpaces } from "@/services/spaces";
 import { countInvitations } from "@/services/split";
@@ -46,7 +46,7 @@ export default async function AppLayout({
     });
     return { warn: 0, over: 0 };
   });
-  const [profiles, spaces, categories, tags, workspaces, canWrite, addLimits, splitInvitations] =
+  const [profiles, spaces, categories, tags, workspaces, canWrite, addLimits, splitInvitations, account] =
     await Promise.all([
       getProfiles(user.id, workspace.id),
       // The sidebar's groups: every space for admins, a member's own spaces otherwise.
@@ -63,6 +63,9 @@ export default async function AppLayout({
       getAddLimits(workspace.id, user.id),
       // Split invitations waiting for an answer — the badge on the Split nav item.
       countInvitations(user),
+      // Name and picture for the account menu (top right). The session user
+      // carries no picture, so it's read here, in the same round-trip.
+      getAccountProfile(user.id),
     ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
   const canManage = workspace.role === "admin";
@@ -82,7 +85,6 @@ export default async function AppLayout({
     <AttachmentViewerProvider>
     <div className="flex min-h-svh">
       <AppSidebar
-        email={email}
         profiles={profiles}
         spaces={spaces}
         collapsedSpaces={collapsedSpaces}
@@ -94,6 +96,8 @@ export default async function AppLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <AppTopbar
           email={email}
+          name={account?.name ?? user.name ?? null}
+          image={account?.image ?? null}
           profiles={profiles}
           spaces={spaces}
           collapsedSpaces={collapsedSpaces}

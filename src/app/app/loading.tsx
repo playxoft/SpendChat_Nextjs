@@ -4,7 +4,7 @@ import { ChatFeedSkeleton } from "@/components/app/chat-skeleton";
 export default function Loading() {
   return (
     <div className="flex min-h-full flex-col">
-      <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0">
+      <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm">
         <div className="mx-auto max-w-3xl px-4 pt-3 pb-2">
           <div className="flex items-center gap-3 md:block">
             <div className="flex min-w-0 flex-1 items-center gap-3">
