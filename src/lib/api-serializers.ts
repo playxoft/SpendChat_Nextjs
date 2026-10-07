@@ -642,9 +642,12 @@ export function serializeSplitInvitation(i: SplitInvitation): ApiSplitInvitation
 /** A budget with one month's progress (`GET /budgets`, since 6.8.0). */
 export type ApiBudget = {
   id: string;
-  scope: "workspace" | "profile" | "category";
+  scope: "workspace" | "space" | "profile" | "category";
   profileId: string | null;
   categoryId: string | null;
+  spaceId: string | null;
+  title: string;
+  description: string | null;
   label: string;
   icon: string | null;
   period: "monthly";
@@ -668,6 +671,9 @@ export function serializeApiBudget(b: BudgetView): ApiBudget {
     scope: b.scope,
     profileId: b.profileId,
     categoryId: b.categoryId,
+    spaceId: b.spaceId,
+    title: b.title,
+    description: b.description,
     label: b.label,
     icon: b.icon,
     period: b.period,

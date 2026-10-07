@@ -44,7 +44,12 @@ import {
 import type { UiPrefs } from "../lib/validation";
 import type { Acquisition } from "../lib/attribution";
 import { PERSONAL_PLANS } from "../lib/plans";
-import { BUDGET_PERIODS, BUDGET_SCOPES } from "../lib/budgets";
+import {
+  BUDGET_DESCRIPTION_MAX,
+  BUDGET_PERIODS,
+  BUDGET_SCOPES,
+  BUDGET_TITLE_MAX,
+} from "../lib/budgets";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -76,7 +81,7 @@ export const workspacePlanEnum = pgEnum("workspace_plan", PERSONAL_PLANS);
 /** Optional preset tag for a transaction attachment (receipt/bill/invoice/other). */
 export const attachmentKindEnum = pgEnum("attachment_kind", ATTACHMENT_KINDS);
 
-/** What a budget covers: the whole workspace, one profile, or one expense category. */
+/** What a budget covers: the whole workspace, one space, one profile, or one expense category. */
 export const budgetScopeEnum = pgEnum("budget_scope", BUDGET_SCOPES);
 
 /** How often a budget resets. Monthly only today; the enum leaves room for more. */
@@ -830,11 +835,20 @@ export const transactions = pgTable(
 
 /**
  * A monthly spending limit (`src/lib/budgets.ts` holds the rules). It covers
- * the whole workspace, one profile, or one expense category across every
- * profile — `scope` says which, and exactly one of `profile_id` / `category_id`
- * is set for the last two (the check constraint below). Typed foreign keys
- * rather than one polymorphic id, so deleting a profile or a category takes its
- * budget with it instead of leaving one that points at nothing.
+ * the whole workspace, one space (every live profile in it, as they are now —
+ * a profile moved to another space takes its spending with it), one profile, or
+ * one expense category across every profile — `scope` says which, and exactly
+ * one of `space_id` / `profile_id` / `category_id` is set for the last three
+ * (the check constraint below). Typed foreign keys rather than one polymorphic
+ * id, so deleting a space, a profile (for good) or a category takes its budget
+ * with it instead of leaving one that points at nothing. A budget is a
+ * setting, not a record of spending — the transactions it measured are
+ * untouched — and a space can only be deleted once its profiles have moved,
+ * so there's nothing left for its budget to measure.
+ *
+ * `title` is what people call it ("Groceries this month"); `description` an
+ * optional note. The title's empty default only exists so the column could be
+ * added to existing rows (the migration back-fills them); every write sets one.
  *
  * One budget per scope (the unique constraint treats the nulls as equal, so a
  * second whole-workspace budget collides too). `amount_minor` is in the
@@ -853,6 +867,9 @@ export const budgets = pgTable(
     scope: budgetScopeEnum("scope").notNull(),
     profileId: uuid("profile_id").references(() => profiles.id, { onDelete: "cascade" }),
     categoryId: uuid("category_id").references(() => categories.id, { onDelete: "cascade" }),
+    spaceId: uuid("space_id").references(() => spaces.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: BUDGET_TITLE_MAX }).notNull().default(""),
+    description: varchar("description", { length: BUDGET_DESCRIPTION_MAX }),
     amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
     period: budgetPeriodEnum("period").notNull().default("monthly"),
     // Email the 80% / 100% alerts (in-app alerts always show). Per budget, set
@@ -866,16 +883,21 @@ export const budgets = pgTable(
     // One budget per scope and period. Leads with `workspace_id`, so it also
     // serves "this workspace's budgets" and the workspace FK cascade.
     unique("budgets_workspace_scope_uq")
-      .on(t.workspaceId, t.scope, t.period, t.profileId, t.categoryId)
+      .on(t.workspaceId, t.scope, t.period, t.profileId, t.categoryId, t.spaceId)
       .nullsNotDistinct(),
-    // FK maintenance: profile / category delete cascades.
+    // FK maintenance: profile / category / space delete cascades.
     index("budgets_profile_idx").on(t.profileId),
     index("budgets_category_idx").on(t.categoryId),
+    index("budgets_space_idx").on(t.spaceId),
+    // `scope::text` throughout: `space` was added to the enum in the same
+    // migration as this constraint, and Postgres refuses to use a new enum
+    // value in the transaction that added it ("unsafe use of new value").
     check(
       "budgets_scope_target_ck",
-      sql`(${t.scope} = 'workspace' and ${t.profileId} is null and ${t.categoryId} is null)
-        or (${t.scope} = 'profile' and ${t.profileId} is not null and ${t.categoryId} is null)
-        or (${t.scope} = 'category' and ${t.categoryId} is not null and ${t.profileId} is null)`,
+      sql`(${t.scope}::text = 'workspace' and ${t.profileId} is null and ${t.categoryId} is null and ${t.spaceId} is null)
+        or (${t.scope}::text = 'profile' and ${t.profileId} is not null and ${t.categoryId} is null and ${t.spaceId} is null)
+        or (${t.scope}::text = 'category' and ${t.categoryId} is not null and ${t.profileId} is null and ${t.spaceId} is null)
+        or (${t.scope}::text = 'space' and ${t.spaceId} is not null and ${t.profileId} is null and ${t.categoryId} is null)`,
     ),
     check("budgets_amount_positive_ck", sql`${t.amountMinor} > 0`),
   ],

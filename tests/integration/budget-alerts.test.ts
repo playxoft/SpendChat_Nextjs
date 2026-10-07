@@ -115,7 +115,7 @@ describe("checkBudgetAlerts — once per budget × threshold × month", () => {
     });
     const first = await budgetMail();
     expect(first.map((m) => m.to).sort()).toEqual(["ad2@example.com", "adm@example.com", "ed@example.com"]);
-    expect(first[0]!.subject).toMatch(/^Personal: 80% of the .+ budget used$/);
+    expect(first[0]!.subject).toMatch(/^80% of the .+ budget used: Personal this month$/);
     expect(first.find((m) => m.to === "ed@example.com")!.text).toContain("you set this budget");
     expect(first.find((m) => m.to === "adm@example.com")!.text).toContain("you're an admin");
 
@@ -130,7 +130,7 @@ describe("checkBudgetAlerts — once per budget × threshold × month", () => {
     await checkBudgetAlerts({ workspaceId: f.W, userId: uid("ed"), months: [MONTH] });
     const all = await budgetMail();
     expect(all).toHaveLength(6);
-    expect(all[3]!.subject).toMatch(/^Personal is over budget for /);
+    expect(all[3]!.subject).toMatch(/^Over budget for .+: Personal this month$/);
     expect(await claims()).toEqual([80, 100]);
   });
 
@@ -146,7 +146,7 @@ describe("checkBudgetAlerts — once per budget × threshold × month", () => {
     const mail = await budgetMail();
     // Two admins, one email each, both about going over.
     expect(mail).toHaveLength(2);
-    for (const m of mail) expect(m.subject).toMatch(/over budget/);
+    for (const m of mail) expect(m.subject).toMatch(/^Over budget/);
   });
 
   it("several budgets crossed at once become one digest per person", async () => {
@@ -299,7 +299,7 @@ describe("checkBudgetAlerts — once per budget × threshold × month", () => {
     });
     const first = await budgetMail();
     expect(first.map((m) => m.to).sort()).toEqual(["ad2@example.com", "adm@example.com", "ed@example.com"]);
-    for (const m of first) expect(m.subject).toMatch(/^Personal is over budget/);
+    for (const m of first) expect(m.subject).toMatch(/^Over budget for .+: Personal this month$/);
     // Personal's 80% and 100% are sent; Kids' 80% waits — it isn't lost.
     const waiting = await db().select().from(budgetAlerts).where(isNull(budgetAlerts.notifiedAt));
     expect(waiting.map((w) => [w.budgetId, w.threshold])).toEqual([[kids.id, 80]]);
@@ -318,7 +318,7 @@ describe("checkBudgetAlerts — once per budget × threshold × month", () => {
     });
     const second = (await budgetMail()).slice(3);
     expect(second.map((m) => m.to).sort()).toEqual(["ad2@example.com", "adm@example.com", "ed2@example.com"]);
-    for (const m of second) expect(m.subject).toMatch(/^Kids: 85%/);
+    for (const m of second) expect(m.subject).toMatch(/^85% of the .+ budget used: Kids this month$/);
     expect(await db().select().from(budgetAlerts).where(isNull(budgetAlerts.notifiedAt))).toEqual([]);
   });
 
@@ -475,7 +475,7 @@ describe("every write path that can raise spending triggers the check", () => {
     ];
     const res = await updateTransactions({ ids, profileId: f.p2 });
     expect(res.ok).toBe(true);
-    expect((await subjects())[0]).toMatch(/over budget/);
+    expect((await subjects())[0]).toMatch(/^Over budget/);
   });
 
   it("addBulkTransactions (bulk add, CSV import, the AI's confirmed drafts)", async () => {
@@ -528,7 +528,7 @@ describe("every write path that can raise spending triggers the check", () => {
       }),
     );
     expect(res.status).toBe(201);
-    expect((await subjects())[0]).toMatch(/over budget/);
+    expect((await subjects())[0]).toMatch(/^Over budget/);
   });
 
   it("moving a profile's transactions, alone or as part of deleting it", async () => {
@@ -545,6 +545,6 @@ describe("every write path that can raise spending triggers the check", () => {
     await insertTxn("adm", { type: "expense", amountMinor: 3000, occurredOn: DAY1, profileId: extra!.id });
     vi.mocked(sendEmail).mockClear();
     await deleteProfile(uid("adm"), extra!.id, { transactions: "move", toProfileId: f.p2 });
-    expect((await subjects())[0]).toMatch(/over budget/);
+    expect((await subjects())[0]).toMatch(/^Over budget/);
   });
 });

@@ -165,7 +165,7 @@ export const FEATURES: Feature[] = [
     title: "Monthly Budgets With Spending Alerts",
     h1: "Hear about it at 80%, not after payday",
     description:
-      "Set a monthly budget for the whole workspace, one profile or one category. SpendChat warns you at 80% and 100% — in the app and by email.",
+      "Set a monthly budget for the whole workspace, a space, one profile or one category. SpendChat warns you at 80% and 100% — in the app and by email.",
     blurb: "Monthly limits that warn you at 80% and again at 100%.",
     icon: "PiggyBank",
     group: "understand",

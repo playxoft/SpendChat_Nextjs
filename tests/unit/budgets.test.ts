@@ -1,7 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   BUDGET_SCOPES,
+  BUDGET_TITLE_MAX,
   budgetLabel,
+  budgetScopeText,
   budgetStatus,
   canAddAnyBudget,
   canManageBudget,
@@ -16,6 +18,7 @@ import {
   monthName,
   percentUsed,
   spentFor,
+  suggestedBudgetTitle,
   thresholdsMet,
   utcMonthKey,
   type BudgetTarget,
@@ -23,16 +26,20 @@ import {
   type SpendCell,
 } from "@/lib/budgets";
 
-const WS: BudgetTarget = { scope: "workspace", profileId: null, categoryId: null };
-const P1: BudgetTarget = { scope: "profile", profileId: "p1", categoryId: null };
-const P2: BudgetTarget = { scope: "profile", profileId: "p2", categoryId: null };
-const FOOD: BudgetTarget = { scope: "category", profileId: null, categoryId: "food" };
+const NONE = { profileId: null, categoryId: null, spaceId: null };
+const WS: BudgetTarget = { scope: "workspace", ...NONE };
+const P1: BudgetTarget = { scope: "profile", ...NONE, profileId: "p1" };
+const P2: BudgetTarget = { scope: "profile", ...NONE, profileId: "p2" };
+const FOOD: BudgetTarget = { scope: "category", ...NONE, categoryId: "food" };
+// Space s1 holds p1 and p3; space s2 holds p2.
+const S1: BudgetTarget = { scope: "space", ...NONE, spaceId: "s1" };
+const S2: BudgetTarget = { scope: "space", ...NONE, spaceId: "s2" };
 
 const matrix: SpendCell[] = [
-  { profileId: "p1", categoryId: "food", totalMinor: 1000 },
-  { profileId: "p1", categoryId: null, totalMinor: 250 },
-  { profileId: "p2", categoryId: "food", totalMinor: 500 },
-  { profileId: "p2", categoryId: "rent", totalMinor: 4000 },
+  { profileId: "p1", spaceId: "s1", categoryId: "food", totalMinor: 1000 },
+  { profileId: "p1", spaceId: "s1", categoryId: null, totalMinor: 250 },
+  { profileId: "p2", spaceId: "s2", categoryId: "food", totalMinor: 500 },
+  { profileId: "p2", spaceId: "s2", categoryId: "rent", totalMinor: 4000 },
 ];
 
 describe("spentFor — one matrix, three scopes", () => {
@@ -45,6 +52,13 @@ describe("spentFor — one matrix, three scopes", () => {
   });
   it("a category adds its cells across every profile", () => {
     expect(spentFor(FOOD, matrix)).toBe(1500);
+  });
+  it("a space adds the cells of the profiles in it now — a moved profile moves its month", () => {
+    expect(spentFor(S1, matrix)).toBe(1250);
+    expect(spentFor(S2, matrix)).toBe(4500);
+    const moved = matrix.map((c) => (c.profileId === "p2" ? { ...c, spaceId: "s1" } : c));
+    expect(spentFor(S1, moved)).toBe(5750);
+    expect(spentFor(S2, moved)).toBe(0);
   });
   it("nothing spent is zero", () => {
     expect(spentFor(WS, [])).toBe(0);
@@ -87,57 +101,79 @@ const viewer = (v: Partial<BudgetViewer>): BudgetViewer => ({
   isAdmin: false,
   readable: new Set(),
   writable: new Set(),
-  totalProfiles: 2,
+  totalProfiles: 3,
+  spaceProfiles: new Map([
+    ["s1", ["p1", "p3"]],
+    ["s2", ["p2"]],
+    ["empty", []],
+  ]),
   ...v,
 });
 
+const ALL = ["p1", "p2", "p3"];
+
 describe("canSeeBudget — only people who can read every profile it covers", () => {
   it("admins see everything that's live", () => {
-    const admin = viewer({ isAdmin: true, readable: new Set(["p1", "p2"]) });
-    for (const t of [WS, P1, FOOD]) expect(canSeeBudget(t, admin)).toBe(true);
+    const admin = viewer({ isAdmin: true, readable: new Set(ALL) });
+    for (const t of [WS, S1, S2, P1, FOOD]) expect(canSeeBudget(t, admin)).toBe(true);
+    // Even a space with no live profiles.
+    expect(canSeeBudget({ ...S1, spaceId: "empty" }, admin)).toBe(true);
   });
   it("a profile budget whose profile can't be read — it's in the trash — is hidden, even from admins", () => {
     const admin = viewer({ isAdmin: true, readable: new Set(["p2"]), totalProfiles: 1 });
     expect(canSeeBudget(P1, admin)).toBe(false);
     expect(canSeeBudget(WS, admin)).toBe(true);
   });
-  it("a reader of every profile sees the workspace and category budgets", () => {
-    const all = viewer({ readable: new Set(["p1", "p2"]) });
-    expect(canSeeBudget(WS, all)).toBe(true);
-    expect(canSeeBudget(FOOD, all)).toBe(true);
-    expect(canSeeBudget(P2, all)).toBe(true);
+  it("a reader of every profile sees the workspace, space and category budgets", () => {
+    const all = viewer({ readable: new Set(ALL) });
+    for (const t of [WS, S1, S2, FOOD, P2]) expect(canSeeBudget(t, all)).toBe(true);
+  });
+  it("a space budget shows to whoever reads every live profile in that space — and not to someone missing one", () => {
+    const s2Only = viewer({ readable: new Set(["p2"]) });
+    expect(canSeeBudget(S2, s2Only)).toBe(true);
+    expect(canSeeBudget(S1, s2Only)).toBe(false);
+    // Reads p1 but not p3 (an override hides it): no S1 budget.
+    const missingOne = viewer({ readable: new Set(["p1", "p2"]) });
+    expect(canSeeBudget(S1, missingOne)).toBe(false);
+    expect(canSeeBudget(S2, missingOne)).toBe(true);
+    // A space with no live profiles, or one that's gone: admins only.
+    expect(canSeeBudget({ ...S1, spaceId: "empty" }, viewer({ readable: new Set(ALL) }))).toBe(false);
+    expect(canSeeBudget({ ...S1, spaceId: "gone" }, viewer({ readable: new Set(ALL) }))).toBe(false);
   });
   it("a reader of one profile sees only that profile's budget", () => {
     const one = viewer({ readable: new Set(["p1"]) });
     expect(canSeeBudget(P1, one)).toBe(true);
-    expect(canSeeBudget(P2, one)).toBe(false);
-    expect(canSeeBudget(WS, one)).toBe(false);
-    expect(canSeeBudget(FOOD, one)).toBe(false);
+    for (const t of [P2, WS, FOOD, S1]) expect(canSeeBudget(t, one)).toBe(false);
   });
 });
 
 describe("canManageBudget — edit access to every profile it covers", () => {
-  it("admins manage everything", () => {
+  it("admins manage everything, every space included", () => {
     const admin = viewer({ isAdmin: true });
-    for (const t of [WS, P1, FOOD]) expect(canManageBudget(t, admin)).toBe(true);
+    for (const t of [WS, S1, P1, FOOD]) expect(canManageBudget(t, admin)).toBe(true);
+    expect(manageableScopes(admin).spaceIds).toEqual(["s1", "s2", "empty"]);
   });
   it("an editor of one profile manages that profile's budget only", () => {
-    const ed = viewer({ readable: new Set(["p1", "p2"]), writable: new Set(["p1"]) });
+    const ed = viewer({ readable: new Set(ALL), writable: new Set(["p1"]) });
     expect(canManageBudget(P1, ed)).toBe(true);
-    expect(canManageBudget(P2, ed)).toBe(false);
-    expect(canManageBudget(WS, ed)).toBe(false);
-    expect(canManageBudget(FOOD, ed)).toBe(false);
-    expect(manageableScopes(ed)).toEqual({ workspace: false, category: false, profileIds: ["p1"] });
+    for (const t of [P2, WS, FOOD, S1, S2]) expect(canManageBudget(t, ed)).toBe(false);
+    expect(manageableScopes(ed)).toEqual({ workspace: false, category: false, profileIds: ["p1"], spaceIds: [] });
+  });
+  it("an editor of every profile in a space manages that space's budget", () => {
+    const ed = viewer({ readable: new Set(ALL), writable: new Set(["p1", "p3"]) });
+    expect(canManageBudget(S1, ed)).toBe(true);
+    expect(canManageBudget(S2, ed)).toBe(false);
+    expect(manageableScopes(ed).spaceIds).toEqual(["s1"]);
+    expect(canAddAnyBudget({ workspace: false, category: false, profileIds: [], spaceIds: ["s1"] })).toBe(true);
   });
   it("an editor of every profile manages workspace and category budgets", () => {
-    const ed = viewer({ readable: new Set(["p1", "p2"]), writable: new Set(["p1", "p2"]) });
-    expect(canManageBudget(WS, ed)).toBe(true);
-    expect(canManageBudget(FOOD, ed)).toBe(true);
+    const ed = viewer({ readable: new Set(ALL), writable: new Set(ALL) });
+    for (const t of [WS, FOOD, S1, S2]) expect(canManageBudget(t, ed)).toBe(true);
     expect(canAddAnyBudget(manageableScopes(ed))).toBe(true);
   });
   it("a viewer manages nothing — not even in a workspace with no profiles", () => {
-    const v = viewer({ readable: new Set(["p1", "p2"]) });
-    for (const t of [WS, P1, FOOD]) expect(canManageBudget(t, v)).toBe(false);
+    const v = viewer({ readable: new Set(ALL) });
+    for (const t of [WS, P1, FOOD, S1]) expect(canManageBudget(t, v)).toBe(false);
     expect(canManageBudget(WS, viewer({ totalProfiles: 0 }))).toBe(false);
     expect(canAddAnyBudget(manageableScopes(v))).toBe(false);
   });
@@ -178,29 +214,47 @@ describe("months", () => {
   });
 });
 
-describe("labels and order", () => {
+describe("labels, titles and order", () => {
   it("names a budget after what it covers", () => {
     expect(budgetLabel({ scope: "workspace" })).toBe("Whole workspace");
     expect(budgetLabel({ scope: "profile", profileName: "Home" })).toBe("Home");
     expect(budgetLabel({ scope: "category", categoryName: "Groceries" })).toBe("Groceries");
+    expect(budgetLabel({ scope: "space", spaceName: "Family" })).toBe("Family");
     expect(budgetLabel({ scope: "profile" })).toBe("Profile");
     expect(budgetLabel({ scope: "category", categoryName: null })).toBe("Category");
+    expect(budgetLabel({ scope: "space" })).toBe("Space");
   });
-  it("lists the workspace first, then profiles, then categories, each by name", () => {
+  it("says what it covers in a few words, under a title", () => {
+    expect(budgetScopeText({ scope: "workspace" })).toBe("Whole workspace");
+    expect(budgetScopeText({ scope: "space", spaceName: "Home" })).toBe("Space · Home");
+    expect(budgetScopeText({ scope: "category", categoryName: "Groceries" })).toBe("Category · Groceries");
+    expect(budgetScopeText({ scope: "profile", profileName: "Kids" })).toBe("Profile · Kids");
+  });
+  it("suggests a title from what it covers", () => {
+    expect(suggestedBudgetTitle({ scope: "workspace" })).toBe("All spending this month");
+    expect(suggestedBudgetTitle({ scope: "category", categoryName: "Groceries" })).toBe("Groceries this month");
+    expect(suggestedBudgetTitle({ scope: "space", spaceName: "Home" })).toBe("Home space");
+    expect(suggestedBudgetTitle({ scope: "profile", profileName: "Kids" })).toBe("Kids this month");
+    expect(suggestedBudgetTitle({ scope: "space", spaceName: "x".repeat(80) })).toHaveLength(BUDGET_TITLE_MAX);
+  });
+  it("lists the widest scope first — workspace, spaces, profiles, categories — each by title", () => {
     const list = [
-      { scope: "category" as const, label: "Rent" },
-      { scope: "profile" as const, label: "Work" },
-      { scope: "category" as const, label: "Food" },
-      { scope: "workspace" as const, label: "Whole workspace" },
-      { scope: "profile" as const, label: "Home" },
+      { scope: "category" as const, title: "Rent" },
+      { scope: "profile" as const, title: "Work" },
+      { scope: "space" as const, title: "Home space" },
+      { scope: "category" as const, title: "Food" },
+      { scope: "workspace" as const, title: "All spending" },
+      { scope: "profile" as const, title: "Home" },
     ];
-    expect([...list].sort(compareBudgets).map((b) => b.label)).toEqual([
-      "Whole workspace",
+    expect([...list].sort(compareBudgets).map((b) => b.title)).toEqual([
+      "All spending",
+      "Home space",
       "Home",
       "Work",
       "Food",
       "Rent",
     ]);
-    expect(BUDGET_SCOPES).toEqual(["workspace", "profile", "category"]);
+    // The enum's own order: Postgres appended `space`.
+    expect(BUDGET_SCOPES).toEqual(["workspace", "profile", "category", "space"]);
   });
 });

@@ -4,6 +4,7 @@ import { getDb } from "@/db";
 import { budgetAlerts, budgets, users, workspaceMembers, workspaces } from "@/db/schema";
 import { getMonthExpenseMatrix } from "@/lib/budget-spend";
 import {
+  budgetScopeText,
   canManageBudget,
   currentMonthKeys,
   monthBounds,
@@ -19,7 +20,7 @@ import { budgetAlertEmailsLeft, recordBudgetAlertEmails } from "@/lib/email-quot
 import { budgetAlertEmail, siteUrl, type BudgetAlertItem } from "@/lib/email-templates";
 import { openWorkspacePath } from "@/lib/invite-links";
 import { logger } from "@/lib/logger";
-import { budgetAccess, labelOf, loadWorkspaceBudgets, type BudgetRow } from "@/services/budgets";
+import { budgetAccess, loadWorkspaceBudgets, type BudgetRow } from "@/services/budgets";
 
 /**
  * Budget alerts at 80% and 100% — by email, once per budget, per threshold, per
@@ -301,7 +302,9 @@ export async function checkBudgetAlerts(input: {
       const items: BudgetAlertItem[] = theirs
         .filter((c) => c.month === month)
         .map((c) => ({
-          label: labelOf(c.budget),
+          title: c.budget.title,
+          scopeText: budgetScopeText(c.budget),
+          description: c.budget.description,
           spentMinor: c.spentMinor,
           amountMinor: c.budget.amountMinor,
           threshold: c.threshold,

@@ -3,11 +3,12 @@ import { cache } from "react";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { getDb } from "@/db";
-import { budgets, categories, profiles } from "@/db/schema";
+import { budgets, categories, profiles, spaces } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
 import { getMonthExpenseMatrix } from "@/lib/budget-spend";
 import {
   budgetLabel,
+  budgetScopeText,
   budgetStatus,
   canManageBudget,
   canSeeBudget,
@@ -16,6 +17,7 @@ import {
   manageableScopes,
   percentUsed,
   spentFor,
+  suggestedBudgetTitle,
   type BudgetPeriod,
   type BudgetScope,
   type BudgetStatus,
@@ -44,7 +46,7 @@ import {
  * `lib/budgets.ts`; this file loads what they need and writes.
  *
  *  - **Who sees a budget:** admins, and anyone who can read every profile it
- *    covers (`canSeeBudget`). One that isn't visible is never listed and reads
+ *    covers — for a space, every live profile in it (`canSeeBudget`). One that isn't visible is never listed and reads
  *    as not found.
  *  - **Who manages one:** admins, and anyone with edit access to every profile
  *    it covers (`canManageBudget`). Viewers only look.
@@ -57,9 +59,16 @@ export type BudgetView = {
   scope: BudgetScope;
   profileId: string | null;
   categoryId: string | null;
-  /** "Whole workspace", or the profile's / category's name. */
+  spaceId: string | null;
+  /** What people call it — "Groceries this month". */
+  title: string;
+  /** An optional note. */
+  description: string | null;
+  /** What it covers: "Whole workspace", or the space's / profile's / category's name. */
   label: string;
-  /** The profile's or category's emoji, when it has one. */
+  /** The same, as a short line under the title: "Space · Home". */
+  scopeText: string;
+  /** The space's, profile's or category's emoji, when it has one. */
   icon: string | null;
   period: BudgetPeriod;
   amountMinor: number;
@@ -93,24 +102,27 @@ export type BudgetAccess = BudgetViewer & {
  */
 export async function budgetAccess(userId: string, workspaceId: string): Promise<BudgetAccess> {
   const db = getDb();
-  const [role, readable, writable, totals] = await Promise.all([
+  const [role, readable, writable, live, spaceRows, ro] = await Promise.all([
     getWorkspaceRole(userId, workspaceId),
     accessibleProfileIds(userId, workspaceId, "viewer"),
     accessibleProfileIds(userId, workspaceId, "editor"),
-    db.execute<{ total: string; ro: boolean }>(sql`
-      select
-        (select count(*) from ${profiles}
-          where ${profiles.workspaceId} = ${workspaceId} and ${profiles.deletedAt} is null)::text as total,
-        ${readOnlyWorkspaceSql(workspaceId)} as ro
-    `),
+    // Every live profile and the space it's in now, whoever can see it.
+    db
+      .select({ id: profiles.id, spaceId: profiles.spaceId })
+      .from(profiles)
+      .where(and(eq(profiles.workspaceId, workspaceId), notTrashed(profiles))),
+    db.select({ id: spaces.id }).from(spaces).where(eq(spaces.workspaceId, workspaceId)),
+    db.execute<{ ro: boolean }>(sql`select ${readOnlyWorkspaceSql(workspaceId)} as ro`),
   ]);
-  const row = totals.rows[0];
+  const spaceProfiles = new Map<string, string[]>(spaceRows.map((r) => [r.id, []]));
+  for (const p of live) spaceProfiles.get(p.spaceId)?.push(p.id);
   return {
     isAdmin: role === "admin",
     readable: new Set(readable.map((r) => r.id)),
     writable: new Set(writable.map((r) => r.id)),
-    totalProfiles: Number(row?.total ?? 0),
-    readOnly: Boolean(row?.ro),
+    totalProfiles: live.length,
+    spaceProfiles,
+    readOnly: Boolean(ro.rows[0]?.ro),
   };
 }
 
@@ -119,6 +131,9 @@ const budgetColumns = {
   scope: budgets.scope,
   profileId: budgets.profileId,
   categoryId: budgets.categoryId,
+  spaceId: budgets.spaceId,
+  title: budgets.title,
+  description: budgets.description,
   amountMinor: budgets.amountMinor,
   period: budgets.period,
   emailAlerts: budgets.emailAlerts,
@@ -129,6 +144,8 @@ const budgetColumns = {
   profileIcon: profiles.icon,
   categoryName: categories.name,
   categoryIcon: categories.icon,
+  spaceName: spaces.name,
+  spaceIcon: spaces.icon,
 };
 
 /**
@@ -144,26 +161,31 @@ export async function loadWorkspaceBudgets(workspaceId: string) {
       .from(budgets)
       .leftJoin(profiles, eq(profiles.id, budgets.profileId))
       .leftJoin(categories, eq(categories.id, budgets.categoryId))
-      // Null for a workspace or category budget (no profile joined), so only a
-      // trashed profile's budget drops out.
+      .leftJoin(spaces, eq(spaces.id, budgets.spaceId))
+      // Null for a workspace, space or category budget (no profile joined), so
+      // only a trashed profile's budget drops out.
       .where(and(eq(budgets.workspaceId, workspaceId), notTrashed(profiles)))
   );
 }
 
 export type BudgetRow = Awaited<ReturnType<typeof loadWorkspaceBudgets>>[number];
 
-/** A budget row as the label and target the pure rules take. */
+/** What a budget row covers, by name. */
 export function labelOf(row: BudgetRow): string {
-  return budgetLabel({
-    scope: row.scope,
-    profileName: row.profileName,
-    categoryName: row.categoryName,
-  });
+  return budgetLabel(row);
+}
+
+/** Its emoji: the space's, profile's or category's. */
+function iconOf(row: BudgetRow): string | null {
+  if (row.scope === "profile") return row.profileIcon;
+  if (row.scope === "category") return row.categoryIcon;
+  if (row.scope === "space") return row.spaceIcon;
+  return null;
 }
 
 /**
  * The budgets the caller can see, with `month`'s progress, in display order
- * (the whole workspace, then profiles, then categories). Two reads when the
+ * (the whole workspace, then spaces, profiles and categories). Two reads when the
  * workspace has budgets, one when it has none.
  *
  * Memoized per RSC render (`cache`): the layout's nav badge and the budgets or
@@ -192,8 +214,12 @@ async function listBudgetsUncached(
         scope: row.scope,
         profileId: row.profileId,
         categoryId: row.categoryId,
+        spaceId: row.spaceId,
+        title: row.title,
+        description: row.description,
         label: labelOf(row),
-        icon: row.scope === "profile" ? row.profileIcon : row.scope === "category" ? row.categoryIcon : null,
+        scopeText: budgetScopeText(row),
+        icon: iconOf(row),
         period: row.period,
         amountMinor: row.amountMinor,
         emailAlerts: row.emailAlerts,
@@ -247,7 +273,9 @@ function manageError(target: BudgetTarget) {
   return forbidden(
     target.scope === "profile"
       ? "You need edit access to this profile to set its budget"
-      : "Only someone who can edit every profile in this workspace can set this budget",
+      : target.scope === "space"
+        ? "Only someone who can edit every profile in this space can set its budget"
+        : "Only someone who can edit every profile in this workspace can set this budget",
   );
 }
 
@@ -269,11 +297,13 @@ const SCOPE_TAKEN: Record<BudgetScope, string> = {
   workspace: "This workspace already has a budget for all its spending — change that one instead",
   profile: "This profile already has a budget — change that one instead",
   category: "This category already has a budget — change that one instead",
+  space: "This space already has a budget — change that one instead",
 };
 
 /**
  * Add a budget. In order: the input; what it covers belongs to this workspace
- * (a profile the caller can't see reads as invalid, like a stranger's); the
+ * (a profile or space the caller can't see reads as invalid, like a
+ * stranger's); the
  * workspace isn't view-only; the caller may manage that scope; the plan has
  * room (`assertCanAddBudget`, under a lock, in the insert's transaction); and
  * nothing covers that scope yet.
@@ -288,6 +318,7 @@ export async function createBudget(
     scope: data.scope,
     profileId: data.scope === "profile" ? data.profileId : null,
     categoryId: data.scope === "category" ? data.categoryId : null,
+    spaceId: data.scope === "space" ? data.spaceId : null,
   };
   const db = getDb();
   const [access, money, ent] = await Promise.all([
@@ -297,20 +328,38 @@ export async function createBudget(
   ]);
   const amountMinor = budgetMinorUnits(data.amount, money);
 
-  // `readable` only ever holds this workspace's profiles, so this is also the
-  // "same workspace" check.
-  if (target.profileId && !access.readable.has(target.profileId)) {
-    throw validationError("Invalid profile");
+  // What it covers, by name — for the suggested title. `readable` and
+  // `spaceProfiles` only ever hold this workspace's profiles and spaces, so
+  // these are also the "same workspace" checks.
+  const names: { profileName?: string; categoryName?: string; spaceName?: string } = {};
+  if (target.profileId) {
+    if (!access.readable.has(target.profileId)) throw validationError("Invalid profile");
+    const profile = await db.query.profiles.findFirst({
+      where: and(eq(profiles.id, target.profileId), notTrashed(profiles)),
+      columns: { name: true },
+    });
+    names.profileName = profile?.name;
   }
   if (target.categoryId) {
     const category = await db.query.categories.findFirst({
       where: and(eq(categories.id, target.categoryId), eq(categories.workspaceId, workspaceId)),
-      columns: { kind: true },
+      columns: { kind: true, name: true },
     });
     if (!category) throw validationError("Invalid category");
     if (category.kind !== "expense") {
       throw validationError("Budgets track spending — pick an expense category");
     }
+    names.categoryName = category.name;
+  }
+  if (target.spaceId) {
+    if (!access.spaceProfiles.has(target.spaceId) || !canSeeBudget(target, access)) {
+      throw validationError("Invalid space");
+    }
+    const space = await db.query.spaces.findFirst({
+      where: eq(spaces.id, target.spaceId),
+      columns: { name: true },
+    });
+    names.spaceName = space?.name;
   }
   if (access.readOnly) throw readOnlyWorkspaceError();
   if (!canManageBudget(target, access)) throw manageError(target);
@@ -325,6 +374,9 @@ export async function createBudget(
           scope: target.scope,
           profileId: target.profileId,
           categoryId: target.categoryId,
+          spaceId: target.spaceId,
+          title: data.title ?? suggestedBudgetTitle({ scope: target.scope, ...names }),
+          description: data.description ?? null,
           amountMinor,
           emailAlerts: data.emailAlerts ?? true,
           createdBy: userId,
@@ -358,8 +410,8 @@ async function visibleBudget(userId: string, workspaceId: string, id: string) {
 }
 
 /**
- * Change a budget's amount or its email alerts. Returns false when there's no
- * such budget the caller can see (callers answer 404).
+ * Change a budget's amount, email alerts, title or description. Returns false
+ * when there's no such budget the caller can see (callers answer 404).
  *
  * The alert log is left alone: a threshold that already fired this month
  * fires again only once the amount is *above* the one it fired at
@@ -383,6 +435,8 @@ export async function updateBudget(
     patch.amountMinor = budgetMinorUnits(data.amount, await getWorkspaceMoneyFormat(workspaceId));
   }
   if (data.emailAlerts !== undefined) patch.emailAlerts = data.emailAlerts;
+  if (data.title !== undefined) patch.title = data.title;
+  if (data.description !== undefined) patch.description = data.description;
 
   await getDb().update(budgets).set(patch).where(eq(budgets.id, id));
   return true;
