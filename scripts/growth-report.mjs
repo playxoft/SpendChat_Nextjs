@@ -21,7 +21,9 @@
  * predates attribution (even if it later answered the card) or the browser
  * blocked storage. "Activated" = went on to add at least one
  * transaction. "Invited via" is recorded by the server at sign-up (a split
- * invite was waiting for the account's email). Days are UTC.
+ * invite was waiting for the account's email); "Converted from a free tool" is
+ * recorded by the server when a new account imports what it made on a tool
+ * (a split calculator group). Days are UTC.
  */
 import pg from "pg";
 
@@ -152,6 +154,22 @@ try {
   );
   console.log(`\nInvited via (window)\n`);
   table(invited);
+
+  // Server-recorded when a new account brings in what it made on a free tool
+  // (`src/services/split-import.ts`, rule in `src/lib/attribution.ts`):
+  // `tool:split` = imported a group from the split calculator.
+  const { rows: converted } = await client.query(
+    `select coalesce(u.acquisition->>'convertedFrom', '(no tool import)') as converted_from,
+            count(*)::int as signups,
+            count(*) filter (where exists (select 1 from transactions t where t.user_id = u.id))::int as activated
+       from users u
+      where u.created_at >= now() - make_interval(days => $1)
+      group by 1
+      order by 2 desc, 1`,
+    [DAYS],
+  );
+  console.log(`\nConverted from a free tool (window)\n`);
+  table(converted);
 
   const { rows: heardFrom } = await client.query(
     `select coalesce(u.acquisition->>'heardFrom', '(not answered)') as heard_from,

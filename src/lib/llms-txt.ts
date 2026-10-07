@@ -7,7 +7,17 @@ import { FEATURE_GROUPS, featurePath } from "@/lib/features";
 import { toolPath, type Tool } from "@/lib/tools";
 import { siteConfig } from "@/lib/site";
 import { formatPlanStorage } from "@/lib/plan-limit";
-import { PERSONAL_PLANS, PLAN_LIMITS, PLAN_NAMES, TOPUP, VOICE, lowestPlanWith, type PersonalPlan } from "@/lib/plans";
+import {
+  PERSONAL_PLANS,
+  PLAN_LIMITS,
+  PLAN_NAMES,
+  SPLIT_GROUP_MAX_PEOPLE,
+  TOPUP,
+  TRASH_DAYS,
+  VOICE,
+  lowestPlanWith,
+  type PersonalPlan,
+} from "@/lib/plans";
 import {
   PAID_PERSONAL_PLANS,
   PERIODS,
@@ -137,6 +147,8 @@ export function buildLlmsTxt({ features, comparisons, posts, faqs, docs, tools =
     `- **Multi-user.** Every account owns a workspace and can invite others by email with a role of viewer, editor, or admin — workspace-wide, or per profile on Plus and Pro. Workspaces share one currency, one number format, and one category list; a person can be in several workspaces.`,
     `- **Precise about money.** Amounts are stored as integer minor units, never floats. One currency per workspace, chosen from Settings and geo-detected for a new account.`,
     `- **AI with a human in the loop.** The AI and voice entry modes only ever produce *drafts*; nothing reaches the ledger until the person reviews and confirms. Audio is transcribed and discarded, not stored.`,
+    `- **Split with anyone, free.** Split groups (up to ${n(SPLIT_GROUP_MAX_PEOPLE)} people, on every plan, kept outside workspaces) record who paid what for a trip or a shared flat, split equally, by exact amounts or by percent, and list the fewest payments that settle everyone up. ${name} records those payments; it never moves money.`,
+    `- **Deletes can be undone.** Every delete that goes to the trash offers Undo, and deleted transactions stay restorable for ${TRASH_DAYS} days on every plan (files and folders too, on paid plans).`,
     `- **Your data leaves easily.** Any filtered view exports to CSV or prints to a clean PDF; the account and all its data can be deleted from Settings.`,
     "",
     "**Pricing**",

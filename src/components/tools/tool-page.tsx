@@ -33,6 +33,7 @@ export function ToolPage({
   category,
   tool,
   cta,
+  ctaHref,
   children,
 }: {
   /** Must match an entry in `src/lib/tools.ts`. */
@@ -43,6 +44,8 @@ export function ToolPage({
    * inside the result panel, where it competed with the answer.
    */
   cta: string;
+  /** Where that line signs people up to, when the tool's work carries into the app. */
+  ctaHref?: string;
   /** One or two sentences under the h1 — what it does, in plain words. */
   intro: ReactNode;
   /** Rendered visibly *and* as `FAQPage` markup, from this one array. */
@@ -97,7 +100,7 @@ export function ToolPage({
         {tool}
       </div>
 
-      <ToolCta slug={slug} message={cta} className="mt-4" />
+      <ToolCta slug={slug} message={cta} href={ctaHref} className="mt-4" />
 
       <p className="mt-4 text-xs text-muted-foreground">
         Runs in your browser — what you type isn&apos;t sent to our servers or kept

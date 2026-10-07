@@ -122,6 +122,21 @@ export const heardFromOtherSchema = z
 export const INVITED_VIA = ["split"] as const;
 export type InvitedVia = (typeof INVITED_VIA)[number];
 
+/**
+ * Which free tool turned a visitor into an account — written by the
+ * **server**, never the browser, when a new account brings in what it made on
+ * that tool: `tool:split` when a group from the split calculator is imported
+ * (`services/split-import.ts`). Only for an account at most
+ * `CONVERTED_FROM_MAX_ACCOUNT_AGE_DAYS` old, so a long-standing user who later
+ * tries the tool isn't counted as a sign-up it brought in. Merged once
+ * (`convertedFrom` is only set while absent); `convertedAt` is when. It sits
+ * beside the first touch (whose `landing` already names the tool page when the
+ * visit started there), and `growth:report` shows it as its own table.
+ */
+export const CONVERTED_FROM = ["tool:split"] as const;
+export type ConvertedFrom = (typeof CONVERTED_FROM)[number];
+export const CONVERTED_FROM_MAX_ACCOUNT_AGE_DAYS = 7;
+
 /** Stored shape of `users.acquisition`. */
 export type Acquisition = AttributionInput & {
   heardFrom?: HeardFrom | null;
@@ -129,6 +144,8 @@ export type Acquisition = AttributionInput & {
   heardFromAt?: string | null;
   invitedVia?: InvitedVia | null;
   invitedAt?: string | null;
+  convertedFrom?: ConvertedFrom | null;
+  convertedAt?: string | null;
 };
 
 /**
