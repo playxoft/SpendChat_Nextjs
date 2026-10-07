@@ -94,8 +94,9 @@ export default async function AnalyticsPage({
     : `${formatDateLabel(from ?? start, locale)} – ${formatDateLabel(to ?? end, locale)}`;
   // Remount the streamed results on any filter change so the skeleton shows
   // immediately instead of holding the previous numbers. The insights don't
-  // follow the Type filter, so their key leaves it out — changing it doesn't
-  // re-run (or blank) them.
+  // follow the Type filter, so their key leaves it out: changing Type keeps
+  // them on screen instead of blanking them to a skeleton (the server still
+  // renders them again with the rest of the page).
   const insightsKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}`;
   const streamKey = `${insightsKey}|${parsed.type ?? "all"}`;
   // Budgets are monthly, so they show when the range is exactly this month.
