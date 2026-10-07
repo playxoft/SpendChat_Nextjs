@@ -41,7 +41,7 @@ function expense(patch: Partial<DraftExpense> & Pick<DraftExpense, "id">): Draft
 /** A trip with one expense of each kind and a leftover paisa or two to place. */
 function tripDraft(): SplitDraft {
   return {
-    v: 1,
+    v: 2,
     name: "Goa trip",
     currency: "INR",
     people: [
