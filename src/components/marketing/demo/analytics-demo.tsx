@@ -10,11 +10,13 @@ import {
 } from "@/components/ui/card";
 import { LazyCategoryChart } from "@/components/marketing/lazy-category-chart";
 import { DemoFrame } from "./demo-frame";
+import { AnalyticsInsightsDemo } from "./analytics-insights-demo";
 import { demoAmount, useDemoMoney, type DemoMoneyFormat } from "@/hooks/use-demo-currency";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
 
 type Range = "month" | "quarter" | "year";
+type View = "overview" | "insights";
 type Kind = "expense" | "income";
 
 /**
@@ -168,7 +170,8 @@ function CategoryRanking({
 
 /**
  * The analytics page: three totals, a category breakdown, and six months of
- * income against expenses.
+ * income against expenses — and, behind the "Insights & trends" tab, what the
+ * paid plans add (`analytics-insights-demo.tsx`).
  *
  * The stat cards and trend rows are the app's markup; the chart is the app's
  * `CategoryPieChart`, through the lazy wrapper the homepage uses. Changing the
@@ -177,6 +180,7 @@ function CategoryRanking({
  * the answer is already there rather than something you assemble.
  */
 export function AnalyticsDemo() {
+  const [view, setView] = useState<View>("overview");
   const [range, setRange] = useState<Range>("month");
   const [kind, setKind] = useState<Kind>("expense");
   const money = useDemoMoney();
@@ -222,6 +226,33 @@ export function AnalyticsDemo() {
       className="h-[42rem]"
       header={
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-4 py-3">
+          <div
+            role="group"
+            aria-label="Analytics view"
+            className="no-scrollbar flex h-8 min-w-0 max-w-full shrink items-center overflow-x-auto rounded-full border bg-muted/50 p-0.5 text-xs"
+          >
+            {(
+              [
+                ["overview", "Overview"],
+                ["insights", "Insights & trends"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setView(id)}
+                aria-pressed={view === id}
+                className={cn(
+                  "shrink-0 rounded-full px-2.5 py-1 transition-colors",
+                  view === id
+                    ? "bg-background font-medium shadow-sm"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           {/* The app's segmented range toggle, and the app's answer to a narrow
               screen with it: `min-w-0` + `shrink` let the pill give way instead
               of pushing the frame wider, and `overflow-x-auto` with `shrink-0`
@@ -233,7 +264,12 @@ export function AnalyticsDemo() {
               sixth of the row's height and nothing is reachable only by
               dragging it. `scrollbar-slim` is for tables and grids, where the
               bar is the only thing saying there's more to the right. */}
-          <div className="no-scrollbar flex h-8 min-w-0 max-w-full shrink items-center overflow-x-auto rounded-full border bg-muted/50 p-0.5 text-xs">
+          <div
+            className={cn(
+              "no-scrollbar flex h-8 min-w-0 max-w-full shrink items-center overflow-x-auto rounded-full border bg-muted/50 p-0.5 text-xs",
+              view !== "overview" && "hidden",
+            )}
+          >
             {RANGES.map((r) => (
               <button
                 key={r.id}
@@ -258,128 +294,134 @@ export function AnalyticsDemo() {
       <div
         tabIndex={0}
         role="group"
-        aria-label="Analytics breakdown"
+        aria-label={view === "overview" ? "Analytics breakdown" : "Insights and trends"}
         className="h-full space-y-4 overflow-y-auto px-4 py-4"
       >
-        <div className="grid gap-3 sm:grid-cols-3">
-          <StatCard
-            label="Income"
-            value={formatMoney(totals.income, money.code, money.locale)}
-            positive
-          />
-          <StatCard
-            label="Expenses"
-            value={formatMoney(totals.expense, money.code, money.locale)}
-          />
-          <StatCard
-            label="Net"
-            value={formatMoney(totals.net, money.code, money.locale)}
-            positive={totals.net >= 0}
-          />
-        </div>
+        {view === "insights" ? (
+          <AnalyticsInsightsDemo money={money} />
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <StatCard
+                label="Income"
+                value={formatMoney(totals.income, money.code, money.locale)}
+                positive
+              />
+              <StatCard
+                label="Expenses"
+                value={formatMoney(totals.expense, money.code, money.locale)}
+              />
+              <StatCard
+                label="Net"
+                value={formatMoney(totals.net, money.code, money.locale)}
+                positive={totals.net >= 0}
+              />
+            </div>
 
-        <Card>
-          <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
-            <div className="min-w-0">
-              <CardTitle>
-                {kind === "income" ? "Income by category" : "Spending by category"}
-              </CardTitle>
-              <CardDescription>
-                {kind === "income" ? "Income" : "Expenses"} for the selected range
-              </CardDescription>
-            </div>
-            <div className="inline-flex h-8 shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
-              {(["expense", "income"] as const).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setKind(k)}
-                  aria-pressed={kind === k}
-                  className={cn(
-                    "rounded-full px-2.5 py-1 capitalize transition-colors",
-                    kind === k
-                      ? "bg-background font-medium shadow-sm"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {k}
-                </button>
-              ))}
-            </div>
-          </CardHeader>
-          <CardContent>
-            {/* The ranked list is the fallback, so these numbers are in the
-                server-rendered HTML whether or not the chart's chunk ever
-                arrives; `chartKey` rebuilds the ring on a dataset change
-                without resetting the gate that decides when it loads. Both are
-                explained on `LazyCategoryChart`. */}
-            <LazyCategoryChart
-              chartKey={`${range}-${kind}`}
-              data={data}
-              currency={money.code}
-              locale={money.locale}
-              fallback={<CategoryRanking data={data} money={money} />}
-            />
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader className="flex-row items-start justify-between gap-3 space-y-0">
+                <div className="min-w-0">
+                  <CardTitle>
+                    {kind === "income" ? "Income by category" : "Spending by category"}
+                  </CardTitle>
+                  <CardDescription>
+                    {kind === "income" ? "Income" : "Expenses"} for the selected range
+                  </CardDescription>
+                </div>
+                <div className="inline-flex h-8 shrink-0 items-center rounded-full border bg-muted/50 p-0.5 text-sm">
+                  {(["expense", "income"] as const).map((k) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setKind(k)}
+                      aria-pressed={kind === k}
+                      className={cn(
+                        "rounded-full px-2.5 py-1 capitalize transition-colors",
+                        kind === k
+                          ? "bg-background font-medium shadow-sm"
+                          : "text-muted-foreground hover:text-foreground",
+                      )}
+                    >
+                      {k}
+                    </button>
+                  ))}
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* The ranked list is the fallback, so these numbers are in the
+                    server-rendered HTML whether or not the chart's chunk ever
+                    arrives; `chartKey` rebuilds the ring on a dataset change
+                    without resetting the gate that decides when it loads. Both are
+                    explained on `LazyCategoryChart`. */}
+                <LazyCategoryChart
+                  chartKey={`${range}-${kind}`}
+                  data={data}
+                  currency={money.code}
+                  locale={money.locale}
+                  fallback={<CategoryRanking data={data} money={money} />}
+                />
+              </CardContent>
+            </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Last 6 months</CardTitle>
-            <CardDescription>Income vs. expenses</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="mb-4 flex items-center gap-4 text-xs text-muted-foreground">
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-emerald-500" /> Income
-              </span>
-              <span className="inline-flex items-center gap-1.5">
-                <span className="size-2.5 rounded-full bg-foreground/60" /> Expense
-              </span>
-            </div>
-            {/* Each month reads out in words before it's drawn.
-                The two bars used to be the only place the month's income and
-                expense existed: two empty `<div>`s whose widths were the data,
-                told apart by colour alone. Nothing could read them out, and
-                nobody who can't compare an emerald bar to a grey one could tell
-                which was which — WCAG 1.1.1 and 1.4.1 in one row. So the
-                amounts are labelled text now and the bars are `aria-hidden`
-                decoration for the shape, which is all they were ever good for.
-                The line wraps rather than truncating, because a high-multiplier
-                currency makes three amounts much wider than this card. */}
-            <ul className="space-y-3">
-              {trend.map((t) => (
-                <li key={t.month} className="space-y-1.5">
-                  <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
-                    <span className="font-medium">{t.month}</span>
-                    <span className="tabular-nums text-emerald-600 dark:text-emerald-400">
-                      {formatMoney(t.income, money.code, money.locale)} in
-                    </span>
-                    <span className="tabular-nums text-muted-foreground">
-                      {formatMoney(t.expense, money.code, money.locale)} out
-                    </span>
-                    <span className="ml-auto tabular-nums text-muted-foreground">
-                      net{" "}
-                      {formatMoney(t.income - t.expense, money.code, money.locale, {
-                        signed: true,
-                      })}
-                    </span>
-                  </div>
-                  <div className="space-y-1" aria-hidden>
-                    <div
-                      className="h-2.5 rounded-full bg-emerald-500/70"
-                      style={{ width: `${(t.income / maxTrend) * 100}%` }}
-                    />
-                    <div
-                      className="h-2.5 rounded-full bg-foreground/60"
-                      style={{ width: `${(t.expense / maxTrend) * 100}%` }}
-                    />
-                  </div>
-                </li>
-              ))}
-            </ul>
-          </CardContent>
-        </Card>
+            <Card>
+              <CardHeader>
+                <CardTitle>Last 6 months</CardTitle>
+                <CardDescription>Income vs. expenses</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="mb-4 flex items-center gap-4 text-xs text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="size-2.5 rounded-full bg-emerald-500" /> Income
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="size-2.5 rounded-full bg-foreground/60" /> Expense
+                  </span>
+                </div>
+                {/* Each month reads out in words before it's drawn.
+                    The two bars used to be the only place the month's income and
+                    expense existed: two empty `<div>`s whose widths were the data,
+                    told apart by colour alone. Nothing could read them out, and
+                    nobody who can't compare an emerald bar to a grey one could tell
+                    which was which — WCAG 1.1.1 and 1.4.1 in one row. So the
+                    amounts are labelled text now and the bars are `aria-hidden`
+                    decoration for the shape, which is all they were ever good for.
+                    The line wraps rather than truncating, because a high-multiplier
+                    currency makes three amounts much wider than this card. */}
+                <ul className="space-y-3">
+                  {trend.map((t) => (
+                    <li key={t.month} className="space-y-1.5">
+                      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs">
+                        <span className="font-medium">{t.month}</span>
+                        <span className="tabular-nums text-emerald-600 dark:text-emerald-400">
+                          {formatMoney(t.income, money.code, money.locale)} in
+                        </span>
+                        <span className="tabular-nums text-muted-foreground">
+                          {formatMoney(t.expense, money.code, money.locale)} out
+                        </span>
+                        <span className="ml-auto tabular-nums text-muted-foreground">
+                          net{" "}
+                          {formatMoney(t.income - t.expense, money.code, money.locale, {
+                            signed: true,
+                          })}
+                        </span>
+                      </div>
+                      <div className="space-y-1" aria-hidden>
+                        <div
+                          className="h-2.5 rounded-full bg-emerald-500/70"
+                          style={{ width: `${(t.income / maxTrend) * 100}%` }}
+                        />
+                        <div
+                          className="h-2.5 rounded-full bg-foreground/60"
+                          style={{ width: `${(t.expense / maxTrend) * 100}%` }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </DemoFrame>
   );

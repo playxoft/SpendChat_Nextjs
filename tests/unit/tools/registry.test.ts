@@ -8,15 +8,18 @@ import {
   toolOgImage,
   publishedTools,
   relatedTools,
+  toolMenuColumns,
   toolPath,
   type Tool,
 } from "@/lib/tools";
 import { siteConfig } from "@/lib/site";
 import { hasToolPreview } from "@/components/tools/tool-previews";
+import { hasToolIcon } from "@/components/tools/tool-icon";
 
 function tool(overrides: Partial<Tool> & { slug: string }): Tool {
   return {
     label: overrides.slug,
+    icon: "Calculator",
     title: `${overrides.slug} title`,
     h1: `${overrides.slug} heading`,
     description: "x".repeat(80),
@@ -95,6 +98,47 @@ describe("hub cards", () => {
     for (const t of publishedTools()) {
       expect(hasToolPreview(t.slug), `no preview for ${t.slug}`).toBe(true);
     }
+  });
+});
+
+describe("Tools menu", () => {
+  it("every tool's icon resolves, and no two tools share one", () => {
+    for (const t of TOOLS) expect(hasToolIcon(t.icon), `${t.slug} → ${t.icon}`).toBe(true);
+    const icons = publishedTools().map((t) => t.icon);
+    expect(new Set(icons).size).toBe(icons.length);
+  });
+
+  it("lists every published tool once, in three columns of whole groups in hub order", () => {
+    const columns = toolMenuColumns(3);
+    expect(columns).toHaveLength(3);
+    const groups = columns.flat();
+    expect(groups.map((g) => g.id)).toEqual(
+      TOOL_GROUPS.map((g) => g.id).filter((id) => groups.some((x) => x.id === id)),
+    );
+    expect(groups.flatMap((g) => g.items.map((t) => t.slug)).sort()).toEqual(
+      publishedTools().map((t) => t.slug).sort(),
+    );
+  });
+
+  it("balances the columns: no other contiguous split has a shorter tallest column", () => {
+    const registry = [
+      tool({ slug: "a", group: "business" }),
+      tool({ slug: "b", group: "business" }),
+      tool({ slug: "c", group: "grow" }),
+      tool({ slug: "d", group: "plan" }),
+      tool({ slug: "e", group: "plan" }),
+      tool({ slug: "f", group: "plan" }),
+      tool({ slug: "g", group: "everyday" }),
+    ];
+    // Heights (heading + tools): business 3, grow 2, plan 4, everyday 2.
+    const cols = toolMenuColumns(3, registry).map((c) => c.map((g) => g.id));
+    expect(cols).toEqual([["business", "grow"], ["plan"], ["everyday"]]);
+  });
+
+  it("copes with fewer groups than columns", () => {
+    const cols = toolMenuColumns(3, [tool({ slug: "a" })]);
+    expect(cols).toEqual([[expect.objectContaining({ id: "everyday" })]]);
+    expect(toolMenuColumns(3, [])).toEqual([[]]);
   });
 });
 

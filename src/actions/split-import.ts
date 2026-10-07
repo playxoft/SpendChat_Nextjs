@@ -14,15 +14,17 @@ import * as splitImport from "@/services/split-import";
  */
 export async function importSplitDraft(
   input: SplitImportInput,
-): Promise<ActionResult<{ groupId: string; expenses: number }>> {
+): Promise<ActionResult<{ groupId: string; expenses: number; invited: number }>> {
   const user = await requireUser();
   return runAction(
     "importSplitDraft",
     async () => {
-      const { groupId, expenses } = await splitImport.importSplitDraft(user, input);
+      const { groupId, expenses, added } = await splitImport.importSplitDraft(user, input);
       // The new group shows on the Split list, and the nav badge may move.
       revalidatePath("/app", "layout");
-      return { groupId, expenses };
+      // Everyone added is invited — by email, or in the app if they have an
+      // account; the count can't say which (on purpose, see services/split.ts).
+      return { groupId, expenses, invited: added.filter((a) => a.status === "invited").length };
     },
     { userId: user.id },
   );

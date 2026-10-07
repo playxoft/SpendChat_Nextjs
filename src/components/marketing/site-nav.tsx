@@ -18,6 +18,7 @@ import { GithubIcon } from "@/components/icons/github";
 import { Logo } from "@/components/logo";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { FeaturesMenu, FeaturesMenuMobile } from "@/components/marketing/features-menu";
+import { ToolsMenu, ToolsMenuMobile } from "@/components/marketing/tools-menu";
 import { useShortcut } from "@/hooks/use-shortcut";
 import { trackEvent } from "@/lib/analytics";
 import {
@@ -77,7 +78,8 @@ const KEY_CLAIMING_ROLES = '[role="application"],[role="combobox"]';
  * its own, and Radix locks body scroll while it's open — so anything taller
  * than the viewport is simply unreachable, with no scrollbar and no rubber
  * band to hint that there's more. That's not hypothetical here: the link list
- * carries all thirteen feature pages inline (`FeaturesMenuMobile`), which on a
+ * carries every feature page and every free tool inline (`FeaturesMenuMobile`,
+ * `ToolsMenuMobile`), which on a
  * 700px-tall phone runs well past the fold and used to push the footer — Theme,
  * Get started free — off the bottom of the screen entirely. So the
  * header and the footer are pinned (`shrink-0`) and the link list between them
@@ -168,11 +170,13 @@ export function SiteNav({
         <div className="flex min-w-0 flex-1 items-center justify-center">
           <div className="hidden items-center gap-1 lg:flex">
             {marketingNav.map((item) => {
-              // Features opens the directory of feature pages instead of going
-              // straight to the hub; every other entry stays a plain link.
-              // (It also marks itself active — see `FeaturesMenu`.)
+              // Features and Tools open a directory of their pages on hover
+              // (a click still goes to the hub); every other entry stays a
+              // plain link. Both mark themselves active — see `NavMenu`.
               if (item.href === "/features")
                 return <FeaturesMenu key={item.href} markActive={markActive} />;
+              if (item.href === "/tools")
+                return <ToolsMenu key={item.href} markActive={markActive} />;
               const current = markActive ? navCurrent(pathname, item.href) : undefined;
               return (
                 <Link
@@ -297,6 +301,9 @@ export function SiteNav({
                           `FeaturesMenuMobile`. */}
                       {item.href === "/features" && (
                         <FeaturesMenuMobile onNavigate={() => setOpen(false)} />
+                      )}
+                      {item.href === "/tools" && (
+                        <ToolsMenuMobile onNavigate={() => setOpen(false)} />
                       )}
                     </div>
                   );

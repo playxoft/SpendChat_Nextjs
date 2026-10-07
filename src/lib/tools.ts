@@ -13,38 +13,52 @@
 /** Where a tool sits on the `/tools` hub. */
 export type ToolGroup = "everyday" | "dates" | "grow" | "plan" | "debt" | "business";
 
-export const TOOL_GROUPS: { id: ToolGroup; label: string; blurb: string }[] = [
+/**
+ * The colour of a group's icon tiles in the Tools menu — a name, resolved to
+ * light- and dark-mode classes by `tool-icon.tsx`. Emerald is left out on
+ * purpose: it's the app's one accent for income, so a tile in it would read as
+ * money coming in.
+ */
+export type ToolTint = "sky" | "lime" | "amber" | "rose" | "indigo" | "teal";
+
+export const TOOL_GROUPS: { id: ToolGroup; label: string; blurb: string; tint: ToolTint }[] = [
   // Order is the hub's order: the generators people return to, then growth,
   // planning and debt, with the quick everyday calculators last.
   {
     id: "business",
     label: "Invoices & quotes",
     blurb: "Paperwork for freelancers and small businesses.",
+    tint: "sky",
   },
   {
     id: "grow",
     label: "Saving & investing",
     blurb: "See what regular saving grows into.",
+    tint: "lime",
   },
   {
     id: "plan",
     label: "Planning & goals",
     blurb: "Know where you stand, and when you'll get there.",
+    tint: "amber",
   },
   {
     id: "debt",
     label: "Loans & debt",
     blurb: "Know what borrowing really costs before you sign.",
+    tint: "rose",
   },
   {
     id: "dates",
     label: "Dates",
     blurb: "Count days to a deadline, a due date or a birthday.",
+    tint: "indigo",
   },
   {
     id: "everyday",
     label: "Everyday maths",
     blurb: "Percentages, tax, and the numbers on a bill.",
+    tint: "teal",
   },
 
 ];
@@ -54,6 +68,12 @@ export type Tool = {
   slug: string;
   /** Short label for hub cards and breadcrumbs. */
   label: string;
+  /**
+   * Lucide icon name for the nav's Tools menu, resolved by
+   * `src/components/tools/tool-icon.tsx` — a string, so this file stays free of
+   * React and `lucide-react` (`sitemap.ts` reads it inside a Worker route).
+   */
+  icon: string;
   /** `<title>`, without the site name (the root template appends " — SpendChat"). */
   title: string;
   /** The page's single `<h1>` — the primary search phrase, written plainly. */
@@ -84,6 +104,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "invoice-generator",
     label: "Invoice generator",
+    icon: "ReceiptText",
     title: "Free Invoice Generator — No Sign-Up, PDF",
     h1: "Free invoice generator",
     description:
@@ -103,6 +124,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "quotation-generator",
     label: "Quotation generator",
+    icon: "FileText",
     title: "Free Quotation Maker & Estimate Generator",
     h1: "Free quotation & estimate maker",
     description:
@@ -122,6 +144,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "freelance-rate-calculator",
     label: "Freelance rate calculator",
+    icon: "BriefcaseBusiness",
     title: "Freelance Rate Calculator — Hourly & Day Rate",
     h1: "Freelance rate calculator",
     description:
@@ -142,6 +165,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "compound-interest-calculator",
     label: "Compound interest calculator",
+    icon: "TrendingUp",
     title: "Compound Interest Calculator — Monthly & Daily",
     h1: "Compound interest calculator",
     description:
@@ -161,6 +185,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "sip-calculator",
     label: "SIP calculator",
+    icon: "ChartLine",
     title: "SIP Calculator — Step-Up SIP & Returns",
     h1: "SIP calculator with step-up",
     description:
@@ -180,6 +205,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "simple-interest-calculator",
     label: "Simple interest calculator",
+    icon: "Calculator",
     title: "Simple Interest Calculator — SI = PRT/100",
     h1: "Simple interest calculator",
     description:
@@ -199,6 +225,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "fd-calculator",
     label: "FD & RD calculator",
+    icon: "Landmark",
     title: "FD & RD Calculator — Maturity & Interest",
     h1: "FD & RD calculator",
     description:
@@ -219,6 +246,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "fire-calculator",
     label: "FIRE calculator",
+    icon: "Flame",
     title: "FIRE Calculator — FIRE Number & Coast FIRE",
     h1: "FIRE calculator",
     description:
@@ -238,6 +266,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "net-worth-calculator",
     label: "Net worth calculator",
+    icon: "Wallet",
     title: "Net Worth Calculator — Assets Minus Debts",
     h1: "Net worth calculator",
     description:
@@ -257,6 +286,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "savings-challenge",
     label: "Savings challenge",
+    icon: "PiggyBank",
     title: "Savings Challenge — 52-Week & 100-Envelope",
     h1: "Savings challenge tracker",
     description:
@@ -276,6 +306,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "when-can-i-afford-it",
     label: "When can I afford it?",
+    icon: "Target",
     title: "Savings Goal Calculator — When Can I Afford It",
     h1: "When can I afford it?",
     description:
@@ -296,6 +327,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "loan-calculator",
     label: "EMI & loan calculator",
+    icon: "HandCoins",
     title: "EMI & Loan Calculator — Amortization Schedule",
     h1: "EMI & loan calculator",
     description:
@@ -315,6 +347,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "credit-card-payoff-calculator",
     label: "Credit card payoff calculator",
+    icon: "CreditCard",
     title: "Credit Card Payoff & Interest Calculator",
     h1: "Credit card payoff calculator",
     description:
@@ -334,6 +367,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "loan-comparison-calculator",
     label: "Loan comparison calculator",
+    icon: "Scale",
     title: "Loan Comparison Calculator — Compare Offers",
     h1: "Loan comparison calculator",
     description:
@@ -354,6 +388,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "days-between-dates",
     label: "Days between dates",
+    icon: "CalendarDays",
     title: "Date Calculator — Days Between Two Dates",
     h1: "Days between dates calculator",
     description:
@@ -373,6 +408,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "age-calculator",
     label: "Age calculator",
+    icon: "Cake",
     title: "Age Calculator — Exact Age by Date of Birth",
     h1: "Age calculator",
     description:
@@ -393,6 +429,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "split-bill-calculator",
     label: "Split bill calculator",
+    icon: "Split",
     title: "Split Bill Calculator — Split Group Expenses",
     h1: "Split bill & group expense calculator",
     description:
@@ -424,6 +461,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "percentage-calculator",
     label: "Percentage calculator",
+    icon: "Percent",
     title: "Percentage Calculator — %, Increase & Change",
     h1: "Percentage calculator",
     description:
@@ -443,6 +481,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "vat-calculator",
     label: "GST & VAT calculator",
+    icon: "Receipt",
     title: "GST & VAT Calculator — Add or Remove Tax",
     h1: "GST & VAT calculator",
     description:
@@ -462,6 +501,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "amount-in-words",
     label: "Amount in words",
+    icon: "Type",
     title: "Number to Words Converter — Amount in Words",
     h1: "Amount in words & number to words converter",
     description:
@@ -481,6 +521,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "electricity-cost-calculator",
     label: "Electricity cost calculator",
+    icon: "Zap",
     title: "Electricity Bill & Cost Calculator (kWh)",
     h1: "Electricity bill & appliance cost calculator",
     description:
@@ -500,6 +541,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "currency-converter",
     label: "Currency converter",
+    icon: "ArrowRightLeft",
     title: "Currency Converter — Today's Exchange Rates",
     h1: "Currency converter",
     description:
@@ -519,6 +561,7 @@ export const TOOLS: Tool[] = [
   {
     slug: "inflation-calculator",
     label: "Inflation calculator",
+    icon: "ShoppingBasket",
     title: "Inflation Calculator — Past & Future Value",
     h1: "Inflation calculator",
     description:
@@ -551,6 +594,44 @@ export function getTool(slug: string, from: Tool[] = TOOLS): Tool | undefined {
 /** Published tools in one hub group, in registry order. */
 export function toolsInGroup(group: ToolGroup, from: Tool[] = TOOLS): Tool[] {
   return publishedTools(from).filter((t) => t.group === group);
+}
+
+export type ToolMenuGroup = (typeof TOOL_GROUPS)[number] & { items: Tool[] };
+
+/**
+ * The Tools menu's columns: every non-empty group, in hub order, split into
+ * `columns` runs so the tallest column is as short as it can be (a heading
+ * counts as one row, each tool as one). Groups are never split across columns
+ * and never reordered, so the menu reads in the same order as `/tools`.
+ * Ties go to the earliest split, so the layout is stable from render to render.
+ */
+export function toolMenuColumns(columns = 3, from: Tool[] = TOOLS): ToolMenuGroup[][] {
+  const groups = TOOL_GROUPS.map((g) => ({ ...g, items: toolsInGroup(g.id, from) })).filter(
+    (g) => g.items.length > 0,
+  );
+  const height = (run: ToolMenuGroup[]) => run.reduce((h, g) => h + 1 + g.items.length, 0);
+  const k = Math.max(1, Math.min(columns, groups.length));
+
+  // Few groups and few columns: try every contiguous split. With 6 groups in 3
+  // columns that's 10 candidates.
+  let best: ToolMenuGroup[][] = [groups];
+  let bestHeight = Infinity;
+  const search = (start: number, left: number, acc: ToolMenuGroup[][]) => {
+    if (left === 1) {
+      const candidate = [...acc, groups.slice(start)];
+      const tallest = Math.max(...candidate.map(height));
+      if (tallest < bestHeight) {
+        bestHeight = tallest;
+        best = candidate;
+      }
+      return;
+    }
+    for (let end = start + 1; end <= groups.length - (left - 1); end++) {
+      search(end, left - 1, [...acc, groups.slice(start, end)]);
+    }
+  };
+  if (groups.length > 0) search(0, k, []);
+  return best;
 }
 
 /**

@@ -41,7 +41,7 @@ function expense(patch: Partial<DraftExpense> & Pick<DraftExpense, "id">): Draft
 /** A trip with one expense of each kind and a leftover paisa or two to place. */
 function tripDraft(): SplitDraft {
   return {
-    v: 1,
+    v: 2,
     name: "Goa trip",
     currency: "INR",
     people: [
@@ -198,6 +198,26 @@ describe("importing a group from the split calculator", () => {
     ok(await importSplitDraft(buildImportInput({ draft: tripDraft(), name: "Old", meId: "p0001", emails: EMAILS })));
     const [old] = await db().select({ a: users.acquisition }).from(users).where(eq(users.id, uid("old")));
     expect(old!.a?.convertedFrom ?? null).toBeNull();
+  });
+});
+
+describe("emails typed in the calculator", () => {
+  it("invites the people whose emails are in the draft, with no emails passed, and says how many", async () => {
+    const draft: SplitDraft = {
+      ...tripDraft(),
+      people: [
+        { id: "p0001", name: "Me" },
+        { id: "p0002", name: "Asha", email: "Asha@Example.com" },
+        { id: "p0003", name: "Zoe", email: " zoe@example.com" },
+      ],
+    };
+    await bootstrapUser("o");
+    await bootstrapUser("asha");
+    signInAs("o");
+    const res = ok(await importSplitDraft(buildImportInput({ draft, name: draft.name, meId: "p0001" })));
+    expect(res.invited).toBe(2);
+    const detail = await split.getGroupDetail(uid("o"), res.groupId);
+    expect(detail.members.map((m) => m.email)).toEqual(["o@example.com", "asha@example.com", "zoe@example.com"]);
   });
 });
 

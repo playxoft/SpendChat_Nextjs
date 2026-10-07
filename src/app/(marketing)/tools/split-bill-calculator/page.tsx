@@ -45,11 +45,11 @@ const faqs = [
   },
   {
     q: "Can everyone in the group see the balance?",
-    a: `Save the group to SpendChat and add everyone's email: each person gets an invite — by email, or in the app if they already use SpendChat. Once they join, each person sees the same expenses and balances, can add what they paid for, and marks payments as paid — so the balance is always current, for groups of up to ${SPLIT_GROUP_MAX_PEOPLE} people. The group you built here comes with you when you sign up.`,
+    a: `Add everyone's email — here in the calculator or when you save — and save the group to SpendChat: each person gets an invite, by email or in the app if they already use SpendChat. Once they join, each person sees the same expenses and balances, can add what they paid for, and marks payments as paid — so the balance is always current, for groups of up to ${SPLIT_GROUP_MAX_PEOPLE} people. The group you built here comes with you when you sign up.`,
   },
   {
     q: "Is what I type stored anywhere?",
-    a: "Only in your browser, until you choose to save it. The names and amounts stay on this device and aren't sent to SpendChat or to analytics. Start over clears it.",
+    a: "Only in your browser, until you choose to save it. The names, emails and amounts stay on this device and aren't sent to SpendChat or to analytics. Start over clears it.",
   },
 ];
 
@@ -72,7 +72,10 @@ export default function SplitBillCalculatorPage() {
       <ToolSection title="How to split a bill with friends">
         <ol className="list-decimal space-y-2 pl-5">
           <li>Name the group and pick its currency — one currency per group, like a trip&apos;s budget.</li>
-          <li>Add everyone by name. You&apos;re first; press Enter to add the next person.</li>
+          <li>
+            Add everyone by name — you&apos;re first; press Enter to add the next person. An email is optional:
+            add one and that person is invited automatically when you save the group.
+          </li>
           <li>
             Add each expense: what it was, how much, who paid, and who it was for. Untick anyone who
             wasn&apos;t there.

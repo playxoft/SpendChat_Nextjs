@@ -16,9 +16,15 @@ import { withNext } from "@/lib/next-path";
 
 /** Where the app reads a draft back after sign-up. */
 export const SPLIT_IMPORT_PATH = "/app/split/import";
-/** Sign-up and sign-in, coming back to the import page afterwards. */
-export const SPLIT_SIGN_UP_HREF = withNext("/sign-up", SPLIT_IMPORT_PATH);
-export const SPLIT_SIGN_IN_HREF = withNext("/sign-in", SPLIT_IMPORT_PATH);
+/**
+ * The same page, arrived at from one of the calculator's sign-up prompts: when
+ * the draft already has everything (who's you, everyone else's email), the page
+ * creates the group straight away instead of showing a form.
+ */
+export const SPLIT_IMPORT_FROM_TOOL = `${SPLIT_IMPORT_PATH}?from=tool`;
+/** Sign-up and sign-in from the calculator, coming back to the import page afterwards. */
+export const SPLIT_SIGN_UP_HREF = withNext("/sign-up", SPLIT_IMPORT_FROM_TOOL);
+export const SPLIT_SIGN_IN_HREF = withNext("/sign-in", SPLIT_IMPORT_FROM_TOOL);
 
 /** Expenses one import may carry — what the tool lets a draft hold. */
 export const SPLIT_IMPORT_EXPENSES_MAX = 200;
