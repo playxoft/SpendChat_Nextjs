@@ -5,6 +5,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { endOfMonth, startOfMonth, subMonths } from "date-fns";
 import { Loader2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { DateRangeFilter } from "@/components/app/date-range-filter";
 import { TypeFilterOptions } from "@/components/app/type-filter-options";
 import {
@@ -150,6 +151,30 @@ export function AnalyticsFilters({ today, locale }: { today: string; locale?: st
       {pending && (
         <Loader2 className="size-4 animate-spin text-muted-foreground" aria-label="Loading" />
       )}
+    </div>
+  );
+}
+
+/**
+ * The filter row while the page loads (`loading.tsx`): the same range toggle
+ * with the same labels, so it is exactly as wide, and placeholders the size of
+ * the date and type controls.
+ */
+export function AnalyticsFiltersSkeleton() {
+  return (
+    <div className="flex flex-wrap items-center gap-2 print:hidden" aria-hidden>
+      <div className="no-scrollbar flex h-9 min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-md border bg-muted/40 p-1">
+        {RANGES.map((r) => (
+          <span
+            key={r.key}
+            className="inline-flex h-7 shrink-0 items-center px-2.5 text-xs text-muted-foreground"
+          >
+            {r.label}
+          </span>
+        ))}
+      </div>
+      <Skeleton className="h-8 w-[12.5rem] rounded-lg" />
+      <Skeleton className="h-9 w-32 rounded-md" />
     </div>
   );
 }

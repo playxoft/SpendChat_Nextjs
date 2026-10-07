@@ -301,6 +301,12 @@ describe("planChanges", () => {
     });
   });
 
+  it("adds insights and trends on the way up from Free only", () => {
+    expect(planChanges("free", "plus")).toContainEqual({ label: "Insights and trends", to: "Included" });
+    expect(planChanges("free", "pro")).toContainEqual({ label: "Insights and trends", to: "Included" });
+    expect(planChanges("plus", "pro").some((c) => c.label === "Insights and trends")).toBe(false);
+  });
+
   it("adds voice on the way to Pro, and nothing when the plan doesn't change", () => {
     expect(planChanges("plus", "pro").some((c) => c.label === "Voice entry")).toBe(true);
     expect(planChanges("pro", "pro")).toEqual([]);

@@ -270,6 +270,7 @@ export function planChanges(from: PersonalPlan, to: PersonalPlan): PlanChange[] 
   flag("Access per profile", a.profileLevelAccess, b.profileLevelAccess);
   flag("AI top-ups", a.topUps, b.topUps);
   flag(`Trash for files (${TRASH_DAYS} days)`, a.fileTrash, b.fileTrash);
+  flag("Insights and trends", a.advancedAnalytics, b.advancedAnalytics);
   return out;
 }
 
@@ -402,6 +403,14 @@ export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
       "Everyone gets one free workspace. This one is extra, so it's view-only for now — nothing in it is deleted.",
     pitch: ({ next }) =>
       `With ${next}, it works like your first one: add, edit and invite.`,
+  },
+  // The analytics page's "Insights & trends" section.
+  advancedAnalytics: {
+    headline: "See where the month is heading, not just where it went",
+    status: ({ current }) =>
+      `On ${current}, analytics shows your totals, the category breakdown, the last 6 months and budgets.`,
+    pitch: ({ next }) =>
+      `${next} adds a month-end projection, 12 months of cash flow, category trends, a spending calendar, and the recurring payments and unusual spends it spots for you.`,
   },
   // Client-only: the trash's Files tab on a plan without a file trash.
   fileTrash: {

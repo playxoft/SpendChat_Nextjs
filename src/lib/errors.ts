@@ -63,7 +63,9 @@ export type PlanLimitKey =
   | "aiActions"
   | "voice"
   | "profileLevelAccess"
-  | "freeWorkspaces";
+  | "freeWorkspaces"
+  // Web only: the analytics page's Plus section. No `/api/v1` route returns it.
+  | "advancedAnalytics";
 
 /** `details` of a `plan_limit` error. */
 export type PlanLimitDetails = {
