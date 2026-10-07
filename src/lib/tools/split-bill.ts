@@ -345,7 +345,7 @@ export type DraftLedger = {
   totalMinor: number;
   /** Per person, in draft order. Nets sum to zero. */
   balances: PersonBalance[];
-  /** Fewest payments that settle everyone, largest first. */
+  /** Who pays whom to settle everyone (at most n − 1 payments, not a guaranteed minimum), largest first. */
   payments: Payment[];
   /** Expenses that don't add up and were left out (shouldn't happen — the form checks). */
   invalid: string[];

@@ -396,7 +396,7 @@ export const TOOLS: Tool[] = [
     title: "Split Bill Calculator — Split Group Expenses",
     h1: "Split bill & group expense calculator",
     description:
-      "Split a dinner, a trip or the flat's bills: equal, exact or percent shares, everyone's balance and the fewest payments to settle up. Free, no sign-up.",
+      "Split a dinner, a trip or the flat's bills: equal, exact or percent shares, everyone's balance and who pays whom to settle up. Free, no sign-up.",
     blurb: "Who owes whom after a trip, a dinner or a month of bills.",
     action: "Split the bill",
     group: "everyday",

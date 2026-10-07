@@ -29,7 +29,7 @@ const faqs = [
   },
   {
     q: "How does it work out who pays whom?",
-    a: "Everyone's balance is what they paid minus their share of everything. People who are owed money and people who owe it are then matched largest first, so the group settles in as few payments as possible — never more than one fewer than the number of people.",
+    a: "Everyone's balance is what they paid minus their share of everything. People who are owed money and people who owe it are then matched largest first, which gives a short list of payments that settles everyone — never more than one fewer than the number of people. It isn't guaranteed to be the shortest list possible, but it's the same list every time.",
   },
   {
     q: "Can I split a bill unequally?",
@@ -63,7 +63,7 @@ export default function SplitBillCalculatorPage() {
       intro={
         <p>
           Add who&apos;s in and what each person paid for. You&apos;ll see everyone&apos;s balance and
-          the fewest payments that settle the lot — split equally, by exact amounts or by percent.
+          who pays whom to settle up — split equally, by exact amounts or by percent.
         </p>
       }
       tool={<SplitBillTool />}
@@ -109,7 +109,8 @@ export default function SplitBillCalculatorPage() {
           Two payments instead of four: rather than Ben and Chloe each paying Asha back for the cabin
           and Asha and Chloe each paying Ben for the groceries, the debts are netted first. The biggest
           debt is matched with the biggest credit, then the next, so a group of any size settles in at
-          most one payment fewer than it has people.
+          most one payment fewer than it has people. That&apos;s a short list, not always the shortest
+          one possible — finding that is a much harder puzzle, and rarely saves more than a payment.
         </p>
       </ToolSection>
 

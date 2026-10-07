@@ -731,7 +731,7 @@ export function splitInviteEmail(input: SplitInviteEmailInput): RenderedEmail {
     groupTile(input),
     richParagraph(leadHtml, leadText),
     paragraph(
-      `${name} keeps the tab for you: everyone adds what they paid, and it works out who owes whom — and the fewest payments to settle up. No spreadsheets, no "who paid for the cab?".`,
+      `${name} keeps the tab for you: everyone adds what they paid, and it works out who owes whom — and who pays whom to settle up. No spreadsheets, no "who paid for the cab?".`,
     ),
     button(`See ${groupName}`, joinUrl),
     richParagraph(

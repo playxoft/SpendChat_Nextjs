@@ -43,7 +43,7 @@ const faqs = [
   },
   {
     q: "Does SpendChat send the money?",
-    a: "No. It works out who owes whom and the fewest payments that settle everyone. You pay each other however you normally do — cash, UPI, a bank transfer — and press “Mark as paid”, and the balances update for everyone.",
+    a: "No. It works out who owes whom and a short list of payments that settles everyone. You pay each other however you normally do — cash, UPI, a bank transfer — and press “Mark as paid”, and the balances update for everyone.",
   },
   {
     q: "Can a group use a different currency from my workspace?",
@@ -72,8 +72,8 @@ export default function SplitPage() {
             Someone pays for the cab, someone else gets dinner, and by the last
             day nobody remembers who owes what. A split group keeps that list
             for everyone: add what was spent and how it&apos;s divided, and
-            SpendChat works out each person&apos;s balance and the fewest
-            payments that settle it.
+            SpendChat works out each person&apos;s balance and who pays whom
+            to settle it.
           </p>
           <p>
             Free on every plan, for up to {MAX} people. The demo below runs the
@@ -103,7 +103,7 @@ export default function SplitPage() {
           },
           {
             title: "Settle up",
-            body: "SpendChat lists who pays whom, in as few payments as possible. When one happens, Mark as paid — and everyone's balance moves.",
+            body: "SpendChat lists who pays whom — at most one payment fewer than there are people. When one happens, Mark as paid — and everyone's balance moves.",
           },
         ]}
       />
@@ -141,13 +141,14 @@ export default function SplitPage() {
         </p>
       </FeatureSection>
 
-      <FeatureSection title="Settle up in the fewest payments">
+      <FeatureSection title="Settle up from one short list">
         <p>
           Four people and a dozen expenses could mean a dozen transfers. They
           don&apos;t have to: SpendChat matches the biggest debt with the
           biggest credit, then the next, so a group of n people never needs more
-          than n − 1 payments. The list is the same for everyone, every time
-          they open it.
+          than n − 1 payments. It&apos;s a short list rather than a
+          guaranteed shortest one, and it&apos;s the same for everyone, every
+          time they open it.
         </p>
         <p>
           SpendChat doesn&apos;t move money. When someone pays — cash, UPI, a

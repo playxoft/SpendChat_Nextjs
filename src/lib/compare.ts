@@ -31,11 +31,11 @@ export const COMPARISONS: Comparison[] = [
   {
     slug: "splitwise",
     competitor: "Splitwise",
-    title: "SpendChat vs Splitwise: Splitting vs Tracking",
+    title: "SpendChat vs Splitwise: Splitting and Tracking",
     h1: "SpendChat vs Splitwise",
     description:
-      "Splitwise settles who owes whom. SpendChat records what you spent, shared or not, with no daily limit and no ads. Which one fits, and when you'd want both.",
-    blurb: "Settling up with friends versus knowing where your own money went.",
+      "Both split costs with friends now. Splitwise is the specialist; SpendChat adds free split groups to a tracker for your own money. What each does better.",
+    blurb: "Splitting with friends, and tracking your own money — which does what better.",
     verifiedOn: "2026-09-08",
     published: true,
   },

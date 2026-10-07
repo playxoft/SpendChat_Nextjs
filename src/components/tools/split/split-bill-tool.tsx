@@ -49,7 +49,7 @@ import { SignUpGate, type GateKind } from "./sign-up-gate";
 
 /**
  * The free split calculator: name the group, add people by name, add what was
- * spent — and see everyone's balance and the fewest payments that settle it,
+ * spent — and see everyone's balance and who pays whom to settle it,
  * worked out with the app's own split maths. Saved in this browser as you go.
  *
  * What needs other people — saving the group for everyone, a live link,
@@ -321,7 +321,7 @@ export function SplitBillTool() {
                     ? "Everyone is settled up."
                     : ledger.payments.length === 1
                       ? "One payment settles everyone."
-                      : `${ledger.payments.length} payments settle everyone — the fewest it can be done in.`
+                      : `${ledger.payments.length} payments settle everyone.`
                 }
               />
 
@@ -394,7 +394,7 @@ export function SplitBillTool() {
           ) : (
             <ResultEmpty>
               Add who&apos;s in and what each person paid for, and you&apos;ll see everyone&apos;s balance
-              here — with the fewest payments that settle it.
+              here — and who pays whom to settle it.
             </ResultEmpty>
           )}
 
