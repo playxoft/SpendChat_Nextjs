@@ -185,7 +185,12 @@ describe("AnswerMarkdown", () => {
     expect(html).toContain("<ul");
     expect(html).toContain('href="https://spendchat.example/app/analytics"');
     expect(html).toContain('target="_blank"');
-    expect(html.replace(/<[^>]+>/g, "")).toContain("See the full breakdown in Analytics · spendchat.example ↗");
+    let text = html;
+    for (let prev = ""; prev !== text; ) {
+      prev = text;
+      text = text.replace(/<[^>]*>/g, "");
+    }
+    expect(text).toContain("See the full breakdown in Analytics · spendchat.example ↗");
   });
 
   it("puts no hast `node` attribute on the DOM", () => {
