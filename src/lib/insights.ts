@@ -317,33 +317,92 @@ export function cashFlow(rows: MonthCategoryRow[], months: string[]): CashFlow {
 
 // ── Pace and comparisons ───────────────────────────────────────────────────
 
-export type ProjectionMethod = "history" | "pace" | "complete";
+export type ProjectionMethod = "history" | "pace" | "early" | "complete";
 
 /**
- * Where this month's spending is heading.
+ * Straight-line pace isn't trusted before this day of the month: with nothing
+ * else to go on, a rent paid on the 1st would project ten rents on day 3.
+ */
+export const PACE_MIN_DAY = 7;
+
+function cumulative(values: number[]): number[] {
+  let run = 0;
+  return values.map((v) => (run += v));
+}
+
+/**
+ * What the rest of one earlier month cost, laid over *this* month's remaining
+ * days and accumulated day by day: that month's spending after `day`, kept at
+ * its own per-day rate, stretched (or squeezed) to `remaining` days. Months
+ * differ in length, so summing an earlier month to its own end would project a
+ * 28-day February with a 31-day month's tail. Null when that month has no days
+ * after `day` (February, seen from the 30th).
+ */
+function restCurve(daily: number[], day: number, remaining: number): number[] | null {
+  const rest = daily.slice(day);
+  if (rest.length === 0) return null;
+  const cum = [0, ...cumulative(rest)];
+  const scale = remaining / rest.length;
+  return Array.from({ length: remaining }, (_, i) => {
+    const p = ((i + 1) * rest.length) / remaining;
+    const lo = Math.floor(p);
+    const frac = p - lo;
+    const value = frac > 0 ? cum[lo] + frac * (cum[lo + 1] - cum[lo]) : cum[lo];
+    return value * scale;
+  });
+}
+
+/**
+ * Where this month's spending is heading, day by day from tomorrow to the
+ * month's end, as spending *added* to what's gone out so far (`rest[i]` is the
+ * extra by the end of day `day + i + 1`).
  *
  * Straight-line pace ("so far ÷ days × days in month") is what people expect,
  * and on its own it is badly wrong at the start of a month: rent paid on the
  * 1st makes day 3 project ten rents. So when there is history, the projection
- * is **what has been spent so far, plus what the rest of the month has usually
- * cost** — the mean, over recent months, of their spending after today's day
- * of the month. Rent then counts once, in "so far", and only straight-line
- * pace is used with no history to go on.
+ * is **what has been spent so far, plus what the rest of a month usually
+ * costs** — the mean, over recent months, of their spending after today's day
+ * of the month at their per-day rate (`restCurve`). Rent then counts once, in
+ * "so far". With no history, straight-line pace — and not before
+ * `PACE_MIN_DAY` ("early": too soon to tell).
  */
-export function projectMonthEnd(input: {
+export function projectionCurve(input: {
   soFar: number;
   day: number;
   daysInMonth: number;
   /** Each earlier month's spend per day (index 0 = the 1st). */
   history: number[][];
-}): { projected: number; method: ProjectionMethod } {
+}): { method: ProjectionMethod; rest: number[] } {
   const { soFar, day, daysInMonth, history } = input;
-  if (day >= daysInMonth) return { projected: soFar, method: "complete" };
-  if (history.length > 0) {
-    const rest = mean(history.map((daily) => daily.slice(day).reduce((a, b) => a + b, 0)));
-    return { projected: Math.round(soFar + rest), method: "history" };
+  const remaining = daysInMonth - day;
+  if (remaining <= 0) return { method: "complete", rest: [] };
+  const curves = history
+    .map((h) => restCurve(h, day, remaining))
+    .filter((c): c is number[] => c !== null);
+  if (curves.length > 0) {
+    return {
+      method: "history",
+      rest: Array.from({ length: remaining }, (_, i) => mean(curves.map((c) => c[i]))),
+    };
   }
-  return { projected: Math.round((soFar / Math.max(day, 1)) * daysInMonth), method: "pace" };
+  if (day < PACE_MIN_DAY) return { method: "early", rest: [] };
+  const perDay = soFar / day;
+  return { method: "pace", rest: Array.from({ length: remaining }, (_, i) => perDay * (i + 1)) };
+}
+
+function monthEndOf(soFar: number, curve: { method: ProjectionMethod; rest: number[] }): number | null {
+  if (curve.method === "complete") return soFar;
+  if (curve.method === "early") return null;
+  return Math.round(soFar + curve.rest[curve.rest.length - 1]);
+}
+
+/** The month-end figure: so far plus the projected rest; null while it's too early to tell. */
+export function projectMonthEnd(input: Parameters<typeof projectionCurve>[0]): {
+  projected: number | null;
+  method: ProjectionMethod;
+} {
+  const curve = projectionCurve(input);
+  return { projected: monthEndOf(input.soFar, curve), method: curve.method };
 }
 
 export type PacePoint = {
@@ -361,7 +420,8 @@ export type PaceSummary = {
   day: number;
   daysInMonth: number;
   soFar: number;
-  projected: number;
+  /** Null while it's too early to tell (`method: "early"`). */
+  projected: number | null;
   method: ProjectionMethod;
   lastMonth: { total: number; toDate: number } | null;
   /** The mean of up to the 3 previous months that hold any entry. */
@@ -377,11 +437,6 @@ function dailyArray(daily: DailyTotal[], month: string): number[] {
     out[Number(d.date.slice(8, 10)) - 1] += d.total;
   }
   return out;
-}
-
-function cumulative(values: number[]): number[] {
-  let run = 0;
-  return values.map((v) => (run += v));
 }
 
 /** This month so far against last month, the usual month and a year ago. */
@@ -411,27 +466,21 @@ export function paceSummary(
     : null;
 
   const history = previous.map((m) => dailyArray(paceDaily, m));
-  const { projected, method } = projectMonthEnd({ soFar, day, daysInMonth: length, history });
+  const curve = projectionCurve({ soFar, day, daysInMonth: length, history });
+  const { method } = curve;
+  const projected = monthEndOf(soFar, curve);
+  const drawn = method === "history" || method === "pace";
 
   const thisCum = cumulative(dailyArray(paceDaily, month));
   const lastMonthKey = shiftMonth(month, -1);
   const lastCum = totals.has(lastMonthKey) ? cumulative(dailyArray(paceDaily, lastMonthKey)) : null;
-  // The projection's shape between today and the month's end: the usual
-  // spending after today accumulates day by day (or a straight line on pace).
-  const restCum = history.length
-    ? Array.from({ length: length - day }, (_, i) =>
-        mean(history.map((h) => h.slice(day, day + i + 1).reduce((a, b) => a + b, 0))),
-      )
-    : null;
 
   const points: PacePoint[] = Array.from({ length }, (_, i) => {
     const d = i + 1;
     let projection: number | null = null;
-    if (method !== "complete" && d >= day) {
-      if (d === day) projection = soFar;
-      else if (restCum) projection = Math.round(soFar + restCum[d - day - 1]);
-      else projection = Math.round(soFar + (soFar / Math.max(day, 1)) * (d - day));
-    }
+    // From today's point to the month's end; the last point is `projected`.
+    if (drawn && d === day) projection = soFar;
+    if (drawn && d > day) projection = Math.round(soFar + curve.rest[d - day - 1]);
     return {
       day: d,
       // Rows dated after today (planned spending) aren't "so far".
@@ -440,8 +489,6 @@ export function paceSummary(
       lastMonth: lastCum && d <= lastCum.length ? lastCum[d - 1] : null,
     };
   });
-  // The line ends on exactly the headline number.
-  if (method !== "complete") points[length - 1].projection = projected;
 
   return {
     month,
@@ -594,6 +641,31 @@ export function findAnomalies(
 
 // ── Recurring payments ─────────────────────────────────────────────────────
 
+/**
+ * English month names and their short forms ("sep", "sept", "september"), as
+ * one alternation. A recurring payment's title often carries its month ("Rent
+ * Sep 2026"); `insights-queries.ts` strips these (with the digits) from the
+ * grouping key in SQL, and `recurringLabel` from the label shown.
+ */
+export const MONTH_NAMES_PATTERN =
+  "jan(uary)?|feb(ruary)?|mar(ch)?|apr(il)?|may|june?|july?|aug(ust)?|sep(t(ember)?)?|oct(ober)?|nov(ember)?|dec(ember)?";
+
+/** Separators a title's month or date hangs off ("Rent - Sep", "Gym (Oct)"). */
+export const TITLE_SEPARATORS_PATTERN = "[-–—/:,.()#]+";
+
+const MONTH_WORD = new RegExp(`\\b(${MONTH_NAMES_PATTERN})\\b`, "gi");
+const SEPARATORS = new RegExp(TITLE_SEPARATORS_PATTERN, "g");
+
+/** A title without its digits, month names and separators: "Rent - Sep 2026" → "Rent". */
+export function recurringLabel(title: string): string {
+  return title
+    .replace(/[0-9]+/g, " ")
+    .replace(MONTH_WORD, " ")
+    .replace(SEPARATORS, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export type RecurringPayment = {
   key: string;
   label: string;
@@ -653,7 +725,7 @@ export function detectRecurring(
     const category = lookup(g.categoryId);
     out.push({
       key: g.key,
-      label: g.title?.trim() || category.name,
+      label: recurringLabel(g.title ?? "") || category.name,
       categoryId: g.categoryId,
       categoryName: category.name,
       icon: category.icon,
@@ -711,11 +783,22 @@ export type CalendarDay = {
 
 export type CalendarMonth = { month: string; weeks: (CalendarDay | null)[][] };
 
+/** Week rows every month calendar has — the most a month can need — so all are the same height. */
+export const CALENDAR_WEEKS = 6;
+
+/** How many months a window spans, counting partial ones. */
+export function monthCount(window: { from: string; to: string }): number {
+  const ym = (iso: string) => Number(iso.slice(0, 4)) * 12 + Number(iso.slice(5, 7));
+  return ym(window.to) - ym(window.from) + 1;
+}
+
 /**
  * The window as month calendars — rows are weeks starting on `firstDay`
- * (0 = Sunday, 1 = Monday), with `null` padding before the 1st and after the
- * last day. Days outside the window are kept (a month always shows whole) but
- * marked, and shaded by quartile of the window's own spending days.
+ * (0 = Sunday, 1 = Monday), always `CALENDAR_WEEKS` of them, with `null`
+ * padding before the 1st and after the last day (so every month, and its
+ * loading placeholder, is exactly the same size). Days outside the window are
+ * kept (a month always shows whole) but marked, and shaded by quartile of the
+ * window's own spending days.
  */
 export function calendarMonths(
   daily: DailyTotal[],
@@ -737,7 +820,7 @@ export function calendarMonths(
       const total = byDate.get(date) ?? 0;
       cells.push({ date, day, total, level: heatLevel(total, thresholds), inWindow: inWindow(date) });
     }
-    while (cells.length % 7) cells.push(null);
+    while (cells.length < CALENDAR_WEEKS * 7) cells.push(null);
     const weeks: (CalendarDay | null)[][] = [];
     for (let i = 0; i < cells.length; i += 7) weeks.push(cells.slice(i, i + 7));
     months.push({ month: m, weeks });
@@ -807,7 +890,7 @@ export function buildInsights(
   const { pace } = d;
 
   // Where this month is heading.
-  if (pace.method !== "complete" && pace.soFar > 0) {
+  if (pace.projected !== null && pace.method !== "complete" && pace.soFar > 0) {
     const base = pace.usual?.total ?? null;
     const change = pctChange(pace.projected, base);
     const heading = `At this pace you'll spend about ${fmt(pace.projected)} this month`;

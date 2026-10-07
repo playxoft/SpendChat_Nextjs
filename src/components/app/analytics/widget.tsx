@@ -98,16 +98,25 @@ export function SkeletonLine({
   );
 }
 
-/** A `WidgetCard` with its header as placeholder lines. */
+/**
+ * A `WidgetCard` while its data loads. Pass the card's real `title` and
+ * `description` when they don't depend on the data (every insights card): the
+ * header is then the card's own, wrapping exactly as it will. Without them the
+ * header is two placeholder lines.
+ */
 export function WidgetCardSkeleton({
   span = "half",
   bodyClassName,
+  title,
+  description,
   titleWidth = "w-36",
   descriptionWidth = "w-56",
   children,
 }: {
   span?: WidgetSpan;
   bodyClassName?: string;
+  title?: React.ReactNode;
+  description?: React.ReactNode;
   titleWidth?: string;
   descriptionWidth?: string;
   children?: React.ReactNode;
@@ -116,8 +125,16 @@ export function WidgetCardSkeleton({
     <Card className={cn("min-w-0", spanClass(span))} aria-hidden>
       <CardHeader>
         {/* text-base leading-snug = 22px; text-sm = 20px */}
-        <SkeletonLine className={cn("h-4", titleWidth)} lineClassName="h-[1.375rem]" />
-        <SkeletonLine className={cn("max-w-full", descriptionWidth)} />
+        {title !== undefined ? (
+          <WidgetTitle>{title}</WidgetTitle>
+        ) : (
+          <SkeletonLine className={cn("h-4", titleWidth)} lineClassName="h-[1.375rem]" />
+        )}
+        {description !== undefined ? (
+          <CardDescription>{description}</CardDescription>
+        ) : (
+          <SkeletonLine className={cn("max-w-full", descriptionWidth)} />
+        )}
       </CardHeader>
       <CardContent className={cn("min-w-0", bodyClassName)}>{children}</CardContent>
     </Card>

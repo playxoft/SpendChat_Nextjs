@@ -547,8 +547,12 @@ export function advancedAnalyticsAllowed(ent: Pick<WorkspaceEntitlements, "limit
  * Free workspace's request never computes the data — the page shows a preview
  * built from sample numbers instead.
  */
-export async function assertAdvancedAnalytics(workspaceId: string): Promise<void> {
-  const ent = await getWorkspaceEntitlements(workspaceId);
+export async function assertAdvancedAnalytics(
+  workspaceId: string,
+  /** The plan the caller already read for this workspace (an RSC render has no request memo). */
+  known?: WorkspaceEntitlements,
+): Promise<void> {
+  const ent = known?.workspaceId === workspaceId ? known : await getWorkspaceEntitlements(workspaceId);
   if (advancedAnalyticsAllowed(ent)) return;
   const upgradeTo = upgradeForFeature(ent.plan, "advancedAnalytics");
   throw planLimit(

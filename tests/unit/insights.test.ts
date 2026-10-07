@@ -18,13 +18,17 @@ import {
   heatLevel,
   heatThresholds,
   median,
+  monthCount,
   monthsEnding,
   nextMonthSameDay,
   normsFrom,
   paceSummary,
   pctChange,
   percentLabel,
+  PACE_MIN_DAY,
   projectMonthEnd,
+  projectionCurve,
+  recurringLabel,
   ratioLabel,
   savingsRate,
   shiftMonth,
@@ -179,6 +183,22 @@ describe("projectMonthEnd", () => {
     });
   });
 
+  it("won't guess on pace alone in the first week", () => {
+    // Rent on the 1st, nothing to compare with: day 3 would project ten rents.
+    expect(projectMonthEnd({ soFar: 1000, day: 3, daysInMonth: 30, history: [] })).toEqual({
+      projected: null,
+      method: "early",
+    });
+    expect(projectionCurve({ soFar: 1000, day: 6, daysInMonth: 30, history: [] })).toEqual({
+      method: "early",
+      rest: [],
+    });
+    expect(projectMonthEnd({ soFar: 700, day: PACE_MIN_DAY, daysInMonth: 28, history: [] })).toEqual({
+      projected: 2800,
+      method: "pace",
+    });
+  });
+
   it("adds what the rest of a month usually costs — so rent on the 1st counts once", () => {
     // Every month: rent 1,000 on the 1st, then 10 a day.
     const month = (days: number) => Array.from({ length: days }, (_, i) => (i === 0 ? 1000 : 10));
@@ -190,10 +210,40 @@ describe("projectMonthEnd", () => {
       history: [month(30), month(31), month(30)],
     });
     expect(method).toBe("history");
-    // 1,020 so far + the usual days 4…end (27, 28, 27 days of 10 → mean 273.3).
-    expect(projected).toBe(Math.round(1020 + (270 + 280 + 270) / 3));
+    // 1,020 so far + 27 more days at 10 a day — whatever each earlier month's length.
+    expect(projected).toBe(1020 + 270);
     // Straight-line pace would have said ten rents.
     expect(Math.round((soFar / 3) * 30)).toBeGreaterThan(10_000);
+  });
+
+  it("projects a short month by this month's days left, not the earlier months' own", () => {
+    // 20 February at a steady 100 a day, after 31-, 31- and 30-day months.
+    const steady = (days: number) => new Array<number>(days).fill(100);
+    const input = { soFar: 2000, day: 20, daysInMonth: 28, history: [steady(31), steady(31), steady(30)] };
+    expect(projectMonthEnd(input)).toEqual({ projected: 2800, method: "history" });
+    // Day by day the line keeps the same 100 a day, and ends on the headline.
+    expect(projectionCurve(input).rest).toEqual([100, 200, 300, 400, 500, 600, 700, 800]);
+    // And a long month after a short one is stretched the same way.
+    const march = { soFar: 2000, day: 20, daysInMonth: 31, history: [steady(28)] };
+    expect(projectMonthEnd(march).projected).toBe(3100);
+    expect(projectionCurve(march).rest.map(Math.round)).toEqual(
+      Array.from({ length: 11 }, (_, i) => 100 * (i + 1)),
+    );
+  });
+
+  it("follows the shape of the usual rest of the month", () => {
+    // Earlier month: nothing, then a 600 bill on its last day.
+    const bill = [...new Array<number>(29).fill(0), 600];
+    expect(projectionCurve({ soFar: 0, day: 27, daysInMonth: 30, history: [bill] }).rest).toEqual([0, 0, 600]);
+  });
+
+  it("leaves out an earlier month with no days left to compare, and falls back to pace", () => {
+    // 30 March, seen against a 28-day February only.
+    const feb = new Array<number>(28).fill(100);
+    expect(projectMonthEnd({ soFar: 3000, day: 30, daysInMonth: 31, history: [feb] })).toEqual({
+      projected: 3100,
+      method: "pace",
+    });
   });
 });
 
@@ -226,8 +276,9 @@ describe("paceSummary", () => {
     expect(p.usual).toEqual({ total: 1050, toDate: 350, months: 2 });
     expect(p.lastYear).toEqual({ total: 1000, toDate: 350 });
     expect(p.method).toBe("history");
-    // 500 + mean(800 after the 10th in Sep, 600 in Aug).
-    expect(p.projected).toBe(1200);
+    // 500 + the mean of 21 days at Sep's rate after the 10th (800 over 20 days
+    // → 840) and Aug's (600 over 21 days → 600).
+    expect(p.projected).toBe(1220);
   });
 
   it("draws so-far up to today, the projection from today to the end, and last month", () => {
@@ -237,6 +288,7 @@ describe("paceSummary", () => {
     expect(p.points[9]).toMatchObject({ day: 10, thisMonth: 500, projection: 500 });
     expect(p.points[10].thisMonth).toBeNull(); // the planned row isn't "so far"
     expect(p.points[30].projection).toBe(p.projected);
+    expect(p.points[29].projection).toBeLessThanOrEqual(p.projected!); // no jump on the last day
     expect(p.points[8].projection).toBeNull();
     expect(p.points[29].lastMonth).toBe(1200);
     expect(p.points[30].lastMonth).toBeNull(); // September has 30 days
@@ -247,6 +299,13 @@ describe("paceSummary", () => {
     expect(p.method).toBe("complete");
     expect(p.projected).toBe(500);
     expect(p.points.every((pt) => pt.projection === null)).toBe(true);
+  });
+
+  it("draws no projection while it's too early to tell", () => {
+    const p = paceSummary([exp("2026-10", "food", 1000)], [{ date: "2026-10-01", total: 1000 }], "2026-10-03");
+    expect(p).toMatchObject({ method: "early", projected: null, soFar: 1000 });
+    expect(p.points.every((pt) => pt.projection === null)).toBe(true);
+    expect(p.points[2].thisMonth).toBe(1000);
   });
 
   it("has no comparisons, and projects on pace, with no history", () => {
@@ -415,6 +474,17 @@ describe("detectRecurring", () => {
     expect(detectRecurring([group("Free", monthly, monthly.map(() => 0))], CATS, today)).toEqual([]);
   });
 
+  it("labels a payment without the month and year its titles carry", () => {
+    expect(recurringLabel("Rent Sep 2026")).toBe("Rent");
+    expect(recurringLabel("Netflix - October")).toBe("Netflix");
+    expect(recurringLabel("Gym (Sept)")).toBe("Gym");
+    expect(recurringLabel("Mayur Stores 12/03")).toBe("Mayur Stores"); // "May" only as a whole word
+    expect(recurringLabel("2026-10")).toBe("");
+    const dates = ["2026-07-01", "2026-08-01", "2026-09-01", "2026-10-01"];
+    const [r] = detectRecurring([group("rent", dates, [1, 1, 1, 1].map(() => 90000), { title: "Rent Jul 2026" })], CATS, today);
+    expect(r.label).toBe("Rent");
+  });
+
   it("names an untitled group by its category and ignores planned entries", () => {
     const dates = ["2026-07-15", "2026-08-15", "2026-09-15", "2026-10-15"]; // the last is planned
     const [r] = detectRecurring(
@@ -487,6 +557,7 @@ describe("weekdays and the calendar", () => {
     const oct = monday.months[0];
     // 1 October 2026 is a Thursday: three blanks before it from Monday.
     expect(oct.weeks[0].slice(0, 4).map((d) => d?.day ?? null)).toEqual([null, null, null, 1]);
+    expect(oct.weeks).toHaveLength(6); // always six rows, so every month is the same size
     expect(oct.weeks.every((w) => w.length === 7)).toBe(true);
     const days = oct.weeks.flat().filter((d) => d !== null);
     expect(days).toHaveLength(31);
@@ -494,12 +565,18 @@ describe("weekdays and the calendar", () => {
     expect(days.find((d) => d!.day === 8)).toMatchObject({ total: 0, inWindow: false });
     // Sunday-first: four blanks.
     expect(calendarMonths(daily, window, 0).months[0].weeks[0].filter((d) => d === null)).toHaveLength(4);
+    // A 28-day February starting on a Monday still has six rows.
+    const feb = calendarMonths([], { from: "2027-02-01", to: "2027-02-28" }, 1).months[0];
+    expect(feb.weeks).toHaveLength(6);
+    expect(feb.weeks[4].every((d) => d === null)).toBe(true);
     // Several months.
     expect(calendarMonths([], { from: "2026-08-15", to: "2026-10-07" }, 1).months.map((m) => m.month)).toEqual([
       "2026-08",
       "2026-09",
       "2026-10",
     ]);
+    expect(monthCount({ from: "2026-08-15", to: "2026-10-07" })).toBe(3);
+    expect(monthCount({ from: "2025-11-01", to: "2026-10-07" })).toBe(12);
   });
 
   it("starts the week where the locale does", () => {
@@ -564,6 +641,7 @@ describe("buildInsights", () => {
     );
     expect(buildInsights(base({ pace: pace({ soFar: 0 }) }), fmt, "en-US")).toEqual([]);
     expect(buildInsights(base({ pace: pace({ method: "complete" }) }), fmt, "en-US")).toEqual([]);
+    expect(buildInsights(base({ pace: pace({ method: "early", projected: null }) }), fmt, "en-US")).toEqual([]);
   });
 
   it("names the category that rose and fell most, if it matters", () => {

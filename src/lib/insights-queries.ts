@@ -2,11 +2,13 @@ import "server-only";
 import { and, asc, desc, eq, gte, inArray, lte, sql, type SQL } from "drizzle-orm";
 import { getDb } from "@/db";
 import { transactions } from "@/db/schema";
-import { assertAdvancedAnalytics } from "@/lib/entitlements";
+import { assertAdvancedAnalytics, type WorkspaceEntitlements } from "@/lib/entitlements";
 import { getCategories, getProfiles, getTags } from "@/lib/queries";
 import { notTrashed } from "@/lib/trash-scope";
 import {
+  MONTH_NAMES_PATTERN,
   RECURRING_MONTHS,
+  TITLE_SEPARATORS_PATTERN,
   buildAdvancedAnalytics,
   calendarWindow,
   firstDayOfWeek,
@@ -42,6 +44,8 @@ import {
  *    `to_char(occurred_on, 'YYYY-MM')`, "today" in the viewer's zone — the
  *    rules the rest of the page uses.
  */
+
+type ProfileRow = Awaited<ReturnType<typeof getProfiles>>[number];
 
 export type AdvancedAnalyticsOptions = {
   /** The viewer's local date (`todayISO(await getTimeZone())`). */
@@ -156,14 +160,19 @@ async function anomalyCandidates(ids: string[], from: string, to: string) {
 
 /**
  * Expenses grouped by what makes a payment "the same one": its title with case,
- * spacing and digits ignored ("Rent Sep 2026" = "rent oct 2026"), or with no
- * title the same category at exactly the same amount. Only groups seen in at
- * least three different months, with no more than one extra entry, come back —
- * the rest can't be monthly — and `detectRecurring` judges the cadence.
+ * digits, English month names, separators and spacing ignored ("Rent Sep 2026"
+ * = "rent - October"; the same rules as `recurringLabel`), or with no title the
+ * same category at exactly the same amount. Only groups seen in at least three
+ * different months, with no more than one extra entry, come back — the rest
+ * can't be monthly — and `detectRecurring` judges the cadence.
  */
 async function recurringGroups(ids: string[], today: string) {
   const month = today.slice(0, 7);
-  const titleKey = sql`nullif(btrim(regexp_replace(regexp_replace(lower(${transactions.title}), '[0-9]+', ' ', 'g'), '[[:space:]]+', ' ', 'g')), '')`;
+  // Constant patterns, inlined (not bound) so the expression is identical in
+  // the select list and the `group by`. `\m`/`\M` are Postgres word bounds.
+  const monthWords = sql.raw(`'\\m(${MONTH_NAMES_PATTERN})\\M'`);
+  const separators = sql.raw(`'${TITLE_SEPARATORS_PATTERN}'`);
+  const titleKey = sql`nullif(btrim(regexp_replace(regexp_replace(regexp_replace(regexp_replace(lower(${transactions.title}), '[0-9]+', ' ', 'g'), ${monthWords}, ' ', 'g'), ${separators}, ' ', 'g'), '[[:space:]]+', ' ', 'g')), '')`;
   const key = sql<string>`coalesce(${titleKey}, '#' || coalesce(${transactions.categoryId}::text, '') || ':' || ${transactions.amountMinor}::text)`;
   const months = sql`count(distinct to_char(${transactions.occurredOn}, 'YYYY-MM'))`;
   const rows = await getDb()
@@ -297,11 +306,18 @@ export async function getAdvancedAnalytics(
   userId: string,
   workspaceId: string,
   opts: AdvancedAnalyticsOptions,
+  /**
+   * What the caller already read in this render — `getWorkspaceEntitlements`
+   * for this workspace and `getProfiles(userId, workspaceId)` for this user —
+   * so it isn't read again (an RSC render has no request memo). The profiles
+   * are the access scope, so pass only that exact list.
+   */
+  known: { entitlements?: WorkspaceEntitlements; profiles?: ProfileRow[] } = {},
 ): Promise<AdvancedAnalyticsData> {
-  await assertAdvancedAnalytics(workspaceId);
+  await assertAdvancedAnalytics(workspaceId, known.entitlements);
 
   const [profiles, categoryRows, tagList] = await Promise.all([
-    getProfiles(userId, workspaceId),
+    known.profiles ?? getProfiles(userId, workspaceId),
     getCategories(workspaceId),
     getTags(workspaceId),
   ]);

@@ -64,10 +64,18 @@ export function CategoryPieChart({
    */
   animate?: boolean;
 }) {
-  // `hovered` follows the pointer or focus; `selected` sticks until toggled off.
+  // `hovered` is a preview — a mouse over a slice or row, or keyboard focus on
+  // a row; `selected` sticks until it's toggled off. The chart shows the
+  // preview over the selection; the legend marks the selection on its own
+  // (`aria-pressed`), so after Tab the pressed row still reads as pressed.
   const [hovered, setHovered] = React.useState<number | null>(null);
   const [selected, setSelected] = React.useState<number | null>(null);
-  const toggle = (i: number) => setSelected((s) => (s === i ? null : i));
+  const toggle = (i: number) => {
+    setSelected((s) => (s === i ? null : i));
+    // A tap also fires an emulated mouseenter first; clearing the preview here
+    // is what lets a second tap visibly deselect.
+    setHovered(null);
+  };
 
   if (data.length === 0) {
     return (
@@ -151,19 +159,30 @@ export function CategoryPieChart({
               type="button"
               aria-pressed={selected === i}
               onClick={() => toggle(i)}
-              onMouseEnter={() => setHovered(i)}
-              onMouseLeave={() => setHovered(null)}
-              onFocus={() => setHovered(i)}
+              // Mouse only: a touch has no hover, and its emulated one would stick.
+              onPointerEnter={(e) => {
+                if (e.pointerType === "mouse") setHovered(i);
+              }}
+              onPointerLeave={(e) => {
+                if (e.pointerType === "mouse") setHovered(null);
+              }}
+              onFocus={(e) => {
+                // Keyboard focus previews; a click's focus is followed by the click itself.
+                if (e.currentTarget.matches(":focus-visible")) setHovered(i);
+              }}
               onBlur={() => setHovered(null)}
               className={cn(
-                "flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
-                active === i ? "bg-muted" : "hover:bg-muted/60",
+                "group/row flex w-full items-center justify-between gap-3 rounded-md px-2 py-1 text-left text-sm outline-none transition-colors",
+                "hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50",
+                // The selection, independent of hover and focus.
+                "aria-pressed:bg-muted aria-pressed:font-medium",
+                hovered === i && "bg-muted/60",
               )}
             >
               <span className="inline-flex min-w-0 items-center gap-2">
                 <span
                   aria-hidden
-                  className="size-2.5 shrink-0 rounded-full"
+                  className="size-2.5 shrink-0 rounded-full ring-foreground/40 ring-offset-1 ring-offset-card group-aria-pressed/row:ring-2"
                   style={{ background: COLORS[i % COLORS.length] }}
                 />
                 <span className="truncate">
