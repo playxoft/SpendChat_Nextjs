@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.6.0"
+  version: "6.7.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -219,6 +219,7 @@ tags:
   - name: Spaces
   - name: Organization
   - name: Usage
+  - name: Trash
   - name: Settings
   - name: Analytics
   - name: AI
@@ -500,18 +501,20 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Transactions]
-      summary: Delete a transaction
+      summary: Move a transaction to the trash
       description: >
-        Scoped to the current workspace — a transaction in another workspace is
-        a 404.
+        Moves it to the trash (6.7.0): out of every read, restorable for 30 days
+        with `POST /trash/restore`; its attachments stay with it. Scoped to the
+        current workspace — a transaction in another workspace (or one already
+        in the trash) is a 404.
       responses:
         "200":
-          description: Deletion acknowledged.
+          description: Moved to the trash (`trashed` is always true here).
           content:
             application/json:
               schema:
                 type: object
-                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                properties: { data: { $ref: "#/components/schemas/TrashedResult" } }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -606,9 +609,10 @@ paths:
       tags: [Transactions]
       summary: Clear transactions in the current workspace, per profile (danger zone, admin only)
       description: >
-        **Workspace admins only** (a non-admin caller gets 403). Permanently
-        deletes **every** transaction (regardless of who authored it) in the
-        selected profiles of the **current workspace**. `profileIds` omitted or
+        **Workspace admins only** (a non-admin caller gets 403). Moves **every**
+        live transaction (regardless of who authored it) in the selected
+        profiles of the **current workspace** to the trash (6.7.0), where it
+        stays restorable for 30 days. `profileIds` omitted or
         empty clears every profile in the workspace; otherwise only the listed
         profiles are cleared (ids not in the current workspace are ignored).
         Categories and settings are kept.
@@ -634,7 +638,7 @@ paths:
               required: [confirm]
       responses:
         "200":
-          description: How many transactions were removed.
+          description: How many transactions went to the trash.
           content:
             application/json:
               schema:
@@ -642,8 +646,10 @@ paths:
                 properties:
                   data:
                     type: object
-                    properties: { deleted: { type: integer } }
-                    required: [deleted]
+                    properties:
+                      deleted: { type: integer }
+                      trashed: { type: boolean, enum: [true], description: "6.7.0: they're in the trash, not gone." }
+                    required: [deleted, trashed]
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -976,15 +982,20 @@ paths:
     delete:
       tags: [Files]
       summary: Delete a vault file (editor only)
-      description: Removes the metadata row, the stored object, and any share links to the file.
+      description: >
+        **Plus/Pro** (6.7.0): moves the file to the trash for 30 days —
+        `trashed: true`; the bytes stay (and keep counting toward storage) and
+        its share links stop working until it's restored. **Free**: removes the
+        metadata row, the stored object and any share links for good —
+        `trashed: false`.
       responses:
         "200":
-          description: Deletion acknowledged.
+          description: Deleted — to the trash, or for good (`trashed`).
           content:
             application/json:
               schema:
                 type: object
-                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                properties: { data: { $ref: "#/components/schemas/TrashedResult" } }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -1128,9 +1139,11 @@ paths:
       tags: [Files]
       summary: Delete a folder and everything inside it (editor only)
       description: |
-        Removes the folder, every nested folder and file (including their
-        stored objects), and any share links into the subtree. The predefined
-        folder can't be deleted (400).
+        **Plus/Pro** (6.7.0): the folder and everything inside it go to the
+        trash as one item (`trashed: true`), restorable together for 30 days.
+        **Free**: removes the folder, every nested folder and file (including
+        their stored objects), and any share links into the subtree for good
+        (`trashed: false`). The predefined folder can't be deleted (400).
       responses:
         "200":
           description: Deletion acknowledged.
@@ -1138,7 +1151,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                properties: { data: { $ref: "#/components/schemas/TrashedResult" } }
                 required: [data]
         "400": { $ref: "#/components/responses/BadRequest" }
         "401": { $ref: "#/components/responses/Unauthorized" }
@@ -1674,20 +1687,28 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Profiles]
-      summary: Delete a profile (admin only)
+      summary: Move a profile to the trash (admin only)
       description: >
-        `transactions` decides what happens to the transactions filed under the
-        profile: `delete` removes them (and their attachments) with it, `move`
-        re-files them under `to` first, and `reject` — the default, so a client
-        that sends nothing behaves exactly as before — refuses with 409 while
-        any remain ("Move this profile's transactions to another profile
-        first"). 409 for the last remaining profile ("You need at least one
-        profile") whatever the mode.
+        **The profile goes to the trash as one unit** (6.7.0), restorable for 30
+        days by a workspace admin (`POST /trash/restore` with `profileIds`) —
+        everything in it comes back with it. `transactions` decides what
+        happens to the transactions filed under it first: `delete` — they go to
+        the trash with the profile; `move` — live and trashed ones are re-filed
+        under `to`, then the empty profile goes to the trash; `reject` — the
+        default, so a client that sends nothing behaves exactly as before —
+        refuses with 409 while any **live** ones remain ("Move this profile's
+        transactions to another profile first") — and, on **Free**, while any
+        live vault files remain, since deleting the profile would delete them
+        for good ("This profile's files would be deleted for good — …"; send
+        `delete` to confirm, or `move`). 409 for the last live profile
+        ("You need at least one profile") whatever the mode. Its name is free to
+        reuse at once.
 
 
-        The profile's **vault** (files, folders, tags and share links)
-        follows the same choice: `move` re-files it under `to`, `delete`
-        destroys it. Two collisions resolve automatically — a file-tag whose
+        The profile's **vault** (files, folders, tags and share links): `move`
+        re-files it under `to`; on `delete` it stays with the trashed profile on
+        Plus/Pro and is deleted for good on Free (`deletion-impact` →
+        `filesRecoverable`). Two collisions resolve automatically — a file-tag whose
         name already exists in the destination is merged into it, so the moved
         tag's id disappears, and the source's predefined "Transaction
         attachments" folder is dropped once its contents are re-parented into
@@ -1717,7 +1738,7 @@ paths:
             application/json:
               schema:
                 type: object
-                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                properties: { data: { $ref: "#/components/schemas/TrashedResult" } }
                 required: [data]
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
@@ -1772,11 +1793,12 @@ paths:
       tags: [Profiles]
       summary: What deleting this profile would take with it (admin only)
       description: >
-        Counts for the delete confirmation. `transactions` is the number whose
+        Counts for the delete confirmation (live rows only — anything already
+        in the trash goes along silently). `transactions` is the number whose
         fate the caller chooses (`?transactions=` on DELETE); `attachments` are
-        the receipts on those transactions and `files` the profile's vault. All
-        three follow the disposal — destroyed on `delete`, moved on `move` — so
-        offer the choice whenever `transactions` or `files` is above zero.
+        the receipts on those transactions and `files` the profile's vault.
+        Offer the choice whenever `transactions` or `files` is above zero, and
+        word the vault warning from `filesRecoverable` (6.7.0).
       responses:
         "200":
           description: The counts.
@@ -2073,12 +2095,15 @@ paths:
         malformed id). Requires the workspace **admin** role.
 
         **Profiles are never deleted with a space.** An empty space just goes.
-        One that still holds profiles needs a destination — `moveProfilesTo`,
-        another space of the same workspace — or the delete is refused with
-        409 ("This space still has profiles — move them to another space
-        first"); the move and the delete commit together. The destination must
-        have room under the plan's per-space cap (`403 plan_limit`,
-        `limit: "profilesPerSpace"`). The workspace's **last** space can't be
+        One that still holds profiles — **including profiles in the trash**
+        (6.7.0, `Space.trashedProfileCount`) — needs a destination —
+        `moveProfilesTo`, another space of the same workspace — or the delete
+        is refused with 409 ("This space still has profiles — move them to
+        another space first", or for trashed ones only: "…choose a space for
+        them first. If they're restored, the people in that space will see
+        them."); the move and the delete commit together. The destination must
+        have room under the plan's per-space cap for the **live** ones
+        (`403 plan_limit`, `limit: "profilesPerSpace"`). The workspace's **last** space can't be
         deleted (409). Membership rows go with the space.
 
         Send the destination either as the `moveProfilesTo` query parameter or
@@ -2252,6 +2277,198 @@ paths:
         "403": { $ref: "#/components/responses/Forbidden" }
         "404": { $ref: "#/components/responses/NotFound" }
         "429": { $ref: "#/components/responses/RateLimited" }
+
+  /api/v1/trash/transactions:
+    get:
+      tags: [Trash]
+      summary: Trashed transactions, most recently deleted first (6.7.0)
+      description: >
+        Trashed transactions on profiles the caller can view, keyset-paged:
+        pass `meta.nextCursor` back as `cursor` (`null` on the last page). Rows
+        inside a trashed profile aren't listed — the profile is
+        (`GET /trash/profiles`).
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - name: limit
+          in: query
+          required: false
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          required: false
+          description: Opaque — the previous page's `meta.nextCursor`.
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of the trash.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/TrashedTransaction" }
+                  meta:
+                    type: object
+                    properties:
+                      nextCursor: { type: [string, "null"] }
+                      currency: { $ref: "#/components/schemas/CurrencyCode" }
+                    required: [nextCursor]
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/trash/files:
+    get:
+      tags: [Trash]
+      summary: The vault's trash — folders and files (6.7.0)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: >
+            Trashed folders (each with what went to the trash with it) and
+            files deleted on their own (≤ 500).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      folders: { type: array, items: { $ref: "#/components/schemas/TrashedFolder" } }
+                      files: { type: array, items: { $ref: "#/components/schemas/TrashedFile" } }
+                      filesCapped:
+                        type: boolean
+                        description: >
+                          More files were deleted on their own than `files`
+                          holds (500, most recent first) — restore or delete
+                          some to see the rest.
+                    required: [folders, files, filesCapped]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/trash/profiles:
+    get:
+      tags: [Trash]
+      summary: Trashed profiles (workspace admins; others get an empty list) (6.7.0)
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: The workspace's trashed profiles.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/TrashedProfile" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/trash/restore:
+    post:
+      tags: [Trash]
+      summary: Restore from the trash (6.7.0)
+      description: >
+        Restores what the caller can (editor on the item's profile; admins for
+        profiles); the rest is counted in `skipped`. A profile whose restore
+        would break its space's `profilesPerSpace` or the `members` cap is
+        refused with 403 `plan_limit` before anything else in the request is
+        restored. A name taken meanwhile is restored as "Name (restored)".
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TrashSelection" }
+      responses:
+        "200":
+          description: What came back.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      restored: { $ref: "#/components/schemas/TrashCounts" }
+                      skipped: { type: integer }
+                    required: [restored, skipped]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/trash/delete:
+    post:
+      tags: [Trash]
+      summary: Delete from the trash for good (6.7.0)
+      description: >
+        Rows and stored files, permanently. Same access as restore; a folder
+        takes everything under it.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/TrashSelection" }
+      responses:
+        "200":
+          description: What was deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted: { $ref: "#/components/schemas/TrashCounts" }
+                      skipped: { type: integer }
+                    required: [deleted, skipped]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/trash/empty:
+    post:
+      tags: [Trash]
+      summary: Empty the trash (6.7.0)
+      description: >
+        Deletes for good everything in the trash the caller can edit (and, for
+        admins, trashed profiles). Bounded per request — call again while
+        `remaining > 0`. 403 when the caller can edit nothing here.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      responses:
+        "200":
+          description: What was deleted, and how much is left.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      deleted: { $ref: "#/components/schemas/TrashCounts" }
+                      remaining: { type: integer }
+                    required: [deleted, remaining]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
 
   /api/v1/settings:
     get:
@@ -2769,7 +2986,9 @@ components:
         past its plan's storage (1 / 5 / 20 GB — `storage_quota_exceeded`;
         the message says how much space remains and is safe to display as-is,
         and `details` is a `PlanLimitDetails` with `limit: "storage"`, `max`
-        = the quota in bytes and `used` = bytes already stored).
+        = the quota in bytes and `used` = bytes already stored — the trash
+        included — plus, since 6.7.0, `trashBytes`: how much of `used` is in
+        the trash, i.e. what emptying it would free).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -2781,7 +3000,7 @@ components:
                 error:
                   code: storage_quota_exceeded
                   message: "Not enough storage left — this upload needs 3.2 MB but only 1.1 MB of the 1.0 GB remains. Upgrade to Plus for 5.0 GB."
-                  details: { limit: storage, plan: free, max: 1073741824, used: 1072578560, upgradeTo: plus }
+                  details: { limit: storage, plan: free, max: 1073741824, used: 1072578560, upgradeTo: plus, trashBytes: 0 }
 
   schemas:
     Error:
@@ -3274,7 +3493,13 @@ components:
             can hold no vault files and dozens of receipts, or no transactions
             and a full vault, so a dialog that reads only one of the three
             under-reports what it is about to act on.
-      required: [transactions, files, attachments]
+        filesRecoverable:
+          type: boolean
+          description: >
+            6.7.0. Whether the vault goes to the trash with the profile
+            (Plus/Pro) — false on Free, where `transactions=delete` removes the
+            profile's files for good.
+      required: [transactions, files, attachments, filesRecoverable]
 
     ProfileSpaceMove:
       type: object
@@ -3322,8 +3547,15 @@ components:
         profileCount:
           type: integer
           description: >
-            Every profile in the space — what the per-space cap counts — not
-            just the ones the caller can see.
+            Every live profile in the space — what the per-space cap counts —
+            not just the ones the caller can see. A profile in the trash counts
+            again only when it's restored.
+        trashedProfileCount:
+          type: integer
+          description: >
+            6.7.0. The space's profiles in the trash — workspace admins only (0
+            for anyone else). Deleting the space needs a `moveProfilesTo` for
+            these too: restored, a profile shows to whoever is in its space.
         role:
           description: >
             The caller's role here: `admin` for workspace admins (they see
@@ -3334,7 +3566,7 @@ components:
             - type: "null"
             - type: string
               enum: [viewer, editor, admin]
-      required: [id, name, icon, position, profileCount, role]
+      required: [id, name, icon, position, profileCount, trashedProfileCount, role]
 
     SpaceInput:
       type: object
@@ -3513,11 +3745,20 @@ components:
           required: [used, limit, remaining, topUpRemaining, resetsAt]
         storage:
           type: object
-          description: Vault files + transaction attachments, workspace-wide (same as `GET /files` → `meta.storage`).
+          description: >
+            Vault files + transaction attachments, workspace-wide (same as `GET
+            /files` → `meta.storage`). The trash counts until purged.
           properties:
             usedBytes: { type: integer, format: int64 }
             limitBytes: { type: integer, format: int64 }
-          required: [usedBytes, limitBytes]
+            trashBytes:
+              type: integer
+              format: int64
+              description: >
+                6.7.0. The part of `usedBytes` in the trash (trashed files, the
+                receipts of trashed transactions, everything in a trashed
+                profile) — freed by emptying the trash or the 30-day purge.
+          required: [usedBytes, limitBytes, trashBytes]
         members:
           description: People with access, the owner and pending invites included.
           allOf: [{ $ref: "#/components/schemas/Meter" }]
@@ -3568,6 +3809,131 @@ components:
         id: { type: string, format: uuid }
         deleted: { type: boolean, enum: [true] }
       required: [id, deleted]
+
+    TrashedResult:
+      type: object
+      description: >
+        6.7.0. A delete that may go to the trash: `trashed: true` — restorable
+        for 30 days (`POST /trash/restore`); `trashed: false` — gone for good
+        (vault deletes on Free).
+      properties:
+        id: { type: string, format: uuid }
+        deleted: { type: boolean, enum: [true] }
+        trashed: { type: boolean }
+      required: [id, deleted, trashed]
+
+    TrashActor:
+      type: object
+      description: >
+        Who sent an item to the trash — the same shape on every trash item.
+        `name` is null when the account is gone.
+      properties:
+        id: { type: [string, "null"], format: uuid }
+        name: { type: [string, "null"] }
+      required: [id, name]
+
+    TrashCounts:
+      type: object
+      properties:
+        transactions: { type: integer }
+        files: { type: integer }
+        folders: { type: integer }
+        profiles: { type: integer }
+      required: [transactions, files, folders, profiles]
+
+    TrashSelection:
+      type: object
+      description: >
+        What to restore or delete for good. Each list ≤ 500 ids; at least one
+        id overall (422 otherwise). Ids the caller can't act on are skipped.
+      properties:
+        transactionIds: { type: array, items: { type: string, format: uuid }, maxItems: 500 }
+        fileIds: { type: array, items: { type: string, format: uuid }, maxItems: 500 }
+        folderIds: { type: array, items: { type: string, format: uuid }, maxItems: 500 }
+        profileIds: { type: array, items: { type: string, format: uuid }, maxItems: 500 }
+
+    TrashedTransaction:
+      description: A transaction in the trash (6.7.0).
+      allOf:
+        - $ref: "#/components/schemas/Transaction"
+        - type: object
+          properties:
+            deletedAt: { type: string, format: date-time }
+            deletedBy: { $ref: "#/components/schemas/TrashActor" }
+            purgeAt:
+              type: string
+              format: date-time
+              description: deletedAt + 30 days — the earliest the daily purge removes it.
+            canRestore:
+              type: boolean
+              description: The caller can restore or delete it (editor on its profile).
+          required: [deletedAt, deletedBy, purgeAt, canRestore]
+
+    TrashedFolder:
+      type: object
+      description: >
+        A folder in the trash (6.7.0), with everything that went to the trash
+        with it — restored with it, not listed separately.
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        profileName: { type: [string, "null"] }
+        profileIcon: { type: [string, "null"] }
+        name: { type: string }
+        color: { type: [string, "null"] }
+        folders: { type: integer, description: Subfolders that went with it. }
+        files: { type: integer, description: Files that went with it. }
+        sizeBytes: { type: integer, format: int64 }
+        deletedAt: { type: string, format: date-time }
+        deletedBy: { $ref: "#/components/schemas/TrashActor" }
+        purgeAt: { type: string, format: date-time }
+        canRestore: { type: boolean }
+      required: [id, profileId, profileName, profileIcon, name, color, folders, files,
+                 sizeBytes, deletedAt, deletedBy, purgeAt, canRestore]
+
+    TrashedFile:
+      type: object
+      description: A vault file deleted on its own (6.7.0).
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        profileName: { type: [string, "null"] }
+        profileIcon: { type: [string, "null"] }
+        folderId: { type: [string, "null"], format: uuid }
+        name: { type: string }
+        contentType: { type: string }
+        sizeBytes: { type: integer, format: int64 }
+        deletedAt: { type: string, format: date-time }
+        deletedBy: { $ref: "#/components/schemas/TrashActor" }
+        purgeAt: { type: string, format: date-time }
+        canRestore: { type: boolean }
+      required: [id, profileId, profileName, profileIcon, folderId, name, contentType,
+                 sizeBytes, deletedAt, deletedBy, purgeAt, canRestore]
+
+    TrashedProfile:
+      type: object
+      description: A profile in the trash (6.7.0, admins). Restoring it brings back everything in it.
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        icon: { type: [string, "null"] }
+        color: { type: [string, "null"] }
+        spaceId: { type: string, format: uuid }
+        spaceName: { type: [string, "null"] }
+        transactions: { type: integer, description: Live transactions inside it — what a restore brings back into view. }
+        files: { type: integer, description: Live vault files inside it. }
+        sizeBytes:
+          type: integer
+          format: int64
+          description: >
+            Every byte stored under it — vault files and the receipts of its
+            transactions, including anything already in the trash on its own:
+            what it holds in storage, and what deleting it for good frees.
+        deletedAt: { type: string, format: date-time }
+        deletedBy: { $ref: "#/components/schemas/TrashActor" }
+        purgeAt: { type: string, format: date-time }
+      required: [id, name, icon, color, spaceId, spaceName, transactions, files,
+                 sizeBytes, deletedAt, deletedBy, purgeAt]
 
     Attachment:
       type: object

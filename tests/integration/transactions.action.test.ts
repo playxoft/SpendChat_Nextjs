@@ -36,6 +36,7 @@ import {
   firstProfileId,
   categoryId,
   insertTxn,
+  countLiveTxns,
   countTxns,
   workspaceIdOf,
 } from "./helpers/seed";
@@ -266,7 +267,7 @@ describe("updateTransaction", () => {
 });
 
 describe("deleteTransaction", () => {
-  it("deletes an owned transaction", async () => {
+  it("moves an owned transaction to the trash", async () => {
     signInAs("a");
     await bootstrapUser("a");
     const id = await insertTxn("a", {
@@ -275,7 +276,9 @@ describe("deleteTransaction", () => {
       occurredOn: "2026-06-01",
     });
     expect((await deleteTransaction(id)).ok).toBe(true);
-    expect(await countTxns("a")).toBe(0);
+    // In the trash — out of every read, still restorable.
+    expect(await countLiveTxns("a")).toBe(0);
+    expect(await countTxns("a")).toBe(1);
   });
 
   it("rejects a non-UUID id", async () => {

@@ -35,8 +35,9 @@ export async function DELETE(request: NextRequest, ctx: Ctx) {
   return handle(async () => {
     const { user, workspace } = await getApiContext(request);
     const { id } = await ctx.params;
-    const deleted = await deleteFolder(user.id, workspace.id, id);
-    if (!deleted) throw notFound("Folder not found");
-    return apiOk({ id, deleted: true });
+    const outcome = await deleteFolder(user.id, workspace.id, id);
+    if (!outcome) throw notFound("Folder not found");
+    // `trashed`: in the trash for 30 days (Plus/Pro) vs deleted for good (Free).
+    return apiOk({ id, deleted: true, trashed: outcome === "trashed" });
   });
 }

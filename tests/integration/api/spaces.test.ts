@@ -86,7 +86,15 @@ describe("/api/v1/spaces", () => {
 
     const initial = await spaces();
     expect(initial).toEqual([
-      { id: expect.any(String), name: "Main", icon: "🗂️", position: 0, profileCount: 1, role: "admin" },
+      {
+        id: expect.any(String),
+        name: "Main",
+        icon: "🗂️",
+        position: 0,
+        profileCount: 1,
+        trashedProfileCount: 0,
+        role: "admin",
+      },
     ]);
     const main = initial[0]!;
 

@@ -1,7 +1,7 @@
 import "server-only";
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "@/db";
-import { files, transactionAttachments, transactions } from "@/db/schema";
+import { files, profiles, transactionAttachments, transactions } from "@/db/schema";
 
 /** The transaction handle both callers pass in (matches `services/profiles.ts`). */
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
@@ -28,6 +28,8 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
  * even for a single profile; one id is a one-element `in (...)`, which costs
  * nothing and saves this module a second code path.
  */
+// trash: every function here works on all states on purpose — these are the
+// paths that destroy profiles wholesale, trash and all.
 export async function collectProfileObjectKeys(
   tx: Tx,
   profileIds: readonly string[],
@@ -35,6 +37,7 @@ export async function collectProfileObjectKeys(
   if (profileIds.length === 0) return [];
   const ids = [...profileIds];
 
+  // trash: all states — destroying a profile destroys its trash too.
   const doomedFiles = await tx
     .select({ r2Key: files.r2Key, thumbnailKey: files.thumbnailKey })
     .from(files)
@@ -46,8 +49,33 @@ export async function collectProfileObjectKeys(
       thumbnailKey: transactionAttachments.thumbnailKey,
     })
     .from(transactionAttachments)
+    // trash: all states, as above.
     .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
     .where(inArray(transactions.profileId, ids));
 
   return [...doomedFiles, ...doomedAttachments].flatMap((r) => [r.r2Key, r.thumbnailKey]);
+}
+
+/**
+ * Destroy profiles for good, inside the caller's transaction, and return the
+ * stored objects to sweep **after** it commits: their stored-object keys (read
+ * first, while the rows exist), then every transaction — live and trashed;
+ * their receipts cascade — then the profiles, whose own cascades take the
+ * vault, tags, share links, grants, overrides and invites.
+ *
+ * Shared by "delete forever" on a trashed profile, emptying the trash and the
+ * daily purge. Transactions go explicitly because `transactions.profile_id` is
+ * ON DELETE restrict; `transactions_profile_idx` (a full index) serves both
+ * that delete and the restrict check the profile delete then runs.
+ */
+export async function destroyProfiles(
+  tx: Tx,
+  profileIds: readonly string[],
+): Promise<(string | null)[]> {
+  if (profileIds.length === 0) return [];
+  const ids = [...profileIds];
+  const keys = await collectProfileObjectKeys(tx, ids);
+  await tx.delete(transactions).where(inArray(transactions.profileId, ids));
+  await tx.delete(profiles).where(inArray(profiles.id, ids));
+  return keys;
 }

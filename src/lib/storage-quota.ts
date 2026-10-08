@@ -3,7 +3,7 @@ import { formatFileSize } from "@/lib/attachments";
 import { getWorkspaceEntitlements, storageFullMessage, upgradeForLimit } from "@/lib/entitlements";
 import { ApiError } from "@/lib/errors";
 import { logger } from "@/lib/logger";
-import { getWorkspaceStorageUsage } from "@/lib/queries";
+import { getTrashBytes, getWorkspaceStorageUsage } from "@/lib/queries";
 
 /**
  * Reject an upload batch that would push the workspace past its plan's storage
@@ -14,6 +14,10 @@ import { getWorkspaceStorageUsage } from "@/lib/queries";
  *
  * A workspace already over its limit (after a downgrade)
  * keeps every file — this only refuses *new* bytes (abuse rule C7).
+ *
+ * The used total includes the trash — trashed files and the receipts of
+ * trashed transactions count until they're purged (abuse rule C6), or the
+ * trash would be free storage. The refusal says how much emptying it frees.
  *
  * The check is read-then-insert without a lock: two concurrent uploads can
  * both pass and briefly overshoot the quota. Accepted for a product cap
@@ -45,11 +49,15 @@ export async function assertStorageQuota(
       plan: ent.plan,
     },
   );
-  throw new ApiError(413, "storage_quota_exceeded", storageFullMessage(ent, usedBytes, incomingBytes), {
+  // Only on the reject path: how much of the used storage is sitting in the
+  // trash (it counts until purged — abuse rule C6), for the message.
+  const trashBytes = await getTrashBytes(workspaceId);
+  throw new ApiError(413, "storage_quota_exceeded", storageFullMessage(ent, usedBytes, incomingBytes, trashBytes), {
     limit: "storage",
     plan: ent.plan,
     max: limitBytes,
     used: usedBytes,
     upgradeTo: upgradeForLimit(ent.plan, "storageBytes"),
+    trashBytes,
   });
 }

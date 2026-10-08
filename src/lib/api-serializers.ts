@@ -3,7 +3,8 @@ import { getCurrency } from "@/lib/currencies";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
 import { serializeTxnTag, type TxnTagDTO } from "@/lib/tags";
 import type { AttachmentDTO } from "@/lib/attachments";
-import type { TransactionRow } from "@/lib/queries";
+import type { TransactionRow, TrashedTransactionRow } from "@/lib/queries";
+import { purgeAt } from "@/lib/trash";
 import type { WorkspaceSummary } from "@/lib/workspaces";
 import type { WorkspaceUsage } from "@/lib/entitlements";
 import type { PersonalPlan } from "@/lib/plans";
@@ -76,6 +77,28 @@ export function serializeTransaction(row: TransactionRow, currency: string): Api
     user: { id: row.userId, name: row.userName, email: row.userEmail },
     attachments: row.attachments,
     tags: row.tags,
+  };
+}
+
+/** A transaction in the trash: the usual shape plus when (and by whom) it was
+ * deleted, when the purge removes it, and whether the caller can restore it. */
+export type ApiTrashedTransaction = ApiTransaction & {
+  deletedAt: string;
+  deletedBy: { id: string | null; name: string | null };
+  purgeAt: string;
+  canRestore: boolean;
+};
+
+export function serializeTrashedTransaction(
+  row: TrashedTransactionRow & { canRestore: boolean },
+  currency: string,
+): ApiTrashedTransaction {
+  return {
+    ...serializeTransaction(row, currency),
+    deletedAt: row.deletedAt.toISOString(),
+    deletedBy: { id: row.deletedById, name: row.deletedByName },
+    purgeAt: purgeAt(row.deletedAt).toISOString(),
+    canRestore: row.canRestore,
   };
 }
 
@@ -161,8 +184,10 @@ export type ApiSpace = {
   name: string;
   icon: string | null;
   position: number;
-  /** Every profile in the space (what the per-space cap counts), not just the visible ones. */
+  /** Every live profile in the space (what the per-space cap counts), not just the visible ones. */
   profileCount: number;
+  /** 6.7.0: the space's profiles in the trash — admins only (0 for anyone else). */
+  trashedProfileCount: number;
   /** "admin" for workspace admins; else the caller's space role, or null (reached via an override/grant). */
   role: WorkspaceRole | null;
 };
@@ -174,6 +199,7 @@ export function serializeSpace(s: SpaceSummary): ApiSpace {
     icon: s.icon,
     position: s.position,
     profileCount: s.profileCount,
+    trashedProfileCount: s.trashedProfileCount,
     role: s.role,
   };
 }
@@ -326,7 +352,7 @@ export type ApiUsage = {
     /** ISO 8601 — the first instant of next month (UTC). */
     resetsAt: string;
   };
-  storage: { usedBytes: number; limitBytes: number };
+  storage: { usedBytes: number; limitBytes: number; trashBytes: number };
   members: ApiMeter;
   spaces: ApiMeter;
   categories: ApiMeter;
@@ -348,7 +374,11 @@ export function serializeUsage(u: WorkspaceUsage): ApiUsage {
       topUpRemaining: u.ai.topUpRemaining,
       resetsAt: u.ai.resetsAt,
     },
-    storage: { usedBytes: u.storage.usedBytes, limitBytes: u.storage.limitBytes },
+    storage: {
+      usedBytes: u.storage.usedBytes,
+      limitBytes: u.storage.limitBytes,
+      trashBytes: u.storage.trashBytes,
+    },
     members: meter(u.members),
     spaces: meter(u.spaces),
     categories: meter(u.categories),

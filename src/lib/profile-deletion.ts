@@ -5,6 +5,9 @@ export type ProfileDeletionCounts = {
   transactions: number;
   files: number;
   attachments: number;
+  /** Whether the vault goes to the trash with the profile (Plus/Pro) or is
+   * deleted for good (Free). Optional: older callers may not carry it. */
+  filesRecoverable?: boolean;
 };
 
 /** What the delete dialog offers once it knows there are transactions. */

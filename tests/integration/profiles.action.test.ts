@@ -241,16 +241,18 @@ describe("deleteProfile", () => {
     });
   });
 
-  it("deletes an empty, non-last profile", async () => {
+  it("sends an empty, non-last profile to the trash", async () => {
     signInAs("a");
     await bootstrapUser("a");
     await addProfile({ name: "Work" });
     const work = await profileByName("a", "Work");
     expect((await deleteProfile(work.id)).ok).toBe(true);
-    expect(await profileByName("a", "Work")).toBeUndefined();
+    // The row stays, stamped — the trash, not gone — and no list shows it.
+    expect((await profileByName("a", "Work"))?.deletedAt).toBeInstanceOf(Date);
+    expect((await listProfiles()).map((p) => p.id)).not.toContain(work.id);
   });
 
-  it("deletes the transactions (and their R2 objects) when asked to", async () => {
+  it("sends the transactions to the trash with the profile — nothing leaves the bucket", async () => {
     signInAs("a");
     await bootstrapUser("a");
     clearSweeps();
@@ -265,11 +267,12 @@ describe("deleteProfile", () => {
     await attach("a", txn, work.id, "att/gone.pdf");
 
     expect((await deleteProfile(work.id, { transactions: "delete" })).ok).toBe(true);
-    expect(await profileByName("a", "Work")).toBeUndefined();
-    expect(
-      await getTestDb().select().from(transactions).where(eq(transactions.id, txn)),
-    ).toHaveLength(0);
-    expect(sweptKeys()).toContain("att/gone.pdf");
+    expect((await profileByName("a", "Work"))?.deletedAt).toBeInstanceOf(Date);
+    // The row and its receipt are kept as they were (hidden by the profile's
+    // trash, restorable with it); the bytes stay until the purge.
+    const [kept] = await getTestDb().select().from(transactions).where(eq(transactions.id, txn));
+    expect(kept.deletedAt).toBeNull();
+    expect(sweptKeys()).not.toContain("att/gone.pdf");
   });
 
   it("moves the transactions and their attachments when asked to", async () => {
@@ -290,7 +293,8 @@ describe("deleteProfile", () => {
     expect(
       (await deleteProfile(work.id, { transactions: "move", toProfileId: personal })).ok,
     ).toBe(true);
-    expect(await profileByName("a", "Work")).toBeUndefined();
+    // The emptied profile goes to the trash like any other.
+    expect((await profileByName("a", "Work"))?.deletedAt).toBeInstanceOf(Date);
 
     const [moved] = await getTestDb()
       .select()
@@ -315,7 +319,9 @@ describe("deleteProfile", () => {
     expect((await deleteProfile(work.id, { transactions: "move" })).ok).toBe(false);
   });
 
-  it("deletes the profile's vault when its contents are deleted", async () => {
+  // Free has no file trash: the vault is deleted for good (Plus/Pro keep it with
+  // the trashed profile — see trash.profiles.test.ts).
+  it("deletes the profile's vault for good on Free when its contents are deleted", async () => {
     signInAs("a");
     await bootstrapUser("a");
     clearSweeps();
@@ -351,7 +357,7 @@ describe("deleteProfile", () => {
     expect(
       (await deleteProfile(work.id, { transactions: "move", toProfileId: personal })).ok,
     ).toBe(true);
-    expect(await profileByName("a", "Work")).toBeUndefined();
+    expect((await profileByName("a", "Work"))?.deletedAt).toBeInstanceOf(Date);
 
     const db = getTestDb();
     const [movedFile] = await db.select().from(files).where(eq(files.id, file));
@@ -513,14 +519,13 @@ describe("deleteProfile", () => {
   /**
    * The database half is one transaction, so a failure at the last statement
    * undoes the disposal that ran before it. Without that, the transactions were
-   * already moved (or deleted) when the profile delete failed: the user was
-   * told the delete failed while their rows had silently gone somewhere else.
+   * already moved when the profile's trashing failed: the user was told the
+   * delete failed while their rows had silently gone somewhere else.
    *
-   * A real concurrent insert can't be staged against a single-connection
-   * PGlite, so the failure is injected as the error that race produces — a
-   * foreign-key violation raised as the profile row is deleted.
+   * The failure is injected as a trigger on the statement that sends the
+   * profile to the trash — the last one in the transaction.
    */
-  it("rolls the move back when the profile delete fails, and says to retry", async () => {
+  it("rolls the move back when trashing the profile fails", async () => {
     signInAs("a");
     await bootstrapUser("a");
     const personal = await firstProfileId("a");
@@ -536,27 +541,26 @@ describe("deleteProfile", () => {
     clearSweeps();
 
     await getTestDb().execute(sql`
-      CREATE OR REPLACE FUNCTION pg_temp.fk_boom() RETURNS trigger AS $$
-        BEGIN RAISE EXCEPTION 'referenced' USING ERRCODE = '23503'; END;
+      CREATE OR REPLACE FUNCTION pg_temp.trash_boom() RETURNS trigger AS $$
+        BEGIN
+          IF NEW.deleted_at IS NOT NULL THEN RAISE EXCEPTION 'boom'; END IF;
+          RETURN NEW;
+        END;
       $$ LANGUAGE plpgsql`);
     await getTestDb().execute(sql`
-      CREATE TRIGGER fk_boom BEFORE DELETE ON profiles
-        FOR EACH ROW EXECUTE FUNCTION pg_temp.fk_boom()`);
-    let result;
+      CREATE TRIGGER trash_boom BEFORE UPDATE ON profiles
+        FOR EACH ROW EXECUTE FUNCTION pg_temp.trash_boom()`);
     try {
-      result = await deleteProfile(work.id, { transactions: "move", toProfileId: personal });
+      // An unexpected database error surfaces (runAction rethrows non-API errors).
+      await expect(
+        deleteProfile(work.id, { transactions: "move", toProfileId: personal }),
+      ).rejects.toThrow();
     } finally {
-      await getTestDb().execute(sql`DROP TRIGGER fk_boom ON profiles`);
+      await getTestDb().execute(sql`DROP TRIGGER trash_boom ON profiles`);
     }
-
-    expect(result).toEqual({
-      ok: false,
-      code: "conflict",
-      error: "Something was added to this profile while it was being deleted — try again",
-    });
     // Everything is exactly as it was: the profile, its transaction, and the
     // receipt — and nothing was swept out of the bucket.
-    expect(await profileByName("a", "Work")).toBeDefined();
+    expect((await profileByName("a", "Work"))?.deletedAt).toBeNull();
     const [stayed] = await getTestDb()
       .select()
       .from(transactions)
@@ -591,6 +595,7 @@ describe("getProfileDeletionImpact", () => {
       transactions: 1,
       files: 1,
       attachments: 1,
+      filesRecoverable: false,
     });
   });
 
@@ -618,6 +623,7 @@ describe("getProfileDeletionImpact", () => {
       transactions: 1,
       files: 0,
       attachments: 2,
+      filesRecoverable: false,
     });
   });
 

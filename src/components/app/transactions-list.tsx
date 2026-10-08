@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { loadMoreTransactions } from "@/actions/transactions";
+import { loadRestoredTransactions } from "@/actions/trash";
+import { listCompare, mergeRestored } from "@/lib/merge-restored";
 import { TransactionsTable } from "./transactions-table";
 import { BulkActionBar } from "./bulk-action-bar";
 import { usePermissions } from "./permissions";
@@ -137,6 +139,18 @@ export function TransactionsList({
     const gone = new Set(ids);
     setRows((prev) => prev.filter((r) => !gone.has(r.id)));
   }, []);
+  // Undo of a bulk delete: read the restored rows back under this list's own
+  // filters (a row the view filters out stays out) and put each where it sorts,
+  // within the stretch already loaded — the revalidation only refreshes the
+  // first page, so rows restored further down would otherwise stay missing.
+  const onBulkRestored = useCallback(
+    async (ids: string[]) => {
+      const res = await loadRestoredTransactions({ ids, filters });
+      if (!res.ok) return;
+      setRows((prev) => mergeRestored(prev, res.rows, listCompare(filters), done));
+    },
+    [filters, done],
+  );
 
   const loadMore = useCallback(async () => {
     setError(false);
@@ -224,6 +238,7 @@ export function TransactionsList({
           onClear={selection.clear}
           onDeleted={onBulkDeleted}
           onUpdated={onBulkUpdated}
+          onRestored={(ids) => void onBulkRestored(ids)}
         />
       ) : null}
 

@@ -1,6 +1,7 @@
 name = "spendchat"
-# Our own entry (worker.ts): OpenNext's generated handler plus the Durable Object
-# classes the bindings below point at. `opennextjs-cloudflare build` still writes
+# Our own entry (worker.ts): OpenNext's generated handler plus what it doesn't
+# generate — the Durable Object classes the bindings below point at, and the
+# daily cron's `scheduled()`. `opennextjs-cloudflare build` still writes
 # `.open-next/worker.js`; `wrangler deploy` bundles worker.ts, which imports it.
 main = "worker.ts"
 compatibility_date = "2025-09-23"
@@ -21,6 +22,16 @@ keep_vars = true
 # helper doesn't exist in the browser, and the script threw
 # "__name is not defined" before applying the stored theme on every page.
 keep_names = false
+
+# The daily trash purge (03:17 UTC — off the hour, away from everyone else's
+# crons). `scheduled()` in worker.ts runs it through the app's own fetch
+# handler on a token-guarded internal route. `triggers` *is* inheritable, so
+# the envs would pick this up anyway; they repeat it so each env reads whole.
+# A local test run needs an env — the top level has no `APP_ORIGIN`, and the
+# cron skips its run without one: `wrangler dev --env beta --test-scheduled`,
+# then `curl /__scheduled`.
+[triggers]
+crons = ["17 3 * * *"]
 
 # ---------------------------------------------------------------------------
 # There is NO deployable top-level environment: prod and beta are BOTH named
@@ -59,6 +70,14 @@ keep_names = false
 # only stops deploys DELETING dashboard vars; vars declared here are still set.
 [env.production.vars]
 APP_ENV = "production"
+# The public origin the cron's in-process request carries. OpenNext records the
+# first request an isolate sees as its origin (Next uses it for server-action
+# redirects), so a cron that happens to be first must not carry a made-up one;
+# without this var the cron skips its run instead. Keep it equal to the route.
+APP_ORIGIN = "https://spendchat.app"
+
+[env.production.triggers]
+crons = ["17 3 * * *"]
 
 [env.production.observability]
 enabled = true
@@ -134,6 +153,11 @@ new_sqlite_classes = ["RateLimiter"]
 # Tags shipped logs as environment="beta" (see the production note above).
 [env.beta.vars]
 APP_ENV = "beta"
+# See the production note on APP_ORIGIN.
+APP_ORIGIN = "https://beta.spendchat.app"
+
+[env.beta.triggers]
+crons = ["17 3 * * *"]
 
 [env.beta.observability]
 enabled = true

@@ -36,6 +36,17 @@ Authentication, secrets via Doppler.
   per day, per channel (`users.acquisition`, rules in `src/lib/attribution.ts`),
   per "how did you hear about us" answer, with activation (≥1 transaction).
 - `pnpm preview` / `pnpm deploy:dev` / `pnpm deploy:prod` — Worker build / deploy
+- **The Worker entry is `worker.ts`** (`wrangler.toml` `main`), wrapping OpenNext's generated
+  `.open-next/worker.js` with what it doesn't generate: the daily cron's `scheduled()` (and
+  Durable Object exports). Keep it thin and excluded from tsconfig — its runtime types and the
+  generated file exist only after a build — and import only dependency-free `src/lib` modules
+  into it: wrangler bundles it outside Next's `react-server` condition, where any
+  `import "server-only"` throws at startup and takes the fetch handler down too. Cron jobs
+  therefore run **through the app**: `scheduled()` calls the fetch handler in-process on a token-
+  guarded internal route (`lib/cron-dispatch.ts`, `lib/cron-token.ts`,
+  `app/api/internal/cron/*`), so they get Hyperdrive, `after()` log shipping and
+  `withRequestContext` like any request. Each env's `vars` carries `APP_ORIGIN` for that request.
+  Test a run locally with `wrangler dev --env beta --test-scheduled` and `curl /__scheduled`.
 
 ## Conventions
 - **Money** is stored as integer minor units (`amount_minor`). Convert with `src/lib/money.ts`
@@ -86,6 +97,18 @@ Authentication, secrets via Doppler.
   (pure, unit-tested, one shared layout: neutral, no images, plain-text twin); the one-time
   welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. ZeptoMail is
   transactional-only — don't add newsletters or drip campaigns to this pipe.
+- **Trash: every read excludes trashed rows.** `transactions`, `files`, `folders` and `profiles`
+  carry `deleted_at` (`timestamptz(3)`): deleting a transaction, a profile, or (Plus/Pro) a file or
+  folder moves it to the trash for `TRASH_DAYS` (30), and a daily cron purges it (`lib/trash-purge.ts`).
+  "Live" has two halves: the **row** — `notTrashed(table)` from `lib/trash-scope.ts`, which
+  `buildConditions` applies first for every transaction read — and its **profile** — the access
+  layer (`accessibleProfileIds` / `getEffectiveProfileRole`) skips trashed profiles, which hides
+  everything in them. A new read of one of these tables uses one of those, or carries a
+  `// trash: <reason>` comment saying why it reads everything (the storage sum — trashed bytes count
+  until purged, abuse rule C6 — destroy paths, sweeps); `tests/unit/trash-coverage.test.ts` fails
+  otherwise, and `tests/integration/trash-reads.test.ts` runs every read in `queries.ts` against
+  seeded trash. Attachments have no trash state of their own — always read it through the parent
+  transaction. Keep the literal `deleted_at is null` in feed queries: the feed index is partial.
 - **Rate limits are per person** (abuse rule C8; numbers in `RATE_LIMITS`, `src/lib/plans.ts`).
   Every authenticated request counts against one bucket — `create`, `read` or `ai` — over 1-,
   5- and 60-minute windows, judged by the plan of the workspace in context (with no workspace,

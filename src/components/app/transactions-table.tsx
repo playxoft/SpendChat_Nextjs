@@ -462,7 +462,7 @@ function Row({
   const [editing, setEditing] = useState(false);
   // An edit patches the cells / a delete hides the row in the same commit as the
   // toast, then the server revalidation reconciles.
-  const { row, removed, patch, remove } = useOptimisticRow(serverRow);
+  const { row, removed, patch, remove, unremove } = useOptimisticRow(serverRow);
   const ctx: CellContext = { currency, locale };
 
   if (removed) return null;
@@ -521,6 +521,7 @@ function Row({
         onOpenChange={setEditing}
         onSaved={patch}
         onDeleted={remove}
+        onRestored={unremove}
         categories={categories}
         profiles={profiles}
         tags={tags}

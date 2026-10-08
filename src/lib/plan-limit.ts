@@ -33,13 +33,16 @@ export const PLAN_LIMIT_KEYS = [
 export type PlanLimitKey = (typeof PLAN_LIMIT_KEYS)[number];
 
 /**
- * What the upgrade dialog can explain: every server key, plus `newWorkspace`
- * — the one-free-workspace rule met from "New workspace" (creating another
- * one), as opposed to `freeWorkspaces`, an extra workspace that is view-only.
- * The server says `freeWorkspaces` for both; the client knows which one it
- * hit (the create lock, the create form's refusal), so it names it.
+ * What the upgrade dialog can explain: every server key, plus two the client
+ * names itself:
+ *  - `newWorkspace` — the one-free-workspace rule met from "New workspace"
+ *    (creating another one), as opposed to `freeWorkspaces`, an extra workspace
+ *    that is view-only. The server says `freeWorkspaces` for both; the client
+ *    knows which one it hit, so it names it.
+ *  - `fileTrash` — the trash for files and folders (Plus/Pro). Never a server
+ *    refusal (on Free a file delete simply is final); the trash page offers it.
  */
-export const UPGRADE_LIMITS = [...PLAN_LIMIT_KEYS, "newWorkspace"] as const;
+export const UPGRADE_LIMITS = [...PLAN_LIMIT_KEYS, "newWorkspace", "fileTrash"] as const;
 export type UpgradeLimit = (typeof UPGRADE_LIMITS)[number];
 
 export type PlanLimitInfo = {
