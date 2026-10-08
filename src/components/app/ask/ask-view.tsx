@@ -342,6 +342,9 @@ export function AskView({
                 "flex items-end gap-2 rounded-3xl border bg-background py-1.5 pr-1.5 pl-4 shadow-lg transition-[border-color,box-shadow]",
                 "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
                 "md:bg-background/95 md:backdrop-blur-sm",
+                // Out of actions: one dimmed bar. The field and the button
+                // inside opt out of their own disabled fade, which stacked on
+                // this one left the text at ~30% and hard to read.
                 spent && "opacity-60",
               )}
             >
@@ -358,7 +361,7 @@ export function AskView({
                 className={cn(
                   // The base field's chrome moves to the bar around it.
                   "max-h-40 min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 py-1 text-base leading-6 shadow-none md:text-base",
-                  "focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent dark:bg-transparent dark:disabled:bg-transparent",
+                  "focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent",
                   // Content sizing measures the placeholder too: keep it to one line.
                   "placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap",
                 )}
@@ -371,7 +374,12 @@ export function AskView({
                 disabled={busy || !text.trim()}
                 aria-label="Send"
                 title="Send (Enter)"
-                className={cn("size-8 shrink-0 rounded-full p-0", !lock && AI_BTN)}
+                className={cn(
+                  "size-8 shrink-0 rounded-full p-0",
+                  !lock && AI_BTN,
+                  // Only when out of actions — an empty box still fades it as usual.
+                  spent && "disabled:opacity-100",
+                )}
               >
                 {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
               </LockedButton>
