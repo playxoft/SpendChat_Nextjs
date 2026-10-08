@@ -196,10 +196,11 @@ generic per-action fallback. Composer validation toasts are listed in
 15. **U+2212 minus**, everywhere a negative sign appears.
 16. **Bulk limit is 500 items** per request; transactions export caps at 5000
     rows.
-17. **AI endpoints are extra-gated.** Editor role + a shared **30 calls/hour**
-    per-user quota across `/ai/parse` and `/ai/transcribe`, plus (spec 6.5.0)
-    the workspace's **monthly AI allowance** and, for voice, a Pro plan. Handle
-    429 (quota), 403 `plan_limit` (allowance spent / voice not on this plan —
+17. **AI endpoints are extra-gated.** Editor role + the per-person **`ai` rate
+    limit** shared by `/ai/parse` and `/ai/transcribe` (spec 6.6.0 — by plan,
+    e.g. 3 a minute on Free; it replaced the 30 calls/hour quota), plus (spec
+    6.5.0) the workspace's **monthly AI allowance** and, for voice, a Pro plan.
+    Handle 429 (wait `Retry-After`), 403 `plan_limit` (allowance spent / voice not on this plan —
     upgrade prompt from `details`), 502 (retry), and 503 (feature not
     configured — hide/disable the AI UI, like the web) as *distinct* cases; a
     bare error toast for all of them feels broken.

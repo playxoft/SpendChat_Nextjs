@@ -79,6 +79,7 @@ export async function getProfileDeletionImpact(
   const user = await requireUser();
   return runAction("getProfileDeletionImpact", () => profileService.getProfileDeletionImpact(user.id, id), {
     userId: user.id,
+    rateLimit: "read",
     profileId: id,
   });
 }

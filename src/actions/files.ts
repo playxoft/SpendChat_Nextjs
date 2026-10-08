@@ -187,7 +187,7 @@ export async function listFileShares(target: {
       const shares = await filesService.listFileShares(user.id, workspace.id, target);
       return { shares };
     },
-    { userId: user.id, workspaceId: workspace.id },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
   );
 }
 

@@ -46,7 +46,9 @@ Cross-references point at the spec docs.
 - [ ] Repositories: transactions, categories, profiles, settings, analytics,
       workspaces, **ai** (parse/transcribe), **attachments** (upload/patch/
       delete/url) — one method per endpoint; return unwrapped models + `meta`.
-- [ ] Error mapping covers the AI/attachment codes: 429 `rate_limited`,
+- [ ] Error mapping covers 429 `rate_limited` on **any** endpoint (6.6.0 —
+      wait `Retry-After` seconds, never retry in a loop, show `error.message`),
+      and the AI/attachment codes: 429 `rate_limited`,
       413 `payload_too_large`, 502 `ai_failed`, 503 `ai_unavailable` /
       `storage_unavailable` (both = treat the feature as off).
 

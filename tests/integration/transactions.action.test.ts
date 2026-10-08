@@ -1,4 +1,14 @@
 import { afterEach, describe, it, expect, vi } from "vitest";
+
+// The per-person rate limiter fails open without a Durable Object binding;
+// the C8 test below installs an in-memory one.
+const limiter = vi.hoisted(() => ({
+  current: null as import("./helpers/memory-rate-limiter").MemoryRateLimiter | null,
+}));
+vi.mock("@/lib/rate-limit/binding", () => ({
+  getRateLimiterStub: (id: string) => limiter.current?.stubFor(id) ?? null,
+}));
+
 import { and, count, eq } from "drizzle-orm";
 import {
   aiUsageLog,
@@ -15,11 +25,12 @@ import {
   addBulkTransactions,
   parseTransactionsWithAI,
 } from "@/actions/transactions";
-import { AI_REQUESTS_PER_HOUR } from "@/lib/ai-quota";
+import { resetRateLimitState } from "@/lib/rate-limit";
 import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { setSession, signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
+import { createMemoryRateLimiter } from "./helpers/memory-rate-limiter";
 import {
   bootstrapUser,
   firstProfileId,
@@ -728,32 +739,31 @@ describe("parseTransactionsWithAI — gates before the model is ever called", ()
     expect(await aiUsageCount("b")).toBe(0);
   });
 
-  it("stops at the hourly quota, and only counts requests inside the window", async () => {
+  it("C8: stops at the per-person AI rate limit before the role, the ledger or the model", async () => {
     forbidNetwork();
-    signInAs("a");
-    await bootstrapUser("a");
-    const ws = await workspaceIdOf("a");
-    const db = getTestDb();
+    limiter.current = createMemoryRateLimiter();
+    try {
+      signInAs("a");
+      await bootstrapUser("a");
+      // Free allows 3 AI requests a minute; these three already happened.
+      limiter.current.fill(uid("a"), "ai", 3);
 
-    // One request older than the window — it must not count against the cap.
-    await db.insert(aiUsageLog).values({
-      userId: uid("a"),
-      workspaceId: ws,
-      kind: "transaction_parse",
-      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    });
-    // Fill the window exactly to the cap.
-    await db.insert(aiUsageLog).values(
-      Array.from({ length: AI_REQUESTS_PER_HOUR }, () => ({
-        userId: uid("a"),
-        workspaceId: ws,
-        kind: "transaction_parse",
-      })),
-    );
-
-    const res = await parseTransactionsWithAI("200 fruits");
-    expect(res).toMatchObject({ ok: false });
-    if (!res.ok) expect(res.error).toMatch(/try again later/i);
+      const res = await parseTransactionsWithAI("200 fruits");
+      expect(res).toMatchObject({
+        ok: false,
+        code: "rate_limited",
+        details: { bucket: "ai", window: "1m" },
+      });
+      if (!res.ok) {
+        expect(res.error).toMatch(/^That's a lot of AI requests in a short time\. Try again in /);
+        expect((res.details as { retryAfterSeconds: number }).retryAfterSeconds).toBeGreaterThan(0);
+      }
+      // Refused at the seam: nothing was charged.
+      expect(await aiUsageCount("a")).toBe(0);
+    } finally {
+      limiter.current = null;
+      resetRateLimitState();
+    }
   });
 
   it("passes the gates and fails at the unconfigured model, not before", async () => {

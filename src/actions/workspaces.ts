@@ -77,7 +77,7 @@ export async function switchWorkspace(id: string): Promise<ActionResult> {
       revalidateApp();
       return {};
     },
-    { userId: user.id, workspaceId: id },
+    { userId: user.id, rateLimit: "read", workspaceId: id },
   );
 }
 

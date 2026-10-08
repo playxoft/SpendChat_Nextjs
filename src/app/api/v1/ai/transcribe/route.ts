@@ -35,10 +35,10 @@ export const dynamic = "force-dynamic";
  * That charge also covers parsing the transcript: send it to `/ai/parse` with
  * `source: "voice"`.
  *
- * Gated like `/ai/parse` and in the same order: cheap local checks (format,
- * size, declared length), then the editor role, then the voice plan gate
- * (403 `plan_limit`), then the AI charge (hourly cap → 429, monthly allowance
- * → 403 `plan_limit`).
+ * Gated like `/ai/parse` and in the same order: the per-person `ai` rate limit
+ * (429 + `Retry-After`, in `getApiContext`), cheap local checks (format, size,
+ * declared length), then the editor role, then the voice plan gate (403
+ * `plan_limit`), then the AI charge (monthly allowance → 403 `plan_limit`).
  */
 export async function POST(request: NextRequest) {
   return handle(async () => {

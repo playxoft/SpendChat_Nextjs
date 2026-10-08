@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ApiError, validationError } from "@/lib/errors";
+import { ApiError, isRateLimitRefusal, retryAfterHeaders, validationError } from "@/lib/errors";
 import { describeError, logger } from "@/lib/logger";
 import { withRequestContext } from "@/lib/request-context";
 
@@ -25,16 +25,17 @@ export function apiOk(
   return Response.json(body, { status, headers: JSON_HEADERS });
 }
 
-/** Error envelope built directly from parts. */
+/** Error envelope built directly from parts. `headers` adds to the defaults (e.g. `Retry-After`). */
 export function apiError(
   status: number,
   code: string,
   message: string,
   details?: unknown,
+  headers?: Record<string, string>,
 ): Response {
   return Response.json(
     { error: { code, message, ...(details !== undefined ? { details } : {}) } },
-    { status, headers: JSON_HEADERS },
+    { status, headers: { ...JSON_HEADERS, ...headers } },
   );
 }
 
@@ -54,13 +55,17 @@ function zodDetails(err: z.ZodError): Record<string, string> {
  */
 export function handleApiError(err: unknown): Response {
   if (err instanceof ApiError) {
-    logger.warn(`API rejected with ${err.status} ${err.code}: ${err.message}`, {
+    // The rate limiter logs each blocked person once; its per-request refusals
+    // stay at debug so a looping script can't flood the logs.
+    const log = isRateLimitRefusal(err) ? logger.debug : logger.warn;
+    log(`API rejected with ${err.status} ${err.code}: ${err.message}`, {
       event: "api.rejected",
       code: err.code,
       status: err.status,
       error: err.message,
     });
-    return apiError(err.status, err.code, err.message, err.details);
+    // A 429 that knows when a retry will pass says so (RFC 9110 §10.2.3).
+    return apiError(err.status, err.code, err.message, err.details, retryAfterHeaders(err));
   }
   if (err instanceof z.ZodError) {
     const first = err.issues[0]?.message ?? "Invalid request";
