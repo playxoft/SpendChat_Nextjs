@@ -24,6 +24,7 @@ export const PLAN_LIMIT_KEYS = [
   "profilesPerSpace",
   "categories",
   "tags",
+  "budgets",
   "storage",
   "aiActions",
   "voice",
@@ -144,6 +145,33 @@ export type NumericPlanLimit =
 export function nextPlanFor(plan: PersonalPlan, key: NumericPlanLimit): PersonalPlan | null {
   const current = PLAN_LIMITS[plan][key];
   return PERSONAL_PLANS.find((p) => planAtLeast(p, plan) && PLAN_LIMITS[p][key] > current) ?? null;
+}
+
+/**
+ * Budgets are the one limit with two faces: `max` is the hard cap, and
+ * `displayUnlimited` (Pro) shows "Unlimited" instead of the number — Pro's 200
+ * is a safety cap, and reaching it says "Contact us", never "Upgrade".
+ */
+export function budgetsCap(plan: PersonalPlan): number {
+  return PLAN_LIMITS[plan].budgets.max;
+}
+
+/** "5", or "Unlimited" on a plan that shows its cap as unlimited. */
+export function budgetsLimitLabel(plan: PersonalPlan): string {
+  const b = PLAN_LIMITS[plan].budgets;
+  return b.displayUnlimited ? "Unlimited" : b.max.toLocaleString("en-US");
+}
+
+/** "5 budgets", or "unlimited budgets". */
+export function budgetsAllowance(plan: PersonalPlan): string {
+  const b = PLAN_LIMITS[plan].budgets;
+  return b.displayUnlimited ? "unlimited budgets" : quantity(b.max, "budget");
+}
+
+/** The cheapest plan above `plan` that allows more budgets — `nextPlanFor` for the object-shaped limit. */
+export function nextPlanForBudgets(plan: PersonalPlan): PersonalPlan | null {
+  const current = budgetsCap(plan);
+  return PERSONAL_PLANS.find((p) => planAtLeast(p, plan) && budgetsCap(p) > current) ?? null;
 }
 
 export type MeterState = {

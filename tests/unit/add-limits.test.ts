@@ -44,6 +44,47 @@ function limitsFor(
   };
 }
 
+function withBudgets(plan: PersonalPlan, used: number, readOnly = false): AddLimitsData {
+  const b = PLAN_LIMITS[plan].budgets;
+  return limitsFor(plan, {}, {
+    readOnly,
+    budgets: { ...meter(used, b.max, readOnly), unlimited: b.displayUnlimited },
+  });
+}
+
+describe("addLock — budgets (5 / 20 / Unlimited)", () => {
+  it("is open under the cap, and absent data locks nothing", () => {
+    expect(addLock(withBudgets("free", 4), "budgets")).toBeNull();
+    expect(addLock(limitsFor("free"), "budgets")).toBeNull();
+  });
+
+  it("names the next plan's number on Free, and 'unlimited' on the way to Pro", () => {
+    expect(addLock(withBudgets("free", 5), "budgets")).toEqual({
+      title: "Budget limit reached",
+      reason: "Free includes 5 budgets — upgrade to Plus for 20.",
+      cta: "Upgrade",
+      info: { limit: "budgets", plan: "free", max: 5, used: 5, upgradeTo: "plus" },
+    });
+    expect(addLock(withBudgets("plus", 20), "budgets")?.reason).toBe(
+      "Plus includes 20 budgets — upgrade to Pro for unlimited budgets.",
+    );
+  });
+
+  it("never locks Pro before its safety cap, and says 'Contact us' at it", () => {
+    expect(addLock(withBudgets("pro", 199), "budgets")).toBeNull();
+    const lock = addLock(withBudgets("pro", 200), "budgets");
+    expect(lock?.cta).toBe("Contact us");
+    expect(lock?.reason).toBe("This workspace has 200 budgets — contact us if you need more.");
+    expect(lock?.info.upgradeTo).toBeNull();
+    // A count the caller knows to be fresher wins.
+    expect(addLock(withBudgets("pro", 150), "budgets", { used: 200 })?.cta).toBe("Contact us");
+  });
+
+  it("locks every budget in a view-only workspace", () => {
+    expect(addLock(withBudgets("free", 0, true), "budgets")?.title).toBe("This workspace is view-only");
+  });
+});
+
 describe("addLock", () => {
   it("locks nothing without data (outside the app layout)", () => {
     expect(addLock(null, "spaces")).toBeNull();

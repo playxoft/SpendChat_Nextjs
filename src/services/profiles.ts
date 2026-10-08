@@ -19,6 +19,7 @@ import { deleteObjects } from "@/lib/r2";
 import { logger } from "@/lib/logger";
 import { notTrashed } from "@/lib/trash-scope";
 import { assertCanAddProfilesToSpace, getWorkspaceEntitlements } from "@/lib/entitlements";
+import { scheduleBudgetCheck } from "./budget-alerts";
 import {
   accessibleProfileIds,
   getDefaultSpaceId,
@@ -514,6 +515,10 @@ export async function deleteProfile(
   }
 
   await deleteObjects(doomedKeys);
+  // Moved transactions can push the receiving profile's budget over.
+  if (disposal.transactions === "move") {
+    scheduleBudgetCheck({ workspaceId, userId, dates: "current" });
+  }
   logger.info(`Profile moved to the trash (${disposal.transactions} disposal)`, {
     event: "trash.profile_moved",
     profileId: id,
@@ -550,6 +555,7 @@ export async function moveProfileTransactions(
 
   const db = getDb();
   const moved = await db.transaction((tx) => reprofileTransactions(tx, fromId, toId));
+  if (moved > 0) scheduleBudgetCheck({ workspaceId: to.workspaceId, userId, dates: "current" });
   return { moved };
 }
 

@@ -36,6 +36,7 @@ import { notTrashed, trashedOnly } from "@/lib/trash-scope";
 import { FOLDER_NAME_MAX, PROFILE_NAME_MAX, trashSelectionSchema } from "@/lib/validation";
 import { accessibleProfileIds, getWorkspaceRole, readOnlyWorkspaceError } from "@/lib/workspaces";
 import { destroyProfiles } from "./storage-keys";
+import { scheduleBudgetCheck } from "./budget-alerts";
 import {
   lockFolderSubtree,
   rescueLiveUnderTrash,
@@ -423,6 +424,7 @@ export async function restoreFromTrash(
   // Rows inside a profile restored just now are in reach from here on.
   const writable = await writableProfileIdList(userId, workspaceId);
   let transactionIds: string[] = [];
+  let expenseDates: string[] = [];
 
   if (sel.transactionIds.length && writable.length) {
     const restored = await db
@@ -435,8 +437,9 @@ export async function restoreFromTrash(
           trashedOnly(transactions),
         ),
       )
-      .returning({ id: transactions.id });
+      .returning({ id: transactions.id, type: transactions.type, occurredOn: transactions.occurredOn });
     transactionIds = restored.map((r) => r.id);
+    expenseDates = restored.filter((r) => r.type === "expense").map((r) => r.occurredOn);
     counts.transactions = restored.length;
     done += restored.length;
   }
@@ -469,6 +472,9 @@ export async function restoreFromTrash(
       ...counts,
     });
   }
+  // Spending came back: restored expenses, or everything in a restored profile
+  // (its dates unknown here, so every current month is checked).
+  scheduleBudgetCheck({ workspaceId, userId, dates: counts.profiles > 0 ? "current" : expenseDates });
   return { counts, skipped: Math.max(0, asked - done), transactionIds };
 }
 
@@ -514,7 +520,12 @@ export async function restoreAllTransactions(
       .update(transactions)
       .set({ deletedAt: null, deletedBy: null })
       .where(and(inArray(transactions.id, batch.map((r) => r.id)), trashedOnly(transactions)))
-      .returning({ id: transactions.id });
+      .returning({ id: transactions.id, type: transactions.type, occurredOn: transactions.occurredOn });
+  });
+  scheduleBudgetCheck({
+    workspaceId,
+    userId,
+    dates: restored.filter((r) => r.type === "expense").map((r) => r.occurredOn),
   });
   // trash: the same trash-only `where`, for what's left.
   const [{ n }] = await db.select({ n: count() }).from(transactions).where(where);

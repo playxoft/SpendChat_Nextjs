@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { BUDGET_SCOPES, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
 import {
   CURRENCIES,
@@ -1108,3 +1109,49 @@ export const startCheckoutSchema = z.discriminatedUnion("item", [
   }),
 ]);
 export type StartCheckoutInput = z.infer<typeof startCheckoutSchema>;
+
+// ── Budgets ────────────────────────────────────────────────────────────────
+
+export const budgetScopeSchema = z.enum(BUDGET_SCOPES);
+
+/** A calendar month, "2026-10", between 1970 and 2999. */
+export const budgetMonthSchema = z
+  .string()
+  .refine(isMonthKey, "Month must be YYYY-MM, between 1970 and 2999");
+
+const budgetEmailAlertsSchema = z.boolean().optional();
+
+/**
+ * A new monthly budget: the whole workspace, one profile, or one expense
+ * category. `amount` is in major units of the workspace currency, like a
+ * transaction's.
+ */
+export const createBudgetSchema = z.discriminatedUnion("scope", [
+  z.object({
+    scope: z.literal("workspace"),
+    amount: amountSchema,
+    emailAlerts: budgetEmailAlertsSchema,
+  }),
+  z.object({
+    scope: z.literal("profile"),
+    profileId: z.string().uuid("Pick a profile"),
+    amount: amountSchema,
+    emailAlerts: budgetEmailAlertsSchema,
+  }),
+  z.object({
+    scope: z.literal("category"),
+    categoryId: z.string().uuid("Pick a category"),
+    amount: amountSchema,
+    emailAlerts: budgetEmailAlertsSchema,
+  }),
+]);
+export type CreateBudgetInput = z.input<typeof createBudgetSchema>;
+
+/** Change a budget's amount or its email alerts. What it covers is fixed. */
+export const updateBudgetSchema = z
+  .object({
+    amount: amountSchema.optional(),
+    emailAlerts: z.boolean().optional(),
+  })
+  .refine((v) => v.amount !== undefined || v.emailAlerts !== undefined, "Nothing to update");
+export type UpdateBudgetInput = z.input<typeof updateBudgetSchema>;

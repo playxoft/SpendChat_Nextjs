@@ -14,10 +14,38 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.7.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.8.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
 
+## [0.35.0] — 2026-10-07
+
+### Added
+- **Budgets.** Set a monthly limit for the whole workspace, one profile, or one
+  category (that category across every profile), and watch it fill up on the
+  new **Budgets** page (`U`, or the sidebar). Only expenses count — income
+  doesn't offset spending — and every budget starts again on the 1st.
+- **Alerts at 80% and 100%.** A budget that needs a look shows a badge on the
+  Budgets nav item and a banner on the page, worked out live from this month's
+  spending. Admins and whoever set the budget (while they can still change it)
+  also get one email per budget at 80% and one at 100% each month — again only
+  if its amount is raised — with several budgets crossed at once arriving as
+  one email, and at most 30 alert emails a month per workspace. Each budget has
+  a switch to turn its emails off. The check runs after the entry is saved, so
+  adding a transaction is no slower.
+- **Budgets in analytics.** When the range is this month, analytics shows each
+  budget's progress — all of them for "All profiles", the profile's own budget
+  when one is selected.
+- **Who sees what.** A budget shows only to people who can read every profile it
+  covers (admins always can), so a total never reveals spending someone can't
+  see. Admins and editors of every covered profile can add, change or delete
+  it; viewers only look.
+- **Plan limits:** 5 budgets on Free, 20 on Plus, unlimited on Pro. The limit
+  shows up front on "New budget", in the usage panel and on the pricing page;
+  a workspace over the limit after a downgrade keeps every budget and its
+  alerts, it just can't add another.
+- **Mobile API 6.8.0:** `GET/POST /budgets`, `PATCH/DELETE /budgets/{id}`,
+  `Usage.budgets`, and `plan_limit` with `limit: "budgets"`.
 ## [0.34.0] — 2026-10-07
 
 ### Added

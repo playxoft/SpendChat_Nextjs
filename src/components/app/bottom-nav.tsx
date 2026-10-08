@@ -4,12 +4,13 @@ import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { hrefWithProfile, isActive, navItems } from "./nav-items";
+import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badge";
 
 /** Settings used to be filtered out here; it is no longer in `navItems` at all
  *  (it lives in the profile/user menu), so the bar is the whole list again. */
 const BOTTOM_NAV_ITEMS = navItems;
 
-export function BottomNav() {
+export function BottomNav({ budgetAlerts }: { budgetAlerts?: Promise<BudgetAlertCount> } = {}) {
   const pathname = usePathname();
   const profile = useSearchParams().get("profile");
 
@@ -28,7 +29,12 @@ export function BottomNav() {
                 active ? "text-foreground" : "text-muted-foreground",
               )}
             >
-              <item.icon className={cn("size-5", active && "scale-105")} />
+              <span className="relative">
+                <item.icon className={cn("size-5", active && "scale-105")} />
+                {item.href === "/app/budgets" && (
+                  <BudgetNavBadge alerts={budgetAlerts} className="absolute -top-1.5 -right-2.5" />
+                )}
+              </span>
               {item.label}
             </Link>
           );

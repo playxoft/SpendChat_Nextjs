@@ -58,6 +58,7 @@ export type PlanLimitKey =
   | "profilesPerSpace"
   | "categories"
   | "tags"
+  | "budgets"
   | "storage"
   | "aiActions"
   | "voice"

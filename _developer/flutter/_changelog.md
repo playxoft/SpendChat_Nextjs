@@ -19,6 +19,52 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.8.0 — 2026-10-07
+
+**Budgets.** A monthly spending limit for the whole workspace, one profile, or
+one expense category (across every profile). Each budget comes back with that
+month's spending, so the app can draw progress and its own 80% / 100% alerts.
+Alert *emails* are sent by the server; there is nothing to poll. Additive.
+
+**New endpoints**
+
+| Method & path | What |
+|---|---|
+| `GET /budgets?month=YYYY-MM` | The budgets the caller can see, each with `month`'s spending. `month` defaults to the current **UTC** month — send the phone's own month. `meta: { month, currency }`. |
+| `POST /budgets` | `{ scope: "workspace" \| "profile" \| "category", profileId?, categoryId?, amount, emailAlerts? }` → 201 `Budget`. `amount` is major units, like a transaction's. One budget per scope (409 otherwise); a category must be an expense category (422). |
+| `PATCH /budgets/{id}` | `{ amount?, emailAlerts? }` → `Budget`. What a budget covers can't change. |
+| `DELETE /budgets/{id}` | `{ id, deleted: true }`. |
+
+**New model: `Budget`** — `id, scope, profileId, categoryId, label, icon,
+period ("monthly"), amountMinor, emailAlerts, month, spentMinor, percent,
+status ("ok" | "warn" (≥ 80%) | "over" (≥ 100%)), canManage, canDelete,
+createdBy, createdAt, updatedAt`. Spending is expenses only (income never offsets) in the
+calendar month of each transaction's `occurredOn`.
+
+**Who sees and manages:** a budget is listed only to admins and to people who
+can read **every** profile it covers (the workspace and category scopes cover
+all profiles); anything else is a 404. Adding or changing one needs write
+access to every profile it covers (`canManage`); viewers only read. `canDelete`
+has the same reach as `canManage`, but isn't blocked by a view-only workspace.
+Alert emails go once per budget, threshold and month (again only if the amount
+is raised past the one it fired at), within 30 a month per workspace. Trashed
+transactions don't count, and a budget on a trashed profile is hidden (and
+doesn't count toward the plan) until the profile is restored.
+
+**New fields**
+
+| Where | Field | Notes |
+|---|---|---|
+| `Usage` (`GET /usage`) | `budgets: { used, limit, unlimited }` | Free 5, Plus 20, Pro `unlimited: true` (its `limit` of 200 is a safety cap — show "Unlimited"). |
+| `plan_limit` `details.limit` | `"budgets"` | From `POST /budgets` past the cap. `upgradeTo: null` on Pro → "contact us". |
+
+**Flutter impact:** none required — every change is additive. To ship budgets,
+add a Budgets screen on the four endpoints (send `?month=` in the device's
+zone), show `Usage.budgets`, and map `plan_limit` `limit: "budgets"` to the
+upgrade sheet (Pro's cap → "Contact us").
+
+---
+
 ## 6.7.0 — 2026-10-07
 
 **The trash.** Deleting a transaction (every plan), a vault file or folder

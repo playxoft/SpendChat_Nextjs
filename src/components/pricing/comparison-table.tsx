@@ -12,7 +12,7 @@ import {
   isPaidPlan,
   type PersonalPlan,
 } from "@/lib/plans";
-import { formatPlanStorage } from "@/lib/plan-limit";
+import { budgetsLimitLabel, formatPlanStorage } from "@/lib/plan-limit";
 import { FEATURED_PLAN, count } from "@/lib/plan-copy";
 import {
   PERIOD_LABEL,
@@ -37,8 +37,8 @@ const everywhere = (c: Cell) => () => c;
  * Every row is read from `@/lib/plans` (limits) or `@/lib/pricing` (prices),
  * never typed out — so the table can't drift from what the app enforces. Only
  * what the app does today is listed: entries in `PLAN_LIMITS` for features
- * that haven't shipped (budgets, invoices, the file trash) stay off the page
- * until they do.
+ * that haven't shipped (invoices, the file trash) stay off the page until
+ * they do.
  */
 function sections(currency: Currency, selfHost: boolean): { title: string; rows: Row[] }[] {
   const money = (major: number) => formatAmount(major, currency);
@@ -57,6 +57,11 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
           cell: (p) => count(PLAN_LIMITS[p].categories),
         },
         { label: "Tags", cell: (p) => count(PLAN_LIMITS[p].tags) },
+        {
+          label: "Monthly budgets",
+          hint: "For the whole workspace, a profile or a category, with alerts at 80% and 100%.",
+          cell: (p) => budgetsLimitLabel(p),
+        },
         { label: "CSV & PDF export", hint: "On every plan, always. Your data is yours.", cell: everywhere(true) },
       ],
     },

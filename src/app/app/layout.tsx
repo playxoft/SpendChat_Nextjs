@@ -5,7 +5,9 @@ import { getAddLimits } from "@/lib/entitlements";
 import { getCategories, getProfiles, getTags } from "@/lib/queries";
 import { normalizeUiPrefs } from "@/lib/validation";
 import { listSpaces } from "@/services/spaces";
-import { todayISO } from "@/lib/dates";
+import { monthKey, todayISO } from "@/lib/dates";
+import { getBudgetAlertCount } from "@/services/budgets";
+import { describeError, logger } from "@/lib/logger";
 import { getTimeZone } from "@/lib/timezone.server";
 import { requestCountry } from "@/lib/geo.server";
 import { workspacePriceCurrency } from "@/lib/plan-copy";
@@ -29,6 +31,20 @@ export default async function AppLayout({
   const { user, settings, workspace } = await getAppContext();
   const email = user.email;
   const [timeZone, country] = await Promise.all([getTimeZone(), requestCountry()]);
+  // The nav's budget badge: started here, never awaited — the badge streams in
+  // under its own Suspense, so a slow count can't hold up the page. A failure
+  // shows no badge rather than an error.
+  const budgetAlerts = getBudgetAlertCount(
+    user.id,
+    workspace.id,
+    monthKey(todayISO(timeZone)),
+  ).catch((err: unknown) => {
+    logger.warn(`The budget badge count failed: ${describeError(err)}`, {
+      event: "budget.badge_failed",
+      error: err,
+    });
+    return { warn: 0, over: 0 };
+  });
   const [profiles, spaces, categories, tags, workspaces, canWrite, addLimits] =
     await Promise.all([
       getProfiles(user.id, workspace.id),
@@ -69,6 +85,7 @@ export default async function AppLayout({
         collapsedSpaces={collapsedSpaces}
         workspaces={workspaces}
         currentWorkspaceId={workspace.id}
+        budgetAlerts={budgetAlerts}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <AppTopbar
@@ -85,7 +102,7 @@ export default async function AppLayout({
           canWrite={canWrite}
         />
         <main className="flex-1 pb-16 md:pb-0">{children}</main>
-        <BottomNav />
+        <BottomNav budgetAlerts={budgetAlerts} />
       </div>
       {/* `g` from anywhere opens the workspace picker; 1…9 jump straight to one. */}
       <WorkspaceSwitchDialog workspaces={workspaces} currentWorkspaceId={workspace.id} />

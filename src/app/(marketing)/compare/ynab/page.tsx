@@ -81,7 +81,7 @@ const faqs = [
   },
   {
     q: "Can I keep a budget in SpendChat?",
-    a: "Not as envelopes. You can see this month's total and the split by category on the analytics page and compare it with last month, and many people set a number in their head or a note against that. If you want the discipline of assigning money before it's spent, YNAB is built for exactly that.",
+    a: "Yes, a simple one — not envelopes. Set a monthly limit for the whole workspace, one profile or one category, watch it fill up on the Budgets page, and get a heads-up in the app and by email at 80% and 100%. What SpendChat doesn't do is assign every unit of income to a job before it's spent; if you want that discipline, YNAB is built for exactly that.",
   },
 ];
 
@@ -146,8 +146,9 @@ export default function YnabComparisonPage() {
           no plan, only the record, and the record is the habit most people can keep.
         </p>
         <p>
-          That is also its limit. SpendChat will not stop you overspending a category, will
-          not roll an envelope forward, and has no goals. If those are the tools you want,
+          That is also its limit. SpendChat&apos;s budgets are simple monthly limits that warn
+          you at 80% and 100%; they won&apos;t stop you overspending a category or roll an
+          envelope forward, and there are no goals. If those are the tools you want,
           YNAB is a better product for you, and its method is worth the money for the people
           it fits.
         </p>

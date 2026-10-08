@@ -97,6 +97,25 @@ Authentication, secrets via Doppler.
   (pure, unit-tested, one shared layout: neutral, no images, plain-text twin); the one-time
   welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. ZeptoMail is
   transactional-only — don't add newsletters or drip campaigns to this pipe.
+- **Budgets** — monthly spending limits for the whole workspace, one profile, or one expense
+  category (across every profile); one per scope; capped per plan (`PLAN_LIMITS.budgets`). Rules
+  are pure in `src/lib/budgets.ts`, CRUD in `src/services/budgets.ts`. **Every budget number comes
+  from `getMonthExpenseMatrix` (`src/lib/budget-spend.ts`)** — its one `where` decides which
+  transactions count (expenses only, the calendar month of `occurred_on`, every profile of the
+  workspace, trashed rows and trashed profiles excluded); never sum spending for a budget anywhere
+  else. A budget is shown only to admins and people who can read **every** live profile it covers;
+  a budget on a trashed profile is hidden from everyone (and not counted toward the plan) until the
+  profile is restored. Managing it needs edit access to every covered profile. **Every
+  transaction write that can raise spending calls `scheduleBudgetCheck` after it writes**
+  (`src/services/budget-alerts.ts`; in the service layer, so web and API are both covered; trash
+  restore calls it too) — a new write path must as well.
+  The check runs after the response through `afterResponse` (`src/lib/defer.ts`: Next's `after()`,
+  `ctx.waitUntil` on Workers) and claims each alert once per budget × threshold × month in
+  `budget_alerts` (never deleted; it fires again only for a higher amount; a claim that didn't fit
+  the pool or whose check failed before committing is retried, a failed send isn't). Alert emails
+  come from the workspace's own monthly pool (`budgetAlertEmailsLeft`, `email-quota.ts`), filled
+  claim by claim, never the writer's. In-app alerts are computed live — there is no
+  notifications table. Put any other post-response DB work through `afterResponse` too.
 - **Trash: every read excludes trashed rows.** `transactions`, `files`, `folders` and `profiles`
   carry `deleted_at` (`timestamptz(3)`): deleting a transaction, a profile, or (Plus/Pro) a file or
   folder moves it to the trash for `TRASH_DAYS` (30), and a daily cron purges it (`lib/trash-purge.ts`).

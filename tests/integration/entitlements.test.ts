@@ -629,6 +629,7 @@ describe("getAddLimits", () => {
       categories: { used: 10, limit: 20, reached: false },
       tags: { used: 2, limit: 5, reached: false },
       members: { used: 1, limit: 3, reached: false },
+      budgets: { used: 0, limit: 5, reached: false, unlimited: false },
       profilesPerSpace: PLAN_LIMITS.free.profilesPerSpace,
       // They already own their one free workspace — this one, so upgrading it
       // is what frees the place for another.

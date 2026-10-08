@@ -11,6 +11,7 @@ import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-l
 import { UserMenu } from "./user-menu";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
 import { hrefWithProfile, isActive, navItems } from "./nav-items";
+import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badge";
 
 export function AppSidebar({
   email,
@@ -19,6 +20,7 @@ export function AppSidebar({
   collapsedSpaces,
   workspaces,
   currentWorkspaceId,
+  budgetAlerts,
 }: {
   email: string | null;
   profiles: SidebarProfile[];
@@ -26,6 +28,8 @@ export function AppSidebar({
   collapsedSpaces: string[];
   workspaces: WorkspaceOption[];
   currentWorkspaceId: string;
+  /** This month's budget alerts for the nav badge — streamed, never awaited. */
+  budgetAlerts?: Promise<BudgetAlertCount>;
 }) {
   const pathname = usePathname();
   const profile = useSearchParams().get("profile");
@@ -72,6 +76,7 @@ export function AppSidebar({
             >
               <item.icon className="size-4" />
               {item.label}
+              {item.href === "/app/budgets" && <BudgetNavBadge alerts={budgetAlerts} />}
               <Kbd combo={item.shortcut} className="ml-auto opacity-70" />
             </Link>
           );
