@@ -10,12 +10,13 @@ import { AskView } from "@/components/app/ask/ask-view";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Ask",
+  title: "SpendChat AI",
   robots: { index: false, follow: false },
 };
 
 /**
- * Ask: questions about your money, answered from your transactions. `/app/ask`
+ * SpendChat AI (called Ask in code, and at `/app/ask`): questions about your
+ * money, answered from your transactions. `/app/ask`
  * is a new chat; `/app/ask?c=<id>` opens one of your own (anyone else's is a
  * 404). The chat list is a column beside the sidebar on desktop (`AskPanel`,
  * part of this page — see there for why) and a sheet on smaller screens.

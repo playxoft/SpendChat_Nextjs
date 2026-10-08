@@ -3,8 +3,17 @@ import { comboFor } from "@/lib/shortcuts";
 
 export const navItems = [
   { href: "/app", label: "Tracker", icon: MessageSquare, exact: true, shortcut: comboFor("nav.tracker") },
-  // Ask sits under the tracker: the same chat, asked instead of told.
-  { href: "/app/ask", label: "Ask", icon: Sparkles, exact: false, shortcut: comboFor("nav.ask") },
+  // SpendChat AI sits under the tracker: the same chat, asked instead of told.
+  // `shortLabel` is what the phone's bottom bar prints — five slots at 320px
+  // leave no room for the full name, which stays its accessible name there.
+  {
+    href: "/app/ask",
+    label: "SpendChat AI",
+    shortLabel: "AI",
+    icon: Sparkles,
+    exact: false,
+    shortcut: comboFor("nav.ask"),
+  },
   { href: "/app/transactions", label: "Transactions", icon: Table2, exact: false, shortcut: comboFor("nav.transactions") },
   { href: "/app/analytics", label: "Analytics", icon: ChartColumn, exact: false, shortcut: comboFor("nav.analytics") },
   { href: "/app/budgets", label: "Budgets", icon: PiggyBank, exact: false, shortcut: comboFor("nav.budgets") },

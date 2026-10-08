@@ -48,7 +48,7 @@ function comboText(id: string): string {
 const faqs = [
   {
     q: "What are the keyboard shortcuts?",
-    a: `Single letters move between sections: ${comboText("nav.tracker")} for the tracker, ${comboText("nav.transactions")} for transactions, ${comboText("nav.analytics")} for analytics, ${comboText("nav.budgets")} for budgets, ${comboText("nav.files")} for files and ${comboText("nav.settings")} for settings. ${comboText("action.add")} opens the add-transaction dialog and ${comboText("action.bulk")} opens bulk add. In the composer, ${comboText("tracker.submit")} sends. Press ${comboText("global.shortcuts")} anywhere in the app for the full sheet — it is the same list you can try on this page.`,
+    a: `Single letters move between sections: ${comboText("nav.tracker")} for the tracker, ${comboText("nav.ask")} for SpendChat AI, ${comboText("nav.transactions")} for transactions, ${comboText("nav.analytics")} for analytics, ${comboText("nav.budgets")} for budgets, ${comboText("nav.files")} for files and ${comboText("nav.settings")} for settings. ${comboText("action.add")} opens the add-transaction dialog and ${comboText("action.bulk")} opens bulk add. In the composer, ${comboText("tracker.submit")} sends. Press ${comboText("global.shortcuts")} anywhere in the app for the full sheet — it is the same list you can try on this page.`,
   },
   {
     q: "Do the shortcuts work on Windows?",
@@ -114,9 +114,11 @@ export default function KeyboardShortcutsPage() {
 
       <FeatureSection title="One letter per section, and why letters">
         <p>
-          The six sections of the app answer to six single keys:{" "}
+          The seven sections of the app answer to seven single keys:{" "}
           <Kbd combo={comboFor("nav.tracker")} className="align-middle" describe /> for the
           tracker,{" "}
+          <Kbd combo={comboFor("nav.ask")} className="align-middle" describe /> for
+          SpendChat AI,{" "}
           <Kbd combo={comboFor("nav.transactions")} className="align-middle" describe /> for
           transactions,{" "}
           <Kbd combo={comboFor("nav.analytics")} className="align-middle" describe /> for

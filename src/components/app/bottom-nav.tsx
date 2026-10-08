@@ -15,7 +15,8 @@ import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badg
 
 /**
  * Five slots on a phone, so every label fits on one line at 320px: the
- * everyday places (Tracker, Ask, Transactions), Split, and "More" for the
+ * everyday places (Tracker, SpendChat AI — "AI" on the bar — and
+ * Transactions), Split, and "More" for the
  * rest (Analytics, Budgets, Files). Settings and Trash live in the account
  * menu, top right. The desktop sidebar still lists everything.
  */
@@ -39,15 +40,18 @@ export function BottomNav({
       <div className="mx-auto flex h-full max-w-md items-stretch justify-around">
         {BAR_ITEMS.map((item) => {
           const active = isActive(pathname, item.href, item.exact);
+          // A short bar label keeps the full name as the link's accessible name.
+          const short = "shortLabel" in item ? item.shortLabel : null;
           return (
             <Link
               key={item.href}
               href={hrefWithProfile(item.href, profile)}
               aria-current={active ? "page" : undefined}
+              aria-label={short ? item.label : undefined}
               className={cn(slot, active ? "text-foreground" : "text-muted-foreground")}
             >
               <item.icon className={cn("size-5", active && "scale-105")} />
-              {item.label}
+              {short ?? item.label}
             </Link>
           );
         })}

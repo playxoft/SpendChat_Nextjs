@@ -70,4 +70,4 @@ export type AiActionsLeft = {
  * it needs edit access; a read-only member can't drain the allowance.
  */
 export const ASK_NEEDS_EDIT_MESSAGE =
-  "Ask uses the workspace's AI actions — ask an admin for edit access.";
+  "SpendChat AI uses the workspace's AI actions — ask an admin for edit access.";
