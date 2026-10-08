@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   commitSliderText,
   committedUnits,
+  inputHint,
   moneyInput,
   percentInput,
 } from "@/lib/split-slider-input";
@@ -50,5 +51,24 @@ describe("the number box beside a split slider", () => {
     expect(percentInput("en-IN").suffix).toBe("%");
     expect(eur.accept("12", "12a3")).toBe("123");
     expect(eur.accept("123456789", "1234567890")).toBe("123456789"); // past 9 whole digits
+  });
+});
+
+describe("number box edge cases", () => {
+  it("committing someone's current figure still pins them", () => {
+    const inr = moneyInput("INR", "en-IN");
+    const start = evenSliders(["a", "b", "c"], 9000);
+    const pinned = commitSliderText(start, "a", "30", inr);
+    expect(pinned.values).toEqual(start.values);
+    expect(pinned.touched).toEqual(["a"]);
+    // So the next move takes from the others, not from a.
+    expect(commitSliderText(pinned, "b", "50", inr).values).toEqual({ a: 3000, b: 5000, c: 1000 });
+  });
+
+  it("a figure it can't read isn't taken, and the hint shows the viewer's format", () => {
+    expect(committedUnits("12,5", moneyInput("INR", "en-IN"), 100_000)).toBeNull();
+    expect(inputHint(moneyInput("INR", "en-IN"))).toBe("Use a number like 12.50");
+    expect(inputHint(moneyInput("EUR", "de-DE"))).toBe("Use a number like 12,50");
+    expect(inputHint(percentInput("en-US"))).toBe("Use a number like 12.5");
   });
 });
