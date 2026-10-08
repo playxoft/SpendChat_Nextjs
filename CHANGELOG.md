@@ -18,7 +18,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
-## [0.38.1] — 2026-10-09
+## [0.39.0] — 2026-10-09
 
 ### Added
 - **A number box beside every split slider** — in the composer, the expense
