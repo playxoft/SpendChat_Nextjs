@@ -43,7 +43,8 @@ export function PaidByPicker({
   const nameOf = (memberId: string) => members.find((m) => m.id === memberId)?.name ?? "Someone";
   const payers = payerIds.map((p) => ({ id: p, name: nameOf(p) }));
   const who = payersLabel(payers.map((p) => ({ name: p.name, isYou: p.id === meMemberId })));
-  const label = `${who} paid`;
+  // Both places it's used label it "Paid by", so the button just names who.
+  const label = who;
   const toggle = (memberId: string, on: boolean) => {
     const next = members.map((m) => m.id).filter((m) => (m === memberId ? on : payerIds.includes(m)));
     if (next.length) onChange(next);

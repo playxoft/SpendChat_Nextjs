@@ -14,6 +14,7 @@ import { formatMoney } from "@/lib/money";
 import { parseAmountInput } from "@/lib/parse-amount";
 import { acceptAmountInput } from "@/lib/split-display";
 import { percentToInputString } from "@/lib/split-math";
+import { moneyInput, percentInput } from "@/lib/split-slider-input";
 import { cn } from "@/lib/utils";
 import { SPLIT_EXPENSE_TITLE_MAX } from "@/lib/validation";
 import { typedMinor, type ExpenseDraft, type ExpenseMember } from "./expense-dialog";
@@ -116,6 +117,8 @@ export function SplitComposer({
   const type = editor.splitType;
   const shares = editor.preview.shares;
   const percentText = (bp: number) => `${percentToInputString(bp, locale)}%`;
+  const amountBox = moneyInput(currency, locale);
+  const percentBox = percentInput(locale);
   // The sliders and the people list share the space above the controls, one
   // at a time: on a 320×568 phone either one (≤ 35dvh) still leaves the
   // newest bubbles in view between the chat header and the composer.
@@ -207,6 +210,7 @@ export function SplitComposer({
                 people={people}
                 totalMinor={totalMinor}
                 format={fmt}
+                input={amountBox}
                 disabled={pending}
               />
               {type !== "equal" && (
@@ -250,6 +254,7 @@ export function SplitComposer({
                                     state: editor.exact,
                                     step: editor.moneyStep,
                                     format: fmt,
+                                    input: amountBox,
                                     onMove: editor.moveExact,
                                     disabled: pending,
                                   }
@@ -257,6 +262,7 @@ export function SplitComposer({
                                     state: editor.percent,
                                     step: editor.percentStep,
                                     format: percentText,
+                                    input: percentBox,
                                     onMove: editor.movePercent,
                                     disabled: pending,
                                   }
@@ -291,6 +297,10 @@ export function SplitComposer({
               pinned at the end, so it's never scrolled out of reach. */}
           <div className="flex h-9 min-w-0 items-center rounded-full border bg-muted/40">
             <div className="no-scrollbar flex h-full min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-0.5 py-0.5">
+              {/* The button's accessible name already starts "Paid by". */}
+              <span aria-hidden className="shrink-0 pl-2 text-xs text-muted-foreground">
+                Paid by
+              </span>
               <PaidByPicker
                 compact
                 members={members}
@@ -316,8 +326,21 @@ export function SplitComposer({
                     <Equal className="size-3.5" /> <span className="hidden sm:inline">Equally</span>
                   </>,
                 )}
-                {typeButton("exact", "Split by amounts", symbol)}
-                {typeButton("percent", "Split by percent", <Percent className="size-3.5" />)}
+                {/* Words from `sm` up; below that the symbols, named in aria-label. */}
+                {typeButton(
+                  "exact",
+                  "Split by amount",
+                  <>
+                    {symbol} <span className="hidden sm:inline">Amount</span>
+                  </>,
+                )}
+                {typeButton(
+                  "percent",
+                  "Split by percent",
+                  <>
+                    <Percent className="size-3.5" /> <span className="hidden sm:inline">Percent</span>
+                  </>,
+                )}
               </div>
 
               <Button

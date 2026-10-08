@@ -4,6 +4,7 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
+import { committedUnits, type SliderInput } from "@/lib/split-slider-input";
 import { snapToTotal, type SliderState } from "@/lib/split-sliders";
 import { cn } from "@/lib/utils";
 
@@ -11,7 +12,8 @@ import { cn } from "@/lib/utils";
  * The people side of an expense, shared by the app (the chat composer and the
  * expense dialog) and the free split calculator: who's in it, what each one's
  * part is, and — for an exact or percent split, or several payers — a slider
- * per person that can't make the total wrong (`lib/split-sliders.ts`).
+ * per person that can't make the total wrong (`lib/split-sliders.ts`), with a
+ * number box beside it for typing a figure instead (`lib/split-slider-input.ts`).
  */
 
 export type SplitPerson = {
@@ -29,9 +31,93 @@ export type SliderBinding = {
   /** A value as words — "₹30.00", "25%". */
   format: (units: number) => string;
   onMove: (id: string, units: number) => void;
+  /** The number box beside each slider: how it shows, filters and reads a value. */
+  input: SliderInput;
   /** While saving: the thumbs don't move (a disabled fieldset doesn't reach them). */
   disabled?: boolean;
 };
+
+/** A slider's (and its box's) accessible name: "Share for Asha", "What you paid". */
+function sliderLabel(what: string, person: SplitPerson): string {
+  if (what === "Paid") return person.isYou ? "What you paid" : `What ${person.name} paid`;
+  return `${what} for ${person.isYou ? "you" : person.name}`;
+}
+
+/**
+ * Type a figure instead of dragging. Nothing moves while typing; Enter or
+ * leaving the box commits it like a slider move (clamped to 0…total, the
+ * others rebalancing), and Escape puts the value back. While a figure is being
+ * typed the box carries `data-editing`, so a dialog can let Escape revert it
+ * rather than close.
+ */
+function SliderNumberBox({ binding, person, what }: { binding: SliderBinding; person: SplitPerson; what: string }) {
+  const { state, input } = binding;
+  const value = state.values[person.id] ?? 0;
+  const [draft, setDraft] = React.useState<string | null>(null);
+  const shown = draft ?? input.toText(value);
+  const commit = () => {
+    if (draft === null) return;
+    setDraft(null);
+    const units = committedUnits(draft, input, state.total);
+    if (units !== null && units !== value) binding.onMove(person.id, units);
+  };
+  const disabled = binding.disabled || state.total === 0 || state.ids.length < 2;
+  return (
+    <div
+      className={cn(
+        "flex h-8 w-24 shrink-0 items-center rounded-md border border-input sm:w-28 bg-background text-sm transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/40 dark:bg-input/30",
+        disabled && "opacity-50",
+      )}
+    >
+      {input.prefix && (
+        <span aria-hidden className="pl-2 text-muted-foreground select-none">
+          {input.prefix}
+        </span>
+      )}
+      <input
+        type="text"
+        inputMode="decimal"
+        autoComplete="off"
+        spellCheck={false}
+        value={shown}
+        disabled={disabled}
+        data-editing={draft !== null ? "" : undefined}
+        aria-label={`${sliderLabel(what, person)}${input.suffix ? ` (${input.suffix})` : ""}`}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => {
+          const typed = e.target.value;
+          setDraft((prev) => input.accept(prev ?? shown, typed));
+        }}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            // Commit, never submit the form around it.
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape" && draft !== null) {
+            e.preventDefault();
+            e.stopPropagation();
+            setDraft(null);
+          }
+        }}
+        className="h-full w-full min-w-0 bg-transparent px-2 text-right tabular-nums outline-none"
+      />
+      {input.suffix && (
+        <span aria-hidden className="pr-2 text-muted-foreground select-none">
+          {input.suffix}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * For a dialog's `onEscapeKeyDown`: Escape in a number box that's mid-edit
+ * reverts the figure instead of closing the dialog.
+ */
+export function keepOpenWhileTyping(event: KeyboardEvent): void {
+  if (event.target instanceof HTMLElement && event.target.dataset.editing !== undefined) event.preventDefault();
+}
 
 /** The slider for one person in a binding — the same in every list. */
 function BoundSlider({ binding, person, what }: { binding: SliderBinding; person: SplitPerson; what: string }) {
@@ -47,7 +133,7 @@ function BoundSlider({ binding, person, what }: { binding: SliderBinding; person
       onValueChange={([v]) => {
         if (v !== undefined) binding.onMove(person.id, snapToTotal(v, state.total, step));
       }}
-      thumbLabel={`${what} for ${person.isYou ? "you" : person.name}`}
+      thumbLabel={sliderLabel(what, person)}
       valueText={binding.format(value)}
       className="flex-1"
     />
@@ -64,9 +150,8 @@ function PersonName({ person, className }: { person: SplitPerson; className?: st
 }
 
 /**
- * One person's slider: name (and email), the value it stands at, and the
- * slider under them. `aside` replaces the value on the right (a percent row
- * shows the money there and the percent beside the slider).
+ * One person's slider: name (and email) over the slider and its number box.
+ * `aside` goes on the right of the name — a percent row shows the money there.
  */
 export function ShareSliderRow({
   person,
@@ -84,19 +169,17 @@ export function ShareSliderRow({
   /** What the slider sets, for its accessible name: "Share", "Paid". */
   what?: string;
 }) {
-  const text = binding.format(binding.state.values[person.id] ?? 0);
+  const bound = disabled ? { ...binding, disabled: true } : binding;
   return (
     <div className="flex flex-col gap-1.5 py-2">
       <div className="flex min-w-0 items-center gap-2">
         {avatar}
         <PersonName person={person} className="flex-1" />
-        <span className="shrink-0 text-sm font-medium tabular-nums">{aside ?? text}</span>
+        {aside !== undefined && <span className="shrink-0 text-sm tabular-nums text-muted-foreground">{aside}</span>}
       </div>
       <div className="flex items-center gap-3">
-        <BoundSlider binding={disabled ? { ...binding, disabled: true } : binding} person={person} what={what} />
-        {aside !== undefined && (
-          <span className="w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums">{text}</span>
-        )}
+        <BoundSlider binding={bound} person={person} what={what} />
+        <SliderNumberBox binding={bound} person={person} what={what} />
       </div>
     </div>
   );
@@ -126,7 +209,11 @@ export function SplitPeopleList({
   /** What someone's part comes to, or null for "—". */
   shareText: (id: string) => string | null;
   sliders?: SliderBinding | null;
-  /** With sliders: what to show on the right instead of the slider's value. */
+  /**
+   * With sliders, the right of a person's row shows this instead of their
+   * share — a percent split shows the money; by default nothing, since the
+   * number box beside the slider already says it.
+   */
   sliderAside?: (id: string) => React.ReactNode;
   avatar?: (person: SplitPerson) => React.ReactNode;
   header?: "buttons" | "checkbox";
@@ -193,23 +280,27 @@ export function SplitPeopleList({
                 <label htmlFor={id} className="min-w-0 flex-1 cursor-pointer">
                   <PersonName person={p} />
                 </label>
-                <span
-                  className={cn(
-                    "shrink-0 text-right text-sm tabular-nums",
-                    share ? "text-foreground" : "text-muted-foreground",
-                  )}
-                >
-                  {share ?? "—"}
-                </span>
-              </div>
-              {withSlider && (
-                <div className="mt-2 flex items-center gap-3 pl-6.5">
-                  <BoundSlider binding={sliders} person={p} what="Share" />
-                  {sliderAside !== undefined && (
-                    <span className="w-14 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+                {withSlider ? (
+                  sliderAside !== undefined && (
+                    <span className="shrink-0 text-right text-sm text-muted-foreground tabular-nums">
                       {sliderAside(p.id)}
                     </span>
-                  )}
+                  )
+                ) : (
+                  <span
+                    className={cn(
+                      "shrink-0 text-right text-sm tabular-nums",
+                      share ? "text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {share ?? "—"}
+                  </span>
+                )}
+              </div>
+              {withSlider && (
+                <div className="mt-2 flex items-center gap-3 sm:pl-6.5">
+                  <BoundSlider binding={sliders} person={p} what="Share" />
+                  <SliderNumberBox binding={sliders} person={p} what="Share" />
                 </div>
               )}
             </li>
