@@ -41,7 +41,7 @@ function expense(patch: Partial<DraftExpense> & Pick<DraftExpense, "id">): Draft
 /** A trip with one expense of each kind and a leftover paisa or two to place. */
 function tripDraft(): SplitDraft {
   return {
-    v: 1,
+    v: 2,
     name: "Goa trip",
     currency: "INR",
     people: [
@@ -184,7 +184,7 @@ describe("importing a group from the split calculator", () => {
     expect(fresh!.a).toMatchObject({ convertedFrom: "tool:split", convertedAt: expect.any(String) });
     const first = fresh!.a!.convertedAt;
 
-    ok(await importAs());
+    ok(await importAs({ ...tripDraft(), name: "Second trip" }));
     const [again] = await db().select({ a: users.acquisition }).from(users).where(eq(users.id, uid("o")));
     expect(again!.a!.convertedAt).toBe(first);
 
@@ -198,6 +198,75 @@ describe("importing a group from the split calculator", () => {
     ok(await importSplitDraft(buildImportInput({ draft: tripDraft(), name: "Old", meId: "p0001", emails: EMAILS })));
     const [old] = await db().select({ a: users.acquisition }).from(users).where(eq(users.id, uid("old")));
     expect(old!.a?.convertedFrom ?? null).toBeNull();
+  });
+});
+
+describe("one draft, one group (idempotency key)", () => {
+  it("refuses the same draft twice from the same person — two tabs, a reload — and creates one group", async () => {
+    vi.mocked(sendEmail).mockClear();
+    const first = ok(await importAs());
+    const again = await importSplitDraft(buildImportInput({ draft: tripDraft(), name: "Goa trip", meId: "p0001", emails: EMAILS }));
+    expect(again).toMatchObject({ ok: false, code: "already_imported" });
+    expect(await groupCount()).toBe(1);
+    expect((await split.listGroups(uid("o"))).map((g) => g.id)).toEqual([first.groupId]);
+    // One invite email, not two.
+    const invites = vi.mocked(sendEmail).mock.calls.map(([m]) => m).filter((m) => m.subject.includes("Goa trip"));
+    expect(invites).toHaveLength(1);
+  });
+
+  it("serialises two imports racing for one draft: one wins, the other is refused", async () => {
+    await bootstrapUser("o");
+    await bootstrapUser("asha");
+    signInAs("o");
+    const input = buildImportInput({ draft: tripDraft(), name: "Goa trip", meId: "p0001", emails: EMAILS });
+    const results = await Promise.all([importSplitDraft(input), importSplitDraft(input)]);
+    expect(results.filter((r) => r.ok)).toHaveLength(1);
+    expect(results.find((r) => !r.ok)).toMatchObject({ code: "already_imported" });
+    expect(await groupCount()).toBe(1);
+  });
+
+  it("is per person, frees up after the window, and isn't spent by a refused import", async () => {
+    await bootstrapUser("o");
+    signInAs("o");
+    const input = buildImportInput({ draft: tripDraft(), name: "Goa trip", meId: "p0001", emails: EMAILS });
+    // Refused (you can't invite yourself) — rolled back, key and all.
+    const selfInvite = { ...input, people: input.people.map((p, i) => (i === 0 ? { ...p, email: "o@example.com" } : p)) };
+    expect(await importSplitDraft(selfInvite)).toMatchObject({ ok: false, code: "bad_request" });
+    ok(await importSplitDraft(input));
+
+    // Someone else importing the same draft is their own group.
+    await bootstrapUser("bo");
+    signInAs("bo");
+    ok(await importSplitDraft(input));
+
+    // Long after, the same person may bring the same draft in again.
+    await db()
+      .update(splitRateLog)
+      .set({ createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000) })
+      .where(eq(splitRateLog.event, "draft_imported"));
+    signInAs("o");
+    ok(await importSplitDraft(input));
+    expect(await groupCount()).toBe(3);
+  });
+});
+
+describe("emails typed in the calculator", () => {
+  it("invites the people whose emails are in the draft, with no emails passed, and says how many", async () => {
+    const draft: SplitDraft = {
+      ...tripDraft(),
+      people: [
+        { id: "p0001", name: "Me" },
+        { id: "p0002", name: "Asha", email: "Asha@Example.com" },
+        { id: "p0003", name: "Zoe", email: " zoe@example.com" },
+      ],
+    };
+    await bootstrapUser("o");
+    await bootstrapUser("asha");
+    signInAs("o");
+    const res = ok(await importSplitDraft(buildImportInput({ draft, name: draft.name, meId: "p0001" })));
+    expect(res.invited).toBe(2);
+    const detail = await split.getGroupDetail(uid("o"), res.groupId);
+    expect(detail.members.map((m) => m.email)).toEqual(["o@example.com", "asha@example.com", "zoe@example.com"]);
   });
 });
 

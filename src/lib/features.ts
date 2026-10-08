@@ -27,6 +27,10 @@ import {
 const FILE_TRASH_PLANS = PERSONAL_PLANS.filter((p) => PLAN_LIMITS[p].fileTrash)
   .map((p) => PLAN_NAMES[p])
   .join(" and ");
+/** "Plus and Pro" — the plans with analytics' Insights & trends. */
+const INSIGHTS_PLANS = PERSONAL_PLANS.filter((p) => PLAN_LIMITS[p].advancedAnalytics)
+  .map((p) => PLAN_NAMES[p])
+  .join(" and ");
 
 /** Where a feature sits in the three-column Features menu and on the hub. */
 export type FeatureGroup = "capture" | "understand" | "organise";
@@ -151,9 +155,8 @@ export const FEATURES: Feature[] = [
     label: "Analytics",
     title: "Spending Analytics — Where Your Money Goes",
     h1: "See where the money actually went",
-    description:
-      "A category breakdown, a month-by-month trend, and income against expenses — for any date range you pick. No dashboards to configure.",
-    blurb: "Category breakdown and monthly trends for any date range.",
+    description: `Income, spending and a category breakdown for any range — plus a month-end projection, your savings rate and spending insights on ${INSIGHTS_PLANS}.`,
+    blurb: "Category breakdown for any range; projections and insights on paid plans.",
     icon: "ChartColumn",
     group: "understand",
     related: ["transactions", "budgets", "multiple-profiles", "categories"],
@@ -165,7 +168,7 @@ export const FEATURES: Feature[] = [
     title: "Monthly Budgets With Spending Alerts",
     h1: "Hear about it at 80%, not after payday",
     description:
-      "Set a monthly budget for the whole workspace, one profile or one category. SpendChat warns you at 80% and 100% — in the app and by email.",
+      "Set a monthly budget for the whole workspace, a space, one profile or one category. SpendChat warns you at 80% and 100% — in the app and by email.",
     blurb: "Monthly limits that warn you at 80% and again at 100%.",
     icon: "PiggyBank",
     group: "understand",

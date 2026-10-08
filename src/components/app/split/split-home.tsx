@@ -10,6 +10,7 @@ import { acceptSplitInvitation, declineSplitInvitation, loadSplitInvitations } f
 import type { SplitActivity, SplitGroupSummary, SplitInvitation } from "@/services/split";
 import { formatDateShort } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
+import { payersLabel } from "@/lib/split-display";
 import { BalanceChip } from "./balance-text";
 import { NewGroupDialog } from "./new-group-dialog";
 
@@ -17,7 +18,7 @@ import { NewGroupDialog } from "./new-group-dialog";
 function activityLine(a: SplitActivity | null, currency: string, locale: string): string {
   if (!a) return "No expenses yet — add the first one";
   const amount = formatMoney(a.amountMinor, currency, locale);
-  if (a.kind === "expense") return `${a.payerIsYou ? "You" : a.payerName} paid ${amount} · ${a.title}`;
+  if (a.kind === "expense") return `${payersLabel(a.payers)} paid ${amount} · ${a.title}`;
   return `${a.fromIsYou ? "You" : a.fromName} paid ${a.toIsYou ? "you" : a.toName} ${amount}`;
 }
 

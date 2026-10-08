@@ -27,11 +27,11 @@ export const WIDGET_GRID = "grid min-w-0 gap-4 lg:grid-cols-2";
  */
 export const BODY = {
   categories: "min-h-56",
-  trend: "min-h-[16.5rem]",
+  // Legend 16 + chart 208 + footer 20, 12 apart.
+  trend: "min-h-[16.75rem]",
   insights: "min-h-[7.5rem]",
   pace: "min-h-[18rem]",
   trends: "min-h-[18rem]",
-  cashFlow: "min-h-[19rem]",
   calendar: "min-h-[15rem]",
   recurring: "min-h-[13rem]",
   anomalies: "min-h-[13rem]",

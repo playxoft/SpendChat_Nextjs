@@ -14,7 +14,9 @@ import {
   chatTitleFrom,
   cleanAnswer,
   historyTurns,
-  isChatConfigured,
+  CHAT_UNAVAILABLE_MESSAGE,
+  buildSampleAnswer,
+  chatAnswerMode,
   monthProgress,
   monthsEndingAt,
   nextDay,
@@ -323,15 +325,15 @@ describe("the model — its own env pair, never the parse model's", () => {
   it("resolves AI_CHAT_MODEL", () => {
     setChatModel({ model_id: "gemini-chat", api_key: "k" });
     expect(resolveChatModel()).toMatchObject({ provider: "gemini", model: "gemini-chat", apiKey: "k" });
-    expect(isChatConfigured()).toBe(true);
+    vi.stubEnv("APP_ENV", "production");
+    expect(chatAnswerMode()).toBe("model");
   });
 
-  it("is off when unset, even with a parse model configured — and says so in Ask's words", () => {
+  it("never borrows the parse model — unset means no model, in plain words", () => {
     vi.stubEnv("AI_PARSE_MODEL", JSON.stringify({ p: { model_id: "gemini-parse", api_key: "k" } }));
     vi.stubEnv("AI_PARSE_MODEL_CURRENT", "p");
     vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
-    expect(isChatConfigured()).toBe(false);
     let err: unknown;
     try {
       resolveChatModel();
@@ -339,13 +341,123 @@ describe("the model — its own env pair, never the parse model's", () => {
       err = e;
     }
     expect(err).toBeInstanceOf(ApiError);
-    expect(err).toMatchObject({ status: 503, code: "ai_unavailable", message: "Ask isn't set up on this server." });
+    expect(err).toMatchObject({ status: 503, code: "ai_unavailable", message: CHAT_UNAVAILABLE_MESSAGE });
+    expect(CHAT_UNAVAILABLE_MESSAGE).not.toMatch(/set up|configur|model|key/i);
   });
 
-  it("is off when misconfigured", () => {
+  it("answers with samples locally and in tests when there's no model — unset or misconfigured", () => {
+    vi.stubEnv("AI_CHAT_MODEL", "");
+    vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("APP_ENV", undefined);
+    expect(chatAnswerMode()).toBe("sample");
+    vi.stubEnv("NODE_ENV", "test");
+    expect(chatAnswerMode()).toBe("sample");
     vi.stubEnv("AI_CHAT_MODEL", "not json");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "x");
-    expect(isChatConfigured()).toBe(false);
+    expect(chatAnswerMode()).toBe("sample");
+  });
+
+  // Every deployed build is NODE_ENV=production; only APP_ENV tells them apart.
+  describe("on a deployed Worker (NODE_ENV=production) with no model", () => {
+    function deployed(appEnv: string | undefined) {
+      vi.stubEnv("AI_CHAT_MODEL", "");
+      vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("APP_ENV", appEnv);
+      return chatAnswerMode();
+    }
+
+    it("samples on beta only", () => {
+      expect(deployed("beta")).toBe("sample");
+    });
+
+    it("is unavailable in production", () => {
+      expect(deployed("production")).toBe("unavailable");
+    });
+
+    it("treats an unset APP_ENV as production — a misconfigured deploy hands out nothing free", () => {
+      expect(deployed(undefined)).toBe("unavailable");
+      expect(deployed("")).toBe("unavailable");
+    });
+
+    it("treats anything but exactly 'beta' as production", () => {
+      expect(deployed("development")).toBe("unavailable");
+      expect(deployed("Beta")).toBe("unavailable");
+      expect(deployed("staging")).toBe("unavailable");
+    });
+  });
+});
+
+describe("buildSampleAnswer — the no-model answer in dev, tests and beta", () => {
+  const URL_ = "https://spendchat.example/app/analytics";
+
+  it("summarises this month so far in every piece of Markdown an answer can use", () => {
+    const md = buildSampleAnswer(
+      data({
+        categories: {
+          ...data().categories,
+          thisMonth: {
+            expense: [
+              { name: "Food", totalMinor: 1250 },
+              { name: "Rent", totalMinor: 90000 },
+              { name: null, totalMinor: 300 },
+            ],
+            income: [],
+          },
+        },
+      }),
+      URL_,
+    );
+    expect(md).toBe(
+      [
+        "## Oct 2026 so far",
+        "",
+        "By day 7 of 31 you've spent **$12.50** and received **$0.00**. That's $3.50 more than over the same days last month ($9.00).",
+        "",
+        "| Category | Spent |",
+        "| --- | ---: |",
+        "| Rent | $900.00 |",
+        "| Food | $12.50 |",
+        "| Uncategorized | $3.00 |",
+        "",
+        "- Largest expense: **Lunch** — $12.50 on 2026-10-03",
+        "- Net so far: **−$12.50**",
+        "- Sep 2026 in full: $42.00 spent, $5,000.00 received",
+        "",
+        `[See the full breakdown in Analytics](${URL_})`,
+      ].join("\n"),
+    );
+    // Deterministic: the same data, the same answer.
+    expect(buildSampleAnswer(data(), URL_)).toBe(buildSampleAnswer(data(), URL_));
+  });
+
+  it("says so plainly when the month is empty", () => {
+    const md = buildSampleAnswer(
+      data({
+        months: [],
+        categories: { thisMonth: { expense: [], income: [] }, lastMonth: { expense: [], income: [] } },
+        topExpenses: { thisMonth: [], lastMonth: [] },
+        sameDaysLastMonth: { through: "2026-09-07", income: 0, expense: 0 },
+      }),
+      URL_,
+    );
+    expect(md).toContain("Nothing was spent over the same days last month either.");
+    expect(md).toContain("| No expenses yet | $0.00 |");
+    expect(md).toContain("- No expenses recorded this month yet");
+  });
+
+  it("keeps the comparison honest either way", () => {
+    const less = buildSampleAnswer(
+      data({ sameDaysLastMonth: { through: "2026-09-07", income: 0, expense: 5000 } }),
+      URL_,
+    );
+    expect(less).toContain("That's $37.50 less than over the same days last month ($50.00).");
+    const same = buildSampleAnswer(
+      data({ sameDaysLastMonth: { through: "2026-09-07", income: 0, expense: 1250 } }),
+      URL_,
+    );
+    expect(same).toContain("That's the same as over the same days last month.");
   });
 });
 

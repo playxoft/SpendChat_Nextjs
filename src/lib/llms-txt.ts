@@ -92,6 +92,7 @@ function limitsLine(plan: PersonalPlan): string {
   const extras = [
     l.profileLevelAccess ? "per-profile access" : null,
     l.voice ? "voice entry" : null,
+    l.advancedAnalytics ? "analytics insights and trends (month-end projection, savings rate, recurring and unusual spends)" : null,
     l.topUps ? "AI top-ups" : null,
   ].filter(Boolean);
   return [

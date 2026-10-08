@@ -1,4 +1,4 @@
-import { Layers, Tag, UserRound } from "lucide-react";
+import { LayoutGrid, Layers, Tag, UserRound } from "lucide-react";
 import type { BudgetScope, BudgetStatus } from "@/lib/budgets";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
@@ -15,7 +15,14 @@ export type BudgetItem = {
   scope: BudgetScope;
   profileId: string | null;
   categoryId: string | null;
+  spaceId: string | null;
+  /** "Groceries this month". */
+  title: string;
+  description: string | null;
+  /** What it covers, by name: "Groceries", "Home", "Whole workspace". */
   label: string;
+  /** The same as a short line: "Category · Groceries". */
+  scopeText: string;
   icon: string | null;
   amountMinor: number;
   spentMinor: number;
@@ -83,7 +90,7 @@ export function BudgetStatusBadge({ status, className }: { status: BudgetStatus;
   );
 }
 
-const SCOPE_ICON = { workspace: Layers, profile: UserRound, category: Tag } as const;
+const SCOPE_ICON = { workspace: Layers, space: LayoutGrid, profile: UserRound, category: Tag } as const;
 
 /** The budget's emoji when it has one, else an icon for what it covers. */
 export function BudgetIcon({ scope, icon }: { scope: BudgetScope; icon: string | null }) {
@@ -117,7 +124,7 @@ export function budgetFigures(
   };
 }
 
-/** One budget as a compact row: icon, name, badge, figures, bar. */
+/** One budget as a compact row: icon, title, badge, what it covers (and its note), figures, bar. */
 export function BudgetRow({
   budget,
   currency,
@@ -136,13 +143,17 @@ export function BudgetRow({
       <BudgetIcon scope={budget.scope} icon={budget.icon} />
       <div className="min-w-0 flex-1 space-y-1.5">
         <div className="flex items-center gap-2">
-          <p className="truncate text-sm font-medium">{budget.label}</p>
+          <p className="truncate text-sm font-medium">{budget.title}</p>
           <BudgetStatusBadge status={budget.status} />
           <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
             {budget.percent}%
           </span>
         </div>
-        <BudgetBar percent={budget.percent} status={budget.status} label={`${budget.label} budget`} />
+        <p className="truncate text-xs text-muted-foreground" title={budget.description ?? undefined}>
+          {budget.scopeText}
+          {budget.description ? ` · ${budget.description}` : ""}
+        </p>
+        <BudgetBar percent={budget.percent} status={budget.status} label={budget.title} />
         <div className="flex items-center justify-between gap-2 text-xs tabular-nums text-muted-foreground">
           <span>{f.used}</span>
           <span className={cn(f.over && "font-medium text-destructive")}>{f.rest}</span>

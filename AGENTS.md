@@ -122,8 +122,10 @@ Authentication, secrets via Doppler.
   `createTransactionId` (so budget checks fire) and links it on `split_shares.transaction_id`;
   "Update my entry" / "Remove from my workspace" go through `updateTransaction` /
   `deleteTransaction` (the trash). A trashed linked entry still counts as added.
-- **Budgets** — monthly spending limits for the whole workspace, one profile, or one expense
-  category (across every profile); one per scope; capped per plan (`PLAN_LIMITS.budgets`). Rules
+- **Budgets** — monthly spending limits for the whole workspace, one space (its live profiles as
+  they are now — a moved profile takes its month along), one profile, or one expense category
+  (across every profile); one per scope, each with a title and an optional note; a space budget is
+  deleted with its space; capped per plan (`PLAN_LIMITS.budgets`). Rules
   are pure in `src/lib/budgets.ts`, CRUD in `src/services/budgets.ts`. **Every budget number comes
   from `getMonthExpenseMatrix` (`src/lib/budget-spend.ts`)** — its one `where` decides which
   transactions count (expenses only, the calendar month of `occurred_on`, every profile of the
@@ -235,7 +237,12 @@ Authentication, secrets via Doppler.
   space, profile or role change keeps the chat history, answers included, built
   from what they could see at the time. Answers are untrusted Markdown: render
   them only through `AnswerMarkdown` (no HTML, no images, safe links that show
-  their host).
+  their host). **No model, same page:** in local dev, tests and on beta
+  (`sampleAnswersAllowed`: `NODE_ENV` isn't "production", or `APP_ENV` is exactly
+  "beta") a question gets `buildSampleAnswer` — this month's numbers from the same
+  data, stored with `units = 0`, never charged; anywhere else (an unset `APP_ENV`
+  on a deployed Worker included) a plain "Couldn't answer right now" on that
+  question. Never a "not set up" banner.
 - Keep the design minimal and neutral (no gradients); income uses a single emerald accent.
   **One exception:** AI affordances (the composer's Manual/AI toggle, AI mode's
   primary actions and Ask's send button) use a blue→violet gradient, so "this calls a model" is visually

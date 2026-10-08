@@ -15,7 +15,6 @@ import { formatDateShort } from "@/lib/dates";
 import {
   formatRounded,
   pctChange,
-  percentLabel,
   ratioLabel,
   shiftMonth,
   type AdvancedAnalyticsData,
@@ -26,7 +25,6 @@ import { plansWith } from "@/lib/plan-copy";
 import { lowestPlanWith } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 import { BreakdownTabs } from "./breakdown-tabs";
-import { CashFlowChart, CashFlowLegend } from "./cash-flow-chart";
 import { InsightsUpgradeButton } from "./locked-body";
 import { PaceChart, PaceLegend } from "./pace-chart";
 import { Sparkline } from "./sparkline";
@@ -57,7 +55,6 @@ type CardKey =
   | "insights"
   | "pace"
   | "trends"
-  | "cashFlow"
   | "calendar"
   | "recurring"
   | "anomalies"
@@ -78,11 +75,6 @@ const CARDS: Record<CardKey, { title: string; description: string; hint: string 
     title: "Category trends",
     description: "This month so far against your usual by this point",
     hint: "See which categories are up or down on usual.",
-  },
-  cashFlow: {
-    title: "Cash flow",
-    description: "Income, spending and what you kept — last 12 months",
-    hint: "See 12 months of income, spending and savings.",
   },
   calendar: {
     title: "Spending calendar",
@@ -173,41 +165,31 @@ function Stat({
   value,
   sub,
   subLines,
-  tone,
 }: {
   label: string;
   value: string;
-  sub?: string;
+  sub: string;
   /** Lines kept for the sub line, filled or not. */
-  subLines?: 1 | 2;
-  tone?: "income";
+  subLines: 1 | 2;
 }) {
   return (
     <div className="min-w-0">
       <dt className="text-xs leading-4 text-muted-foreground">{label}</dt>
-      <dd className={cn(STAT_VALUE, tone === "income" && "text-emerald-600 dark:text-emerald-400")}>{value}</dd>
-      {subLines ? (
-        <dd className={cn("text-xs leading-4 text-muted-foreground", STAT_SUB[subLines])}>{sub}</dd>
-      ) : null}
+      <dd className={STAT_VALUE}>{value}</dd>
+      <dd className={cn("text-xs leading-4 text-muted-foreground", STAT_SUB[subLines])}>{sub}</dd>
     </div>
   );
 }
 
 /** `Stat` while it loads: the real label, a placeholder value, the same sub line box. */
-function StatSkeleton({ label, sub, subLines }: { label: string; sub?: string; subLines?: 1 | 2 }) {
+function StatSkeleton({ label, subLines }: { label: string; subLines: 1 | 2 }) {
   return (
     <div className="min-w-0">
       <p className="text-xs leading-4 text-muted-foreground">{label}</p>
       <SkeletonLine className="h-4 w-24 max-w-full sm:h-5" lineClassName="h-6 sm:h-7" />
-      {subLines ? (
-        sub ? (
-          <p className={cn("text-xs leading-4 text-muted-foreground", STAT_SUB[subLines])}>{sub}</p>
-        ) : (
-          <div className={cn("flex items-start pt-0.5", STAT_SUB[subLines])}>
-            <Skeleton className="h-3 w-20 max-w-full" />
-          </div>
-        )
-      ) : null}
+      <div className={cn("flex items-start pt-0.5", STAT_SUB[subLines])}>
+        <Skeleton className="h-3 w-20 max-w-full" />
+      </div>
     </div>
   );
 }
@@ -243,19 +225,6 @@ function PaceLayout({
         {chart}
       </div>
       <div className="space-y-1.5 text-sm">{comparisons}</div>
-    </div>
-  );
-}
-
-/** The cash-flow card's stats and chart — laid out once for the card and its skeleton. */
-function CashFlowLayout({ stats, chart }: { stats: React.ReactNode; chart: React.ReactNode }) {
-  return (
-    <div className="space-y-4">
-      <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">{stats}</dl>
-      <div className="space-y-2">
-        <CashFlowLegend />
-        {chart}
-      </div>
     </div>
   );
 }
@@ -302,7 +271,7 @@ export function InsightsSection({
   // Totals and averages in whole units: cents are noise there, and it keeps them on one line.
   const rounded = (minor: number) => formatRounded(minor, currency, locale);
   const lock = (key: CardKey) => (locked ? { hint: CARDS[key].hint } : null);
-  const { pace, cashFlow: flow, trends, calendar } = data;
+  const { pace, trends, calendar } = data;
   const methodLine =
     pace.method === "history"
       ? "So far, plus your usual rest of month"
@@ -421,52 +390,6 @@ export function InsightsSection({
               this month so far.
             </p>
           ) : null}
-        </WidgetCard>
-
-        <WidgetCard span="full" {...card("cashFlow")} bodyClassName={BODY.cashFlow} locked={lock("cashFlow")}>
-          <CashFlowLayout
-            stats={
-              <>
-                <Stat label="Income" value={rounded(flow.income)} tone="income" />
-                <Stat label="Spending" value={rounded(flow.expense)} />
-                <Stat label="Kept" value={rounded(flow.net)} />
-                <Stat
-                  label="Savings rate"
-                  value={
-                    flow.savingsRate === null
-                      ? "—"
-                      : `${flow.savingsRate < 0 ? "−" : ""}${percentLabel(flow.savingsRate)}`
-                  }
-                  sub="of income kept"
-                  subLines={1}
-                />
-              </>
-            }
-            chart={<CashFlowChart months={flow.months} currency={currency} locale={locale} />}
-          />
-          <table className="sr-only">
-            <caption>Cash flow by month</caption>
-            <thead>
-              <tr>
-                <th scope="col">Month</th>
-                <th scope="col">Income</th>
-                <th scope="col">Spending</th>
-                <th scope="col">Kept</th>
-                <th scope="col">Savings rate</th>
-              </tr>
-            </thead>
-            <tbody>
-              {flow.months.map((m) => (
-                <tr key={m.month}>
-                  <th scope="row">{monthName(m.month, locale, { month: "long", year: "numeric" })}</th>
-                  <td>{money(m.income)}</td>
-                  <td>{money(m.expense)}</td>
-                  <td>{money(m.net)}</td>
-                  <td>{m.savingsRate === null ? "—" : `${m.savingsRate < 0 ? "−" : ""}${percentLabel(m.savingsRate)}`}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
         </WidgetCard>
 
         <WidgetCard span="full" {...card("calendar")} bodyClassName={BODY.calendar} locked={lock("calendar")}>
@@ -658,20 +581,6 @@ export function InsightsSectionSkeleton({
 
         <WidgetCardSkeleton {...card("trends")} bodyClassName={BODY.trends}>
           <SkeletonRows rows={6} aside="w-28" />
-        </WidgetCardSkeleton>
-
-        <WidgetCardSkeleton span="full" {...card("cashFlow")} bodyClassName={BODY.cashFlow}>
-          <CashFlowLayout
-            stats={
-              <>
-                <StatSkeleton label="Income" />
-                <StatSkeleton label="Spending" />
-                <StatSkeleton label="Kept" />
-                <StatSkeleton label="Savings rate" sub="of income kept" subLines={1} />
-              </>
-            }
-            chart={<Skeleton className="h-48 w-full rounded-lg" />}
-          />
         </WidgetCardSkeleton>
 
         <WidgetCardSkeleton span="full" {...card("calendar")} bodyClassName={BODY.calendar}>

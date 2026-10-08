@@ -61,6 +61,8 @@ function oldDate(): string {
 
 type Fixture = {
   W: string;
+  s1: string;
+  s2: string;
   /** Space 1 holds Personal (p1); space 2 holds Kids (p2). */
   p1: string;
   p2: string;
@@ -107,6 +109,8 @@ async function build(): Promise<Fixture> {
   // Overrides are a Plus feature; existing ones keep enforcing on any plan.
   return {
     W,
+    s1,
+    s2: s2!.id,
     p1,
     p2,
     groceries: await categoryId("adm", "Groceries", "expense"),
@@ -314,10 +318,12 @@ describe("budgets — who sees and who manages", () => {
     await createBudget(uid("one"), f.W, { scope: "profile", profileId: f.p1, amount: 1 });
     await createBudget(uid("all"), f.W, { scope: "category", categoryId: f.groceries, amount: 1 });
 
+    // `one` edits every profile in space 1 (just Personal), so that space too.
     expect((await getBudgetManagement(uid("one"), f.W)).scopes).toEqual({
       workspace: false,
       category: false,
       profileIds: [f.p1],
+      spaceIds: [f.s1],
     });
     expect((await getBudgetManagement(uid("vw"), f.W)).scopes.profileIds).toEqual([]);
     expect((await getBudgetManagement(uid("adm"), f.W)).scopes.workspace).toBe(true);

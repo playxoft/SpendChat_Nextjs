@@ -408,9 +408,9 @@ export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
   advancedAnalytics: {
     headline: "See where the month is heading, not just where it went",
     status: ({ current }) =>
-      `On ${current}, analytics shows your totals, the category breakdown, the last 6 months and budgets.`,
+      `On ${current}, analytics shows your totals, the category breakdown, budgets and the trend over the range you choose.`,
     pitch: ({ next }) =>
-      `${next} adds a month-end projection, 12 months of cash flow, category trends, a spending calendar, and the recurring payments and unusual spends it spots for you.`,
+      `${next} adds a month-end projection, what you kept and your savings rate, category trends, a spending calendar, and the recurring payments and unusual spends it spots for you.`,
   },
   // Client-only: the trash's Files tab on a plan without a file trash.
   fileTrash: {

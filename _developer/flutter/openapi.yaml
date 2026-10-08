@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.9.0"
+  version: "6.10.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -1648,14 +1648,16 @@ paths:
       tags: [Budgets]
       summary: Add a monthly budget
       description: |
-        One budget per scope (409 otherwise). Needs write access to every
-        profile it covers — the whole workspace and a category cover all of
-        them (403). The plan caps budgets at 5 / 20 on Free / Plus; Pro shows
+        One budget per scope — per space, profile or category (409
+        otherwise). Needs write access to every profile it covers — the whole
+        workspace and a category cover all of them, a space its live profiles
+        (403). No `title` → the suggested one. The plan caps budgets at 5 / 20 on Free / Plus; Pro shows
         "Unlimited" with a safety cap of 200: past the cap this is
         `403 plan_limit` with `limit: "budgets"` (`upgradeTo: null` on Pro →
         "Contact us"). A view-only workspace answers `403 plan_limit`
-        (`freeWorkspaces`). 422 for an income category, or a profile/category
-        that isn't in this workspace or that the caller can't read.
+        (`freeWorkspaces`). 422 for an income category, a bad title or note,
+        or a space/profile/category that isn't in this workspace or that the
+        caller can't see.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/budgetMonth"
@@ -1686,11 +1688,12 @@ paths:
       - $ref: "#/components/parameters/workspaceHeader"
     patch:
       tags: [Budgets]
-      summary: Change a budget's amount or email alerts
+      summary: Change a budget's amount, email alerts, title or note
       description: |
         404 when the caller can't see the budget, 403 when they can see but not
-        manage it. A new amount re-arms this month's alerts it no longer
-        reaches. A view-only workspace answers `403 plan_limit`.
+        manage it. A threshold that already fired this month fires again only
+        for an amount above the one it fired at. `description: null` (or "")
+        clears the note. A view-only workspace answers `403 plan_limit`.
       parameters:
         - $ref: "#/components/parameters/budgetMonth"
       requestBody:
@@ -3204,14 +3207,18 @@ paths:
       summary: Add an expense (any joined member)
       description: |
         The server computes every share from the inputs — never send share
-        amounts for an `equal` split. Payer and participants must be people in
-        the group (422 otherwise). Rounding: in an `equal` split the leftover
-        minor units (₹100 ÷ 3) go to the payer first, then by join order; in a
+        amounts for an `equal` split. Payers and participants must be people in
+        the group (422 otherwise). Several people can pay: send `payers`
+        (amounts for all or none — none divides it evenly) or the older single
+        `paidBy`; each payer is credited what they paid. Rounding: in an
+        `equal` split the leftover minor units (₹100 ÷ 3) go to the main payer
+        (whoever paid the most) first, then by join order; in a
         `percent` split each share is rounded down and the leftover goes to
         the largest remainders first (ties: payer, then join order); `exact`
         amounts must add up to the total. A 422 for bad sums has a neutral
-        `message` and the numbers in `details` (`sumMinor`/`totalMinor`, or
-        `bpSum`). An amount that rounds to 0 minor units (¥0.4) is 422.
+        `message` and the numbers in `details` (`sumMinor`/`totalMinor`,
+        `bpSum`, or `paidSumMinor`/`totalMinor` for payers). An amount that
+        rounds to 0 minor units (¥0.4) is 422.
       requestBody:
         required: true
         content:
@@ -3257,7 +3264,11 @@ paths:
       description: |
         Same body as POST. Someone who has since left may stay on an expense
         they were already on. A share already added to a workspace keeps that
-        state through the edit.
+        state through the edit. On an expense with several `payers`, send
+        `payers`: a body with only the older `paidBy` is accepted only when it
+        names the current main payer and keeps `amount` unchanged (the payers
+        then stay as they are); otherwise it's 422 `payers_required`, so an
+        older client can't wipe the other payers' credit.
       requestBody:
         required: true
         content:
@@ -3807,7 +3818,8 @@ components:
                      conflict, validation_error, rate_limited, payload_too_large,
                      storage_quota_exceeded, ai_unavailable, ai_failed,
                      storage_unavailable, split_group_full, settle_first,
-                     amount_required, invite_cooldown, internal_error]
+                     amount_required, invite_cooldown, payers_required,
+                     internal_error]
             message: { type: string }
             details:
               description: >
@@ -4588,16 +4600,22 @@ components:
         A monthly spending limit (6.8.0) with one month's progress. Spending is
         expenses only (income never offsets), in the calendar month of each
         transaction's `occurredOn`, across every profile the budget covers — a
-        category budget covers that category in all profiles. Listed only to
-        admins and to people who can read every profile it covers, so the
-        number is the same for everyone who sees it.
+        category budget covers that category in all profiles; a space budget
+        (since 6.10.0) covers every live profile in the space **as it is now**,
+        so a profile moved between spaces takes its month with it. Listed only
+        to admins and to people who can read every profile it covers, so the
+        number is the same for everyone who sees it. A space budget is deleted
+        with its space, like a category budget with its category.
       properties:
         id: { type: string, format: uuid }
-        scope: { type: string, enum: [workspace, profile, category] }
+        scope: { type: string, enum: [workspace, space, profile, category] }
         profileId: { type: [string, "null"], format: uuid, description: Set when `scope` is `profile`. }
         categoryId: { type: [string, "null"], format: uuid, description: Set when `scope` is `category` (an expense category). }
-        label: { type: string, description: '"Whole workspace", or the profile''s / category''s name.' }
-        icon: { type: [string, "null"], description: The profile's / category's emoji. }
+        spaceId: { type: [string, "null"], format: uuid, description: Set when `scope` is `space` (since 6.10.0). }
+        title: { type: string, maxLength: 60, description: 'What people call it — "Groceries this month" (since 6.10.0).' }
+        description: { type: [string, "null"], maxLength: 140, description: An optional note (since 6.10.0). }
+        label: { type: string, description: '"Whole workspace", or the space''s / profile''s / category''s name — what it covers.' }
+        icon: { type: [string, "null"], description: The space's / profile's / category's emoji. }
         period: { type: string, enum: [monthly] }
         amountMinor: { type: integer, format: int64, description: The monthly limit, minor units. }
         emailAlerts: { type: boolean, description: Admins and the creator are emailed at 80% and 100%. }
@@ -4613,19 +4631,27 @@ components:
         createdBy: { type: string, format: uuid }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-      required: [id, scope, profileId, categoryId, label, icon, period, amountMinor, emailAlerts,
-                 month, spentMinor, percent, status, canManage, canDelete, createdBy, createdAt, updatedAt]
+      required: [id, scope, profileId, categoryId, spaceId, title, description, label, icon, period,
+                 amountMinor, emailAlerts, month, spentMinor, percent, status, canManage, canDelete,
+                 createdBy, createdAt, updatedAt]
 
     BudgetInput:
       type: object
       description: >
-        A new budget. `profileId` is required for `scope: profile`,
-        `categoryId` (an expense category) for `scope: category`. `amount` is
-        major units, with the same rules as a transaction's.
+        A new budget. `spaceId` is required for `scope: space` (a space the
+        caller can see, with write access to every live profile in it),
+        `profileId` for `scope: profile`, `categoryId` (an expense category)
+        for `scope: category`. `amount` is major units, with the same rules as
+        a transaction's. Without a `title` the server uses the suggested one —
+        "All spending this month", "<space> space", "<profile> this month",
+        "<category> this month".
       properties:
-        scope: { type: string, enum: [workspace, profile, category] }
+        scope: { type: string, enum: [workspace, space, profile, category] }
+        spaceId: { type: string, format: uuid }
         profileId: { type: string, format: uuid }
         categoryId: { type: string, format: uuid }
+        title: { type: string, minLength: 1, maxLength: 60, description: Trimmed. }
+        description: { type: [string, "null"], maxLength: 140, description: Trimmed; blank is stored as null. }
         amount: { type: number, exclusiveMinimum: 0, maximum: 999999999.99 }
         emailAlerts: { type: boolean, default: true }
       required: [scope, amount]
@@ -4636,6 +4662,8 @@ components:
       properties:
         amount: { type: number, exclusiveMinimum: 0, maximum: 999999999.99 }
         emailAlerts: { type: boolean }
+        title: { type: string, minLength: 1, maxLength: 60 }
+        description: { type: [string, "null"], maxLength: 140, description: null or blank clears it. }
 
     Summary:
       type: object
@@ -5292,10 +5320,33 @@ components:
         `exact` → `shares[].amount` (major units, summing to `amount`);
         `percent` → `shares[].percent` (≤ 2 decimals, summing to 100).
         People with 0 are left out of the expense.
+
+        Who paid: send **either** `payers` (one or more) **or** the older
+        single `paidBy` — exactly one of them (422 for both or neither).
+        `payers[].amount` is given for all payers or for none: none divides
+        `amount` evenly between them (leftover minor units one each by join
+        order); all must add up to `amount` (422, `details: { paidSumMinor,
+        totalMinor }`). A payer at 0 is left out. Payers needn't be in the
+        split. The main payer — whoever paid the most, ties by join order —
+        is who an `equal` split's leftover goes to first.
       properties:
         title: { type: string, minLength: 1, maxLength: 40 }
         amount: { type: number, exclusiveMinimum: 0, maximum: 999999999.99 }
-        paidBy: { type: string, format: uuid, description: A member id. }
+        payers:
+          type: array
+          minItems: 1
+          maxItems: 50
+          description: Who paid, and optionally how much each (all or none).
+          items:
+            type: object
+            properties:
+              memberId: { type: string, format: uuid }
+              amount: { type: number, minimum: 0, description: Major units. }
+            required: [memberId]
+        paidBy:
+          type: string
+          format: uuid
+          description: One member paid it all — the older shape of `payers`. Send one or the other.
         occurredOn: { type: string, format: date }
         splitType: { type: string, enum: [equal, exact, percent] }
         memberIds:
@@ -5314,7 +5365,7 @@ components:
               amount: { type: number, minimum: 0 }
               percent: { type: number, minimum: 0, maximum: 100 }
             required: [memberId]
-      required: [title, amount, paidBy, occurredOn, splitType]
+      required: [title, amount, occurredOn, splitType]
 
     SplitExpense:
       type: object
@@ -5329,10 +5380,22 @@ components:
         updatedAt: { type: string, format: date-time }
         paidBy:
           type: object
+          description: The main payer — whoever paid the most (ties by join order).
           properties:
             memberId: { type: string, format: uuid }
             name: { type: string }
           required: [memberId, name]
+        payers:
+          type: array
+          description: Everyone who paid and how much, the most first; one entry when one person paid.
+          items:
+            type: object
+            properties:
+              memberId: { type: string, format: uuid }
+              name: { type: string }
+              amountMinor: { type: integer }
+              amount: { type: string }
+            required: [memberId, name, amountMinor, amount]
         shares:
           type: array
           items:
@@ -5367,7 +5430,7 @@ components:
                     Added, and the expense changed since — offer "Update my
                     entry" (`PUT …/workspace-entry`).
               required: [shareId, amountMinor, amount, added, addedAt, changedSinceAdded]
-      required: [id, title, amountMinor, amount, splitType, occurredOn, createdAt, updatedAt, paidBy, shares, canEdit, myShare]
+      required: [id, title, amountMinor, amount, splitType, occurredOn, createdAt, updatedAt, paidBy, payers, shares, canEdit, myShare]
 
     SplitSettlementInput:
       type: object

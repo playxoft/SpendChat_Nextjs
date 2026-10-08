@@ -16,9 +16,23 @@ import { withNext } from "@/lib/next-path";
 
 /** Where the app reads a draft back after sign-up. */
 export const SPLIT_IMPORT_PATH = "/app/split/import";
-/** Sign-up and sign-in, coming back to the import page afterwards. */
+/**
+ * Sign-up and sign-in from the calculator, coming back to the import page.
+ * The link itself carries nothing that sends invites: only an explicit "Send
+ * invites" / "Share with the group" click leaves a one-time intent behind
+ * (`lib/tools/split-send-intent.ts`), and without one the page asks first.
+ */
 export const SPLIT_SIGN_UP_HREF = withNext("/sign-up", SPLIT_IMPORT_PATH);
 export const SPLIT_SIGN_IN_HREF = withNext("/sign-in", SPLIT_IMPORT_PATH);
+
+/**
+ * The import's idempotency key — the draft's content hash. The server refuses
+ * a second import with the same key from the same person within
+ * `SPLIT_IMPORT_REPEAT_WINDOW_MS`, so two tabs, a double click or a reload
+ * mid-request can't create the group twice.
+ */
+export const SPLIT_IMPORT_KEY_PATTERN = /^[a-z0-9-]{6,40}$/;
+export const SPLIT_IMPORT_REPEAT_WINDOW_MS = 30 * 60 * 1000;
 
 /** Expenses one import may carry — what the tool lets a draft hold. */
 export const SPLIT_IMPORT_EXPENSES_MAX = 200;
@@ -45,6 +59,8 @@ export type SplitImportExpense =
   | (ImportExpenseBase & { splitType: "percent"; shares: { memberId: string; percent: number }[] });
 
 export type SplitImportInput = {
+  /** Idempotency key (`SPLIT_IMPORT_KEY_PATTERN`) — the draft's hash. */
+  key: string;
   name: string;
   icon?: string | null;
   currency: string;

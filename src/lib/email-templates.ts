@@ -762,8 +762,12 @@ const COLOR_WARN = "#d97706";
 const COLOR_OVER = "#dc2626";
 
 export type BudgetAlertItem = {
-  /** "Groceries", a profile's name, or "Whole workspace". */
-  label: string;
+  /** The budget's title — "Groceries this month". */
+  title: string;
+  /** What it covers — "Category · Groceries", "Whole workspace". */
+  scopeText: string;
+  /** The budget's own note, if it has one. */
+  description?: string | null;
   spentMinor: number;
   amountMinor: number;
   /** The highest threshold this alert is about. */
@@ -783,7 +787,7 @@ export type BudgetAlertEmailInput = {
   reason: "admin" | "creator";
 };
 
-/** One budget's line: name, "₹4,120 of ₹5,000", and a bar. */
+/** One budget's line: title, what it covers (and its note), "₹4,120 of ₹5,000", and a bar. */
 function budgetRow(item: BudgetAlertItem, money: MoneyFormat): Block {
   const pct = percentUsed(item.spentMinor, item.amountMinor);
   const over = item.spentMinor - item.amountMinor;
@@ -797,15 +801,17 @@ function budgetRow(item: BudgetAlertItem, money: MoneyFormat): Block {
   const figures = `${fmt(item.spentMinor)} of ${fmt(item.amountMinor)} — ${status}`;
   const color = item.threshold === 100 ? COLOR_OVER : COLOR_WARN;
   const width = Math.min(100, Math.max(1, pct));
+  const about = item.description ? `${item.scopeText} · ${item.description}` : item.scopeText;
   const html =
     `<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin:0 0 16px;">` +
-    `<tr><td style="font-size:15px;line-height:1.5;font-weight:600;color:${COLOR_TEXT};">${escapeHtml(item.label)}</td></tr>` +
+    `<tr><td style="font-size:15px;line-height:1.5;font-weight:600;color:${COLOR_TEXT};">${escapeHtml(item.title)}</td></tr>` +
+    `<tr><td style="font-size:13px;line-height:1.5;color:${COLOR_MUTED};">${escapeHtml(about)}</td></tr>` +
     `<tr><td style="font-size:14px;line-height:1.5;color:${COLOR_BODY};padding:0 0 6px;">${escapeHtml(figures)}</td></tr>` +
     `<tr><td><table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:${COLOR_BORDER};border-radius:4px;">` +
     `<tr><td width="${width}%" style="height:6px;line-height:6px;font-size:0;background:${color};border-radius:4px;">&nbsp;</td>` +
     (width < 100 ? `<td style="height:6px;line-height:6px;font-size:0;">&nbsp;</td>` : "") +
     `</tr></table></td></tr></table>`;
-  return { html, text: `- ${item.label}: ${figures}` };
+  return { html, text: `- ${item.title} (${about}): ${figures}` };
 }
 
 /**
@@ -822,13 +828,13 @@ export function budgetAlertEmail(input: BudgetAlertEmailInput): RenderedEmail {
 
   const subject = single
     ? single.threshold === 100
-      ? `${single.label} is over budget for ${monthLabel}`
-      : `${single.label}: ${percentUsed(single.spentMinor, single.amountMinor)}% of the ${monthLabel} budget used`
+      ? `Over budget for ${monthLabel}: ${single.title}`
+      : `${percentUsed(single.spentMinor, single.amountMinor)}% of the ${monthLabel} budget used: ${single.title}`
     : `${list.length} budgets in ${workspaceName} need a look`;
   const title = single
     ? single.threshold === 100
-      ? `${single.label} is over budget`
-      : `${single.label} is at ${percentUsed(single.spentMinor, single.amountMinor)}%`
+      ? `Over budget: ${single.title}`
+      : `${percentUsed(single.spentMinor, single.amountMinor)}% used: ${single.title}`
     : `${list.length} budgets need a look`;
 
   const leadText = `Here's where ${monthLabel} stands in ${workspaceName}:`;
@@ -855,7 +861,7 @@ export function budgetAlertEmail(input: BudgetAlertEmailInput): RenderedEmail {
   return render({
     subject,
     preheader: single
-      ? `${single.label} for ${monthLabel}: ${percentUsed(single.spentMinor, single.amountMinor)}% used.`
+      ? `${single.title} for ${monthLabel}: ${percentUsed(single.spentMinor, single.amountMinor)}% used.`
       : `${list.length} budgets in ${workspaceName} passed a limit in ${monthLabel}.`,
     title,
     blocks,

@@ -5,6 +5,7 @@ import {
   createSplitGroupSchema,
   SPLIT_ADD_PEOPLE_MAX,
   splitExpenseSchema,
+  splitPayersOf,
   splitSettlementSchema,
   updateSplitGroupSchema,
 } from "@/lib/validation";
@@ -95,6 +96,34 @@ describe("split expense schema", () => {
     expect(splitExpenseSchema.safeParse({ ...base, title: "", splitType: "equal", memberIds: [A] }).success).toBe(
       false,
     );
+  });
+
+  it("takes who paid as payers (with or without amounts) or the older single paidBy — one of them", () => {
+    const noPayer = { title: base.title, amount: base.amount, occurredOn: base.occurredOn };
+    const equal = { splitType: "equal" as const, memberIds: [A, B] };
+    const both = splitExpenseSchema.safeParse({ ...noPayer, ...equal, payers: [{ memberId: A }, { memberId: B }] });
+    expect(both.success && splitPayersOf(both.data)).toEqual([{ memberId: A }, { memberId: B }]);
+    const amounts = splitExpenseSchema.safeParse({
+      ...noPayer,
+      ...equal,
+      payers: [
+        { memberId: A, amount: 700 },
+        { memberId: B, amount: "500" },
+      ],
+    });
+    expect(amounts.success && splitPayersOf(amounts.data)).toEqual([
+      { memberId: A, amount: 700 },
+      { memberId: B, amount: 500 },
+    ]);
+    const single = splitExpenseSchema.safeParse({ ...base, ...equal });
+    expect(single.success && splitPayersOf(single.data)).toEqual([{ memberId: A }]);
+
+    expect(splitExpenseSchema.safeParse({ ...noPayer, ...equal }).success).toBe(false);
+    expect(splitExpenseSchema.safeParse({ ...base, ...equal, payers: [{ memberId: B }] }).success).toBe(false);
+    expect(splitExpenseSchema.safeParse({ ...noPayer, ...equal, payers: [] }).success).toBe(false);
+    expect(
+      splitExpenseSchema.safeParse({ ...noPayer, ...equal, payers: [{ memberId: A, amount: -1 }] }).success,
+    ).toBe(false);
   });
 });
 

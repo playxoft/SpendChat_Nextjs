@@ -44,7 +44,12 @@ import {
 import type { UiPrefs } from "../lib/validation";
 import type { Acquisition } from "../lib/attribution";
 import { PERSONAL_PLANS } from "../lib/plans";
-import { BUDGET_PERIODS, BUDGET_SCOPES } from "../lib/budgets";
+import {
+  BUDGET_DESCRIPTION_MAX,
+  BUDGET_PERIODS,
+  BUDGET_SCOPES,
+  BUDGET_TITLE_MAX,
+} from "../lib/budgets";
 
 /** Time-ordered UUIDv7 default (Postgres 18 built-in). Use for all our PKs. */
 const uuidV7 = sql`uuidv7()`;
@@ -76,7 +81,7 @@ export const workspacePlanEnum = pgEnum("workspace_plan", PERSONAL_PLANS);
 /** Optional preset tag for a transaction attachment (receipt/bill/invoice/other). */
 export const attachmentKindEnum = pgEnum("attachment_kind", ATTACHMENT_KINDS);
 
-/** What a budget covers: the whole workspace, one profile, or one expense category. */
+/** What a budget covers: the whole workspace, one space, one profile, or one expense category. */
 export const budgetScopeEnum = pgEnum("budget_scope", BUDGET_SCOPES);
 
 /** How often a budget resets. Monthly only today; the enum leaves room for more. */
@@ -489,7 +494,8 @@ export const aiChats = pgTable(
  * after the answer arrives — a failed call stores nothing — with `created_at`
  * set by the app (asked, then answered), so the pair always sorts in order.
  * `units` is what the answer cost in AI actions (assistant rows only); the
- * charge itself lives in `ai_usage_log`, like every AI call's.
+ * charge itself lives in `ai_usage_log`, like every AI call's. 0 marks a
+ * sample answer — no model, in dev, tests or beta — which nothing paid for.
  */
 export const aiChatMessages = pgTable(
   "ai_chat_messages",
@@ -830,11 +836,20 @@ export const transactions = pgTable(
 
 /**
  * A monthly spending limit (`src/lib/budgets.ts` holds the rules). It covers
- * the whole workspace, one profile, or one expense category across every
- * profile — `scope` says which, and exactly one of `profile_id` / `category_id`
- * is set for the last two (the check constraint below). Typed foreign keys
- * rather than one polymorphic id, so deleting a profile or a category takes its
- * budget with it instead of leaving one that points at nothing.
+ * the whole workspace, one space (every live profile in it, as they are now —
+ * a profile moved to another space takes its spending with it), one profile, or
+ * one expense category across every profile — `scope` says which, and exactly
+ * one of `space_id` / `profile_id` / `category_id` is set for the last three
+ * (the check constraint below). Typed foreign keys rather than one polymorphic
+ * id, so deleting a space, a profile (for good) or a category takes its budget
+ * with it instead of leaving one that points at nothing. A budget is a
+ * setting, not a record of spending — the transactions it measured are
+ * untouched — and a space can only be deleted once its profiles have moved,
+ * so there's nothing left for its budget to measure.
+ *
+ * `title` is what people call it ("Groceries this month"); `description` an
+ * optional note. The title's empty default only exists so the column could be
+ * added to existing rows (the migration back-fills them); every write sets one.
  *
  * One budget per scope (the unique constraint treats the nulls as equal, so a
  * second whole-workspace budget collides too). `amount_minor` is in the
@@ -853,6 +868,9 @@ export const budgets = pgTable(
     scope: budgetScopeEnum("scope").notNull(),
     profileId: uuid("profile_id").references(() => profiles.id, { onDelete: "cascade" }),
     categoryId: uuid("category_id").references(() => categories.id, { onDelete: "cascade" }),
+    spaceId: uuid("space_id").references(() => spaces.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: BUDGET_TITLE_MAX }).notNull().default(""),
+    description: varchar("description", { length: BUDGET_DESCRIPTION_MAX }),
     amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
     period: budgetPeriodEnum("period").notNull().default("monthly"),
     // Email the 80% / 100% alerts (in-app alerts always show). Per budget, set
@@ -866,16 +884,21 @@ export const budgets = pgTable(
     // One budget per scope and period. Leads with `workspace_id`, so it also
     // serves "this workspace's budgets" and the workspace FK cascade.
     unique("budgets_workspace_scope_uq")
-      .on(t.workspaceId, t.scope, t.period, t.profileId, t.categoryId)
+      .on(t.workspaceId, t.scope, t.period, t.profileId, t.categoryId, t.spaceId)
       .nullsNotDistinct(),
-    // FK maintenance: profile / category delete cascades.
+    // FK maintenance: profile / category / space delete cascades.
     index("budgets_profile_idx").on(t.profileId),
     index("budgets_category_idx").on(t.categoryId),
+    index("budgets_space_idx").on(t.spaceId),
+    // `scope::text` throughout: `space` was added to the enum in the same
+    // migration as this constraint, and Postgres refuses to use a new enum
+    // value in the transaction that added it ("unsafe use of new value").
     check(
       "budgets_scope_target_ck",
-      sql`(${t.scope} = 'workspace' and ${t.profileId} is null and ${t.categoryId} is null)
-        or (${t.scope} = 'profile' and ${t.profileId} is not null and ${t.categoryId} is null)
-        or (${t.scope} = 'category' and ${t.categoryId} is not null and ${t.profileId} is null)`,
+      sql`(${t.scope}::text = 'workspace' and ${t.profileId} is null and ${t.categoryId} is null and ${t.spaceId} is null)
+        or (${t.scope}::text = 'profile' and ${t.profileId} is not null and ${t.categoryId} is null and ${t.spaceId} is null)
+        or (${t.scope}::text = 'category' and ${t.categoryId} is not null and ${t.profileId} is null and ${t.spaceId} is null)
+        or (${t.scope}::text = 'space' and ${t.spaceId} is not null and ${t.profileId} is null and ${t.categoryId} is null)`,
     ),
     check("budgets_amount_positive_ck", sql`${t.amountMinor} > 0`),
   ],
@@ -1377,9 +1400,16 @@ export const splitRateLog = pgTable(
 );
 
 /**
- * One shared expense, paid by one member, divided among some of them. The
- * shares are always computed on the server from `split_type` and the input
- * (`lib/split-math.ts`), never taken from the client.
+ * One shared expense, paid by one or more members (`split_expense_payers`),
+ * divided among some of them. The shares are always computed on the server
+ * from `split_type` and the input (`lib/split-math.ts`), never taken from the
+ * client.
+ *
+ * `paid_by_member_id` is the *main* payer — whoever paid the most, ties by
+ * member id (`primaryPayer`). It's what the leftover rule puts first, what a
+ * one-line label names ("Asha and 2 others paid") and what the API's
+ * single-payer `paidBy` reports; what each payer paid lives in
+ * `split_expense_payers`, and only that counts towards balances.
  */
 export const splitExpenses = pgTable(
   "split_expenses",
@@ -1418,6 +1448,31 @@ export const splitExpenses = pgTable(
     ),
     // FK maintenance + "what did this member pay".
     index("split_expenses_paid_by_idx").on(t.paidByMemberId),
+  ],
+);
+
+/**
+ * Who paid for an expense, and how much each — one row per payer, summing to
+ * the expense's `amount_minor` (checked on the server before it's written).
+ * An expense paid by one person has one row for the whole amount. Balances
+ * credit each payer with their row; nobody who paid nothing has one.
+ */
+export const splitExpensePayers = pgTable(
+  "split_expense_payers",
+  {
+    expenseId: uuid("expense_id")
+      .notNull()
+      .references(() => splitExpenses.id, { onDelete: "cascade" }),
+    memberId: uuid("member_id")
+      .notNull()
+      .references(() => splitMembers.id, { onDelete: "restrict" }),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.expenseId, t.memberId] }),
+    check("split_expense_payers_amount_positive", sql`${t.amountMinor} > 0`),
+    // Balances (paid per member) + FK maintenance.
+    index("split_expense_payers_member_idx").on(t.memberId),
   ],
 );
 
@@ -1542,6 +1597,7 @@ export type SplitMember = typeof splitMembers.$inferSelect;
 export type SplitMemberStatus = (typeof splitMemberStatusEnum.enumValues)[number];
 export type SplitExpense = typeof splitExpenses.$inferSelect;
 export type SplitShare = typeof splitShares.$inferSelect;
+export type SplitExpensePayer = typeof splitExpensePayers.$inferSelect;
 export type SplitSettlement = typeof splitSettlements.$inferSelect;
 export type SplitType = (typeof splitTypeEnum.enumValues)[number];
 export type Budget = typeof budgets.$inferSelect;

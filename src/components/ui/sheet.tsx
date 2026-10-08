@@ -50,11 +50,14 @@ function SheetContent({
   children,
   side = "right",
   showCloseButton = true,
+  closeOnOutsideClick = false,
   onPointerDownOutside,
   ...props
 }: React.ComponentProps<typeof SheetPrimitive.Content> & {
   side?: "top" | "right" | "bottom" | "left"
   showCloseButton?: boolean
+  /** Let a click outside close it — for read-and-act panels with nothing to lose. */
+  closeOnOutsideClick?: boolean
 }) {
   return (
     <SheetPortal>
@@ -62,10 +65,11 @@ function SheetContent({
       <SheetPrimitive.Content
         data-slot="sheet-content"
         data-side={side}
-        // Don't dismiss on outside click — only the close button or an explicit
-        // action closes the sheet. Escape and the close button still work.
+        // Don't dismiss on outside click by default — only the close button or
+        // an explicit action closes the sheet (a form in it would lose its
+        // input). Escape and the close button still work.
         onPointerDownOutside={(event) => {
-          event.preventDefault()
+          if (!closeOnOutsideClick) event.preventDefault()
           onPointerDownOutside?.(event)
         }}
         className={cn(

@@ -8,6 +8,7 @@ import {
 import { resolveModelFromEnv } from "@/lib/ai-model-registry";
 import { ApiError } from "@/lib/errors";
 import { getCurrency } from "@/lib/currencies";
+import { monthLabel } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { AI_CHAT_TITLE_MAX, stripControlChars } from "@/lib/validation";
 
@@ -63,28 +64,60 @@ export const CHAT_ANSWER_MAX_CHARS = 16_000;
 const TITLE_CHARS = 40;
 const NOTE_CHARS = 80;
 
+/** What a question gets in production when no model can answer it. */
+export const CHAT_UNAVAILABLE_MESSAGE = "Couldn't answer right now — please try again later.";
+
 /** The model behind Ask (`AI_CHAT_MODEL` registry pair) — never the parse model's. */
 export function resolveChatModel(): ModelConfig {
   try {
     return resolveModelFromEnv("chat");
   } catch (err) {
-    // Same 503, in Ask's own words: the composer's "AI-assisted input" message
-    // would describe a feature this page isn't.
+    // Same 503, in Ask's own words — and plain ones: the asker can't fix a
+    // server's configuration, so the message doesn't describe it.
     if (err instanceof ApiError && err.code === "ai_unavailable") {
-      throw new ApiError(err.status, err.code, "Ask isn't set up on this server.");
+      throw new ApiError(err.status, err.code, CHAT_UNAVAILABLE_MESSAGE);
     }
     throw err;
   }
 }
 
-/** Whether Ask can answer here — what the page checks to show its "not set up" state. */
-export function isChatConfigured(): boolean {
+/**
+ * How Ask answers on this server:
+ *  - `"model"` — `AI_CHAT_MODEL` resolves; a question costs one AI action.
+ *  - `"sample"` — no model, and `sampleAnswersAllowed()`: a local run, tests,
+ *    or the beta Worker — nothing else. A question gets `buildSampleAnswer`,
+ *    built from the same data with no model and no charge, so the whole page
+ *    can be tried without a key.
+ *  - `"unavailable"` — no model anywhere else, production and any deploy that
+ *    can't prove it isn't: a question fails with `CHAT_UNAVAILABLE_MESSAGE`,
+ *    uncharged.
+ * The page looks the same in all three; nothing announces which one it is.
+ */
+export type ChatAnswerMode = "model" | "sample" | "unavailable";
+
+export function chatAnswerMode(): ChatAnswerMode {
   try {
     resolveChatModel();
-    return true;
+    return "model";
   } catch {
-    return false;
+    return sampleAnswersAllowed() ? "sample" : "unavailable";
   }
+}
+
+/**
+ * Where a question with no model may get a free sample answer — an explicit
+ * allow-list, never "anything that isn't production":
+ *  - a local run or the test suite: `NODE_ENV` isn't "production" (`next dev`,
+ *    vitest). Every deployed build is "production" — Next inlines it.
+ *  - the beta Worker: `APP_ENV` is exactly "beta" (wrangler.toml).
+ * Everything else counts as production — including a deployed Worker whose
+ * `APP_ENV` is unset or misspelled, which must not hand out free answers.
+ */
+export function sampleAnswersAllowed(): boolean {
+  // Widened on purpose: the generated Worker types pin APP_ENV to the
+  // production value, but the beta Worker and an unset var are real too.
+  const appEnv: string | undefined = process.env.APP_ENV;
+  return process.env.NODE_ENV !== "production" || appEnv === "beta";
 }
 
 // ── The data ────────────────────────────────────────────────────────────────
@@ -392,6 +425,74 @@ export function chatTitleFrom(question: string): string {
   const space = cut.lastIndexOf(" ");
   const base = space >= AI_CHAT_AUTO_TITLE_MAX / 2 ? cut.slice(0, space) : cut;
   return `${base.replace(/[\s,.;:!?-]+$/, "")}…`.slice(0, AI_CHAT_TITLE_MAX);
+}
+
+// ── The sample answer ───────────────────────────────────────────────────────
+
+/** Expense categories the sample answer's table shows. */
+const SAMPLE_CATEGORY_ROWS = 5;
+
+/**
+ * Ask's answer when there's no model in dev, tests or beta (`chatAnswerMode()`
+ * is "sample"): a short summary of this month so far, built from the same
+ * `ChatData` a model would get — so it's the asker's real numbers, scoped and
+ * trash-free like any answer. Deterministic, and it doesn't read the question.
+ *
+ * It uses every piece of Markdown an answer can — a heading, a paragraph, a
+ * table, a list, bold, a link — so the renderer and its safety rules can be
+ * checked without a key. The link is absolute (`analyticsUrl`), because the
+ * renderer drops relative ones; it shows its host like any other.
+ */
+export function buildSampleAnswer(data: ChatData, analyticsUrl: string): string {
+  const { currency, locale } = data;
+  const money = (minor: number) => formatMoney(minor, currency, locale);
+  const thisMonth = data.today.slice(0, 7);
+  const lastMonth = previousMonthKey(thisMonth);
+  const { day, daysInMonth } = monthProgress(data.today);
+  const byMonth = new Map(data.months.map((m) => [m.month, m]));
+  const mtd = byMonth.get(thisMonth) ?? { income: 0, expense: 0 };
+  const lastFull = byMonth.get(lastMonth) ?? { income: 0, expense: 0 };
+  const same = data.sameDaysLastMonth;
+
+  const diff = mtd.expense - same.expense;
+  const comparison =
+    same.expense === 0 && mtd.expense === 0
+      ? "Nothing was spent over the same days last month either."
+      : diff === 0
+        ? `That's the same as over the same days last month.`
+        : `That's ${money(Math.abs(diff))} ${diff > 0 ? "more" : "less"} than over the same days last month (${money(same.expense)}).`;
+
+  const categories = [...data.categories.thisMonth.expense]
+    .sort((a, b) => b.totalMinor - a.totalMinor)
+    .slice(0, SAMPLE_CATEGORY_ROWS);
+  const table = [
+    "| Category | Spent |",
+    "| --- | ---: |",
+    ...(categories.length
+      ? categories.map((c) => `| ${cell(c.name ?? "Uncategorized", TITLE_CHARS)} | ${money(c.totalMinor)} |`)
+      : [`| No expenses yet | ${money(0)} |`]),
+  ];
+
+  const largest = data.topExpenses.thisMonth[0];
+  const bullets = [
+    largest
+      ? `- Largest expense: **${cell(largest.title ?? largest.category ?? "Untitled", TITLE_CHARS)}** — ${money(largest.amountMinor)} on ${largest.date}`
+      : "- No expenses recorded this month yet",
+    `- Net so far: **${formatMoney(mtd.income - mtd.expense, currency, locale, { signed: true })}**`,
+    `- ${monthLabel(lastMonth)} in full: ${money(lastFull.expense)} spent, ${money(lastFull.income)} received`,
+  ];
+
+  return [
+    `## ${monthLabel(thisMonth)} so far`,
+    "",
+    `By day ${day} of ${daysInMonth} you've spent **${money(mtd.expense)}** and received **${money(mtd.income)}**. ${comparison}`,
+    "",
+    ...table,
+    "",
+    ...bullets,
+    "",
+    `[See the full breakdown in Analytics](${analyticsUrl})`,
+  ].join("\n");
 }
 
 /**

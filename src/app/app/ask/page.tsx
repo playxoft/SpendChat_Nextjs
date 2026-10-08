@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getAppContext } from "@/lib/auth";
-import { isChatConfigured } from "@/lib/ai-chat";
+import { chatAnswerMode } from "@/lib/ai-chat";
 import { ApiError } from "@/lib/errors";
 import { aiActionsLeftFor, getChat, listChats } from "@/services/ai-chat";
 import { AskPanel } from "@/components/app/ask/ask-panel";
@@ -28,7 +28,9 @@ export default async function AskPage({
   const sp = await searchParams;
   const chatParam = Array.isArray(sp.c) ? sp.c[0] : sp.c;
   const { user, workspace } = await getAppContext();
-  const configured = isChatConfigured();
+  // Same page either way: no model means sample answers in dev and beta and a
+  // plain per-question error anywhere else — never a "not set up" screen.
+  const mode = chatAnswerMode();
 
   const [chats, opened, allowance] = await Promise.all([
     listChats(user.id, workspace.id),
@@ -41,7 +43,7 @@ export default async function AskPage({
     // Awaited here (unlike the tracker, which streams it): this page has the
     // chat to read anyway, the count runs beside it, and the composer needs it
     // to lock the send button at zero.
-    configured ? aiActionsLeftFor(workspace.id) : null,
+    aiActionsLeftFor(workspace.id),
   ]);
   if (chatParam && !opened) notFound();
 
@@ -57,7 +59,7 @@ export default async function AskPage({
           title={opened?.chat.title ?? null}
           initialMessages={opened?.messages ?? []}
           chats={chats}
-          configured={configured}
+          sampleAnswers={mode === "sample"}
           allowance={allowance}
           workspaceName={workspace.name}
         />

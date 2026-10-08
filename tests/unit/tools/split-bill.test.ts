@@ -14,8 +14,15 @@ import {
   DRAFT_TITLE_MAX,
   exampleDraft,
   expenseShares,
+  draftHash,
+  emailProblems,
   importOrder,
+  importStart,
   isBlankDraft,
+  looksLikeEmail,
+  readyToImport,
+  resolveMe,
+  UNNAMED_GROUP,
   nextId,
   peopleInUse,
   personLabel,
@@ -75,7 +82,7 @@ describe("the tool's caps match the app's", () => {
 describe("defaultDraft / isBlankDraft / exampleDraft", () => {
   it("starts with two unnamed people and nothing spent", () => {
     const d = defaultDraft("EUR");
-    expect(d).toMatchObject({ v: 1, name: "", currency: "EUR", expenses: [] });
+    expect(d).toMatchObject({ v: 2, name: "", currency: "EUR", expenses: [] });
     expect(d.people).toHaveLength(2);
     expect(isBlankDraft(d)).toBe(true);
   });
@@ -144,7 +151,7 @@ describe("sanitizeDraft", () => {
   });
 
   it("refuses what isn't a draft at all", () => {
-    for (const raw of [null, "x", [], { v: 2, currency: "INR", people: [], expenses: [] }]) {
+    for (const raw of [null, "x", [], { v: 3, currency: "INR", people: [{ id: "p0001", name: "A" }], expenses: [] }]) {
       expect(sanitizeDraft(raw)).toBeNull();
     }
     expect(sanitizeDraft({ ...draft(), currency: "XYZ" })).toBeNull();
@@ -427,6 +434,7 @@ describe("mapImportExpense", () => {
 
 describe("splitImportSchema", () => {
   const ok = {
+    key: "d-test01",
     name: "Trip",
     currency: "INR",
     me: { ref: "p0001", name: "Asha" },
@@ -477,5 +485,167 @@ describe("settleUpText", () => {
     const d = draft({ name: "", expenses: [] });
     expect(settleUpText(d, computeLedger(d), String, "link")).toContain("Our group — 0 in total");
     expect(settleUpText(d, computeLedger(d), String, "link")).toContain("Everyone is settled up.");
+  });
+});
+
+describe("optional emails (draft v2)", () => {
+  it("reads a v1 draft as v2 with no emails, and keeps v2 emails", () => {
+    const v1 = { ...draft(), v: 1 };
+    const migrated = sanitizeDraft(JSON.parse(JSON.stringify(v1)))!;
+    expect(migrated.v).toBe(2);
+    expect(migrated.people.every((p) => p.email === undefined)).toBe(true);
+
+    const v2 = draft({ people: [{ id: "p0001", name: "Asha", email: " asha@example.com " }, { id: "p0002", name: "Ben", email: "" }] });
+    const read = sanitizeDraft(JSON.parse(JSON.stringify(v2)))!;
+    expect(read.people).toEqual([
+      { id: "p0001", name: "Asha", email: " asha@example.com " },
+      { id: "p0002", name: "Ben" },
+    ]);
+    expect(sanitizeDraft({ ...v2, people: [{ id: "p0001", name: "A", email: "x".repeat(300) }] })!.people[0]!.email).toHaveLength(100);
+  });
+
+  it("counts an email as content, so a draft with only an email isn't blank", () => {
+    const d = defaultDraft();
+    expect(isBlankDraft({ ...d, people: [{ id: "p0001", name: "", email: "a@b.co" }] })).toBe(false);
+  });
+
+  it("checks emails lightly", () => {
+    expect(looksLikeEmail("asha@example.com")).toBe(true);
+    expect(looksLikeEmail(" Asha@Example.COM ")).toBe(true);
+    for (const bad of ["asha", "asha@", "asha@example", "a b@example.com", `${"x".repeat(95)}@example.com`]) {
+      expect(looksLikeEmail(bad), bad).toBe(false);
+    }
+  });
+
+  it("flags bad, duplicate (same inbox) and your own emails — never blank ones", () => {
+    const people = [
+      { id: "p0001", name: "Me", email: "me@example.com" },
+      { id: "p0002", name: "Asha", email: "asha.rao@gmail.com" },
+      { id: "p0003", name: "Ben", email: "ashara.o+trip@googlemail.com" },
+      { id: "p0004", name: "Chloe", email: "chloe@" },
+      { id: "p0005", name: "Dev", email: "" },
+      { id: "p0006", name: "Eve", email: "ME@example.com" },
+    ];
+    expect(emailProblems(people)).toEqual({
+      p0003: "Same inbox as Asha",
+      p0004: "Check this email",
+      p0006: "Same inbox as Me",
+    });
+    expect(emailProblems(people, { skip: "p0001", mine: "me@example.com" })).toEqual({
+      p0003: "Same inbox as Asha",
+      p0004: "Check this email",
+      p0006: "That's you — pick this row as “you” instead",
+    });
+  });
+
+  it("works out who's you: by your own email, else the first row if it has no email, else asks", () => {
+    const base = draft();
+    expect(resolveMe(base, "me@example.com")).toBe("p0001");
+    const withEmails = draft({
+      people: [
+        { id: "p0001", name: "Asha", email: "asha@example.com" },
+        { id: "p0002", name: "Ben", email: "ben@example.com" },
+        { id: "p0003", name: "Chloe" },
+      ],
+    });
+    expect(resolveMe(withEmails, "BEN@example.com")).toBe("p0002");
+    // The "You" row has someone's address that isn't yours: ask.
+    expect(resolveMe(withEmails, "chloe@example.com")).toBeNull();
+    expect(resolveMe(withEmails, null)).toBeNull();
+    const twice = draft({
+      people: [
+        { id: "p0001", name: "A", email: "me@example.com" },
+        { id: "p0002", name: "B", email: "me+2@example.com" },
+      ],
+    });
+    expect(resolveMe(twice, "me@example.com")).toBeNull();
+  });
+
+  it("is ready to import with no form only when everything is in place", () => {
+    const ready = draft({
+      people: [
+        { id: "p0001", name: "Asha" },
+        { id: "p0002", name: "Ben", email: "ben@example.com" },
+        { id: "p0003", name: "Chloe", email: "chloe@example.com" },
+      ],
+      expenses: [expense({ id: "e0001" })],
+    });
+    expect(readyToImport(ready, "p0001", "asha@example.com")).toBe(true);
+    expect(readyToImport(ready, null, "asha@example.com")).toBe(false);
+    expect(readyToImport(ready, "p0002", "asha@example.com")).toBe(false); // Asha has no email
+    expect(readyToImport(ready, "p0001", "ben@example.com")).toBe(false); // that's your own address on Ben's row
+    const dupe = { ...ready, people: ready.people.map((p) => (p.id === "p0003" ? { ...p, email: "ben@example.com" } : p)) };
+    expect(readyToImport(dupe, "p0001", null)).toBe(false);
+    const broken = { ...ready, expenses: [expense({ id: "e0001", split: { type: "exact", shares: [{ id: "p0001", minor: 1 }] } })] };
+    expect(readyToImport(broken, "p0001", null)).toBe(false);
+  });
+
+  it("builds the import from the draft's own emails, and names an unnamed group", () => {
+    const d = draft({
+      name: "",
+      people: [
+        { id: "p0001", name: "Asha" },
+        { id: "p0002", name: "Ben", email: " Ben@Example.com " },
+        { id: "p0003", name: "Chloe", email: "chloe@example.com" },
+      ],
+    });
+    const input = buildImportInput({ draft: d, name: d.name, meId: "p0001", emails: { p0003: "c2@example.com" } });
+    expect(input.name).toBe(UNNAMED_GROUP);
+    expect(input.people.map((p) => p.email)).toEqual(["ben@example.com", "c2@example.com"]);
+  });
+});
+
+describe("draftHash — the intent's draft and the import's idempotency key", () => {
+  it("is the same for the copy in memory and the one read back from storage", () => {
+    const d = draft({ people: [{ id: "p0001", name: "Asha", email: "" }, { id: "p0002", name: "Ben" }] });
+    const stored = sanitizeDraft(JSON.parse(JSON.stringify(d)))!;
+    expect(draftHash(stored)).toBe(draftHash(d));
+    expect(draftHash(d)).toMatch(/^d-[a-z0-9]{6,20}$/);
+  });
+
+  it("changes when anything in the group changes", () => {
+    const d = draft({ expenses: [expense({ id: "e0001" })] });
+    const hashes = new Set([
+      draftHash(d),
+      draftHash({ ...d, name: "Goa trip 2" }),
+      draftHash({ ...d, people: d.people.map((p, i) => (i === 1 ? { ...p, email: "ben@example.com" } : p)) }),
+      draftHash({ ...d, expenses: [expense({ id: "e0001", amountMinor: 300_001 })] }),
+    ]);
+    expect(hashes.size).toBe(4);
+  });
+
+  it("is what buildImportInput sends as the key", () => {
+    const d = draft();
+    expect(buildImportInput({ draft: d, name: "x", meId: "p0001" }).key).toBe(draftHash(d));
+  });
+});
+
+describe("importStart — no invites without a fresh intent", () => {
+  const ready = draft({
+    people: [
+      { id: "p0001", name: "Asha" },
+      { id: "p0002", name: "Ben", email: "ben@example.com" },
+    ],
+    expenses: [expense({ id: "e0001", split: { type: "equal", ids: ["p0001", "p0002"] } })],
+  });
+
+  it("sends only when an intent was claimed and nothing is missing", () => {
+    expect(importStart(ready, "asha@example.com", true)).toBe("send");
+  });
+
+  it("asks for a confirm, never sends, when there's no intent — however ready the draft is", () => {
+    expect(importStart(ready, "asha@example.com", false)).toBe("confirm");
+  });
+
+  it("asks only 'which one is you?' when that's all that's unclear — with an intent", () => {
+    const unclear = { ...ready, people: ready.people.map((p, i) => (i === 0 ? { ...p, email: "someone@example.com" } : p)) };
+    expect(importStart(unclear, "asha@example.com", true)).toBe("ask-me");
+    expect(importStart(unclear, "asha@example.com", false)).toBe("form");
+  });
+
+  it("falls back to the form when an email is missing, intent or not", () => {
+    const missing = { ...ready, people: ready.people.map((p) => ({ ...p, email: undefined })) };
+    expect(importStart(missing, null, true)).toBe("form");
+    expect(importStart(missing, null, false)).toBe("form");
   });
 });

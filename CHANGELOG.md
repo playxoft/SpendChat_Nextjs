@@ -14,9 +14,56 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.9.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.10.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.38.0] — 2026-10-07
+
+### Added
+- **Several people can pay for one split expense.** Pick more than one payer;
+  what they paid splits evenly or by sliders, and balances credit each payer
+  with their part. Anyone left out of the split can't be picked as a payer.
+- **Sliders for exact and percent splits** — in the app and the free
+  calculator. They start even and always add up, so there's nothing to type and
+  no "doesn't add up" error.
+- **Budgets for a space**: one monthly limit for everything in a space, shown
+  only to people who can see every profile in it.
+- **A title and a note on every budget**, suggested from what it covers
+  ("Groceries this month", "Home space") and shown in the list, analytics and
+  alert emails. Existing budgets get a title automatically.
+- **Optional emails in the split calculator.** Press Send invites, sign up, and
+  the group is created and everyone invited without another form; "Save" shows
+  who will be invited and waits for you. Missing or problem emails are asked for
+  row by row, and a group is never created twice from two tabs or a reload.
+- **A Tools menu on the site** listing every free tool with its own icon, in
+  three columns, with a link to all tools.
+
+### Changed
+- **The Split composer opens sliders above it** when you pick ₹ or % — no
+  popup; the full editor is behind the expand button. The people list opens
+  inside the composer with an "All" box on the left, each person's email (for
+  the group's creator) and their part.
+- **Expense dialogs** (app and calculator) have Select all / Deselect all and
+  show emails under names.
+- Split's balances and expense panels close when you click outside them.
+- **Ask always shows its full chat**, even on a server with no AI model. Outside
+  production, questions get a sample answer built from your own numbers that
+  uses no AI actions; in production an unanswered question says "Couldn't
+  answer right now" with a Try again link, and nothing is charged. Errors show
+  under the question instead of in a pop-up.
+- **Analytics' "Last 6 months" is now "Income vs. expenses" over the range you
+  pick** (at least a month), as columns by day, week, month or year. On Plus and
+  Pro it also shows what you kept and your savings rate over the range,
+  replacing the separate 12-month cash flow card.
+- The pricing comparison lists what analytics includes on each plan, and the
+  Analytics feature page covers the free overview and Insights & trends with a
+  live demo.
+- The split calculator's buttons stay on one row on every screen size.
+
+### Fixed
+- The analytics filters (range, dates, type) are the same height, and on a
+  phone the date and type controls fill their row.
 
 ## [0.37.0] — 2026-10-07
 

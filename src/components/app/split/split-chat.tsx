@@ -169,12 +169,16 @@ export function SplitChat({
   const [confirm, setConfirm] = React.useState<Confirm | null>(null);
   const [busy, setBusy] = React.useState(false);
 
-  const composerMembers: ExpenseMember[] = active.map((m) => ({ id: m.id, name: m.name }));
+  // Emails ride along only where the viewer may see them (the creator; your own row).
+  const composerMembers: ExpenseMember[] = active.map((m) => ({ id: m.id, name: m.name, email: m.email }));
   /** Who can be on an expense: today's people, plus anyone already on this one (named as it names them). */
   const expenseMembers = (expense: SplitExpenseView | null): ExpenseMember[] => {
     const list = [...composerMembers];
     if (!expense) return list;
-    const onIt = [expense.paidBy, ...expense.shares.map((s) => ({ memberId: s.memberId, name: s.name }))];
+    const onIt = [
+      ...expense.payers.map((p) => ({ memberId: p.memberId, name: p.name })),
+      ...expense.shares.map((s) => ({ memberId: s.memberId, name: s.name })),
+    ];
     for (const p of onIt) {
       if (!list.some((m) => m.id === p.memberId)) {
         list.push({ id: p.memberId, name: p.name || names.get(p.memberId) || "Former member" });

@@ -13,6 +13,7 @@ import {
 import { monthRange } from "@/lib/dates";
 import { CALENDAR_MAX_MONTHS, monthCount } from "@/lib/insights";
 import { PLAN_LIMITS } from "@/lib/plans";
+import { TrendBodySkeleton } from "@/components/app/analytics/trend-card";
 
 /**
  * The analytics page's placeholders — `loading.tsx` and the page's own
@@ -20,9 +21,8 @@ import { PLAN_LIMITS } from "@/lib/plans";
  * heights as the widgets (`analytics/widget.tsx`), so the cards are exactly as
  * wide as what replaces them and no taller than it.
  *
- * Which cards show depends on the plan (Plus and Pro see the 12-month cash
- * flow instead of the 6-month trend) and on whether budgets show (this month
- * only). The page passes both when it knows them; in `loading.tsx` they come
+ * What shows depends on the plan (Plus and Pro's trend adds what was kept)
+ * and on whether budgets show (this month only). The page passes both when it knows them; in `loading.tsx` they come
  * from the plan the layout already resolved (`usePlan`) and from the URL.
  */
 
@@ -84,12 +84,12 @@ function StatCardsSkeleton() {
 }
 
 export function AnalyticsResultsSkeleton({
-  trend,
+  kept,
   budgets,
   type,
 }: {
-  /** The 6-month trend card (Free). Defaults from the plan. */
-  trend?: boolean;
+  /** The trend shows what was kept (Plus and Pro). Defaults from the plan. */
+  kept?: boolean;
   /** Placeholder budget rows; defaults from the workspace's budgets and the URL. */
   budgets?: number;
   /** The Type filter, which names the category card. Defaults from the URL. */
@@ -98,7 +98,7 @@ export function AnalyticsResultsSkeleton({
   const { plan, addLimits } = usePlan();
   const sp = useSearchParams();
   const income = (type ?? sp?.get("type")) === "income";
-  const showTrend = trend ?? !PLAN_LIMITS[plan].advancedAnalytics;
+  const showKept = kept ?? PLAN_LIMITS[plan].advancedAnalytics;
   const budgetRows =
     budgets ?? (rangeIsThisMonth(sp) ? Math.min(addLimits?.budgets?.used ?? 0, 6) : 0);
 
@@ -150,28 +150,14 @@ export function AnalyticsResultsSkeleton({
           </div>
         </WidgetCardSkeleton>
 
-        {showTrend ? (
-          <WidgetCardSkeleton
-            span="full"
-            title="Last 6 months"
-            description="Income vs. expenses"
-            bodyClassName={BODY.trend}
-          >
-            <SkeletonLine className="h-3 w-40" lineClassName="mb-4 h-4" />
-            <div className="space-y-3">
-              {Array.from({ length: 6 }, (_, i) => (
-                <div key={i} className="flex items-center gap-3">
-                  <Skeleton className="h-3 w-12 shrink-0" />
-                  <div className="flex-1 space-y-1">
-                    <Skeleton className="h-2.5 w-full rounded-full" />
-                    <Skeleton className="h-2.5 w-4/5 rounded-full" />
-                  </div>
-                  <Skeleton className="h-3 w-20 shrink-0" />
-                </div>
-              ))}
-            </div>
-          </WidgetCardSkeleton>
-        ) : null}
+        <WidgetCardSkeleton
+          span="full"
+          title="Income vs. expenses"
+          description="Money in and out over the selected range"
+          bodyClassName={BODY.trend}
+        >
+          <TrendBodySkeleton kept={showKept} />
+        </WidgetCardSkeleton>
       </div>
     </>
   );

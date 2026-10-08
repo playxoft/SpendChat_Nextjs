@@ -208,7 +208,7 @@ const groups = [
       {
         icon: ChartColumn,
         title: "Analytics",
-        body: "See where the money actually went: a category breakdown, month-by-month totals, and income against expenses across any date range you pick. No dashboards to build — open it and the answer is there.",
+        body: `See where the money actually went: a category breakdown, and income against expenses in columns by day, week, month or year across any date range you pick. On ${plansWith("advancedAnalytics")}, that chart adds what you kept and your savings rate, and Insights & trends adds a month-end projection and the recurring and unusual spends worth knowing about.`,
       },
       {
         icon: Paperclip,
@@ -218,7 +218,7 @@ const groups = [
       {
         icon: PiggyBank,
         title: "Budgets that speak up",
-        body: `Set a monthly budget for the whole workspace, one profile or one category. The bar turns amber at 80% and red at 100%, and admins and whoever set it get an email at each — so you hear about it in week three, not on the statement. ${PLAN_NAMES.free} includes ${budgetsAllowance("free")}; ${PLAN_NAMES.plus} and ${PLAN_NAMES.pro} include more.`,
+        body: `Set a monthly budget for the whole workspace, a space, one profile or one category. The bar turns amber at 80% and red at 100%, and admins and whoever set it get an email at each — so you hear about it in week three, not on the statement. ${PLAN_NAMES.free} includes ${budgetsAllowance("free")}; ${PLAN_NAMES.plus} and ${PLAN_NAMES.pro} include more.`,
       },
       {
         icon: Search,

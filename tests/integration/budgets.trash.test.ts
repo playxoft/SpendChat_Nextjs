@@ -88,7 +88,7 @@ describe("budgets and the trash", () => {
     }
     expect(await budgetMail()).toEqual([]);
     expect((await restoreAllTransactions(uid("adm"), f.W)).restored).toBe(2);
-    expect((await budgetMail())[0]!.subject).toMatch(/over budget/);
+    expect((await budgetMail())[0]!.subject).toMatch(/^Over budget/);
   });
 
   it("a profile in the trash: its budget is hidden from everyone, spends nothing and doesn't count — until it's restored", async () => {
@@ -119,7 +119,7 @@ describe("budgets and the trash", () => {
       ["Kids", 9000, "warn"],
     ]);
     // The restore re-checked: Kids' 80% is news.
-    expect((await budgetMail())[0]!.subject).toMatch(/^Kids: 90%/);
+    expect((await budgetMail())[0]!.subject).toMatch(/^90% of the .+ budget used: Kids this month$/);
   });
 
   it("a trashed profile isn't one of the 'covered' profiles: a member who reads every live one sees the workspace budget", async () => {

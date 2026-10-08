@@ -19,6 +19,42 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.10.0 — 2026-10-07
+
+Additive, with one guard on editing multi-payer expenses (below).
+
+**Split expenses can have several payers.** `SplitExpenseInput` takes
+`payers: [{ memberId, amount? }]` — amounts for all payers or none; none divides
+`amount` evenly by join order; given amounts must add up to `amount`, otherwise
+422 with `details: { paidSumMinor, totalMinor }`. The single `paidBy` is still
+accepted; send one or the other (422 for both or neither). `SplitExpense` gains
+`payers: [{ memberId, name, amountMinor, amount }]` (most paid first). `paidBy`
+stays and is now the main payer (most paid, ties by join order), who takes an
+equal split's leftover first. Balances credit each payer with what they paid.
+
+**Space budgets, titles and notes.** `Budget.scope` can be `space` (new
+`spaceId`): it counts every live profile in the space as it is now, shows only
+to people who can read all of them (admins always), is managed by those who can
+edit all of them, and is deleted with its space. Every budget has a `title`
+(1–60; server-suggested when omitted on create) and an optional `description`
+(≤ 140; `null` or `""` clears it). `POST /budgets` takes `scope: "space"` +
+`spaceId`, `title`, `description`; `PATCH` takes `title`, `description`; one
+budget per space (409).
+
+Editing (`PUT`) an expense with several payers needs `payers`: a `paidBy`-only
+body is accepted only when it names the current main payer and keeps the
+amount (the payers stay as they are), otherwise **422 `payers_required`** — so
+a client that only knows `paidBy` can't wipe the other payers' credit.
+
+**Flutter impact:** creating expenses, reading them, and editing one-payer
+expenses work unchanged with `paidBy`, and budget `label` still works. Editing
+an expense with more than one entry in `payers` with a `paidBy`-only body fails
+with 422 `payers_required` unless it keeps the main payer and the amount — so
+before allowing edits of those, read `payers` and send `payers` back (handle
+`payers_required` meanwhile, e.g. "Edit this one on the web"). To use the rest:
+offer a "Space" budget scope, treat `scope: "space"` as known, and show `title`
+(and `description`).
+
 ## 6.9.0 — 2026-10-07
 
 **Split** — groups for sharing costs between people (a trip, a flat, a

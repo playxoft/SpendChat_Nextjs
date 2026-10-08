@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { BUDGET_SCOPES, isMonthKey } from "./budgets";
+import { BUDGET_DESCRIPTION_MAX, BUDGET_SCOPES, BUDGET_TITLE_MAX, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
-import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX } from "./split-import";
+import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX, SPLIT_IMPORT_KEY_PATTERN } from "./split-import";
 import {
   CURRENCIES,
   PAID_PERSONAL_PLANS,
@@ -1194,6 +1194,12 @@ const splitPercentSchema = z.coerce
   .max(100, "Percent can't be over 100")
   .refine((p) => Math.abs(p * 100 - Math.round(p * 100)) < 1e-6, "Use at most two decimals");
 
+const splitParticipantsMax = SPLIT_GROUP_MAX_PEOPLE;
+const splitShareAmountSchema = z.coerce
+  .number()
+  .finite()
+  .min(0, "Amounts can't be negative")
+  .max(TRANSACTION_AMOUNT_MAX, "Amount is too large (max 9 digits)");
 const splitExpenseBase = {
   title: z
     .string()
@@ -1201,17 +1207,27 @@ const splitExpenseBase = {
     .min(1, "Add a title")
     .max(SPLIT_EXPENSE_TITLE_MAX, `Title is too long (max ${SPLIT_EXPENSE_TITLE_MAX} characters)`),
   amount: amountSchema,
-  paidBy: splitIdSchema,
+  /** One person paid it all. The older shape; `payers` says the same for one. */
+  paidBy: splitIdSchema.optional(),
+  /**
+   * Who paid: amounts for all of them (adding up to `amount`) or for none, in
+   * which case it divides evenly between them.
+   */
+  payers: z
+    .array(z.object({ memberId: splitIdSchema, amount: splitShareAmountSchema.optional() }))
+    .min(1, "Pick who paid")
+    .max(splitParticipantsMax)
+    .optional(),
   occurredOn: dateSchema,
 };
-const splitParticipantsMax = SPLIT_GROUP_MAX_PEOPLE;
 
 /**
  * An expense and how to divide it. The shares sent here are *inputs* — member
  * ids (equal), amounts (exact) or percents — and the server computes every
  * stored share from them (`lib/split-math.ts`).
  */
-export const splitExpenseSchema = z.discriminatedUnion("splitType", [
+export const splitExpenseSchema = z
+  .discriminatedUnion("splitType", [
   z.object({
     ...splitExpenseBase,
     splitType: z.literal("equal"),
@@ -1224,11 +1240,7 @@ export const splitExpenseSchema = z.discriminatedUnion("splitType", [
       .array(
         z.object({
           memberId: splitIdSchema,
-          amount: z.coerce
-            .number()
-            .finite()
-            .min(0, "Amounts can't be negative")
-            .max(TRANSACTION_AMOUNT_MAX, "Amount is too large (max 9 digits)"),
+          amount: splitShareAmountSchema,
         }),
       )
       .min(1, "Pick who it's split between")
@@ -1242,8 +1254,22 @@ export const splitExpenseSchema = z.discriminatedUnion("splitType", [
       .min(1, "Pick who it's split between")
       .max(splitParticipantsMax),
   }),
-]);
+  ])
+  .superRefine((v, ctx) => {
+    if (v.paidBy === undefined && v.payers === undefined) {
+      ctx.addIssue({ code: "custom", message: "Pick who paid", path: ["payers"] });
+    } else if (v.paidBy !== undefined && v.payers !== undefined) {
+      ctx.addIssue({ code: "custom", message: "Send payers or paidBy, not both", path: ["paidBy"] });
+    }
+  });
 export type SplitExpenseInput = z.input<typeof splitExpenseSchema>;
+
+/** Who paid an expense, whichever shape it came in. */
+export function splitPayersOf(
+  data: Pick<z.output<typeof splitExpenseSchema>, "paidBy" | "payers">,
+): { memberId: string; amount?: number }[] {
+  return data.payers ?? (data.paidBy !== undefined ? [{ memberId: data.paidBy }] : []);
+}
 
 /** "Mark as paid": `from` paid `to` this much. */
 export const splitSettlementSchema = z
@@ -1319,6 +1345,7 @@ const splitImportExpenseSchema = z.discriminatedUnion("splitType", [
 
 export const splitImportSchema = z
   .object({
+    key: z.string().regex(SPLIT_IMPORT_KEY_PATTERN, "That draft doesn't look right — open the calculator and try again"),
     name: splitGroupNameSchema,
     icon: splitIconSchema.nullish(),
     currency: splitCurrencySchema,
@@ -1350,39 +1377,64 @@ export const budgetMonthSchema = z
 
 const budgetEmailAlertsSchema = z.boolean().optional();
 
+/** What people call a budget ("Groceries this month"). */
+export const budgetTitleSchema = z
+  .string()
+  .trim()
+  .min(1, "Give the budget a title")
+  .max(BUDGET_TITLE_MAX, `Title is too long (max ${BUDGET_TITLE_MAX} characters)`);
+
+/** An optional note; blank clears it. */
+export const budgetDescriptionSchema = z
+  .string()
+  .trim()
+  .max(BUDGET_DESCRIPTION_MAX, `Description is too long (max ${BUDGET_DESCRIPTION_MAX} characters)`)
+  .transform((v) => (v === "" ? null : v));
+
+/** The fields every new budget shares. A missing title gets the suggested one. */
+const newBudgetFields = {
+  amount: amountSchema,
+  emailAlerts: budgetEmailAlertsSchema,
+  title: budgetTitleSchema.optional(),
+  description: budgetDescriptionSchema.nullish(),
+};
+
 /**
- * A new monthly budget: the whole workspace, one profile, or one expense
- * category. `amount` is in major units of the workspace currency, like a
- * transaction's.
+ * A new monthly budget: the whole workspace, one space, one profile, or one
+ * expense category. `amount` is in major units of the workspace currency, like
+ * a transaction's.
  */
 export const createBudgetSchema = z.discriminatedUnion("scope", [
-  z.object({
-    scope: z.literal("workspace"),
-    amount: amountSchema,
-    emailAlerts: budgetEmailAlertsSchema,
-  }),
-  z.object({
-    scope: z.literal("profile"),
-    profileId: z.string().uuid("Pick a profile"),
-    amount: amountSchema,
-    emailAlerts: budgetEmailAlertsSchema,
-  }),
+  z.object({ scope: z.literal("workspace"), ...newBudgetFields }),
+  z.object({ scope: z.literal("space"), spaceId: z.string().uuid("Pick a space"), ...newBudgetFields }),
+  z.object({ scope: z.literal("profile"), profileId: z.string().uuid("Pick a profile"), ...newBudgetFields }),
   z.object({
     scope: z.literal("category"),
     categoryId: z.string().uuid("Pick a category"),
-    amount: amountSchema,
-    emailAlerts: budgetEmailAlertsSchema,
+    ...newBudgetFields,
   }),
 ]);
 export type CreateBudgetInput = z.input<typeof createBudgetSchema>;
 
-/** Change a budget's amount or its email alerts. What it covers is fixed. */
+/**
+ * Change a budget's amount, email alerts, title or description (null or blank
+ * clears it). What it covers is fixed.
+ */
 export const updateBudgetSchema = z
   .object({
     amount: amountSchema.optional(),
     emailAlerts: z.boolean().optional(),
+    title: budgetTitleSchema.optional(),
+    description: budgetDescriptionSchema.nullish(),
   })
-  .refine((v) => v.amount !== undefined || v.emailAlerts !== undefined, "Nothing to update");
+  .refine(
+    (v) =>
+      v.amount !== undefined ||
+      v.emailAlerts !== undefined ||
+      v.title !== undefined ||
+      v.description !== undefined,
+    "Nothing to update",
+  );
 export type UpdateBudgetInput = z.input<typeof updateBudgetSchema>;
 
 // ── Ask (AI chat over your transactions) ───────────────────────────────────
