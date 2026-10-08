@@ -727,3 +727,112 @@ export function PrivacyMock() {
     </div>
   );
 }
+
+export function BudgetsMock() {
+  // The app's own tones (`budget-parts.tsx`): neutral under 80%, amber from
+  // 80%, red from 100%. Widths are fixed numbers, never computed at render.
+  const rows: [string, number, "ok" | "warn" | "over"][] = [
+    ["Whole workspace", 62, "ok"],
+    ["Dining out", 86, "warn"],
+    ["Groceries", 104, "over"],
+  ];
+  return (
+    <div className="w-full max-w-xs space-y-2.5">
+      {rows.map(([label, pct, status]) => (
+        <div key={label} className="space-y-1">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="font-medium">{label}</span>
+            {status !== "ok" && (
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-px text-[10px] font-medium",
+                  status === "over"
+                    ? "bg-destructive/10 text-destructive"
+                    : "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+                )}
+              >
+                {status === "over" ? "Over" : "80%+"}
+              </span>
+            )}
+            <span className="ml-auto tabular-nums text-muted-foreground">{pct}%</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn(
+                "h-full rounded-full",
+                status === "ok" ? "bg-primary" : status === "warn" ? "bg-amber-500" : "bg-destructive",
+              )}
+              style={{ width: `${Math.min(100, pct)}%` }}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function SplitMock() {
+  return (
+    <div className="w-full max-w-xs space-y-1.5">
+      {[
+        ["PK", "Priya", "is owed 45.00", "owed"],
+        ["SM", "Sam", "owes 30.00", "owes"],
+        ["LT", "Leo", "owes 15.00", "owes"],
+      ].map(([initials, name, text, kind]) => (
+        <div
+          key={initials}
+          className="flex items-center gap-2.5 rounded-lg border bg-background px-2.5 py-1.5 text-xs"
+        >
+          <span className="flex size-6 items-center justify-center rounded-full border bg-muted text-[10px] font-medium">
+            {initials}
+          </span>
+          <span>{name}</span>
+          <span
+            className={cn(
+              "ml-auto tabular-nums",
+              kind === "owed" ? "text-emerald-600 dark:text-emerald-400" : "text-muted-foreground",
+            )}
+          >
+            {text}
+          </span>
+        </div>
+      ))}
+      <div className="flex items-center justify-between px-1 pt-0.5 text-[11px] text-muted-foreground">
+        <span>2 payments settle it</span>
+        <span className="rounded-full border px-2 py-0.5">Mark as paid</span>
+      </div>
+    </div>
+  );
+}
+
+export function TrashMock() {
+  return (
+    <div className="w-full max-w-xs space-y-2">
+      <div className="overflow-hidden rounded-lg border bg-background">
+        {[
+          ["Rent", "Deletes in 27 days", false],
+          ["Phone bill", "Deletes in 2 days", true],
+        ].map(([what, left, soon], i) => (
+          <div
+            key={String(what)}
+            className={cn("flex items-center justify-between gap-2 px-3 py-1.5 text-xs", i > 0 && "border-t")}
+          >
+            <span>{what}</span>
+            <span
+              className={cn(
+                "rounded-full border px-2 py-0.5 text-[10px]",
+                soon ? "border-amber-500/50 text-amber-700 dark:text-amber-400" : "text-muted-foreground",
+              )}
+            >
+              {left}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="flex items-center justify-between gap-2 rounded-lg border bg-background px-3 py-1.5 text-xs">
+        <span className="text-muted-foreground">Moved to trash</span>
+        <span className="rounded-md bg-foreground px-2 py-0.5 text-[10px] font-medium text-background">Undo</span>
+      </div>
+    </div>
+  );
+}

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Suspense } from "react";
+import { unstable_rethrow } from "next/navigation";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import {
   getCategoryBreakdown,
@@ -10,21 +11,29 @@ import {
 } from "@/lib/queries";
 import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
 import { formatDateLabel, monthKey, monthLabel, monthRange, todayISO } from "@/lib/dates";
+import {
+  advancedAnalyticsAllowed,
+  getWorkspaceEntitlements,
+  type WorkspaceEntitlements,
+} from "@/lib/entitlements";
+import { getAdvancedAnalytics } from "@/lib/insights-queries";
+import { buildAdvancedAnalytics, calendarWindow, firstDayOfWeek, monthCount } from "@/lib/insights";
+import { describeError, logger } from "@/lib/logger";
+import { sampleAdvancedRaw } from "@/lib/insights-sample";
 import { listBudgets } from "@/services/budgets";
 import { BudgetRow } from "@/components/app/budgets/budget-parts";
 import { getTimeZone } from "@/lib/timezone.server";
 import { formatMoney } from "@/lib/money";
 import { siteConfig } from "@/lib/site";
 import { cn } from "@/lib/utils";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { AnalyticsFilters } from "@/components/app/analytics-filters";
 import { AnalyticsResultsSkeleton } from "@/components/app/analytics-skeleton";
+import {
+  InsightsSection,
+  InsightsSectionSkeleton,
+  InsightsUnavailable,
+} from "@/components/app/analytics/insights-section";
+import { ANALYTICS_SHELL, BODY, WIDGET_GRID, WidgetCard } from "@/components/app/analytics/widget";
 import { CategoryPieChart } from "@/components/app/category-pie-chart";
 import { PrintButton } from "@/components/app/print-button";
 
@@ -58,8 +67,14 @@ export default async function AnalyticsPage({
 
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
-  const profiles = await getProfiles(user.id, workspace.id);
+  const [profiles, entitlements] = await Promise.all([
+    getProfiles(user.id, workspace.id),
+    getWorkspaceEntitlements(workspace.id),
+  ]);
   const { currency, locale } = workspace;
+  // Plus and Pro: "Insights & trends" with the workspace's numbers. Free: the
+  // same section over sample numbers, locked — no transaction is read for it.
+  const advanced = advancedAnalyticsAllowed(entitlements);
 
   const today = todayISO(await getTimeZone());
   const { start, end } = monthRange(today);
@@ -78,11 +93,18 @@ export default async function AnalyticsPage({
     ? "All time"
     : `${formatDateLabel(from ?? start, locale)} – ${formatDateLabel(to ?? end, locale)}`;
   // Remount the streamed results on any filter change so the skeleton shows
-  // immediately instead of holding the previous numbers.
-  const streamKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}|${parsed.type ?? "all"}`;
+  // immediately instead of holding the previous numbers. The insights don't
+  // follow the Type filter, so their key leaves it out: changing Type keeps
+  // them on screen instead of blanking them to a skeleton (the server still
+  // renders them again with the rest of the page).
+  const insightsKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}`;
+  const streamKey = `${insightsKey}|${parsed.type ?? "all"}`;
+  // Budgets are monthly, so they show when the range is exactly this month.
+  const showBudgets = from === start && to === end;
+  const window = calendarWindow(today, from, to);
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-6">
+    <div className={ANALYTICS_SHELL}>
       <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
         <div>
           <h1 className="text-xl font-semibold">Analytics</h1>
@@ -114,7 +136,16 @@ export default async function AnalyticsPage({
         </div>
       </div>
 
-      <Suspense key={streamKey} fallback={<AnalyticsResultsSkeleton />}>
+      <Suspense
+        key={streamKey}
+        fallback={
+          <AnalyticsResultsSkeleton
+            trend={!advanced}
+            budgets={showBudgets ? undefined : 0}
+            type={parsed.type ?? "expense"}
+          />
+        }
+      >
         <AnalyticsResults
           userId={user.id}
           workspaceId={workspace.id}
@@ -125,8 +156,43 @@ export default async function AnalyticsPage({
           currency={currency}
           locale={locale}
           today={today}
+          showBudgets={showBudgets}
+          showTrend={!advanced}
         />
       </Suspense>
+
+      {advanced ? (
+        <Suspense
+          key={`insights|${insightsKey}`}
+          fallback={<InsightsSectionSkeleton calendarMonths={monthCount(window)} />}
+        >
+          <AdvancedResults
+            userId={user.id}
+            workspaceId={workspace.id}
+            from={from}
+            to={to}
+            profileId={profileId}
+            currency={currency}
+            locale={locale}
+            today={today}
+            entitlements={entitlements}
+            profiles={profiles}
+          />
+        </Suspense>
+      ) : (
+        <InsightsSection
+          locked
+          data={buildAdvancedAnalytics(sampleAdvancedRaw(today, window), {
+            today,
+            window,
+            firstDay: firstDayOfWeek(locale),
+            currency,
+            locale,
+          })}
+          currency={currency}
+          locale={locale}
+        />
+      )}
 
       {/* Print-only marketing footer. */}
       <div className="mt-6 hidden border-t pt-3 text-center text-xs text-muted-foreground print:block">
@@ -135,6 +201,51 @@ export default async function AnalyticsPage({
       </div>
     </div>
   );
+}
+
+/**
+ * "Insights & trends" with the workspace's numbers (Plus and Pro), streamed on
+ * its own. A failure here is contained: it's logged and the section says it
+ * couldn't load, while the overview above — already on screen — stays.
+ */
+async function AdvancedResults({
+  userId,
+  workspaceId,
+  currency,
+  locale,
+  entitlements,
+  profiles,
+  ...opts
+}: {
+  userId: string;
+  workspaceId: string;
+  from?: string;
+  to?: string;
+  profileId?: string;
+  currency: string;
+  locale: string;
+  today: string;
+  /** Already read by the page — an RSC render has no request memo to share them. */
+  entitlements: WorkspaceEntitlements;
+  profiles: Awaited<ReturnType<typeof getProfiles>>;
+}) {
+  let data;
+  try {
+    data = await getAdvancedAnalytics(
+      userId,
+      workspaceId,
+      { ...opts, currency, locale },
+      { entitlements, profiles },
+    );
+  } catch (err) {
+    unstable_rethrow(err);
+    logger.error(`Analytics insights failed to load: ${describeError(err)}`, {
+      event: "analytics.insights_failed",
+      error: err,
+    });
+    return <InsightsUnavailable />;
+  }
+  return <InsightsSection data={data} currency={currency} locale={locale} />;
 }
 
 async function AnalyticsResults({
@@ -147,6 +258,8 @@ async function AnalyticsResults({
   currency,
   locale,
   today,
+  showBudgets,
+  showTrend,
 }: {
   userId: string;
   workspaceId: string;
@@ -157,6 +270,9 @@ async function AnalyticsResults({
   currency: string;
   locale: string;
   today: string;
+  showBudgets: boolean;
+  /** The 6-month trend — Free; Plus and Pro get the 12-month cash flow instead. */
+  showTrend: boolean;
 }) {
   const filters = { from, to, profileId };
   // The Type filter scopes the category breakdown; without it we keep the
@@ -164,14 +280,11 @@ async function AnalyticsResults({
   const breakdownType = type ?? "expense";
   const months = lastNMonths(6, today);
   const fromISO = `${months[0]}-01`;
-  // Budgets are monthly, so they show when the range is exactly this month.
-  const thisMonth = monthRange(today);
-  const showBudgets = from === thisMonth.start && to === thisMonth.end;
 
   const [summary, breakdown, trendRows, budgets] = await Promise.all([
     getSummary(userId, workspaceId, filters),
     getCategoryBreakdown(userId, workspaceId, breakdownType, filters),
-    getMonthlyTrend(userId, workspaceId, fromISO, profileId),
+    showTrend ? getMonthlyTrend(userId, workspaceId, fromISO, profileId) : Promise.resolve([]),
     showBudgets ? listBudgets(userId, workspaceId, monthKey(today)) : Promise.resolve([]),
   ]);
   // One profile selected: its own budget. All profiles: every budget the viewer can see.
@@ -208,17 +321,19 @@ async function AnalyticsResults({
       </div>
 
       {shownBudgets.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>Budgets this month</CardTitle>
-            <CardDescription>
-              Spending against each monthly limit.{" "}
-              <Link href="/app/budgets" className="underline underline-offset-4 print:hidden">
-                Manage budgets
-              </Link>
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+        <div className={WIDGET_GRID}>
+          <WidgetCard
+            span="full"
+            title="Budgets this month"
+            description={
+              <>
+                Spending against each monthly limit.{" "}
+                <Link href="/app/budgets" className="underline underline-offset-4 print:hidden">
+                  Manage budgets
+                </Link>
+              </>
+            }
+          >
             <ul className="space-y-4">
               {shownBudgets.map((b) => (
                 <li key={b.id}>
@@ -226,62 +341,60 @@ async function AnalyticsResults({
                 </li>
               ))}
             </ul>
-          </CardContent>
-        </Card>
+          </WidgetCard>
+        </div>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>
-            {breakdownType === "income" ? "Income by category" : "Spending by category"}
-          </CardTitle>
-          <CardDescription>
-            {breakdownType === "income" ? "Income" : "Expenses"} for the selected range
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
+      <div className={WIDGET_GRID}>
+        <WidgetCard
+          span="full"
+          title={breakdownType === "income" ? "Income by category" : "Spending by category"}
+          description={`${breakdownType === "income" ? "Income" : "Expenses"} for the selected range`}
+          bodyClassName={BODY.categories}
+        >
           <CategoryPieChart data={pieData} currency={currency} locale={locale} />
-        </CardContent>
-      </Card>
+        </WidgetCard>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Last 6 months</CardTitle>
-          <CardDescription>Income vs. expenses</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="mb-4 flex items-center gap-4 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-2.5 rounded-full bg-emerald-500" /> Income
-            </span>
-            <span className="inline-flex items-center gap-1.5">
-              <span className="size-2.5 rounded-full bg-foreground/60" /> Expense
-            </span>
-          </div>
-          <ul className="space-y-3">
-            {series.map((s) => (
-              <li key={s.month} className="flex items-center gap-3">
-                <span className="w-12 shrink-0 text-xs text-muted-foreground">
-                  {monthLabel(`${s.month}-01`, locale)}
-                </span>
-                <div className="flex-1 space-y-1">
-                  <div
-                    className="h-2.5 rounded-full bg-emerald-500/70"
-                    style={{ width: `${(s.income / maxTrend) * 100}%` }}
-                  />
-                  <div
-                    className="h-2.5 rounded-full bg-foreground/60"
-                    style={{ width: `${(s.expense / maxTrend) * 100}%` }}
-                  />
-                </div>
-                <span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                  {formatMoney(s.income - s.expense, currency, locale)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </CardContent>
-      </Card>
+        {showTrend ? (
+          <WidgetCard
+            span="full"
+            title="Last 6 months"
+            description="Income vs. expenses"
+            bodyClassName={BODY.trend}
+          >
+            <div className="mb-4 flex items-center gap-4 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="size-2.5 rounded-full bg-emerald-500" /> Income
+              </span>
+              <span className="inline-flex items-center gap-1.5">
+                <span className="size-2.5 rounded-full bg-foreground/60" /> Expense
+              </span>
+            </div>
+            <ul className="space-y-3">
+              {series.map((s) => (
+                <li key={s.month} className="flex items-center gap-3">
+                  <span className="w-12 shrink-0 text-xs text-muted-foreground">
+                    {monthLabel(`${s.month}-01`, locale)}
+                  </span>
+                  <div className="flex-1 space-y-1">
+                    <div
+                      className="h-2.5 rounded-full bg-emerald-500/70"
+                      style={{ width: `${(s.income / maxTrend) * 100}%` }}
+                    />
+                    <div
+                      className="h-2.5 rounded-full bg-foreground/60"
+                      style={{ width: `${(s.expense / maxTrend) * 100}%` }}
+                    />
+                  </div>
+                  <span className="w-20 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
+                    {formatMoney(s.income - s.expense, currency, locale)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </WidgetCard>
+        ) : null}
+      </div>
     </>
   );
 }

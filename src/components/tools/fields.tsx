@@ -309,6 +309,7 @@ export function SelectField({
   options,
   hint,
   className,
+  disabled,
 }: {
   label: ReactNode;
   value: string;
@@ -316,6 +317,8 @@ export function SelectField({
   options: readonly (Option | OptionGroup)[];
   hint?: ReactNode;
   className?: string;
+  /** Locked — say why in `hint`. */
+  disabled?: boolean;
 }) {
   const id = useId();
   const option = (o: Option) => (
@@ -330,8 +333,9 @@ export function SelectField({
           id={id}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          disabled={disabled}
           aria-describedby={hint ? `${id}-msg` : undefined}
-          className={cn(control, "appearance-none pr-9")}
+          className={cn(control, "appearance-none pr-9 disabled:cursor-not-allowed disabled:opacity-60")}
         >
           {options.map((o) =>
             "options" in o ? (

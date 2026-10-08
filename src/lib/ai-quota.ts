@@ -43,6 +43,8 @@ export const AI_KIND = {
   voiceParse: "transaction_parse_voice",
   /** A voice clip: one action per started minute. */
   transcribe: "voice_transcribe",
+  /** One question to Ask, answered from the workspace's data: 1 action. */
+  chat: "ai_chat",
 } as const;
 export type AiKind = (typeof AI_KIND)[keyof typeof AI_KIND];
 
@@ -65,6 +67,15 @@ export type AiCharge = {
   /** Who and where — settling a refunded transcription re-checks the voice pairing. */
   userId: string;
   workspaceId: string;
+  /**
+   * AI actions the workspace has left this month once this charge is counted,
+   * read under the charge's own locks — so the "38 of 50 left" line can move
+   * after a use without a second query. Null for a charge of 0 units (a voice
+   * clip's parse), which doesn't count the allowance at all.
+   */
+  remaining: number | null;
+  /** The monthly allowance the remainder is out of. */
+  limit: number;
 };
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
@@ -166,20 +177,23 @@ async function chargeUnderLocks(
     // A call that charges nothing (a voice clip's parse) can't overdraw the
     // allowance, so it isn't refused by it — even at the limit, the clip that
     // was already paid for gets its parse.
+    const limit = ent.limits.aiActionsPerMonth;
+    let remaining: number | null = null;
     if (units > 0) {
       const used = await aiActionsUsedThisMonth(ent, now, tx);
       // Top-ups (personal phase 9) plug in here: they're spent only once the
       // monthly allowance is gone (C4), so the check becomes
       // `used + units > limit + topUpRemaining`, under this same lock, and the
       // row records which pool paid.
-      if (used + units > ent.limits.aiActionsPerMonth) throw allowanceError(ent, used, units);
+      if (used + units > limit) throw allowanceError(ent, used, units);
+      remaining = limit - used - units;
     }
 
     const [inserted] = await tx
       .insert(aiUsageLog)
       .values({ userId, workspaceId, kind, units, ownerId: ent.ownerId, plan: ent.plan })
       .returning({ id: aiUsageLog.id });
-    return { id: inserted!.id, kind, units, userId, workspaceId };
+    return { id: inserted!.id, kind, units, userId, workspaceId, remaining, limit };
   });
 }
 
@@ -262,6 +276,15 @@ export async function chargeVoiceTranscribe(
 ): Promise<AiCharge> {
   const units = voiceActionsFor(opts.durationMs ?? VOICE.maxClipMs);
   return chargeUnderLocks(userId, workspaceId, async () => ({ kind: AI_KIND.transcribe, units }));
+}
+
+/**
+ * Charge one question to Ask: one action, like a typed note. The caller has
+ * already checked the question, the asker's edit access and the model; the
+ * only gate here is the allowance.
+ */
+export async function chargeAiChat(userId: string, workspaceId: string): Promise<AiCharge> {
+  return chargeUnderLocks(userId, workspaceId, async () => ({ kind: AI_KIND.chat, units: 1 }));
 }
 
 /**

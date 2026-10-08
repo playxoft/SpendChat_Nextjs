@@ -47,7 +47,9 @@ import { useLoadingOverlay } from "./loading-overlay";
 import { usePlan } from "./upgrade-dialog";
 import { LockGlyph, useAddLock } from "./limit-lock";
 import { PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
-import type { PlanLimitInfo } from "@/lib/plan-limit";
+import { planLimitOf, type PlanLimitInfo } from "@/lib/plan-limit";
+import type { AiActionsLeft } from "@/lib/ai-limits";
+import { AiActionsLeftLine } from "./ai-actions-left";
 import {
   AMOUNT_INTEGER_DIGITS_MAX,
   TRANSACTION_DESCRIPTION_MAX as DESCRIPTION_MAX,
@@ -244,6 +246,7 @@ export function AiTransactionInput({
   allProfiles = false,
   density = "normal",
   voiceLanguages,
+  aiAllowance,
 }: {
   mode: EntryMode;
   onModeChange: (m: EntryMode) => void;
@@ -265,6 +268,8 @@ export function AiTransactionInput({
   density?: ComposerDensity;
   /** Languages voice entry expects, from user settings (see settings/voice). */
   voiceLanguages: string[];
+  /** AI actions left this month, streamed by the page (see `AiActionsLeftLine`). */
+  aiAllowance?: Promise<AiActionsLeft | null> | null;
 }) {
   const dense = density === "compact";
   const [text, setText] = useState("");
@@ -286,6 +291,19 @@ export function AiTransactionInput({
   const { voiceAllowed, plan, showUpgrade, reportFailure } = usePlan();
   const voiceUpgrade: PlanLimitInfo = { limit: "voice", plan, upgradeTo: lowestPlanWith("voice") };
   const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
+  // The count each charged call hands back; it replaces the streamed one.
+  const [aiLeft, setAiLeft] = useState<AiActionsLeft | null>(null);
+  /** Move the "AI actions left" line after a call: its new count, or 0 on a spent allowance. */
+  function noteAiResult(res: { ok: boolean; ai?: AiActionsLeft | null; code?: string; details?: unknown }) {
+    if (res.ok) {
+      if (res.ai) setAiLeft(res.ai);
+      return;
+    }
+    const limit = planLimitOf(res);
+    if (limit?.limit === "aiActions" && limit.max !== undefined) {
+      setAiLeft({ remaining: Math.max(0, limit.max - (limit.used ?? limit.max)), limit: limit.max });
+    }
+  }
   const idRef = useRef(0);
   const nextKey = () => ++idRef.current;
 
@@ -526,6 +544,7 @@ export function AiTransactionInput({
     const source = dictatedRef.current ? "voice" : "typed";
     startParse(async () => {
       const res = await parseTransactionsWithAI(note, { source });
+      noteAiResult(res);
       if (!res.ok) {
         reportFailure(res);
         return;
@@ -574,6 +593,7 @@ export function AiTransactionInput({
       // minute); without it the server charges the longest allowed clip.
       body.append("durationMs", String(Math.round(audio.durationMs)));
       const res = await transcribeVoiceNoteAction(body);
+      noteAiResult(res);
       if (!res.ok) {
         reportFailure(res);
         return;
@@ -1002,7 +1022,9 @@ export function AiTransactionInput({
             class so the toggle lands on the exact same pixel in both panes. */}
         <div className={dense ? MODE_ROW_DENSE : "flex items-center gap-2"}>
           <EntryModeToggle mode={mode} onChange={onModeChange} dense={dense} pane="ai" />
-          <div className="ml-auto flex items-center gap-1">
+          <div className="ml-auto flex min-w-0 items-center gap-1">
+            {/* What this workspace has left to spend, and the upgrade at zero. */}
+            <AiActionsLeftLine allowance={aiAllowance} latest={aiLeft} className="mr-1" />
             <AiHelpDialog symbol={symbol} />
             {canReset && resetButton}
           </div>

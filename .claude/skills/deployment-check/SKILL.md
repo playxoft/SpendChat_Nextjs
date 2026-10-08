@@ -233,6 +233,7 @@ Derived from what the code actually reads:
 | `BETTERSTACK_SOURCE_TOKEN`, `BETTERSTACK_INGESTING_HOST`, `LOG_LEVEL` | you are flying blind in prod |
 | `AI_PARSE_MODEL`, `AI_PARSE_MODEL_CURRENT` | composer AI mode answers "not available" |
 | `AI_TRANSCRIBE_MODEL`, `AI_TRANSCRIBE_MODEL_CURRENT` | hold-to-talk mic dies |
+| `AI_CHAT_MODEL`, `AI_CHAT_MODEL_CURRENT` | Ask page says "isn't set up on this server" |
 
 **The AI and mail ones fail *quietly*** — no error, just a feature that stopped
 existing. That is why they are enumerated instead of "it deployed fine".

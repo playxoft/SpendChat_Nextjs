@@ -13,6 +13,7 @@ import { Preview as FreelanceRatePreview } from "@/components/tools/previews/fre
 import { Preview as FdPreview } from "@/components/tools/previews/fd-calculator";
 import { Preview as CurrencyConverterPreview } from "@/components/tools/previews/currency-converter";
 import { Preview as InflationPreview } from "@/components/tools/previews/inflation-calculator";
+import { Preview as SplitBillPreview } from "@/components/tools/previews/split-bill-calculator";
 
 /**
  * The little picture on each `/tools` hub card — a worked example of what the
@@ -414,6 +415,7 @@ const PREVIEWS: Record<string, () => ReactNode> = {
   "fd-calculator": FdPreview,
   "currency-converter": CurrencyConverterPreview,
   "inflation-calculator": InflationPreview,
+  "split-bill-calculator": SplitBillPreview,
 };
 
 /** Whether a tool has its mini picture — every published tool should. */

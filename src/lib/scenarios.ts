@@ -249,6 +249,22 @@ export const FEATURE_SCENARIOS: Record<string, Scenario[]> = {
       body: "The balance says one thing and your memory of the month says another. A category breakdown closes that gap quickly, and it tends to close it with one line item you'd rather it hadn't.",
     },
   ],
+  budgets: [
+    {
+      id: "budget-dining",
+      icon: "PiggyBank",
+      label: "The week-three warning",
+      place: "Pune",
+      body: "Eating out was always fine until the statement arrived. A budget on the one category that drifts means the 80% email lands around the third week, while there's still a week to do something about it.",
+    },
+    {
+      id: "budget-household",
+      icon: "PiggyBank",
+      label: "One number for the house",
+      place: "Leeds",
+      body: "A single budget on the whole household workspace, seen by both of you. Nobody has to be the one who keeps asking how the month is going.",
+    },
+  ],
   "receipts-and-files": [
     {
       id: "files-warranty",
@@ -306,6 +322,22 @@ export const FEATURE_SCENARIOS: Record<string, Scenario[]> = {
       body: "Two people entering into the same shared set of books, each from their own account, with no spreadsheet being emailed back and forth.",
     },
   ],
+  split: [
+    {
+      id: "split-trip",
+      icon: "Split",
+      label: "Eight friends, one trip",
+      place: "Goa",
+      body: "Cabs, a villa, a dozen dinners, paid by whoever had a card out. Everyone adds what they paid as it happens, and on the last day the group shows the four payments that settle it — not the twenty that a spreadsheet would suggest.",
+    },
+    {
+      id: "split-flat",
+      icon: "Split",
+      label: "Flatmates and the gas bill",
+      place: "Nairobi",
+      body: "Rent split by room size, utilities split evenly, groceries whenever. One running balance per person means the end-of-month conversation is a number, not an argument.",
+    },
+  ],
   categories: [
     {
       id: "cat-fewer",
@@ -322,6 +354,15 @@ export const FEATURE_SCENARIOS: Record<string, Scenario[]> = {
       label: "Faster than reaching for the mouse",
       place: "Tallinn",
       body: "One key opens it, one key sends it. Logging a coffee shouldn't cost more attention than drinking it.",
+    },
+  ],
+  trash: [
+    {
+      id: "trash-wrong-row",
+      icon: "Trash2",
+      label: "The wrong row",
+      place: "Lisbon",
+      body: "Clearing out duplicates after a bulk import, one click lands on the rent. Undo puts it back before the coffee's cold, with its category and date exactly as they were.",
     },
   ],
   "privacy-and-security": [

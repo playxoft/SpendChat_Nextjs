@@ -14,12 +14,16 @@ import { logger } from "@/lib/logger";
  *                            separate per-provider key vars.
  *   <FEATURE>_MODEL_CURRENT  The name of the entry to use right now.
  *
- * Two features use it today, each with its own independent pair so they can run
- * on different providers (text parsing on any chat model, transcription on a
- * model that actually accepts audio):
+ * Three features use it today, each with its own independent pair so they can
+ * run on different providers (text parsing on any chat model, transcription on a
+ * model that actually accepts audio, Ask on whatever answers questions well):
  *
  *   AI_PARSE_MODEL      / AI_PARSE_MODEL_CURRENT       → `ai-parse.ts`
  *   AI_TRANSCRIBE_MODEL / AI_TRANSCRIBE_MODEL_CURRENT  → `ai-transcribe.ts`
+ *   AI_CHAT_MODEL       / AI_CHAT_MODEL_CURRENT        → `ai-chat.ts`
+ *
+ * The pairs never fall back to one another: an unset pair turns its feature off
+ * even when another pair is configured.
  *
  * Unset (or misconfigured) → that feature reports "not available" and nothing
  * else breaks. Kept out of `ai-provider.ts` (which is excluded from the coverage
@@ -47,6 +51,15 @@ export function inferProvider(modelId: string): Provider | null {
   return null;
 }
 
+/** Each feature's env-var prefix (the registry; `_CURRENT` names its entry). */
+const FEATURE_ENV = {
+  parse: "AI_PARSE_MODEL",
+  transcribe: "AI_TRANSCRIBE_MODEL",
+  chat: "AI_CHAT_MODEL",
+} as const;
+
+export type AiFeature = keyof typeof FEATURE_ENV;
+
 /**
  * Resolve a feature's active model from its env pair. Throws `aiUnavailable`
  * (503) when either var is unset, the JSON is bad, the entry is missing, or it
@@ -56,8 +69,8 @@ export function inferProvider(modelId: string): Provider | null {
  * `feature` names the log event and the env vars in operator-facing log lines
  * ("parse" → `ai.parse.bad_config`, `AI_PARSE_MODEL`).
  */
-export function resolveModelFromEnv(feature: "parse" | "transcribe"): ModelConfig {
-  const prefix = feature === "parse" ? "AI_PARSE_MODEL" : "AI_TRANSCRIBE_MODEL";
+export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
+  const prefix = FEATURE_ENV[feature];
 
   /**
    * Log a misconfiguration (never the registry or key) and fail as unavailable.

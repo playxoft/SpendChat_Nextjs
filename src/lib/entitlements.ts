@@ -164,7 +164,7 @@ export function upgradeForLimit(plan: PersonalPlan, limit: NumericLimit): Person
 /** The cheapest plan at or above `plan` that has a boolean feature. */
 export function upgradeForFeature(
   plan: PersonalPlan,
-  feature: "voice" | "profileLevelAccess" | "fileTrash" | "topUps",
+  feature: "voice" | "profileLevelAccess" | "fileTrash" | "topUps" | "advancedAnalytics",
 ): PersonalPlan | null {
   return PERSONAL_PLANS.find((p) => planAtLeast(p, plan) && PLAN_LIMITS[p][feature]) ?? null;
 }
@@ -533,6 +533,31 @@ export async function assertVoiceAllowed(workspaceId: string): Promise<void> {
   throw planLimit(
     `Voice entry is part of ${upgradeTo ? PLAN_NAMES[upgradeTo] : "a paid plan"}. You can still type or paste a note for the AI.`,
     { limit: "voice", plan: ent.plan, upgradeTo },
+  );
+}
+
+/** The analytics page's "Insights & trends" section is on Plus and Pro. */
+export function advancedAnalyticsAllowed(ent: Pick<WorkspaceEntitlements, "limits">): boolean {
+  return ent.limits.advancedAnalytics;
+}
+
+/**
+ * Throw `plan_limit` unless the workspace's plan includes advanced analytics.
+ * `getAdvancedAnalytics` calls it before it reads a single transaction, so a
+ * Free workspace's request never computes the data — the page shows a preview
+ * built from sample numbers instead.
+ */
+export async function assertAdvancedAnalytics(
+  workspaceId: string,
+  /** The plan the caller already read for this workspace (an RSC render has no request memo). */
+  known?: WorkspaceEntitlements,
+): Promise<void> {
+  const ent = known?.workspaceId === workspaceId ? known : await getWorkspaceEntitlements(workspaceId);
+  if (advancedAnalyticsAllowed(ent)) return;
+  const upgradeTo = upgradeForFeature(ent.plan, "advancedAnalytics");
+  throw planLimit(
+    `Insights and trends are part of ${upgradeTo ? PLAN_NAMES[upgradeTo] : "a paid plan"}. The overview, the category breakdown and budgets stay on every plan.`,
+    { limit: "advancedAnalytics", plan: ent.plan, upgradeTo },
   );
 }
 

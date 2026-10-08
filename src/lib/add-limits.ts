@@ -100,7 +100,10 @@ const NOUNS = {
 type MeterKind = keyof typeof NOUNS;
 
 /** "Plus and Pro" / "Plus or Pro" — the paid plans, named from the catalogue. */
-function paidPlans(join: "and" | "or", feature?: "profileLevelAccess" | "fileTrash"): string {
+function paidPlans(
+  join: "and" | "or",
+  feature?: "profileLevelAccess" | "fileTrash" | "advancedAnalytics",
+): string {
   const names = PERSONAL_PLANS.filter((p) =>
     feature ? PLAN_LIMITS[p][feature] : p !== "free",
   ).map((p) => PLAN_NAMES[p]);
@@ -197,6 +200,19 @@ export function fileTrashLock(plan: PersonalPlan): AddLock {
   };
 }
 
+/** The analytics page's "Insights & trends" section, on a plan without it. */
+export function advancedAnalyticsLock(plan: PersonalPlan): AddLock {
+  const upgradeTo =
+    PERSONAL_PLANS.find((p) => planAtLeast(p, plan) && PLAN_LIMITS[p].advancedAnalytics) ?? null;
+  const on = paidPlans("and", "advancedAnalytics");
+  return {
+    title: `Insights and trends are on ${on}`,
+    reason: `See your month-end projection, 12-month cash flow, category trends, recurring payments and unusual spends on ${on}.`,
+    cta: cta(upgradeTo),
+    info: { limit: "advancedAnalytics", plan, upgradeTo },
+  };
+}
+
 /** "Free includes 2 spaces — upgrade to Plus for 6." */
 function capLock(
   plan: PersonalPlan,
@@ -214,6 +230,24 @@ function capLock(
     ? `${current} — upgrade to ${PLAN_NAMES[upgradeTo]} for ${PLAN_LIMITS[upgradeTo][key].toLocaleString("en-US")}.`
     : `${current} — contact us if you need more.`;
   return { title, reason, cta: cta(upgradeTo), info: { limit, plan, max, used, upgradeTo } };
+}
+
+/**
+ * The workspace's monthly AI actions are spent: "Free includes 50 AI actions a
+ * month — upgrade to Plus for 300." Shown on the AI composers (the tracker's AI
+ * mode, Ask) once their "actions left" line reaches 0, before a send fails.
+ */
+export function aiActionsLock(plan: PersonalPlan, max: number, used: number = max): AddLock {
+  return capLock(
+    plan,
+    "No AI actions left this month",
+    "aiActionsPerMonth",
+    "aiActions",
+    max,
+    used,
+    ["AI action", "AI actions"],
+    (n) => `includes ${quantity(n, "AI action")} a month`,
+  );
 }
 
 const METER_KEY: Record<MeterKind, NumericPlanLimit> = {

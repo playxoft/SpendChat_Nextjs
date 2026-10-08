@@ -33,6 +33,8 @@ export function ToolPage({
   category,
   tool,
   cta,
+  ctaHref,
+  saves = false,
   children,
 }: {
   /** Must match an entry in `src/lib/tools.ts`. */
@@ -43,6 +45,13 @@ export function ToolPage({
    * inside the result panel, where it competed with the answer.
    */
   cta: string;
+  /** Where that line signs people up to, when the tool's work carries into the app. */
+  ctaHref?: string;
+  /**
+   * The tool can send what you typed to SpendChat when you ask it to (save to
+   * an account) — the privacy line then says "until you choose to save it".
+   */
+  saves?: boolean;
   /** One or two sentences under the h1 — what it does, in plain words. */
   intro: ReactNode;
   /** Rendered visibly *and* as `FAQPage` markup, from this one array. */
@@ -97,11 +106,12 @@ export function ToolPage({
         {tool}
       </div>
 
-      <ToolCta slug={slug} message={cta} className="mt-4" />
+      <ToolCta slug={slug} message={cta} href={ctaHref} className="mt-4" />
 
       <p className="mt-4 text-xs text-muted-foreground">
-        Runs in your browser — what you type isn&apos;t sent to our servers or kept
-        in analytics. Results are estimates for planning, not financial advice.
+        Runs in your browser — what you type isn&apos;t sent to our servers
+        {saves ? " until you choose to save it" : ""}, and never goes into analytics.
+        Results are estimates for planning, not financial advice.
       </p>
 
       <div className="mx-auto mt-16 max-w-3xl space-y-12">{children}</div>

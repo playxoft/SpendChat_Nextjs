@@ -12,12 +12,15 @@ import {
   Mic,
   Moon,
   Paperclip,
+  PiggyBank,
   Printer,
   Search,
   Smartphone,
   Sparkles,
+  Split,
   Table2,
   Tags,
+  Trash2,
   Users,
   Wallet,
 } from "lucide-react";
@@ -29,6 +32,7 @@ import {
   AnalyticsMock,
   BentoShowcase,
   BentoStack,
+  BudgetsMock,
   BulkMock,
   CategoriesMock,
   ExportMock,
@@ -41,6 +45,8 @@ import {
   MembersMock,
   PrivacyMock,
   ProfilesMock,
+  SplitMock,
+  TrashMock,
   VoiceMock,
   type BentoItem,
 } from "@/components/marketing/bento";
@@ -51,8 +57,15 @@ import {
   publishedFeatures,
 } from "@/lib/features";
 import { bento } from "@/lib/grid-fill";
-import { PLAN_LIMITS, PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
-import { formatPlanStorage } from "@/lib/plan-limit";
+import {
+  PLAN_LIMITS,
+  PLAN_NAMES,
+  SPLIT_GROUP_MAX_PEOPLE,
+  TRASH_DAYS,
+  lowestPlanWith,
+} from "@/lib/plans";
+import { budgetsAllowance, formatPlanStorage } from "@/lib/plan-limit";
+import { plansWith } from "@/lib/plan-copy";
 import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 import { marketingCta } from "@/lib/marketing";
@@ -61,7 +74,7 @@ import { cn } from "@/lib/utils";
 export const metadata = createMetadata({
   title: "Features",
   description:
-    "Chat, AI and voice entry, bulk import, receipts, analytics, profiles and shared workspaces — everything SpendChat does, and why each part exists.",
+    "Chat, AI and voice entry, budgets with alerts, receipts, analytics, shared workspaces and bill splitting — everything SpendChat does, and why.",
   path: "/features",
 });
 
@@ -80,12 +93,15 @@ const FEATURE_PANELS: Record<string, React.ReactNode> = {
   "bulk-add": <BulkMock />,
   transactions: <FilterMock />,
   analytics: <AnalyticsMock />,
+  budgets: <BudgetsMock />,
   "receipts-and-files": <FilesMock />,
   "export-and-print": <ExportMock />,
   "multiple-profiles": <ProfilesMock />,
   workspaces: <MembersMock />,
+  split: <SplitMock />,
   categories: <CategoriesMock />,
   "keyboard-shortcuts": <KeysMock />,
+  trash: <TrashMock />,
   "privacy-and-security": <PrivacyMock />,
 };
 
@@ -107,6 +123,8 @@ const FEATURE_EXTRAS: Record<string, string> = {
     "No dashboard to build and nothing to configure: open it and the answer is there, usually with something mildly embarrassing at the top.",
   "keyboard-shortcuts":
     "Everything the mouse can do, without reaching for it. Logging a coffee shouldn't cost more attention than drinking it.",
+  split:
+    "Free on every plan, and it lives outside your workspace — the people on a trip see the trip, never your books.",
 };
 
 /** Design B: why it works this way — the claims that decide the choice. */
@@ -198,6 +216,11 @@ const groups = [
         body: `Attach a receipt, bill or invoice to any transaction, and keep everything else in a Drive-style vault with folders, colour tags, drag-and-drop and share links. ${formatPlanStorage(PLAN_LIMITS.free.storageBytes)} per workspace on Free, more on Plus and Pro.`,
       },
       {
+        icon: PiggyBank,
+        title: "Budgets that speak up",
+        body: `Set a monthly budget for the whole workspace, one profile or one category. The bar turns amber at 80% and red at 100%, and admins and whoever set it get an email at each — so you hear about it in week three, not on the statement. ${PLAN_NAMES.free} includes ${budgetsAllowance("free")}; ${PLAN_NAMES.plus} and ${PLAN_NAMES.pro} include more.`,
+      },
+      {
         icon: Search,
         title: "A clear, running picture",
         body: "Your balance updates live as you add transactions, grouped by day and month so the story of your year reads top to bottom. The important numbers are always in view.",
@@ -219,6 +242,11 @@ const groups = [
         body: "Invite your partner, family or accountant into a workspace and pick what each of them can do — view, edit, or administer. Categories and currency are shared, so everyone's numbers line up.",
       },
       {
+        icon: Split,
+        title: "Split with anyone",
+        body: `A trip, a flat or a dinner: up to ${SPLIT_GROUP_MAX_PEOPLE} people, splits that are equal, exact or by percent, and a short list of who pays whom to settle everyone up. Free on every plan, and kept apart from your own books.`,
+      },
+      {
         icon: Tags,
         title: "Your categories",
         body: "Start from a sensible default set, then rename them, change their icons, or add your own. Categories belong to the workspace, so a shared household is always reporting on the same buckets.",
@@ -238,6 +266,11 @@ const groups = [
         icon: Download,
         title: "CSV download",
         body: "Export the current, filtered view to a clean CSV in one click. Perfect for backups, spreadsheets, or sharing with an accountant. The same on every plan, and no watermark.",
+      },
+      {
+        icon: Trash2,
+        title: `Undo, and a ${TRASH_DAYS}-day trash`,
+        body: `Every delete that lands in the trash comes with an Undo, and stays restorable for ${TRASH_DAYS} days — transactions on every plan, files and folders on ${plansWith("fileTrash")}.`,
       },
       {
         icon: Printer,

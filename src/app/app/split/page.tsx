@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
+import { todayISO } from "@/lib/dates";
+import { getTimeZone } from "@/lib/timezone.server";
 import { listGroups, listInvitations } from "@/services/split";
 import { SplitHome } from "@/components/app/split/split-home";
 
@@ -15,10 +17,11 @@ export const metadata: Metadata = { title: "Split" };
  */
 export default async function SplitPage() {
   const user = await requireUser();
-  const [workspace, groups, invitations] = await Promise.all([
+  const [workspace, groups, invitations, timeZone] = await Promise.all([
     getCurrentWorkspace(user.id),
     listGroups(user.id),
     listInvitations(user),
+    getTimeZone(),
   ]);
   return (
     <SplitHome
@@ -27,6 +30,8 @@ export default async function SplitPage() {
       invitationTotal={invitations.total}
       defaultCurrency={workspace.currency}
       locale={workspace.locale}
+      today={todayISO(timeZone)}
+      timeZone={timeZone}
     />
   );
 }

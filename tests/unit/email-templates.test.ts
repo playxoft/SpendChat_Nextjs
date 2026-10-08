@@ -402,7 +402,7 @@ describe("budgetAlertEmail", () => {
 
   it("links absolutely to the budgets page in that workspace", () => {
     const mail = budgetAlertEmail(base);
-    expect(mail.html).toContain(`href="${href.replace("&", "&amp;")}"`);
+    expect(mail.html).toContain(`href="${href.replaceAll("&", "&amp;")}"`);
     expect(mail.text).toContain(`Open budgets: ${href}`);
   });
 

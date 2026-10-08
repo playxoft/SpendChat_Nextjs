@@ -38,9 +38,21 @@ import {
 import { SPLIT_EXPENSE_TITLE_MAX, type SplitExpenseInput } from "@/lib/validation";
 import type { SplitExpenseView } from "@/services/split-ledger";
 
-type SplitType = "equal" | "exact" | "percent";
+export type SplitType = "equal" | "exact" | "percent";
 
 export type ExpenseMember = { id: string; name: string };
+
+/** What the chat composer had typed, carried into the full editor. */
+export type ExpenseDraft = {
+  title: string;
+  /** As typed, in the viewer's number format. */
+  amount: string;
+  paidBy: string;
+  splitType: SplitType;
+  /** Who's in it. */
+  memberIds: string[];
+  date: string;
+};
 
 /** Major units from a typed string in the viewer's number format, or null. */
 function parse(value: string, locale: string): number | null {
@@ -65,6 +77,8 @@ export function ExpenseDialog({
   members,
   meMemberId,
   expense,
+  draft,
+  onSaved,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -77,6 +91,10 @@ export function ExpenseDialog({
   meMemberId: string;
   /** Present when editing. */
   expense?: SplitExpenseView | null;
+  /** A new expense started in the composer: its fields so far. */
+  draft?: ExpenseDraft | null;
+  /** After a successful save (the composer clears itself). */
+  onSaved?: () => void;
 }) {
   const router = useRouter();
   const [pending, setPending] = React.useState(false);
@@ -114,6 +132,16 @@ export function ExpenseDialog({
             ]),
           ),
         );
+      } else if (draft) {
+        setTitle(draft.title);
+        setAmount(draft.amount);
+        setDate(draft.date);
+        setPaidBy(draft.paidBy);
+        setType(draft.splitType);
+        setTicked(new Set(draft.memberIds));
+        // Exact and percent start from the people the composer had ticked.
+        setExact(Object.fromEntries(draft.memberIds.map((id) => [id, ""])));
+        setPercent(Object.fromEntries(draft.memberIds.map((id) => [id, ""])));
       } else {
         setTitle("");
         setAmount("");
@@ -202,6 +230,7 @@ export function ExpenseDialog({
         return;
       }
       toast.success(expense ? "Expense updated" : "Expense added");
+      onSaved?.();
       onOpenChange(false);
       router.refresh();
     })();

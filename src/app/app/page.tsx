@@ -36,6 +36,7 @@ import { ViewerNotice } from "@/components/app/viewer-notice";
 import { OnboardingCards } from "@/components/app/onboarding-cards";
 import { ProfileSwitcher } from "@/components/app/profile-switcher";
 import { ProfileSwipe } from "@/components/app/profile-swipe";
+import { aiActionsLeftFor } from "@/services/ai-chat";
 
 export const dynamic = "force-dynamic";
 
@@ -162,6 +163,11 @@ export default async function ChatPage({
   // in every workspace, so a switch kept the feed mounted — merging the old
   // workspace's history into the new one's, along with any selection over it.
   const streamKey = `${workspace.id}:${filterProfileId ?? "all"}`;
+  // AI mode's "38 of 50 AI actions left this month": started here and never
+  // awaited, so the count streams in beside the composer instead of holding up
+  // the tracker's first paint. One indexed sum, and only for people who can
+  // use AI mode at all; a failure just shows no count.
+  const aiAllowance = canWrite ? aiActionsLeftFor(workspace.id) : null;
 
   return (
     <PendingMessagesProvider>
@@ -252,6 +258,7 @@ export default async function ChatPage({
             density={uiPrefs.composer.density}
             isMobileHint={await isMobileUA()}
             voiceLanguages={normalizeVoiceLanguages(settings.voiceLanguages)}
+            aiAllowance={aiAllowance}
           />
         ) : (
           <ViewerNotice variant="bar" />

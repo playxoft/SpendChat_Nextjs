@@ -9,8 +9,24 @@
  *
  * Deliberately dependency-free: no React, no `lucide-react`. `sitemap.ts` is a
  * Worker route and only needs the slugs, so icons are named here as strings and
- * resolved to components in `src/components/marketing/feature-icon.tsx`.
+ * resolved to components in `src/components/marketing/feature-icon.tsx`. The
+ * one import is the plan catalogue — pure data — so copy that quotes a number
+ * (the trash window, the people in a split group) can't drift from what the app
+ * enforces.
  */
+
+import {
+  PERSONAL_PLANS,
+  PLAN_LIMITS,
+  PLAN_NAMES,
+  SPLIT_GROUP_MAX_PEOPLE,
+  TRASH_DAYS,
+} from "@/lib/plans";
+
+/** "Plus and Pro" — the plans whose trash also keeps files and folders. */
+const FILE_TRASH_PLANS = PERSONAL_PLANS.filter((p) => PLAN_LIMITS[p].fileTrash)
+  .map((p) => PLAN_NAMES[p])
+  .join(" and ");
 
 /** Where a feature sits in the three-column Features menu and on the hub. */
 export type FeatureGroup = "capture" | "understand" | "organise";
@@ -127,7 +143,7 @@ export const FEATURES: Feature[] = [
     blurb: "A table view with filters, note search and custom columns.",
     icon: "Table2",
     group: "understand",
-    related: ["analytics", "export-and-print", "chat-expense-tracker", "categories"],
+    related: ["analytics", "export-and-print", "trash", "categories"],
     published: true,
   },
   {
@@ -140,7 +156,20 @@ export const FEATURES: Feature[] = [
     blurb: "Category breakdown and monthly trends for any date range.",
     icon: "ChartColumn",
     group: "understand",
-    related: ["transactions", "multiple-profiles", "export-and-print", "categories"],
+    related: ["transactions", "budgets", "multiple-profiles", "categories"],
+    published: true,
+  },
+  {
+    slug: "budgets",
+    label: "Budgets",
+    title: "Monthly Budgets With Spending Alerts",
+    h1: "Hear about it at 80%, not after payday",
+    description:
+      "Set a monthly budget for the whole workspace, one profile or one category. SpendChat warns you at 80% and 100% — in the app and by email.",
+    blurb: "Monthly limits that warn you at 80% and again at 100%.",
+    icon: "PiggyBank",
+    group: "understand",
+    related: ["analytics", "categories", "workspaces", "multiple-profiles"],
     published: true,
   },
   {
@@ -153,7 +182,7 @@ export const FEATURES: Feature[] = [
     blurb: "Attach receipts to transactions; keep the rest in a tagged vault.",
     icon: "Paperclip",
     group: "understand",
-    related: ["transactions", "workspaces", "export-and-print", "privacy-and-security"],
+    related: ["transactions", "workspaces", "trash", "privacy-and-security"],
     published: true,
   },
   {
@@ -194,7 +223,19 @@ export const FEATURES: Feature[] = [
     blurb: "Group profiles into spaces and choose who sees each one.",
     icon: "Building2",
     group: "organise",
-    related: ["multiple-profiles", "categories", "privacy-and-security", "receipts-and-files"],
+    related: ["multiple-profiles", "split", "categories", "privacy-and-security"],
+    published: true,
+  },
+  {
+    slug: "split",
+    label: "Split",
+    title: "Split Expenses With Friends, Free",
+    h1: "Split it once. Nobody chases anybody.",
+    description: `Share a trip, a flat or a dinner with up to ${SPLIT_GROUP_MAX_PEOPLE} people. Split equally, exactly or by percent, and see who owes whom — free on every plan.`,
+    blurb: "Groups for trips and flats: who paid, who owes, and how to settle up.",
+    icon: "Split",
+    group: "organise",
+    related: ["workspaces", "budgets", "chat-expense-tracker", "privacy-and-security"],
     published: true,
   },
   {
@@ -221,6 +262,18 @@ export const FEATURES: Feature[] = [
     icon: "Keyboard",
     group: "organise",
     related: ["chat-expense-tracker", "multiple-profiles", "bulk-add", "transactions"],
+    published: true,
+  },
+  {
+    slug: "trash",
+    label: "Trash & undo",
+    title: `Undo Any Delete — ${TRASH_DAYS}-Day Trash`,
+    h1: "Delete freely. Change your mind for a month.",
+    description: `Deleted the wrong expense? Press Undo, or restore it from the trash for ${TRASH_DAYS} days. On ${FILE_TRASH_PLANS}, files and folders wait there too.`,
+    blurb: `Undo on every delete, and ${TRASH_DAYS} days to restore from the trash.`,
+    icon: "Trash2",
+    group: "organise",
+    related: ["transactions", "receipts-and-files", "workspaces", "export-and-print"],
     published: true,
   },
   {

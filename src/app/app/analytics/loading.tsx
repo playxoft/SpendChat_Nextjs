@@ -1,24 +1,28 @@
-import { Skeleton } from "@/components/ui/skeleton";
-import { AnalyticsResultsSkeleton } from "@/components/app/analytics-skeleton";
+import { AnalyticsFiltersSkeleton } from "@/components/app/analytics-filters";
+import { AnalyticsResultsSkeleton, InsightsSkeleton } from "@/components/app/analytics-skeleton";
+import { ANALYTICS_SHELL, SkeletonLine } from "@/components/app/analytics/widget";
+import { PrintButton } from "@/components/app/print-button";
 
+/**
+ * The analytics page before its data: the same shell, heading and grid as the
+ * page (`ANALYTICS_SHELL`, `WidgetCard`), so nothing changes width when the
+ * widgets arrive.
+ */
 export default function Loading() {
   return (
-    <div className="mx-auto max-w-4xl space-y-6 px-4 py-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="space-y-1.5">
-          <Skeleton className="h-6 w-32" />
-          <Skeleton className="h-4 w-48" />
+    <div className={ANALYTICS_SHELL}>
+      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
+        <div>
+          <h1 className="text-xl font-semibold">Analytics</h1>
+          <SkeletonLine className="w-48" />
         </div>
-        <Skeleton className="h-9 w-20 rounded-md" />
+        <PrintButton />
       </div>
 
-      <div className="flex flex-wrap gap-2">
-        <Skeleton className="h-9 w-72 rounded-md" />
-        <Skeleton className="h-9 w-[9.5rem] rounded-md" />
-        <Skeleton className="h-9 w-[9.5rem] rounded-md" />
-      </div>
+      <AnalyticsFiltersSkeleton />
 
       <AnalyticsResultsSkeleton />
+      <InsightsSkeleton />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BUDGET_SCOPES, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
+import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX } from "./split-import";
 import {
   CURRENCIES,
   PAID_PERSONAL_PLANS,
@@ -1123,10 +1124,8 @@ export const SPLIT_ICON_MAX = 16;
 export const SPLIT_EXPENSE_TITLE_MAX = TRANSACTION_TITLE_MAX;
 /** People one request may add: everyone but the creator. */
 export const SPLIT_ADD_PEOPLE_MAX = SPLIT_GROUP_MAX_PEOPLE - 1;
-/** Expenses per page in a group (the web's "Show more"). */
-export const SPLIT_EXPENSES_PAGE = 50;
-/** Payments per page in a group (the web's "Show more"). */
-export const SPLIT_PAYMENTS_PAGE = 20;
+/** Expenses and payments per page of a group's chat (the web's "Show earlier"). */
+export const SPLIT_FEED_PAGE = 50;
 
 const splitGroupNameSchema = z
   .string()
@@ -1284,6 +1283,62 @@ export const updateSplitWorkspaceEntrySchema = z.object({
 });
 export type UpdateSplitWorkspaceEntryInput = z.input<typeof updateSplitWorkspaceEntrySchema>;
 
+/**
+ * A group brought in from the free split calculator (`lib/split-import.ts`).
+ * People are named by the draft's short keys; this checks the shape and the
+ * people, and each expense is then checked again by `splitExpenseSchema` once
+ * its keys are member ids — so an imported expense meets exactly the rules of
+ * one typed into the app.
+ */
+const splitDraftRefSchema = z
+  .string()
+  .regex(SPLIT_DRAFT_REF_PATTERN, "That draft doesn't look right — open the calculator and try again");
+const splitImportExpenseBase = {
+  title: z.string(),
+  amount: z.number(),
+  paidBy: splitDraftRefSchema,
+  occurredOn: z.string(),
+};
+const splitImportExpenseSchema = z.discriminatedUnion("splitType", [
+  z.object({
+    ...splitImportExpenseBase,
+    splitType: z.literal("equal"),
+    memberIds: z.array(splitDraftRefSchema).max(splitParticipantsMax),
+  }),
+  z.object({
+    ...splitImportExpenseBase,
+    splitType: z.literal("exact"),
+    shares: z.array(z.object({ memberId: splitDraftRefSchema, amount: z.number() })).max(splitParticipantsMax),
+  }),
+  z.object({
+    ...splitImportExpenseBase,
+    splitType: z.literal("percent"),
+    shares: z.array(z.object({ memberId: splitDraftRefSchema, percent: z.number() })).max(splitParticipantsMax),
+  }),
+]);
+
+export const splitImportSchema = z
+  .object({
+    name: splitGroupNameSchema,
+    icon: splitIconSchema.nullish(),
+    currency: splitCurrencySchema,
+    me: z.object({ ref: splitDraftRefSchema, name: splitPersonSchema.shape.name }),
+    people: z
+      .array(splitPersonSchema.extend({ ref: splitDraftRefSchema }))
+      .max(SPLIT_ADD_PEOPLE_MAX, `A group holds up to ${SPLIT_GROUP_MAX_PEOPLE} people`)
+      .refine(
+        (people) => new Set(people.map((p) => p.email)).size === people.length,
+        "That email is in the list twice",
+      ),
+    expenses: z
+      .array(splitImportExpenseSchema)
+      .max(SPLIT_IMPORT_EXPENSES_MAX, `A group can bring in up to ${SPLIT_IMPORT_EXPENSES_MAX} expenses at once`),
+  })
+  .refine(
+    (v) => new Set([v.me.ref, ...v.people.map((p) => p.ref)]).size === v.people.length + 1,
+    "Two people in the draft share a key — open the calculator and try again",
+  );
+
 // ── Budgets ────────────────────────────────────────────────────────────────
 
 export const budgetScopeSchema = z.enum(BUDGET_SCOPES);
@@ -1329,3 +1384,68 @@ export const updateBudgetSchema = z
   })
   .refine((v) => v.amount !== undefined || v.emailAlerts !== undefined, "Nothing to update");
 export type UpdateBudgetInput = z.input<typeof updateBudgetSchema>;
+
+// ── Ask (AI chat over your transactions) ───────────────────────────────────
+
+/**
+ * Longest chat title. Also the `ai_chats.title` column width, so the database
+ * rejects exactly what the app does. A new chat is titled from its first
+ * question, cut to `AI_CHAT_AUTO_TITLE_MAX` (`chatTitleFrom`); a rename may use
+ * the full width.
+ */
+export const AI_CHAT_TITLE_MAX = 80;
+
+/**
+ * Longest question one message may ask, in characters. A question is a
+ * sentence or two; the cap keeps a paste from turning one AI action into a
+ * prompt the size of a document. The composer enforces it too.
+ */
+export const AI_CHAT_QUESTION_MAX = 1000;
+
+const aiChatIdSchema = z.string().uuid("That chat doesn't exist");
+
+/**
+ * Control characters that may not reach an Ask message: all of C0 except tab
+ * and newline, and DEL. NUL is the one that bites — Postgres `text` refuses it,
+ * so a question carrying one used to get all the way through a paid model call
+ * and then fail at the insert — but none of the others belong in a question,
+ * an answer or a title either.
+ */
+const ASK_CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F]/g;
+
+/** Text with the control characters Ask stores no copy of taken out (tab and newline kept). */
+export function stripControlChars(text: string): string {
+  return text.replace(ASK_CONTROL_CHARS, "");
+}
+
+/** One question to Ask, in a chat or (no `chatId`) starting a new one. */
+export const askAiSchema = z.object({
+  chatId: aiChatIdSchema.optional(),
+  question: z
+    .string()
+    .transform(stripControlChars)
+    .pipe(
+      z
+        .string()
+        .trim()
+        .min(1, "Type a question first")
+        .max(AI_CHAT_QUESTION_MAX, `Keep it under ${AI_CHAT_QUESTION_MAX} characters`),
+    ),
+});
+export type AskAiInput = z.input<typeof askAiSchema>;
+
+export const renameAiChatSchema = z.object({
+  chatId: aiChatIdSchema,
+  // A title is one line: tabs and newlines go too, as spaces.
+  title: z
+    .string()
+    .transform((t) => stripControlChars(t).replace(/[\t\n]+/g, " "))
+    .pipe(
+      z
+        .string()
+        .trim()
+        .min(1, "Give the chat a name")
+        .max(AI_CHAT_TITLE_MAX, `Keep it under ${AI_CHAT_TITLE_MAX} characters`),
+    ),
+});
+export type RenameAiChatInput = z.input<typeof renameAiChatSchema>;

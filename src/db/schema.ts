@@ -23,6 +23,7 @@ import {
 // Relative (not "@/…") so drizzle-kit's schema loader resolves it without the
 // tsconfig path alias. Keeps the DB column length in lockstep with the Zod cap.
 import {
+  AI_CHAT_TITLE_MAX,
   ATTACHMENT_FILENAME_MAX,
   ATTACHMENT_KINDS,
   ATTACHMENT_LABEL_MAX,
@@ -443,6 +444,68 @@ export const aiUsageLog = pgTable(
     // A free owner's actions across all their free workspaces, deleted ones too.
     index("ai_usage_log_owner_created_idx").on(t.ownerId, t.createdAt),
   ],
+);
+
+/** Who wrote a message in an Ask chat. */
+export const aiChatRoleEnum = pgEnum("ai_chat_role", ["user", "assistant"]);
+
+/**
+ * An Ask conversation: questions about the workspace's transactions, answered
+ * by a model from a summary of them (`lib/ai-chat.ts`). **Private to the person
+ * who started it** — every read and write is scoped by `user_id` *and*
+ * `workspace_id`, so a chat never shows in another workspace, and no other
+ * member (admins included) can open it.
+ *
+ * The workspace foreign key cascades: a deleted workspace takes its chats with
+ * it. `user_id` has none, by house convention; account deletion removes the
+ * rows explicitly (`services/settings.ts`). Titled from the first question, no
+ * model call (`chatTitleFrom`). `updated_at` moves with every answer, so the
+ * list reads newest-first off the index below.
+ */
+export const aiChats = pgTable(
+  "ai_chats",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    userId: uuid("user_id").notNull(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: AI_CHAT_TITLE_MAX }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // "My chats here, newest first": an ascending index read backwards, which
+    // is exactly `order by updated_at desc` — no `.desc()`, whose NULLS LAST
+    // the planner won't match to a plain DESC sort.
+    index("ai_chats_user_workspace_updated_idx").on(t.userId, t.workspaceId, t.updatedAt),
+    // The workspace FK cascade.
+    index("ai_chats_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/**
+ * One message in an Ask chat. A question and its answer are written together,
+ * after the answer arrives — a failed call stores nothing — with `created_at`
+ * set by the app (asked, then answered), so the pair always sorts in order.
+ * `units` is what the answer cost in AI actions (assistant rows only); the
+ * charge itself lives in `ai_usage_log`, like every AI call's.
+ */
+export const aiChatMessages = pgTable(
+  "ai_chat_messages",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    chatId: uuid("chat_id")
+      .notNull()
+      .references(() => aiChats.id, { onDelete: "cascade" }),
+    role: aiChatRoleEnum("role").notNull(),
+    content: text("content").notNull(),
+    units: integer("units"),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("ai_chat_messages_chat_created_idx").on(t.chatId, t.createdAt)],
 );
 
 /**
@@ -1484,3 +1547,6 @@ export type SplitType = (typeof splitTypeEnum.enumValues)[number];
 export type Budget = typeof budgets.$inferSelect;
 export type NewBudget = typeof budgets.$inferInsert;
 export type BudgetAlert = typeof budgetAlerts.$inferSelect;
+export type AiChat = typeof aiChats.$inferSelect;
+export type AiChatMessage = typeof aiChatMessages.$inferSelect;
+export type AiChatRole = (typeof aiChatRoleEnum.enumValues)[number];

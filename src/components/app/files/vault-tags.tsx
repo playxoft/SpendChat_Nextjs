@@ -229,7 +229,7 @@ export function TagPicker({
             <ChevronDown className="ml-auto size-4 text-muted-foreground" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-64">
+        <DropdownMenuContent align="start" className="min-w-64">
           {all.length === 0 ? (
             <p className="px-2 py-2 text-sm text-muted-foreground">
               No tags yet — create the first one.

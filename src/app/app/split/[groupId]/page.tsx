@@ -4,19 +4,20 @@ import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { todayISO } from "@/lib/dates";
 import { ApiError } from "@/lib/errors";
 import { getTimeZone } from "@/lib/timezone.server";
-import { SPLIT_EXPENSES_PAGE, SPLIT_PAYMENTS_PAGE } from "@/lib/validation";
+import { SPLIT_FEED_PAGE } from "@/lib/validation";
 import { getCategories } from "@/lib/queries";
 import { getGroupDetail } from "@/services/split";
-import { listExpenses, listSettlements, writableProfiles } from "@/services/split-ledger";
-import { SplitGroupView } from "@/components/app/split/split-group-view";
+import { listGroupFeed, writableProfiles } from "@/services/split-ledger";
+import { SplitChat } from "@/components/app/split/split-chat";
 
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = { title: "Split group" };
 
 /**
- * One split group. Anyone who isn't a joined member gets the app's 404 — the
- * service refuses them the same way, so the page can't leak that it exists.
+ * One split group, as a chat. Anyone who isn't a joined member gets the app's
+ * 404 — the service refuses them the same way, so the page can't leak that it
+ * exists.
  */
 export default async function SplitGroupPage({
   params,
@@ -28,13 +29,12 @@ export default async function SplitGroupPage({
   const [workspace, timeZone] = await Promise.all([getCurrentWorkspace(user.id), getTimeZone()]);
   const data = await Promise.all([
     getGroupDetail(user.id, groupId),
-    listExpenses(user.id, groupId, { limit: SPLIT_EXPENSES_PAGE, offset: 0 }),
-    listSettlements(user.id, groupId, { limit: SPLIT_PAYMENTS_PAGE, offset: 0 }),
+    listGroupFeed(user.id, groupId, { limit: SPLIT_FEED_PAGE }),
   ]).catch((err: unknown) => {
     if (err instanceof ApiError && err.status === 404) notFound();
     throw err;
   });
-  const [detail, expenses, payments] = data;
+  const [detail, feed] = data;
   // Where "Add to my workspace" writes: the current workspace's writable
   // profiles and expense categories.
   const [profiles, categories] = await Promise.all([
@@ -42,14 +42,13 @@ export default async function SplitGroupPage({
     getCategories(workspace.id),
   ]);
   return (
-    <SplitGroupView
+    <SplitChat
       detail={detail}
-      expenses={expenses.items}
-      expenseTotal={expenses.total}
-      payments={payments.items}
-      paymentTotal={payments.total}
+      feed={feed.items}
+      feedTotal={feed.total}
       userId={user.id}
       locale={workspace.locale}
+      timeZone={timeZone}
       today={todayISO(timeZone)}
       workspace={{
         name: workspace.name,

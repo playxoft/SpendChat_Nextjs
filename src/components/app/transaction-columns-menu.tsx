@@ -33,7 +33,7 @@ export function TransactionColumnsMenu() {
           <span className="hidden sm:inline">Columns</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-48">
+      <DropdownMenuContent align="end" className="min-w-48">
         <DropdownMenuLabel>Toggle columns</DropdownMenuLabel>
         <DropdownMenuSeparator />
         {COLUMN_IDS.map((id) => {

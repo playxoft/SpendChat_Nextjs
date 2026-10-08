@@ -80,7 +80,7 @@ export function ProfileSwitcher({
             </div>
           </button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-56">
+        <DropdownMenuContent align="start" className="min-w-56">
           <DropdownMenuLabel className="text-xs text-muted-foreground">
             Switch profile
           </DropdownMenuLabel>

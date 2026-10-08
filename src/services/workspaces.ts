@@ -2,6 +2,7 @@ import "server-only";
 import { and, asc, eq, inArray, isNotNull, notInArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  aiChats,
   profileAccess,
   profileOverrides,
   profiles,
@@ -452,6 +453,24 @@ async function resolveGrantSpaces(
  * workspace — what leaving the workspace (or dropping to per-profile grants)
  * must take with it, so a stale row can never grant access later.
  */
+/**
+ * A person's Ask chats in a workspace they're leaving or being removed from go
+ * with them (messages cascade): each answer was built from this workspace's
+ * transactions, and someone who can no longer open it shouldn't keep a copy of
+ * what it said. Their chats in other workspaces are untouched. Every removal
+ * path calls this — `removeCollaborator` (the settings page's Remove and Leave)
+ * and `removeMember`.
+ */
+async function forgetAskChats(
+  db: ReturnType<typeof getDb>,
+  workspaceId: string,
+  targetUserId: string,
+): Promise<void> {
+  await db
+    .delete(aiChats)
+    .where(and(eq(aiChats.workspaceId, workspaceId), eq(aiChats.userId, targetUserId)));
+}
+
 async function clearSpaceAccess(
   db: ReturnType<typeof getDb>,
   workspaceId: string,
@@ -1058,6 +1077,7 @@ export async function removeCollaborator(
       and(eq(workspaceMembers.workspaceId, workspaceId), eq(workspaceMembers.userId, targetUserId)),
     );
   await clearSpaceAccess(db, workspaceId, targetUserId);
+  await forgetAskChats(db, workspaceId, targetUserId);
   await db.delete(profileAccess).where(
     and(
       eq(profileAccess.userId, targetUserId),
@@ -1191,6 +1211,7 @@ export async function removeMember(
     .returning({ userId: workspaceMembers.userId });
   if (removed.length === 0) throw notFound("Member not found");
   await clearSpaceAccess(db, workspaceId, memberId);
+  await forgetAskChats(db, workspaceId, memberId);
 
   // Don't leave them staring at a workspace they can no longer open.
   await db

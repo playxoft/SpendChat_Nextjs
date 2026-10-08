@@ -30,6 +30,7 @@ export const PLAN_LIMIT_KEYS = [
   "voice",
   "profileLevelAccess",
   "freeWorkspaces",
+  "advancedAnalytics",
 ] as const;
 export type PlanLimitKey = (typeof PLAN_LIMIT_KEYS)[number];
 

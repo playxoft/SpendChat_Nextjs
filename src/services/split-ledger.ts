@@ -1,5 +1,5 @@
 import "server-only";
-import { and, asc, count, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   profiles,
@@ -96,7 +96,7 @@ function participantIds(spec: ShareSpec): string[] {
  * participants must be people in the group now — or, when editing, people
  * already on this expense (someone who has since left stays on it).
  */
-function planExpense(
+export function planExpense(
   ctx: JoinedContext,
   members: SplitMember[],
   data: ExpenseData,
@@ -120,7 +120,7 @@ function planExpense(
   }
 }
 
-function percentFor(spec: ShareSpec, memberId: string): number | null {
+export function percentFor(spec: ShareSpec, memberId: string): number | null {
   return spec.type === "percent" ? (spec.shares.find((s) => s.memberId === memberId)?.bp ?? null) : null;
 }
 
@@ -430,6 +430,102 @@ function settlementViews(
     createdAt: s.createdAt,
     canDelete: canDeleteSettlement(ctx.viewer, s),
   }));
+}
+
+/* ------------------------------------------------------------------------- */
+/* The group's chat feed: expenses and payments, interleaved                  */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Where "Show earlier" picks up: the oldest item already loaded, by the feed's
+ * own order (its date, when it was added, its id). A keyset rather than an
+ * offset, so items added or deleted meanwhile don't shift the next page.
+ * `at` round-trips exactly: both tables keep millisecond `created_at`.
+ */
+export const splitFeedCursorSchema = z.object({
+  day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  at: z.iso.datetime(),
+  id: z.string().uuid(),
+});
+export type SplitFeedCursor = z.infer<typeof splitFeedCursorSchema>;
+
+export type SplitFeedItem =
+  | { kind: "expense"; id: string; date: string; at: Date; expense: SplitExpenseView }
+  | { kind: "payment"; id: string; date: string; at: Date; payment: SplitSettlementView };
+
+/**
+ * A page of the group's activity — expenses and recorded payments together, in
+ * the order they happened (by their date, then when they were added). The
+ * newest page, or the one just before `before`; each comes back oldest-first,
+ * ready to render as a chat with the latest at the bottom. Web only: the API
+ * keeps its two lists.
+ */
+export async function listGroupFeed(
+  userId: string,
+  rawGroupId: unknown,
+  page: { limit: number; before?: unknown },
+): Promise<{ items: SplitFeedItem[]; total: number; currency: string }> {
+  const db = getDb();
+  const ctx = await requireJoined(userId, rawGroupId);
+  const groupId = ctx.group.id;
+  const limit = Math.min(Math.max(page.limit, 1), 200);
+  const before =
+    page.before === undefined || page.before === null
+      ? null
+      : parseOrThrow(splitFeedCursorSchema, page.before);
+  const [{ rows: ordered }, [expenseCount], [paymentCount]] = await Promise.all([
+    db.execute<{ id: string; kind: "expense" | "payment" }>(sql`
+      select id, kind from (
+        select ${splitExpenses.id} as id, 'expense' as kind, ${splitExpenses.occurredOn} as day,
+               ${splitExpenses.createdAt} as at
+          from ${splitExpenses} where ${splitExpenses.groupId} = ${groupId}
+        union all
+        select ${splitSettlements.id} as id, 'payment' as kind, ${splitSettlements.settledOn} as day,
+               ${splitSettlements.createdAt} as at
+          from ${splitSettlements} where ${splitSettlements.groupId} = ${groupId}
+      ) feed
+      ${
+        before
+          ? sql`where (day, at, id) < (${before.day}::date, ${before.at}::timestamptz, ${before.id}::uuid)`
+          : sql``
+      }
+      order by day desc, at desc, id desc
+      limit ${limit}`),
+    db.select({ n: count() }).from(splitExpenses).where(eq(splitExpenses.groupId, groupId)),
+    db.select({ n: count() }).from(splitSettlements).where(eq(splitSettlements.groupId, groupId)),
+  ]);
+  const expenseIds = ordered.filter((r) => r.kind === "expense").map((r) => r.id);
+  const paymentIds = ordered.filter((r) => r.kind === "payment").map((r) => r.id);
+  const [expenseRows, paymentRows, members] = await Promise.all([
+    expenseIds.length
+      ? db.select().from(splitExpenses).where(inArray(splitExpenses.id, expenseIds))
+      : Promise.resolve([]),
+    paymentIds.length
+      ? db.select().from(splitSettlements).where(inArray(splitSettlements.id, paymentIds))
+      : Promise.resolve([]),
+    groupMembers(groupId),
+  ]);
+  const expenses = new Map((await expenseViews(ctx, expenseRows, db)).map((e) => [e.id, e]));
+  const payments = new Map(settlementViews(ctx, paymentRows, members).map((p) => [p.id, p]));
+  const items: SplitFeedItem[] = [];
+  for (const r of [...ordered].reverse()) {
+    if (r.kind === "expense") {
+      const expense = expenses.get(r.id);
+      if (expense) {
+        items.push({ kind: "expense", id: r.id, date: expense.occurredOn, at: expense.createdAt, expense });
+      }
+    } else {
+      const payment = payments.get(r.id);
+      if (payment) {
+        items.push({ kind: "payment", id: r.id, date: payment.settledOn, at: payment.createdAt, payment });
+      }
+    }
+  }
+  return {
+    items,
+    total: (expenseCount?.n ?? 0) + (paymentCount?.n ?? 0),
+    currency: ctx.group.currency,
+  };
 }
 
 /** A page of the group's payments, newest first. */

@@ -4,8 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import {
-  SPLIT_EXPENSES_PAGE,
-  SPLIT_PAYMENTS_PAGE,
+  SPLIT_FEED_PAGE,
   type AddSplitMembersInput,
   type CreateSplitGroupInput,
   type SplitExpenseInput,
@@ -19,7 +18,7 @@ import * as ledger from "@/services/split-ledger";
 import * as invites from "@/services/split-invites";
 import type { AddedPerson } from "@/services/split";
 import type { SplitInvitation } from "@/services/split";
-import type { SplitExpenseView, SplitSettlementView } from "@/services/split-ledger";
+import type { SplitFeedCursor, SplitFeedItem } from "@/services/split-ledger";
 
 /**
  * Split server actions — thin wrappers over `services/split*.ts`, which hold
@@ -151,34 +150,18 @@ export async function declineSplitInvitation(memberId: string): Promise<ActionRe
   );
 }
 
-/** Read-only: the next page of a group's expenses, for "Show more". */
-export async function loadSplitExpenses(
+/**
+ * Read-only: the page of a group's chat (expenses and payments) just before
+ * `before` — the oldest item already on screen — for "Show earlier".
+ */
+export async function loadSplitFeed(
   groupId: string,
-  offset: number,
-): Promise<ActionResult<{ items: SplitExpenseView[]; total: number; currency: string }>> {
+  before: SplitFeedCursor,
+): Promise<ActionResult<{ items: SplitFeedItem[]; total: number; currency: string }>> {
   const user = await requireUser();
   return runAction(
-    "loadSplitExpenses",
-    async () => {
-      const safeOffset = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
-      return ledger.listExpenses(user.id, groupId, { limit: SPLIT_EXPENSES_PAGE, offset: safeOffset });
-    },
-    { userId: user.id, groupId, rateLimit: "read" },
-  );
-}
-
-/** Read-only: the next page of a group's payments, for "Show more". */
-export async function loadSplitSettlements(
-  groupId: string,
-  offset: number,
-): Promise<ActionResult<{ items: SplitSettlementView[]; total: number; currency: string }>> {
-  const user = await requireUser();
-  return runAction(
-    "loadSplitSettlements",
-    async () => {
-      const safeOffset = Number.isSafeInteger(offset) && offset > 0 ? offset : 0;
-      return ledger.listSettlements(user.id, groupId, { limit: SPLIT_PAYMENTS_PAGE, offset: safeOffset });
-    },
+    "loadSplitFeed",
+    async () => ledger.listGroupFeed(user.id, groupId, { limit: SPLIT_FEED_PAGE, before }),
     { userId: user.id, groupId, rateLimit: "read" },
   );
 }

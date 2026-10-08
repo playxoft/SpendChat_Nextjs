@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { PLAN_LIMITS, type PersonalPlan } from "@/lib/plans";
 import {
   addLock,
+  advancedAnalyticsLock,
+  aiActionsLock,
   newWorkspaceLock,
   profileAccessLock,
   readOnlyLock,
@@ -216,5 +218,42 @@ describe("addLock", () => {
       .concat(readOnlyLock("free"), addLock({ ...limits, canCreateFreeWorkspace: false }, "workspaces"))
       .flatMap((l) => (l ? [l.title, l.reason] : []));
     for (const t of texts) expect(t).not.toMatch(/grace|grandfather|delet/i);
+  });
+});
+
+describe("advancedAnalyticsLock", () => {
+  it("names the plans that include insights and opens the upgrade dialog for Plus", () => {
+    const lock = advancedAnalyticsLock("free");
+    expect(lock.title).toBe("Insights and trends are on Plus and Pro");
+    expect(lock.cta).toBe("Upgrade");
+    expect(lock.info).toEqual({ limit: "advancedAnalytics", plan: "free", upgradeTo: "plus" });
+    expect(limitPitch(lock.info).pitch).toMatch(/^Plus adds a month-end projection/);
+    expect(PLAN_LIMITS.free.advancedAnalytics).toBe(false);
+    expect(PLAN_LIMITS.plus.advancedAnalytics && PLAN_LIMITS.pro.advancedAnalytics).toBe(true);
+  });
+});
+
+describe("aiActionsLock — the AI composers at zero", () => {
+  it("names this plan's monthly actions and the next plan's, from PLAN_LIMITS", () => {
+    const lock = aiActionsLock("free", PLAN_LIMITS.free.aiActionsPerMonth);
+    expect(lock.title).toBe("No AI actions left this month");
+    expect(lock.reason).toBe(
+      `Free includes ${PLAN_LIMITS.free.aiActionsPerMonth} AI actions a month — upgrade to Plus for ${PLAN_LIMITS.plus.aiActionsPerMonth.toLocaleString("en-US")}.`,
+    );
+    expect(lock.cta).toBe("Upgrade");
+    expect(lock.info).toEqual({
+      limit: "aiActions",
+      plan: "free",
+      max: PLAN_LIMITS.free.aiActionsPerMonth,
+      used: PLAN_LIMITS.free.aiActionsPerMonth,
+      upgradeTo: "plus",
+    });
+  });
+
+  it("says contact us on the biggest plan", () => {
+    const lock = aiActionsLock("pro", PLAN_LIMITS.pro.aiActionsPerMonth, 1000);
+    expect(lock.cta).toBe("Contact us");
+    expect(lock.info.upgradeTo).toBeNull();
+    expect(lock.reason).toContain("contact us");
   });
 });

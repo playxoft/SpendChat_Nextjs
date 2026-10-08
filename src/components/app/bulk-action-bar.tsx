@@ -236,7 +236,7 @@ export function BulkActionBar({
                     <ChevronDown className="size-3.5 opacity-60" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuContent align="end" className="min-w-56">
                   <DropdownMenuLabel>Move to profile</DropdownMenuLabel>
                   {profiles.map((p) => (
                     <DropdownMenuItem
@@ -260,7 +260,7 @@ export function BulkActionBar({
                   <ChevronDown className="size-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="max-h-80 w-60 overflow-y-auto">
+              <DropdownMenuContent align="end" className="max-h-80 min-w-60 overflow-y-auto">
                 <DropdownMenuItem
                   onSelect={() => apply({ categoryId: null }, (n) => `Cleared the category on ${plural(n, "transaction")}`)}
                 >
@@ -303,7 +303,7 @@ export function BulkActionBar({
                   <ChevronDown className="size-3.5 opacity-60" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-64">
+              <DropdownMenuContent align="end" className="min-w-64">
                 <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
                   Tick to add to all, untick to remove from all
                 </DropdownMenuLabel>
