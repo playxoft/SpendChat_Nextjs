@@ -12,9 +12,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { DateField, NumberField, Segmented, SelectField, TextField } from "@/components/tools/fields";
-import { SplitPeopleList, type SplitPerson } from "@/components/split/split-people-list";
+import { keepOpenWhileTyping, SplitPeopleList, type SplitPerson } from "@/components/split/split-people-list";
 import { formatMoney, minorToInputString, toMinorUnits } from "@/lib/money";
 import { BASIS_POINTS_TOTAL, describeSplitError, percentToInputString, SplitMathError } from "@/lib/split-math";
+import { moneyInput, percentInput } from "@/lib/split-slider-input";
 import { moveSlider, sliderStep, slidersFrom, syncSliders, type SliderState } from "@/lib/split-sliders";
 import { currencySymbol, parseNumber } from "@/lib/tools/format";
 import {
@@ -131,7 +132,7 @@ export function ExpenseDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg" onEscapeKeyDown={keepOpenWhileTyping}>
         <DialogHeader>
           <DialogTitle>{expense ? "Edit expense" : "Add an expense"}</DialogTitle>
           <DialogDescription>Who paid, and who it was for.</DialogDescription>
@@ -284,6 +285,7 @@ function ExpenseForm({
                 state: exact,
                 step: sliderStep(exact.total, 200),
                 format: fmt,
+                input: moneyInput(currency, locale, symbol),
                 onMove: (id, v) => set({ exact: moveSlider(exact, id, v), startedEven: false }),
               }
             : state.type === "percent"
@@ -291,11 +293,17 @@ function ExpenseForm({
                   state: percent,
                   step: sliderStep(BASIS_POINTS_TOTAL),
                   format: percentText,
+                  input: percentInput(locale),
                   onMove: (id, v) => set({ percent: moveSlider(percent, id, v), startedEven: false }),
                 }
               : null
         }
-        sliderAside={state.type === "percent" ? (id) => percentText(percent.values[id] ?? 0) : undefined}
+        // A percent row says what its percent comes to; an amount row's box already says it.
+        sliderAside={
+          state.type === "percent"
+            ? (id) => (preview.shares?.has(id) ? fmt(preview.shares.get(id)!) : "—")
+            : undefined
+        }
       />
 
       <div aria-live="polite" className="min-h-5 text-sm">

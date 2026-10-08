@@ -16,12 +16,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { SplitPeopleList, type SplitPerson } from "@/components/split/split-people-list";
+import { keepOpenWhileTyping, SplitPeopleList, type SplitPerson } from "@/components/split/split-people-list";
 import { createSplitExpense, updateSplitExpense } from "@/actions/split";
 import { formatMoney, minorToInputString, toMinorUnits } from "@/lib/money";
 import { parseAmountInput } from "@/lib/parse-amount";
 import { acceptAmountInput } from "@/lib/split-display";
 import { percentToInputString } from "@/lib/split-math";
+import { moneyInput, percentInput } from "@/lib/split-slider-input";
 import { SPLIT_EXPENSE_TITLE_MAX } from "@/lib/validation";
 import type { SplitExpenseView } from "@/services/split-ledger";
 import { MemberAvatar } from "./member-avatar";
@@ -148,6 +149,8 @@ export function ExpenseDialog({
   const type = editor.splitType;
   const shares = editor.preview.shares;
   const percentText = (bp: number) => `${percentToInputString(bp, locale)}%`;
+  const amountBox = moneyInput(currency, locale);
+  const percentBox = percentInput(locale);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -176,7 +179,7 @@ export function ExpenseDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="max-h-[92dvh] overflow-y-auto sm:max-w-lg" onEscapeKeyDown={keepOpenWhileTyping}>
         <DialogHeader>
           <DialogTitle>{expense ? "Edit expense" : "Add expense"}</DialogTitle>
           <DialogDescription>Amounts are in {currency}.</DialogDescription>
@@ -227,7 +230,14 @@ export function ExpenseDialog({
             </div>
           </div>
 
-          <PayerSliders editor={editor} people={people} totalMinor={totalMinor} format={fmt} className="rounded-xl border" />
+          <PayerSliders
+            editor={editor}
+            people={people}
+            totalMinor={totalMinor}
+            format={fmt}
+            input={amountBox}
+            className="rounded-xl border"
+          />
 
           <div className="space-y-2">
             <Tabs value={type} onValueChange={(v) => editor.setSplitType(v as SplitType)}>
@@ -245,12 +255,19 @@ export function ExpenseDialog({
               shareText={(id) => (shares?.has(id) ? fmt(shares.get(id)!) : null)}
               sliders={
                 type === "exact" && totalMinor > 0
-                  ? { state: editor.exact, step: editor.moneyStep, format: fmt, onMove: editor.moveExact }
+                  ? { state: editor.exact, step: editor.moneyStep, format: fmt, input: amountBox, onMove: editor.moveExact }
                   : type === "percent"
-                    ? { state: editor.percent, step: editor.percentStep, format: percentText, onMove: editor.movePercent }
+                    ? {
+                        state: editor.percent,
+                        step: editor.percentStep,
+                        format: percentText,
+                        input: percentBox,
+                        onMove: editor.movePercent,
+                      }
                     : null
               }
-              sliderAside={type === "percent" ? (id) => percentText(editor.percent.values[id] ?? 0) : undefined}
+              // A percent row says what its percent comes to; an amount row's box already says it.
+              sliderAside={type === "percent" ? (id) => (shares?.has(id) ? fmt(shares.get(id)!) : "—") : undefined}
             />
             <p className="min-h-4 text-xs text-muted-foreground" aria-live="polite">
               {editor.preview.error ??
