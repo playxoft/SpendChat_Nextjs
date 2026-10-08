@@ -24,6 +24,8 @@ import type { Category } from "@/db/schema";
 
 export function AppTopbar({
   email,
+  name,
+  image,
   profiles,
   spaces,
   collapsedSpaces,
@@ -36,6 +38,9 @@ export function AppTopbar({
   canWrite,
 }: {
   email: string | null;
+  /** The account's display name and picture, for the account menu. */
+  name: string | null;
+  image: string | null;
   profiles: SidebarProfile[];
   spaces: SidebarSpace[];
   collapsedSpaces: string[];
@@ -52,9 +57,12 @@ export function AppTopbar({
   const profile = useSearchParams().get("profile");
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-background/90 px-4 backdrop-blur-sm md:hidden print:hidden">
+    // On every screen size: the theme button and the account menu live here,
+    // top right. On a phone the bar also carries the logo, the profile sheet
+    // and bulk add, which the desktop sidebar already has.
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-background/90 px-4 backdrop-blur-sm print:hidden">
       <div className="flex items-center gap-1">
-        <Link href={hrefWithProfile("/app", profile)} aria-label="Tracker">
+        <Link href={hrefWithProfile("/app", profile)} aria-label="Tracker" className="md:hidden">
           <Logo />
         </Link>
       </div>
@@ -62,7 +70,7 @@ export function AppTopbar({
         {/* Workspace + profile switcher, to the left of the bulk-add button. */}
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Workspaces and profiles">
+            <Button variant="ghost" size="icon" aria-label="Workspaces and profiles" className="md:hidden">
               <Users className="size-5" />
             </Button>
           </SheetTrigger>
@@ -90,17 +98,19 @@ export function AppTopbar({
         </Sheet>
         {canWrite && (
           <Suspense fallback={null}>
-            <MobileBulkAdd
-              categories={categories}
-              profiles={profiles}
-              currency={currency}
-              locale={locale}
-              today={today}
-            />
+            <div className="md:hidden">
+              <MobileBulkAdd
+                categories={categories}
+                profiles={profiles}
+                currency={currency}
+                locale={locale}
+                today={today}
+              />
+            </div>
           </Suspense>
         )}
         <ThemeToggle />
-        <UserMenu email={email} compact />
+        <UserMenu email={email} name={name} image={image} />
       </div>
     </header>
   );

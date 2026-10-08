@@ -7,7 +7,9 @@ import {
   PERSONAL_PLANS,
   PLAN_LIMITS,
   PLAN_NAMES,
+  SPLIT_GROUP_MAX_PEOPLE,
   TOPUP,
+  TRASH_DAYS,
   VOICE,
   isPaidPlan,
   type PersonalPlan,
@@ -37,8 +39,7 @@ const everywhere = (c: Cell) => () => c;
  * Every row is read from `@/lib/plans` (limits) or `@/lib/pricing` (prices),
  * never typed out — so the table can't drift from what the app enforces. Only
  * what the app does today is listed: entries in `PLAN_LIMITS` for features
- * that haven't shipped (invoices, the file trash) stay off the page until
- * they do.
+ * that haven't shipped (invoices) stay off the page until they do.
  */
 function sections(currency: Currency, selfHost: boolean): { title: string; rows: Row[] }[] {
   const money = (major: number) => formatAmount(major, currency);
@@ -61,6 +62,11 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
           label: "Monthly budgets",
           hint: "For the whole workspace, a profile or a category, with alerts at 80% and 100%.",
           cell: (p) => budgetsLimitLabel(p),
+        },
+        {
+          label: "Trash for transactions",
+          hint: `Deleted entries wait ${TRASH_DAYS} days before they're gone, and every delete has an Undo.`,
+          cell: everywhere(`${TRASH_DAYS} days`),
         },
         { label: "CSV & PDF export", hint: "On every plan, always. Your data is yours.", cell: everywhere(true) },
       ],
@@ -93,6 +99,21 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
           hint: "The files vault and receipts on transactions, for the whole workspace.",
           cell: (p) => formatPlanStorage(PLAN_LIMITS[p].storageBytes),
         },
+        {
+          label: "Receipts on transactions",
+          hint: "Keep the bill, invoice or warranty with the spend it belongs to.",
+          cell: everywhere(true),
+        },
+        {
+          label: "Files vault & share links",
+          hint: "Folders, tags and a link you can send to anyone, for any file.",
+          cell: everywhere(true),
+        },
+        {
+          label: "Trash for files & folders",
+          hint: `Deleted files and folders wait ${TRASH_DAYS} days, and count toward storage until the trash is emptied. Without it, a delete is for good.`,
+          cell: (p) => (PLAN_LIMITS[p].fileTrash ? `${TRASH_DAYS} days` : false),
+        },
       ],
     },
     {
@@ -109,6 +130,36 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
           label: "Access for each profile",
           hint: "No access, Read, or Read + write for each profile in a space. Without it, people share a whole space.",
           cell: (p) => PLAN_LIMITS[p].profileLevelAccess,
+        },
+        {
+          label: "Invite people by email",
+          hint: "They join with a link. Each person sees only the spaces you add them to.",
+          cell: everywhere(true),
+        },
+      ],
+    },
+    {
+      title: "Split with friends",
+      rows: [
+        {
+          label: "Split groups",
+          hint: "Trips, flats, dinners — outside your workspaces, free for everyone you invite.",
+          cell: everywhere("Unlimited"),
+        },
+        {
+          label: "People in a group",
+          hint: "You included. Split equally, by exact amounts or by percent.",
+          cell: everywhere(count(SPLIT_GROUP_MAX_PEOPLE)),
+        },
+        {
+          label: "Balances & settle up",
+          hint: "Who owes whom, and the payments that settle it.",
+          cell: everywhere(true),
+        },
+        {
+          label: "Add your share to your workspace",
+          hint: "Your part of a group expense lands in your own books in one tap.",
+          cell: everywhere(true),
         },
       ],
     },

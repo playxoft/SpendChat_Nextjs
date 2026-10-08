@@ -11,6 +11,7 @@ import {
   PERSONAL_PLANS,
   PLAN_LIMITS,
   PLAN_NAMES,
+  lowestPlanWith,
   TOPUP,
   TRASH_DAYS,
   VOICE,
@@ -129,7 +130,7 @@ export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
       `Write one line about your day and let AI fill in the rows — ${count(L.free.aiActionsPerMonth)} times a month`,
       `Track together with up to ${count(L.free.members)} people, in ${count(L.free.spaces)} spaces`,
       `Keep the receipt with the spend — ${formatPlanStorage(L.free.storageBytes)} of storage`,
-      "Export to CSV or PDF any time. Your data is always yours.",
+      `Export to CSV or PDF any time, and get a deleted entry back for ${TRASH_DAYS} days. Your data is always yours.`,
     ],
   },
   plus: {
@@ -144,7 +145,7 @@ export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
       `Home, kids, a side business and the next trip, each kept apart — ${count(L.plus.spaces)} spaces, ${count(L.plus.profilesPerSpace)} profiles in each`,
       "Choose who sees what — keep one profile private, let someone only read another",
       `Stop typing every entry — ${count(L.plus.aiActionsPerMonth)} AI actions a month, and top-ups if you run out`,
-      `Bills and warranties kept with the spend, not lost in your gallery — ${formatPlanStorage(L.plus.storageBytes)}`,
+      `Bills and warranties kept with the spend, not lost in your gallery — ${formatPlanStorage(L.plus.storageBytes)}, and ${TRASH_DAYS} days to undo a deleted file`,
     ],
   },
   pro: {
@@ -529,6 +530,10 @@ export function pricingFaqs({ selfHost = false }: { selfHost?: boolean } = {}): 
     {
       q: "I already use SpendChat for free. What changes?",
       a: "Your workspace is on Free. If it already has more than Free allows — say, four members — you keep all of it. You just can't add more of that thing until you upgrade or tidy up.",
+    },
+    {
+      q: "What happens when I delete something?",
+      a: `It goes to the trash and waits there for ${TRASH_DAYS} days — restore it any time before then, or press Undo right after you delete. Transactions go to the trash on every plan. On ${PLAN_NAMES[lowestPlanWith("fileTrash")]} and up, files and folders do too; on Free, deleting a file is final, and the app says so before you confirm. Files in the trash still count toward your storage until you empty it.`,
     },
     {
       q: "Can I take my data with me?",
