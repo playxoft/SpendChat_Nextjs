@@ -27,10 +27,13 @@ import { cn } from "@/lib/utils";
  * each — growing to fill it rather than leave a ragged edge.
  */
 const FILTER_ROW = "flex flex-wrap items-center gap-2 print:hidden";
+// At 320px: 288px of row − 8px of border and padding = 280px, so with no gaps
+// each of the five options is 56px; less its 2px border and 8px padding that
+// leaves 46px — room for "Month" in the buttons' medium weight (43px).
 const SEGMENTED =
-  "no-scrollbar flex h-9 w-full min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-lg border bg-muted/40 p-[3px] sm:w-auto";
-/** One option of the toggle — the buttons and their loading placeholders. */
-const SEGMENT = "h-7 min-w-0 flex-1 px-1.5 text-sm sm:flex-none sm:shrink-0 sm:px-2.5";
+  "no-scrollbar flex h-9 w-full min-w-0 max-w-full shrink items-center gap-0 overflow-x-auto rounded-lg border bg-muted/40 p-[3px] sm:w-auto sm:gap-0.5";
+/** One option of the toggle — the buttons and their loading placeholders (medium weight, like a button). */
+const SEGMENT = "h-7 min-w-0 flex-1 px-1 text-sm font-medium sm:flex-none sm:shrink-0 sm:px-2.5";
 const DATE_CONTROL = "h-9 flex-1 sm:flex-none";
 const TYPE_CONTROL = "h-9 min-w-32 flex-1 data-[size=default]:h-9 sm:w-32 sm:flex-none";
 
