@@ -52,6 +52,14 @@ export function percentInput(locale: string): SliderInput {
   };
 }
 
+/**
+ * What to say when a box can't read a figure: an example in the viewer's own
+ * format — "Use a number like 12.50" (en-IN), "… like 12,50" (de-DE).
+ */
+export function inputHint(input: SliderInput): string {
+  return `Use a number like ${input.toText(1250)}`;
+}
+
 /** What a committed box comes to: its units clamped to 0…total, or null to leave things as they were. */
 export function committedUnits(text: string, input: SliderInput, total: number): number | null {
   const units = input.parse(text);

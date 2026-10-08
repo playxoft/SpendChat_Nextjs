@@ -4,7 +4,7 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Slider } from "@/components/ui/slider";
-import { committedUnits, type SliderInput } from "@/lib/split-slider-input";
+import { committedUnits, inputHint, type SliderInput } from "@/lib/split-slider-input";
 import { snapToTotal, type SliderState } from "@/lib/split-sliders";
 import { cn } from "@/lib/utils";
 
@@ -46,66 +46,103 @@ function sliderLabel(what: string, person: SplitPerson): string {
 /**
  * Type a figure instead of dragging. Nothing moves while typing; Enter or
  * leaving the box commits it like a slider move (clamped to 0…total, the
- * others rebalancing), and Escape puts the value back. While a figure is being
- * typed the box carries `data-editing`, so a dialog can let Escape revert it
- * rather than close.
+ * others rebalancing — and the person counts as set by hand, even at the same
+ * figure). A figure that can't be read stays in the box, marked invalid with
+ * an example in the viewer's format, rather than snapping back unexplained.
+ * Escape puts the value back. While a figure is being typed the box carries
+ * `data-editing`, so a dialog can let Escape revert it rather than close.
  */
 function SliderNumberBox({ binding, person, what }: { binding: SliderBinding; person: SplitPerson; what: string }) {
   const { state, input } = binding;
   const value = state.values[person.id] ?? 0;
   const [draft, setDraft] = React.useState<string | null>(null);
+  const [invalid, setInvalid] = React.useState(false);
+  const ref = React.useRef<HTMLInputElement>(null);
+  const hintId = React.useId();
   const shown = draft ?? input.toText(value);
   const commit = () => {
     if (draft === null) return;
-    setDraft(null);
     const units = committedUnits(draft, input, state.total);
-    if (units !== null && units !== value) binding.onMove(person.id, units);
+    if (units === null && draft.trim()) {
+      // Keep what was typed so it can be fixed; say what a number looks like here.
+      setInvalid(true);
+      return;
+    }
+    setDraft(null);
+    setInvalid(false);
+    if (units !== null) binding.onMove(person.id, units);
   };
+  // Another box committing rebalances this one while it has focus; React's
+  // rewrite of the value drops the selection, so typing would append to the
+  // old figure. Select it again whenever the shown value changes under focus.
+  React.useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && draft === null && document.activeElement === el) el.select();
+  }, [shown, draft]);
   const disabled = binding.disabled || state.total === 0 || state.ids.length < 2;
   return (
-    <div
-      className={cn(
-        "flex h-8 w-24 shrink-0 items-center rounded-md border border-input sm:w-28 bg-background text-sm transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/40 dark:bg-input/30",
-        disabled && "opacity-50",
-      )}
-    >
-      {input.prefix && (
-        <span aria-hidden className="pl-2 text-muted-foreground select-none">
-          {input.prefix}
-        </span>
-      )}
-      <input
-        type="text"
-        inputMode="decimal"
-        autoComplete="off"
-        spellCheck={false}
-        value={shown}
-        disabled={disabled}
-        data-editing={draft !== null ? "" : undefined}
-        aria-label={`${sliderLabel(what, person)}${input.suffix ? ` (${input.suffix})` : ""}`}
-        onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => {
-          const typed = e.target.value;
-          setDraft((prev) => input.accept(prev ?? shown, typed));
-        }}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            // Commit, never submit the form around it.
-            e.preventDefault();
-            commit();
-          } else if (e.key === "Escape" && draft !== null) {
-            e.preventDefault();
-            e.stopPropagation();
-            setDraft(null);
-          }
-        }}
-        className="h-full w-full min-w-0 bg-transparent px-2 text-right tabular-nums outline-none"
-      />
-      {input.suffix && (
-        <span aria-hidden className="pr-2 text-muted-foreground select-none">
-          {input.suffix}
-        </span>
+    <div className="relative min-w-0 max-w-36 flex-1">
+      <div
+        className={cn(
+          "flex h-8 w-full items-center rounded-md border border-input bg-background transition-colors focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/40 dark:bg-input/30",
+          invalid && "border-destructive focus-within:border-destructive focus-within:ring-destructive/20",
+          disabled && "opacity-50",
+        )}
+      >
+        {input.prefix && (
+          // The symbol from `sm` up; on a phone the box needs the room for digits.
+          <span aria-hidden className="hidden pl-2 text-sm text-muted-foreground select-none sm:inline">
+            {input.prefix}
+          </span>
+        )}
+        <input
+          ref={ref}
+          type="text"
+          inputMode="decimal"
+          autoComplete="off"
+          spellCheck={false}
+          value={shown}
+          disabled={disabled}
+          data-editing={draft !== null ? "" : undefined}
+          aria-invalid={invalid || undefined}
+          aria-describedby={invalid ? hintId : undefined}
+          aria-label={`${sliderLabel(what, person)}${input.suffix ? ` (${input.suffix})` : ""}`}
+          onFocus={(e) => e.currentTarget.select()}
+          onChange={(e) => {
+            const typed = e.target.value;
+            setInvalid(false);
+            setDraft((prev) => input.accept(prev ?? shown, typed));
+          }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+              // Commit, never submit the form around it.
+              e.preventDefault();
+              commit();
+            } else if (e.key === "Escape" && draft !== null) {
+              e.preventDefault();
+              e.stopPropagation();
+              setDraft(null);
+              setInvalid(false);
+            }
+          }}
+          // 16px on phones, so iOS doesn't zoom in on focus.
+          className="h-full w-full min-w-0 bg-transparent px-1.5 text-right text-base tabular-nums outline-none sm:px-2 md:text-sm"
+        />
+        {input.suffix && (
+          <span aria-hidden className="pr-1.5 text-sm text-muted-foreground select-none sm:pr-2">
+            {input.suffix}
+          </span>
+        )}
+      </div>
+      {invalid && (
+        <p
+          id={hintId}
+          role="status"
+          className="absolute top-full right-0 z-10 mt-1 rounded-md border bg-popover px-2 py-1 text-xs whitespace-nowrap text-popover-foreground shadow-sm"
+        >
+          {inputHint(input)}
+        </p>
       )}
     </div>
   );
@@ -135,7 +172,7 @@ function BoundSlider({ binding, person, what }: { binding: SliderBinding; person
       }}
       thumbLabel={sliderLabel(what, person)}
       valueText={binding.format(value)}
-      className="flex-1"
+      className="min-w-24 flex-1"
     />
   );
 }

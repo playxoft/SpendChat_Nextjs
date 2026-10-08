@@ -43,7 +43,8 @@ export function useExpenseEditor({
 }) {
   const [state, setState] = React.useState(() => editorFrom(start, totalMinor));
   const order = members.map((m) => m.id);
-  const view = viewEditor(state, { order, meMemberId, currency, totalMinor, format });
+  const ctx = { order, meMemberId, currency, totalMinor, format };
+  const view = viewEditor(state, ctx);
   return {
     ...view,
     /** Start again from somewhere else (a dialog opening on another expense). */
@@ -51,9 +52,10 @@ export function useExpenseEditor({
     setSplitType: (splitType: SplitType) => setState((s) => withSplitType(s, splitType)),
     setIncluded: (ids: string[]) => setState((s) => withIncluded(s, ids, { order, meMemberId })),
     setPayerIds: (ids: string[]) => setState((s) => withPayerIds(s, ids)),
-    movePayer: (id: string, units: number) => setState((s) => withSliderMoved(s, view, "payers", id, units)),
-    moveExact: (id: string, units: number) => setState((s) => withSliderMoved(s, view, "exact", id, units)),
-    movePercent: (id: string, units: number) => setState((s) => withSliderMoved(s, view, "percent", id, units)),
+    // Derived inside the updater, from the state it's given — never this render's view.
+    movePayer: (id: string, units: number) => setState((s) => withSliderMoved(s, ctx, "payers", id, units)),
+    moveExact: (id: string, units: number) => setState((s) => withSliderMoved(s, ctx, "exact", id, units)),
+    movePercent: (id: string, units: number) => setState((s) => withSliderMoved(s, ctx, "percent", id, units)),
     /** After a send: sliders forget their adjustments; people and payers carry over. */
     resetSliders: () => setState((s) => withSlidersReset(s)),
   };

@@ -177,9 +177,9 @@ describe("the editor model across sends", () => {
     let s = editorFrom({ splitType: "equal", included: ["a", "b", "c"], payers: [{ memberId: "a" }] }, 0);
     // First expense: ₹90 by amounts with a at ₹60; a and b paid, a all of it.
     s = withSplitType(s, "exact");
-    s = withSliderMoved(s, viewEditor(s, ctx(9000)), "exact", "a", 6000);
+    s = withSliderMoved(s, ctx(9000), "exact", "a", 6000);
     s = withPayerIds(s, ["a", "b"]);
-    s = withSliderMoved(s, viewEditor(s, ctx(9000)), "payers", "a", 9000);
+    s = withSliderMoved(s, ctx(9000), "payers", "a", 9000);
     let v = viewEditor(s, ctx(9000));
     expect(v.exact.values).toEqual({ a: 6000, b: 1500, c: 1500 });
     expect(v.payers?.values).toEqual({ a: 9000, b: 0 });
@@ -196,6 +196,20 @@ describe("the editor model across sends", () => {
     v = viewEditor(s, ctx(9000));
     expect(v.exact.values).toEqual({ a: 3000, b: 3000, c: 3000 });
     expect(v.payers?.values).toEqual({ a: 4500, b: 4500 });
+  });
+
+  it("two moves in one tick both land — a typed figure committed on blur, then a tap on another slider", () => {
+    const base = withSplitType(
+      editorFrom({ splitType: "equal", included: ["a", "b", "c"], payers: [{ memberId: "a" }] }, 9000),
+      "exact",
+    );
+    // React runs both queued updaters on the same render's state, one after the other.
+    const queued = [
+      (s: typeof base) => withSliderMoved(s, ctx(9000), "exact", "a", 5000),
+      (s: typeof base) => withSliderMoved(s, ctx(9000), "exact", "b", 3000),
+    ];
+    const after = queued.reduce((s, update) => update(s), base);
+    expect(viewEditor(after, ctx(9000)).exact.values).toEqual({ a: 5000, b: 3000, c: 1000 });
   });
 
   it("payers stay in the split: unticking one drops them, and someone always pays", () => {

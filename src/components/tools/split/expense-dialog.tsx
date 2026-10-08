@@ -44,7 +44,7 @@ const SPLIT_OPTIONS = [
   { value: "percent", label: "Percent" },
 ] as const;
 
-type FormState = {
+export type FormState = {
   title: string;
   amount: string;
   paidBy: string;
@@ -59,7 +59,7 @@ type FormState = {
   startedEven: boolean;
 };
 
-function initialState(
+export function initialState(
   people: DraftPerson[],
   expense: DraftExpense | null,
   currency: string,
@@ -106,6 +106,52 @@ function initialState(
       (split.type === "exact" && !addsUp(split.shares.map((s) => ({ value: s.minor })), expense.amountMinor)) ||
       (split.type === "percent" && !addsUp(split.shares.map((s) => ({ value: s.bp })), BASIS_POINTS_TOTAL)),
   };
+}
+
+/** The amount typed, in minor units — or why there isn't one. */
+export function formAmount(state: FormState, currency: string, locale: string): { minor?: number; error?: string } {
+  if (!state.amount.trim()) return { error: "Enter the amount" };
+  const major = parseNumber(state.amount, locale);
+  if (major === null || major <= 0) return { error: "Enter an amount above zero" };
+  if (major > DRAFT_AMOUNT_MAX) return { error: "That amount is too large" };
+  const minor = toMinorUnits(major, currency);
+  if (minor <= 0) return { error: `That's too small for ${currency}` };
+  return { minor };
+}
+
+/**
+ * Who's ticked (in the draft's order) and the sliders as they stand for
+ * `state`: brought up to date with the ticks and the amount, starting even
+ * with the leftover to the payer first, as the split maths would.
+ */
+export function formSliders(state: FormState, order: readonly string[], currency: string, locale: string) {
+  const ticked = order.filter((id) => state.ticked.includes(id));
+  const leftoverOrder = ticked.includes(state.paidBy)
+    ? [state.paidBy, ...ticked.filter((id) => id !== state.paidBy)]
+    : ticked;
+  return {
+    ticked,
+    exact: syncSliders(state.exact, ticked, formAmount(state, currency, locale).minor ?? 0, leftoverOrder),
+    percent: syncSliders(state.percent, ticked, BASIS_POINTS_TOTAL, leftoverOrder),
+  };
+}
+
+/**
+ * Move one slider, worked out from `state` itself — call it inside a state
+ * updater, so a typed figure committed on blur and a tap on another slider in
+ * the same tick both land instead of the second undoing the first.
+ */
+export function withFormSliderMoved(
+  state: FormState,
+  which: "exact" | "percent",
+  id: string,
+  units: number,
+  order: readonly string[],
+  currency: string,
+  locale: string,
+): FormState {
+  const current = formSliders(state, order, currency, locale)[which];
+  return { ...state, [which]: moveSlider(current, id, units), startedEven: false };
 }
 
 export function ExpenseDialog({
@@ -183,24 +229,10 @@ function ExpenseForm({
   const label = (id: string) => personLabel(people, id);
 
   // Plain computations — the React Compiler memoizes them.
-  const amountMajor = parseNumber(state.amount, locale);
-  const amount = ((): { minor?: number; error?: string } => {
-    if (!state.amount.trim()) return { error: "Enter the amount" };
-    if (amountMajor === null || amountMajor <= 0) return { error: "Enter an amount above zero" };
-    if (amountMajor > DRAFT_AMOUNT_MAX) return { error: "That amount is too large" };
-    const minor = toMinorUnits(amountMajor, currency);
-    if (minor <= 0) return { error: `That's too small for ${currency}` };
-    return { minor };
-  })();
-
-  const ticked = order.filter((id) => state.ticked.includes(id));
-  // Sliders start even, the leftover in the order the split maths uses: the
-  // payer first, then everyone in the draft's order.
-  const leftoverOrder = ticked.includes(state.paidBy)
-    ? [state.paidBy, ...ticked.filter((id) => id !== state.paidBy)]
-    : ticked;
-  const exact = syncSliders(state.exact, ticked, amount.minor ?? 0, leftoverOrder);
-  const percent = syncSliders(state.percent, ticked, BASIS_POINTS_TOTAL, leftoverOrder);
+  const amount = formAmount(state, currency, locale);
+  const { ticked, exact, percent } = formSliders(state, order, currency, locale);
+  const move = (which: "exact" | "percent") => (id: string, units: number) =>
+    setState((s) => withFormSliderMoved(s, which, id, units, order, currency, locale));
 
   const built = ((): { split?: DraftSplit; error?: string } => {
     if (ticked.length === 0) return { error: "Tick who it's split between" };
@@ -286,7 +318,7 @@ function ExpenseForm({
                 step: sliderStep(exact.total, 200),
                 format: fmt,
                 input: moneyInput(currency, locale, symbol),
-                onMove: (id, v) => set({ exact: moveSlider(exact, id, v), startedEven: false }),
+                onMove: move("exact"),
               }
             : state.type === "percent"
               ? {
@@ -294,7 +326,7 @@ function ExpenseForm({
                   step: sliderStep(BASIS_POINTS_TOTAL),
                   format: percentText,
                   input: percentInput(locale),
-                  onMove: (id, v) => set({ percent: moveSlider(percent, id, v), startedEven: false }),
+                  onMove: move("percent"),
                 }
               : null
         }
