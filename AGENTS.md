@@ -29,9 +29,10 @@ Authentication, secrets via Doppler.
 - `pnpm db:health:dev` / `db:health:prod` — storage headroom against Neon's hard
   `neon.max_cluster_size` cap (writes fail at the cap with no warning shoulder),
   largest tables, slowest statements. Exits 1 past `--warn-at` (default 80%), so
-  it can gate a cron. **It also deletes** `ai_usage_log` / `email_send_log` rows
-  past `--retention-days` (default 30; `ai_usage_log` never below 62, since the monthly
-  AI allowance is counted from it) unless you pass `-- --no-prune`.
+  it can gate a cron. **It also deletes** `ai_usage_log` / `email_send_log` /
+  `split_rate_log` rows past `--retention-days` (default 30; `ai_usage_log` never below 62,
+  since the monthly AI allowance is counted from it; `split_rate_log` never below 7) unless
+  you pass `-- --no-prune`.
 - `pnpm growth:report:dev` / `growth:report:prod` — read-only signup report:
   per day, per channel (`users.acquisition`, rules in `src/lib/attribution.ts`),
   per "how did you hear about us" answer, with activation (≥1 transaction).
@@ -95,8 +96,28 @@ Authentication, secrets via Doppler.
   bootstrap *or* from the `/invite/<token>` join page (`acceptInviteByToken`), which binds
   acceptance to the invited email. Email bodies are built only in `src/lib/email-templates.ts`
   (pure, unit-tested, one shared layout: neutral, no images, plain-text twin); the one-time
-  welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. ZeptoMail is
+  welcome email is claimed via `users.welcomed_at` in `src/lib/welcome-email.ts`. Split
+  invites (`src/services/split-invites.ts`) email only people **without** an account, **once per
+  group per address, ever** (claimed on `split_members.invite_emailed_at`), inside a per-sender
+  daily cap and a per-inbox weekly cap (`reserveInviteEmails`, both in `split_rate_log` — **not**
+  the shared hourly pool, whose 429 would expose who was emailed), only after the add itself
+  succeeded; account holders get an in-app invitation instead. **Never let a response say
+  whether an address has an account** — adds answer `invited` either way. ZeptoMail is
   transactional-only — don't add newsletters or drip campaigns to this pipe.
+- **Split groups live outside workspaces.** `split_groups` and everything under them
+  are user-scoped: no `workspace_id`, no plan (50 people per group, the creator included,
+  on every plan — `SPLIT_GROUP_MAX_PEOPLE`), and nothing in them is a transaction. Each
+  group has one currency; amounts are minor units in it, divided by `src/lib/split-math.ts`
+  on the server (equal: leftovers to the payer first, then join order; percent: to the
+  largest remainders first). Who may do what is
+  `src/lib/split-access.ts`; only a *joined* member sees a group — everyone else gets
+  404 — and members' emails are shown only to the group's creator. Member rows are never
+  deleted while the group exists (leave/remove/decline = `left`), balances are always
+  computed, never stored. Adds take the group row `FOR UPDATE` before counting. The
+  only bridge into a workspace is "add my share", which writes one ordinary expense through
+  `createTransactionId` (so budget checks fire) and links it on `split_shares.transaction_id`;
+  "Update my entry" / "Remove from my workspace" go through `updateTransaction` /
+  `deleteTransaction` (the trash). A trashed linked entry still counts as added.
 - **Budgets** — monthly spending limits for the whole workspace, one profile, or one expense
   category (across every profile); one per scope; capped per plan (`PLAN_LIMITS.budgets`). Rules
   are pure in `src/lib/budgets.ts`, CRUD in `src/services/budgets.ts`. **Every budget number comes

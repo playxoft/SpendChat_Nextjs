@@ -169,6 +169,9 @@ describe("every server action is rate limited", () => {
         "listFileShares",
         "loadMoreTransactions",
         "loadOlderFeed",
+        "loadSplitExpenses",
+        "loadSplitInvitations",
+        "loadSplitSettlements",
         "listTrashPage",
         "loadRestoredTransactions",
         // the person's own UI preferences

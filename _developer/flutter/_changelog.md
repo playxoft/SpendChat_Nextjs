@@ -19,6 +19,72 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.9.0 — 2026-10-07
+
+**Split** — groups for sharing costs between people (a trip, a flat, a
+dinner), **outside every workspace**: user-scoped, so every `/split/*` endpoint
+ignores `X-Workspace-Id`. Everything here is additive.
+
+**New endpoints** (full table in [01-api-reference.md](./01-api-reference.md) § Split)
+
+| Endpoint | What |
+|---|---|
+| `GET/POST /split/groups` | Your joined groups (with your balance); create one — you become its creator |
+| `GET/PATCH/DELETE /split/groups/{id}` | Detail (people, balances, settle-up suggestions); rename / icon / currency while empty; delete — the last two creator only |
+| `POST /split/groups/{id}/members`, `DELETE …/members/{memberId}` | Add people by `{ email, name }`; remove someone who's settled up — creator only |
+| `POST /split/groups/{id}/leave` | Leave once you're settled up |
+| `GET/POST /split/groups/{id}/expenses`, `GET/PUT/DELETE …/expenses/{expenseId}` | Expenses split `equal` / `exact` / `percent`; the server computes every share |
+| `GET/POST /split/groups/{id}/settlements`, `DELETE …/settlements/{settlementId}` | "Mark as paid" — record that one person paid another |
+| `GET /split/invitations`, `POST /split/invitations/{memberId}/accept` / `decline` | Groups waiting for you to join |
+| `POST /split/groups/{id}/expenses/{expenseId}/add-to-workspace` | "Add my share to my workspace" — one expense in the current workspace (reads `X-Workspace-Id`) |
+| `PUT /split/groups/{id}/expenses/{expenseId}/workspace-entry` | "Update my entry" after the expense changed (`myShare.changedSinceAdded`) |
+| `DELETE /split/groups/{id}/expenses/{expenseId}/workspace-entry` | "Remove from my workspace" after you were taken off the expense (`myShare.amountMinor: 0`) |
+
+**Rules worth mirroring in the UI**
+- Only a **joined** member can see a group; everyone else (invitees included)
+  gets 404. Invitees see `SplitInvitation` only.
+- `email` on a `SplitMember` is filled in **only for the group's creator and on
+  your own row** — never show an address you weren't sent.
+- 50 people per group, the creator included, on every plan → **409
+  `split_group_full`** (`details: { max, used }`); no upgrade prompt.
+- Remove / leave need a zero balance → **409 `settle_first`**.
+- Every amount is in the group's `currency` (`…Minor` + string; list `meta`
+  carries a `CurrencyMeta`). Rounding: equal splits give leftover minor units
+  to the payer first, then join order; percent splits to the largest
+  remainders first — don't recompute shares client-side for display; read
+  `shares`.
+- Adding people answers `status: "invited"` whether or not the address has an
+  account — the API never tells them apart. Account holders get an in-app
+  invitation; anyone else **one** email per group, ever (within daily caps).
+  The creator gets an `inviteLink` for every invited person (it works only for
+  the invited email).
+- Caps: 20 new groups and 100 people added per person per 24 h (429), 3 open
+  invitations from one person to one inbox (409 `conflict`), no re-invite for
+  30 days after someone declines or leaves (409 `invite_cooldown`), and 3
+  invite emails per inbox per week from everyone together. `+tags` and Gmail
+  dots are one inbox.
+- `GET /split/invitations` is paged (`meta.total`); a badge can show "9+".
+- Add-to-workspace: same currency → the share is the amount; different → ask
+  the user what it cost them in the workspace's currency and send `amount`
+  (422 `amount_required` otherwise). `myShare.added` flips to true; a second
+  add is 409. If the expense changes later, `myShare.changedSinceAdded` turns
+  true — offer "Update my entry" (`PUT …/workspace-entry`). If you're taken
+  off the expense instead, `myShare` stays with `amountMinor: 0` — offer
+  "Remove from my workspace" (`DELETE …/workspace-entry`).
+
+**New error codes:** `split_group_full` (409), `settle_first` (409),
+`invite_cooldown` (409), `amount_required` (422).
+
+**Flutter impact:** additive — nothing breaks. To ship Split in the app, add a
+Split tab outside the workspace switcher (don't send `X-Workspace-Id` there),
+the models in § Split models, an invitations list/badge from
+`GET /split/invitations`, and an "Add to my workspace" sheet (profile picker
+from `GET /profiles` filtered to `access` write/admin; an amount field only
+when the currencies differ). A non-user who signs up in the app sees their
+invitations there — there's no token endpoint for the app.
+
+---
+
 ## 6.8.0 — 2026-10-07
 
 **Budgets.** A monthly spending limit for the whole workspace, one profile, or

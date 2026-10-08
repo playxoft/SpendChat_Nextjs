@@ -110,7 +110,8 @@ export async function resetTestDb(): Promise<void> {
     `TRUNCATE TABLE transactions, categories, profile_overrides, profiles,
        space_members, spaces, user_settings, workspace_invites, profile_access,
        workspace_members, workspaces, organizations, users, email_send_log,
-       ai_usage_log, neon_auth."user"
+       ai_usage_log, split_settlements, split_shares, split_expenses,
+       split_members, split_groups, split_rate_log, neon_auth."user"
      RESTART IDENTITY CASCADE;`,
   );
 }

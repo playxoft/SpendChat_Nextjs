@@ -32,6 +32,10 @@ import {
   FOLDER_NAME_MAX,
   ORGANIZATION_NAME_MAX,
   SPACE_NAME_MAX,
+  SPLIT_EXPENSE_TITLE_MAX,
+  SPLIT_GROUP_NAME_MAX,
+  SPLIT_ICON_MAX,
+  SPLIT_MEMBER_NAME_MAX,
   TAG_NAME_MAX,
   TRANSACTION_DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX,
@@ -1173,6 +1177,268 @@ export const fileShares = pgTable(
   ],
 );
 
+/* -------------------------------------------------------------------------- */
+/* Split — shared expenses between people, outside every workspace             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Where a person stands in a split group. `left` covers removed, declined and
+ * left alike: member rows are never deleted while the group exists, because
+ * expenses, shares and settlements point at them and their balance is history
+ * the others still need — and because `invite_emailed_at` on the row is what
+ * keeps a re-added address from getting a second invite email (abuse rule D1).
+ */
+export const splitMemberStatusEnum = pgEnum("split_member_status", ["invited", "joined", "left"]);
+
+/** How an expense was divided — the maths lives in `src/lib/split-math.ts`. */
+export const splitTypeEnum = pgEnum("split_type", ["equal", "exact", "percent"]);
+
+/**
+ * A split group: a trip, a flat, a dinner. **User-scoped, not in any
+ * workspace** — it has no plan, no `workspace_id`, and nothing in it is a
+ * transaction. The creator manages it (rename, people, delete); every joined
+ * member adds expenses and settles up. One currency per group, in which every
+ * amount below is stored as integer minor units. `created_by` has no foreign
+ * key, like `workspaces.owner_id`.
+ */
+export const splitGroups = pgTable(
+  "split_groups",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    name: varchar("name", { length: SPLIT_GROUP_NAME_MAX }).notNull(),
+    icon: varchar("icon", { length: SPLIT_ICON_MAX }),
+    currency: text("currency").notNull(),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The account-deletion sweep: groups this person created go with them.
+    index("split_groups_created_by_idx").on(t.createdBy),
+  ],
+);
+
+/**
+ * One person in one group — the creator's own row included (inserted
+ * `joined`). Expenses, shares and settlements reference this row, not a user,
+ * so someone can be in a split before they have an account.
+ *
+ * - `user_id` is the bound account: set at add time when the email already
+ *   has one, at sign-up otherwise (`lib/split-signup.ts`), and nulled when the
+ *   account is deleted. No foreign key, by house convention.
+ * - `email` is stored lowercased. Null only after the account behind it was
+ *   deleted. Shown to the group's creator and to the member themself — never
+ *   to the other members (`lib/split-access.ts`).
+ * - `display_name` is the creator's label; null falls back to the account's
+ *   name once joined, else the email's local part.
+ * - `invite_token` is the secret in the join link (`/invite/split/<token>`),
+ *   minted for every pending row and nulled when the person leaves, so an old
+ *   link stops working. It binds to `email`, never to whoever holds it.
+ * - `invite_emailed_at` is the D1 marker: claimed with
+ *   `UPDATE … WHERE invite_emailed_at IS NULL RETURNING`, so a group sends an
+ *   address at most one email, ever. Never reset.
+ * - `email_key` is the address normalised to its inbox (`lib/email-key.ts`:
+ *   no `+tag`, no Gmail dots), so `zoe+trip@gmail.com` and `z.o.e@gmail.com`
+ *   are one person: unique per group, and what the per-invitee caps count.
+ *   Joining still binds to the exact `email`.
+ * - `invite_cooldown_until`: someone who declined or left can't be invited
+ *   back into this group before it (30 days). A removal by the creator sets
+ *   nothing — that's the creator's own decision to undo.
+ */
+export const splitMembers = pgTable(
+  "split_members",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => splitGroups.id, { onDelete: "cascade" }),
+    userId: uuid("user_id"),
+    email: text("email"),
+    emailKey: text("email_key"),
+    displayName: varchar("display_name", { length: SPLIT_MEMBER_NAME_MAX }),
+    status: splitMemberStatusEnum("status").notNull().default("invited"),
+    invitedBy: uuid("invited_by"),
+    inviteToken: text("invite_token"),
+    inviteEmailedAt: timestamp("invite_emailed_at", { withTimezone: true }),
+    inviteCooldownUntil: timestamp("invite_cooldown_until", { withTimezone: true }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One row per inbox and per account in a group (nulls are distinct).
+    uniqueIndex("split_members_group_email_key_uq").on(t.groupId, t.emailKey),
+    uniqueIndex("split_members_group_user_uq").on(t.groupId, t.userId),
+    // The join page's lookup.
+    uniqueIndex("split_members_invite_token_uq").on(t.inviteToken),
+    // "My groups" and "my invitations".
+    index("split_members_user_status_idx").on(t.userId, t.status),
+    // Invitations still waiting for an account: the sign-up binding and the
+    // invitations list's by-email arm. Partial, so it stays small.
+    index("split_members_pending_email_idx").on(t.email).where(sql`${t.userId} is null`),
+    // The per-invitee cap: one inviter's open invitations to one inbox.
+    index("split_members_inviter_pending_idx")
+      .on(t.invitedBy, t.emailKey)
+      .where(sql`${t.status} = 'invited'`),
+  ],
+);
+
+/**
+ * Append-only counters for Split's anti-abuse caps (abuse rule D1 and the
+ * review of PR #96), kept apart from the group tables so deleting a group
+ * can't hand the budget back:
+ *
+ * - `group_created` — groups one person started (daily cap);
+ * - `member_added` — addresses one person added to groups (daily cap — also
+ *   what bounds probing addresses through any side channel);
+ * - `invite_emailed` — invite emails one *inbox* received, from anyone
+ *   (`recipient_key`, a SHA-256 of the `email_key` — never the address).
+ *
+ * `pnpm db:health:*` prunes it past its retention window, never below the
+ * longest window a cap reads (7 days).
+ */
+export const splitRateLog = pgTable(
+  "split_rate_log",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    event: text("event").notNull(),
+    actorId: uuid("actor_id"),
+    recipientKey: text("recipient_key"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("split_rate_log_actor_idx").on(t.actorId, t.event, t.createdAt),
+    index("split_rate_log_recipient_idx")
+      .on(t.recipientKey, t.event, t.createdAt)
+      .where(sql`${t.recipientKey} is not null`),
+  ],
+);
+
+/**
+ * One shared expense, paid by one member, divided among some of them. The
+ * shares are always computed on the server from `split_type` and the input
+ * (`lib/split-math.ts`), never taken from the client.
+ */
+export const splitExpenses = pgTable(
+  "split_expenses",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => splitGroups.id, { onDelete: "cascade" }),
+    // Same width as a transaction title, so "add my share" never truncates.
+    title: varchar("title", { length: SPLIT_EXPENSE_TITLE_MAX }).notNull(),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+    paidByMemberId: uuid("paid_by_member_id")
+      .notNull()
+      .references(() => splitMembers.id, { onDelete: "restrict" }),
+    splitType: splitTypeEnum("split_type").notNull(),
+    occurredOn: date("occurred_on").notNull(),
+    // The user who added it — they and the group's creator may edit it.
+    createdBy: uuid("created_by").notNull(),
+    // Millisecond precision, like `transactions`: the list's order includes it.
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("split_expenses_amount_positive", sql`${t.amountMinor} > 0`),
+    // The group's expense list, newest first. `.nullsFirst()` so the index
+    // matches `ORDER BY … DESC` (Drizzle's `.desc()` alone emits NULLS LAST).
+    index("split_expenses_group_date_idx").on(
+      t.groupId,
+      t.occurredOn.desc().nullsFirst(),
+      t.createdAt.desc().nullsFirst(),
+      t.id.desc().nullsFirst(),
+    ),
+    // FK maintenance + "what did this member pay".
+    index("split_expenses_paid_by_idx").on(t.paidByMemberId),
+  ],
+);
+
+/**
+ * A member's part of one expense. `percent_bp` keeps a percent split's input
+ * (basis points) so editing shows what was typed; null for equal/exact.
+ *
+ * `transaction_id` is the "added to my workspace" marker (phase 11): set in
+ * the same database transaction that writes the workspace expense, with
+ * `WHERE transaction_id IS NULL`, so a share lands in someone's books once.
+ * When that transaction is permanently deleted the marker clears itself
+ * (set null) and the share can be added again; a trashed one still counts.
+ */
+export const splitShares = pgTable(
+  "split_shares",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    expenseId: uuid("expense_id")
+      .notNull()
+      .references(() => splitExpenses.id, { onDelete: "cascade" }),
+    memberId: uuid("member_id")
+      .notNull()
+      .references(() => splitMembers.id, { onDelete: "restrict" }),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+    percentBp: integer("percent_bp"),
+    transactionId: uuid("transaction_id").references(() => transactions.id, {
+      onDelete: "set null",
+    }),
+    addedAt: timestamp("added_at", { withTimezone: true }),
+    // The share (group currency) the workspace entry was written or last
+    // updated for — when the expense is edited it differs from `amount_minor`
+    // and the UI offers "Update my entry".
+    addedAmountMinor: bigint("added_amount_minor", { mode: "number" }),
+  },
+  (t) => [
+    check("split_shares_amount_not_negative", sql`${t.amountMinor} >= 0`),
+    uniqueIndex("split_shares_expense_member_uq").on(t.expenseId, t.memberId),
+    // Balances (owed per member) + FK maintenance.
+    index("split_shares_member_idx").on(t.memberId),
+    // One workspace transaction backs at most one share; also serves the
+    // set-null when a transaction is deleted.
+    uniqueIndex("split_shares_transaction_uq")
+      .on(t.transactionId)
+      .where(sql`${t.transactionId} is not null`),
+  ],
+);
+
+/**
+ * "Mark as paid": `from` paid `to` this much, outside the app. Balances are
+ * always computed from expenses, shares and these rows — never stored.
+ */
+export const splitSettlements = pgTable(
+  "split_settlements",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    groupId: uuid("group_id")
+      .notNull()
+      .references(() => splitGroups.id, { onDelete: "cascade" }),
+    fromMemberId: uuid("from_member_id")
+      .notNull()
+      .references(() => splitMembers.id, { onDelete: "restrict" }),
+    toMemberId: uuid("to_member_id")
+      .notNull()
+      .references(() => splitMembers.id, { onDelete: "restrict" }),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+    settledOn: date("settled_on").notNull(),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("split_settlements_amount_positive", sql`${t.amountMinor} > 0`),
+    check("split_settlements_distinct_members", sql`${t.fromMemberId} <> ${t.toMemberId}`),
+    index("split_settlements_group_date_idx").on(
+      t.groupId,
+      t.settledOn.desc().nullsFirst(),
+      t.createdAt.desc().nullsFirst(),
+    ),
+    index("split_settlements_from_idx").on(t.fromMemberId),
+    index("split_settlements_to_idx").on(t.toMemberId),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserSettings = typeof userSettings.$inferSelect;
@@ -1208,6 +1474,13 @@ export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
 export type ProfileAccess = typeof profileAccess.$inferSelect;
 export type WorkspaceInvite = typeof workspaceInvites.$inferSelect;
 export type WorkspaceRole = (typeof workspaceRoleEnum.enumValues)[number];
+export type SplitGroup = typeof splitGroups.$inferSelect;
+export type SplitMember = typeof splitMembers.$inferSelect;
+export type SplitMemberStatus = (typeof splitMemberStatusEnum.enumValues)[number];
+export type SplitExpense = typeof splitExpenses.$inferSelect;
+export type SplitShare = typeof splitShares.$inferSelect;
+export type SplitSettlement = typeof splitSettlements.$inferSelect;
+export type SplitType = (typeof splitTypeEnum.enumValues)[number];
 export type Budget = typeof budgets.$inferSelect;
 export type NewBudget = typeof budgets.$inferInsert;
 export type BudgetAlert = typeof budgetAlerts.$inferSelect;

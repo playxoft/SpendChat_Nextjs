@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { BUDGET_SCOPES, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
+import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
 import {
   CURRENCIES,
   PAID_PERSONAL_PLANS,
@@ -1109,6 +1110,179 @@ export const startCheckoutSchema = z.discriminatedUnion("item", [
   }),
 ]);
 export type StartCheckoutInput = z.infer<typeof startCheckoutSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Split (groups outside workspaces)                                           */
+/* -------------------------------------------------------------------------- */
+
+/** Column widths for the split tables — the DB rejects exactly what these do. */
+export const SPLIT_GROUP_NAME_MAX = 40;
+export const SPLIT_MEMBER_NAME_MAX = 40;
+export const SPLIT_ICON_MAX = 16;
+/** Same as a transaction title, so "add my share to my workspace" never truncates. */
+export const SPLIT_EXPENSE_TITLE_MAX = TRANSACTION_TITLE_MAX;
+/** People one request may add: everyone but the creator. */
+export const SPLIT_ADD_PEOPLE_MAX = SPLIT_GROUP_MAX_PEOPLE - 1;
+/** Expenses per page in a group (the web's "Show more"). */
+export const SPLIT_EXPENSES_PAGE = 50;
+/** Payments per page in a group (the web's "Show more"). */
+export const SPLIT_PAYMENTS_PAGE = 20;
+
+const splitGroupNameSchema = z
+  .string()
+  .trim()
+  .min(1, "Give the group a name")
+  .max(SPLIT_GROUP_NAME_MAX, `Name is too long (max ${SPLIT_GROUP_NAME_MAX} characters)`);
+const splitIconSchema = z.string().trim().max(SPLIT_ICON_MAX);
+const splitCurrencySchema = z.enum(CURRENCY_CODES as [string, ...string[]], {
+  error: "Pick a currency",
+});
+const splitIdSchema = z.string().uuid();
+
+/**
+ * Someone to add to a group: the name everyone in the group sees, and the email
+ * only the creator sees (it's how they're invited and how joining is bound).
+ * The name is required so a label never has to be derived from the address.
+ */
+export const splitPersonSchema = z.object({
+  email: inviteEmailSchema,
+  name: z
+    .string()
+    .trim()
+    .min(1, "Add their name")
+    .max(SPLIT_MEMBER_NAME_MAX, `Name is too long (max ${SPLIT_MEMBER_NAME_MAX} characters)`),
+});
+
+const splitPeopleSchema = z
+  .array(splitPersonSchema)
+  .max(SPLIT_ADD_PEOPLE_MAX, `A group holds up to ${SPLIT_GROUP_MAX_PEOPLE} people`)
+  .refine(
+    (people) => new Set(people.map((p) => p.email)).size === people.length,
+    "That email is in the list twice",
+  );
+
+export const createSplitGroupSchema = z.object({
+  name: splitGroupNameSchema,
+  icon: splitIconSchema.nullish(),
+  currency: splitCurrencySchema,
+  members: splitPeopleSchema.optional().default([]),
+});
+export type CreateSplitGroupInput = z.input<typeof createSplitGroupSchema>;
+
+/** Rename / re-icon (`icon: null` or "" clears it) / change currency while empty. */
+export const updateSplitGroupSchema = z
+  .object({
+    name: splitGroupNameSchema.optional(),
+    icon: splitIconSchema.nullish(),
+    currency: splitCurrencySchema.optional(),
+  })
+  .refine(
+    (v) => v.name !== undefined || v.icon !== undefined || v.currency !== undefined,
+    "Nothing to update",
+  );
+export type UpdateSplitGroupInput = z.input<typeof updateSplitGroupSchema>;
+
+export const addSplitMembersSchema = z.object({
+  members: splitPeopleSchema.min(1, "Add at least one person"),
+});
+export type AddSplitMembersInput = z.input<typeof addSplitMembersSchema>;
+
+/** A percent as typed: 0–100 with at most two decimals (stored as basis points). */
+const splitPercentSchema = z.coerce
+  .number()
+  .finite()
+  .min(0, "Percent can't be negative")
+  .max(100, "Percent can't be over 100")
+  .refine((p) => Math.abs(p * 100 - Math.round(p * 100)) < 1e-6, "Use at most two decimals");
+
+const splitExpenseBase = {
+  title: z
+    .string()
+    .trim()
+    .min(1, "Add a title")
+    .max(SPLIT_EXPENSE_TITLE_MAX, `Title is too long (max ${SPLIT_EXPENSE_TITLE_MAX} characters)`),
+  amount: amountSchema,
+  paidBy: splitIdSchema,
+  occurredOn: dateSchema,
+};
+const splitParticipantsMax = SPLIT_GROUP_MAX_PEOPLE;
+
+/**
+ * An expense and how to divide it. The shares sent here are *inputs* — member
+ * ids (equal), amounts (exact) or percents — and the server computes every
+ * stored share from them (`lib/split-math.ts`).
+ */
+export const splitExpenseSchema = z.discriminatedUnion("splitType", [
+  z.object({
+    ...splitExpenseBase,
+    splitType: z.literal("equal"),
+    memberIds: z.array(splitIdSchema).min(1, "Pick who it's split between").max(splitParticipantsMax),
+  }),
+  z.object({
+    ...splitExpenseBase,
+    splitType: z.literal("exact"),
+    shares: z
+      .array(
+        z.object({
+          memberId: splitIdSchema,
+          amount: z.coerce
+            .number()
+            .finite()
+            .min(0, "Amounts can't be negative")
+            .max(TRANSACTION_AMOUNT_MAX, "Amount is too large (max 9 digits)"),
+        }),
+      )
+      .min(1, "Pick who it's split between")
+      .max(splitParticipantsMax),
+  }),
+  z.object({
+    ...splitExpenseBase,
+    splitType: z.literal("percent"),
+    shares: z
+      .array(z.object({ memberId: splitIdSchema, percent: splitPercentSchema }))
+      .min(1, "Pick who it's split between")
+      .max(splitParticipantsMax),
+  }),
+]);
+export type SplitExpenseInput = z.input<typeof splitExpenseSchema>;
+
+/** "Mark as paid": `from` paid `to` this much. */
+export const splitSettlementSchema = z
+  .object({
+    fromMemberId: splitIdSchema,
+    toMemberId: splitIdSchema,
+    amount: amountSchema,
+    settledOn: dateSchema,
+  })
+  .refine((v) => v.fromMemberId !== v.toMemberId, "Pick two different people");
+export type SplitSettlementInput = z.input<typeof splitSettlementSchema>;
+
+/**
+ * "Add my share to my workspace". `amount` is in the *workspace* currency and
+ * only read when it differs from the group's; with the same currency the share
+ * itself is the amount.
+ */
+export const addSplitShareToWorkspaceSchema = z.object({
+  profileId: splitIdSchema,
+  categoryId: splitIdSchema.nullish(),
+  title: z
+    .string()
+    .trim()
+    .max(TRANSACTION_TITLE_MAX, `Title is too long (max ${TRANSACTION_TITLE_MAX} characters)`)
+    .optional(),
+  occurredOn: dateSchema.optional(),
+  amount: amountSchema.optional(),
+});
+export type AddSplitShareToWorkspaceInput = z.input<typeof addSplitShareToWorkspaceSchema>;
+
+/**
+ * "Update my entry" after the expense changed. `amount` is in the entry's
+ * workspace currency and only read when it differs from the group's.
+ */
+export const updateSplitWorkspaceEntrySchema = z.object({
+  amount: amountSchema.optional(),
+});
+export type UpdateSplitWorkspaceEntryInput = z.input<typeof updateSplitWorkspaceEntrySchema>;
 
 // ── Budgets ────────────────────────────────────────────────────────────────
 

@@ -5,6 +5,8 @@ import {
   generateInviteToken,
   invitePath,
   openWorkspacePath,
+  splitInviteEmailPath,
+  splitInvitePath,
 } from "@/lib/invite-links";
 import { inviteTokenSchema } from "@/lib/validation";
 
@@ -40,6 +42,19 @@ describe("paths", () => {
   it("builds the open-workspace link the tracker understands", () => {
     expect(openWorkspacePath("0192b0c0-0000-7000-8000-000000000001")).toBe(
       "/app?workspace=0192b0c0-0000-7000-8000-000000000001",
+    );
+  });
+});
+
+describe("split invite links", () => {
+  it("sit under /invite/split, beside the workspace join page", () => {
+    expect(splitInvitePath("abc_DEF-123")).toBe("/invite/split/abc_DEF-123");
+    expect(splitInvitePath("a/b")).toBe("/invite/split/a%2Fb");
+  });
+
+  it("are tagged as the split_invite channel when emailed", () => {
+    expect(splitInviteEmailPath("tok")).toBe(
+      "/invite/split/tok?utm_source=split_invite&utm_medium=email",
     );
   });
 });

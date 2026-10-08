@@ -1,4 +1,4 @@
-import { ChartColumn, FolderOpen, MessageSquare, PiggyBank, Table2 } from "lucide-react";
+import { ChartColumn, FolderOpen, MessageSquare, PiggyBank, Split, Table2 } from "lucide-react";
 import { comboFor } from "@/lib/shortcuts";
 
 export const navItems = [
@@ -10,12 +10,35 @@ export const navItems = [
 ] as const;
 
 /**
+ * Split sits apart from the list above on purpose: those sections all show the
+ * *current workspace*, while split groups belong to the person and live
+ * outside every workspace. The sidebar renders it in its own block below the
+ * workspace nav; the mobile bar appends it as a fifth item. No `?profile=` is
+ * carried there — there is no profile in a split group.
+ */
+export const splitNavItem = {
+  href: "/app/split",
+  label: "Split",
+  icon: Split,
+  exact: false,
+  shortcut: comboFor("nav.split"),
+} as const;
+
+/**
  * Settings is deliberately not here. It sits in the profile/user menu, which is
  * on every screen in both layouts, and listing it twice spent a nav slot on the
  * destination people visit least. The `s` shortcut still goes there — it is
  * registered from the shortcut registry in `global-shortcuts.tsx`, not from
  * this list, so the key and the cheat-sheet row are unaffected.
  */
+
+/**
+ * The invitations badge: `countInvitations` stops counting past 9, so ten or
+ * more reads "9+".
+ */
+export function invitationBadge(count: number): string {
+  return count > 9 ? "9+" : String(count);
+}
 
 export function isActive(pathname: string, href: string, exact: boolean): boolean {
   return exact ? pathname === href : pathname === href || pathname.startsWith(`${href}`);

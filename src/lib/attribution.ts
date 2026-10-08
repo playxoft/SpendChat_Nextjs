@@ -111,11 +111,24 @@ export const heardFromOtherSchema = z
   .max(HEARD_FROM_OTHER_MAX)
   .regex(/^[^\p{Cc}\p{Cs}]*$/u);
 
+/**
+ * How a sign-up was invited — written by the **server**, never the browser, at
+ * the account's first bootstrap: `split` when invitations to split groups were
+ * waiting for the new account's email (`lib/split-signup.ts`). It sits beside
+ * the browser's first touch rather than replacing it, so `growth:report` can
+ * show both the channel and the invite. Merged once (`invitedVia` is only set
+ * while absent); `invitedAt` is when.
+ */
+export const INVITED_VIA = ["split"] as const;
+export type InvitedVia = (typeof INVITED_VIA)[number];
+
 /** Stored shape of `users.acquisition`. */
 export type Acquisition = AttributionInput & {
   heardFrom?: HeardFrom | null;
   heardFromOther?: string | null;
   heardFromAt?: string | null;
+  invitedVia?: InvitedVia | null;
+  invitedAt?: string | null;
 };
 
 /**

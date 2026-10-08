@@ -20,7 +20,8 @@
  * with no channel; `(unknown)` means no visit was recorded — the account
  * predates attribution (even if it later answered the card) or the browser
  * blocked storage. "Activated" = went on to add at least one
- * transaction. Days are UTC.
+ * transaction. "Invited via" is recorded by the server at sign-up (a split
+ * invite was waiting for the account's email). Days are UTC.
  */
 import pg from "pg";
 
@@ -133,6 +134,24 @@ try {
   );
   console.log(`\nBy campaign (window)\n`);
   table(byCampaign);
+
+  // Server-recorded at the account's first bootstrap (`src/lib/split-signup.ts`,
+  // rule in `src/lib/attribution.ts`): invitations to split groups were waiting
+  // for the new account's email. "Joined split" = went on to join a group.
+  const { rows: invited } = await client.query(
+    `select coalesce(u.acquisition->>'invitedVia', '(not invited)') as invited_via,
+            count(*)::int as signups,
+            count(*) filter (where exists (select 1 from transactions t where t.user_id = u.id))::int as activated,
+            count(*) filter (where exists (select 1 from split_members m
+                                            where m.user_id = u.id and m.status = 'joined'))::int as joined_split
+       from users u
+      where u.created_at >= now() - make_interval(days => $1)
+      group by 1
+      order by 2 desc, 1`,
+    [DAYS],
+  );
+  console.log(`\nInvited via (window)\n`);
+  table(invited);
 
   const { rows: heardFrom } = await client.query(
     `select coalesce(u.acquisition->>'heardFrom', '(not answered)') as heard_from,

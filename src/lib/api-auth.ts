@@ -104,3 +104,16 @@ export async function getApiContext(request: Request): Promise<{
   await rateLimit.enforce(() => workspace!.plan);
   return { user, settings, workspace: workspace! };
 }
+
+/**
+ * The authenticated user, bootstrapped, for endpoints that live outside any
+ * workspace (Split). `X-Workspace-Id` is ignored here — there is no workspace
+ * to resolve — but bootstrap still runs, so a first request from the app
+ * creates the account's defaults and binds any split invitations waiting for
+ * its email.
+ */
+export async function getApiUser(request: Request): Promise<SessionUser> {
+  const user = await requireApiUser(request);
+  await ensureBootstrap(user.id);
+  return user;
+}

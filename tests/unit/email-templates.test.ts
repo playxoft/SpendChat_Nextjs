@@ -6,9 +6,11 @@ import {
   firstName,
   inviteEmail,
   siteUrl,
+  splitInviteEmail,
   welcomeEmail,
   type BudgetAlertEmailInput,
   type InviteEmailInput,
+  type SplitInviteEmailInput,
 } from "@/lib/email-templates";
 import { formatMoney } from "@/lib/money";
 import { siteConfig } from "@/lib/site";
@@ -293,6 +295,59 @@ describe("inviteEmail", () => {
     expect(mail.subject).toContain(evil);
   });
 });
+
+describe("splitInviteEmail", () => {
+  const base: SplitInviteEmailInput = {
+    groupName: "Goa trip",
+    groupIcon: "🏖️",
+    inviterName: "Ravi",
+    peopleCount: 4,
+    currency: "INR",
+    joinUrl: `${siteConfig.url}/invite/split/tok_abcdefghijklmnopqrstuvwxyz0123?utm_source=split_invite&utm_medium=email`,
+    recipientEmail: "zoe@example.com",
+  };
+
+  it("names the group, who added you and who the link is for, in both bodies", () => {
+    const mail = splitInviteEmail(base);
+    expect(mail.subject).toBe(`Ravi added you to “Goa trip” on ${siteConfig.name}`);
+    const seen = visibleText(mail.html);
+    expect(seen).toContain("🏖️");
+    expect(seen).toContain("Added by Ravi");
+    expect(seen).toContain("4 people");
+    expect(seen).toContain("INR");
+    expect(seen).toContain("to share costs with 3 other people");
+    expect(seen).toContain("zoe@example.com");
+    expect(seen).toContain("You won't get another email about this group");
+    expect(mail.html).toContain(escapeAttr(base.joinUrl));
+    expect(mail.text).toContain(`See Goa trip: ${base.joinUrl}`);
+    expect(mail.text).toContain("[🏖️] Goa trip — added by Ravi — 4 people, INR");
+    expect(mail.text).toContain("the link only works for zoe@example.com");
+  });
+
+  it("reads right with no inviter name, no icon and a group of two", () => {
+    const mail = splitInviteEmail({ ...base, inviterName: "  ", groupIcon: null, peopleCount: 2 });
+    expect(mail.subject).toBe(`You're invited to split costs in “Goa trip” on ${siteConfig.name}`);
+    expect(visibleText(mail.html)).toContain("🧾");
+    expect(mail.text).toContain("Someone added you to “Goa trip” to share costs with 1 other person.");
+    const solo = splitInviteEmail({ ...base, peopleCount: 1 });
+    expect(solo.text).toContain("added you to “Goa trip” to share costs.");
+    expect(visibleText(solo.html)).toContain("1 person");
+  });
+
+  it("escapes a hostile group or inviter name in the HTML", () => {
+    const evil = '<a href="https://evil.example">Verify</a>';
+    const mail = splitInviteEmail({ ...base, groupName: evil, inviterName: evil });
+    expect(mail.html).not.toContain('<a href="https://evil.example">');
+    expect(mail.html).toContain("&lt;a href=&quot;https://evil.example&quot;&gt;");
+    // The plain-text twin carries the raw value (it's text, not markup).
+    expect(mail.text).toContain(evil);
+  });
+});
+
+/** How a URL appears inside an HTML attribute (`&` escaped). */
+function escapeAttr(url: string): string {
+  return url.replace(/&/g, "&amp;");
+}
 
 describe("budgetAlertEmail", () => {
   const href = `${siteConfig.url}/app/budgets?workspace=ws_1`;

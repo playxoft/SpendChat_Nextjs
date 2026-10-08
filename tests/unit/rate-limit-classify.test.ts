@@ -36,6 +36,22 @@ describe("classifyApiRequest", () => {
     expect(classifyApiRequest("GET", "/api/v1/details/ai/x")).toBe("read");
   });
 
+  it("C8: Split's routes — reads by method like the rest, no special cases", () => {
+    for (const path of [
+      "/api/v1/split/groups",
+      "/api/v1/split/groups/x",
+      "/api/v1/split/groups/x/expenses",
+      "/api/v1/split/groups/x/settlements",
+      "/api/v1/split/invitations",
+    ]) {
+      expect(classifyApiRequest("GET", path)).toBe("read");
+    }
+    expect(classifyApiRequest("POST", "/api/v1/split/groups/x/members")).toBe("create");
+    expect(classifyApiRequest("POST", "/api/v1/split/groups/x/expenses/y/add-to-workspace")).toBe("create");
+    expect(classifyApiRequest("PUT", "/api/v1/split/groups/x/expenses/y/workspace-entry")).toBe("create");
+    expect(classifyApiRequest("POST", "/api/v1/split/invitations/x/accept")).toBe("create");
+  });
+
   it("C8: the trash's routes — listing is a read, restoring or deleting is a create", () => {
     for (const path of ["/api/v1/trash/transactions", "/api/v1/trash/files", "/api/v1/trash/profiles"]) {
       expect(rateOfApiRequest("GET", path)).toEqual({ bucket: "read", weight: 1 });

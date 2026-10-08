@@ -68,6 +68,8 @@ export function GlobalShortcuts({
   useShortcut(comboFor("nav.analytics"), () => router.push(hrefWithProfile("/app/analytics", profileParam)), nav);
   useShortcut(comboFor("nav.budgets"), () => router.push(hrefWithProfile("/app/budgets", profileParam)), nav);
   useShortcut(comboFor("nav.files"), () => router.push(hrefWithProfile("/app/files", profileParam)), nav);
+  // Split lives outside workspaces, so it doesn't carry the profile along.
+  useShortcut(comboFor("nav.split"), () => router.push("/app/split"), nav);
   useShortcut(comboFor("nav.settings"), () => router.push(hrefWithProfile("/app/settings", profileParam)), nav);
   useShortcut(comboFor("action.add"), () => canWrite && setAddOpen(true), write);
   useShortcut(comboFor("action.bulk"), () => canWrite && setBulkOpen(true), write);

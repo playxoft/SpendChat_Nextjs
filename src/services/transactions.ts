@@ -105,9 +105,16 @@ async function resolveProfileId(
   userId: string,
   workspaceId: string,
   profileId?: string | null,
+  strict = false,
 ): Promise<string> {
   const writable = await writableProfileIds(userId, workspaceId);
   if (profileId && writable.includes(profileId)) return profileId;
+  if (strict) {
+    // The caller named a profile and means it — no falling back to another.
+    const { readOnly } = await getWorkspaceEntitlements(workspaceId);
+    if (readOnly) throw readOnlyWorkspaceError();
+    throw forbidden("You can't add to that profile");
+  }
   if (writable[0]) return writable[0];
 
   const role = await getWorkspaceRole(userId, workspaceId);
@@ -145,6 +152,25 @@ function pickTitle(data: { title?: string; note?: string }): string | null {
  *  hold the workspace (avoids a re-select) or fetched from the workspace. */
 type MoneyFormat = { currency: string; locale: string };
 
+type Db = ReturnType<typeof getDb>;
+type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
+
+/**
+ * Options for callers that write a transaction as part of something bigger
+ * (Split's "add my share"). Both default off, so every existing caller is
+ * unchanged.
+ */
+export type CreateTransactionOptions = {
+  /** A requested profile the user can't write is a 403, not a silent fallback to another profile. */
+  strictProfile?: boolean;
+  /**
+   * Runs inside one database transaction with the insert, after it, with the
+   * new id; throwing rolls the insert back. Every read and check above still
+   * happens *before* the transaction opens, so it stays one round-trip long.
+   */
+  withinInsert?: (tx: Tx, id: string) => Promise<void>;
+};
+
 /**
  * Insert a transaction and return its id — the shared core of the create path.
  * The web send only needs the id (its optimistic UI keys off it to retire the
@@ -163,6 +189,7 @@ export async function createTransactionId(
   workspaceId: string,
   input: unknown,
   money?: MoneyFormat,
+  opts: CreateTransactionOptions = {},
 ): Promise<{ id: string }> {
   const data = await time("createTransaction.validate", async () =>
     parseOrThrow(transactionInputSchema, input),
@@ -177,7 +204,7 @@ export async function createTransactionId(
       workspaceCategoryId(workspaceId, data.categoryId),
     ),
     time("createTransaction.resolveProfile", () =>
-      resolveProfileId(userId, workspaceId, data.profileId),
+      resolveProfileId(userId, workspaceId, data.profileId, opts.strictProfile),
     ),
     // Folded into the same round-trip as the two above rather than awaited
     // after them: it touches a different table and depends on neither, so it
@@ -188,8 +215,8 @@ export async function createTransactionId(
   setLogContext({ profileId }); // log lines for this write carry the resolved profile
 
   const db = getDb();
-  const [row] = await time("createTransaction.insert", () =>
-    db
+  const insert = (exec: Db | Tx) =>
+    exec
       .insert(transactions)
       .values({
         userId,
@@ -202,7 +229,16 @@ export async function createTransactionId(
         occurredOn: data.occurredOn,
         tagIds,
       })
-      .returning({ id: transactions.id }),
+      .returning({ id: transactions.id });
+  const withinInsert = opts.withinInsert;
+  const [row] = await time("createTransaction.insert", () =>
+    withinInsert
+      ? db.transaction(async (tx) => {
+          const rows = await insert(tx);
+          await withinInsert(tx, rows[0]!.id);
+          return rows;
+        })
+      : insert(db),
   );
   // After the response, not now — a crossing emails without slowing the send.
   if (data.type === "expense") {

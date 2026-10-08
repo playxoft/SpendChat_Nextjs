@@ -5,6 +5,7 @@ import { getAddLimits } from "@/lib/entitlements";
 import { getCategories, getProfiles, getTags } from "@/lib/queries";
 import { normalizeUiPrefs } from "@/lib/validation";
 import { listSpaces } from "@/services/spaces";
+import { countInvitations } from "@/services/split";
 import { monthKey, todayISO } from "@/lib/dates";
 import { getBudgetAlertCount } from "@/services/budgets";
 import { describeError, logger } from "@/lib/logger";
@@ -45,7 +46,7 @@ export default async function AppLayout({
     });
     return { warn: 0, over: 0 };
   });
-  const [profiles, spaces, categories, tags, workspaces, canWrite, addLimits] =
+  const [profiles, spaces, categories, tags, workspaces, canWrite, addLimits, splitInvitations] =
     await Promise.all([
       getProfiles(user.id, workspace.id),
       // The sidebar's groups: every space for admins, a member's own spaces otherwise.
@@ -60,6 +61,8 @@ export default async function AppLayout({
       // members, a new workspace) — so the "new …" buttons show a lock before
       // a form is filled in.
       getAddLimits(workspace.id, user.id),
+      // Split invitations waiting for an answer — the badge on the Split nav item.
+      countInvitations(user),
     ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
   const canManage = workspace.role === "admin";
@@ -86,6 +89,7 @@ export default async function AppLayout({
         workspaces={workspaces}
         currentWorkspaceId={workspace.id}
         budgetAlerts={budgetAlerts}
+        splitInvitations={splitInvitations}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <AppTopbar
@@ -102,7 +106,7 @@ export default async function AppLayout({
           canWrite={canWrite}
         />
         <main className="flex-1 pb-16 md:pb-0">{children}</main>
-        <BottomNav budgetAlerts={budgetAlerts} />
+        <BottomNav budgetAlerts={budgetAlerts} splitInvitations={splitInvitations} />
       </div>
       {/* `g` from anywhere opens the workspace picker; 1…9 jump straight to one. */}
       <WorkspaceSwitchDialog workspaces={workspaces} currentWorkspaceId={workspace.id} />

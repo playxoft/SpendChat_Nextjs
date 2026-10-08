@@ -12,6 +12,18 @@ import type { BudgetView } from "@/services/budgets";
 import type { OrganizationOverview } from "@/services/organizations";
 import type { SpaceAccess, SpaceSummary } from "@/services/spaces";
 import type {
+  AddedPerson,
+  SplitGroupDetail,
+  SplitGroupSummary,
+  SplitInvitation,
+  SplitMemberView,
+} from "@/services/split";
+import type { SplitExpenseView, SplitSettlementView } from "@/services/split-ledger";
+import type { SettlementSuggestion } from "@/lib/split-math";
+import { fromBasisPoints } from "@/lib/split-math";
+import { splitInvitePath } from "@/lib/invite-links";
+import { siteConfig } from "@/lib/site";
+import type {
   Category,
   Profile,
   ProfileAccessLevel,
@@ -390,6 +402,240 @@ export function serializeUsage(u: WorkspaceUsage): ApiUsage {
     profilesPerSpace: u.profilesPerSpace,
     voice: u.voice,
     profileLevelAccess: u.profileLevelAccess,
+  };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Split (6.9.0) — user-scoped groups, every amount in the group's currency    */
+/* -------------------------------------------------------------------------- */
+
+/** A major-unit string for minor units, at the currency's decimals ("-12.50" when owed). */
+function majorString(minor: number, currency: string): string {
+  return fromMinorUnits(minor, currency).toFixed(getCurrency(currency).decimals);
+}
+
+export type ApiSplitGroup = {
+  id: string;
+  name: string;
+  icon: string | null;
+  currency: string;
+  isCreator: boolean;
+  peopleCount: number;
+  /** The caller's balance: positive = is owed, negative = owes. */
+  myBalanceMinor: number;
+  myBalance: string;
+  createdAt: string;
+};
+
+export function serializeSplitGroup(g: SplitGroupSummary): ApiSplitGroup {
+  return {
+    id: g.id,
+    name: g.name,
+    icon: g.icon,
+    currency: g.currency,
+    isCreator: g.isCreator,
+    peopleCount: g.peopleCount,
+    myBalanceMinor: g.myNetMinor,
+    myBalance: majorString(g.myNetMinor, g.currency),
+    createdAt: toIso(g.createdAt),
+  };
+}
+
+export type ApiSplitMember = {
+  id: string;
+  name: string;
+  /** Only for the group's creator, and on the caller's own row; null otherwise. */
+  email: string | null;
+  status: "invited" | "joined" | "left";
+  isCreator: boolean;
+  isYou: boolean;
+  balanceMinor: number;
+  balance: string;
+  /**
+   * Creator only, for everyone still invited (account or not — the same for
+   * both): their join link. It works only for the invited email, so it's safe
+   * to share in a chat. Null otherwise.
+   */
+  inviteLink: string | null;
+};
+
+export function serializeSplitMember(m: SplitMemberView, currency: string): ApiSplitMember {
+  return {
+    id: m.id,
+    name: m.name,
+    email: m.email,
+    status: m.status,
+    isCreator: m.isCreator,
+    isYou: m.isYou,
+    balanceMinor: m.netMinor,
+    balance: majorString(m.netMinor, currency),
+    inviteLink: m.inviteToken ? `${siteConfig.url}${splitInvitePath(m.inviteToken)}` : null,
+  };
+}
+
+export type ApiSplitSuggestion = {
+  fromMemberId: string;
+  toMemberId: string;
+  amountMinor: number;
+  amount: string;
+};
+
+function serializeSplitSuggestion(s: SettlementSuggestion, currency: string): ApiSplitSuggestion {
+  return {
+    fromMemberId: s.fromMemberId,
+    toMemberId: s.toMemberId,
+    amountMinor: s.amountMinor,
+    amount: majorString(s.amountMinor, currency),
+  };
+}
+
+export type ApiSplitGroupDetail = {
+  id: string;
+  name: string;
+  icon: string | null;
+  currency: string;
+  createdAt: string;
+  updatedAt: string;
+  me: { memberId: string; isCreator: boolean };
+  members: ApiSplitMember[];
+  suggestions: ApiSplitSuggestion[];
+  peopleCount: number;
+  maxPeople: number;
+  hasActivity: boolean;
+};
+
+export function serializeSplitGroupDetail(d: SplitGroupDetail): ApiSplitGroupDetail {
+  const currency = d.group.currency;
+  return {
+    id: d.group.id,
+    name: d.group.name,
+    icon: d.group.icon,
+    currency,
+    createdAt: toIso(d.group.createdAt),
+    updatedAt: toIso(d.group.updatedAt),
+    me: d.me,
+    members: d.members.map((m) => serializeSplitMember(m, currency)),
+    suggestions: d.suggestions.map((s) => serializeSplitSuggestion(s, currency)),
+    peopleCount: d.peopleCount,
+    maxPeople: d.maxPeople,
+    hasActivity: d.hasActivity,
+  };
+}
+
+export type ApiSplitAddedPerson = AddedPerson;
+
+/** What happened to each person an add named (returned to the creator only). */
+export function serializeSplitAdded(added: AddedPerson[]): ApiSplitAddedPerson[] {
+  return added.map((a) => ({ memberId: a.memberId, email: a.email, status: a.status }));
+}
+
+export type ApiSplitExpense = {
+  id: string;
+  title: string;
+  amountMinor: number;
+  amount: string;
+  splitType: "equal" | "exact" | "percent";
+  occurredOn: string;
+  createdAt: string;
+  updatedAt: string;
+  paidBy: { memberId: string; name: string };
+  shares: {
+    memberId: string;
+    name: string;
+    amountMinor: number;
+    amount: string;
+    /** Percent splits only: the percent entered (e.g. 33.34). */
+    percent: number | null;
+  }[];
+  canEdit: boolean;
+  myShare: {
+    shareId: string;
+    amountMinor: number;
+    amount: string;
+    added: boolean;
+    addedAt: string | null;
+    /** Added, and the expense changed since — `PUT …/workspace-entry` brings the entry in line. */
+    changedSinceAdded: boolean;
+  } | null;
+};
+
+export function serializeSplitExpense(e: SplitExpenseView, currency: string): ApiSplitExpense {
+  return {
+    id: e.id,
+    title: e.title,
+    amountMinor: e.amountMinor,
+    amount: majorString(e.amountMinor, currency),
+    splitType: e.splitType,
+    occurredOn: e.occurredOn,
+    createdAt: toIso(e.createdAt),
+    updatedAt: toIso(e.updatedAt),
+    paidBy: e.paidBy,
+    shares: e.shares.map((s) => ({
+      memberId: s.memberId,
+      name: s.name,
+      amountMinor: s.amountMinor,
+      amount: majorString(s.amountMinor, currency),
+      percent: s.percentBp === null ? null : fromBasisPoints(s.percentBp),
+    })),
+    canEdit: e.canEdit,
+    myShare: e.myShare
+      ? {
+          shareId: e.myShare.shareId,
+          amountMinor: e.myShare.amountMinor,
+          amount: majorString(e.myShare.amountMinor, currency),
+          added: e.myShare.added,
+          addedAt: e.myShare.addedAt ? toIso(e.myShare.addedAt) : null,
+          changedSinceAdded: e.myShare.changedSinceAdded,
+        }
+      : null,
+  };
+}
+
+export type ApiSplitSettlement = {
+  id: string;
+  from: { memberId: string; name: string };
+  to: { memberId: string; name: string };
+  amountMinor: number;
+  amount: string;
+  settledOn: string;
+  createdAt: string;
+  canDelete: boolean;
+};
+
+export function serializeSplitSettlement(s: SplitSettlementView, currency: string): ApiSplitSettlement {
+  return {
+    id: s.id,
+    from: s.from,
+    to: s.to,
+    amountMinor: s.amountMinor,
+    amount: majorString(s.amountMinor, currency),
+    settledOn: s.settledOn,
+    createdAt: toIso(s.createdAt),
+    canDelete: s.canDelete,
+  };
+}
+
+export type ApiSplitInvitation = {
+  memberId: string;
+  groupId: string;
+  groupName: string;
+  groupIcon: string | null;
+  currency: string;
+  inviterName: string | null;
+  peopleCount: number;
+  invitedAt: string;
+};
+
+export function serializeSplitInvitation(i: SplitInvitation): ApiSplitInvitation {
+  return {
+    memberId: i.memberId,
+    groupId: i.groupId,
+    groupName: i.groupName,
+    groupIcon: i.groupIcon,
+    currency: i.currency,
+    inviterName: i.inviterName,
+    peopleCount: i.peopleCount,
+    invitedAt: toIso(i.invitedAt),
   };
 }
 
