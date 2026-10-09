@@ -435,10 +435,14 @@ function AskHeader({
             <ChatList chats={chats} onNavigate={() => setOpen(false)} className="min-h-0 flex-1" />
           </SheetContent>
         </Sheet>
-        <div className="col-start-2 min-w-0 text-center leading-tight">
-          <h1 className="truncate text-sm font-semibold">SpendChat AI</h1>
-          {title && <p className="truncate text-xs text-muted-foreground">{title}</p>}
-        </div>
+        {/* One heading: the open chat's title, or the product's name on a new
+            chat. Long titles end in an ellipsis; the full one is the tooltip. */}
+        <h1
+          title={title ?? undefined}
+          className="col-start-2 min-w-0 truncate text-center text-sm font-semibold"
+        >
+          {title ?? "SpendChat AI"}
+        </h1>
         <Button asChild variant="ghost" size="icon-sm" className="col-start-3 justify-self-end lg:hidden">
           <Link href={askHref({ profile })} aria-label="New chat" title="New chat">
             <SquarePen className="size-4" />

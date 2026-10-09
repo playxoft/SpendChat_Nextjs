@@ -105,6 +105,23 @@ async function ownedChat(userId: string, workspaceId: string, chatId: string): P
   return row;
 }
 
+/**
+ * One of the caller's chats' titles, or null when it isn't theirs here (or
+ * doesn't exist) — for the browser tab, which must never 404 on its own.
+ */
+export async function getChatTitle(
+  userId: string,
+  workspaceId: string,
+  chatId: string,
+): Promise<string | null> {
+  try {
+    return (await ownedChat(userId, workspaceId, chatId)).title;
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 /** The caller's chats in this workspace, newest first. */
 export async function listChats(userId: string, workspaceId: string): Promise<ChatSummary[]> {
   const rows = await getDb()

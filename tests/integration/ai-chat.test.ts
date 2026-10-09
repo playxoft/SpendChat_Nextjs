@@ -27,7 +27,13 @@ import { ASK_NEEDS_EDIT_MESSAGE } from "@/lib/ai-limits";
 import { logger } from "@/lib/logger";
 import { monthStartBack, todayISO } from "@/lib/dates";
 import { PLAN_LIMITS } from "@/lib/plans";
-import { aiActionsLeftFor, gatherChatData, getChat, listChats } from "@/services/ai-chat";
+import {
+  aiActionsLeftFor,
+  gatherChatData,
+  getChat,
+  getChatTitle,
+  listChats,
+} from "@/services/ai-chat";
 import { deleteProfile } from "@/services/profiles";
 import { deleteAccount } from "@/services/settings";
 import { deleteTransaction } from "@/services/transactions";
@@ -538,6 +544,14 @@ describe("chats are private to their author, in their workspace", () => {
     await expect(getChat(uid("mem"), home, res.chat.id)).rejects.toMatchObject({ status: 404 });
     expect(await listChats(uid("mem"), home)).toEqual([]);
     expect((await getChat(uid("mem"), W, res.chat.id)).chat.id).toBe(res.chat.id);
+  });
+
+  it("names a chat in the tab only for its author — anyone else, or a bad id, gets no title", async () => {
+    const { W, chatId } = await ownersChat();
+    expect(await getChatTitle(uid("own"), W, chatId)).toBe("How much on food?");
+    await bootstrapUser("oth");
+    expect(await getChatTitle(uid("oth"), await workspaceIdOf("oth"), chatId)).toBeNull();
+    expect(await getChatTitle(uid("own"), W, "not-a-uuid")).toBeNull();
   });
 
   it("a malformed id is a 404, not a database error", async () => {
