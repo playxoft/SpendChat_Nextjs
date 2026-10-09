@@ -79,7 +79,9 @@ describe("LIMIT_PITCH / limitPitch", () => {
     const now = new Date(Date.UTC(2026, 9, 12));
     for (const limit of UPGRADE_LIMITS) {
       for (const plan of PERSONAL_PLANS) {
-        const upgradeTo = PERSONAL_PLANS.find((p) => p !== plan && planAtLeast(p, plan)) ?? null;
+        // A billing hold is never lifted by a plan — its dialog points to Billing or support.
+        const upgradeTo =
+          limit === "billingHold" ? null : (PERSONAL_PLANS.find((p) => p !== plan && planAtLeast(p, plan)) ?? null);
         const info: PlanLimitInfo = { limit, plan, upgradeTo };
         const copy = limitPitch(info, now);
         expect(copy.headline.trim()).toBeTruthy();

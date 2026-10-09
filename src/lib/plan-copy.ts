@@ -420,6 +420,15 @@ export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
     pitch: ({ next }) =>
       `${next} keeps deleted files and folders in the trash for ${TRASH_DAYS} days, so one wrong click never costs you a contract or a warranty.`,
   },
+  // Billing made the workspace view-only — no plan lifts it (the dialog shows its own buttons).
+  billingHold: {
+    headline: "This workspace is view-only for now",
+    status: ({ info }) =>
+      info.holdReason === "dispute"
+        ? "A payment for this workspace was disputed with the bank, so nothing can be added until it's sorted out. Everything in it is still here to browse and export — contact support."
+        : "Its plan's last payment didn't go through, so nothing can be added until it's paid. Everything in it is still here — update the payment method in Billing and it opens up again.",
+    pitch: () => "",
+  },
   // "New workspace", when the person already has their free one.
   newWorkspace: {
     headline: "Make room for another workspace",

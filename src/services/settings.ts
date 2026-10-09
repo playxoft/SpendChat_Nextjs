@@ -1,8 +1,10 @@
 import "server-only";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   aiChats,
+  billingCheckoutSessions,
+  billingPayments,
   organizations,
   profileAccess,
   profileOverrides,
@@ -13,6 +15,7 @@ import {
   users,
   userSettings,
   workspaceMembers,
+  workspaceSubscriptions,
   workspaces,
 } from "@/db/schema";
 import { ensureBootstrap, getUserSettings } from "@/lib/auth";
@@ -23,6 +26,7 @@ import { sendEmail } from "@/lib/email";
 import { deleteObjects, keyFromPublicUrl } from "@/lib/r2";
 import { collectProfileObjectKeys } from "./storage-keys";
 import { forgetSplitUser } from "./split";
+import { cancelSubscriptionsForAccountDeletion } from "./billing";
 import { assertEmailSendAllowed } from "@/lib/email-quota";
 import { siteConfig } from "@/lib/site";
 import { badRequest, conflict, isForeignKeyViolation, validationError } from "@/lib/errors";
@@ -210,6 +214,12 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
   if (confirm !== "DELETE") throw badRequest("Type DELETE to confirm");
   const db = getDb();
 
+  // Nothing may keep charging for a workspace that's about to be gone: every
+  // live plan on an owned workspace is cancelled with the provider first. A
+  // cancel the provider refuses stops the deletion here, before anything is
+  // erased — the person retries.
+  await cancelSubscriptionsForAccountDeletion(userId);
+
   // **One transaction, for the same reason `deleteProfile` uses one.** These are
   // eight destructive statements that are only safe together: `transactions
   // .profile_id` is ON DELETE restrict, so emptying a profile and deleting it
@@ -286,6 +296,33 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
       // would cascade below, but chats in someone else's are only theirs to
       // take. Messages go with each chat (FK cascade).
       await tx.delete(aiChats).where(eq(aiChats.userId, userId));
+      // Billing records: the person's own purchases, and everything about the
+      // workspaces they own (top-ups go with their workspace by cascade).
+      const anyOwned = ownedIds.length > 0;
+      await tx
+        .delete(workspaceSubscriptions)
+        .where(
+          or(
+            anyOwned ? inArray(workspaceSubscriptions.workspaceId, ownedIds) : undefined,
+            eq(workspaceSubscriptions.buyerUserId, userId),
+          ),
+        );
+      await tx
+        .delete(billingCheckoutSessions)
+        .where(
+          or(
+            anyOwned ? inArray(billingCheckoutSessions.workspaceId, ownedIds) : undefined,
+            eq(billingCheckoutSessions.buyerUserId, userId),
+          ),
+        );
+      await tx
+        .delete(billingPayments)
+        .where(
+          or(
+            anyOwned ? inArray(billingPayments.workspaceId, ownedIds) : undefined,
+            eq(billingPayments.buyerUserId, userId),
+          ),
+        );
       if (ownedIds.length > 0) {
         // Members/invites cascade with the workspace rows.
         await tx.delete(workspaces).where(inArray(workspaces.id, ownedIds));

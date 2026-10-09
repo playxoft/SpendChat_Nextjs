@@ -9,8 +9,10 @@ import {
   spaceMembers,
   spaces,
   userSettings,
+  users,
   workspaceInvites,
   workspaceMembers,
+  workspaceSubscriptions,
   workspaces,
   type WorkspaceRole,
 } from "@/db/schema";
@@ -36,6 +38,7 @@ import {
   createWorkspaceWithDefaults,
   getWorkspaceRole,
   listUserWorkspaces,
+  readOnlyWorkspaceSql,
   requireProfileRole,
   requireWorkspaceRole,
   type WorkspaceSummary,
@@ -50,8 +53,12 @@ import {
   updateMemberRoleSchema,
   updateWorkspaceSchema,
   workspaceCurrencySchema,
+  createWorkspaceForPurchaseSchema,
   type AccessGrant,
 } from "@/lib/validation";
+import { billingAvailable, billingUnavailable } from "@/lib/billing-config";
+import { checkoutPath } from "@/lib/checkout";
+import { purchasesBlocked } from "@/services/billing";
 
 /**
  * Workspace management: create/rename/switch, members, per-profile grants,
@@ -89,6 +96,85 @@ export async function createWorkspace(userId: string, input: unknown): Promise<W
   });
   logger.info("Workspace created", { event: "workspace.created", workspaceId: created.id, userId });
   return created;
+}
+
+/**
+ * "New workspace" for someone who already has their one free workspace (C5):
+ * the new workspace is created straight away — so a payment always has a
+ * workspace to land in — and the caller is sent to checkout for it. Until the
+ * plan is paid it's an extra free workspace, so it's **view-only**
+ * (`readOnlyWorkspaceSql`): the one-free-workspace rule holds without a
+ * special case, and an abandoned checkout leaves an empty view-only
+ * workspace, never a paid-for one that's missing.
+ *
+ * At most one such unpaid workspace at a time: if the person already owns an
+ * extra free workspace that has never had a plan, that one is returned (and
+ * checked out) instead of making another. Refused up front when this server
+ * can't take payments, or the person's purchases are blocked (B2).
+ */
+export async function createWorkspaceForPurchase(
+  userId: string,
+  input: unknown,
+): Promise<{ workspace: WorkspaceSummary; reused: boolean; checkoutPath: string }> {
+  const { name, icon, plan, period } = parseOrThrow(createWorkspaceForPurchaseSchema, input);
+  if (!billingAvailable()) throw billingUnavailable();
+  await ensureBootstrap(userId);
+  const db = getDb();
+  const [me] = await db
+    .select({ blocked: users.purchasesBlockedAt })
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  if (me?.blocked) throw purchasesBlocked();
+  const path = checkoutPath({ plan, period });
+
+  // No free workspace yet: this one can simply be the free one.
+  const [free] = await db
+    .select({ id: workspaces.id })
+    .from(workspaces)
+    .where(and(eq(workspaces.ownerId, userId), eq(workspaces.plan, "free")))
+    .limit(1);
+  if (!free) {
+    const created = await createWorkspace(userId, { name, icon });
+    return { workspace: created, reused: false, checkoutPath: path };
+  }
+
+  // An extra free workspace that never had a plan is still waiting for one.
+  const waiting = await db.execute<{ id: string }>(sql`
+    select w.id from ${workspaces} w
+    where w.owner_id = ${userId}
+      and w.plan = 'free'
+      and ${readOnlyWorkspaceSql(sql`w.id`)}
+      and w.billing_hold is null
+      and not exists (
+        select 1 from ${workspaceSubscriptions} s
+        where s.workspace_id = w.id and s.activated_at is not null
+      )
+    order by w.created_at desc
+    limit 1
+  `);
+  const waitingId = waiting.rows[0]?.id;
+  if (waitingId) {
+    await switchWorkspace(userId, waitingId);
+    const summary = (await listUserWorkspaces(userId)).find((w) => w.id === waitingId);
+    if (summary) return { workspace: summary, reused: true, checkoutPath: path };
+  }
+
+  const current = await getCurrentWorkspace(userId);
+  const created = await createWorkspaceWithDefaults(userId, name, {
+    makeCurrent: true,
+    currency: current.currency,
+    locale: current.locale,
+    icon: icon || undefined,
+  });
+  logger.info("Workspace created to be bought", {
+    event: "workspace.created_for_purchase",
+    workspaceId: created.id,
+    userId,
+    plan,
+    period,
+  });
+  return { workspace: created, reused: false, checkoutPath: path };
 }
 
 /**
