@@ -255,7 +255,8 @@ function ImportFlow({
 
   if (phase.kind === "already") {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-10">
+      <div className="mx-auto max-w-3xl px-4 py-10 md:pt-6">
+        <StatusTopRow />
         <div className="rounded-xl border p-8 text-center" role="status">
           <Check className="mx-auto mb-3 size-6 text-muted-foreground" aria-hidden />
           <h1 className="font-medium">This group is already in Split</h1>
@@ -322,7 +323,8 @@ function ImportFlow({
     const inviting = draft.people.length - 1;
     const expenses = `${draft.expenses.length} ${draft.expenses.length === 1 ? "expense" : "expenses"}`;
     return (
-      <div className="mx-auto max-w-3xl px-4 py-10">
+      <div className="mx-auto max-w-3xl px-4 py-10 md:pt-6">
+        <StatusTopRow />
         <div className="rounded-xl border p-8 text-center" role="status" aria-live="polite">
           <span
             className={cn(
@@ -536,9 +538,25 @@ function resultLine(invited: number): string {
   return `Group created — ${invited} ${invited === 1 ? "person" : "people"} invited`;
 }
 
+/**
+ * The top row of the screens that are one centred card (nothing to import,
+ * already imported, creating): no title of its own — the card carries the
+ * heading — just the theme button and account menu, where every other step
+ * of this page has them, so they don't vanish as the import moves on. Desktop
+ * only, like the controls; a phone has its top bar.
+ */
+function StatusTopRow() {
+  return (
+    <div className="mb-4 hidden justify-end md:flex">
+      <AccountControls />
+    </div>
+  );
+}
+
 function NothingToImport() {
   return (
     <div className="mx-auto max-w-3xl px-4 py-6">
+      <StatusTopRow />
       <div className="rounded-xl border border-dashed p-8 text-center">
         <Calculator className="mx-auto mb-3 size-8 text-muted-foreground" aria-hidden />
         <h1 className="font-medium">Nothing to bring in</h1>

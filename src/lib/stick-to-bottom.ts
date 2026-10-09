@@ -10,7 +10,11 @@
  *    in layout (a draft list opening in the composer, a late row, the balance
  *    streaming into the header) keeps them there, so the newest message stays
  *    against the composer's top edge instead of being covered or left behind.
- *    Once they scroll away it's their position, and nothing moves it.
+ *    Once they scroll away it's their position, and nothing moves it. The
+ *    viewport itself changing counts too — a shorter window, the phone's
+ *    browser bars sliding in — or the newest messages slip under the
+ *    composer; except mid-touch, when those bars are reacting to the very
+ *    gesture that's scrolling, and following them would fight the finger.
  *
  *  - **Settling**: has the page just opened? From mount until the reader first
  *    touches the page (or layout goes quiet), *any* scroll that leaves the
@@ -53,18 +57,26 @@ export type StickState = {
   pinned: boolean;
   /** The page has just opened: a scroll the reader didn't make is undone. */
   settling: boolean;
+  /** A finger is on the screen. */
+  touching: boolean;
 };
 
 /** A freshly opened feed: at the newest message, and guarding it. */
-export const OPENING_STATE: StickState = { pinned: true, settling: true };
+export const OPENING_STATE: StickState = { pinned: true, settling: true, touching: false };
 
 export type StickEvent =
   /** The window scrolled; `atBottom` is measured after the move. */
   | { type: "scroll"; atBottom: boolean }
-  /** Layout changed size (content, composer, header, viewport). */
-  | { type: "resize" }
-  /** The reader touched the page: wheel, touch, key or pointer. */
+  /**
+   * Something changed size: the page's own `layout` (content, composer,
+   * header) or the `viewport` (the window, the visual viewport behind a
+   * phone's browser bars).
+   */
+  | { type: "resize"; source: "layout" | "viewport" }
+  /** The reader took over: wheel, key or pointer. */
   | { type: "input" }
+  /** A touch began (`down`) or the last finger lifted — input too, on the way down. */
+  | { type: "touch"; down: boolean }
   /** The opening window closed without them doing so. */
   | { type: "settled" };
 
@@ -86,7 +98,20 @@ export function stepStick(state: StickState, event: StickEvent): StickStep {
         stick: false,
       };
     case "resize":
-      return { state, stick: state.pinned };
+      return {
+        state,
+        stick: state.pinned && !(event.source === "viewport" && state.touching),
+      };
+    case "touch": {
+      const settling = event.down ? false : state.settling;
+      return {
+        state:
+          state.touching === event.down && state.settling === settling
+            ? state
+            : { ...state, touching: event.down, settling },
+        stick: false,
+      };
+    }
     case "input":
     case "settled":
       return { state: state.settling ? { ...state, settling: false } : state, stick: false };

@@ -28,8 +28,10 @@ function run(events: StickEvent[], from: StickState = OPENING_STATE) {
   return { state, sticks };
 }
 
-const settled: StickState = { pinned: true, settling: false };
-const readingHistory: StickState = { pinned: false, settling: false };
+const settled: StickState = { pinned: true, settling: false, touching: false };
+const readingHistory: StickState = { pinned: false, settling: false, touching: false };
+const layout = { type: "resize", source: "layout" } as const;
+const viewport = { type: "resize", source: "viewport" } as const;
 
 describe("distanceFromBottom / isAtBottom", () => {
   it("measures the gap between the viewport's bottom and the document's end", () => {
@@ -57,8 +59,8 @@ describe("distanceFromBottom / isAtBottom", () => {
 });
 
 describe("stepStick — opening", () => {
-  it("starts pinned and settling", () => {
-    expect(OPENING_STATE).toEqual({ pinned: true, settling: true });
+  it("starts pinned and settling, with no finger down", () => {
+    expect(OPENING_STATE).toEqual({ pinned: true, settling: true, touching: false });
   });
 
   it("undoes the router's scroll-to-top that lands after the feed scrolled down", () => {
@@ -72,7 +74,7 @@ describe("stepStick — opening", () => {
   });
 
   it("follows late content down while it streams in", () => {
-    const { sticks, state } = run([{ type: "resize" }, { type: "resize" }, { type: "resize" }]);
+    const { sticks, state } = run([layout, layout, layout]);
     expect(sticks).toEqual([true, true, true]);
     expect(state.pinned).toBe(true);
   });
@@ -88,7 +90,7 @@ describe("stepStick — opening", () => {
     const { sticks } = run([
       { type: "input" },
       { type: "scroll", atBottom: false },
-      { type: "resize" }, // an older page prepended above
+      layout, // an older page prepended above
     ]);
     expect(sticks).toEqual([false, false, false]);
   });
@@ -112,11 +114,11 @@ describe("stepStick — after opening", () => {
   });
 
   it("keeps the newest message above a composer that grows while pinned (drafts appear)", () => {
-    expect(stepStick(settled, { type: "resize" }).stick).toBe(true);
+    expect(stepStick(settled, layout).stick).toBe(true);
   });
 
   it("leaves the history being read alone when the composer grows", () => {
-    expect(stepStick(readingHistory, { type: "resize" }).stick).toBe(false);
+    expect(stepStick(readingHistory, layout).stick).toBe(false);
   });
 
   it("ignores input once settled — it no longer changes anything", () => {
@@ -129,6 +131,44 @@ describe("stepStick — after opening", () => {
 
   it("returns the same state object when nothing changed", () => {
     expect(stepStick(settled, { type: "scroll", atBottom: true }).state).toBe(settled);
-    expect(stepStick(readingHistory, { type: "resize" }).state).toBe(readingHistory);
+    expect(stepStick(readingHistory, layout).state).toBe(readingHistory);
+  });
+});
+
+describe("stepStick — the viewport changing size", () => {
+  it("keeps the newest message in view when the window gets shorter while pinned", () => {
+    // The end is now below the fold, but the reader was at it before the
+    // resize — the pinned state, not the new geometry, decides.
+    expect(isAtBottom({ scrollTop: 1400, viewportHeight: 500, scrollHeight: 2000 })).toBe(false);
+    expect(stepStick(settled, viewport).stick).toBe(true);
+  });
+
+  it("follows the phone's browser bars sliding in once the finger is up", () => {
+    const { sticks } = run(
+      [{ type: "touch", down: true }, { type: "touch", down: false }, viewport],
+      settled,
+    );
+    expect(sticks).toEqual([false, false, true]);
+  });
+
+  it("doesn't fight a touch: bars reacting to the gesture mid-scroll are left alone", () => {
+    const { sticks } = run([{ type: "touch", down: true }, viewport], settled);
+    expect(sticks).toEqual([false, false]);
+  });
+
+  it("still follows the page's own layout mid-touch while pinned", () => {
+    const { sticks } = run([{ type: "touch", down: true }, layout], settled);
+    expect(sticks).toEqual([false, true]);
+  });
+
+  it("leaves the history being read alone", () => {
+    expect(stepStick(readingHistory, viewport).stick).toBe(false);
+  });
+
+  it("a finger down ends the opening window, like any input", () => {
+    const step = stepStick(OPENING_STATE, { type: "touch", down: true });
+    expect(step.state).toEqual({ pinned: true, settling: false, touching: true });
+    // Lifting it doesn't reopen the window.
+    expect(stepStick(step.state, { type: "touch", down: false }).state).toEqual(settled);
   });
 });
