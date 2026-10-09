@@ -112,7 +112,7 @@ Authentication, secrets via Doppler.
   transactional-only — don't add newsletters or drip campaigns to this pipe.
 - **Billing (Dodo Payments, merchant of record)** buys plans and AI top-ups per workspace.
   Config is four env values (`DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`,
-  `DODO_PAYMENTS_ENVIRONMENT`, `DODO_PRODUCTS` — from `pnpm billing:products:dev|prod`, built
+  `DODO_PAYMENTS_LIVE_MODE` — `true`/`false`, `DODO_PRODUCTS` — from `pnpm billing:products:dev|prod`, built
   from `src/lib/billing-catalog.ts`); unset = 503 `billing_unavailable`, never a crash. Every
   provider call goes through `src/lib/dodo.ts` (mocked in tests) and counts against a per-person
   hourly cap (`reserveBillingCall`). Rules a change must keep:
@@ -120,12 +120,17 @@ Authentication, secrets via Doppler.
   `/api/webhooks/dodo`) — never on checkout, the return page or a change request (those only ask
   the provider); webhooks are **signature-verified, applied once** (`billing_webhook_events`, in
   the same transaction as the change) and **placed through our rows** (the checkout session we
-  recorded, or the known subscription/payment), never through metadata alone; **anything it can't
+  recorded, or the known subscription/payment), never through metadata alone; **another brand's events
+  are a 200 and dropped** (`isOurs` — the provider account sells for other brands too and endpoints
+  filter by event type only; ours carry `metadata.app` from our checkout, or match our rows or
+  products); **anything of ours it can't
   apply yet is a 503 and isn't recorded** (unplaced events, an unknown product, a refund/dispute for
   an unseen payment), so retries and dashboard replays work (`pnpm billing:reprocess:*` forgets an
   applied one); a checkout always records its session (workspace, buyer, **expected amount**)
   before the URL is returned, and a top-up is granted only when the amount received ≥ that and the
   workspace matches (**A3** — top-up checkouts take no discount code; plans are granted by product).
+  **The currency is the request country's** (`checkoutCurrency`, by `cf-ipcountry`): pricing pages
+  show it as a label and checkout pins it — a currency picker exists only in `next dev`.
   One live subscription per workspace — a paid workspace changes plan (`changePlan`: up now and
   prorated, down at renewal, C3) instead of a second checkout. **A plan belongs to its buyer:**
   each checkout is a new provider customer; only the buyer gets the portal, invoice PDFs and

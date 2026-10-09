@@ -85,10 +85,10 @@ export function pricingCurrencyFor(code: string | null | undefined): Currency {
 
 /**
  * The currency the app quotes a workspace's plans in for this request: the
- * one checkout would charge (`checkoutCurrency`), with the workspace's own
- * currency as the preference. So the rupee list shows only to a request from
- * a rupee country (`country` = `requestCountry()`), and the plan cards and the
- * upgrade dialog never quote a price that checkout then changes.
+ * one checkout would charge (`checkoutCurrency`) — the request country's
+ * (`country` = `requestCountry()`), with the workspace's own currency as the
+ * preference only in local development. So the plan cards and the upgrade
+ * dialog never quote a price that checkout then changes.
  */
 export function workspacePriceCurrency(
   code: string | null | undefined,

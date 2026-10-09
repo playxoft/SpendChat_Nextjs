@@ -46,7 +46,7 @@ const sections: { id: string; h: string; p: React.ReactNode[] }[] = [
     id: "billing",
     h: "Billing and renewal",
     p: [
-      `Plans are paid in advance for the period you choose — 1 month, 3 months or 1 year — and renew automatically on the same date until you cancel. Prices are set in ${currencies}; rupee prices are available to buyers in India and its rupee-priced neighbours. Checkout shows the exact amount, tax included, before you pay, and your currency stays the same for the life of the plan.`,
+      `Plans are paid in advance for the period you choose — 1 month, 3 months or 1 year — and renew automatically on the same date until you cancel. Prices are set in ${currencies}, and you pay in the one for the country you're buying from — rupees in India and its rupee-priced neighbours, US dollars where we have no local price. Checkout shows the exact amount, tax included, before you pay, and your currency stays the same for the life of the plan.`,
       "Payments by UPI or an Indian card can take up to two days to be debited after a renewal starts; the workspace keeps working meanwhile.",
     ],
   },

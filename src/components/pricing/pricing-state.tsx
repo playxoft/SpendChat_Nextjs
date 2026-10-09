@@ -10,7 +10,6 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import {
-  CURRENCIES,
   PAID_PERSONAL_PLANS,
   PERIODS,
   PERIOD_LABEL,
@@ -43,7 +42,7 @@ const Ctx = createContext<PricingState | null>(null);
  */
 export function PricingStateProvider({
   initialCurrency,
-  currencies = ALL_CURRENCIES,
+  currencies,
   upi = false,
   children,
 }: {
@@ -51,10 +50,11 @@ export function PricingStateProvider({
   /** The request comes from India (`cf-ipcountry`), where UPI is offered. */
   upi?: boolean;
   /**
-   * Limit the switcher — the in-app page passes `checkoutCurrencies(country)`
-   * so it only offers prices checkout will charge. The public page shows all.
+   * What the currency control offers — `checkoutCurrencies(country)`, the
+   * prices checkout will charge: the visitor's own currency (a label, not a
+   * picker), or every currency in local development.
    */
-  currencies?: Currency[];
+  currencies: Currency[];
   children: ReactNode;
 }) {
   // Yearly first: it's the best deal, and the price people should anchor on.
@@ -66,8 +66,6 @@ export function PricingStateProvider({
     </Ctx.Provider>
   );
 }
-
-const ALL_CURRENCIES = CURRENCIES.map((c) => c.code);
 
 export function usePricingState(): PricingState {
   const value = useContext(Ctx);
@@ -110,6 +108,7 @@ export function PricingControls({ className }: { className?: string }) {
         onChange={setPeriod}
         options={periodOptions}
       />
+      {currencies.length > 1 ? (
       <Select value={currency} onValueChange={(v) => isCurrency(v) && setCurrency(v)}>
         <SelectTrigger
           aria-label="Currency"
@@ -131,6 +130,18 @@ export function PricingControls({ className }: { className?: string }) {
           ))}
         </SelectContent>
       </Select>
+      ) : (
+        // One currency — the visitor's country's — so it's a label, not a picker.
+        <span
+          title="Prices are in your local currency"
+          className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border px-3 text-sm font-medium text-muted-foreground sm:px-4 md:justify-self-end"
+        >
+          <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-1.5 font-semibold text-foreground">
+            {currencySymbol(currency)}
+          </span>
+          {currency}
+        </span>
+      )}
     </div>
   );
 }

@@ -406,8 +406,8 @@ export async function buildCheckoutOrder(
     if (live && !isStalePending(live)) throw liveRefusal(live);
   }
 
-  // The client's (or the workspace's) currency is a preference; the request's
-  // country decides whether the rupee list may be used (`checkoutCurrency`).
+  // The request's country decides the currency (`checkoutCurrency`); the
+  // client's or the workspace's choice counts only in local development.
   const currency = checkoutCurrency(item.currency ?? pricingCurrencyFor(ws.currency), ctx.country);
   // The page showed `item.currency`; if the request's country no longer allows
   // it (a VPN toggled, roaming), charging something else silently would bill a

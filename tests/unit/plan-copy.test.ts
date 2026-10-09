@@ -192,14 +192,13 @@ describe("pricingFaqs", () => {
 
 describe("helpers", () => {
   it("quotes a workspace's plans in the currency checkout will charge", () => {
-    // INR only for a request from a rupee country — the same rule as checkout.
+    // The request's country decides, as at checkout — not the workspace's currency.
     expect(workspacePriceCurrency("INR", "IN")).toBe("INR");
     expect(workspacePriceCurrency("INR", "US")).toBe("USD");
     expect(workspacePriceCurrency("INR", "DE")).toBe("EUR");
     expect(workspacePriceCurrency("INR", null)).toBe("USD");
-    // Every other currency is the global price, wherever the request is from.
-    expect(workspacePriceCurrency("EUR", "IN")).toBe("EUR");
-    expect(workspacePriceCurrency("SGD", "IN")).toBe("USD");
+    expect(workspacePriceCurrency("EUR", "IN")).toBe("INR");
+    expect(workspacePriceCurrency("SGD", "IN")).toBe("INR");
   });
 
   it("prices a workspace in its own currency when we sell in it, else in dollars", () => {

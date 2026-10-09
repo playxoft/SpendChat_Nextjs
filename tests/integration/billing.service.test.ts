@@ -148,11 +148,17 @@ describe("startCheckout — the price is the server's", () => {
     expect(order.amountMinor).toBe(priceMinor("plus", "quarterly", "USD"));
   });
 
-  it("uses the currency the buyer chose, still priced from the list", async () => {
+  it("charges the request country's currency from the list — another one asked for is refused, never swapped in", async () => {
     const W = await ownWorkspace();
-    const order = await buildCheckoutOrder(uid("own"), W, { ...plan("plus", "monthly"), currency: "EUR" });
-    expect(order.currency).toBe("EUR");
-    expect(order.amountMinor).toBe(priceMinor("plus", "monthly", "EUR"));
+    const eur = { ...plan("plus", "monthly"), currency: "EUR" as const };
+    const fromGermany = await buildCheckoutOrder(uid("own"), W, eur, { country: "DE" });
+    expect(fromGermany.currency).toBe("EUR");
+    expect(fromGermany.amountMinor).toBe(priceMinor("plus", "monthly", "EUR"));
+    // No picking a cheaper list: euros from the US (or pounds from Germany) aren't on offer there.
+    await expect(buildCheckoutOrder(uid("own"), W, eur, { country: "US" })).rejects.toMatchObject({ status: 400 });
+    await expect(
+      buildCheckoutOrder(uid("own"), W, { ...plan("plus", "monthly"), currency: "GBP" }, { country: "DE" }),
+    ).rejects.toMatchObject({ status: 400 });
   });
 
   it("only charges the rupee list to a request from a rupee country (security review: currency arbitrage)", async () => {

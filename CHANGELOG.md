@@ -60,6 +60,10 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   what to do.
 - A workspace with a plan running changes plan from checkout instead of buying
   a second one.
+- **Prices are in your country's currency, and that's the one you pay in.** The
+  pricing pages no longer have a currency picker — they show the price for
+  where you are (US dollars where there's no local price), and checkout charges
+  exactly that.
 
 - Deleting your account stops every plan you pay for — including one in
   someone else's workspace, which keeps its plan to the end of the period.
