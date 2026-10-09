@@ -23,11 +23,12 @@ const SETTLE_MAX_MS = 5000;
 
 /**
  * What counts as the reader taking over. Each fires *before* the scroll it
- * causes (a wheel turn, a finger down, a key, a press on the scrollbar), so the
- * scroll that follows is already theirs. Captured on `window`, so a handler
- * that stops propagation can't hide one.
+ * causes (a wheel turn, a key, a press on the scrollbar — and `touchstart`,
+ * tracked on its own below), so the scroll that follows is already theirs.
+ * Captured on `window`, so a handler that stops propagation can't hide one.
  */
-const INPUT_EVENTS = ["wheel", "touchstart", "keydown", "pointerdown"] as const;
+const INPUT_EVENTS = ["wheel", "keydown", "pointerdown"] as const;
+const TOUCH_EVENTS = ["touchstart", "touchend", "touchcancel"] as const;
 
 function geometry(): ScrollGeometry {
   return {
@@ -61,7 +62,8 @@ function scrollToEnd() {
  *
  * So instead of one scroll it holds a position:
  *  - scrolls to the end at mount, again in the next frame (after the router's
- *    scroll in that commit), and whenever layout changes while pinned;
+ *    scroll in that commit), and whenever the layout or the viewport
+ *    changes size while pinned;
  *  - while opening, undoes any scroll off the end the reader didn't make;
  *  - turns the browser's scroll restoration off while the tracker is up, so a
  *    reload never lands on an old offset at all.
@@ -99,23 +101,39 @@ export function useStickToBottom(): void {
     // runs after the router's scroll-to-top in this same commit, and before
     // anything is painted at the top or the "load older" observer looks.
     scrollToEnd();
-    const frame = requestAnimationFrame(() => apply({ type: "resize" }));
+    const frame = requestAnimationFrame(() => apply({ type: "resize", source: "layout" }));
     armSettle();
 
     const onScroll = () => apply({ type: "scroll", atBottom: isAtBottom(geometry()) });
     const onInput = () => apply({ type: "input" });
+    // Any finger still on the screen after this event keeps it a touch.
+    const onTouch = (e: TouchEvent) => apply({ type: "touch", down: e.touches.length > 0 });
     // `body` grows with everything in the page's flow: the feed, the header,
     // the composer (sticky, so it's in the flow too). The selection bar is
     // `fixed` and doesn't count — it sits over the composer's space.
     const resizeObserver = new ResizeObserver(() => {
-      apply({ type: "resize" });
+      apply({ type: "resize", source: "layout" });
       armSettle();
     });
     resizeObserver.observe(document.body);
+    // …but `body` is at least as tall as the window, so once the feed is
+    // taller than that, a shorter window — or a phone's browser bars sliding
+    // in over the visual viewport — doesn't resize it, and the end of the
+    // feed would slip under the composer. Both report here.
+    const onViewport = () => {
+      apply({ type: "resize", source: "viewport" });
+      armSettle();
+    };
+    const { visualViewport } = window;
 
     window.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onViewport, { passive: true });
+    visualViewport?.addEventListener("resize", onViewport, { passive: true });
     for (const type of INPUT_EVENTS) {
       window.addEventListener(type, onInput, { passive: true, capture: true });
+    }
+    for (const type of TOUCH_EVENTS) {
+      window.addEventListener(type, onTouch, { passive: true, capture: true });
     }
 
     return () => {
@@ -124,8 +142,13 @@ export function useStickToBottom(): void {
       window.clearTimeout(settleTimer);
       resizeObserver.disconnect();
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onViewport);
+      visualViewport?.removeEventListener("resize", onViewport);
       for (const type of INPUT_EVENTS) {
         window.removeEventListener(type, onInput, { capture: true });
+      }
+      for (const type of TOUCH_EVENTS) {
+        window.removeEventListener(type, onTouch, { capture: true });
       }
     };
   }, []);

@@ -366,7 +366,7 @@ function Summary({
   return (
     <aside
       aria-labelledby="summary-heading"
-      className="rounded-2xl border bg-card p-5 shadow-sm sm:p-6 lg:sticky lg:top-20"
+      className="rounded-2xl border bg-card p-5 shadow-sm sm:p-6 lg:sticky lg:top-6"
     >
       <h2 id="summary-heading" className="text-sm font-semibold">
         Order summary
