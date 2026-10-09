@@ -207,7 +207,7 @@ Authentication, secrets via Doppler.
   entries (`{model_id, api_key, provider?, base_url?}`) plus the name of the
   active one — resolved by `resolveModelFromEnv()` in `src/lib/ai-model-registry.ts`:
   `AI_PARSE_MODEL(_CURRENT)` for text→drafts, `AI_TRANSCRIBE_MODEL(_CURRENT)` for
-  voice→text, `AI_CHAT_MODEL(_CURRENT)` for Ask (questions answered in Markdown
+  voice→text, `AI_CHAT_MODEL(_CURRENT)` for SpendChat AI (questions answered in Markdown
   from a data summary, `src/lib/ai-chat.ts`). The pairs are **independent on
   purpose** and never fall back to one another: parsing runs on any chat model,
   transcription needs one that accepts audio (Anthropic has no speech model at all). Adding a feature means adding a
@@ -223,7 +223,9 @@ Authentication, secrets via Doppler.
   makes code-mixed speech work. Whisper-style hosts take a single language code,
   so the same list degrades to a vocabulary hint there; don't add a `language`
   parameter to that adapter, since pinning one language transliterates the rest.
-- **Ask** (`/app/ask`, `c`) answers questions about the workspace's money. The
+- **SpendChat AI** (`/app/ask`, `c`; "Ask" in code — routes, tables, actions and
+  file names keep that name, only the text people see says SpendChat AI) answers
+  questions about the workspace's money. The
   model never queries anything: `gatherChatData` (`src/services/ai-chat.ts`) builds
   a bounded summary through `src/lib/queries.ts` — so access scoping and the trash
   rule come for free — and it rides in the system prompt. One question = one AI
@@ -245,7 +247,7 @@ Authentication, secrets via Doppler.
   question. Never a "not set up" banner.
 - Keep the design minimal and neutral (no gradients); income uses a single emerald accent.
   **One exception:** AI affordances (the composer's Manual/AI toggle, AI mode's
-  primary actions and Ask's send button) use a blue→violet gradient, so "this calls a model" is visually
+  primary actions and SpendChat AI's send button) use a blue→violet gradient, so "this calls a model" is visually
   distinct from ordinary entry. Don't extend it to anything else, and don't add a
   second gradient — if a new surface needs one, it reuses this one.
 

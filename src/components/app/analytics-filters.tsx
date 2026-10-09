@@ -18,26 +18,46 @@ import { parseISODate, toISODate } from "@/lib/dates";
 import { cn } from "@/lib/utils";
 
 /**
- * The filter row: every control exactly `h-9` (36px) — the range toggle (its
- * 28px buttons fill the 36px box: 1px border + 3px padding each side), the
- * date picker and the type select. Where they fit, one row; on a phone the
- * toggle takes a row (scrolling if it must) and the date and type share the
- * next one, or each take a full row of their own — they grow to fill it
- * rather than leave a ragged edge.
+ * The filter row: every control exactly `h-9` (36px) and in the same 14px
+ * text — the range toggle (its 28px buttons fill the 36px box: 1px border +
+ * 3px padding each side), the date picker and the type select. Where they fit,
+ * one row. On a phone the toggle takes its own row, its five options sharing
+ * it evenly under short labels ("3 mo"), so all of them show at 320px without
+ * scrolling; the date and type then share the next row, or take a full row
+ * each — growing to fill it rather than leave a ragged edge.
  */
 const FILTER_ROW = "flex flex-wrap items-center gap-2 print:hidden";
+// At 320px: 288px of row − 8px of border and padding = 280px, so with no gaps
+// each of the five options is 56px; less its 2px border and 8px padding that
+// leaves 46px — room for "Month" in the buttons' medium weight (43px).
 const SEGMENTED =
-  "no-scrollbar flex h-9 min-w-0 max-w-full shrink items-center gap-0.5 overflow-x-auto rounded-lg border bg-muted/40 p-[3px]";
+  "no-scrollbar flex h-9 w-full min-w-0 max-w-full shrink items-center gap-0 overflow-x-auto rounded-lg border bg-muted/40 p-[3px] sm:w-auto sm:gap-0.5";
+/** One option of the toggle — the buttons and their loading placeholders (medium weight, like a button). */
+const SEGMENT = "h-7 min-w-0 flex-1 px-1 text-sm font-medium sm:flex-none sm:shrink-0 sm:px-2.5";
 const DATE_CONTROL = "h-9 flex-1 sm:flex-none";
 const TYPE_CONTROL = "h-9 min-w-32 flex-1 data-[size=default]:h-9 sm:w-32 sm:flex-none";
 
+/**
+ * `short` is what a phone shows; it is always contained in `label`, which is
+ * the button's accessible name, so a voice command for what's on screen still
+ * finds it.
+ */
 const RANGES = [
-  { key: "1", label: "This month", months: 1 },
-  { key: "3", label: "3 months", months: 3 },
-  { key: "6", label: "6 months", months: 6 },
-  { key: "12", label: "12 months", months: 12 },
-  { key: "all", label: "All time", months: 0 },
+  { key: "1", label: "This month", short: "Month", months: 1 },
+  { key: "3", label: "3 months", short: "3 mo", months: 3 },
+  { key: "6", label: "6 months", short: "6 mo", months: 6 },
+  { key: "12", label: "12 months", short: "12 mo", months: 12 },
+  { key: "all", label: "All time", short: "All", months: 0 },
 ] as const;
+
+function SegmentLabel({ r }: { r: (typeof RANGES)[number] }) {
+  return (
+    <>
+      <span className="truncate sm:hidden">{r.short}</span>
+      <span className="hidden sm:inline">{r.label}</span>
+    </>
+  );
+}
 
 export function AnalyticsFilters({ today, locale }: { today: string; locale?: string }) {
   const router = useRouter();
@@ -126,15 +146,17 @@ export function AnalyticsFilters({ today, locale }: { today: string; locale?: st
               variant="ghost"
               size="sm"
               aria-pressed={active}
+              aria-label={r.label}
               className={cn(
-                "h-7 shrink-0 px-2.5 text-xs transition-colors",
+                SEGMENT,
+                "transition-colors",
                 active
                   ? "bg-background font-medium text-foreground shadow-sm hover:bg-background"
                   : "text-muted-foreground hover:text-foreground",
               )}
               onClick={() => applyRange(r)}
             >
-              {r.label}
+              <SegmentLabel r={r} />
             </Button>
           );
         })}
@@ -190,9 +212,10 @@ export function AnalyticsFiltersSkeleton() {
         {RANGES.map((r) => (
           <span
             key={r.key}
-            className="inline-flex h-7 shrink-0 items-center px-2.5 text-xs text-muted-foreground"
+            // The same box as the buttons, border included.
+            className={cn(SEGMENT, "inline-flex items-center justify-center border border-transparent text-muted-foreground")}
           >
-            {r.label}
+            <SegmentLabel r={r} />
           </span>
         ))}
       </div>

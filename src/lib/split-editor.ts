@@ -209,14 +209,20 @@ export function withPayerIds(state: EditorState, ids: string[]): EditorState {
   return ids.length ? { ...state, payerIds: ids } : state;
 }
 
+/**
+ * Move one slider, worked out from `state` itself — call it inside a state
+ * updater. Two moves in one tick (a typed figure committed on blur, then a tap
+ * on another slider's track) must each see the other's result; computing from
+ * the view of the last render would let the second silently undo the first.
+ */
 export function withSliderMoved(
   state: EditorState,
-  view: EditorView,
+  ctx: EditorContext,
   which: "payers" | "exact" | "percent",
   id: string,
   units: number,
 ): EditorState {
-  const current = view[which];
+  const current = viewEditor(state, ctx)[which];
   return current ? { ...state, [which]: moveSlider(current, id, units) } : state;
 }
 

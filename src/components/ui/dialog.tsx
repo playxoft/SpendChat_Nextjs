@@ -131,6 +131,11 @@ function DialogContent({
         }}
         className={cn(
           "fixed top-1/2 left-1/2 z-50 grid w-full max-w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 gap-4 rounded-xl bg-popover p-4 text-sm text-popover-foreground ring-1 ring-foreground/10 duration-100 outline-none sm:max-w-sm data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
+          // Keep a long title clear of the close button. The button sits 8px
+          // in from the corner and is 28px wide, so it reaches 36px in; the
+          // padding's 16px plus 24px stops the title at 40px — a 4px gap —
+          // and a long title wraps instead of running under the X.
+          showCloseButton && "[&_[data-slot=dialog-title]]:pr-6",
           className
         )}
         {...props}

@@ -1,6 +1,7 @@
 "use client";
 
 import { ShareSliderRow, type SplitPerson } from "@/components/split/split-people-list";
+import type { SliderInput } from "@/lib/split-slider-input";
 import { cn } from "@/lib/utils";
 import { MemberAvatar } from "./member-avatar";
 import type { ExpenseEditor } from "./use-expense-editor";
@@ -14,6 +15,7 @@ export function PayerSliders({
   people,
   totalMinor,
   format,
+  input,
   disabled,
   className,
 }: {
@@ -21,6 +23,8 @@ export function PayerSliders({
   people: SplitPerson[];
   totalMinor: number;
   format: (minor: number) => string;
+  /** The number box beside each slider (amounts in the group's currency). */
+  input: SliderInput;
   /** While saving. */
   disabled?: boolean;
   className?: string;
@@ -41,7 +45,7 @@ export function PayerSliders({
               avatar={<MemberAvatar id={id} name={person.name} size="sm" />}
               what="Paid"
               disabled={disabled || totalMinor === 0}
-              binding={{ state, step: editor.moneyStep, format, onMove: editor.movePayer }}
+              binding={{ state, step: editor.moneyStep, format, input, onMove: editor.movePayer }}
             />
           );
         })}

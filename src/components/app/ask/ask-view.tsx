@@ -49,7 +49,7 @@ function unsavedAnswerOf(details: unknown): { answer: string; ai: AiActionsLeft 
   return { answer: d.answer, ai: { remaining, limit } };
 }
 
-/** Questions that show what Ask is for — tapping one fills the box, it doesn't send. */
+/** Questions that show what SpendChat AI is for — tapping one fills the box, it doesn't send. */
 const SUGGESTIONS = [
   "How much did I spend on food last month?",
   "Top 5 expenses this month",
@@ -325,9 +325,29 @@ export function AskView({
 
       {canWrite && (
         <div className="sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0 print:hidden">
-          <div className="mx-auto flex max-w-3xl flex-col gap-2 rounded-2xl border bg-background p-2.5 shadow-lg md:bg-background/95 md:backdrop-blur-sm">
-            {lock && <LimitPanel lock={lock} hint="Ask is back when your actions refill on the 1st." />}
-            <div className="relative">
+          <div className="mx-auto max-w-3xl">
+            {lock && (
+              <LimitPanel
+                lock={lock}
+                hint="SpendChat AI is back when your actions refill on the 1st."
+                className="mb-2"
+              />
+            )}
+            {/* A slim message bar: one line that grows with what's typed (up
+                to ~6 lines, then scrolls). The send button is the line's
+                height and sits at the bar's bottom — level with the text on
+                one line, pinned under the last line once it grows. */}
+            <div
+              className={cn(
+                "flex items-end gap-2 rounded-3xl border bg-background py-1.5 pr-1.5 pl-4 shadow-lg transition-[border-color,box-shadow]",
+                "focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50",
+                "md:bg-background/95 md:backdrop-blur-sm",
+                // Out of actions: one dimmed bar. The field and the button
+                // inside opt out of their own disabled fade, which stacked on
+                // this one left the text at ~30% and hard to read.
+                spent && "opacity-60",
+              )}
+            >
               <Textarea
                 ref={taRef}
                 value={text}
@@ -336,31 +356,44 @@ export function AskView({
                 rows={1}
                 maxLength={AI_CHAT_QUESTION_MAX}
                 disabled={spent}
-                placeholder="Ask about your money — e.g. How much did I spend on food last month?"
+                placeholder="Ask about your money…"
                 aria-label="Your question"
-                className="max-h-48 min-h-[3.25rem] resize-none pr-12 md:text-base"
+                className={cn(
+                  // The base field's chrome moves to the bar around it.
+                  "max-h-40 min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent px-0 py-1 text-base leading-6 shadow-none md:text-base",
+                  "focus-visible:border-0 focus-visible:ring-0 disabled:bg-transparent disabled:opacity-100 dark:bg-transparent dark:disabled:bg-transparent",
+                  // Content sizing measures the placeholder too: keep it to one line.
+                  "placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap",
+                )}
               />
-              <div className="absolute right-1.5 bottom-1.5">
-                <LockedButton
-                  lock={lock}
-                  type="button"
-                  size="icon-lg"
-                  onClick={() => ask(text)}
-                  disabled={busy || !text.trim()}
-                  aria-label="Ask"
-                  title="Ask (Enter)"
-                  className={cn("rounded-full p-0", !lock && AI_BTN)}
-                >
-                  {busy ? <Loader2 className="size-5 animate-spin" /> : <ArrowUp className="size-5" />}
-                </LockedButton>
-              </div>
+              <LockedButton
+                lock={lock}
+                type="button"
+                size="icon"
+                onClick={() => ask(text)}
+                disabled={busy || !text.trim()}
+                aria-label="Send"
+                title="Send (Enter)"
+                className={cn(
+                  "size-8 shrink-0 rounded-full p-0",
+                  !lock && AI_BTN,
+                  // Only when out of actions — an empty box still fades it as usual.
+                  spent && "disabled:opacity-100",
+                )}
+              >
+                {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowUp className="size-4" />}
+              </LockedButton>
             </div>
-            <div className="flex items-center justify-between gap-3 px-0.5">
-              <p className="min-w-0 truncate text-xs text-muted-foreground">
+            <div className="flex items-center justify-between gap-3 px-4 pt-1">
+              <p className="hidden min-w-0 truncate text-[11px] text-muted-foreground sm:block">
                 Answers come from your transactions.
                 {!sampleAnswers && " Each question uses 1 AI action."}
               </p>
-              <AiActionsLeftLine allowance={null} latest={left} className="shrink-0" />
+              <AiActionsLeftLine
+                allowance={null}
+                latest={left}
+                className="ml-auto shrink-0 text-[11px]"
+              />
             </div>
           </div>
         </div>
@@ -382,7 +415,10 @@ function AskHeader({
   const [open, setOpen] = useState(false);
   return (
     <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm print:hidden">
-      <div className="mx-auto flex h-12 max-w-3xl items-center gap-2 px-4">
+      {/* Three columns, the outer two the same width whether or not their
+          buttons show (they're phone-only), so the title is centred on every
+          screen. */}
+      <div className="mx-auto grid h-12 max-w-3xl grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-2 px-4">
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label="Your chats" className="lg:hidden">
@@ -392,13 +428,18 @@ function AskHeader({
           <SheetContent side="left" className="w-72 p-0">
             <SheetHeader className="px-4 pt-4 pb-2">
               <SheetTitle>Chats</SheetTitle>
-              <SheetDescription className="sr-only">Your Ask chats in this workspace.</SheetDescription>
+              <SheetDescription className="sr-only">
+                Your SpendChat AI chats in this workspace.
+              </SheetDescription>
             </SheetHeader>
             <ChatList chats={chats} onNavigate={() => setOpen(false)} className="min-h-0 flex-1" />
           </SheetContent>
         </Sheet>
-        <h1 className="min-w-0 flex-1 truncate text-sm font-semibold">{title ?? "Ask"}</h1>
-        <Button asChild variant="ghost" size="icon-sm" className="lg:hidden">
+        <div className="col-start-2 min-w-0 text-center leading-tight">
+          <h1 className="truncate text-sm font-semibold">SpendChat AI</h1>
+          {title && <p className="truncate text-xs text-muted-foreground">{title}</p>}
+        </div>
+        <Button asChild variant="ghost" size="icon-sm" className="col-start-3 justify-self-end lg:hidden">
           <Link href={askHref({ profile })} aria-label="New chat" title="New chat">
             <SquarePen className="size-4" />
           </Link>
@@ -490,7 +531,7 @@ function EmptyState({
       <span className="flex size-11 items-center justify-center rounded-full border bg-muted text-muted-foreground">
         <Sparkles className="size-5" />
       </span>
-      <h2 className="mt-4 text-lg font-semibold tracking-tight">Ask about your money</h2>
+      <h2 className="mt-4 text-lg font-semibold tracking-tight">Ask SpendChat AI about your money</h2>
       <p className="mt-1 max-w-md text-sm text-muted-foreground">
         Answers come from the transactions you can see in {workspaceName} — totals, top expenses,
         month-on-month changes.

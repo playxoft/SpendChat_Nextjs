@@ -192,7 +192,8 @@ export function UpgradeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md" closeOnOutsideClick>
         <DialogHeader>
-          <DialogTitle>{copy.headline}</DialogTitle>
+          {/* The headlines are sentences that often wrap; give the lines room. */}
+          <DialogTitle className="leading-snug">{copy.headline}</DialogTitle>
           <DialogDescription>{copy.status}</DialogDescription>
         </DialogHeader>
 

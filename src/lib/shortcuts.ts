@@ -33,8 +33,8 @@ export const SHORTCUTS: ShortcutDef[] = [
   // Single-key navigation + actions — fire only when not typing in a field and
   // no dialog/menu is open (see `requireNoOverlay` in use-shortcut).
   { id: "nav.tracker", combo: "q", label: "Go to the tracker", scope: "Navigation" },
-  // "c" for chat: Ask's own letter ("a" already toggles the tracker's AI mode).
-  { id: "nav.ask", combo: "c", label: "Go to Ask (AI chat)", scope: "Navigation" },
+  // "c" for chat: SpendChat AI's own letter ("a" already toggles the tracker's AI mode).
+  { id: "nav.ask", combo: "c", label: "Go to SpendChat AI", scope: "Navigation" },
   { id: "nav.transactions", combo: "t", label: "Go to transactions", scope: "Navigation" },
   { id: "nav.analytics", combo: "e", label: "Go to analytics", scope: "Navigation" },
   { id: "nav.budgets", combo: "u", label: "Go to budgets", scope: "Navigation" },

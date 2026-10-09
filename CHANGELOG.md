@@ -18,6 +18,28 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.39.0] — 2026-10-09
+
+### Added
+- **A number box beside every split slider** — in the composer, the expense
+  dialogs, who-paid and the free calculator. Type a figure and press Enter or
+  move on; the others rebalance so it still adds up. Escape puts it back.
+
+### Changed
+- **Ask is now SpendChat AI** — same place under Tracker, same `C` shortcut (the
+  phone's bottom bar labels it "AI"). The title sits centred, the question box
+  is a slim message bar that grows as you type with the send button level with
+  the text, and the "New chat" button and chat list are cleaner, with clear
+  hover and focus states and a highlight on the chat you're in.
+- Split composer: "Paid by" is labelled, and the ₹ / % buttons read "Amount"
+  and "Percent" on wider screens.
+- The analytics range buttons use the same size text as the date and type
+  filters; on a phone they fit one row with short labels ("3 mo").
+
+### Fixed
+- A long dialog title — like the "See where the month is heading, not just
+  where it went" upgrade prompt — no longer runs under the close button.
+
 ## [0.38.0] — 2026-10-07
 
 ### Added

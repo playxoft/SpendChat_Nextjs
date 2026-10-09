@@ -10,6 +10,7 @@ import { PayerSliders } from "@/components/app/split/payer-sliders";
 import { SplitComposer } from "@/components/app/split/split-composer";
 import { SplitPeopleList } from "@/components/split/split-people-list";
 import { evenSliders } from "@/lib/split-sliders";
+import { moneyInput, percentInput } from "@/lib/split-slider-input";
 import {
   editorFrom,
   viewEditor,
@@ -43,6 +44,7 @@ function run(start: EditorStart, total: number, members = ["a", "b", "c"]) {
       people: members.map((id) => ({ id, name: id.toUpperCase() })),
       totalMinor: total,
       format: (m: number) => `₹${m / 100}`,
+      input: moneyInput("INR", "en-IN"),
     });
   }
   const html = renderToString(React.createElement(Probe));
@@ -72,6 +74,9 @@ describe("useExpenseEditor", () => {
     });
     expect(html).toContain("What each paid");
     expect(html).toContain('role="slider"');
+    // Each payer's slider has its number box: what they paid, as the box shows it.
+    expect(html).toContain('aria-label="What A paid"');
+    expect(html).toContain('value="50.01"');
   });
 
   it("editing keeps saved amounts; a percent split starts even, the payer taking the leftover", () => {
@@ -104,7 +109,7 @@ describe("useExpenseEditor", () => {
 });
 
 describe("split people list and composer render", () => {
-  it("the composer starts with you paying, everyone in", () => {
+  it("the composer starts with you paying, everyone in, its controls named", () => {
     const html = renderToString(
       React.createElement(SplitComposer, {
         groupId: "g",
@@ -119,8 +124,14 @@ describe("split people list and composer render", () => {
         onExpand: () => {},
       }),
     );
-    expect(html).toContain("You paid");
+    expect(html).toContain("Paid by");
+    expect(html).toContain('aria-label="Paid by: You"');
     expect(html).toContain("All 2");
+    // ₹ and % carry their names: words from `sm` up, aria-label always.
+    expect(html).toContain('aria-label="Split by amount"');
+    expect(html).toContain('aria-label="Split by percent"');
+    expect(html).toMatch(/hidden sm:inline">Amount</);
+    expect(html).toMatch(/hidden sm:inline">Percent</);
   });
 
   it("the people list shows emails, Select all / Deselect all, and a slider per person in", () => {
@@ -137,6 +148,7 @@ describe("split people list and composer render", () => {
           state: evenSliders(["a", "b"], 10_000),
           step: 100,
           format: (v: number) => `${v / 100}%`,
+          input: percentInput("en-IN"),
           onMove: () => {},
         },
       }),
@@ -145,6 +157,10 @@ describe("split people list and composer render", () => {
     expect(html).toContain("Select all");
     expect(html).toContain("Deselect all");
     expect(html.match(/role="slider"/g)).toHaveLength(2);
+    // A number box beside each slider, showing its value.
+    expect(html.match(/inputMode="decimal"/g)).toHaveLength(2);
+    expect(html).toContain('aria-label="Share for you (%)"');
+    expect(html).toContain('value="50"');
   });
 });
 
@@ -161,9 +177,9 @@ describe("the editor model across sends", () => {
     let s = editorFrom({ splitType: "equal", included: ["a", "b", "c"], payers: [{ memberId: "a" }] }, 0);
     // First expense: ₹90 by amounts with a at ₹60; a and b paid, a all of it.
     s = withSplitType(s, "exact");
-    s = withSliderMoved(s, viewEditor(s, ctx(9000)), "exact", "a", 6000);
+    s = withSliderMoved(s, ctx(9000), "exact", "a", 6000);
     s = withPayerIds(s, ["a", "b"]);
-    s = withSliderMoved(s, viewEditor(s, ctx(9000)), "payers", "a", 9000);
+    s = withSliderMoved(s, ctx(9000), "payers", "a", 9000);
     let v = viewEditor(s, ctx(9000));
     expect(v.exact.values).toEqual({ a: 6000, b: 1500, c: 1500 });
     expect(v.payers?.values).toEqual({ a: 9000, b: 0 });
@@ -180,6 +196,20 @@ describe("the editor model across sends", () => {
     v = viewEditor(s, ctx(9000));
     expect(v.exact.values).toEqual({ a: 3000, b: 3000, c: 3000 });
     expect(v.payers?.values).toEqual({ a: 4500, b: 4500 });
+  });
+
+  it("two moves in one tick both land — a typed figure committed on blur, then a tap on another slider", () => {
+    const base = withSplitType(
+      editorFrom({ splitType: "equal", included: ["a", "b", "c"], payers: [{ memberId: "a" }] }, 9000),
+      "exact",
+    );
+    // React runs both queued updaters on the same render's state, one after the other.
+    const queued = [
+      (s: typeof base) => withSliderMoved(s, ctx(9000), "exact", "a", 5000),
+      (s: typeof base) => withSliderMoved(s, ctx(9000), "exact", "b", 3000),
+    ];
+    const after = queued.reduce((s, update) => update(s), base);
+    expect(viewEditor(after, ctx(9000)).exact.values).toEqual({ a: 5000, b: 3000, c: 1000 });
   });
 
   it("payers stay in the split: unticking one drops them, and someone always pays", () => {
