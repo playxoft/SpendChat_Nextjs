@@ -78,6 +78,21 @@ export const organizationKindEnum = pgEnum("organization_kind", ["personal", "bu
 /** A workspace's plan (`src/lib/plans.ts` holds what each one includes). */
 export const workspacePlanEnum = pgEnum("workspace_plan", PERSONAL_PLANS);
 
+/**
+ * How often a paid plan renews: every 1, 3 or 12 months — `Period` in
+ * `lib/pricing.ts` (`tests/unit/billing-catalog.test.ts` keeps the two equal).
+ */
+export const billingPeriodEnum = pgEnum("billing_period", ["monthly", "quarterly", "yearly"]);
+
+/** What a checkout sells: a plan (a subscription) or a one-time AI top-up. */
+export const billingItemEnum = pgEnum("billing_item", ["plan", "topup"]);
+
+/**
+ * Why billing has made a workspace view-only (`workspaces.billing_hold`): its
+ * renewal failed past the grace (abuse rule B3), or a payment was disputed (B2).
+ */
+export const billingHoldEnum = pgEnum("billing_hold", ["payment_failed", "dispute"]);
+
 /** Optional preset tag for a transaction attachment (receipt/bill/invoice/other). */
 export const attachmentKindEnum = pgEnum("attachment_kind", ATTACHMENT_KINDS);
 
@@ -113,6 +128,10 @@ export const users = pgTable(
     // first requests can't both send it (see `lib/welcome-email.ts`). Null for
     // accounts that predate it — they never receive one retroactively.
     welcomedAt: timestamp("welcomed_at", { withTimezone: true }),
+    // Set when a second payment this person made is disputed (abuse rule B2):
+    // from then on they can't buy a plan, a plan change or a top-up — checkout
+    // answers "contact support". Only support clears it, by hand.
+    purchasesBlockedAt: timestamp("purchases_blocked_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -181,7 +200,18 @@ export const workspaces = pgTable(
       .references(() => organizations.id, { onDelete: "restrict" }),
     // Limits apply from the day plans ship — there is no grace period (the app
     // isn't launched; 0037 dropped the short-lived `grandfathered` flag).
+    // Set only by the billing webhook (`services/billing-webhook.ts`) — never
+    // by a checkout or its return page.
     plan: workspacePlanEnum("plan").notNull().default("free"),
+    // Billing's view-only switch: from `billing_hold_from` on, the workspace is
+    // view-only (`readOnlyWorkspaceSql`) — a renewal that failed past its grace
+    // (B3) or a disputed payment (B2). A future instant is a grace still
+    // running. Both null = no hold. Nothing is ever deleted by a hold.
+    billingHold: billingHoldEnum("billing_hold"),
+    billingHoldFrom: timestamp("billing_hold_from", { withTimezone: true }),
+    // When this workspace last got B3's 7-day grace after a failed renewal:
+    // it gets one per 3 months, so a failure inside that window holds at once.
+    paymentGraceUsedAt: timestamp("payment_grace_used_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -432,6 +462,13 @@ export const aiUsageLog = pgTable(
      * parse that follows a paid transcription (voice = transcribe + parse).
      */
     units: integer("units").notNull().default(1),
+    /**
+     * How many of `units` were paid from the workspace's AI top-ups
+     * (`ai_topups`) rather than its monthly allowance — top-ups are spent only
+     * once the allowance is gone (C4). The allowance counts `units -
+     * topup_units`; a refunded call gives these back to the top-ups.
+     */
+    topupUnits: integer("topup_units").notNull().default(0),
     /** The workspace's owner and plan when the call was made (abuse rule C2). */
     ownerId: uuid("owner_id"),
     plan: workspacePlanEnum("plan"),
@@ -1557,6 +1594,197 @@ export const splitSettlements = pgTable(
   ],
 );
 
+// ── Billing (Dodo Payments) ─────────────────────────────────────────────────
+//
+// Plans and top-ups are bought per workspace through the payment provider's
+// hosted checkout (`services/billing.ts`) and *granted only by its webhooks*
+// (`services/billing-webhook.ts`). These tables are our record of what was
+// sold to whom: the provider is the source of truth for money, these are the
+// source of truth for which workspace it belongs to.
+//
+// None of them has a foreign key to `workspaces` except `ai_topups`: the
+// history must outlive a workspace, because trials are counted per person over
+// 12 months (abuse rule B1) and disputes per person for good (B2) — the same
+// reason `ai_usage_log` has none (C2). Deleting an account removes its rows
+// (`deleteAccount`). Top-ups are a balance, not history, so they go with their
+// workspace (C4).
+
+/**
+ * One provider subscription — a workspace's paid plan. Written only from
+ * webhooks: each subscription event carries the full current state, applied
+ * here (older events than `last_event_at` are skipped, since deliveries can
+ * arrive out of order). `status` is the provider's own word (`pending`,
+ * `active`, `on_hold`, `paused`, `past_due`, `cancelled`, `failed`,
+ * `expired`), kept as text so a new status can never fail a webhook.
+ *
+ * At most one **live** subscription per workspace (the partial unique index);
+ * checkout refuses a second, and a duplicate that gets through anyway (two
+ * checkout tabs both paid) is marked `superseded_at` and cancelled.
+ */
+export const workspaceSubscriptions = pgTable(
+  "workspace_subscriptions",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    // No FK on purpose — see the section note above.
+    workspaceId: uuid("workspace_id").notNull(),
+    // Who started the checkout (an admin of the workspace then) — B1 counts
+    // trials by this person.
+    buyerUserId: uuid("buyer_user_id").notNull(),
+    provider: text("provider").notNull().default("dodo"),
+    customerId: text("customer_id").notNull(),
+    subscriptionId: text("subscription_id").notNull().unique(),
+    checkoutSessionId: text("checkout_session_id"),
+    productId: text("product_id").notNull(),
+    plan: workspacePlanEnum("plan").notNull(),
+    period: billingPeriodEnum("period").notNull(),
+    currency: text("currency").notNull(),
+    status: text("status").notNull(),
+    // The free trial it started with (0 = none) and when that ends.
+    trialDays: integer("trial_days").notNull().default(0),
+    trialEndsAt: timestamp("trial_ends_at", { withTimezone: true }),
+    // First time it was entitled (active / past_due / on_hold): the workspace
+    // "has had a plan" from here on, and a trial from here counts toward B1.
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    nextBillingDate: timestamp("next_billing_date", { withTimezone: true }),
+    cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
+    // A downgrade waiting for the renewal (C3): the plan and period it moves to, and when.
+    scheduledPlan: workspacePlanEnum("scheduled_plan"),
+    scheduledPeriod: billingPeriodEnum("scheduled_period"),
+    scheduledAt: timestamp("scheduled_at", { withTimezone: true }),
+    // When the current run of failed payments started (past_due / on_hold); null once paid.
+    paymentFailedAt: timestamp("payment_failed_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    // A second live subscription for a workspace that already had one: kept
+    // for the record, cancelled with the provider, never entitles anything.
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    // The provider timestamp of the newest event applied — the out-of-order guard.
+    lastEventAt: timestamp("last_event_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One live subscription per workspace.
+    uniqueIndex("workspace_subscriptions_live_uq")
+      .on(t.workspaceId)
+      .where(
+        sql`${t.status} in ('pending', 'active', 'on_hold', 'paused', 'past_due') and ${t.supersededAt} is null`,
+      ),
+    index("workspace_subscriptions_workspace_idx").on(t.workspaceId, t.createdAt),
+    // B1: trials this person started in the last 12 months.
+    index("workspace_subscriptions_buyer_idx").on(t.buyerUserId, t.activatedAt),
+  ],
+);
+
+/**
+ * Every hosted checkout we opened: the session → workspace mapping the
+ * webhooks resolve purchases through (the provider's metadata is not trusted
+ * on its own), and the **expected amount** a top-up's payment is checked
+ * against before anything is granted (abuse rule A3). Also what a person's
+ * checkout cap counts (`CHECKOUT_SESSIONS_PER_HOUR`) and what the return page
+ * polls.
+ */
+export const billingCheckoutSessions = pgTable(
+  "billing_checkout_sessions",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    sessionId: text("session_id").notNull().unique(),
+    workspaceId: uuid("workspace_id").notNull(),
+    buyerUserId: uuid("buyer_user_id").notNull(),
+    item: billingItemEnum("item").notNull(),
+    plan: workspacePlanEnum("plan"),
+    period: billingPeriodEnum("period"),
+    productId: text("product_id").notNull(),
+    // What we priced it at (`lib/pricing.ts`), pre-tax, in `currency`'s minor units.
+    expectedAmountMinor: bigint("expected_amount_minor", { mode: "number" }).notNull(),
+    currency: text("currency").notNull(),
+    trialDays: integer("trial_days").notNull().default(0),
+    // Filled in when a webhook ties a payment or subscription to this session.
+    subscriptionId: text("subscription_id"),
+    paymentId: text("payment_id"),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("billing_checkout_sessions_workspace_idx").on(t.workspaceId, t.createdAt),
+    index("billing_checkout_sessions_buyer_idx").on(t.buyerUserId, t.createdAt),
+  ],
+);
+
+/**
+ * Webhook deliveries already applied, by the provider's `webhook-id` —
+ * idempotency. Recorded in the same transaction as the change it made, so a
+ * failed delivery leaves no row and its retry is applied in full.
+ */
+export const billingWebhookEvents = pgTable("billing_webhook_events", {
+  id: text("id").primaryKey(),
+  type: text("type").notNull(),
+  processedAt: timestamp("processed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Every payment the provider reported for one of our workspaces: the invoice
+ * list on Settings → Billing (`invoice_url`), and what refunds and disputes are
+ * mapped back through (B2 counts a person's disputed payments here).
+ */
+export const billingPayments = pgTable(
+  "billing_payments",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    paymentId: text("payment_id").notNull().unique(),
+    workspaceId: uuid("workspace_id").notNull(),
+    buyerUserId: uuid("buyer_user_id"),
+    kind: billingItemEnum("kind").notNull(),
+    subscriptionId: text("subscription_id"),
+    checkoutSessionId: text("checkout_session_id"),
+    status: text("status").notNull(),
+    totalAmountMinor: bigint("total_amount_minor", { mode: "number" }).notNull(),
+    taxMinor: bigint("tax_minor", { mode: "number" }),
+    currency: text("currency").notNull(),
+    invoiceUrl: text("invoice_url"),
+    refundedMinor: bigint("refunded_minor", { mode: "number" }).notNull().default(0),
+    disputedAt: timestamp("disputed_at", { withTimezone: true }),
+    disputeStatus: text("dispute_status"),
+    // The provider's own timestamp for the payment.
+    paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("billing_payments_workspace_idx").on(t.workspaceId, t.paidAt),
+    index("billing_payments_buyer_idx").on(t.buyerUserId),
+  ],
+);
+
+/**
+ * AI top-ups (abuse rule C4): 500 actions bought once, valid 12 months, spent
+ * only after the workspace's monthly allowance runs out, oldest-expiring first
+ * (`lib/ai-quota.ts`, under the allowance lock). Granted only by a
+ * `payment.succeeded` whose amount and workspace match the checkout we opened
+ * (A3). They belong to the workspace and go with it.
+ */
+export const aiTopups = pgTable(
+  "ai_topups",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    paymentId: text("payment_id").notNull().unique(),
+    checkoutSessionId: text("checkout_session_id"),
+    buyerUserId: uuid("buyer_user_id").notNull(),
+    actions: integer("actions").notNull(),
+    remaining: integer("remaining").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    // A refunded or disputed top-up: what was left of it is gone.
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("ai_topups_remaining_ck", sql`${t.remaining} >= 0 and ${t.remaining} <= ${t.actions}`),
+    index("ai_topups_workspace_idx").on(t.workspaceId, t.expiresAt),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserSettings = typeof userSettings.$inferSelect;
@@ -1606,3 +1834,8 @@ export type BudgetAlert = typeof budgetAlerts.$inferSelect;
 export type AiChat = typeof aiChats.$inferSelect;
 export type AiChatMessage = typeof aiChatMessages.$inferSelect;
 export type AiChatRole = (typeof aiChatRoleEnum.enumValues)[number];
+export type WorkspaceSubscription = typeof workspaceSubscriptions.$inferSelect;
+export type BillingCheckoutSession = typeof billingCheckoutSessions.$inferSelect;
+export type BillingPayment = typeof billingPayments.$inferSelect;
+export type AiTopup = typeof aiTopups.$inferSelect;
+export type BillingHold = (typeof billingHoldEnum.enumValues)[number];
