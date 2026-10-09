@@ -39,6 +39,21 @@ export const PLAN_SKUS = [
 ] as const;
 export type PlanSku = (typeof PLAN_SKUS)[number];
 export const BILLING_SKUS = [...PLAN_SKUS, "topup"] as const;
+
+/**
+ * The provider brand our products are filed under, found by this name when
+ * `pnpm billing:products:*` runs — the brand is whose name and logo checkout
+ * and invoices show.
+ */
+export const BILLING_BRAND_NAME = siteConfig.name;
+
+/**
+ * `metadata.app` on every product and checkout of ours, and so on the
+ * subscriptions and payments a checkout makes. One provider account can sell
+ * for several brands, and its webhooks carry them all: this is how ours are
+ * told apart (`services/billing-webhook.ts`).
+ */
+export const BILLING_APP = "spendchat";
 export type BillingSku = (typeof BILLING_SKUS)[number];
 
 /** The provider product id for each SKU — the `DODO_PRODUCTS` value. Ids differ per mode. */
@@ -175,7 +190,7 @@ export function productBody(spec: ProductSpec): Record<string, unknown> {
     description: spec.description,
     tax_category: "saas",
     pricing_mode: "by_currency",
-    metadata: { sku: spec.sku, app: "spendchat" },
+    metadata: { sku: spec.sku, app: BILLING_APP },
     price,
   };
 }

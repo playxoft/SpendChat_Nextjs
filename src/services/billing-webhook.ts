@@ -13,8 +13,9 @@ import {
   type BillingCheckoutSession,
   type WorkspaceSubscription,
 } from "@/db/schema";
-import { planOfProduct } from "@/lib/billing-catalog";
+import { BILLING_APP, planOfProduct } from "@/lib/billing-catalog";
 import { readBillingConfig, type BillingConfig } from "@/lib/billing-config";
+import { getPayment } from "@/lib/dodo";
 import {
   DISPUTES_BEFORE_BLOCK,
   LIVE_STATUSES,
@@ -62,7 +63,13 @@ import { cancelLater, trialLedgerKey } from "@/services/billing";
  *     the provider's metadata alone (metadata is only trusted when it names a
  *     checkout we opened for that workspace, buyer and product).
  *
- * **Anything we can't apply yet is answered 503 and not recorded** — a
+ * **Another brand's events are acknowledged and dropped.** One provider
+ * account can sell for several brands, and its webhook endpoints filter by
+ * event type only, so their subscriptions and payments arrive here too
+ * (`isOurs`). They get a 200 and nothing is recorded — a 503 would have the
+ * provider retry each for a day, and log it as our failure.
+ *
+ * **Anything of ours we can't apply yet is answered 503 and not recorded** — a
  * subscription or payment we can't place, a product that isn't in
  * `DODO_PRODUCTS`, a refund or dispute for a payment we haven't seen — so the
  * provider retries it, and once the cause is fixed a replay from the
@@ -183,6 +190,15 @@ export async function handleDodoWebhook(rawBody: string, headers: Pick<Headers, 
     return respond(200);
   }
 
+  if (!(await isOurs(event, config))) {
+    logger.info(`Billing webhook ${event.type} is for another brand on the account — acknowledged and dropped`, {
+      event: "billing.webhook_foreign",
+      eventId,
+      type: event.type,
+    });
+    return respond(200);
+  }
+
   try {
     const applied = await db.transaction(async (tx) => {
       // Two copies of one delivery racing: the second waits on this insert and
@@ -226,6 +242,81 @@ export async function handleDodoWebhook(rawBody: string, headers: Pick<Headers, 
     });
     return respond(500);
   }
+}
+
+/**
+ * Whether an event is ours, judged before anything is written. Ours: whatever
+ * our rows already know; anything from a checkout of ours (each carries
+ * `metadata.app`, and the subscription and payments it makes inherit it); a
+ * subscription to one of our products. A refund or dispute names only its
+ * payment, so one we haven't recorded is looked up at the provider. If that
+ * lookup fails we can't tell, and it counts as ours — it's retried, which is
+ * better than dropping our own refund.
+ */
+async function isOurs(event: DodoEvent, config: BillingConfig): Promise<boolean> {
+  const { type, data } = event;
+  if (type.startsWith("subscription.")) {
+    if (isMarked(data.metadata)) return true;
+    if (typeof data.product_id === "string" && planOfProduct(config.products, data.product_id)) return true;
+    return typeof data.subscription_id === "string" && (await knowsSubscription(data.subscription_id));
+  }
+  if (type.startsWith("payment.")) return isMarked(data.metadata) || (await knowsPayment(data));
+  if (type === "refund.succeeded" || type.startsWith("dispute.")) {
+    // Malformed — counts as ours, so parsing it fails the delivery as before.
+    if (typeof data.payment_id !== "string") return true;
+    if (await knowsPayment({ payment_id: data.payment_id })) return true;
+    try {
+      const payment = await getPayment(config, data.payment_id);
+      const fields = payment && typeof payment === "object" ? (payment as Record<string, unknown>) : {};
+      return isMarked(fields.metadata) || (await knowsPayment(fields));
+    } catch {
+      return true;
+    }
+  }
+  return true;
+}
+
+function isMarked(metadata: unknown): boolean {
+  return !!metadata && typeof metadata === "object" && (metadata as Record<string, unknown>).app === BILLING_APP;
+}
+
+async function knowsSubscription(subscriptionId: string): Promise<boolean> {
+  const db = getDb();
+  const [[sub], [session]] = await Promise.all([
+    db
+      .select({ id: workspaceSubscriptions.id })
+      .from(workspaceSubscriptions)
+      .where(eq(workspaceSubscriptions.subscriptionId, subscriptionId))
+      .limit(1),
+    db
+      .select({ id: billingCheckoutSessions.id })
+      .from(billingCheckoutSessions)
+      .where(eq(billingCheckoutSessions.subscriptionId, subscriptionId))
+      .limit(1),
+  ]);
+  return !!sub || !!session;
+}
+
+/** A payment we've recorded, from a checkout we opened, or for a subscription we know. */
+async function knowsPayment(p: Record<string, unknown>): Promise<boolean> {
+  const db = getDb();
+  if (typeof p.payment_id === "string") {
+    const [row] = await db
+      .select({ id: billingPayments.id })
+      .from(billingPayments)
+      .where(eq(billingPayments.paymentId, p.payment_id))
+      .limit(1);
+    if (row) return true;
+  }
+  if (typeof p.checkout_session_id === "string") {
+    const [row] = await db
+      .select({ id: billingCheckoutSessions.id })
+      .from(billingCheckoutSessions)
+      .where(eq(billingCheckoutSessions.sessionId, p.checkout_session_id))
+      .limit(1);
+    if (row) return true;
+  }
+  return typeof p.subscription_id === "string" && (await knowsSubscription(p.subscription_id));
 }
 
 async function dispatch(ctx: Ctx): Promise<void> {

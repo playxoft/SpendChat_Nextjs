@@ -54,6 +54,10 @@ vi.mock("@/lib/dodo", async (importOriginal) => {
     updateSubscription: vi.fn(async () => {}),
     createPortalSession: vi.fn(async () => "https://portal"),
     getSubscription: vi.fn(),
+    // Who a refund's or dispute's unseen payment belongs to; offline unless a test says.
+    getPayment: vi.fn(async () => {
+      throw new Error("offline");
+    }),
   };
 });
 
@@ -855,6 +859,53 @@ describe("replays", () => {
     const res = await deliver("refund.succeeded", { refund_id: "ref_x", payment_id: "pay_unseen", status: "succeeded", amount: 1 });
     expect(res.status).toBe(503);
     expect(await db().select().from(billingWebhookEvents)).toEqual([]);
+  });
+});
+
+describe("another brand on the same provider account", () => {
+  // The account sells for other brands too, and an endpoint receives every
+  // brand's events of the types it subscribes to. Theirs are acknowledged (200,
+  // so the provider doesn't retry them for a day) and nothing is written.
+  const theirs = { user_id: "019cad8d-643d-7979-93f7-7094beda9c68", plan_slug: "pro", billing_period: "monthly" };
+
+  it("drops another brand's subscription and payment events — even ones naming our workspace", async () => {
+    const W = await ownWorkspace();
+    const sub = await deliver(
+      "subscription.active",
+      subscriptionData({ subscription_id: "sub_theirs", product_id: "pdt_their_pro", metadata: { ...theirs, workspace_id: W } }),
+    );
+    const pay = await deliver(
+      "payment.succeeded",
+      paymentData({ payment_id: "pay_theirs", subscription_id: "sub_theirs", checkout_session_id: "cks_theirs", total_amount: 99900, metadata: theirs }),
+    );
+    expect([sub.status, pay.status]).toEqual([200, 200]);
+    expect(await db().select().from(billingWebhookEvents)).toEqual([]);
+    expect(await db().select().from(workspaceSubscriptions)).toEqual([]);
+    expect(await db().select().from(billingPayments)).toEqual([]);
+    expect(await workspaceRow(W)).toMatchObject({ plan: "free", billingHold: null });
+  });
+
+  it("keeps an unmarked event that our rows or products know — older checkouts carried no mark", async () => {
+    const W = await ownWorkspace();
+    const res = await deliver("subscription.active", subscriptionData({ subscription_id: "sub_bare", metadata: {} }));
+    // One of our products, so ours: placed through our rows as always, and it can't be yet.
+    expect(res.status).toBe(503);
+    expect(await workspaceRow(W)).toMatchObject({ plan: "free" });
+  });
+
+  it("drops a refund or dispute once the provider says the payment is another brand's", async () => {
+    await ownWorkspace();
+    const theirPayment = { payment_id: "pay_t", checkout_session_id: "cks_theirs", subscription_id: null, metadata: theirs };
+    vi.mocked(dodo.getPayment).mockResolvedValueOnce(theirPayment).mockResolvedValueOnce(theirPayment);
+    const refund = await deliver("refund.succeeded", { refund_id: "ref_t", payment_id: "pay_t", status: "succeeded", amount: 100 });
+    const dispute = await deliver("dispute.opened", { dispute_id: "dsp_t", payment_id: "pay_t", dispute_status: "dispute_opened" });
+    expect([refund.status, dispute.status]).toEqual([200, 200]);
+    expect(await db().select().from(billingWebhookEvents)).toEqual([]);
+
+    // Ours (marked), just not recorded yet: wait for it, as before.
+    vi.mocked(dodo.getPayment).mockResolvedValueOnce({ payment_id: "pay_o", metadata: { app: "spendchat" } });
+    const ours = await deliver("refund.succeeded", { refund_id: "ref_o", payment_id: "pay_o", status: "succeeded", amount: 100 });
+    expect(ours.status).toBe(503);
   });
 });
 

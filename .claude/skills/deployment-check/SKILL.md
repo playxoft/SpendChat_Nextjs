@@ -234,7 +234,7 @@ Derived from what the code actually reads:
 | `AI_PARSE_MODEL`, `AI_PARSE_MODEL_CURRENT` | composer AI mode answers "not available" |
 | `AI_TRANSCRIBE_MODEL`, `AI_TRANSCRIBE_MODEL_CURRENT` | hold-to-talk mic dies |
 | `AI_CHAT_MODEL`, `AI_CHAT_MODEL_CURRENT` | every SpendChat AI question answers "Couldn't answer right now" (beta: sample answers instead) |
-| `DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`, `DODO_PAYMENTS_ENVIRONMENT`, `DODO_PRODUCTS` | checkout says "Payments aren't available on this server yet", and `/api/webhooks/dodo` answers 503 — **a payment made before the fix never upgrades its workspace until the provider's retries reach a fixed Worker** (8 tries over ~1.5 days; replay from Dodo → Webhooks after that) |
+| `DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`, `DODO_PAYMENTS_LIVE_MODE`, `DODO_PRODUCTS` | checkout says "Payments aren't available on this server yet", and `/api/webhooks/dodo` answers 503 — **a payment made before the fix never upgrades its workspace until the provider's retries reach a fixed Worker** (8 tries over ~1.5 days; replay from Dodo → Webhooks after that) |
 
 **The AI and mail ones fail *quietly*** — no error, just a feature that stopped
 existing. That is why they are enumerated instead of "it deployed fine".
@@ -318,11 +318,11 @@ break login and canonical URLs if wrong. Confirm `NEXT_PUBLIC_SITE_URL` is the
 production origin, not localhost or beta.
 
 **Billing mode must match the environment.** Production's
-`DODO_PAYMENTS_ENVIRONMENT` must be `live_mode` and beta's `test_mode`, and
+`DODO_PAYMENTS_LIVE_MODE` must be `true` and beta's `false`, and
 `DODO_PRODUCTS` must be the ids `pnpm billing:products:prod` (resp. `:dev`)
 printed for *that* mode — product ids differ between test and live. Compare
 names only; never print the key or the webhook secret. A live key with
-`test_mode` (or the reverse) fails every provider call with 401. Also confirm
+`DODO_PAYMENTS_LIVE_MODE=false` (or the reverse) fails every provider call with 401. Also confirm
 `DODO_PAYMENTS_BASE_URL` is **absent** everywhere.
 
 **Never print secret values.** Use `--only-names` / `secret list`. If you need

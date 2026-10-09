@@ -1,6 +1,6 @@
 import "server-only";
 import { headers } from "next/headers";
-import { planSku, type BillingSku } from "@/lib/billing-catalog";
+import { BILLING_APP, planSku, type BillingSku } from "@/lib/billing-catalog";
 import { requireBillingConfig, type BillingConfig } from "@/lib/billing-config";
 import * as dodo from "@/lib/dodo";
 import type { DodoCheckoutRequest } from "@/lib/dodo";
@@ -104,6 +104,8 @@ export function checkoutRequest(order: CheckoutOrder, config: BillingConfig, ori
       always_create_new_customer: true,
     },
     metadata: {
+      // How the webhook tells our events from another brand's on the same account.
+      app: BILLING_APP,
       workspace_id: order.workspace.id,
       buyer_user_id: order.buyer.userId,
       item: order.line.kind,

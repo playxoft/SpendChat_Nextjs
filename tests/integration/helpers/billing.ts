@@ -1,7 +1,7 @@
 import { createHmac } from "node:crypto";
 import { desc, eq } from "drizzle-orm";
 import { billingCheckoutSessions, workspaceSubscriptions, workspaces } from "@/db/schema";
-import type { DodoProducts } from "@/lib/billing-catalog";
+import { BILLING_APP, type DodoProducts } from "@/lib/billing-catalog";
 import { getTestDb } from "./test-db";
 
 /**
@@ -27,7 +27,7 @@ export const WEBHOOK_SECRET = `whsec_${Buffer.from("integration-test-webhook-sec
 const ENV = {
   DODO_PAYMENTS_API_KEY: "test_api_key",
   DODO_PAYMENTS_WEBHOOK_KEY: WEBHOOK_SECRET,
-  DODO_PAYMENTS_ENVIRONMENT: "test_mode",
+  DODO_PAYMENTS_LIVE_MODE: "false",
   DODO_PRODUCTS: JSON.stringify(PRODUCTS),
 };
 
@@ -86,7 +86,10 @@ export function subscriptionData(over: Record<string, unknown> & { workspaceId?:
     trial_period_days: 21,
     recurring_pre_tax_amount: 129900,
     quantity: 1,
-    metadata: workspaceId ? { workspace_id: workspaceId, buyer_user_id: buyerUserId ?? "", item: "plan" } : {},
+    // Every checkout of ours carries `app`, and its subscription inherits it.
+    metadata: workspaceId
+      ? { app: BILLING_APP, workspace_id: workspaceId, buyer_user_id: buyerUserId ?? "", item: "plan" }
+      : { app: BILLING_APP },
     scheduled_change: null,
     ...rest,
   };
@@ -104,7 +107,7 @@ export function paymentData(over: Record<string, unknown> = {}) {
     subscription_id: null,
     checkout_session_id: null,
     invoice_url: "https://test.dodopayments.com/invoices/payments/x",
-    metadata: {},
+    metadata: { app: BILLING_APP },
     customer: { customer_id: "cus_1", email: "own@example.com", name: "own" },
     ...over,
   };

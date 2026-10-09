@@ -24,6 +24,20 @@ export async function listProducts(call) {
   return [...byId.values()];
 }
 
+/**
+ * The id of the one live brand named `name`. A product made without a brand
+ * lands on the account's primary brand, whose name and logo checkout and
+ * invoices would then show — so a missing or ambiguous brand aborts the run.
+ */
+export async function findBrand(call, name) {
+  const res = await call("GET", "/brands");
+  const items = Array.isArray(res) ? res : (res?.items ?? []);
+  const live = items.filter((b) => b?.name === name && !b.archived_at && b.brand_id);
+  if (live.length === 1) return live[0].brand_id;
+  if (live.length === 0) throw new Error(`No brand is named "${name}" on this account — create it first, then run this again.`);
+  throw new Error(`${live.length} brands are named "${name}" — rename or archive the extras, then run this again.`);
+}
+
 /** Fields that decide whether an existing product needs a PATCH. */
 export function differs(existing, body) {
   const changes = [];
@@ -32,6 +46,7 @@ export function differs(existing, body) {
   if (existing.tax_category !== body.tax_category) changes.push("tax category");
   if ((existing.pricing_mode ?? null) !== body.pricing_mode) changes.push("pricing mode");
   if ((existing.metadata?.sku ?? null) !== body.metadata.sku) changes.push("metadata");
+  if (body.brand_id && existing.brand_id !== body.brand_id) changes.push("brand");
   const p = existing.price ?? {};
   for (const key of Object.keys(body.price)) {
     const want = body.price[key];

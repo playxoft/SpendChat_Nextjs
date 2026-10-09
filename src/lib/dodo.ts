@@ -12,7 +12,7 @@ import { describeError, logger } from "@/lib/logger";
  * retries (2, on 409/429/5xx) would re-send money-moving POSTs such as a plan
  * change. Here every call is sent once, with a timeout, and a failure becomes
  * one `ApiError` the UI can show. The host comes from `config.baseUrl`
- * (`DODO_PAYMENTS_ENVIRONMENT`), never from an override.
+ * (`DODO_PAYMENTS_LIVE_MODE`), never from an override.
  *
  * Only the fields we read are typed; webhooks carry the same objects and are
  * validated where they're parsed (`services/billing-webhook.ts`).
@@ -239,6 +239,13 @@ export async function createPortalSession(
     throw new DodoError(502, "billing_provider_error", "Couldn't open the payment page — the payment provider sent no link.", 200, null);
   }
   return res.link;
+}
+
+/** A payment as the provider has it — read to tell whose a refund or dispute is. */
+export async function getPayment(config: BillingConfig, paymentId: string): Promise<unknown> {
+  return request<unknown>(config, "GET", `/payments/${encodeURIComponent(paymentId)}`, {
+    what: "read the payment",
+  });
 }
 
 /** The current state of a subscription — the same object its webhooks carry. */

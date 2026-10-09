@@ -148,15 +148,15 @@ describe("parseBillingConfig", () => {
   const good = {
     apiKey: "sk_test",
     webhookKey: "whsec_abc",
-    environment: "test_mode",
+    liveMode: "false",
     products: JSON.stringify(IDS),
   };
 
-  it("picks the API host from the environment alone", () => {
-    expect(parseBillingConfig(good)).toMatchObject({ ok: true, config: { baseUrl: DODO_HOSTS.test_mode } });
-    expect(parseBillingConfig({ ...good, environment: "live_mode" })).toMatchObject({
+  it("picks the API host from the live-mode switch alone", () => {
+    expect(parseBillingConfig(good)).toMatchObject({ ok: true, config: { liveMode: false, baseUrl: DODO_HOSTS.test } });
+    expect(parseBillingConfig({ ...good, liveMode: " TRUE " })).toMatchObject({
       ok: true,
-      config: { baseUrl: "https://live.dodopayments.com" },
+      config: { liveMode: true, baseUrl: "https://live.dodopayments.com" },
     });
   });
 
@@ -164,7 +164,10 @@ describe("parseBillingConfig", () => {
     expect(parseBillingConfig({ ...good, apiKey: "" }).ok).toBe(false);
     expect(parseBillingConfig({ ...good, webhookKey: undefined }).ok).toBe(false);
     expect(parseBillingConfig({ ...good, webhookKey: "not-a-whsec" }).ok).toBe(false);
-    expect(parseBillingConfig({ ...good, environment: "sandbox" }).ok).toBe(false);
+    // Only true/false: anything else would be a guess between real and test money.
+    for (const liveMode of [undefined, "", "1", "yes", "live_mode", "test_mode"]) {
+      expect(parseBillingConfig({ ...good, liveMode }).ok).toBe(false);
+    }
     expect(parseBillingConfig({ ...good, products: "{}" }).ok).toBe(false);
   });
 });

@@ -16,7 +16,10 @@
  *    one cycle), tax category SaaS, prices exclusive of tax;
  *  - the one-time AI top-up;
  *  - each priced in rupees, with a localized price — our own number, never an
- *    FX conversion — for USD, EUR, GBP, AUD and JPY (`pricing_mode: by_currency`).
+ *    FX conversion — for USD, EUR, GBP, AUD and JPY (`pricing_mode: by_currency`);
+ *  - filed under the brand named `BILLING_BRAND_NAME` ("SpendChat") — the brand
+ *    is whose name and logo checkout and invoices show; the run aborts unless
+ *    exactly one live brand has that name.
  *
  * Idempotent: existing products are found by the `metadata.sku` this script
  * sets (else the id `DODO_PRODUCTS` already holds, else one product with the
@@ -29,9 +32,9 @@
  * `DODO_PRODUCTS={…}`. With `--dry-run` nothing is written; reads still happen
  * when a key is set, so the plan is real.
  *
- * Guard: `--env=dev` must be talking to `test_mode`, `--env=prod` to
- * `live_mode` (the package scripts pass it), so a live key can't be used from
- * the dev config by accident or the other way round.
+ * Guard: `--env=dev` must have `DODO_PAYMENTS_LIVE_MODE=false`, `--env=prod`
+ * `true` (the package scripts pass it), so a live key can't be used from the
+ * dev config by accident or the other way round.
  *
  * Needs Node ≥ 22.18 (type stripping + `module.registerHooks`): the catalog is
  * TypeScript and is imported as is.
@@ -56,11 +59,14 @@ registerHooks({
   },
 });
 
-const { BILLING_SKUS, parseDodoProducts, productBody, productSpecs } = await import("../src/lib/billing-catalog.ts");
-const { syncProducts } = await import("./lib/billing-products-sync.mjs");
+const { BILLING_BRAND_NAME, BILLING_SKUS, parseDodoProducts, productBody, productSpecs } = await import(
+  "../src/lib/billing-catalog.ts"
+);
+const { findBrand, syncProducts } = await import("./lib/billing-products-sync.mjs");
 
-const HOSTS = { test_mode: "https://test.dodopayments.com", live_mode: "https://live.dodopayments.com" };
-const EXPECTED_MODE = { dev: "test_mode", prod: "live_mode" };
+const HOSTS = { test: "https://test.dodopayments.com", live: "https://live.dodopayments.com" };
+/** What `DODO_PAYMENTS_LIVE_MODE` must be for each `--env`. */
+const EXPECTED_LIVE = { dev: false, prod: true };
 const USAGE = "usage: pnpm billing:products:dev|prod [-- --dry-run]";
 
 /** `pnpm run x -- --flag` forwards a bare `--` too; it isn't an argument. */
@@ -81,7 +87,9 @@ if (!opts.env) {
 
 const log = (...m) => console.error(...m);
 const apiKey = process.env.DODO_PAYMENTS_API_KEY?.trim();
-const mode = process.env.DODO_PAYMENTS_ENVIRONMENT?.trim();
+// Same rule as `parseLiveMode` in src/lib/billing-config.ts (server-only, so not importable here).
+const liveRaw = process.env.DODO_PAYMENTS_LIVE_MODE?.trim().toLowerCase();
+const liveMode = liveRaw === "true" ? true : liveRaw === "false" ? false : null;
 const specs = productSpecs();
 
 function printSpec(spec) {
@@ -90,9 +98,9 @@ function printSpec(spec) {
   log(`    ${[spec.base, ...spec.localized].map((p) => `${p.currency} ${p.amount}`).join(" · ")}  (minor units; yen are whole yen)`);
 }
 
-if (!apiKey || !mode) {
+if (!apiKey || liveRaw === undefined || liveRaw === "") {
   if (!opts.dryRun) {
-    console.error("DODO_PAYMENTS_API_KEY and DODO_PAYMENTS_ENVIRONMENT must be set (Doppler). Nothing was changed.");
+    console.error("DODO_PAYMENTS_API_KEY and DODO_PAYMENTS_LIVE_MODE must be set (Doppler). Nothing was changed.");
     process.exit(2);
   }
   log("No Dodo key here — showing the products this would create (dry run, no requests):\n");
@@ -100,22 +108,22 @@ if (!apiKey || !mode) {
   log("\nDODO_PRODUCTS would be printed here after a real run.");
   process.exit(0);
 }
-if (!(mode in HOSTS)) {
-  console.error(`DODO_PAYMENTS_ENVIRONMENT must be test_mode or live_mode (got "${mode}").`);
+if (liveMode === null) {
+  console.error(`DODO_PAYMENTS_LIVE_MODE must be true or false (got "${liveRaw}"). Nothing was changed.`);
   process.exit(2);
 }
-if (EXPECTED_MODE[opts.env] !== mode) {
+if (EXPECTED_LIVE[opts.env] !== liveMode) {
   console.error(
-    `Refusing: --env=${opts.env} expects ${EXPECTED_MODE[opts.env]}, but DODO_PAYMENTS_ENVIRONMENT is ${mode}. Nothing was changed.`,
+    `Refusing: --env=${opts.env} expects DODO_PAYMENTS_LIVE_MODE=${EXPECTED_LIVE[opts.env]}, but it is ${liveMode}. Nothing was changed.`,
   );
   process.exit(2);
 }
 if (process.env.DODO_PAYMENTS_BASE_URL) {
-  console.error("Unset DODO_PAYMENTS_BASE_URL — the host comes from DODO_PAYMENTS_ENVIRONMENT alone.");
+  console.error("Unset DODO_PAYMENTS_BASE_URL — the host comes from DODO_PAYMENTS_LIVE_MODE alone.");
   process.exit(2);
 }
 
-const base = HOSTS[mode];
+const base = liveMode ? HOSTS.live : HOSTS.test;
 
 async function call(method, path, body) {
   const res = await fetch(new URL(path, base), {
@@ -139,8 +147,11 @@ const cached = parseDodoProducts(process.env.DODO_PRODUCTS);
 const knownIds = cached.ok ? cached.products : null;
 
 try {
-  log(`Dodo ${mode} — ${opts.dryRun ? "dry run, nothing will be written" : "creating / updating products"}\n`);
-  const ids = await syncProducts({ call, specs, bodyOf: productBody, knownIds, dryRun: opts.dryRun, log });
+  log(`Dodo ${liveMode ? "live mode" : "test mode"} — ${opts.dryRun ? "dry run, nothing will be written" : "creating / updating products"}`);
+  const brandId = await findBrand(call, BILLING_BRAND_NAME);
+  log(`Brand: ${BILLING_BRAND_NAME} (${brandId})\n`);
+  const bodyOf = (spec) => ({ ...productBody(spec), brand_id: brandId });
+  const ids = await syncProducts({ call, specs, bodyOf, knownIds, dryRun: opts.dryRun, log });
   if (opts.dryRun) {
     log("\nDry run — nothing was written. Run without --dry-run to create/update, then paste the line it prints.");
   } else {

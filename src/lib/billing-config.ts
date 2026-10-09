@@ -11,12 +11,12 @@ import { logger } from "@/lib/logger";
  *
  *   DODO_PAYMENTS_API_KEY      the API key (Developer → API Keys)
  *   DODO_PAYMENTS_WEBHOOK_KEY  the webhook signing secret, `whsec_…`
- *   DODO_PAYMENTS_ENVIRONMENT  `test_mode` | `live_mode` — picks the API host
+ *   DODO_PAYMENTS_LIVE_MODE    `true` = live mode, real money; `false` = test mode
  *   DODO_PRODUCTS              the product ids, printed by `pnpm billing:products:*`
  *
- * The API host comes from the environment alone. `DODO_PAYMENTS_BASE_URL` (the
- * provider SDK's override) is never read: setting it together with an
- * environment is ambiguous, so there is one way to say where to go.
+ * The API host comes from the live-mode switch alone. `DODO_PAYMENTS_BASE_URL`
+ * (the provider SDK's override) is never read: setting it together with the
+ * switch is ambiguous, so there is one way to say where to go.
  *
  * Unset or invalid → billing is unavailable: checkout answers 503
  * `billing_unavailable` and the page says "Payments aren't available on this
@@ -24,21 +24,30 @@ import { logger } from "@/lib/logger";
  * working as an all-Free app.
  */
 
-export type DodoEnvironment = "test_mode" | "live_mode";
-
 export type BillingConfig = {
   apiKey: string;
   webhookKey: string;
-  environment: DodoEnvironment;
+  /** True when payments are real (live mode); false in test mode. */
+  liveMode: boolean;
   /** `https://test.dodopayments.com` or `https://live.dodopayments.com`. */
   baseUrl: string;
   products: DodoProducts;
 };
 
-export const DODO_HOSTS: Record<DodoEnvironment, string> = {
-  test_mode: "https://test.dodopayments.com",
-  live_mode: "https://live.dodopayments.com",
-};
+export const DODO_HOSTS = {
+  test: "https://test.dodopayments.com",
+  live: "https://live.dodopayments.com",
+} as const;
+
+/**
+ * `DODO_PAYMENTS_LIVE_MODE`: exactly `true` or `false` (any case). Anything
+ * else — unset included — is null, and billing stays off: guessing would
+ * either charge real cards or send live buyers to test mode.
+ */
+export function parseLiveMode(raw: string | undefined): boolean | null {
+  const value = raw?.trim().toLowerCase();
+  return value === "true" ? true : value === "false" ? false : null;
+}
 
 export type BillingConfigResult = { ok: true; config: BillingConfig } | { ok: false; reason: string };
 
@@ -46,25 +55,31 @@ export type BillingConfigResult = { ok: true; config: BillingConfig } | { ok: fa
 export function parseBillingConfig(env: {
   apiKey?: string;
   webhookKey?: string;
-  environment?: string;
+  liveMode?: string;
   products?: string;
 }): BillingConfigResult {
   const apiKey = env.apiKey?.trim();
   const webhookKey = env.webhookKey?.trim();
-  const environment = env.environment?.trim();
+  const liveMode = parseLiveMode(env.liveMode);
   if (!apiKey) return { ok: false, reason: "DODO_PAYMENTS_API_KEY is not set" };
   if (!webhookKey) return { ok: false, reason: "DODO_PAYMENTS_WEBHOOK_KEY is not set" };
   if (!webhookKey.startsWith("whsec_")) {
     return { ok: false, reason: "DODO_PAYMENTS_WEBHOOK_KEY must be the whsec_… signing secret" };
   }
-  if (environment !== "test_mode" && environment !== "live_mode") {
-    return { ok: false, reason: "DODO_PAYMENTS_ENVIRONMENT must be test_mode or live_mode" };
+  if (liveMode === null) {
+    return { ok: false, reason: "DODO_PAYMENTS_LIVE_MODE must be true or false" };
   }
   const products = parseDodoProducts(env.products);
   if (!products.ok) return { ok: false, reason: products.error };
   return {
     ok: true,
-    config: { apiKey, webhookKey, environment, baseUrl: DODO_HOSTS[environment], products: products.products },
+    config: {
+      apiKey,
+      webhookKey,
+      liveMode,
+      baseUrl: liveMode ? DODO_HOSTS.live : DODO_HOSTS.test,
+      products: products.products,
+    },
   };
 }
 
@@ -75,7 +90,7 @@ export function readBillingConfig(): BillingConfigResult {
   const result = parseBillingConfig({
     apiKey: process.env.DODO_PAYMENTS_API_KEY,
     webhookKey: process.env.DODO_PAYMENTS_WEBHOOK_KEY,
-    environment: process.env.DODO_PAYMENTS_ENVIRONMENT,
+    liveMode: process.env.DODO_PAYMENTS_LIVE_MODE,
     products: process.env.DODO_PRODUCTS,
   });
   if (!result.ok && !warned) {

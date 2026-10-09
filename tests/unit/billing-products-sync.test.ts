@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { productBody, productSpecs, BILLING_SKUS } from "@/lib/billing-catalog";
 // @ts-expect-error — a plain .mjs module (the products script's core), no types.
-import { differs, ruleIdOf, syncProducts } from "../../scripts/lib/billing-products-sync.mjs";
+import { differs, findBrand, ruleIdOf, syncProducts } from "../../scripts/lib/billing-products-sync.mjs";
 
 /**
  * `pnpm billing:products:*` against a fake provider: what it creates, that a
@@ -124,6 +124,36 @@ describe("billing:products sync", () => {
     fake.products.set("pdt_x", { product_id: "pdt_x", name: "x", metadata: { sku: "topup" } });
     fake.products.set("pdt_y", { product_id: "pdt_y", name: "y", metadata: { sku: "topup" } });
     await expect(run(fake.call)).rejects.toThrow(/Two products carry metadata.sku = topup/);
+  });
+
+  it("files products under the given brand, and moves one that sits on another", async () => {
+    const fake = fakeProvider();
+    const branded = (spec: (typeof specs)[number]) => ({ ...productBody(spec), brand_id: "brnd_a" });
+    const ids = (await run(fake.call, { bodyOf: branded })) as Record<string, string>;
+    for (const p of fake.products.values()) expect(p.brand_id).toBe("brnd_a");
+    fake.products.get(ids.plus_monthly!)!.brand_id = "bus_primary";
+    fake.writes.length = 0;
+    await run(fake.call, { bodyOf: branded });
+    expect(fake.writes).toEqual([`PATCH /products/${ids.plus_monthly}`]);
+    // Without a brand in the body, whatever brand a product has is left alone.
+    fake.writes.length = 0;
+    await run(fake.call);
+    expect(fake.writes).toEqual([]);
+  });
+
+  it("finds the one live brand by name, and refuses none or several", async () => {
+    const brands = (items: unknown[]) => async () => ({ items });
+    expect(await findBrand(brands([{ brand_id: "brnd_x", name: "Other" }, { brand_id: "brnd_s", name: "SpendChat" }]), "SpendChat")).toBe(
+      "brnd_s",
+    );
+    // An archived namesake doesn't count; a bare-array listing works too.
+    expect(
+      await findBrand(async () => [{ brand_id: "brnd_old", name: "SpendChat", archived_at: "2026-01-01" }, { brand_id: "brnd_s", name: "SpendChat" }], "SpendChat"),
+    ).toBe("brnd_s");
+    await expect(findBrand(brands([{ brand_id: "brnd_x", name: "Other" }]), "SpendChat")).rejects.toThrow(/No brand is named/);
+    await expect(
+      findBrand(brands([{ brand_id: "a", name: "SpendChat" }, { brand_id: "b", name: "SpendChat" }]), "SpendChat"),
+    ).rejects.toThrow(/2 brands are named/);
   });
 
   it("reads a localized price's id under any of its names, and compares bodies field by field", () => {
