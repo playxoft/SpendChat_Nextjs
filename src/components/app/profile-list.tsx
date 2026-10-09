@@ -18,6 +18,7 @@ import {
   Smile,
   Trash2,
   Users,
+  X,
 } from "lucide-react";
 import {
   DndContext,
@@ -62,7 +63,20 @@ import { reorderProfiles } from "@/actions/profiles";
 import { reorderSpaces } from "@/actions/spaces";
 import { useCollapsedSpaces } from "@/hooks/use-collapsed-spaces";
 import { useShortcut } from "@/hooks/use-shortcut";
+import { useShiftHeld } from "@/hooks/use-shift-held";
 import { comboFor } from "@/lib/shortcuts";
+import {
+  canonicalProfileParam,
+  formatProfileScope,
+  isMultiScope,
+  parseProfileScope,
+  resolveProfileScope,
+  scopeMembership,
+  scopeOf,
+  toggleScopeItem,
+  type ProfileScope,
+  type ScopeItem,
+} from "@/lib/profile-scope";
 import {
   flattenGroups,
   groupProfilesBySpace,
@@ -98,6 +112,34 @@ const REVEAL =
   "pointer-fine:opacity-0 pointer-fine:transition-opacity pointer-fine:duration-200 pointer-fine:group-hover:opacity-100 pointer-fine:group-focus-within:opacity-100 pointer-fine:aria-expanded:opacity-100 pointer-fine:has-[[aria-expanded=true]]:opacity-100";
 
 /**
+ * How a row looks while multi-select is armed (Shift held over the list, or
+ * Select mode on touch): a dashed outline on every row that can join the
+ * selection, solid on the ones already in it. Inset, so nothing shifts.
+ */
+const SELECTABLE = "outline-1 -outline-offset-1 outline-dashed outline-muted-foreground/40";
+const SELECTABLE_IN = "outline-1 -outline-offset-1 outline-solid outline-foreground/25";
+/** A row in a multi-selection: a slim bar on the left edge, on top of the fill. */
+const IN_SELECTION =
+  "before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-foreground/60";
+
+/** Which look a selectable row takes. */
+type RowMark = {
+  /** In the current view — the single profile, or part of a selection. */
+  selected: boolean;
+  /** Part of a multi-selection (a space, or several items). */
+  multi: boolean;
+  /** Multi-select is armed: show the outlines. */
+  armed: boolean;
+};
+
+function markClasses({ selected, multi, armed }: RowMark): string {
+  return cn(
+    armed && (selected ? SELECTABLE_IN : SELECTABLE),
+    selected && multi && IN_SELECTION,
+  );
+}
+
+/**
  * The sidebar's profile tree: the workspace's spaces as collapsible groups
  * (Notion-style), each holding its profiles, then "All profiles". Members see
  * only the spaces `listSpaces` gives them; workspace admins see every space and
@@ -106,6 +148,14 @@ const REVEAL =
  * Shift+1…0 count through the profiles in sidebar order — spaces top to bottom,
  * profiles within each — and keep working when a space is folded, so folding
  * one never renumbers the rest.
+ *
+ * **Multi-select.** A click shows one profile, or one space (all of its
+ * profiles); the chevron folds a space. Shift+click — or Shift+Enter /
+ * Shift+Space on a focused row — adds a profile or space to what is shown, or
+ * takes it out. Holding Shift over the list outlines every row that can join;
+ * on touch, "Select" turns taps into the same toggle. The selection lives in
+ * `?profile=` like a single profile does (`lib/profile-scope.ts`), so it rides
+ * along between pages and the server, not this list, decides what it covers.
  */
 export function ProfileList({
   profiles,
@@ -170,27 +220,46 @@ export function ProfileList({
   const [accessSpace, setAccessSpace] = React.useState<SidebarSpace | null>(null);
   const [deletingSpace, setDeletingSpace] = React.useState<SidebarSpace | null>(null);
 
-  // Selection: no `?profile=` defaults to the first profile; "all" is explicit.
-  // `shownActive` is "all" or a profile id (never the empty/no-param state).
+  // Selection: no `?profile=` defaults to the first profile; "all" is explicit;
+  // anything else is a pick of profiles and spaces (see `lib/profile-scope.ts`).
   // "First" is the server's order (`profiles`), which is what the page resolves
-  // the bare URL to.
-  const firstId = items[0]?.id ?? null;
-  const param = sp.get("profile");
-  const resolved: string | null = param === "all" ? "all" : param || firstId;
+  // the bare URL to — so the highlight and the data agree.
+  const urlValue = canonicalProfileParam(sp.get("profile"));
   // Optimistic selection so the highlight flips instantly on click, before the
-  // navigation (and the chat skeleton) settles.
+  // navigation (and the chat skeleton) settles. Holds the canonical parameter
+  // the click navigates to (null = the default view).
   const [optimistic, setOptimistic] = React.useState<string | null | undefined>(undefined);
-  if (optimistic !== undefined && optimistic === resolved) {
+  if (optimistic !== undefined && optimistic === urlValue) {
     setOptimistic(undefined);
   }
-  const shownActive = optimistic !== undefined ? optimistic : resolved;
+  const shownValue = optimistic !== undefined ? optimistic : urlValue;
+  const scope = React.useMemo(() => parseProfileScope(shownValue), [shownValue]);
+  const view = React.useMemo(() => resolveProfileScope(scope, items), [scope, items]);
+  const member = React.useMemo(() => scopeMembership(scope, items), [scope, items]);
+  const multi = isMultiScope(scope);
+  const allActive = scope.kind === "all";
   // Shift+` jumps to "All profiles" (desktop sidebar only); profiles get Shift+1…0.
   const allShortcut = enableShortcuts ? comboFor("profiles.all") : "";
 
-  // `target` is a profile id or "all" — both are set explicitly on the URL so
-  // the default (no param) can mean "first profile" without ambiguity.
-  function go(target: string) {
-    setOptimistic(target);
+  // Multi-select is "armed" — rows outlined — while Shift is held with the
+  // pointer or focus in the list (not app-wide: a capital letter typed in the
+  // composer shouldn't light up the sidebar), or in touch Select mode.
+  const shiftHeld = useShiftHeld();
+  const [hovering, setHovering] = React.useState(false);
+  const [focusWithin, setFocusWithin] = React.useState(false);
+  const [selectMode, setSelectMode] = React.useState(false);
+  const armed = selectMode || (shiftHeld && (hovering || focusWithin));
+  // Explains the Shift keys to screen readers, once per list (the mobile sheet
+  // can mount a second list beside the sidebar's, so the id is per instance).
+  const hintId = React.useId();
+  // A keyboard toggle (Shift+Enter / Shift+Space) is handled on keydown; the
+  // click the browser may still synthesize for that key is swallowed here.
+  const keyToggleAt = React.useRef(0);
+
+  /** Navigate to a selection. A toggle keeps the mobile sheet open. */
+  function navigate(next: ProfileScope, { keepOpen = false } = {}) {
+    const value = formatProfileScope(next);
+    setOptimistic(value);
     // Settings is deliberately excluded: it has no profile-scoped data, so
     // switching profiles there jumps back to the tracker.
     const dataPage =
@@ -200,17 +269,68 @@ export function ProfileList({
       pathname.startsWith("/app/files");
     const targetPath = dataPage ? pathname : "/app";
     const params = new URLSearchParams(sp.toString());
-    params.set("profile", target);
+    if (value) params.set("profile", value);
+    else params.delete("profile");
     params.delete("page");
     // Folders are per-profile: switching profiles reopens the vault at its root.
     params.delete("folder");
-    const qs = params.toString();
+    // A selection's ids are URL-safe as they are; only `URLSearchParams` would
+    // escape its commas, so put them back for a shorter, readable address.
+    const qs = params.toString().replace(/%2C/gi, ",");
     // Route through the shared (quiet) transition so `pending` gates the
     // composer until the new profile loads — no full-screen overlay, since the
     // feed streams its own skeletons. Survives the mobile sheet unmounting.
     runQuiet(() => router.push(qs ? `${targetPath}?${qs}` : targetPath));
-    onNavigate?.();
+    if (!keepOpen) onNavigate?.();
   }
+
+  // `target` is a profile id or "all" — both are set explicitly on the URL so
+  // the default (no param) can mean "first profile" without ambiguity.
+  function go(target: string) {
+    navigate(target === "all" ? { kind: "all" } : scopeOf({ kind: "profile", id: target }));
+  }
+
+  /** Add `item` to the selection or take it out; a no-op when that would empty it. */
+  function toggle(item: ScopeItem) {
+    const next = toggleScopeItem(
+      scope,
+      item,
+      items,
+      spaceItems.map((x) => x.id),
+    );
+    if (next) navigate(next, { keepOpen: true });
+  }
+
+  /** A row was activated: plain = show just it; Shift (or Select mode) = toggle. */
+  function pick(item: ScopeItem, e: React.MouseEvent) {
+    // A click the browser synthesized for a Shift+Enter we already handled.
+    if (e.detail === 0 && e.timeStamp - keyToggleAt.current < 1000) return;
+    if (e.shiftKey || selectMode) toggle(item);
+    else navigate(scopeOf(item));
+  }
+
+  /** Shift+Enter / Shift+Space on a focused row: the keyboard's Shift+click. */
+  function pickKey(item: ScopeItem, e: React.KeyboardEvent) {
+    if (!e.shiftKey || (e.key !== "Enter" && e.key !== " ")) return;
+    e.preventDefault();
+    keyToggleAt.current = e.timeStamp;
+    toggle(item);
+  }
+
+  /** Back to one profile: the selection's first (where it started), else the default. */
+  function clearSelection() {
+    const first = view.profileIds?.[0];
+    navigate(first ? scopeOf({ kind: "profile", id: first }) : { kind: "default" }, {
+      keepOpen: selectMode,
+    });
+  }
+
+  /** Everything a selectable row needs. */
+  const rowProps = (item: ScopeItem, selected: boolean) => ({
+    mark: { selected, multi, armed },
+    onPick: (e: React.MouseEvent) => pick(item, e),
+    onPickKey: (e: React.KeyboardEvent) => pickKey(item, e),
+  });
 
   // No-op when `allShortcut` is "" (e.g. the mobile sheet).
   useShortcut(allShortcut, () => go("all"));
@@ -281,42 +401,109 @@ export function ProfileList({
         <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Profiles
         </span>
-        {/* Only workspace admins can create spaces and profiles. */}
-        {canManage && (
-          <div className="flex items-center gap-0.5">
-            <LimitTooltip lock={spaceLock}>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={spaceLock ? `New space (${spaceLock.title.toLowerCase()})` : "New space"}
-                title={spaceLock ? undefined : "New space"}
-                className="relative"
-                onClick={() => setNewSpaceOpen(true)}
-              >
-                <FolderPlus className="size-3.5" />
-                {spaceLock && <LockBadge />}
-              </Button>
-            </LimitTooltip>
-            <LimitTooltip lock={profileLock}>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                aria-label={
-                  profileLock ? `Add profile (${profileLock.title.toLowerCase()})` : "Add profile"
-                }
-                title={profileLock ? undefined : "Add profile"}
-                className="relative"
-                onClick={() => setAdding({})}
-              >
-                <Plus className="size-3.5" />
-                {profileLock && <LockBadge />}
-              </Button>
-            </LimitTooltip>
-          </div>
-        )}
+        <div className="flex items-center gap-0.5">
+          {/* Touch has no Shift: "Select" turns taps into toggles instead. */}
+          <Button
+            variant="ghost"
+            size="xs"
+            className="hidden pointer-coarse:inline-flex"
+            onClick={() => {
+              if (selectMode) onNavigate?.();
+              setSelectMode((v) => !v);
+            }}
+          >
+            {selectMode ? "Done" : "Select"}
+          </Button>
+          {/* Only workspace admins can create spaces and profiles. */}
+          {canManage && (
+            <>
+              <LimitTooltip lock={spaceLock}>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={
+                    spaceLock ? `New space (${spaceLock.title.toLowerCase()})` : "New space"
+                  }
+                  title={spaceLock ? undefined : "New space"}
+                  className="relative"
+                  onClick={() => setNewSpaceOpen(true)}
+                >
+                  <FolderPlus className="size-3.5" />
+                  {spaceLock && <LockBadge />}
+                </Button>
+              </LimitTooltip>
+              <LimitTooltip lock={profileLock}>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  aria-label={
+                    profileLock ? `Add profile (${profileLock.title.toLowerCase()})` : "Add profile"
+                  }
+                  title={profileLock ? undefined : "Add profile"}
+                  className="relative"
+                  onClick={() => setAdding({})}
+                >
+                  <Plus className="size-3.5" />
+                  {profileLock && <LockBadge />}
+                </Button>
+              </LimitTooltip>
+            </>
+          )}
+        </div>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2">
+      {/* The selection, and the way out of it. Shown for a space or several
+          items — a single profile is just the highlighted row. */}
+      {(multi || selectMode) && (
+        <div className="mx-2 mb-1 flex min-h-7 items-center gap-2 rounded-md bg-muted/70 py-0.5 pr-0.5 pl-2.5 text-xs text-muted-foreground">
+          <span aria-hidden className="min-w-0 flex-1 truncate">
+            {multi ? (
+              <>
+                <span className="font-medium text-foreground tabular-nums">
+                  {view.profileIds?.length ?? 0}
+                </span>{" "}
+                selected
+              </>
+            ) : (
+              "Tap profiles or spaces to select"
+            )}
+          </span>
+          {multi && (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="px-1.5"
+              onClick={clearSelection}
+              aria-label="Clear selection"
+            >
+              Clear
+              <X aria-hidden className="size-3" />
+            </Button>
+          )}
+        </div>
+      )}
+      {/* Always mounted, so a change is announced (a live region that mounts
+          with its text often isn't): a keyboard toggle is heard as well as seen. */}
+      <span role="status" className="sr-only">
+        {multi
+          ? `${view.profileIds?.length ?? 0} ${view.profileIds?.length === 1 ? "profile" : "profiles"} selected`
+          : selectMode
+            ? "Select mode: tap profiles or spaces to select"
+            : ""}
+      </span>
+      <p id={hintId} className="sr-only">
+        Shift+Enter adds this to what is shown, or takes it out.
+      </p>
+
+      <div
+        className="min-h-0 flex-1 space-y-1 overflow-y-auto px-2 pb-2"
+        onPointerEnter={() => setHovering(true)}
+        onPointerLeave={() => setHovering(false)}
+        onFocus={() => setFocusWithin(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFocusWithin(false);
+        }}
+      >
         {groups.map(({ space, profiles: list }, index) => {
           const isCollapsed = collapsedSet.has(space.id);
           const listId = `space-${space.id}-profiles`;
@@ -325,7 +512,9 @@ export function ProfileList({
               <SpaceHeader
                 space={space}
                 collapsed={isCollapsed}
-                holdsActive={isCollapsed && list.some((p) => p.id === shownActive)}
+                holdsActive={isCollapsed && list.some((p) => member.profiles.has(p.id))}
+                hintId={hintId}
+                {...rowProps({ kind: "space", id: space.id }, member.spaces.has(space.id))}
                 listId={listId}
                 canManage={canManage}
                 addLock={addLock(addLimits, "profiles", { profileCount: space.profileCount })}
@@ -366,11 +555,12 @@ export function ProfileList({
                           <ProfileRow
                             key={p.id}
                             profile={p}
-                            active={shownActive === p.id}
+                            current={!multi && view.single === p.id}
+                            hintId={hintId}
+                            {...rowProps({ kind: "profile", id: p.id }, member.profiles.has(p.id))}
                             shortcut={shortcutOf.get(p.id) ?? ""}
                             canManage={canManage}
                             canMove={spaceOptions.length > 1}
-                            onSelect={() => go(p.id)}
                             onEdit={() => setEditing(p)}
                             onMove={() => setMoving(p)}
                             onDelete={() => setDeleting(p)}
@@ -396,22 +586,26 @@ export function ProfileList({
           <StaticProfileRow
             key={p.id}
             profile={p}
-            active={shownActive === p.id}
+            current={!multi && view.single === p.id}
+            hintId={hintId}
+            {...rowProps({ kind: "profile", id: p.id }, member.profiles.has(p.id))}
             shortcut={shortcutOf.get(p.id) ?? ""}
-            onSelect={() => go(p.id)}
           />
         ))}
 
         {/* "All profiles" is the aggregate view — kept last, below the spaces. */}
         <button
           type="button"
-          onClick={() => go("all")}
-          aria-current={shownActive === "all" ? "true" : undefined}
+          onClick={() => {
+            setSelectMode(false);
+            go("all");
+          }}
+          aria-current={allActive ? "true" : undefined}
           className={cn(
             // Matches the profile rows' resting padding so every shortcut hint
             // lines up flush on the right (this row has no hover menu to reveal).
             "mt-1 flex w-full items-center gap-2.5 rounded-lg border-t border-border/50 px-2.5 pt-2.5 pb-2 text-sm transition-colors",
-            shownActive === "all"
+            allActive
               ? "bg-accent font-medium text-accent-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
@@ -497,6 +691,22 @@ function ProfileShortcutBinding({ combo, onFire }: { combo: string; onFire: () =
   return null;
 }
 
+/** What every selectable row takes from the list. */
+type SelectableRowProps = {
+  mark: RowMark;
+  /** A click on the row: plain shows just it, Shift toggles it (see `pick`). */
+  onPick: (e: React.MouseEvent) => void;
+  /** Shift+Enter / Shift+Space: the keyboard toggle. */
+  onPickKey: (e: React.KeyboardEvent) => void;
+  /** The list's explanation of the Shift keys, for `aria-describedby`. */
+  hintId: string;
+};
+
+/** Shift+click would extend the page's text selection; keep it a click. */
+function noShiftSelect(e: React.MouseEvent) {
+  if (e.shiftKey) e.preventDefault();
+}
+
 function SpaceHeader({
   space,
   collapsed,
@@ -506,6 +716,10 @@ function SpaceHeader({
   addLock: lock,
   isFirst,
   isLast,
+  mark,
+  onPick,
+  onPickKey,
+  hintId,
   onToggle,
   onAdd,
   onRename,
@@ -513,10 +727,10 @@ function SpaceHeader({
   onMove,
   onAccess,
   onDelete,
-}: {
+}: SelectableRowProps & {
   space: SidebarSpace;
   collapsed: boolean;
-  /** Folded with the selected profile inside — so the selection isn't lost from view. */
+  /** Folded with a selected profile inside — so the selection isn't lost from view. */
   holdsActive: boolean;
   listId: string;
   canManage: boolean;
@@ -535,19 +749,19 @@ function SpaceHeader({
   return (
     <div
       className={cn(
-        "group relative flex items-center rounded-lg transition-colors hover:bg-accent/50",
-        holdsActive && "bg-accent/60",
+        "group relative flex items-center rounded-lg transition-colors",
+        mark.selected ? "bg-accent" : holdsActive ? "bg-accent/60" : "hover:bg-accent/50",
+        markClasses(mark),
       )}
     >
+      {/* The chevron folds; the name shows the space (all of its profiles). */}
       <button
         type="button"
         onClick={onToggle}
         aria-expanded={!collapsed}
         aria-controls={collapsed ? undefined : listId}
-        className={cn(
-          "flex min-w-0 flex-1 items-center gap-1.5 rounded-lg py-1.5 pr-1 pl-1.5 text-left text-sm transition-colors",
-          holdsActive ? "text-foreground" : "text-muted-foreground hover:text-foreground",
-        )}
+        aria-label={`${collapsed ? "Expand" : "Collapse"} ${space.name}`}
+        className="flex shrink-0 items-center self-stretch rounded-lg py-1.5 pr-0.5 pl-1.5 text-muted-foreground transition-colors hover:text-foreground"
       >
         <ChevronRight
           aria-hidden
@@ -556,6 +770,22 @@ function SpaceHeader({
             !collapsed && "rotate-90",
           )}
         />
+      </button>
+      <button
+        type="button"
+        onClick={onPick}
+        onKeyDown={onPickKey}
+        onMouseDown={noShiftSelect}
+        aria-pressed={mark.selected}
+        aria-describedby={hintId}
+        title="Shift+click to select several"
+        className={cn(
+          "flex min-w-0 flex-1 items-center gap-1.5 rounded-lg py-1.5 pr-1 pl-1 text-left text-sm transition-colors",
+          mark.selected || holdsActive
+            ? "text-foreground"
+            : "text-muted-foreground hover:text-foreground",
+        )}
+      >
         <span aria-hidden className="text-sm leading-none">
           {space.icon ?? DEFAULT_SPACE_ICON}
         </span>
@@ -621,17 +851,20 @@ function SpaceHeader({
 /** Row content shared by the sortable and the static rows. */
 function ProfileButton({
   profile,
-  active,
+  current,
+  mark,
+  onPick,
+  onPickKey,
+  hintId,
   shortcut,
   shiftForMenu,
-  onSelect,
-}: {
+}: SelectableRowProps & {
   profile: P;
-  active: boolean;
+  /** The one profile in view (not part of a multi-selection). */
+  current: boolean;
   shortcut: string;
   /** Slide the shortcut hint left on hover, to make room for the menu button. */
   shiftForMenu: boolean;
-  onSelect: () => void;
 }) {
   return (
     // The shortcut hint lives *inside* the select button (like the "All
@@ -639,11 +872,16 @@ function ProfileButton({
     // beside a name used to land on dead space.
     <button
       type="button"
-      onClick={onSelect}
-      aria-current={active ? "true" : undefined}
+      onClick={onPick}
+      onKeyDown={onPickKey}
+      onMouseDown={noShiftSelect}
+      aria-current={current ? "true" : undefined}
+      aria-pressed={mark.selected}
+      aria-describedby={hintId}
+      title="Shift+click to select several"
       className={cn(
         "flex min-w-0 flex-1 items-center gap-2.5 py-2 text-sm transition-colors",
-        active
+        mark.selected
           ? "font-medium text-accent-foreground"
           : "text-muted-foreground group-hover:text-foreground",
       )}
@@ -667,28 +905,28 @@ function ProfileButton({
 
 function StaticProfileRow({
   profile,
-  active,
+  current,
   shortcut,
-  onSelect,
-}: {
+  ...select
+}: SelectableRowProps & {
   profile: P;
-  active: boolean;
+  current: boolean;
   shortcut: string;
-  onSelect: () => void;
 }) {
   return (
     <div
       className={cn(
         "group relative flex items-center gap-1 rounded-lg pr-2.5 pl-2.5 transition-colors",
-        active ? "bg-accent" : "hover:bg-accent/50",
+        select.mark.selected ? "bg-accent" : "hover:bg-accent/50",
+        markClasses(select.mark),
       )}
     >
       <ProfileButton
         profile={profile}
-        active={active}
+        current={current}
         shortcut={shortcut}
         shiftForMenu={false}
-        onSelect={onSelect}
+        {...select}
       />
     </div>
   );
@@ -696,22 +934,21 @@ function StaticProfileRow({
 
 function ProfileRow({
   profile,
-  active,
+  current,
   shortcut,
   canManage,
   canMove,
-  onSelect,
   onEdit,
   onMove,
   onDelete,
-}: {
+  ...select
+}: SelectableRowProps & {
   profile: P;
-  active: boolean;
+  current: boolean;
   /** Display only — the binding lives on the list (`ProfileShortcutBinding`). */
   shortcut: string;
   canManage: boolean;
   canMove: boolean;
-  onSelect: () => void;
   onEdit: () => void;
   onMove: () => void;
   onDelete: () => void;
@@ -734,7 +971,8 @@ function ProfileRow({
         // Resting: the shortcut hint sits flush right. On hover it slides left to
         // make room for the menu button, which fades in on the right edge.
         "group relative flex items-center gap-1 rounded-lg pr-2.5 transition-colors",
-        active ? "bg-accent" : "hover:bg-accent/50",
+        select.mark.selected ? "bg-accent" : "hover:bg-accent/50",
+        markClasses(select.mark),
         isDragging && "bg-accent shadow-sm",
       )}
     >
@@ -754,10 +992,10 @@ function ProfileRow({
       )}
       <ProfileButton
         profile={profile}
-        active={active}
+        current={current}
         shortcut={shortcut}
         shiftForMenu={canManage}
-        onSelect={onSelect}
+        {...select}
       />
       {/* Edit / move / delete a profile is admin-only. */}
       {canManage && (

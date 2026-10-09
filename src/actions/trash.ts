@@ -6,6 +6,7 @@ import { parseOrThrow } from "@/lib/api-response";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import { encodeTrashCursor, type TrashCounts, type TrashSelection } from "@/lib/trash";
 import { trashCursorSchema } from "@/lib/validation";
+import { SCOPE_MAX_PROFILE_IDS } from "@/lib/profile-scope";
 import * as trash from "@/services/trash";
 import { listTransactions, type TransactionRow, type TrashedTransactionRow } from "@/lib/queries";
 import type { TxnFilters } from "@/lib/queries";
@@ -145,6 +146,7 @@ const restoredRowsSchema = z.object({
   filters: z
     .object({
       profileId: z.string().uuid().optional(),
+      profileIds: z.array(z.string().uuid()).max(SCOPE_MAX_PROFILE_IDS).optional(),
       type: z.enum(["income", "expense"]).optional(),
       categoryId: z.string().uuid().optional(),
       tagIds: z.array(z.string().uuid()).max(50).optional(),

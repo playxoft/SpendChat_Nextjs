@@ -25,6 +25,7 @@ import {
   listVaultFolders,
   listVaultTags,
   type VaultFileRow,
+  type VaultProfileFilter,
 } from "@/lib/queries";
 import {
   serializeFile,
@@ -161,19 +162,23 @@ export type VaultWorkingSet = {
 export async function getVaultWorkingSet(
   userId: string,
   workspaceId: string,
-  profileId?: string | null,
+  /** One profile, the web sidebar's selection (several), or null/undefined for all. */
+  profile?: VaultProfileFilter | null,
   { dedupeStorageRead = false }: { dedupeStorageRead?: boolean } = {},
 ): Promise<VaultWorkingSet> {
-  await ensureSystemFolders(userId, workspaceId, profileId);
+  // A selection ensures every profile's system folder, as "All profiles" does —
+  // a superset, and the ones it adds are created only once.
+  await ensureSystemFolders(userId, workspaceId, typeof profile === "string" ? profile : null);
 
   const readStorage = dedupeStorageRead
     ? getWorkspaceStorageUsageCached
     : getWorkspaceStorageUsage;
+  const scope = profile ?? undefined;
   const [folderList, fileList, transactionFiles, tags, storageUsedBytes] = await Promise.all([
-    listVaultFolders(userId, workspaceId, profileId ?? undefined),
-    listVaultFiles(userId, workspaceId, profileId ?? undefined),
-    listTransactionFilesForVault(userId, workspaceId, profileId ?? undefined),
-    listVaultTags(userId, workspaceId, profileId ?? undefined),
+    listVaultFolders(userId, workspaceId, scope),
+    listVaultFiles(userId, workspaceId, scope),
+    listTransactionFilesForVault(userId, workspaceId, scope),
+    listVaultTags(userId, workspaceId, scope),
     readStorage(workspaceId),
   ]);
 

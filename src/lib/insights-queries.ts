@@ -34,7 +34,8 @@ import {
  *    transaction is read, so a Free workspace's request computes nothing;
  *  - is scoped to the profiles the caller can view in this workspace
  *    (`getProfiles` → `accessibleProfileIds`, which also hides trashed
- *    profiles), narrowed to one profile when the page's filter names one;
+ *    profiles), narrowed to one profile — or the sidebar's selection — when
+ *    the page's filter names one;
  *  - excludes the trash (`notTrashed(transactions)` in its own `where`, the
  *    literal predicate that also lets the planner use the partial
  *    `transactions_profile_date_idx` for the `profile_id` + date range);
@@ -55,6 +56,12 @@ export type AdvancedAnalyticsOptions = {
   to?: string;
   /** One profile, or undefined for every profile the caller can view. */
   profileId?: string;
+  /**
+   * The sidebar's multi-selection. Like `profileId` it only picks among the
+   * profiles the caller can view — an id outside them is ignored, and an empty
+   * list shows nothing.
+   */
+  profileIds?: string[];
   currency: string;
   locale: string;
 };
@@ -323,7 +330,10 @@ export async function getAdvancedAnalytics(
   ]);
   const categories = categoryRows.map((c) => ({ id: c.id, name: c.name, icon: c.icon }));
   const visible = profiles.map((p) => p.id);
-  const ids = opts.profileId ? visible.filter((id) => id === opts.profileId) : visible;
+  const picked = opts.profileIds ? new Set(opts.profileIds) : null;
+  const ids = visible.filter(
+    (id) => (!opts.profileId || id === opts.profileId) && (!picked || picked.has(id)),
+  );
 
   const { today, from, to } = opts;
   const window = calendarWindow(today, from, to);

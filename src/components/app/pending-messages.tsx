@@ -23,6 +23,7 @@ import {
 import { usePlan } from "./upgrade-dialog";
 import { authorColorClass, authorDisplayName } from "@/lib/author-color";
 import { cn } from "@/lib/utils";
+import { profileInView } from "@/lib/summary";
 import { resolveAttachmentType, type TransactionInput } from "@/lib/validation";
 
 /** The current user, for labelling their own optimistic bubbles in a shared
@@ -197,7 +198,7 @@ export function FeedRegion({
   currency,
   locale,
   timeZone,
-  profileId,
+  profileIds,
   showAuthor = false,
   currentUser,
   children,
@@ -208,8 +209,9 @@ export function FeedRegion({
   currency: string;
   locale: string;
   timeZone: string;
-  /** Profile currently in view; null = "All profiles" (shows every bubble). */
-  profileId: string | null;
+  /** Profiles currently in view (one, or the sidebar's selection); null =
+   *  "All profiles" (shows every bubble). */
+  profileIds: string[] | null;
   /** Shared workspaces only: label pending bubbles with the current user. */
   showAuthor?: boolean;
   currentUser?: FeedAuthor;
@@ -223,12 +225,10 @@ export function FeedRegion({
     [serverIds],
   );
 
+  const inView = useMemo(() => profileInView(profileIds), [profileIds]);
   const mine = useMemo(
-    () =>
-      pending.filter(
-        (m) => (profileId === null || m.profileId === profileId) && !confirmed(m),
-      ),
-    [pending, profileId, confirmed],
+    () => pending.filter((m) => inView(m.profileId) && !confirmed(m)),
+    [pending, inView, confirmed],
   );
 
   // Retire ghosts the server feed has caught up on. They're already filtered

@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { useShortcut } from "@/hooks/use-shortcut";
 import { comboFor } from "@/lib/shortcuts";
-import { resolveWebProfile } from "@/lib/filters";
+import { writeTargetOf } from "@/lib/profile-scope";
+import { useProfileScope } from "@/hooks/use-profile-scope";
 import { useLoadingOverlay } from "./loading-overlay";
 import { TransactionDialog } from "./transaction-dialog";
 import { BulkAddDialog } from "./bulk-add-dialog";
@@ -33,7 +34,7 @@ export function GlobalShortcuts({
   canWrite,
 }: {
   categories: Pick<Category, "id" | "name" | "kind" | "icon">[];
-  profiles: Pick<Profile, "id" | "name" | "icon">[];
+  profiles: Pick<Profile, "id" | "name" | "icon" | "spaceId">[];
   /** The workspace's tags, for the add dialog's picker. */
   tags: TxnTagDTO[];
   currency: string;
@@ -43,17 +44,16 @@ export function GlobalShortcuts({
   canWrite: boolean;
 }) {
   const router = useRouter();
-  const sp = useSearchParams();
   const [addOpen, setAddOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   // A profile or workspace switch in flight (the composer dims itself on this).
   const { pending: switching } = useLoadingOverlay();
 
-  // Same default as the pages: no `?profile=` → the first profile.
-  const profileParam = sp.get("profile");
-  const activeProfileId = resolveWebProfile(profileParam, profiles[0]?.id);
-  const allProfiles = !activeProfileId;
+  // Same reading as the pages: no `?profile=` → the first profile; a sidebar
+  // selection → its first profile, with the dialogs' profile picker open.
+  const { raw: profileParam, resolved } = useProfileScope(profiles);
+  const { activeProfileId, allProfiles } = writeTargetOf(resolved, profiles);
   const nav = { requireNoOverlay: true } as const;
   // The two keys that open a *write* dialog also wait for the switch to land:
   // these bind to `window`, so nothing the switch disables can stop them, and
