@@ -253,8 +253,9 @@ export function ProfileList({
   // can mount a second list beside the sidebar's, so the id is per instance).
   const hintId = React.useId();
   // A keyboard toggle (Shift+Enter / Shift+Space) is handled on keydown; the
-  // click the browser may still synthesize for that key is swallowed here.
-  const keyToggleAt = React.useRef(0);
+  // click the browser may still synthesize for that very key, on that very row,
+  // is swallowed once — and nothing else is.
+  const keyToggle = React.useRef<{ key: string; at: number } | null>(null);
 
   /** Navigate to a selection. A toggle keeps the mobile sheet open. */
   function navigate(next: ProfileScope, { keepOpen = false } = {}) {
@@ -303,17 +304,31 @@ export function ProfileList({
 
   /** A row was activated: plain = show just it; Shift (or Select mode) = toggle. */
   function pick(item: ScopeItem, e: React.MouseEvent) {
-    // A click the browser synthesized for a Shift+Enter we already handled.
-    if (e.detail === 0 && e.timeStamp - keyToggleAt.current < 1000) return;
+    // The click a browser may synthesize for a Shift+Enter we already handled.
+    const pending = keyToggle.current;
+    keyToggle.current = null;
+    if (
+      pending &&
+      e.detail === 0 &&
+      pending.key === `${item.kind}:${item.id}` &&
+      e.timeStamp - pending.at < 1000
+    ) {
+      return;
+    }
     if (e.shiftKey || selectMode) toggle(item);
     else navigate(scopeOf(item));
   }
 
   /** Shift+Enter / Shift+Space on a focused row: the keyboard's Shift+click. */
   function pickKey(item: ScopeItem, e: React.KeyboardEvent) {
-    if (!e.shiftKey || (e.key !== "Enter" && e.key !== " ")) return;
+    if (e.key !== "Enter" && e.key !== " ") return;
+    if (!e.shiftKey) {
+      // A plain Enter/Space is a plain click: never one to swallow.
+      keyToggle.current = null;
+      return;
+    }
     e.preventDefault();
-    keyToggleAt.current = e.timeStamp;
+    keyToggle.current = { key: `${item.kind}:${item.id}`, at: e.timeStamp };
     toggle(item);
   }
 
@@ -702,6 +717,17 @@ type SelectableRowProps = {
   hintId: string;
 };
 
+/**
+ * What a screen reader hears for a row in a multi-selection. The rows are
+ * plain buttons — Enter shows just that row, which a toggle state would
+ * misdescribe — so the one profile on screen is `aria-current`, and membership
+ * of a selection is part of the name ("Work, selected"); the list's live
+ * region says how many, and its hint says Shift+Enter changes it.
+ */
+function SelectedNote({ mark }: { mark: RowMark }) {
+  return mark.selected && mark.multi ? <span className="sr-only">, selected</span> : null;
+}
+
 /** Shift+click would extend the page's text selection; keep it a click. */
 function noShiftSelect(e: React.MouseEvent) {
   if (e.shiftKey) e.preventDefault();
@@ -761,7 +787,8 @@ function SpaceHeader({
         aria-expanded={!collapsed}
         aria-controls={collapsed ? undefined : listId}
         aria-label={`${collapsed ? "Expand" : "Collapse"} ${space.name}`}
-        className="flex shrink-0 items-center self-stretch rounded-lg py-1.5 pr-0.5 pl-1.5 text-muted-foreground transition-colors hover:text-foreground"
+        // On touch the chevron is the only way to fold a space: a 40px target there.
+        className="flex shrink-0 items-center self-stretch rounded-lg py-1.5 pr-0.5 pl-1.5 text-muted-foreground transition-colors hover:text-foreground pointer-coarse:min-h-10 pointer-coarse:min-w-10 pointer-coarse:justify-center pointer-coarse:px-0"
       >
         <ChevronRight
           aria-hidden
@@ -776,7 +803,6 @@ function SpaceHeader({
         onClick={onPick}
         onKeyDown={onPickKey}
         onMouseDown={noShiftSelect}
-        aria-pressed={mark.selected}
         aria-describedby={hintId}
         title="Shift+click to select several"
         className={cn(
@@ -790,6 +816,7 @@ function SpaceHeader({
           {space.icon ?? DEFAULT_SPACE_ICON}
         </span>
         <span className="truncate font-medium">{space.name}</span>
+        <SelectedNote mark={mark} />
       </button>
       {canManage && (
         <div className={cn("flex shrink-0 items-center gap-0.5 pr-1", REVEAL)}>
@@ -876,7 +903,6 @@ function ProfileButton({
       onKeyDown={onPickKey}
       onMouseDown={noShiftSelect}
       aria-current={current ? "true" : undefined}
-      aria-pressed={mark.selected}
       aria-describedby={hintId}
       title="Shift+click to select several"
       className={cn(
@@ -890,6 +916,7 @@ function ProfileButton({
         {profile.icon ?? "👤"}
       </span>
       <span className="truncate">{profile.name}</span>
+      <SelectedNote mark={mark} />
       {shortcut ? (
         <Kbd
           combo={shortcut}

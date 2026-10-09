@@ -203,6 +203,40 @@ export function writeTargetOf(
 }
 
 /**
+ * The profiles a new transaction may go to from this view — the composer's
+ * picker. A selection offers just the profiles in it, so an entry can't land
+ * somewhere the feed isn't showing (where it would seem to vanish); one
+ * profile, "All profiles", and a selection of nothing visible offer them all.
+ */
+export function writeChoicesOf<T extends { id: string }>(
+  resolved: ResolvedScope,
+  profiles: readonly T[],
+): T[] {
+  if (!resolved.multi || !resolved.profileIds?.length) return [...profiles];
+  const inView = new Set(resolved.profileIds);
+  return profiles.filter((p) => inView.has(p.id));
+}
+
+/**
+ * The composer's target profile on this render. A sidebar click doesn't
+ * remount the composer (the layout router keys ignore search params), so a
+ * target picked once would outlive the view it was picked in. It is re-seeded
+ * to the view's default (`activeProfileId`, else the first choice) when that
+ * default changes — a new view — or when the current target is no longer one of
+ * `choices`; otherwise the person's own pick stands.
+ */
+export function composerTarget(
+  current: string,
+  seededFrom: string | undefined,
+  activeProfileId: string | undefined,
+  choices: readonly { id: string }[],
+): string {
+  const seed = activeProfileId ?? choices[0]?.id ?? "";
+  if (seededFrom !== activeProfileId) return seed;
+  return choices.some((c) => c.id === current) ? current : seed;
+}
+
+/**
  * Shift+click: add `item` to the selection, or take it out.
  *
  * The selection it starts from is what is on screen: the default view counts

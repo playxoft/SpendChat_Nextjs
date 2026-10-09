@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   SCOPE_MAX_ITEMS,
   canonicalProfileParam,
+  composerTarget,
   formatProfileScope,
   isMultiScope,
   parseProfileScope,
@@ -10,6 +11,7 @@ import {
   scopeMembership,
   scopeOf,
   toggleScopeItem,
+  writeChoicesOf,
   writeTargetOf,
   type ProfileScope,
 } from "@/lib/profile-scope";
@@ -207,6 +209,52 @@ describe("writeTargetOf", () => {
         allProfiles: true,
       });
     }
+  });
+});
+
+describe("writeChoicesOf", () => {
+  const choices = (scope: ProfileScope) =>
+    writeChoicesOf(resolveProfileScope(scope, PROFILES), PROFILES).map((p) => p.id);
+
+  it("offers only the profiles in a selection, in the profile list's order", () => {
+    expect(choices(pick(P3, `s.${S1}`))).toEqual([P1, P2, P3]);
+    expect(choices(pick(`s.${S1}`))).toEqual([P1, P2]);
+    expect(choices(pick(P3, P1))).toEqual([P1, P3]);
+  });
+
+  it("offers every profile for one profile, 'all', and a selection of nothing visible", () => {
+    const views: ProfileScope[] = [pick(P2), { kind: "all" }, { kind: "default" }, pick(`s.${S3}`)];
+    for (const scope of views) {
+      expect(choices(scope)).toEqual([P1, P2, P3]);
+    }
+  });
+});
+
+describe("composerTarget", () => {
+  const all = PROFILES;
+  const s2 = writeChoicesOf(resolveProfileScope(pick(`s.${S2}`), PROFILES), PROFILES);
+
+  it("keeps the person's own pick while the view stays put", () => {
+    expect(composerTarget(P2, P1, P1, all)).toBe(P2);
+  });
+
+  it("re-seeds when the view changes underneath a mounted composer", () => {
+    // On P1, then a plain click on space S2: the target follows to S2's first
+    // profile instead of saving "coffee 50" to P1, off screen.
+    expect(composerTarget(P1, P1, P3, s2)).toBe(P3);
+    // Even back to a view whose default is undefined ("all"): the first choice.
+    expect(composerTarget(P2, P3, undefined, all)).toBe(P1);
+  });
+
+  it("re-seeds when the current target is no longer offered", () => {
+    expect(composerTarget(P1, P3, P3, s2)).toBe(P3);
+    expect(composerTarget("", P3, P3, s2)).toBe(P3);
+  });
+
+  it("settles: re-running on its own answer changes nothing", () => {
+    const next = composerTarget(P1, P1, P3, s2);
+    expect(composerTarget(next, P3, P3, s2)).toBe(next);
+    expect(composerTarget("", undefined, undefined, [])).toBe("");
   });
 });
 

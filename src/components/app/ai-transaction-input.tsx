@@ -58,6 +58,7 @@ import {
 import type { ComposerDensity } from "@/lib/validation";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import { cn } from "@/lib/utils";
+import { useTargetProfile } from "@/hooks/use-target-profile";
 import { EntryModeToggle, MODE_ROW_DENSE, type EntryMode } from "./entry-mode-toggle";
 import { AiHelpDialog } from "./ai-help-dialog";
 import { AI_BTN, RowTypeToggle } from "./ai-accent";
@@ -290,7 +291,9 @@ export function AiTransactionInput({
   // failures from the model calls below open the same dialog.
   const { voiceAllowed, plan, showUpgrade, reportFailure } = usePlan();
   const voiceUpgrade: PlanLimitInfo = { limit: "voice", plan, upgradeTo: lowestPlanWith("voice") };
-  const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
+  // Re-seeded when the view changes (a sidebar click doesn't remount this), so
+  // an entry never lands in a profile that isn't on screen.
+  const [profileId, setProfileId] = useTargetProfile(activeProfileId, profiles);
   // The count each charged call hands back; it replaces the streamed one.
   const [aiLeft, setAiLeft] = useState<AiActionsLeft | null>(null);
   /** Move the "AI actions left" line after a call: its new count, or 0 on a spent allowance. */
