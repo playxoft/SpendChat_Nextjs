@@ -10,15 +10,23 @@
  *  - key: the secret with its `whsec_` prefix removed, base64-decoded;
  *  - HMAC-SHA256, base64. Any one `v1` signature matching is enough.
  *
- * `crypto.subtle.verify` compares in constant time, which is why this verifies
- * each candidate rather than computing a signature and comparing strings.
- * A timestamp more than `toleranceSeconds` from now is refused, so a captured
- * delivery can't be replayed later (the event-id table stops it inside the
- * window). Every failure is the same `false` — the caller answers with no
- * detail.
+ * The HMAC is computed **once** and each candidate compared to it in constant
+ * time (`timingSafeEqual` below); a candidate that isn't exactly 32 bytes is
+ * skipped before any comparison, and at most `MAX_SIGNATURE_CANDIDATES` are
+ * looked at — so a request stuffed with thousands of fake signatures costs one
+ * HMAC, not thousands. A timestamp more than `toleranceSeconds` from now is
+ * refused, so a captured delivery can't be replayed later (the event-id table
+ * stops it inside the window). Every failure is the same `false` — the caller
+ * answers with no detail.
  */
 
 export const WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
+
+/** Signatures looked at per delivery: secret rotation sends two; nobody needs more. */
+export const MAX_SIGNATURE_CANDIDATES = 5;
+
+/** HMAC-SHA256 is 32 bytes. */
+const SIGNATURE_BYTES = 32;
 
 type HeaderSource = Pick<Headers, "get">;
 
@@ -52,27 +60,33 @@ export async function verifyStandardWebhook(
   const keyBytes = base64ToBytes(secret.trim().replace(/^whsec_/, ""));
   if (!keyBytes || keyBytes.length === 0) return false;
 
-  let key: CryptoKey;
+  let expected: Uint8Array;
   try {
-    key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, [
-      "verify",
+    const key = await crypto.subtle.importKey("raw", keyBytes, { name: "HMAC", hash: "SHA-256" }, false, [
+      "sign",
     ]);
+    const data = new TextEncoder().encode(`${id}.${timestamp}.${rawBody}`);
+    expected = new Uint8Array(await crypto.subtle.sign("HMAC", key, data));
   } catch {
     return false;
   }
-  const data = new TextEncoder().encode(`${id}.${timestamp}.${rawBody}`);
 
-  for (const part of signatures.split(" ")) {
+  let matched = false;
+  for (const part of signatures.split(" ").filter(Boolean).slice(0, MAX_SIGNATURE_CANDIDATES)) {
     const comma = part.indexOf(",");
-    if (comma < 0) continue;
-    const version = part.slice(0, comma);
+    if (comma < 0 || part.slice(0, comma) !== "v1") continue;
     const signature = base64ToBytes(part.slice(comma + 1));
-    if (version !== "v1" || !signature) continue;
-    try {
-      if (await crypto.subtle.verify("HMAC", key, signature, data)) return true;
-    } catch {
-      // A malformed candidate is just not a match.
-    }
+    if (!signature || signature.length !== SIGNATURE_BYTES) continue;
+    // No early exit on a match either: every candidate costs the same.
+    if (timingSafeEqual(signature, expected)) matched = true;
   }
-  return false;
+  return matched;
+}
+
+/** Equal-length byte arrays compared without branching on their contents. */
+export function timingSafeEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a[i]! ^ b[i]!;
+  return diff === 0;
 }

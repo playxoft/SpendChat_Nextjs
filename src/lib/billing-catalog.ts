@@ -1,4 +1,4 @@
-import { CURRENCIES, PERIODS, TRIAL_DAYS, priceMinor, topUpPriceMinor } from "./pricing";
+import { CURRENCIES, PERIODS, priceMinor, topUpPriceMinor } from "./pricing";
 import type { Currency, PaidPersonalPlan, Period } from "./pricing";
 import { PLAN_LIMITS, PLAN_NAMES, TOPUP } from "./plans";
 import { siteConfig } from "./site";
@@ -18,6 +18,15 @@ import { siteConfig } from "./site";
  * top-up. Each is priced in rupees (the base currency) with a *localized price*
  * — our own number from `pricing.ts`, never an FX conversion — for every other
  * currency we sell in.
+ *
+ * Amounts are each currency's own minor units (`pricing.ts`), so yen are sent
+ * as whole yen (JPY has no minor unit): ¥870 is `870`, not `87000`.
+ * verify in test mode: a JPY localized price shows as ¥870 on checkout.
+ *
+ * **The products carry no trial (0 days).** The 21-day trial is granted per
+ * checkout (`subscription_data.trial_period_days`) only when the buyer is
+ * eligible (B1), so a checkout that forgot to say gets no trial — the rule
+ * fails closed. The webhook also refuses a trial no checkout granted.
  */
 
 export const PLAN_SKUS = [
@@ -90,7 +99,7 @@ export type ProductSpec = {
   /** One localized price per other currency we sell in. */
   localized: ProductPrice[];
 } & (
-  | { kind: "subscription"; period: Period; trialDays: number }
+  | { kind: "subscription"; period: Period; /** Always 0 — trials are per checkout (B1). */ trialDays: 0 }
   | { kind: "one_time" }
 );
 
@@ -110,7 +119,7 @@ export function productSpecs(): ProductSpec[] {
       sku,
       kind: "subscription",
       period,
-      trialDays: TRIAL_DAYS,
+      trialDays: 0,
       name: `${siteConfig.name} ${PLAN_NAMES[plan]} · ${PERIOD_WORDS[period].name}`,
       description: `${PLAN_NAMES[plan]} for one ${siteConfig.name} workspace, billed ${PERIOD_WORDS[period].billed}: ${n(l.members)} members, ${n(l.aiActionsPerMonth)} AI actions a month, ${storageGb(l.storageBytes)} of storage.`,
       base: { currency: BASE_CURRENCY, amount: priceMinor(plan, period, BASE_CURRENCY) },
@@ -131,8 +140,9 @@ export function productSpecs(): ProductSpec[] {
 /**
  * The provider's `POST /products` (and `PATCH`) body for a spec: tax category
  * SaaS, prices exclusive of tax (checkout adds it), localized by currency, and
- * — for a plan — the trial with a payment method required, so a trial can't be
- * started without a card or UPI mandate (abuse rule B1).
+ * — for a plan — **no trial** (the checkout grants it when the buyer is
+ * eligible), with a payment method required whenever one is, so a trial can't
+ * be started without a card or UPI mandate (abuse rule B1).
  */
 export function productBody(spec: ProductSpec): Record<string, unknown> {
   const price =

@@ -744,14 +744,56 @@ export async function createWorkspaceWithDefaults(
      * re-checked under the lock so two concurrent creates can't both pass.
      */
     requireNoFreeWorkspace?: boolean;
+    /**
+     * "New workspace" with a plan of its own (`createWorkspaceForPurchase`):
+     * if the user already owns an extra free workspace that has never had a
+     * plan — one still waiting for its checkout — return that (made current,
+     * `reused: true`) instead of creating another. Checked under the per-user
+     * lock below, so two concurrent creates make one waiting workspace, not two.
+     */
+    reuseUnpaidExtra?: boolean;
   } = {},
-): Promise<WorkspaceSummary> {
+): Promise<WorkspaceSummary & { reused?: boolean }> {
   const db = getDb();
   return db.transaction(async (tx) => {
     // Serializes everything that creates a workspace for this user. Blocking
     // is fine: it's one person's own create racing itself, held for a few
     // inserts. Namespace 5 (1 AI, 2 email, 3 invites, 4 AI allowance).
     await tx.execute(sql`select pg_advisory_xact_lock(5, hashtext(${userId}))`);
+    if (opts.reuseUnpaidExtra) {
+      const waiting = await tx.execute<{ id: string }>(sql`
+        select w.id from "workspaces" w
+        where w.owner_id = ${userId}
+          and w.plan = 'free'
+          and ${readOnlyWorkspaceSql(sql`w.id`)}
+          and w.billing_hold is null
+          and not exists (
+            select 1 from "workspace_subscriptions" s
+            where s.workspace_id = w.id and s.activated_at is not null
+          )
+        order by w.created_at desc
+        limit 1
+      `);
+      const waitingId = waiting.rows[0]?.id;
+      if (waitingId) {
+        const [existing] = await tx
+          .select({ ...summaryColumns, role: workspaceMembers.role })
+          .from(workspaces)
+          .leftJoin(
+            workspaceMembers,
+            and(eq(workspaceMembers.workspaceId, workspaces.id), eq(workspaceMembers.userId, userId)),
+          )
+          .where(eq(workspaces.id, waitingId))
+          .limit(1);
+        if (existing) {
+          await tx
+            .update(userSettings)
+            .set({ lastWorkspaceId: waitingId, updatedAt: new Date() })
+            .where(eq(userSettings.userId, userId));
+          return { ...existing, reused: true };
+        }
+      }
+    }
     if (opts.ifNoneOwned) {
       const [existing] = await tx
         .select({ ...summaryColumns, role: workspaceMembers.role })

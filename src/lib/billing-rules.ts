@@ -155,8 +155,34 @@ export function disputeHolds(status: string): boolean {
   return !(status === "dispute_won" || status === "dispute_cancelled" || status === "won" || status === "cancelled");
 }
 
+/**
+ * A dispute the bank decided against us (lost), or that we accepted: the money
+ * went back, so the plan it paid for is cancelled — it must not keep charging
+ * a workspace that stays view-only. The hold itself stays until support lifts it.
+ */
+export function disputeEndsPlan(status: string): boolean {
+  return status === "dispute_lost" || status === "dispute_accepted" || status === "lost" || status === "accepted";
+}
+
 /** A person whose payments have been disputed this many times can't buy any more (B2). */
 export const DISPUTES_BEFORE_BLOCK = 2;
+
+// ── Cancelling ─────────────────────────────────────────────────────────────
+
+export type CancelWanted = "now" | "period_end";
+
+/**
+ * How a cancellation is asked of the provider. Only an `active` subscription
+ * has a period still to run out; anything else (`on_hold`, `past_due`,
+ * `paused`, `pending`) has nothing paid ahead, and "at the end of the period"
+ * would never come — so it ends now.
+ */
+export function cancelModeFor(status: string, wanted: CancelWanted = "period_end"): CancelWanted {
+  return wanted === "now" || status !== "active" ? "now" : "period_end";
+}
+
+/** A `pending` subscription older than this no longer holds the workspace's place (a new checkout replaces it). */
+export const STALE_PENDING_HOURS = 24;
 
 // ── Workspace plan ─────────────────────────────────────────────────────────
 

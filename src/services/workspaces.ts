@@ -12,7 +12,6 @@ import {
   users,
   workspaceInvites,
   workspaceMembers,
-  workspaceSubscriptions,
   workspaces,
   type WorkspaceRole,
 } from "@/db/schema";
@@ -38,7 +37,6 @@ import {
   createWorkspaceWithDefaults,
   getWorkspaceRole,
   listUserWorkspaces,
-  readOnlyWorkspaceSql,
   requireProfileRole,
   requireWorkspaceRole,
   type WorkspaceSummary,
@@ -139,34 +137,22 @@ export async function createWorkspaceForPurchase(
     return { workspace: created, reused: false, checkoutPath: path };
   }
 
-  // An extra free workspace that never had a plan is still waiting for one.
-  const waiting = await db.execute<{ id: string }>(sql`
-    select w.id from ${workspaces} w
-    where w.owner_id = ${userId}
-      and w.plan = 'free'
-      and ${readOnlyWorkspaceSql(sql`w.id`)}
-      and w.billing_hold is null
-      and not exists (
-        select 1 from ${workspaceSubscriptions} s
-        where s.workspace_id = w.id and s.activated_at is not null
-      )
-    order by w.created_at desc
-    limit 1
-  `);
-  const waitingId = waiting.rows[0]?.id;
-  if (waitingId) {
-    await switchWorkspace(userId, waitingId);
-    const summary = (await listUserWorkspaces(userId)).find((w) => w.id === waitingId);
-    if (summary) return { workspace: summary, reused: true, checkoutPath: path };
-  }
-
+  // An extra free workspace that never had a plan is still waiting for its
+  // checkout: it's reused rather than making another (checked under the
+  // per-user creation lock, so two concurrent requests can't both create).
   const current = await getCurrentWorkspace(userId);
   const created = await createWorkspaceWithDefaults(userId, name, {
     makeCurrent: true,
+    reuseUnpaidExtra: true,
     currency: current.currency,
     locale: current.locale,
     icon: icon || undefined,
   });
+  if (created.reused) {
+    const { reused: _reused, ...workspace } = created;
+    void _reused;
+    return { workspace, reused: true, checkoutPath: path };
+  }
   logger.info("Workspace created to be bought", {
     event: "workspace.created_for_purchase",
     workspaceId: created.id,
@@ -174,7 +160,9 @@ export async function createWorkspaceForPurchase(
     plan,
     period,
   });
-  return { workspace: created, reused: false, checkoutPath: path };
+  const { reused: _r, ...workspace } = created;
+  void _r;
+  return { workspace, reused: false, checkoutPath: path };
 }
 
 /**

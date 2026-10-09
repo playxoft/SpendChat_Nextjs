@@ -138,7 +138,6 @@ describe("startCheckout — the price is the server's", () => {
     expect(order.amountMinor).toBe(priceMinor("pro", "yearly", "INR"));
     expect(order.amountMinor).toBe(checkoutQuote("pro", "yearly", "INR").amountMinor);
     expect(order.line).toEqual({ kind: "plan", plan: "pro", period: "yearly", trialDays: TRIAL_DAYS });
-    expect(order.description).toContain("Workspace:");
   });
 
   it("falls back to US dollars for a currency we don't sell in", async () => {

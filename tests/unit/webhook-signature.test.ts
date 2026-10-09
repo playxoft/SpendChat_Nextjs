@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createHmac } from "node:crypto";
-import { WEBHOOK_TOLERANCE_SECONDS, verifyStandardWebhook } from "@/lib/webhook-signature";
+import {
+  MAX_SIGNATURE_CANDIDATES,
+  WEBHOOK_TOLERANCE_SECONDS,
+  timingSafeEqual,
+  verifyStandardWebhook,
+} from "@/lib/webhook-signature";
 
 /**
  * The provider signs webhooks with the Standard Webhooks scheme. The first
@@ -92,5 +97,26 @@ describe("verifyStandardWebhook", () => {
     );
     expect(await verifyStandardWebhook(SPEC.body, ok, "", at)).toBe(false);
     expect(await verifyStandardWebhook(SPEC.body, ok, "whsec_@@@", at)).toBe(false);
+  });
+
+  it("looks at no more than 5 candidates — a header stuffed with fakes costs one HMAC", async () => {
+    const fake = `v1,${Buffer.alloc(32, 7).toString("base64")}`;
+    const within = [...Array(MAX_SIGNATURE_CANDIDATES - 1).fill(fake), SPEC.signature].join(" ");
+    const beyond = [...Array(MAX_SIGNATURE_CANDIDATES).fill(fake), SPEC.signature].join(" ");
+    expect(await verifyStandardWebhook(SPEC.body, headers(SPEC.id, SPEC.timestamp, within), SPEC.secret, at)).toBe(true);
+    expect(await verifyStandardWebhook(SPEC.body, headers(SPEC.id, SPEC.timestamp, beyond), SPEC.secret, at)).toBe(false);
+  });
+
+  it("skips empty and wrong-length signatures before comparing", async () => {
+    const short = `v1,${Buffer.alloc(16, 1).toString("base64")}`;
+    expect(
+      await verifyStandardWebhook(SPEC.body, headers(SPEC.id, SPEC.timestamp, `v1, ${short} v1,`), SPEC.secret, at),
+    ).toBe(false);
+  });
+
+  it("compares bytes without stopping at the first difference", () => {
+    expect(timingSafeEqual(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 3]))).toBe(true);
+    expect(timingSafeEqual(new Uint8Array([1, 2, 3]), new Uint8Array([1, 2, 4]))).toBe(false);
+    expect(timingSafeEqual(new Uint8Array([1, 2]), new Uint8Array([1, 2, 3]))).toBe(false);
   });
 });

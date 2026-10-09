@@ -5,6 +5,7 @@ import {
   aiUsageLog,
   billingCheckoutSessions,
   billingPayments,
+  billingTrialLedger,
   billingWebhookEvents,
   users,
   workspaceSubscriptions,
@@ -19,6 +20,7 @@ import { PLAN_LIMITS, TOPUP } from "@/lib/plans";
 import { topUpPriceMinor } from "@/lib/pricing";
 import { createWorkspaceWithDefaults, requireProfileRole } from "@/lib/workspaces";
 import * as billing from "@/services/billing";
+import { trialLedgerKey } from "@/services/billing";
 import { POST as webhookRoute } from "@/app/api/webhooks/dodo/route";
 import {
   PRODUCTS,
@@ -228,7 +230,7 @@ describe("a plan's life: activate → renew → upgrade → downgrade at renewal
     await billing.startCheckout(uid("own"), W, { item: "plan", plan: "plus", period: "yearly", currency: "INR" }, { country: "IN" });
     await deliver("subscription.failed", subscriptionData({ subscription_id: "sub_f", status: "failed", workspaceId: W, buyerUserId: uid("own") }));
     expect((await workspaceRow(W)).plan).toBe("free");
-    expect(await billing.checkoutReturnStatus(uid("own"), W)).toEqual({ state: "failed" });
+    expect(await billing.checkoutReturnStatus(uid("own"), W)).toEqual({ state: "failed", reason: "payment" });
   });
 
   it("C3: usage carries over from Free into the paid plan — upgrading doesn't refill the month", async () => {
@@ -284,18 +286,37 @@ describe("placing events through our own rows", () => {
     expect((await workspaceRow(W)).billingHold).toBeNull();
   });
 
-  it("ignores a product that isn't ours — nothing is granted", async () => {
+  it("asks for a retry — and records nothing — for a product that isn't in DODO_PRODUCTS, so a replay works once it's fixed", async () => {
     const W = await ownWorkspace();
     await billing.startCheckout(uid("own"), W, { item: "plan", plan: "plus", period: "yearly", currency: "INR" }, { country: "IN" });
     const session = await latestSession(W);
-    await db().update(billingCheckoutSessions).set({ productId: "pdt_someone_else" }).where(eq(billingCheckoutSessions.id, session.id));
-    const res = await deliver(
-      "subscription.active",
-      subscriptionData({ subscription_id: "sub_x", workspaceId: W, buyerUserId: uid("own"), product_id: "pdt_someone_else" }),
-    );
-    expect(res.status).toBe(200);
+    await db().update(billingCheckoutSessions).set({ productId: "pdt_new_plus" }).where(eq(billingCheckoutSessions.id, session.id));
+    const data = subscriptionData({ subscription_id: "sub_x", workspaceId: W, buyerUserId: uid("own"), product_id: "pdt_new_plus" });
+    expect((await deliver("subscription.active", data, { id: "evt_unknown_product" })).status).toBe(503);
     expect((await workspaceRow(W)).plan).toBe("free");
     expect(await subscriptionRow("sub_x")).toBeUndefined();
+    expect(await db().select().from(billingWebhookEvents)).toEqual([]);
+
+    // The config is fixed (the product is ours after all) and the event replayed with its own id.
+    process.env.DODO_PRODUCTS = JSON.stringify({ ...PRODUCTS, plus_yearly: "pdt_new_plus" });
+    expect((await deliver("subscription.active", data, { id: "evt_unknown_product" })).status).toBe(200);
+    expect((await workspaceRow(W)).plan).toBe("plus");
+  });
+
+  it("settles a paid workspace with no subscription behind it to Free when an event for it can't be placed", async () => {
+    const W = await ownWorkspace();
+    await setWorkspacePlan(W, "pro");
+    const res = await deliver("subscription.renewed", subscriptionData({ subscription_id: "sub_lost", workspaceId: W, buyerUserId: uid("own") }));
+    expect(res.status).toBe(503);
+    expect((await workspaceRow(W)).plan).toBe("free");
+  });
+
+  it("leaves a workspace whose plan a live subscription backs alone, whatever an unplaceable event says", async () => {
+    const W = await ownWorkspace();
+    await activePlan(W);
+    const res = await deliver("subscription.renewed", subscriptionData({ subscription_id: "sub_other", workspaceId: W, buyerUserId: uid("other") }));
+    expect(res.status).toBe(503);
+    expect((await workspaceRow(W)).plan).toBe("plus");
   });
 
   it("a second subscription for a workspace that has one is superseded and cancelled, never stacked", async () => {
@@ -305,14 +326,152 @@ describe("placing events through our own rows", () => {
     await db()
       .insert(billingCheckoutSessions)
       .values({ sessionId: "cks_tab2", workspaceId: W, buyerUserId: uid("own"), item: "plan", plan: "pro", period: "yearly", productId: PRODUCTS.pro_yearly, expectedAmountMinor: 1, currency: "INR" });
-    await deliver("subscription.active", subscriptionData({ subscription_id: "sub_second", product_id: PRODUCTS.pro_yearly, workspaceId: W, buyerUserId: uid("own") }));
+    const second = subscriptionData({ subscription_id: "sub_second", product_id: PRODUCTS.pro_yearly, trial_period_days: 0, workspaceId: W, buyerUserId: uid("own") });
+    await deliver("subscription.active", second);
     expect((await workspaceRow(W)).plan).toBe("plus");
-    expect((await subscriptionRow("sub_second"))!.supersededAt).not.toBeNull();
+    expect(await subscriptionRow("sub_second")).toMatchObject({ voidReason: "duplicate", cancelWanted: "now" });
     await settleDeferred();
     expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), "sub_second", {
       status: "cancelled",
       cancel_reason: "cancelled_by_merchant",
     });
+
+    // The cancel didn't stick (or failed): the next event for it, still live, asks again.
+    vi.mocked(dodo.updateSubscription).mockClear();
+    await deliver("subscription.updated", second);
+    await settleDeferred();
+    expect(dodo.updateSubscription).toHaveBeenCalledTimes(1);
+    // Once it's cancelled, nothing more is asked.
+    vi.mocked(dodo.updateSubscription).mockClear();
+    await deliver("subscription.cancelled", { ...second, status: "cancelled" });
+    await settleDeferred();
+    expect(dodo.updateSubscription).not.toHaveBeenCalled();
+    expect((await workspaceRow(W)).plan).toBe("plus");
+  });
+});
+
+describe("trials (B1)", () => {
+  it("B1: fails closed — a trial no checkout granted is refused, never entitles, and is cancelled", async () => {
+    const W = await ownWorkspace();
+    await billing.startCheckout(uid("own"), W, { item: "plan", plan: "plus", period: "yearly", currency: "INR" }, { country: "IN" });
+    // This checkout granted no trial (the buyer had used theirs)…
+    await db().update(billingCheckoutSessions).set({ trialDays: 0 });
+    // …but the subscription came back with one.
+    const res = await deliver(
+      "subscription.active",
+      subscriptionData({ subscription_id: "sub_trial", trial_period_days: 21, workspaceId: W, buyerUserId: uid("own") }),
+    );
+    expect(res.status).toBe(200);
+    expect((await workspaceRow(W)).plan).toBe("free");
+    expect(await subscriptionRow("sub_trial")).toMatchObject({ voidReason: "unearned_trial", cancelWanted: "now" });
+    await settleDeferred();
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), "sub_trial", expect.objectContaining({ status: "cancelled" }));
+    expect(await db().select().from(billingTrialLedger)).toEqual([]);
+    expect(await billing.checkoutReturnStatus(uid("own"), W)).toMatchObject({ state: "failed" });
+  });
+
+  it("B1: every trial that starts goes in the ledger, keyed by the buyer's hashed email — no address stored", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    const ledger = await db().select().from(billingTrialLedger);
+    expect(ledger).toMatchObject([{ workspaceId: W, subscriptionId: sub, emailKey: await trialLedgerKey("own@example.com") }]);
+    expect(JSON.stringify(ledger)).not.toContain("own@example.com");
+  });
+
+  it("a paid charge inside the trial (an upgrade) ends it — nothing still says trial", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    expect((await subscriptionRow(sub))!.trialEndsAt!.getTime()).toBeGreaterThan(Date.now());
+    await deliver("payment.succeeded", paymentData({ payment_id: "pay_up", subscription_id: sub, total_amount: 60000 }));
+    expect((await subscriptionRow(sub))!.trialEndsAt!.getTime()).toBeLessThanOrEqual(Date.now());
+    const w = (await billing.getBillingOverview(uid("own"))).workspaces.find((x) => x.id === W)!;
+    expect(w.subscription!.inTrial).toBe(false);
+  });
+});
+
+describe("cancellations we owe the provider", () => {
+  it("asks again on the next event when a plan an account deletion stopped is still renewing", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    await db()
+      .update(workspaceSubscriptions)
+      .set({ cancelWanted: "period_end", buyerUserId: null })
+      .where(eq(workspaceSubscriptions.subscriptionId, sub));
+    vi.mocked(dodo.updateSubscription).mockClear();
+    // The provider still says it renews.
+    await deliver("subscription.renewed", subscriptionData({ subscription_id: sub, cancel_at_next_billing_date: false }));
+    await settleDeferred();
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, { cancel_at_next_billing_date: true });
+    // Once the provider shows it set to cancel, nothing more is asked.
+    vi.mocked(dodo.updateSubscription).mockClear();
+    await deliver("subscription.updated", subscriptionData({ subscription_id: sub, cancel_at_next_billing_date: true }));
+    await settleDeferred();
+    expect(dodo.updateSubscription).not.toHaveBeenCalled();
+  });
+});
+
+describe("the return page sees failures", () => {
+  it("a failed or cancelled first payment", async () => {
+    const W = await ownWorkspace();
+    await billing.startCheckout(uid("own"), W, { item: "plan", plan: "plus", period: "yearly", currency: "INR" }, { country: "IN" });
+    const session = await latestSession(W);
+    await deliver("payment.failed", paymentData({ status: "failed", checkout_session_id: session.sessionId, total_amount: 129900 }));
+    expect(await billing.checkoutReturnStatus(uid("own"), W)).toEqual({ state: "failed", reason: "payment" });
+  });
+
+  it("A3: a top-up paid at the wrong amount is a failure, not an endless wait", async () => {
+    const W = await ownWorkspace();
+    await setWorkspacePlan(W, "plus");
+    await billing.startCheckout(uid("own"), W, { item: "topup", currency: "INR" }, { country: "IN" });
+    const session = await latestSession(W);
+    await deliver("payment.succeeded", paymentData({ payment_id: "pay_short2", checkout_session_id: session.sessionId, total_amount: 100, tax: 0 }));
+    expect(await billing.checkoutReturnStatus(uid("own"), W)).toEqual({ state: "failed", reason: "amount" });
+  });
+
+  it("an upgrade whose charge failed keeps the old plan and says so", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    await billing.changePlan(uid("own"), W, { plan: "pro", period: "yearly" });
+    expect(await billing.checkoutReturnStatus(uid("own"), W, { plan: "pro", period: "yearly" })).toEqual({
+      state: "waiting",
+      item: "plan",
+    });
+    await deliver("payment.failed", paymentData({ payment_id: "pay_upfail", status: "failed", subscription_id: sub, total_amount: 60000 }));
+    expect(await billing.checkoutReturnStatus(uid("own"), W, { plan: "pro", period: "yearly" })).toEqual({
+      state: "failed",
+      reason: "change",
+    });
+    expect((await workspaceRow(W)).plan).toBe("plus");
+  });
+});
+
+describe("robustness", () => {
+  it("a malformed display-only field (the scheduled change's date) never fails a whole event", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W, { plan: "pro" });
+    const res = await deliver(
+      "subscription.updated",
+      subscriptionData({
+        subscription_id: sub,
+        product_id: PRODUCTS.pro_yearly,
+        next_billing_date: 12345,
+        scheduled_change: { product_id: PRODUCTS.plus_yearly, effective_at: { nope: true } },
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(await subscriptionRow(sub)).toMatchObject({ scheduledPlan: "plus", scheduledAt: null, nextBillingDate: null });
+  });
+
+  it("logs refused deliveries at most once a minute — junk at the endpoint can't flood the logs", async () => {
+    const { logger } = await import("@/lib/logger");
+    const warn = vi.spyOn(logger, "warn");
+    const { handleDodoWebhook } = await import("@/services/billing-webhook");
+    for (let i = 0; i < 5; i++) {
+      const res = await handleDodoWebhook("{}", new Headers({ "webhook-id": `x${i}`, "webhook-timestamp": "1", "webhook-signature": "v1,AAAA" }));
+      expect(res.status).toBe(401);
+    }
+    expect(warn.mock.calls.filter((c) => (c[1] as { event?: string })?.event === "billing.webhook_bad_signature").length).toBeLessThanOrEqual(1);
+    warn.mockRestore();
   });
 });
 
@@ -412,6 +571,20 @@ describe("disputes (B2)", () => {
     await expect(
       billing.startCheckout(uid("own"), other.id, { item: "plan", plan: "plus", period: "yearly" }),
     ).rejects.toMatchObject({ code: "purchases_blocked" });
+  });
+
+  it("B2: a lost dispute cancels the plan it paid for — no more charges — and the workspace stays held", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    await deliver("payment.succeeded", paymentData({ payment_id: "pay_lost", subscription_id: sub, total_amount: 129900 }));
+    await deliver("dispute.opened", { dispute_id: "dsp_l", payment_id: "pay_lost", dispute_status: "dispute_opened" });
+    vi.mocked(dodo.updateSubscription).mockClear();
+    await deliver("dispute.lost", { dispute_id: "dsp_l", payment_id: "pay_lost", dispute_status: "dispute_lost" });
+    expect((await subscriptionRow(sub))!.cancelWanted).toBe("now");
+    await settleDeferred();
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, expect.objectContaining({ status: "cancelled" }));
+    await deliver("subscription.cancelled", subscriptionData({ subscription_id: sub, status: "cancelled" }));
+    expect(await workspaceRow(W)).toMatchObject({ plan: "free", billingHold: "dispute" });
   });
 
   it("B2: waits (retry) for a dispute whose payment isn't recorded yet", async () => {
@@ -561,6 +734,29 @@ describe("refunds on a plan payment", () => {
   });
 });
 
+describe("replays", () => {
+  it("a refund replayed after its event was forgotten counts once — refunds are keyed by their id", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    await deliver("payment.succeeded", paymentData({ payment_id: "pay_r", subscription_id: sub, total_amount: 129900 }));
+    const refund = { refund_id: "ref_once", payment_id: "pay_r", status: "succeeded", amount: 1000, is_partial: true };
+    await deliver("refund.succeeded", refund, { id: "evt_refund" });
+    // What `pnpm billing:reprocess` does, then the dashboard resends it.
+    await db().delete(billingWebhookEvents).where(eq(billingWebhookEvents.id, "evt_refund"));
+    await deliver("refund.succeeded", refund, { id: "evt_refund" });
+    await deliver("refund.succeeded", { ...refund, refund_id: "ref_two", amount: 500 });
+    const [pay] = await db().select().from(billingPayments).where(eq(billingPayments.paymentId, "pay_r"));
+    expect(pay!.refundedMinor).toBe(1500);
+  });
+
+  it("a refund for a payment not recorded yet waits (retry) instead of being dropped", async () => {
+    await ownWorkspace();
+    const res = await deliver("refund.succeeded", { refund_id: "ref_x", payment_id: "pay_unseen", status: "succeeded", amount: 1 });
+    expect(res.status).toBe(503);
+    expect(await db().select().from(billingWebhookEvents)).toEqual([]);
+  });
+});
+
 describe("the billing page", () => {
   it("lists the admin's workspaces with plan, status, top-ups and invoices", async () => {
     const W = await ownWorkspace();
@@ -571,9 +767,18 @@ describe("the billing page", () => {
     const w = overview.workspaces.find((x) => x.id === W)!;
     expect(w).toMatchObject({
       plan: "plus",
-      hasBillingAccount: true,
-      subscription: { plan: "plus", period: "yearly", status: "active", inTrial: true, cancelAtPeriodEnd: false },
+      // The renewal charge above ended the trial (8: a paid charge means no "trial" any more).
+      subscription: {
+        plan: "plus",
+        period: "yearly",
+        status: "active",
+        inTrial: false,
+        cancelAtPeriodEnd: false,
+        buyer: { isMe: true },
+        nextCharge: { amountMinor: 129900, beforeDiscounts: false },
+      },
     });
+    expect(w.invoices[0]!.invoiceUrl).toContain("invoices");
     // The $0 trial mandate isn't an invoice.
     expect(w.invoices.map((i) => i.paymentId)).toEqual(["pay_inv"]);
     const rows = await db()

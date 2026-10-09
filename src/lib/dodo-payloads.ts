@@ -11,9 +11,20 @@ import { z } from "zod";
  * refund, a dispute). Amounts are integer minor units of `currency`.
  */
 
-const metadata = z.record(z.string(), z.unknown()).nullish().transform((m) => m ?? {});
+const metadata = z
+  .record(z.string(), z.unknown())
+  .nullish()
+  .catch(null)
+  .transform((m) => m ?? {});
 const nullableString = z.string().nullish().transform((v) => v ?? null);
 const nullableNumber = z.number().nullish().transform((v) => v ?? null);
+/**
+ * A field we only display (dates, links, the scheduled change): a missing or
+ * malformed value becomes null rather than failing the whole event — what
+ * decides money and access must parse strictly, what's shown must never block it.
+ */
+const displayString = z.string().nullish().catch(null).transform((v) => v ?? null);
+const displayNumber = z.number().nullish().catch(null).transform((v) => v ?? null);
 
 export const subscriptionSchema = z.object({
   subscription_id: z.string().min(1),
@@ -23,17 +34,20 @@ export const subscriptionSchema = z.object({
   customer: z.object({ customer_id: z.string().min(1) }).loose(),
   payment_frequency_count: z.number().int(),
   payment_frequency_interval: z.string(),
-  next_billing_date: nullableString,
+  next_billing_date: displayString,
   created_at: z.string(),
-  cancel_at_next_billing_date: z.boolean().nullish().transform((v) => v ?? false),
+  cancel_at_next_billing_date: z.boolean().nullish().catch(null).transform((v) => v ?? false),
+  // Decides B1 (a trial nobody granted is refused) — strict.
   trial_period_days: z.number().int().nullish().transform((v) => v ?? 0),
-  cancelled_at: nullableString,
-  expires_at: nullableString,
+  cancelled_at: displayString,
+  expires_at: displayString,
+  recurring_pre_tax_amount: displayNumber,
   metadata,
   scheduled_change: z
-    .object({ product_id: z.string(), effective_at: z.string() })
+    .object({ product_id: z.string(), effective_at: displayString })
     .loose()
     .nullish()
+    .catch(null)
     .transform((v) => v ?? null),
 }).loose();
 export type DodoSubscription = z.output<typeof subscriptionSchema>;
@@ -47,9 +61,9 @@ export const paymentSchema = z.object({
   created_at: z.string(),
   subscription_id: nullableString,
   checkout_session_id: nullableString,
-  invoice_url: nullableString,
+  invoice_url: displayString,
   metadata,
-  customer: z.object({ customer_id: z.string() }).loose().nullish(),
+  customer: z.object({ customer_id: z.string() }).loose().nullish().catch(null),
 }).loose();
 export type DodoPayment = z.output<typeof paymentSchema>;
 

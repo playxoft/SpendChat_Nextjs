@@ -5,6 +5,7 @@ import {
   aiTopups,
   billingCheckoutSessions,
   billingPayments,
+  billingTrialLedger,
   billingWebhookEvents,
   users,
   workspaceSubscriptions,
@@ -17,16 +18,17 @@ import { readBillingConfig, type BillingConfig } from "@/lib/billing-config";
 import {
   DISPUTES_BEFORE_BLOCK,
   LIVE_STATUSES,
+  cancelModeFor,
   checkTopUpPayment,
+  disputeEndsPlan,
   disputeHolds,
   entitlesPlan,
   failedPaymentHold,
   isFailingStatus,
   isLiveStatus,
   workspacePlanFor,
+  type CancelWanted,
 } from "@/lib/billing-rules";
-import { afterResponse } from "@/lib/defer";
-import * as dodo from "@/lib/dodo";
 import {
   disputeSchema,
   eventSchema,
@@ -42,6 +44,7 @@ import { describeError, logger } from "@/lib/logger";
 import { setLogContext } from "@/lib/log-context";
 import { TOPUP } from "@/lib/plans";
 import { verifyStandardWebhook } from "@/lib/webhook-signature";
+import { cancelLater, trialLedgerKey } from "@/services/billing";
 
 /**
  * The payment provider's webhooks — **the only place a workspace's plan
@@ -57,28 +60,43 @@ import { verifyStandardWebhook } from "@/lib/webhook-signature";
  *  3. mapped to a workspace through **our** rows — the checkout session we
  *     recorded, or the subscription or payment we already know — never through
  *     the provider's metadata alone (metadata is only trusted when it names a
- *     checkout we opened for that workspace, buyer and product). A
- *     subscription we can't place yet is answered 503 so the provider retries
- *     after the payment event that ties it to its checkout.
+ *     checkout we opened for that workspace, buyer and product).
+ *
+ * **Anything we can't apply yet is answered 503 and not recorded** — a
+ * subscription or payment we can't place, a product that isn't in
+ * `DODO_PRODUCTS`, a refund or dispute for a payment we haven't seen — so the
+ * provider retries it, and once the cause is fixed a replay from the
+ * provider's dashboard is applied too. (`pnpm billing:reprocess:*` forgets an
+ * event that *was* applied, for a replay after a fix.)
  *
  * Done synchronously (a few queries, well inside the 30 s delivery timeout):
  * an error must reach the provider as a non-2xx, or it would never retry.
+ * Calls back to the provider (cancelling) happen after the response, and are
+ * retried on every later event for that subscription (`cancel_wanted`).
  *
  * Subscription events carry the subscription's full current state and are
  * applied as a snapshot; one older than the newest applied is skipped, since
  * deliveries can arrive out of order.
  *
  * Abuse rules applied here: A3 (a top-up is granted only for at least the
- * amount we priced, for the workspace we priced it for), B2 (a dispute holds
- * the workspace view-only at once; a person's second blocks their purchases),
- * B3 (a renewal that finally fails leaves 7 days — once per 3 months — before
- * view-only), C3 (a downgrade arrives as a `plan_changed` at the renewal), C4
- * (top-ups: 500 actions for 12 months; a refund or dispute takes back what's
- * left).
+ * amount we priced, for the workspace we priced it for), B1 (a trial no
+ * checkout granted is refused and cancelled; every trial is written to the
+ * ledger that outlives the account), B2 (a dispute holds the workspace
+ * view-only at once; a person's second blocks their purchases; a lost or
+ * accepted one cancels the plan), B3 (a renewal that finally fails leaves 7
+ * days — once per 3 months — before view-only), C3 (a downgrade arrives as a
+ * `plan_changed` at the renewal), C4 (top-ups: 500 actions for 12 months; a
+ * refund or dispute takes back what's left).
  */
 
-/** A delivery to answer 503 so the provider retries it later. */
-export class RetryLater extends Error {}
+/** A delivery to answer 503 so the provider retries it later; `after` runs once the transaction has rolled back. */
+export class RetryLater extends Error {
+  readonly after?: () => Promise<void>;
+  constructor(message: string, after?: () => Promise<void>) {
+    super(message);
+    this.after = after;
+  }
+}
 
 /** Advisory-lock namespace for one workspace's billing changes (see the list in `email-quota.ts`). */
 const BILLING_LOCK_NAMESPACE = 90;
@@ -90,8 +108,33 @@ type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
 
 type Ctx = { tx: Tx; config: BillingConfig; event: DodoEvent; eventId: string; eventAt: Date };
 
-const respond = (status: number, text = "") =>
-  new Response(text, { status, headers: { "Cache-Control": "no-store", "Content-Type": "text/plain" } });
+const respond = (status: number) =>
+  new Response(null, { status, headers: { "Cache-Control": "no-store" } });
+
+// ── Refusal logging, throttled ─────────────────────────────────────────────
+
+/**
+ * A refused delivery logs at most once a minute per isolate (with how many
+ * were suppressed): anyone can POST junk at the endpoint, and on a server
+ * without keys every delivery is refused — neither may flood the logs.
+ */
+const REFUSAL_LOG_EVERY_MS = 60_000;
+const refusalLog = new Map<string, { at: number; suppressed: number }>();
+
+function logRefusal(level: "warn" | "error", event: string, message: string): void {
+  const now = Date.now();
+  const last = refusalLog.get(event);
+  if (last && now - last.at < REFUSAL_LOG_EVERY_MS) {
+    last.suppressed += 1;
+    return;
+  }
+  const suppressed = last?.suppressed ?? 0;
+  refusalLog.set(event, { at: now, suppressed: 0 });
+  logger[level](suppressed > 0 ? `${message} (and ${suppressed} more in the last minute)` : message, {
+    event,
+    suppressed,
+  });
+}
 
 /**
  * Verify, de-duplicate and apply one delivery; the HTTP answer for the
@@ -101,15 +144,13 @@ const respond = (status: number, text = "") =>
 export async function handleDodoWebhook(rawBody: string, headers: Pick<Headers, "get">): Promise<Response> {
   const configResult = readBillingConfig();
   if (!configResult.ok) {
-    logger.error("A billing webhook arrived but billing isn't configured on this server", {
-      event: "billing.webhook_unconfigured",
-    });
+    logRefusal("error", "billing.webhook_unconfigured", "A billing webhook arrived but billing isn't configured on this server");
     return respond(503);
   }
   const config = configResult.config;
 
   if (!(await verifyStandardWebhook(rawBody, headers, config.webhookKey))) {
-    logger.warn("Refused a billing webhook whose signature didn't verify", { event: "billing.webhook_bad_signature" });
+    logRefusal("warn", "billing.webhook_bad_signature", "Refused a billing webhook whose signature didn't verify");
     return respond(401);
   }
   const eventId = headers.get("webhook-id")!;
@@ -165,11 +206,16 @@ export async function handleDodoWebhook(rawBody: string, headers: Pick<Headers, 
     return respond(200);
   } catch (err) {
     if (err instanceof RetryLater) {
-      logger.warn(`Billing webhook ${event.type} can't be placed yet — asked the provider to retry: ${err.message}`, {
+      logger.warn(`Billing webhook ${event.type} can't be applied yet — asked the provider to retry: ${err.message}`, {
         event: "billing.webhook_retry",
         eventId,
         type: event.type,
       });
+      if (err.after) {
+        await err.after().catch((e: unknown) =>
+          logger.warn(`A billing fallback failed: ${describeError(e)}`, { event: "billing.fallback_failed", eventId }),
+        );
+      }
       return respond(503);
     }
     logger.error(`Billing webhook ${event.type} failed: ${describeError(err)}`, {
@@ -202,7 +248,7 @@ async function lockWorkspace(tx: Tx, workspaceId: string): Promise<void> {
 
 // ── Subscriptions ──────────────────────────────────────────────────────────
 
-type Placement = { workspaceId: string; buyerUserId: string; session: BillingCheckoutSession | null };
+type Placement = { workspaceId: string; buyerUserId: string | null; session: BillingCheckoutSession | null };
 
 /**
  * Which workspace a subscription belongs to: the row we already have; else the
@@ -256,6 +302,43 @@ function dateOrNull(iso: string | null): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
+/**
+ * The safety net for a subscription event we can't place: if its metadata
+ * names a workspace that is on a paid plan **no live subscription of ours
+ * backs** (its rows were lost), that plan is something nobody is paying for —
+ * settle the workspace to Free. Runs after the event's own transaction rolled
+ * back; the event itself is still retried. A workspace with a live
+ * subscription, or on Free, is left alone.
+ */
+function orphanFallback(sub: DodoSubscription, eventId: string): (() => Promise<void>) | undefined {
+  const workspaceId = metaString(sub.metadata, "workspace_id");
+  if (!workspaceId || !isUuid(workspaceId)) return undefined;
+  return async () => {
+    const db = getDb();
+    const [ws] = await db.select({ plan: workspaces.plan }).from(workspaces).where(eq(workspaces.id, workspaceId));
+    if (!ws || ws.plan === "free") return;
+    const [live] = await db
+      .select({ id: workspaceSubscriptions.id })
+      .from(workspaceSubscriptions)
+      .where(
+        and(
+          eq(workspaceSubscriptions.workspaceId, workspaceId),
+          inArray(workspaceSubscriptions.status, [...LIVE_STATUSES]),
+          isNull(workspaceSubscriptions.supersededAt),
+        ),
+      )
+      .limit(1);
+    if (live) return;
+    await db.update(workspaces).set({ plan: "free", updatedAt: new Date() }).where(eq(workspaces.id, workspaceId));
+    logger.warn("A paid workspace had no subscription behind it — settled it to Free", {
+      event: "billing.orphan_settled",
+      eventId,
+      workspaceId,
+      from: ws.plan,
+    });
+  };
+}
+
 async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void> {
   const { tx, config, eventAt } = ctx;
   const now = new Date();
@@ -265,18 +348,18 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
     .where(eq(workspaceSubscriptions.subscriptionId, sub.subscription_id))
     .limit(1);
   const placed = await placeSubscription(tx, sub, existing, now);
-  if (!placed) throw new RetryLater("no checkout or subscription row matches it yet");
+  if (!placed) {
+    throw new RetryLater("no checkout or subscription row matches it yet", orphanFallback(sub, ctx.eventId));
+  }
   setLogContext({ workspaceId: placed.workspaceId });
   await lockWorkspace(tx, placed.workspaceId);
 
   // Re-read under the lock: a parallel event may have just written it.
-  const [current] = existing
-    ? await tx.select().from(workspaceSubscriptions).where(eq(workspaceSubscriptions.id, existing.id)).limit(1)
-    : await tx
-        .select()
-        .from(workspaceSubscriptions)
-        .where(eq(workspaceSubscriptions.subscriptionId, sub.subscription_id))
-        .limit(1);
+  const [current] = await tx
+    .select()
+    .from(workspaceSubscriptions)
+    .where(eq(workspaceSubscriptions.subscriptionId, sub.subscription_id))
+    .limit(1);
   if (current?.lastEventAt && eventAt.getTime() < current.lastEventAt.getTime()) {
     logger.info(`Skipped an out-of-order ${ctx.event.type} — a newer state is already applied`, {
       event: "billing.webhook_stale",
@@ -287,41 +370,24 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
   }
 
   const sells = planOfProduct(config.products, sub.product_id);
-  if (!sells && !current) {
-    // Not a product in DODO_PRODUCTS: nothing to grant. Retrying won't help —
-    // fix the config, then replay the event from the provider's dashboard.
-    logger.error(`A subscription for an unknown product arrived — nothing changed`, {
-      event: "billing.unknown_product",
-      eventId: ctx.eventId,
-      subscriptionId: sub.subscription_id,
-      productId: sub.product_id,
-    });
-    return;
-  }
-  const plan = sells?.plan ?? current!.plan;
-  const period = sells?.period ?? current!.period;
   if (!sells) {
-    logger.error(`A subscription moved to an unknown product — kept its last known plan`, {
+    // Not a product in DODO_PRODUCTS (a config mistake, or another product on
+    // the same account): nothing to grant, and nothing recorded — fix the
+    // config and the provider's retry (or a dashboard replay) applies it.
+    logger.error("A subscription for a product that isn't in DODO_PRODUCTS arrived — asked for a retry", {
       event: "billing.unknown_product",
       eventId: ctx.eventId,
       subscriptionId: sub.subscription_id,
       productId: sub.product_id,
     });
+    throw new RetryLater("its product isn't in DODO_PRODUCTS");
   }
+  const { plan, period } = sells;
 
   const status = sub.status;
   const scheduled = sub.scheduled_change ? planOfProduct(config.products, sub.scheduled_change.product_id) : null;
   const createdAt = dateOrNull(sub.created_at) ?? eventAt;
   const trialDays = current?.trialDays ?? sub.trial_period_days;
-  if (!current && placed.session && placed.session.trialDays !== sub.trial_period_days) {
-    // verify in test mode: the checkout's `subscription_data.trial_period_days`
-    // should override the product's 21 days. The provider's number is what
-    // happened, so it's the one kept (and counted for B1) — but say so.
-    logger.warn(
-      `A subscription started with a ${sub.trial_period_days}-day trial where its checkout asked for ${placed.session.trialDays}`,
-      { event: "billing.trial_mismatch", eventId: ctx.eventId, subscriptionId: sub.subscription_id },
-    );
-  }
   const fields = {
     customerId: sub.customer.customer_id,
     productId: sub.product_id,
@@ -334,6 +400,7 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
     scheduledPlan: scheduled?.plan ?? null,
     scheduledPeriod: scheduled?.period ?? null,
     scheduledAt: scheduled && sub.scheduled_change ? dateOrNull(sub.scheduled_change.effective_at) : null,
+    recurringAmountMinor: sub.recurring_pre_tax_amount,
     activatedAt: current?.activatedAt ?? (entitlesPlan(status) ? eventAt : null),
     paymentFailedAt: isFailingStatus(status) ? (current?.paymentFailedAt ?? eventAt) : null,
     endedAt: isLiveStatus(status) ? null : (current?.endedAt ?? eventAt),
@@ -349,23 +416,29 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
       .where(eq(workspaceSubscriptions.id, current.id))
       .returning()) as [WorkspaceSubscription];
   } else {
-    // A second live subscription for a workspace that already has one (two
-    // checkout tabs both paid): keep the first, record this one as superseded
-    // and cancel it with the provider. The money is refunded by hand.
-    const other = isLiveStatus(status)
-      ? await tx
-          .select({ id: workspaceSubscriptions.id })
-          .from(workspaceSubscriptions)
-          .where(
-            and(
-              eq(workspaceSubscriptions.workspaceId, placed.workspaceId),
-              inArray(workspaceSubscriptions.status, [...LIVE_STATUSES]),
-              isNull(workspaceSubscriptions.supersededAt),
-            ),
-          )
-          .limit(1)
-      : [];
-    const superseded = other.length > 0;
+    // A subscription that must never entitle anything is recorded as void and
+    // cancelled with the provider:
+    //  - B1 fails closed: a trial no checkout of ours granted (the products
+    //    carry none, so the checkout's `trial_period_days` is the only source);
+    //  - a second live subscription for a workspace that already has one (two
+    //    checkout tabs both paid) — the first is kept; the money is refunded by hand.
+    let voidReason: "unearned_trial" | "duplicate" | null = null;
+    if (placed.session && placed.session.trialDays === 0 && sub.trial_period_days > 0) {
+      voidReason = "unearned_trial";
+    } else if (isLiveStatus(status)) {
+      const [other] = await tx
+        .select({ id: workspaceSubscriptions.id })
+        .from(workspaceSubscriptions)
+        .where(
+          and(
+            eq(workspaceSubscriptions.workspaceId, placed.workspaceId),
+            inArray(workspaceSubscriptions.status, [...LIVE_STATUSES]),
+            isNull(workspaceSubscriptions.supersededAt),
+          ),
+        )
+        .limit(1);
+      if (other) voidReason = "duplicate";
+    }
     [row] = (await tx
       .insert(workspaceSubscriptions)
       .values({
@@ -376,7 +449,9 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
         checkoutSessionId: placed.session?.sessionId ?? null,
         trialDays,
         trialEndsAt: trialDays > 0 ? new Date(createdAt.getTime() + trialDays * 24 * 60 * 60 * 1000) : null,
-        supersededAt: superseded ? now : null,
+        supersededAt: voidReason ? now : null,
+        voidReason,
+        cancelWanted: voidReason ? "now" : null,
       })
       .returning()) as [WorkspaceSubscription];
     if (placed.session && !placed.session.subscriptionId) {
@@ -385,25 +460,41 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
         .set({ subscriptionId: sub.subscription_id })
         .where(eq(billingCheckoutSessions.id, placed.session.id));
     }
-    if (superseded) {
+    if (voidReason === "unearned_trial") {
+      logger.error("A subscription started a trial its checkout didn't grant — refused it and cancelled it", {
+        event: "billing.unearned_trial",
+        eventId: ctx.eventId,
+        subscriptionId: sub.subscription_id,
+        trialDays: sub.trial_period_days,
+      });
+    } else if (voidReason === "duplicate") {
       logger.error("A workspace got a second subscription — cancelling it; refund it in the provider's dashboard", {
         event: "billing.duplicate_subscription",
         eventId: ctx.eventId,
         subscriptionId: sub.subscription_id,
       });
-      const subscriptionId = sub.subscription_id;
-      afterResponse("billing.cancel_duplicate", async () => {
-        await dodo.updateSubscription(config, subscriptionId, { status: "cancelled", cancel_reason: "cancelled_by_merchant" });
-      });
     }
   }
 
+  // A cancellation we owe for this subscription — void, account deleted, a
+  // lost dispute — retried on every event until it's no longer live.
+  if (row.cancelWanted && isLiveStatus(status)) {
+    const mode = cancelModeFor(status, row.cancelWanted as CancelWanted);
+    if (mode === "now" || !sub.cancel_at_next_billing_date) {
+      cancelLater(sub.subscription_id, mode, row.voidReason ?? "a cancellation still owed");
+    }
+  }
   if (row.supersededAt) return;
+
   if (entitlesPlan(status) && row.checkoutSessionId) {
     await tx
       .update(billingCheckoutSessions)
       .set({ completedAt: sql`coalesce(${billingCheckoutSessions.completedAt}, now())` })
       .where(eq(billingCheckoutSessions.sessionId, row.checkoutSessionId));
+  }
+  // B1: every trial that started goes in the ledger the account can't delete.
+  if (entitlesPlan(status) && row.trialDays > 0 && !current?.activatedAt) {
+    await recordTrial(tx, row);
   }
   await settleWorkspace(ctx, placed.workspaceId);
   logger.info(`Subscription is now ${status} on ${plan} (${period})`, {
@@ -415,6 +506,22 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
     plan,
     period,
   });
+}
+
+/** Write a started trial to the ledger, by the buyer's hashed email (B1). */
+async function recordTrial(tx: Tx, row: WorkspaceSubscription): Promise<void> {
+  if (!row.buyerUserId) return;
+  const [buyer] = await tx.select({ email: users.email }).from(users).where(eq(users.id, row.buyerUserId)).limit(1);
+  if (!buyer?.email) return;
+  await tx
+    .insert(billingTrialLedger)
+    .values({
+      emailKey: await trialLedgerKey(buyer.email),
+      workspaceId: row.workspaceId,
+      subscriptionId: row.subscriptionId,
+      customerId: row.customerId,
+    })
+    .onConflictDoNothing();
 }
 
 /**
@@ -436,7 +543,7 @@ async function settleWorkspace(ctx: Ctx, workspaceId: string): Promise<void> {
     .where(eq(workspaces.id, workspaceId))
     .limit(1);
   if (!ws) {
-    logger.warn("A billing event names a workspace that no longer exists — nothing to change", {
+    logger.info("A billing event names a workspace that no longer exists — nothing to change", {
       event: "billing.workspace_gone",
       eventId: ctx.eventId,
     });
@@ -524,17 +631,11 @@ async function placePayment(
 async function applyPayment(ctx: Ctx, p: DodoPayment): Promise<void> {
   const { tx, event } = ctx;
   const placed = await placePayment(tx, p);
-  if (!placed) {
-    // A renewal of a subscription we haven't placed yet will be placeable once
-    // its subscription event lands; anything else isn't one of ours.
-    if (p.subscription_id) throw new RetryLater("its subscription isn't known yet");
-    logger.warn("A payment that matches none of our checkouts arrived — nothing changed", {
-      event: "billing.payment_unplaced",
-      eventId: ctx.eventId,
-      paymentId: p.payment_id,
-    });
-    return;
-  }
+  // A renewal of a subscription we haven't placed yet becomes placeable once
+  // its subscription event lands; anything else may be a checkout of ours
+  // whose row is late, or a stranger — either way, not recorded, so a retry
+  // or a replay can still apply it.
+  if (!placed) throw new RetryLater("no checkout, subscription or payment of ours matches it");
   setLogContext({ workspaceId: placed.workspaceId });
   await lockWorkspace(tx, placed.workspaceId);
 
@@ -583,14 +684,33 @@ async function applyPayment(ctx: Ctx, p: DodoPayment): Promise<void> {
       .set({ paymentId: p.payment_id })
       .where(eq(billingCheckoutSessions.id, session.id));
   }
-  if (placed.kind === "topup") await grantTopUp(ctx, p, placed.workspaceId, session, paidAt);
+  if (placed.kind === "topup") {
+    await grantTopUp(ctx, p, placed.workspaceId, session, paidAt);
+    return;
+  }
+  // A plan charge inside the trial (an upgrade ends it — it's charged now):
+  // the trial is over from this payment, so nothing still says "trial".
+  if (p.total_amount > 0 && p.subscription_id) {
+    await tx
+      .update(workspaceSubscriptions)
+      .set({ trialEndsAt: paidAt, updatedAt: new Date() })
+      .where(
+        and(
+          eq(workspaceSubscriptions.subscriptionId, p.subscription_id),
+          sql`${workspaceSubscriptions.trialEndsAt} > ${paidAt}`,
+        ),
+      );
+  }
 }
 
 /**
  * A top-up's payment succeeded: grant `TOPUP.actions` for `TOPUP.validityMonths`
  * — but only if it's for the checkout we opened, for this workspace, and at
  * least the amount we priced (A3). Otherwise nothing is granted and a warning
- * says why. Once per payment (`ai_topups.payment_id` is unique).
+ * says why. Once per payment (`ai_topups.payment_id` is unique). Top-up
+ * checkouts take no discount code (`lib/payments.ts`), so a lower amount is
+ * never legitimate; plans are granted by product, not by amount, so a student
+ * discount on a plan is untouched by this check.
  */
 async function grantTopUp(
   ctx: Ctx,
@@ -608,6 +728,10 @@ async function grantTopUp(
     });
     return;
   }
+  await ctx.tx
+    .update(billingCheckoutSessions)
+    .set({ completedAt: sql`coalesce(${billingCheckoutSessions.completedAt}, now())` })
+    .where(eq(billingCheckoutSessions.id, session.id));
   const check = checkTopUpPayment(session, {
     workspaceId: metaString(p.metadata, "workspace_id") ?? workspaceId,
     totalAmountMinor: p.total_amount,
@@ -640,10 +764,6 @@ async function grantTopUp(
     })
     .onConflictDoNothing()
     .returning({ id: aiTopups.id });
-  await ctx.tx
-    .update(billingCheckoutSessions)
-    .set({ completedAt: sql`coalesce(${billingCheckoutSessions.completedAt}, now())` })
-    .where(eq(billingCheckoutSessions.id, session.id));
   if (granted) {
     logger.info(`Granted a top-up of ${TOPUP.actions} AI actions`, {
       event: "billing.topup_granted",
@@ -658,10 +778,10 @@ async function grantTopUp(
 
 /**
  * A refund went through (always our decision — B4). It's recorded against the
- * payment; a refunded top-up loses whatever is left of it. A refunded plan
- * payment changes nothing by itself: the plan ends only when the subscription
- * is cancelled (its own webhook), so a goodwill refund doesn't silently
- * downgrade anyone.
+ * payment by refund id, so a replayed event can't count twice; a refunded
+ * top-up loses whatever is left of it. A refunded plan payment changes nothing
+ * by itself: the plan ends only when the subscription is cancelled (its own
+ * webhook), so a goodwill refund doesn't silently downgrade anyone.
  */
 async function applyRefund(ctx: Ctx): Promise<void> {
   const r = refundSchema.parse(ctx.event.data);
@@ -670,23 +790,15 @@ async function applyRefund(ctx: Ctx): Promise<void> {
     .from(billingPayments)
     .where(eq(billingPayments.paymentId, r.payment_id))
     .limit(1);
-  if (!payment) {
-    logger.warn("A refund for a payment we never recorded arrived — nothing changed", {
-      event: "billing.refund_unplaced",
-      eventId: ctx.eventId,
-      paymentId: r.payment_id,
-    });
-    return;
-  }
+  // Its payment's own event may still be on the way.
+  if (!payment) throw new RetryLater("its payment isn't recorded yet");
   setLogContext({ workspaceId: payment.workspaceId });
   await lockWorkspace(ctx.tx, payment.workspaceId);
-  const amount = r.amount ?? payment.totalAmountMinor;
+  const refunds = { ...payment.refunds, [r.refund_id]: r.amount ?? payment.totalAmountMinor };
+  const total = Object.values(refunds).reduce((n, v) => n + v, 0);
   await ctx.tx
     .update(billingPayments)
-    .set({
-      refundedMinor: sql`least(${billingPayments.refundedMinor} + ${amount}, ${billingPayments.totalAmountMinor})`,
-      updatedAt: new Date(),
-    })
+    .set({ refunds, refundedMinor: Math.min(total, payment.totalAmountMinor), updatedAt: new Date() })
     .where(eq(billingPayments.id, payment.id));
   if (payment.kind === "topup") await revokeTopUp(ctx, payment.paymentId, "refund");
   logger.info(`Recorded a refund on a ${payment.kind === "topup" ? "top-up" : "plan"} payment`, {
@@ -720,8 +832,10 @@ async function revokeTopUp(ctx: Ctx, paymentId: string, why: "refund" | "dispute
  * A payment was disputed. While it holds (`disputeHolds`), the workspace is
  * view-only — data kept, nothing new — and a disputed top-up loses what's
  * left. The buyer's **second** disputed payment blocks their purchases for
- * good ("contact support"). Won or cancelled lifts the workspace's hold once
- * none of its payments is still disputed.
+ * good ("contact support"). A dispute **lost or accepted** means the money
+ * went back: the plan it paid for is cancelled at once, so a workspace that
+ * stays view-only isn't charged again. Won or cancelled lifts the workspace's
+ * hold once none of its payments is still disputed.
  */
 async function applyDispute(ctx: Ctx): Promise<void> {
   const d = disputeSchema.parse(ctx.event.data);
@@ -736,15 +850,21 @@ async function applyDispute(ctx: Ctx): Promise<void> {
   setLogContext({ workspaceId: payment.workspaceId });
   await lockWorkspace(tx, payment.workspaceId);
 
-  const holds = disputeHolds(d.dispute_status) && ctx.event.type !== "dispute.won" && ctx.event.type !== "dispute.cancelled";
+  const status =
+    ctx.event.type === "dispute.won"
+      ? "dispute_won"
+      : ctx.event.type === "dispute.cancelled"
+        ? "dispute_cancelled"
+        : ctx.event.type === "dispute.lost"
+          ? "dispute_lost"
+          : ctx.event.type === "dispute.accepted"
+            ? "dispute_accepted"
+            : d.dispute_status;
+  const holds = disputeHolds(status);
   const firstTime = !payment.disputedAt;
   await tx
     .update(billingPayments)
-    .set({
-      disputedAt: payment.disputedAt ?? ctx.eventAt,
-      disputeStatus: d.dispute_status,
-      updatedAt: new Date(),
-    })
+    .set({ disputedAt: payment.disputedAt ?? ctx.eventAt, disputeStatus: status, updatedAt: new Date() })
     .where(eq(billingPayments.id, payment.id));
 
   if (holds) {
@@ -753,6 +873,7 @@ async function applyDispute(ctx: Ctx): Promise<void> {
       .set({ billingHold: "dispute", billingHoldFrom: ctx.eventAt, updatedAt: new Date() })
       .where(and(eq(workspaces.id, payment.workspaceId), sql`${workspaces.billingHold} is distinct from 'dispute'`));
     if (payment.kind === "topup") await revokeTopUp(ctx, payment.paymentId, "dispute");
+    if (disputeEndsPlan(status) && payment.subscriptionId) await cancelForDispute(ctx, payment.subscriptionId);
     if (firstTime && payment.buyerUserId) {
       const [count] = await tx
         .select({ n: sql<number>`count(*)::int` })
@@ -773,11 +894,11 @@ async function applyDispute(ctx: Ctx): Promise<void> {
         }
       }
     }
-    logger.warn(`A payment was disputed (${d.dispute_status}) — the workspace is view-only`, {
+    logger.warn(`A payment was disputed (${status}) — the workspace is view-only`, {
       event: "billing.dispute_hold",
       eventId: ctx.eventId,
       paymentId: d.payment_id,
-      disputeStatus: d.dispute_status,
+      disputeStatus: status,
     });
     return;
   }
@@ -802,9 +923,27 @@ async function applyDispute(ctx: Ctx): Promise<void> {
     .where(and(eq(workspaces.id, payment.workspaceId), eq(workspaces.billingHold, "dispute")));
   // A renewal that failed meanwhile still holds the workspace (B3).
   await settleWorkspace(ctx, payment.workspaceId);
-  logger.info(`A dispute ended (${d.dispute_status}) — the workspace's dispute hold is lifted`, {
+  logger.info(`A dispute ended (${status}) — the workspace's dispute hold is lifted`, {
     event: "billing.dispute_lifted",
     eventId: ctx.eventId,
     paymentId: d.payment_id,
+  });
+}
+
+/** A lost or accepted dispute: the plan it paid for is cancelled now, and retried until it ends. */
+async function cancelForDispute(ctx: Ctx, subscriptionId: string): Promise<void> {
+  const [sub] = await ctx.tx
+    .update(workspaceSubscriptions)
+    .set({ cancelWanted: "now", updatedAt: new Date() })
+    .where(
+      and(eq(workspaceSubscriptions.subscriptionId, subscriptionId), inArray(workspaceSubscriptions.status, [...LIVE_STATUSES])),
+    )
+    .returning({ id: workspaceSubscriptions.id });
+  if (!sub) return;
+  cancelLater(subscriptionId, "now", "a lost or accepted dispute");
+  logger.warn("A dispute was lost or accepted — cancelling the plan it paid for", {
+    event: "billing.dispute_cancel",
+    eventId: ctx.eventId,
+    subscriptionId,
   });
 }

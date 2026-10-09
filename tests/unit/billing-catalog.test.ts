@@ -17,7 +17,7 @@ import {
 } from "@/lib/billing-catalog";
 import { DODO_HOSTS, parseBillingConfig } from "@/lib/billing-config";
 import { TOPUP } from "@/lib/plans";
-import { CURRENCIES, PERIODS, TRIAL_DAYS, priceMinor, topUpPriceMinor } from "@/lib/pricing";
+import { CURRENCIES, PERIODS, priceMinor, topUpPriceMinor } from "@/lib/pricing";
 
 const IDS: DodoProducts = {
   plus_monthly: "pdt_plus1",
@@ -53,7 +53,7 @@ describe("productSpecs — what billing:products creates", () => {
     }
   });
 
-  it("makes each plan a subscription with the 21-day trial that needs a payment method, SaaS tax, exclusive of tax", () => {
+  it("B1: makes each plan a subscription with NO trial on the product (checkout grants it), SaaS tax, exclusive of tax", () => {
     for (const spec of specs.filter((s) => s.kind === "subscription")) {
       const body = productBody(spec) as { price: Record<string, unknown> } & Record<string, unknown>;
       expect(body.tax_category).toBe("saas");
@@ -62,7 +62,7 @@ describe("productSpecs — what billing:products creates", () => {
       expect(body.price).toMatchObject({
         type: "recurring_price",
         currency: "INR",
-        trial_period_days: TRIAL_DAYS,
+        trial_period_days: 0,
         trial_payment_method_optional: false,
         tax_inclusive: false,
         subscription_period_count: SUBSCRIPTION_TERM.count,

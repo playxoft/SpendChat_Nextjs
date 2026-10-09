@@ -1627,9 +1627,11 @@ export const workspaceSubscriptions = pgTable(
     id: uuid("id").primaryKey().default(uuidV7),
     // No FK on purpose — see the section note above.
     workspaceId: uuid("workspace_id").notNull(),
-    // Who started the checkout (an admin of the workspace then) — B1 counts
-    // trials by this person.
-    buyerUserId: uuid("buyer_user_id").notNull(),
+    // Who started the checkout (an admin of the workspace then) — the one whose
+    // card pays, the only one who sees its payment portal and invoices. Null
+    // once that account is deleted (the row stays, so later webhooks still
+    // place the subscription; its cancellation is `cancel_wanted`).
+    buyerUserId: uuid("buyer_user_id"),
     provider: text("provider").notNull().default("dodo"),
     customerId: text("customer_id").notNull(),
     subscriptionId: text("subscription_id").notNull().unique(),
@@ -1654,9 +1656,23 @@ export const workspaceSubscriptions = pgTable(
     // When the current run of failed payments started (past_due / on_hold); null once paid.
     paymentFailedAt: timestamp("payment_failed_at", { withTimezone: true }),
     endedAt: timestamp("ended_at", { withTimezone: true }),
-    // A second live subscription for a workspace that already had one: kept
-    // for the record, cancelled with the provider, never entitles anything.
+    // A subscription that must never entitle anything — kept for the record,
+    // cancelled with the provider: a second live one for a workspace that had
+    // one (`void_reason` 'duplicate'), a trial nobody granted ('unearned_trial',
+    // B1 fails closed), a stale `pending` a new checkout replaced ('stale_pending').
     supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    voidReason: text("void_reason"),
+    // A cancellation we owe the provider — 'now' or 'period_end' — retried on
+    // every later event for this subscription until it's no longer live, so a
+    // provider call that failed once is never forgotten (account deletion,
+    // a void subscription, a lost dispute).
+    cancelWanted: text("cancel_wanted"),
+    // When an upgrade was last requested — the return page treats a payment
+    // that failed after it as the upgrade failing.
+    changeRequestedAt: timestamp("change_requested_at", { withTimezone: true }),
+    // What each renewal charges before tax, discounts applied (the provider's
+    // `recurring_pre_tax_amount`), in `currency`'s minor units.
+    recurringAmountMinor: bigint("recurring_amount_minor", { mode: "number" }),
     // The provider timestamp of the newest event applied — the out-of-order guard.
     lastEventAt: timestamp("last_event_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1742,6 +1758,9 @@ export const billingPayments = pgTable(
     currency: text("currency").notNull(),
     invoiceUrl: text("invoice_url"),
     refundedMinor: bigint("refunded_minor", { mode: "number" }).notNull().default(0),
+    // Refunds applied, by provider refund id → amount — `refunded_minor` is
+    // their sum, so a replayed refund event can't count twice.
+    refunds: jsonb("refunds").$type<Record<string, number>>().notNull().default({}),
     disputedAt: timestamp("disputed_at", { withTimezone: true }),
     disputeStatus: text("dispute_status"),
     // The provider's own timestamp for the payment.
@@ -1753,6 +1772,44 @@ export const billingPayments = pgTable(
     index("billing_payments_workspace_idx").on(t.workspaceId, t.paidAt),
     index("billing_payments_buyer_idx").on(t.buyerUserId),
   ],
+);
+
+/**
+ * Every free trial started, **kept when the account is deleted** (B1: two
+ * trials per person per 12 months mustn't reset by deleting and re-creating
+ * the account). Holds no address: `email_key` is a one-way hash of the buyer's
+ * normalised email (`recipientHash` in `lib/email-key.ts`), plus the date and
+ * the provider's ids for support. `pnpm db:health:*` prunes rows past 400 days.
+ */
+export const billingTrialLedger = pgTable(
+  "billing_trial_ledger",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    emailKey: text("email_key").notNull(),
+    workspaceId: uuid("workspace_id").notNull(),
+    subscriptionId: text("subscription_id").notNull().unique(),
+    customerId: text("customer_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("billing_trial_ledger_email_idx").on(t.emailKey, t.createdAt)],
+);
+
+/**
+ * One row per billing action that calls the payment provider (checkout, plan
+ * change, cancel, keep, portal) — the per-person hourly cap
+ * (`BILLING_CALLS_PER_HOUR`), counted and written under a per-person lock so
+ * it's exact. The provider's own limit is per business, so one person must not
+ * be able to spend it. `pnpm db:health:*` prunes it.
+ */
+export const billingRequestLog = pgTable(
+  "billing_request_log",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    userId: uuid("user_id").notNull(),
+    action: text("action").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("billing_request_log_user_created_idx").on(t.userId, t.createdAt)],
 );
 
 /**

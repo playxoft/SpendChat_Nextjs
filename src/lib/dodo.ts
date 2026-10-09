@@ -33,10 +33,17 @@ export class DodoError extends ApiError {
 
 type Method = "GET" | "POST" | "PATCH" | "DELETE";
 
+/**
+ * What a call does, in the words its errors use: "open checkout", "change
+ * the plan"… `refusedHint` is the way out when the provider refuses it.
+ */
+type Op = { what: string; refusedHint?: string };
+
 async function request<T>(
   config: BillingConfig,
   method: Method,
   path: string,
+  op: Op,
   opts: { body?: unknown; query?: Record<string, string | boolean | undefined> } = {},
 ): Promise<T> {
   const url = new URL(path, config.baseUrl);
@@ -66,7 +73,7 @@ async function request<T>(
     throw new DodoError(
       502,
       "billing_provider_error",
-      "The payment provider didn't answer — try again in a moment.",
+      `Couldn't ${op.what} — the payment provider didn't answer. Try again in a moment.`,
       null,
       null,
     );
@@ -94,8 +101,8 @@ async function request<T>(
       clientSide ? 409 : 502,
       clientSide ? "billing_provider_refused" : "billing_provider_error",
       clientSide
-        ? "The payment provider couldn't make that change right now. Try again, or use Manage payment method."
-        : "The payment provider didn't answer — try again in a moment.",
+        ? `The payment provider couldn't ${op.what} right now.${op.refusedHint ? ` ${op.refusedHint}` : " Try again in a moment."}`
+        : `Couldn't ${op.what} — the payment provider didn't answer. Try again in a moment.`,
       res.status,
       providerCode,
     );
@@ -111,7 +118,13 @@ async function request<T>(
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new DodoError(502, "billing_provider_error", "The payment provider sent an unreadable answer.", res.status, null);
+    throw new DodoError(
+      502,
+      "billing_provider_error",
+      `Couldn't ${op.what} — the payment provider sent an unreadable answer.`,
+      res.status,
+      null,
+    );
   }
 }
 
@@ -126,6 +139,7 @@ export type DodoCheckoutRequest = {
     allow_currency_selection: boolean;
     allow_customer_editing_country: boolean;
     allow_discount_code: boolean;
+    always_create_new_customer: boolean;
   };
   metadata: Record<string, string>;
   return_url: string;
@@ -137,11 +151,15 @@ export async function createCheckoutSession(
   config: BillingConfig,
   body: DodoCheckoutRequest,
 ): Promise<{ sessionId: string; checkoutUrl: string }> {
-  const res = await request<{ session_id?: unknown; checkout_url?: unknown }>(config, "POST", "/checkouts", {
-    body,
-  });
+  const res = await request<{ session_id?: unknown; checkout_url?: unknown }>(
+    config,
+    "POST",
+    "/checkouts",
+    { what: "open checkout" },
+    { body },
+  );
   if (typeof res?.session_id !== "string" || typeof res.checkout_url !== "string") {
-    throw new DodoError(502, "billing_provider_error", "The payment provider didn't open a checkout.", 200, null);
+    throw new DodoError(502, "billing_provider_error", "Couldn't open checkout — the payment provider sent no checkout page.", 200, null);
   }
   return { sessionId: res.session_id, checkoutUrl: res.checkout_url };
 }
@@ -161,12 +179,20 @@ export async function changePlan(
   subscriptionId: string,
   body: DodoChangePlanRequest,
 ): Promise<void> {
-  await request(config, "POST", `/subscriptions/${encodeURIComponent(subscriptionId)}/change-plan`, { body });
+  await request(
+    config,
+    "POST",
+    `/subscriptions/${encodeURIComponent(subscriptionId)}/change-plan`,
+    { what: "change the plan", refusedHint: "Try again, or use Manage payment method." },
+    { body },
+  );
 }
 
 /** Drop a plan change scheduled for the renewal. */
 export async function cancelScheduledPlanChange(config: BillingConfig, subscriptionId: string): Promise<void> {
-  await request(config, "DELETE", `/subscriptions/${encodeURIComponent(subscriptionId)}/change-plan/scheduled`);
+  await request(config, "DELETE", `/subscriptions/${encodeURIComponent(subscriptionId)}/change-plan/scheduled`, {
+    what: "cancel the scheduled plan change",
+  });
 }
 
 export type DodoSubscriptionPatch =
@@ -179,7 +205,21 @@ export async function updateSubscription(
   subscriptionId: string,
   body: DodoSubscriptionPatch,
 ): Promise<void> {
-  await request(config, "PATCH", `/subscriptions/${encodeURIComponent(subscriptionId)}`, { body });
+  const what =
+    "status" in body
+      ? "cancel the plan"
+      : "cancel_at_next_billing_date" in body
+        ? body.cancel_at_next_billing_date
+          ? "cancel the plan"
+          : "keep the plan"
+        : "update the plan";
+  await request(
+    config,
+    "PATCH",
+    `/subscriptions/${encodeURIComponent(subscriptionId)}`,
+    { what, refusedHint: "Try again, or use Manage payment method." },
+    { body },
+  );
 }
 
 /** A one-day link to the provider's customer portal (payment methods, invoices, recovery). */
@@ -192,15 +232,18 @@ export async function createPortalSession(
     config,
     "POST",
     `/customers/${encodeURIComponent(customerId)}/customer-portal/session`,
+    { what: "open the payment page" },
     { query: { return_url: returnUrl, send_email: false } },
   );
   if (typeof res?.link !== "string") {
-    throw new DodoError(502, "billing_provider_error", "The payment provider didn't open its portal.", 200, null);
+    throw new DodoError(502, "billing_provider_error", "Couldn't open the payment page — the payment provider sent no link.", 200, null);
   }
   return res.link;
 }
 
 /** The current state of a subscription — the same object its webhooks carry. */
 export async function getSubscription(config: BillingConfig, subscriptionId: string): Promise<unknown> {
-  return request<unknown>(config, "GET", `/subscriptions/${encodeURIComponent(subscriptionId)}`);
+  return request<unknown>(config, "GET", `/subscriptions/${encodeURIComponent(subscriptionId)}`, {
+    what: "read the subscription",
+  });
 }

@@ -27,8 +27,6 @@ export type CheckoutOrder = {
   currency: Currency;
   /** The billing country the session is pinned to (the request's, or the currency's home). */
   country: string;
-  /** The invoice line: "SpendChat Plus · 1 year · Workspace: Home". */
-  description: string;
   /** Where the provider sends the buyer back to, as an app path. */
   returnPath: string;
   /** Where "back" on the checkout page goes, as an app path. */
@@ -73,9 +71,20 @@ export function paymentMethodTypes(currency: Currency): string[] {
  * The `POST /checkouts` body. Pure, so the payload can be tested: the product
  * for this plan and period, the country and currency pinned (the buyer can't
  * switch either on the provider's page — the price they saw is the price
- * charged), the trial days we decided (B1 — overriding the product's 21), and
- * our ids as metadata. The metadata is a convenience only: webhooks resolve a
- * purchase through the session row we store, never through metadata alone.
+ * charged), the trial days we decided (B1 — the products carry none, so 0
+ * unless the buyer is eligible), and our ids as metadata. The metadata is a
+ * convenience only: webhooks resolve a purchase through the session row we
+ * store, never through metadata alone.
+ *
+ * Every checkout makes a **new provider customer**: the provider's portal
+ * shows a customer's cards, subscriptions and invoices, so one customer per
+ * purchase keeps one workspace's billing from showing another's. Discount codes
+ * (the student code, B5) are accepted on plans only — a discounted top-up would
+ * fail the amount check (A3) and grant nothing.
+ *
+ * The provider prints the product's name as the invoice line ("SpendChat Plus
+ * · 1 year"); there's no field for our workspace's name on a subscription
+ * invoice, so Settings → Billing lists invoices under their workspace.
  */
 export function checkoutRequest(order: CheckoutOrder, config: BillingConfig, origin: string): DodoCheckoutRequest {
   const sku = orderSku(order);
@@ -91,8 +100,8 @@ export function checkoutRequest(order: CheckoutOrder, config: BillingConfig, ori
     feature_flags: {
       allow_currency_selection: false,
       allow_customer_editing_country: false,
-      // Student codes are pre-applied by support, never typed (B5).
-      allow_discount_code: false,
+      allow_discount_code: order.line.kind === "plan",
+      always_create_new_customer: true,
     },
     metadata: {
       workspace_id: order.workspace.id,
@@ -107,11 +116,16 @@ export function checkoutRequest(order: CheckoutOrder, config: BillingConfig, ori
 }
 
 /**
- * The origin the provider sends the buyer back to: the one they're on when it
- * is ours (the site, or a local/dev host), else the site's canonical URL. A
- * forged `Host` can't point someone else's return anywhere.
+ * The origin the provider sends the buyer back to. On a deployed Worker that's
+ * `APP_ORIGIN` (set per environment in wrangler.toml), so beta returns to beta
+ * and production to production whatever the build baked in. Without it
+ * (`next dev`): the host the request came in on when it's ours, local, or any
+ * host outside production (a tunnel); else the site's canonical URL. A forged
+ * `Host` can't point a production return anywhere.
  */
 export async function returnOrigin(): Promise<string> {
+  const configured = process.env.APP_ORIGIN?.trim();
+  if (configured && /^https?:\/\/[^/\s]+$/.test(configured.replace(/\/$/, ""))) return configured.replace(/\/$/, "");
   try {
     const h = await headers();
     const host = h.get("x-forwarded-host") ?? h.get("host");

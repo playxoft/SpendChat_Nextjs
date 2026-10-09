@@ -2,15 +2,20 @@ import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 import {
   billingCheckoutSessions,
+  billingPayments,
+  billingRequestLog,
+  billingTrialLedger,
   users,
   workspaceSubscriptions,
   workspaces,
 } from "@/db/schema";
+import { settleDeferred } from "@/lib/defer";
 import * as dodo from "@/lib/dodo";
 import { getWorkspaceEntitlements } from "@/lib/entitlements";
 import { TRIAL_DAYS, priceMinor, topUpPriceMinor } from "@/lib/pricing";
 import { createWorkspaceWithDefaults } from "@/lib/workspaces";
 import * as billing from "@/services/billing";
+import { trialLedgerKey } from "@/services/billing";
 import { deleteAccount } from "@/services/settings";
 import * as ws from "@/services/workspaces";
 import { configureBilling, latestSession, PRODUCTS, unconfigureBilling, workspaceRow } from "./helpers/billing";
@@ -97,7 +102,15 @@ describe("startCheckout — what it sends the provider and records", () => {
       billing_address: { country: "IN" },
       billing_currency: "INR",
       allowed_payment_method_types: ["upi_intent", "credit", "debit"],
-      feature_flags: { allow_currency_selection: false, allow_customer_editing_country: false, allow_discount_code: false },
+      feature_flags: {
+        allow_currency_selection: false,
+        allow_customer_editing_country: false,
+        // B5: the student code can be typed on a plan…
+        allow_discount_code: true,
+        // …and each checkout is its own provider customer, so one payment
+        // portal never shows another workspace's billing.
+        always_create_new_customer: true,
+      },
       metadata: { workspace_id: W, buyer_user_id: uid("own"), item: "plan", sku: "pro_monthly" },
       subscription_data: { trial_period_days: TRIAL_DAYS },
     });
@@ -137,6 +150,8 @@ describe("startCheckout — what it sends the provider and records", () => {
     const body = vi.mocked(dodo.createCheckoutSession).mock.calls.at(-1)![1];
     expect(body.product_cart).toEqual([{ product_id: PRODUCTS.topup, quantity: 1 }]);
     expect(body.subscription_data).toBeUndefined();
+    // B5: no discount code on a top-up — a discounted one would fail A3 and grant nothing.
+    expect(body.feature_flags.allow_discount_code).toBe(false);
     expect(await latestSession(W)).toMatchObject({
       item: "topup",
       expectedAmountMinor: topUpPriceMinor("GBP"),
@@ -237,6 +252,192 @@ describe("trials (B1)", () => {
     const O = await workspaceIdOf("other");
     await liveSubscription(O, { subscriptionId: "sub_o1", buyerUserId: uid("other"), trialDays: 21 });
     expect(await trialOf(W)).toBe(TRIAL_DAYS);
+  });
+});
+
+describe("trials that can't be gamed (B1)", () => {
+  it("B1: two checkouts at once can't both take the last trial — the decision is made under the buyer's lock", async () => {
+    await ownWorkspace();
+    const [w2, w3, w4] = await Promise.all(
+      ["Two", "Three", "Four"].map((name) => createWorkspaceWithDefaults(uid("own"), name, {})),
+    );
+    // One trial already used elsewhere this year: one left.
+    await getTestDb().insert(billingTrialLedger).values({
+      emailKey: await trialLedgerKey("own@example.com"),
+      workspaceId: w4!.id,
+      subscriptionId: "sub_earlier",
+    });
+    await Promise.all(
+      [w2!, w3!].map((w) => billing.startCheckout(uid("own"), w.id, plan("plus"), { country: "US" })),
+    );
+    const sessions = await getTestDb().select().from(billingCheckoutSessions);
+    expect(sessions.map((s) => s.trialDays).sort((a, b) => a - b)).toEqual([0, TRIAL_DAYS]);
+    const trials = vi
+      .mocked(dodo.createCheckoutSession)
+      .mock.calls.map((c) => c[1].subscription_data?.trial_period_days)
+      .sort((a, b) => (a ?? 0) - (b ?? 0));
+    expect(trials).toEqual([0, TRIAL_DAYS]);
+  });
+
+  it("B1: the trial count survives deleting the account — the ledger is kept by hashed email", async () => {
+    const W = await ownWorkspace();
+    const others = await Promise.all(["Two", "Three"].map((n) => createWorkspaceWithDefaults(uid("own"), n, {})));
+    const key = await trialLedgerKey("own@example.com");
+    for (const [i, o] of others.entries()) {
+      await getTestDb().insert(billingTrialLedger).values({ emailKey: key, workspaceId: o.id, subscriptionId: `sub_l${i}` });
+    }
+    await deleteAccount(uid("own"), "DELETE");
+    expect(await getTestDb().select().from(billingTrialLedger)).toHaveLength(2);
+    // The same person signs up again: a new account, the same inbox.
+    signInAs("own2");
+    await getTestDb().insert(users).values({ id: uid("own2"), firebaseUid: "fb-own2", email: "Own+again@Example.com", name: "own2" });
+    await bootstrapUser("own2");
+    const fresh = await workspaceIdOf("own2");
+    const order = await billing.buildCheckoutOrder(uid("own2"), fresh, plan("plus"), { country: "US" });
+    expect(order.line.kind === "plan" && order.line.trialDays).toBe(0);
+    void W;
+  });
+});
+
+describe("who manages a plan", () => {
+  /** "own" owns W; "adm", an admin, bought its plan. */
+  async function boughtByAnotherAdmin() {
+    const W = await ownWorkspace();
+    await registerUser("adm");
+    await ws.addMember(uid("own"), W, { email: "adm@example.com", access: { mode: "all", role: "admin" } });
+    await setWorkspacePlan(W, "plus");
+    const sub = await liveSubscription(W, { buyerUserId: uid("adm"), customerId: "cus_adm" });
+    await getTestDb().insert(billingPayments).values({
+      paymentId: "pay_adm",
+      workspaceId: W,
+      buyerUserId: uid("adm"),
+      kind: "plan",
+      subscriptionId: sub,
+      status: "succeeded",
+      totalAmountMinor: 129900,
+      currency: "INR",
+      invoiceUrl: "https://invoices/adm.pdf",
+      paidAt: new Date(),
+    });
+    return { W, sub };
+  }
+
+  it("only the buyer opens the payment page; another admin is told who manages it", async () => {
+    const { W } = await boughtByAnotherAdmin();
+    await expect(billing.billingPortalUrl(uid("own"), W)).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringContaining("managed by adm"),
+    });
+    expect(dodo.createPortalSession).not.toHaveBeenCalled();
+    await billing.billingPortalUrl(uid("adm"), W);
+    expect(dodo.createPortalSession).toHaveBeenCalledWith(expect.anything(), "cus_adm", expect.any(String));
+  });
+
+  it("shows invoice PDFs (the buyer's name and address) to the buyer only — others see amounts and dates", async () => {
+    const { W } = await boughtByAnotherAdmin();
+    const forOwner = (await billing.getBillingOverview(uid("own"))).workspaces.find((w) => w.id === W)!;
+    expect(forOwner.invoices[0]).toMatchObject({ totalAmountMinor: 129900, invoiceUrl: null });
+    expect(forOwner.subscription!.buyer).toEqual({ isMe: false, name: "adm", inWorkspace: true });
+    const forBuyer = (await billing.getBillingOverview(uid("adm"))).workspaces.find((w) => w.id === W)!;
+    expect(forBuyer.invoices[0]!.invoiceUrl).toBe("https://invoices/adm.pdf");
+    expect(forBuyer.subscription!.buyer.isMe).toBe(true);
+  });
+
+  it("only the buyer can move the plan up (it charges their card); any admin can move it down or cancel", async () => {
+    const { W, sub } = await boughtByAnotherAdmin();
+    await expect(billing.changePlan(uid("own"), W, { plan: "pro", period: "yearly" })).rejects.toMatchObject({
+      status: 403,
+    });
+    await expect(billing.changePlan(uid("own"), W, { plan: "plus", period: "monthly" })).resolves.toMatchObject({
+      kind: "downgrade",
+    });
+    await billing.cancelPlan(uid("own"), W);
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, { cancel_at_next_billing_date: true });
+    // Keeping it again charges at renewal: the buyer only.
+    await expect(billing.resumePlan(uid("own"), W)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("a buyer removed from the workspace keeps paying — it's shown on their Billing page, and they can cancel", async () => {
+    const { W, sub } = await boughtByAnotherAdmin();
+    await ws.removeMember(uid("own"), W, uid("adm"));
+    const overview = await billing.getBillingOverview(uid("adm"));
+    expect(overview.paidElsewhere).toMatchObject([{ workspaceId: W, subscription: { plan: "plus" } }]);
+    const forOwner = (await billing.getBillingOverview(uid("own"))).workspaces.find((w) => w.id === W)!;
+    expect(forOwner.subscription!.buyer).toMatchObject({ name: "adm", inWorkspace: false });
+    await billing.cancelPlan(uid("adm"), W);
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, { cancel_at_next_billing_date: true });
+  });
+});
+
+describe("plans that aren't running", () => {
+  it("cancelling an on-hold plan ends it now — at period end would never come", async () => {
+    const W = await ownWorkspace();
+    await setWorkspacePlan(W, "plus");
+    const sub = await liveSubscription(W, { status: "on_hold" });
+    const res = await billing.cancelPlan(uid("own"), W);
+    expect(res).toEqual({ endsAt: null, immediate: true });
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, {
+      status: "cancelled",
+      cancel_reason: "cancelled_by_merchant",
+    });
+  });
+
+  it("a paused plan can be cancelled, and blocks a new checkout with words that say so", async () => {
+    const W = await ownWorkspace();
+    const sub = await liveSubscription(W, { status: "paused" });
+    await expect(billing.startCheckout(uid("own"), W, plan("plus"), { country: "US" })).rejects.toMatchObject({
+      message: expect.stringContaining("paused"),
+    });
+    await billing.cancelPlan(uid("own"), W);
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, expect.objectContaining({ status: "cancelled" }));
+  });
+
+  it("a pending subscription nobody finished in a day gives its place to a new checkout, and is cancelled", async () => {
+    const W = await ownWorkspace();
+    const sub = await liveSubscription(W, { status: "pending", createdAt: new Date(Date.now() - 30 * 3_600_000) });
+    await billing.startCheckout(uid("own"), W, plan("plus"), { country: "US" });
+    const [row] = await getTestDb().select().from(workspaceSubscriptions).where(eq(workspaceSubscriptions.subscriptionId, sub));
+    expect(row).toMatchObject({ voidReason: "stale_pending", cancelWanted: "now" });
+    expect(row!.supersededAt).not.toBeNull();
+    await settleDeferred();
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, expect.objectContaining({ status: "cancelled" }));
+  });
+
+  it("a fresh pending subscription still holds the place", async () => {
+    const W = await ownWorkspace();
+    await liveSubscription(W, { status: "pending" });
+    await expect(billing.startCheckout(uid("own"), W, plan("plus"), { country: "US" })).rejects.toMatchObject({
+      message: expect.stringContaining("still being confirmed"),
+    });
+  });
+});
+
+describe("provider calls are capped per person", () => {
+  it("refuses a billing action past the hourly cap", async () => {
+    const W = await ownWorkspace();
+    await setWorkspacePlan(W, "plus");
+    await liveSubscription(W);
+    await getTestDb()
+      .insert(billingRequestLog)
+      .values(Array.from({ length: billing.BILLING_CALLS_PER_HOUR }, () => ({ userId: uid("own"), action: "openBillingPortal" })));
+    await expect(billing.billingPortalUrl(uid("own"), W)).rejects.toMatchObject({ status: 429, code: "rate_limited" });
+    await expect(billing.cancelPlan(uid("own"), W)).rejects.toMatchObject({ status: 429 });
+    expect(dodo.createPortalSession).not.toHaveBeenCalled();
+    expect(dodo.updateSubscription).not.toHaveBeenCalled();
+  });
+});
+
+describe("return URLs", () => {
+  it("send the buyer back to APP_ORIGIN when the deployment sets one (beta returns to beta)", async () => {
+    const W = await ownWorkspace();
+    process.env.APP_ORIGIN = "https://beta.spendchat.app";
+    try {
+      await billing.startCheckout(uid("own"), W, plan("plus"), { country: "US" });
+    } finally {
+      delete process.env.APP_ORIGIN;
+    }
+    const body = vi.mocked(dodo.createCheckoutSession).mock.calls.at(-1)![1];
+    expect(body.return_url).toBe(`https://beta.spendchat.app/app/upgrade/return?workspace=${W}`);
   });
 });
 
@@ -366,6 +567,16 @@ describe("a second workspace leads to checkout", () => {
     expect(order.workspace.id).toBe(res.workspace.id);
   });
 
+  it("two at once make one waiting workspace, not two", async () => {
+    await ownWorkspace();
+    const both = await Promise.all(
+      ["One", "Two"].map((name) => ws.createWorkspaceForPurchase(uid("own"), { name, plan: "plus", period: "yearly" })),
+    );
+    expect(new Set(both.map((b) => b.workspace.id)).size).toBe(1);
+    const owned = await getTestDb().select().from(workspaces).where(eq(workspaces.ownerId, uid("own")));
+    expect(owned).toHaveLength(2);
+  });
+
   it("reuses a workspace still waiting for its plan instead of making another", async () => {
     await ownWorkspace();
     const first = await ws.createWorkspaceForPurchase(uid("own"), { name: "One", plan: "plus", period: "yearly" });
@@ -387,17 +598,68 @@ describe("a second workspace leads to checkout", () => {
 });
 
 describe("account deletion", () => {
-  it("cancels every live plan with the provider before erasing, and removes the billing rows", async () => {
+  it("stops every plan the person pays for — reversibly, before erasing — and keeps the rows to place later events", async () => {
     const W = await ownWorkspace();
     await setWorkspacePlan(W, "plus");
     const sub = await liveSubscription(W);
-    await billing.startCheckout(uid("own"), W, { item: "topup" }, { country: "US" });
     await deleteAccount(uid("own"), "DELETE");
+    // Cancel at period end: nothing more is charged, and it's undoable if the deletion had failed.
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, { cancel_at_next_billing_date: true });
+    const [row] = await getTestDb().select().from(workspaceSubscriptions);
+    expect(row).toMatchObject({ subscriptionId: sub, buyerUserId: null, cancelAtPeriodEnd: true, cancelWanted: "period_end" });
+  });
+
+  it("stops a plan the person pays for in someone else's workspace — which survives, keeps its plan to the end, and loses the payer's name", async () => {
+    // "own" owns W; "payer" (an admin of W) bought its plan, then deletes their account.
+    const W = await ownWorkspace();
+    await registerUser("payer");
+    await ws.addMember(uid("own"), W, { email: "payer@example.com", access: { mode: "all", role: "admin" } });
+    await setWorkspacePlan(W, "pro");
+    const sub = await liveSubscription(W, { buyerUserId: uid("payer"), plan: "pro", productId: PRODUCTS.pro_yearly });
+    await getTestDb().insert(billingPayments).values({
+      paymentId: "pay_by_payer",
+      workspaceId: W,
+      buyerUserId: uid("payer"),
+      kind: "plan",
+      subscriptionId: sub,
+      status: "succeeded",
+      totalAmountMinor: 199900,
+      currency: "INR",
+      invoiceUrl: "https://invoice/pdf",
+      paidAt: new Date(),
+    });
+    signInAs("payer");
+    await deleteAccount(uid("payer"), "DELETE");
+
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, { cancel_at_next_billing_date: true });
+    expect((await workspaceRow(W)).plan).toBe("pro");
+    const [row] = await getTestDb().select().from(workspaceSubscriptions).where(eq(workspaceSubscriptions.subscriptionId, sub));
+    expect(row).toMatchObject({ buyerUserId: null, cancelWanted: "period_end" });
+    const [pay] = await getTestDb().select().from(billingPayments).where(eq(billingPayments.paymentId, "pay_by_payer"));
+    expect(pay).toMatchObject({ buyerUserId: null, workspaceId: W });
+  });
+
+  it("a plan that isn't running is cancelled now — after the account is gone, never before", async () => {
+    const W = await ownWorkspace();
+    await setWorkspacePlan(W, "plus");
+    const sub = await liveSubscription(W, { status: "on_hold" });
+    await deleteAccount(uid("own"), "DELETE");
+    expect(dodo.updateSubscription).not.toHaveBeenCalled();
+    await settleDeferred();
     expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, {
       status: "cancelled",
-      cancel_reason: "cancelled_by_customer",
+      cancel_reason: "cancelled_by_merchant",
     });
-    expect(await getTestDb().select().from(workspaceSubscriptions)).toEqual([]);
-    expect(await getTestDb().select().from(billingCheckoutSessions)).toEqual([]);
+  });
+
+  it("deletes nothing when the provider refuses — the person retries", async () => {
+    const W = await ownWorkspace();
+    await setWorkspacePlan(W, "plus");
+    await liveSubscription(W);
+    vi.mocked(dodo.updateSubscription).mockRejectedValueOnce(
+      new dodo.DodoError(502, "billing_provider_error", "Couldn't cancel the plan", null, null),
+    );
+    await expect(deleteAccount(uid("own"), "DELETE")).rejects.toMatchObject({ code: "billing_provider_error" });
+    expect(await getTestDb().select().from(workspaces).where(eq(workspaces.id, W))).toHaveLength(1);
   });
 });

@@ -3,8 +3,8 @@ import { handleDodoWebhook } from "@/services/billing-webhook";
 
 export const dynamic = "force-dynamic";
 
-/** Far larger than any real delivery; a bigger body isn't from the provider. */
-const MAX_BODY_BYTES = 512 * 1024;
+/** Several times a real delivery (a few KB); a bigger body isn't from the provider. */
+const MAX_BODY_BYTES = 64 * 1024;
 
 /**
  * POST /api/webhooks/dodo — the payment provider's webhooks (Dodo Payments,
