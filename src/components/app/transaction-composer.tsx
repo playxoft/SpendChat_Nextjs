@@ -27,6 +27,7 @@ import { AiTransactionInput } from "./ai-transaction-input";
 import { EntryModeToggle, MODE_ROW_DENSE } from "./entry-mode-toggle";
 import { readEntryMode, useEntryMode } from "./entry-mode-store";
 import { cn } from "@/lib/utils";
+import { useTargetProfile } from "@/hooks/use-target-profile";
 import { useContainWheel } from "@/hooks/use-contain-wheel";
 import { useBulkSelecting } from "@/hooks/use-bulk-selecting";
 import { usePendingMessages } from "./pending-messages";
@@ -126,7 +127,9 @@ export function TransactionComposer({
   const [combinedAmount, setCombinedAmount] = useState("");
   const [description, setDescription] = useState("");
   const [occurredOn, setOccurredOn] = useState(today);
-  const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
+  // Re-seeded when the view changes (a sidebar click doesn't remount this), so
+  // an entry never lands in a profile that isn't on screen.
+  const [profileId, setProfileId] = useTargetProfile(activeProfileId, profiles);
   /**
    * The category editor, and *why* it was opened — the two are different
    * dialogs wearing one component.

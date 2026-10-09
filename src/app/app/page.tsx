@@ -14,7 +14,12 @@ import {
   listFeedPage,
   listTransactionIds,
 } from "@/lib/queries";
-import { parseProfileScope, resolveProfileScope, writeTargetOf } from "@/lib/profile-scope";
+import {
+  parseProfileScope,
+  resolveProfileScope,
+  writeChoicesOf,
+  writeTargetOf,
+} from "@/lib/profile-scope";
 import { canWriteInWorkspace, workspaceHasMultipleUsers } from "@/lib/workspaces";
 import { normalizeUiPrefs } from "@/lib/validation";
 import { HEARD_FROM_MAX_ACCOUNT_AGE_DAYS } from "@/lib/attribution";
@@ -146,6 +151,9 @@ export default async function ChatPage({
   // Which profile new transactions land in: the one in view, locked; else a
   // picker, starting on the selection's first profile (or the first profile).
   const { activeProfileId: composerProfileId, allProfiles } = writeTargetOf(scope, profiles);
+  // The composer's picker: on a selection, only the profiles in it — an entry
+  // sent anywhere else would leave the feed it was typed into.
+  const composerProfiles = writeChoicesOf(scope, profiles);
 
   const uiPrefs = normalizeUiPrefs(settings.uiPrefs);
   // One card at a time above the feed: the channel question for a fresh
@@ -261,7 +269,7 @@ export default async function ChatPage({
             currency={currency}
             locale={locale}
             today={today}
-            profiles={profiles}
+            profiles={composerProfiles}
             activeProfileId={composerProfileId}
             allProfiles={allProfiles}
             inputMode={settings.inputMode as InputMode}
