@@ -11,9 +11,12 @@
  * product, a payment it couldn't place — were never recorded, so a replay of
  * those works without this.)
  *
- * Re-applying is safe: subscription events are snapshots, payments and refunds
- * are keyed by the provider's ids, a top-up is granted once per payment, and a
- * dispute counts once per payment.
+ * Re-applying an event is safe only as long as nothing newer has happened to
+ * the same object: subscription, payment and dispute events older than the
+ * newest one applied are **skipped** (out-of-order guards), refunds are keyed
+ * by refund id, a top-up is granted once per payment, and a dispute counts once
+ * per payment toward B2. So replay the *latest* event for a subscription or
+ * payment to bring it up to date; replaying an old one does nothing.
  *
  * Usage (each wraps its own `doppler run --config <env>`; don't prefix another):
  *   pnpm billing:reprocess:dev -- --list               # the 20 newest applied events

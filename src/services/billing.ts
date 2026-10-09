@@ -24,6 +24,7 @@ import {
   TRIAL_WINDOW_DAYS,
   cancelModeFor,
   entitlesPlan,
+  nonBuyerMayChange,
   planChangeKind,
   planChangeRequest,
   trialDaysFor,
@@ -153,7 +154,9 @@ export function trialLedgerKey(email: string): Promise<string> {
  * fewer than two trials elsewhere in the last year — counted from the trial
  * ledger by their email (it outlives a deleted account), from their own
  * subscriptions, and from trial checkouts still open (under a day old, not
- * completed), so opening several at once doesn't get round it. `startCheckout`
+ * completed) by them or by any account with the same inbox (`email_key` —
+ * `zoe+a@` and `zoe+b@` are one person), so opening several at once doesn't
+ * get round it. `startCheckout`
  * decides it again under the buyer's lock.
  */
 export async function trialDaysForPurchase(
@@ -194,7 +197,7 @@ export async function trialDaysForPurchase(
             and ${workspaceSubscriptions.workspaceId} <> ${workspaceId}
           union
           select ${billingCheckoutSessions.workspaceId} from ${billingCheckoutSessions}
-          where ${billingCheckoutSessions.buyerUserId} = ${userId}
+          where (${billingCheckoutSessions.buyerUserId} = ${userId} or ${billingCheckoutSessions.emailKey} = ${key ?? ""})
             and ${billingCheckoutSessions.trialDays} > 0
             and ${billingCheckoutSessions.completedAt} is null
             and ${billingCheckoutSessions.createdAt} >= ${pendingSince}
@@ -359,6 +362,7 @@ export async function startCheckout(
       expectedAmountMinor: order.amountMinor,
       currency: order.currency,
       trialDays: order.line.kind === "plan" ? order.line.trialDays : 0,
+      emailKey: order.buyer.email ? await trialLedgerKey(order.buyer.email) : null,
     });
     return created;
   });
@@ -512,6 +516,9 @@ async function changeableSubscription(userId: string, workspaceId: string): Prom
   await requireWorkspaceRole(userId, workspaceId, "admin");
   const live = await getLiveSubscription(workspaceId);
   if (!live) throw conflict("This workspace has no plan to change yet.");
+  if (live.cancelWanted) {
+    throw conflict("This plan is being cancelled, so it can't change — buy the plan you want once it has ended.");
+  }
   if (live.status !== "active") {
     throw conflict(
       live.status === "paused" || live.status === "pending"
@@ -560,6 +567,18 @@ export async function changePlan(userId: string, workspaceId: string, input: unk
     throw badRequest("This workspace is already on that plan.");
   }
   if (kind === "upgrade") await requireBuyer(userId, live, "upgrade it");
+  // A non-buyer's "downgrade" mustn't raise what the buyer's card is charged.
+  if (
+    live.buyerUserId !== userId &&
+    !nonBuyerMayChange(
+      { plan: live.plan as PaidPersonalPlan, period: live.period },
+      live.scheduledPlan ? { plan: live.scheduledPlan as PaidPersonalPlan, period: live.scheduledPeriod ?? live.period } : null,
+      target,
+      live.currency,
+    )
+  ) {
+    throw await notTheBuyer(live, "switch it to a plan that renews at a higher price");
+  }
   const config = requireBillingConfig();
   await reserveBillingCall(userId, "changePlan");
   const now = new Date();
@@ -962,6 +981,8 @@ export type CheckoutReturnStatus =
   | { state: "done"; item: "plan"; plan: PersonalPlan; trialEndsAt: string | null }
   | { state: "done"; item: "topup"; actions: number }
   | { state: "failed"; reason: "payment" | "amount" | "change" }
+  /** The same plan paid for twice: the extra is cancelled and refunded. */
+  | { state: "duplicate" }
   | { state: "none" };
 
 /** How long after opening a checkout the return page still looks for it. */
@@ -1057,6 +1078,8 @@ export async function checkoutReturnStatus(
         : eq(workspaceSubscriptions.checkoutSessionId, session.sessionId),
     )
     .limit(1);
+  // Charged twice (two checkout tabs): this one is cancelled and refunded by hand.
+  if (sub?.voidReason === "duplicate") return { state: "duplicate" };
   if (sub && (sub.status === "failed" || sub.supersededAt)) return { state: "failed", reason: "payment" };
   if (sub && entitlesPlan(sub.status) && ws.plan === sub.plan) {
     return { state: "done", item: "plan", plan: ws.plan, trialEndsAt: sub.trialEndsAt?.toISOString() ?? null };
@@ -1104,7 +1127,9 @@ async function subscriptionsToStopFor(userId: string): Promise<WorkspaceSubscrip
  */
 export async function prepareBillingForAccountDeletion(userId: string): Promise<WorkspaceSubscription[]> {
   const subs = await subscriptionsToStopFor(userId);
-  const running = subs.filter((s) => s.status === "active" && !s.cancelAtPeriodEnd);
+  // Every active plan, even one our row says is already cancelling: the row
+  // can be stale (kept in the portal), and asking again is idempotent.
+  const running = subs.filter((s) => s.status === "active");
   if (running.length > 0) {
     requireBillingConfig();
     for (const sub of running) {

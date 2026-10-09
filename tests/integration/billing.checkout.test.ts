@@ -279,6 +279,19 @@ describe("trials that can't be gamed (B1)", () => {
     expect(trials).toEqual([0, TRIAL_DAYS]);
   });
 
+  it("B1: two accounts with one inbox share the count — open trial checkouts are counted by hashed email", async () => {
+    await ownWorkspace();
+    const [w2, w3] = await Promise.all(["Two", "Three"].map((n) => createWorkspaceWithDefaults(uid("own"), n, {})));
+    for (const w of [w2!, w3!]) await billing.startCheckout(uid("own"), w.id, plan("plus"), { country: "US" });
+    // The same person, signed up again as zoe+alias: another account, the same inbox.
+    signInAs("alias");
+    await getTestDb().insert(users).values({ id: uid("alias"), firebaseUid: "fb-alias", email: "own+alias@example.com", name: "alias" });
+    await bootstrapUser("alias");
+    const A = await workspaceIdOf("alias");
+    const order = await billing.buildCheckoutOrder(uid("alias"), A, plan("plus"), { country: "US" });
+    expect(order.line.kind === "plan" && order.line.trialDays).toBe(0);
+  });
+
   it("B1: the trial count survives deleting the account — the ledger is kept by hashed email", async () => {
     const W = await ownWorkspace();
     const others = await Promise.all(["Two", "Three"].map((n) => createWorkspaceWithDefaults(uid("own"), n, {})));
@@ -355,6 +368,49 @@ describe("who manages a plan", () => {
     expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, { cancel_at_next_billing_date: true });
     // Keeping it again charges at renewal: the buyer only.
     await expect(billing.resumePlan(uid("own"), W)).rejects.toMatchObject({ status: 403 });
+  });
+
+  it("a non-buyer's \"downgrade\" can't raise what the buyer's card is charged at renewal", async () => {
+    const { W } = await boughtByAnotherAdmin();
+    // Make the plan Pro monthly (₹299 a month).
+    await getTestDb()
+      .update(workspaceSubscriptions)
+      .set({ plan: "pro", period: "monthly", productId: PRODUCTS.pro_monthly });
+    // Plus yearly is a smaller plan but renews at ₹1,299 — refused for a non-buyer.
+    await expect(billing.changePlan(uid("own"), W, { plan: "plus", period: "yearly" })).rejects.toMatchObject({
+      status: 403,
+      message: expect.stringContaining("managed by adm"),
+    });
+    expect(dodo.changePlan).not.toHaveBeenCalled();
+    // Plus monthly renews for less: any admin may.
+    await expect(billing.changePlan(uid("own"), W, { plan: "plus", period: "monthly" })).resolves.toMatchObject({
+      kind: "downgrade",
+    });
+    // …and the buyer may choose the dearer one.
+    await getTestDb().update(workspaceSubscriptions).set({ scheduledPlan: null, scheduledPeriod: null });
+    await expect(billing.changePlan(uid("adm"), W, { plan: "plus", period: "yearly" })).resolves.toMatchObject({
+      kind: "downgrade",
+    });
+  });
+
+  it("a non-buyer can't replace a waiting change with one that renews at a higher price", async () => {
+    const { W } = await boughtByAnotherAdmin();
+    // Pro yearly (₹1,999), with Plus monthly (₹199) already waiting for the renewal.
+    await getTestDb()
+      .update(workspaceSubscriptions)
+      .set({ plan: "pro", period: "yearly", productId: PRODUCTS.pro_yearly, scheduledPlan: "plus", scheduledPeriod: "monthly" });
+    await expect(billing.changePlan(uid("own"), W, { plan: "plus", period: "yearly" })).rejects.toMatchObject({
+      status: 403,
+    });
+  });
+
+  it("refuses any plan change while a cancellation is owed", async () => {
+    const { W } = await boughtByAnotherAdmin();
+    await getTestDb().update(workspaceSubscriptions).set({ cancelWanted: "period_end" });
+    await expect(billing.changePlan(uid("adm"), W, { plan: "plus", period: "monthly" })).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining("being cancelled"),
+    });
   });
 
   it("a buyer removed from the workspace keeps paying — it's shown on their Billing page, and they can cancel", async () => {
@@ -607,6 +663,14 @@ describe("account deletion", () => {
     expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, { cancel_at_next_billing_date: true });
     const [row] = await getTestDb().select().from(workspaceSubscriptions);
     expect(row).toMatchObject({ subscriptionId: sub, buyerUserId: null, cancelAtPeriodEnd: true, cancelWanted: "period_end" });
+  });
+
+  it("asks the provider again even when our row already says the plan is cancelling (it may be stale)", async () => {
+    const W = await ownWorkspace();
+    await setWorkspacePlan(W, "plus");
+    const sub = await liveSubscription(W, { cancelAtPeriodEnd: true });
+    await deleteAccount(uid("own"), "DELETE");
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, { cancel_at_next_billing_date: true });
   });
 
   it("stops a plan the person pays for in someone else's workspace — which survives, keeps its plan to the end, and loses the payer's name", async () => {

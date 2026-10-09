@@ -1714,6 +1714,9 @@ export const billingCheckoutSessions = pgTable(
     expectedAmountMinor: bigint("expected_amount_minor", { mode: "number" }).notNull(),
     currency: text("currency").notNull(),
     trialDays: integer("trial_days").notNull().default(0),
+    // The buyer's hashed email (`trialLedgerKey`), so open trial checkouts are
+    // counted per inbox, not per account — aliases of one person share it (B1).
+    emailKey: text("email_key"),
     // Filled in when a webhook ties a payment or subscription to this session.
     subscriptionId: text("subscription_id"),
     paymentId: text("payment_id"),
@@ -1723,6 +1726,7 @@ export const billingCheckoutSessions = pgTable(
   (t) => [
     index("billing_checkout_sessions_workspace_idx").on(t.workspaceId, t.createdAt),
     index("billing_checkout_sessions_buyer_idx").on(t.buyerUserId, t.createdAt),
+    index("billing_checkout_sessions_email_idx").on(t.emailKey, t.createdAt),
   ],
 );
 
@@ -1763,6 +1767,11 @@ export const billingPayments = pgTable(
     refunds: jsonb("refunds").$type<Record<string, number>>().notNull().default({}),
     disputedAt: timestamp("disputed_at", { withTimezone: true }),
     disputeStatus: text("dispute_status"),
+    // The provider timestamps of the newest payment and dispute events applied
+    // — out-of-order guards: an older event never rolls `status` or
+    // `dispute_status` back.
+    statusEventAt: timestamp("status_event_at", { withTimezone: true }),
+    disputeEventAt: timestamp("dispute_event_at", { withTimezone: true }),
     // The provider's own timestamp for the payment.
     paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

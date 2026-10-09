@@ -19,6 +19,8 @@ import { ApiError } from "@/lib/errors";
 import { PLAN_LIMITS, TOPUP } from "@/lib/plans";
 import { topUpPriceMinor } from "@/lib/pricing";
 import { createWorkspaceWithDefaults, requireProfileRole } from "@/lib/workspaces";
+import { deleteAccount } from "@/services/settings";
+import * as ws from "@/services/workspaces";
 import * as billing from "@/services/billing";
 import { trialLedgerKey } from "@/services/billing";
 import { POST as webhookRoute } from "@/app/api/webhooks/dodo/route";
@@ -34,7 +36,7 @@ import {
   unconfigureBilling,
   workspaceRow,
 } from "./helpers/billing";
-import { bootstrapUser, firstProfileId, setWorkspacePlan, workspaceIdOf } from "./helpers/seed";
+import { bootstrapUser, firstProfileId, registerUser, setWorkspacePlan, workspaceIdOf } from "./helpers/seed";
 import { signInAs, uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
 
@@ -389,6 +391,51 @@ describe("trials (B1)", () => {
   });
 });
 
+describe("checkouts paid after an account or workspace is gone", () => {
+  it("a checkout paid after its buyer deleted their account is voided and cancelled — the plan isn't granted", async () => {
+    // "own" owns W; "payer", an admin, opens a checkout, then deletes their account.
+    const W = await ownWorkspace();
+    await registerUser("payer");
+    await ws.addMember(uid("own"), W, { email: "payer@example.com", access: { mode: "all", role: "admin" } });
+    signInAs("payer");
+    await billing.startCheckout(uid("payer"), W, { item: "plan", plan: "plus", period: "yearly", currency: "INR" }, { country: "IN" });
+    const session = await latestSession(W);
+    await deleteAccount(uid("payer"), "DELETE");
+
+    // The link was still open and got paid.
+    expect((await deliver("payment.succeeded", paymentData({ subscription_id: "sub_late", checkout_session_id: session.sessionId }))).status).toBe(200);
+    const res = await deliver("subscription.active", subscriptionData({ subscription_id: "sub_late" }));
+    expect(res.status).toBe(200);
+    expect((await workspaceRow(W)).plan).toBe("free");
+    expect(await subscriptionRow("sub_late")).toMatchObject({ voidReason: "buyer_gone", cancelWanted: "now", buyerUserId: null });
+    await settleDeferred();
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), "sub_late", expect.objectContaining({ status: "cancelled" }));
+  });
+
+  it("a checkout paid after its workspace was deleted is placed (the session is kept), voided and cancelled", async () => {
+    const W = await ownWorkspace();
+    await billing.startCheckout(uid("own"), W, { item: "plan", plan: "plus", period: "yearly", currency: "INR" }, { country: "IN" });
+    const session = await latestSession(W);
+    await deleteAccount(uid("own"), "DELETE");
+    expect((await deliver("payment.succeeded", paymentData({ subscription_id: "sub_gone", checkout_session_id: session.sessionId }))).status).toBe(200);
+    expect((await deliver("subscription.active", subscriptionData({ subscription_id: "sub_gone" }))).status).toBe(200);
+    expect(await subscriptionRow("sub_gone")).toMatchObject({ voidReason: "workspace_gone", cancelWanted: "now" });
+    await settleDeferred();
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), "sub_gone", expect.objectContaining({ status: "cancelled" }));
+  });
+
+  it("a top-up paid after its workspace was deleted grants nothing — and doesn't fail forever", async () => {
+    const W = await ownWorkspace();
+    await setWorkspacePlan(W, "plus");
+    await billing.startCheckout(uid("own"), W, { item: "topup", currency: "INR" }, { country: "IN" });
+    const session = await latestSession(W);
+    await deleteAccount(uid("own"), "DELETE");
+    const res = await deliver("payment.succeeded", paymentData({ checkout_session_id: session.sessionId, total_amount: topUpPriceMinor("INR") }));
+    expect(res.status).toBe(200);
+    expect(await db().select().from(aiTopups)).toEqual([]);
+  });
+});
+
 describe("cancellations we owe the provider", () => {
   it("asks again on the next event when a plan an account deletion stopped is still renewing", async () => {
     const W = await ownWorkspace();
@@ -407,6 +454,60 @@ describe("cancellations we owe the provider", () => {
     await deliver("subscription.updated", subscriptionData({ subscription_id: sub, cancel_at_next_billing_date: true }));
     await settleDeferred();
     expect(dodo.updateSubscription).not.toHaveBeenCalled();
+  });
+});
+
+describe("more out-of-order and retry cases", () => {
+  it("a payment event retries a cancellation still owed for its subscription", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    await db().update(workspaceSubscriptions).set({ cancelWanted: "now" }).where(eq(workspaceSubscriptions.subscriptionId, sub));
+    vi.mocked(dodo.updateSubscription).mockClear();
+    await deliver("payment.succeeded", paymentData({ subscription_id: sub, total_amount: 129900 }));
+    await settleDeferred();
+    expect(dodo.updateSubscription).toHaveBeenCalledWith(expect.anything(), sub, expect.objectContaining({ status: "cancelled" }));
+  });
+
+  it("an older payment event never rolls its status back", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    const now = Date.now();
+    await deliver("payment.succeeded", paymentData({ payment_id: "pay_ord", subscription_id: sub, total_amount: 1 }), { at: new Date(now) });
+    await deliver("payment.processing", paymentData({ payment_id: "pay_ord", status: "processing", subscription_id: sub, total_amount: 1 }), {
+      at: new Date(now - 60_000),
+    });
+    const [pay] = await db().select().from(billingPayments).where(eq(billingPayments.paymentId, "pay_ord"));
+    expect(pay!.status).toBe("succeeded");
+  });
+
+  it("B2: a late \"opened\" after the dispute was won doesn't hold the workspace again", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    await deliver("payment.succeeded", paymentData({ payment_id: "pay_dw", subscription_id: sub, total_amount: 129900 }));
+    const now = Date.now();
+    await deliver("dispute.won", { dispute_id: "dsp_w", payment_id: "pay_dw", dispute_status: "dispute_won" }, { at: new Date(now) });
+    await deliver("dispute.opened", { dispute_id: "dsp_w", payment_id: "pay_dw", dispute_status: "dispute_opened" }, { at: new Date(now - 60_000) });
+    expect((await workspaceRow(W)).billingHold).toBeNull();
+  });
+
+  it("a subscription we have that moves to an unknown product still applies its status, on the last plan", async () => {
+    const W = await ownWorkspace();
+    const sub = await activePlan(W);
+    const res = await deliver("subscription.cancelled", subscriptionData({ subscription_id: sub, status: "cancelled", product_id: "pdt_mystery" }));
+    expect(res.status).toBe(200);
+    expect(await subscriptionRow(sub)).toMatchObject({ status: "cancelled", plan: "plus" });
+    expect((await workspaceRow(W)).plan).toBe("free");
+  });
+
+  it("a duplicate's buyer is told they were charged twice — not that the payment failed", async () => {
+    const W = await ownWorkspace();
+    await activePlan(W, { sub: "sub_one" });
+    // A second checkout tab, opened before the first was paid, gets paid too.
+    await db()
+      .insert(billingCheckoutSessions)
+      .values({ sessionId: "cks_dup", workspaceId: W, buyerUserId: uid("own"), item: "plan", plan: "pro", period: "yearly", productId: PRODUCTS.pro_yearly, expectedAmountMinor: 1, currency: "INR" });
+    await deliver("subscription.active", subscriptionData({ subscription_id: "sub_two", product_id: PRODUCTS.pro_yearly, trial_period_days: 0, workspaceId: W, buyerUserId: uid("own") }));
+    expect(await billing.checkoutReturnStatus(uid("own"), W)).toEqual({ state: "duplicate" });
   });
 });
 

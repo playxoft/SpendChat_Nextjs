@@ -370,10 +370,11 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
   }
 
   const sells = planOfProduct(config.products, sub.product_id);
-  if (!sells) {
-    // Not a product in DODO_PRODUCTS (a config mistake, or another product on
-    // the same account): nothing to grant, and nothing recorded — fix the
-    // config and the provider's retry (or a dashboard replay) applies it.
+  if (!sells && !current) {
+    // A new subscription for a product that isn't in DODO_PRODUCTS (a config
+    // mistake, or another product on the same account): nothing to grant, and
+    // nothing recorded — fix the config and the provider's retry (or a
+    // dashboard replay) applies it.
     logger.error("A subscription for a product that isn't in DODO_PRODUCTS arrived — asked for a retry", {
       event: "billing.unknown_product",
       eventId: ctx.eventId,
@@ -382,7 +383,18 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
     });
     throw new RetryLater("its product isn't in DODO_PRODUCTS");
   }
-  const { plan, period } = sells;
+  if (!sells) {
+    // One we already have, moved to a product we don't know: its status (and
+    // any cancellation we owe) still apply, on the last plan we knew.
+    logger.error("A subscription moved to a product that isn't in DODO_PRODUCTS — kept its last known plan", {
+      event: "billing.unknown_product",
+      eventId: ctx.eventId,
+      subscriptionId: sub.subscription_id,
+      productId: sub.product_id,
+    });
+  }
+  const plan = sells?.plan ?? current!.plan;
+  const period = sells?.period ?? current!.period;
 
   const status = sub.status;
   const scheduled = sub.scheduled_change ? planOfProduct(config.products, sub.scheduled_change.product_id) : null;
@@ -422,8 +434,19 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
     //    carry none, so the checkout's `trial_period_days` is the only source);
     //  - a second live subscription for a workspace that already has one (two
     //    checkout tabs both paid) — the first is kept; the money is refunded by hand.
-    let voidReason: "unearned_trial" | "duplicate" | null = null;
-    if (placed.session && placed.session.trialDays === 0 && sub.trial_period_days > 0) {
+    //  - a checkout paid after (or during) its buyer's account deletion, or
+    //    for a workspace that's gone — a link stays payable for 24 hours:
+    //    nobody to grant it to, so it's cancelled (refund by hand).
+    const [wsRow] = await tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, placed.workspaceId));
+    const [buyerRow] = placed.buyerUserId
+      ? await tx.select({ id: users.id }).from(users).where(eq(users.id, placed.buyerUserId))
+      : [];
+    let voidReason: "workspace_gone" | "buyer_gone" | "unearned_trial" | "duplicate" | null = null;
+    if (!wsRow) {
+      voidReason = "workspace_gone";
+    } else if (!buyerRow) {
+      voidReason = "buyer_gone";
+    } else if (placed.session && placed.session.trialDays === 0 && sub.trial_period_days > 0) {
       voidReason = "unearned_trial";
     } else if (isLiveStatus(status)) {
       const [other] = await tx
@@ -444,7 +467,7 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
       .values({
         ...fields,
         workspaceId: placed.workspaceId,
-        buyerUserId: placed.buyerUserId,
+        buyerUserId: buyerRow ? placed.buyerUserId : null,
         subscriptionId: sub.subscription_id,
         checkoutSessionId: placed.session?.sessionId ?? null,
         trialDays,
@@ -460,7 +483,12 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
         .set({ subscriptionId: sub.subscription_id })
         .where(eq(billingCheckoutSessions.id, placed.session.id));
     }
-    if (voidReason === "unearned_trial") {
+    if (voidReason === "workspace_gone" || voidReason === "buyer_gone") {
+      logger.error(
+        `A subscription was paid for after its ${voidReason === "buyer_gone" ? "buyer's account" : "workspace"} was deleted — cancelling it; refund it in the provider's dashboard`,
+        { event: "billing.orphan_subscription", eventId: ctx.eventId, subscriptionId: sub.subscription_id, voidReason },
+      );
+    } else if (voidReason === "unearned_trial") {
       logger.error("A subscription started a trial its checkout didn't grant — refused it and cancelled it", {
         event: "billing.unearned_trial",
         eventId: ctx.eventId,
@@ -639,7 +667,36 @@ async function applyPayment(ctx: Ctx, p: DodoPayment): Promise<void> {
   setLogContext({ workspaceId: placed.workspaceId });
   await lockWorkspace(tx, placed.workspaceId);
 
+  // A cancellation we owe for its subscription is retried here too — a
+  // subscription may send payment events and no subscription event for a while.
+  if (p.subscription_id) {
+    const [owed] = await tx
+      .select({ status: workspaceSubscriptions.status, cancelWanted: workspaceSubscriptions.cancelWanted, cancelAtPeriodEnd: workspaceSubscriptions.cancelAtPeriodEnd })
+      .from(workspaceSubscriptions)
+      .where(eq(workspaceSubscriptions.subscriptionId, p.subscription_id))
+      .limit(1);
+    if (owed?.cancelWanted && isLiveStatus(owed.status)) {
+      const mode = cancelModeFor(owed.status, owed.cancelWanted as CancelWanted);
+      if (mode === "now" || !owed.cancelAtPeriodEnd) cancelLater(p.subscription_id, mode, "a cancellation still owed");
+    }
+  }
+
   const paidAt = dateOrNull(p.created_at) ?? ctx.eventAt;
+  // An older event than the newest applied never rolls the status back
+  // (deliveries arrive out of order, and a replay may be days late).
+  const [known] = await tx
+    .select({ statusEventAt: billingPayments.statusEventAt })
+    .from(billingPayments)
+    .where(eq(billingPayments.paymentId, p.payment_id))
+    .limit(1);
+  if (known?.statusEventAt && ctx.eventAt.getTime() < known.statusEventAt.getTime()) {
+    logger.info(`Skipped an out-of-order ${event.type} — a newer payment state is already applied`, {
+      event: "billing.webhook_stale",
+      eventId: ctx.eventId,
+      paymentId: p.payment_id,
+    });
+    return;
+  }
   const values = {
     paymentId: p.payment_id,
     workspaceId: placed.workspaceId,
@@ -653,6 +710,7 @@ async function applyPayment(ctx: Ctx, p: DodoPayment): Promise<void> {
     currency: p.currency.toUpperCase(),
     invoiceUrl: p.invoice_url,
     paidAt,
+    statusEventAt: ctx.eventAt,
   };
   await tx
     .insert(billingPayments)
@@ -661,6 +719,7 @@ async function applyPayment(ctx: Ctx, p: DodoPayment): Promise<void> {
       target: billingPayments.paymentId,
       set: {
         status: values.status,
+        statusEventAt: values.statusEventAt,
         totalAmountMinor: values.totalAmountMinor,
         taxMinor: values.taxMinor,
         invoiceUrl: sql`coalesce(excluded.invoice_url, ${billingPayments.invoiceUrl})`,
@@ -746,6 +805,16 @@ async function grantTopUp(
       reason: check.reason,
       expectedMinor: session.expectedAmountMinor,
       paidMinor: p.total_amount,
+    });
+    return;
+  }
+  const [ws] = await ctx.tx.select({ id: workspaces.id }).from(workspaces).where(eq(workspaces.id, workspaceId));
+  if (!ws) {
+    logger.error("A top-up was paid for a workspace that's been deleted — nothing granted; refund it in the provider's dashboard", {
+      event: "billing.topup_rejected",
+      eventId: ctx.eventId,
+      paymentId: p.payment_id,
+      reason: "workspace_gone",
     });
     return;
   }
@@ -849,6 +918,15 @@ async function applyDispute(ctx: Ctx): Promise<void> {
   if (!payment) throw new RetryLater("its payment isn't recorded yet");
   setLogContext({ workspaceId: payment.workspaceId });
   await lockWorkspace(tx, payment.workspaceId);
+  // A late or replayed dispute event never rolls a newer outcome back.
+  if (payment.disputeEventAt && ctx.eventAt.getTime() < payment.disputeEventAt.getTime()) {
+    logger.info(`Skipped an out-of-order ${ctx.event.type} — a newer dispute state is already applied`, {
+      event: "billing.webhook_stale",
+      eventId: ctx.eventId,
+      paymentId: d.payment_id,
+    });
+    return;
+  }
 
   const status =
     ctx.event.type === "dispute.won"
@@ -864,7 +942,12 @@ async function applyDispute(ctx: Ctx): Promise<void> {
   const firstTime = !payment.disputedAt;
   await tx
     .update(billingPayments)
-    .set({ disputedAt: payment.disputedAt ?? ctx.eventAt, disputeStatus: status, updatedAt: new Date() })
+    .set({
+      disputedAt: payment.disputedAt ?? ctx.eventAt,
+      disputeStatus: status,
+      disputeEventAt: ctx.eventAt,
+      updatedAt: new Date(),
+    })
     .where(eq(billingPayments.id, payment.id));
 
   if (holds) {

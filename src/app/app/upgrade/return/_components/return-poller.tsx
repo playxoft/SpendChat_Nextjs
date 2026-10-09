@@ -54,7 +54,7 @@ export function ReturnPoller({
       }
       const next = res?.status ?? null;
       if (next) setStatus(next);
-      if (next && (next.state === "done" || next.state === "failed" || next.state === "none")) {
+      if (next && (next.state === "done" || next.state === "failed" || next.state === "none" || next.state === "duplicate")) {
         if (next.state === "done") router.refresh();
         return;
       }
@@ -111,6 +111,12 @@ export function ReturnPoller({
                   : "The workspace hasn't changed. You can try again with another card or UPI app."
             }
           />
+        ) : status?.state === "duplicate" ? (
+          <Message
+            icon={<CircleAlert className="size-8 text-amber-600 dark:text-amber-500" />}
+            title="You were charged twice"
+            body="This workspace already had this plan from another checkout, so this second one is cancelled and we'll refund the extra payment. If you don't see the refund within a few days, contact support."
+          />
         ) : gaveUp ? (
           <Message
             icon={<CircleAlert className="size-8 text-muted-foreground" />}
@@ -142,7 +148,7 @@ export function ReturnPoller({
               Open {workspace.name} <ArrowRight className="size-4" />
             </Link>
           </Button>
-        ) : status?.state === "failed" || status?.state === "none" || gaveUp ? (
+        ) : status?.state === "failed" || status?.state === "none" || status?.state === "duplicate" || gaveUp ? (
           <Button asChild>
             <Link href="/app/upgrade">
               Back to plans <ArrowRight className="size-4" />

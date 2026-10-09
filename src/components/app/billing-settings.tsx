@@ -25,7 +25,7 @@ import {
   undoScheduledPlanChange,
 } from "@/actions/billing";
 import { switchWorkspace } from "@/actions/workspaces";
-import { planChangeKind } from "@/lib/billing-rules";
+import { nextRenewal, nonBuyerMayChange, planChangeKind } from "@/lib/billing-rules";
 import { topUpCheckoutPath } from "@/lib/checkout";
 import { formatMoney } from "@/lib/money";
 import { PLAN_NAMES, type PersonalPlan } from "@/lib/plans";
@@ -545,8 +545,20 @@ function ChangePlanDialog({
   // The subscription's own currency — it's locked for the plan's life.
   const price = isCurrency(s.currency)
     ? `${formatAmount(quote(plan, period, s.currency).price, s.currency)} ${PERIOD_LABEL[period].billed}, plus tax`
-    : null;
+    : "its list price, plus tax";
   const upgradeBlocked = kind === "upgrade" && !s.buyer.isMe;
+  // Someone who doesn't pay can't pick a plan that renews at a higher price either.
+  const raisesBill =
+    kind === "downgrade" &&
+    !s.buyer.isMe &&
+    !nonBuyerMayChange(
+      current,
+      s.scheduled ? { plan: s.scheduled.plan as PaidPersonalPlan, period: s.scheduled.period } : null,
+      { plan, period },
+      s.currency,
+    );
+  const blocked = upgradeBlocked || raisesBill;
+  const [today] = React.useState(() => new Date());
 
   function confirm() {
     startTransition(async () => {
@@ -584,22 +596,23 @@ function ChangePlanDialog({
             options={PERIODS.map((p) => ({ value: p, label: PERIOD_LABEL[p].toggle }))}
             className="w-full"
           />
-          {price && kind !== "same" ? <p className="text-sm font-medium tabular-nums">{target}: {price}</p> : null}
           <p className="rounded-lg bg-muted/50 px-3 py-2.5 text-sm text-muted-foreground">
             {kind === "same"
               ? "That's the plan it's on."
               : upgradeBlocked
                 ? `Moving up charges the card it's paid with, so only ${s.buyer.name ?? "the person who pays for it"} can do it.`
-                : kind === "upgrade"
-                  ? `${target} starts as soon as it's paid: you're charged today, less a credit for the unused part of the current plan, and the billing date moves to today.${s.inTrial ? " This ends the free trial now." : ""}`
-                  : `${target} starts on ${day(s.nextBillingDate)}. Nothing is charged today, the current plan runs until then, and AI actions already used this month carry over.`}
+                : raisesBill
+                  ? `${target} would renew at ${price} — more than it's paying now — on the card it's paid with, so only ${s.buyer.name ?? "the person who pays for it"} can choose it.`
+                  : kind === "upgrade"
+                    ? `${target} starts as soon as it's paid: you're charged today, less a credit for the unused part of the current plan. Then it renews at ${price}, next on ${day(nextRenewal(today, period).toISOString())}.${s.inTrial ? " This ends the free trial now." : ""}`
+                    : `Nothing is charged today, and the current plan runs until ${day(s.nextBillingDate)}. From then, ${target} renews at ${price}. AI actions already used this month carry over.`}
           </p>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Close
           </Button>
-          <Button disabled={pending || kind === "same" || upgradeBlocked} onClick={confirm}>
+          <Button disabled={pending || kind === "same" || blocked} onClick={confirm}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : null}
             {kind === "upgrade" ? "Upgrade now" : "Switch at renewal"}
           </Button>

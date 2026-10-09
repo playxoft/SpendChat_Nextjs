@@ -1,5 +1,5 @@
 import { planAtLeast, type PersonalPlan } from "@/lib/plans";
-import { PERIOD_MONTHS, TRIAL_DAYS, type PaidPersonalPlan, type Period } from "@/lib/pricing";
+import { PERIOD_MONTHS, TRIAL_DAYS, isCurrency, priceMinor, type PaidPersonalPlan, type Period } from "@/lib/pricing";
 
 /**
  * The billing decisions, as pure functions — what the checkout and the webhook
@@ -96,6 +96,34 @@ export function planChangeRequest(kind: Exclude<PlanChangeKind, "same">): {
       // scheduled for the renewal isn't documented; `do_not_bill` is the one
       // mode that can't charge anything now.
       { proration_billing_mode: "do_not_bill", effective_at: "next_billing_date" };
+}
+
+/**
+ * May someone who doesn't pay for the plan schedule this change? A move
+ * "down" can still raise what the buyer's card is charged at renewal — Pro
+ * monthly → Plus yearly bills about 4× as much, for a year — so a non-buyer
+ * may only pick a target whose renewal price (list price, in the plan's own
+ * locked currency) is no higher than the current plan's, nor than a change
+ * already waiting. Upgrades are the buyer's alone anyway. An unknown currency
+ * can't be compared, so it's refused.
+ */
+export function nonBuyerMayChange(
+  current: PlanPeriod,
+  scheduled: PlanPeriod | null,
+  target: PlanPeriod,
+  currency: string,
+): boolean {
+  if (!isCurrency(currency)) return false;
+  const price = (p: PlanPeriod) => priceMinor(p.plan, p.period, currency);
+  const next = price(target);
+  return next <= price(current) && (!scheduled || next <= price(scheduled));
+}
+
+/** When a plan bought (or moved up to) on `from` next renews: one billing period later. */
+export function nextRenewal(from: Date, period: Period): Date {
+  const d = new Date(from);
+  d.setUTCMonth(d.getUTCMonth() + PERIOD_MONTHS[period]);
+  return d;
 }
 
 // ── Trials (B1) ────────────────────────────────────────────────────────────

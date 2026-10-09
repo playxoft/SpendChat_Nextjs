@@ -11,7 +11,7 @@ import { AccountControls } from "@/components/app/account-controls";
 import { usePlan } from "@/components/app/upgrade-dialog";
 import { Segmented } from "@/components/pricing/segmented";
 import { changePlan, startCheckout } from "@/actions/billing";
-import { planChangeKind, type PlanChangeKind } from "@/lib/billing-rules";
+import { nextRenewal, nonBuyerMayChange, planChangeKind, type PlanChangeKind } from "@/lib/billing-rules";
 import {
   checkoutPath,
   checkoutQuote,
@@ -59,6 +59,8 @@ export type LivePlan = {
   currency: Currency | null;
   /** This person pays for it — only they can move it up (it charges their card). */
   isBuyer: boolean;
+  /** A change already waiting for the renewal. */
+  scheduled: { plan: PaidPersonalPlan; period: Period } | null;
 };
 
 /** The buyer is in India — UPI is offered (with rupees). Read by the summary's payment line. */
@@ -545,6 +547,7 @@ function PlanChangeView({
 }) {
   const router = useRouter();
   const { reportFailure } = usePlan();
+  const [today] = React.useState(() => new Date());
   const [period, setPeriod] = React.useState<Period>(initialPeriod);
   const kind = planChangeKind({ plan: live.plan, period: live.period }, { plan, period });
   const q = checkoutQuote(plan, period, currency);
@@ -597,13 +600,21 @@ function PlanChangeView({
       />
     );
   }
-  if (kind === "upgrade" && !live.isBuyer) {
+  const raisesBill =
+    kind === "downgrade" &&
+    !live.isBuyer &&
+    !nonBuyerMayChange({ plan: live.plan, period: live.period }, live.scheduled, { plan, period }, currency);
+  if ((kind === "upgrade" || raisesBill) && !live.isBuyer) {
     return (
       <Notice
         workspace={workspace}
         currentPlan={currentPlan}
         title="Ask the person who pays for it"
-        body="Moving this plan up charges the card it's paid with, so only the person who bought it can do it. You can still move it down, or cancel it, in Billing."
+        body={
+          raisesBill
+            ? `${to} would renew at ${price} ${PERIOD_LABEL[period].billed} — more than this plan costs now — on the card it's paid with, so only the person who bought it can choose it. A plan that renews for less, or cancelling, is up to any admin in Billing.`
+            : "Moving this plan up charges the card it's paid with, so only the person who bought it can do it. You can still move it down, or cancel it, in Billing."
+        }
         href="/app/settings/billing"
         cta="Open Billing"
       />
@@ -659,12 +670,12 @@ function PlanChangeView({
                 ? [
                     `${to} starts as soon as the payment goes through.`,
                     `You're charged ${price} today, less a credit for the unused part of ${from}.`,
-                    "Your billing date moves to today; each renewal after is the new plan's price.",
+                    `Your billing date moves to today: it then renews at ${price} ${PERIOD_LABEL[period].billed}, next on ${formatDay(nextRenewal(today, period).toISOString())}.`,
                     ...(live.inTrial ? ["This ends your free trial now — the new plan is charged today."] : []),
                   ]
                 : [
                     `You keep ${from} — and everything in it — until ${renewal}.`,
-                    `From ${renewal}, ${to} renews at ${price}. Nothing is charged today.`,
+                    `From ${renewal}, ${to} renews at ${price} ${PERIOD_LABEL[period].billed}. Nothing is charged today.`,
                     "AI actions already used this month carry over; nothing is refunded.",
                     "Anything over the smaller plan's limits stays — you just can't add more of it.",
                   ]

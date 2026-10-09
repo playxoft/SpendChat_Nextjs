@@ -3,7 +3,6 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   aiChats,
-  billingCheckoutSessions,
   billingPayments,
   organizations,
   profileAccess,
@@ -304,13 +303,15 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
       // every later webhook until they end) and the buyer is forgotten. The
       // subscription rows stay, so those webhooks can still place them and a
       // surviving workspace (someone else's, that this person paid for) goes
-      // back to Free when its plan ends. Payments and checkouts of the
-      // workspaces being deleted go with them; a surviving workspace keeps its
-      // payment history, with nobody's name on it (and no invoice link). The
-      // trial ledger stays (B1) — it holds no address.
+      // back to Free when its plan ends. Payments of the workspaces being
+      // deleted go with them; a surviving workspace keeps its payment
+      // history, with nobody's name on it (and no invoice link). **Checkout
+      // sessions are kept** (ids only): a checkout link stays payable for
+      // 24 hours, so one paid after this deletion must still be placed — and
+      // voided and cancelled (`buyer_gone` / `workspace_gone`) — rather than
+      // retried forever. The trial ledger stays (B1) — it holds no address.
       await forgetBuyerInTransaction(tx, userId, stopping);
       if (ownedIds.length > 0) {
-        await tx.delete(billingCheckoutSessions).where(inArray(billingCheckoutSessions.workspaceId, ownedIds));
         await tx.delete(billingPayments).where(inArray(billingPayments.workspaceId, ownedIds));
       }
       if (ownedIds.length > 0) {

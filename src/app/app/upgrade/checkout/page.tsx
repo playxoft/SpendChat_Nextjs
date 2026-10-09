@@ -61,6 +61,9 @@ export default async function CheckoutPage({
         // A plan's currency is locked for its life: a change is priced in it.
         currency: isCurrency(running.currency) ? running.currency : null,
         isBuyer: running.buyerUserId === user.id,
+        scheduled: running.scheduledPlan
+          ? { plan: running.scheduledPlan as PaidPersonalPlan, period: running.scheduledPeriod ?? running.period }
+          : null,
       }
     : null;
 
