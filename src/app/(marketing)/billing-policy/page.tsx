@@ -28,8 +28,8 @@ const sections: { id: string; h: string; p: React.ReactNode[] }[] = [
     h: "Plans are per workspace",
     p: [
       `Every workspace has its own plan — Free, ${PLAN_NAMES.plus} or ${PLAN_NAMES.pro} — with its own billing date and its own invoices. Everyone gets one free workspace; each extra workspace needs its own paid plan, and until it has one it's view-only.`,
-      "Only a workspace admin can buy a plan. The admin who buys it pays for it with their own payment method, and only they see its invoices and payment details and can move it to a bigger plan; any admin can move it to a smaller one or cancel it. Payments are processed by Dodo Payments, our merchant of record: they handle the payment, the invoice and the sales tax (GST or VAT) for your country, which is added at checkout.",
-      "If you're removed from a workspace whose plan you pay for, the workspace keeps its plan and you keep paying until you cancel it — it stays listed on your Billing page. If you delete your account, every plan you pay for is cancelled at the end of its paid period.",
+      "Only a workspace admin can buy a plan. The admin who buys it pays for it with their own payment method, and only they see its invoices and payment details and can move it to a bigger plan (or to any plan that renews at a higher price); any admin can move it to a plan that renews for no more, or cancel it. Payments are processed by Dodo Payments, our merchant of record: they handle the payment, the invoice and the sales tax (GST or VAT) for your country, which is added at checkout.",
+      "If you're removed from a workspace whose plan you pay for, the workspace keeps its plan and you keep paying until you cancel it — it stays listed on your Billing page. If you delete your account, every plan you pay for is cancelled at the end of its paid period, and a checkout you'd opened but not finished (links stay open for 24 hours) is cancelled and refunded if it's paid later.",
     ],
   },
   {

@@ -38,8 +38,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   nothing), cancel at the end of the period (or straight away for a plan whose
   payment failed) or keep the plan after all, and manage the payment method. A
   plan is paid by the admin who bought it: only they see its invoices and
-  payment page and can move it up; other admins see who manages it and can
-  still move it down or cancel. A plan you pay for in a workspace you've left is
+  payment page and can move it up (or to any plan that renews for more); other
+  admins see who manages it and can still pick a plan that renews for less, or
+  cancel. Every change says what it renews at, and when. A plan you pay for in a workspace you've left is
   listed too, so you can cancel it.
 - **AI top-ups**: 500 more AI actions for a paid workspace, used only once the
   month's allowance runs out (the oldest top-up first) and valid for 12 months.

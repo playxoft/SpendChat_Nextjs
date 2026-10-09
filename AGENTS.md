@@ -129,8 +129,9 @@ Authentication, secrets via Doppler.
   One live subscription per workspace — a paid workspace changes plan (`changePlan`: up now and
   prorated, down at renewal, C3) instead of a second checkout. **A plan belongs to its buyer:**
   each checkout is a new provider customer; only the buyer gets the portal, invoice PDFs and
-  changes that could charge their card (upgrade, keep, undo a downgrade) — any admin can lower
-  the bill; a buyer removed from a workspace keeps paying until they cancel (shown on their Billing
+  changes that could charge their card (upgrade, keep, undo a downgrade, any change that renews
+  at a higher list price — `nonBuyerMayChange`) — any admin can lower the bill; a checkout paid
+  after its buyer or workspace is gone is voided and cancelled (sessions are kept for that); a buyer removed from a workspace keeps paying until they cancel (shown on their Billing
   page). **Trials (B1) fail closed:** products carry 0 trial days; a checkout grants 21 only when
   eligible, decided under the buyer's lock (namespace 91); the webhook voids and cancels a trial no
   checkout granted; trials are counted from `billing_trial_ledger` (hashed email, kept after account
