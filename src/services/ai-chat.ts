@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { and, desc, eq } from "drizzle-orm";
 import { getDb } from "@/db";
 import { aiChatMessages, aiChats, type AiChat } from "@/db/schema";
@@ -106,6 +107,14 @@ async function ownedChat(userId: string, workspaceId: string, chatId: string): P
 }
 
 /**
+ * `ownedChat`, memoized for one page render: the Ask page's `generateMetadata`
+ * (the tab title) and the page itself (the chat) both read it, and the row
+ * shouldn't cost two round trips. Reads only — `askQuestion` and the writes
+ * call `ownedChat` itself, never a memo that could predate their transaction.
+ */
+const ownedChatForRender = cache(ownedChat);
+
+/**
  * One of the caller's chats' titles, or null when it isn't theirs here (or
  * doesn't exist) — for the browser tab, which must never 404 on its own.
  */
@@ -115,7 +124,7 @@ export async function getChatTitle(
   chatId: string,
 ): Promise<string | null> {
   try {
-    return (await ownedChat(userId, workspaceId, chatId)).title;
+    return (await ownedChatForRender(userId, workspaceId, chatId)).title;
   } catch (err) {
     if (err instanceof ApiError && err.status === 404) return null;
     throw err;
@@ -167,7 +176,7 @@ export async function getChat(
   workspaceId: string,
   chatId: string,
 ): Promise<{ chat: ChatSummary; messages: ChatMessageDTO[] }> {
-  const chat = await ownedChat(userId, workspaceId, chatId);
+  const chat = await ownedChatForRender(userId, workspaceId, chatId);
   const messages = await newestMessages(chat.id, CHAT_PAGE_MESSAGES);
   return { chat: summary(chat), messages: messages.map(messageDTO) };
 }
