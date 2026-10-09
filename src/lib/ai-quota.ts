@@ -1,12 +1,13 @@
 import "server-only";
-import { and, desc, eq, gt, gte, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, isNull, lt, lte, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { aiUsageLog } from "@/db/schema";
+import { aiTopups, aiUsageLog } from "@/db/schema";
 import { ApiError, planLimit, rateLimited, type PlanLimitDetails } from "@/lib/errors";
 import {
   aiActionsUsedThisMonth,
   aiAllowanceError,
   getWorkspaceEntitlements,
+  liveTopUps,
   type WorkspaceEntitlements,
 } from "@/lib/entitlements";
 import { VOICE, voiceActionsFor } from "@/lib/plans";
@@ -76,6 +77,10 @@ export type AiCharge = {
   remaining: number | null;
   /** The monthly allowance the remainder is out of. */
   limit: number;
+  /** How many of `units` a top-up paid for (C4) — given back if the call is refunded. */
+  topupUnits: number;
+  /** Top-up actions the workspace has left after this charge; null for a 0-unit charge. */
+  topUpRemaining: number | null;
 };
 
 type Tx = Parameters<Parameters<ReturnType<typeof getDb>["transaction"]>[0]>[0];
@@ -179,22 +184,109 @@ async function chargeUnderLocks(
     // was already paid for gets its parse.
     const limit = ent.limits.aiActionsPerMonth;
     let remaining: number | null = null;
+    let topupUnits = 0;
+    let topUpRemaining: number | null = null;
     if (units > 0) {
       const used = await aiActionsUsedThisMonth(ent, now, tx);
-      // Top-ups (personal phase 9) plug in here: they're spent only once the
-      // monthly allowance is gone (C4), so the check becomes
-      // `used + units > limit + topUpRemaining`, under this same lock, and the
-      // row records which pool paid.
-      if (used + units > limit) throw allowanceError(ent, used, units);
-      remaining = limit - used - units;
+      const monthlyLeft = Math.max(0, limit - used);
+      const fromMonthly = Math.min(units, monthlyLeft);
+      // Top-ups pay only for what the monthly allowance can't (C4), oldest-
+      // expiring first, under this same lock — so two members can't both
+      // spend the last top-up action.
+      const spend = await spendTopUps(tx, workspaceId, units - fromMonthly, now);
+      if (!spend) throw allowanceError(ent, used, units, await topUpBalanceIn(tx, workspaceId, now));
+      topupUnits = units - fromMonthly;
+      remaining = monthlyLeft - fromMonthly;
+      topUpRemaining = spend.left;
     }
 
     const [inserted] = await tx
       .insert(aiUsageLog)
-      .values({ userId, workspaceId, kind, units, ownerId: ent.ownerId, plan: ent.plan })
+      .values({ userId, workspaceId, kind, units, topupUnits, ownerId: ent.ownerId, plan: ent.plan })
       .returning({ id: aiUsageLog.id });
-    return { id: inserted!.id, kind, units, userId, workspaceId, remaining, limit };
+    return { id: inserted!.id, kind, units, userId, workspaceId, remaining, limit, topupUnits, topUpRemaining };
   });
+}
+
+/** Top-up actions the workspace has left, read inside the charge's transaction. */
+async function topUpBalanceIn(tx: Tx, workspaceId: string, now: Date): Promise<number> {
+  const [row] = await tx
+    .select({ n: sql<string>`coalesce(sum(${aiTopups.remaining}), 0)::text` })
+    .from(aiTopups)
+    .where(liveTopUps(workspaceId, now));
+  return Number(row?.n ?? 0);
+}
+
+/**
+ * Take `need` actions from the workspace's live top-ups, oldest-expiring
+ * first; null (taking nothing) when they don't hold that many. Returns what's
+ * left across them. Runs under the allowance lock (`chargeUnderLocks`), and
+ * locks the rows it reads, so a concurrent refund's give-back can't be lost.
+ */
+async function spendTopUps(
+  tx: Tx,
+  workspaceId: string,
+  need: number,
+  now: Date,
+): Promise<{ left: number } | null> {
+  const rows = await tx
+    .select({ id: aiTopups.id, remaining: aiTopups.remaining })
+    .from(aiTopups)
+    .where(liveTopUps(workspaceId, now))
+    .orderBy(asc(aiTopups.expiresAt), asc(aiTopups.id))
+    .for("update");
+  const total = rows.reduce((n, r) => n + r.remaining, 0);
+  if (need <= 0) return { left: total };
+  if (total < need) return null;
+  let rest = need;
+  for (const row of rows) {
+    if (rest === 0) break;
+    const take = Math.min(row.remaining, rest);
+    await tx
+      .update(aiTopups)
+      .set({ remaining: row.remaining - take })
+      .where(eq(aiTopups.id, row.id));
+    rest -= take;
+  }
+  return { left: total - need };
+}
+
+/**
+ * Give a refunded call's top-up actions back: to the live top-ups with room,
+ * **latest-expiring first** — the total is exact, and where the action came
+ * from a top-up that has since run dry, it goes back where it lasts longest.
+ * Never past a top-up's size. Actions from a top-up that has since expired or
+ * been revoked are not returned — there's nothing to return them to.
+ */
+async function returnTopUpUnits(
+  db: Pick<ReturnType<typeof getDb>, "select" | "update"> | Tx,
+  workspaceId: string,
+  units: number,
+  now: Date = new Date(),
+): Promise<void> {
+  if (units <= 0) return;
+  const rows = await db
+    .select({ id: aiTopups.id, remaining: aiTopups.remaining, actions: aiTopups.actions })
+    .from(aiTopups)
+    .where(
+      and(
+        eq(aiTopups.workspaceId, workspaceId),
+        gt(aiTopups.expiresAt, now),
+        isNull(aiTopups.revokedAt),
+        lt(aiTopups.remaining, aiTopups.actions),
+      ),
+    )
+    .orderBy(desc(aiTopups.expiresAt), desc(aiTopups.id));
+  let rest = units;
+  for (const row of rows) {
+    if (rest === 0) break;
+    const give = Math.min(row.actions - row.remaining, rest);
+    await db
+      .update(aiTopups)
+      .set({ remaining: sql`least(${aiTopups.actions}, ${aiTopups.remaining} + ${give})` })
+      .where(eq(aiTopups.id, row.id));
+    rest -= give;
+  }
 }
 
 /** The allowance's lock key: the scope its sum covers (see `chargeUnderLocks`). */
@@ -207,9 +299,9 @@ function allowanceLockKey(ent: WorkspaceEntitlements): string {
  * clip with one action remaining — say so, because "you've used all your
  * actions" would be false and a shorter clip would go through.
  */
-function allowanceError(ent: WorkspaceEntitlements, used: number, units: number): ApiError {
+function allowanceError(ent: WorkspaceEntitlements, used: number, units: number, topUps = 0): ApiError {
   const base = aiAllowanceError(ent, used);
-  const remaining = ent.limits.aiActionsPerMonth - used;
+  const remaining = Math.max(0, ent.limits.aiActionsPerMonth - used) + topUps;
   if (remaining <= 0) return base;
   return planLimit(
     `That clip needs ${units} AI actions (one per started minute), and this workspace has ${remaining} left this month — a clip under a minute needs just one.`,
@@ -367,10 +459,11 @@ async function settleAiCharge(
                 audioMs: usage.audioMs,
               }
             : {}),
-          ...(refund ? { units: 0, kind: `${charge.kind}${FAILED_SUFFIX}` } : {}),
+          ...(refund ? { units: 0, topupUnits: 0, kind: `${charge.kind}${FAILED_SUFFIX}` } : {}),
           ...(recharge != null ? { units: recharge } : {}),
         })
         .where(eq(aiUsageLog.id, charge.id));
+      if (refund) await returnTopUpUnits(getDb(), charge.workspaceId, charge.topupUnits);
       if (recharge != null) {
         logger.info(
           `Charged ${recharge} AI action(s) for a clip declared as ${charge.units} — the measured audio was longer`,
@@ -422,9 +515,11 @@ async function refundTranscription(charge: AiCharge, usage: AiUsage | null): Pro
           ? { inputTokens: usage.inputTokens, outputTokens: usage.outputTokens, audioMs: usage.audioMs }
           : {}),
         units: 0,
+        topupUnits: 0,
         kind: `${charge.kind}${FAILED_SUFFIX}`,
       })
       .where(eq(aiUsageLog.id, charge.id));
+    await returnTopUpUnits(tx, charge.workspaceId, charge.topupUnits);
 
     // Only a voice parse made *after* this clip could have leaned on it (a
     // parse claims an earlier clip). Judge the newest such parse in its own

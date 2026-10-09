@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 /** The slice of `getUsage()` the strip shows (structural — entitlements are server-only). */
 export type UsageStripData = {
-  ai: { used: number; limit: number; resetsAt: string };
+  ai: { used: number; limit: number; resetsAt: string; topUpRemaining: number };
   storage: { usedBytes: number; limitBytes: number };
   members: { used: number; limit: number };
   spaces: { used: number; limit: number };
@@ -27,7 +27,10 @@ export function UsageStrip({ usage }: { usage: UsageStripData }) {
       used: usage.ai.used,
       limit: usage.ai.limit,
       value: `${count(usage.ai.used)} / ${count(usage.ai.limit)}`,
-      note: `Back on ${formatResetDate(usage.ai.resetsAt)}`,
+      note:
+        usage.ai.topUpRemaining > 0
+          ? `Back on ${formatResetDate(usage.ai.resetsAt)} · +${count(usage.ai.topUpRemaining)} top-up`
+          : `Back on ${formatResetDate(usage.ai.resetsAt)}`,
     },
     {
       label: "Storage",

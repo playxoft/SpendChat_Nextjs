@@ -149,7 +149,7 @@ export async function listChats(userId: string, workspaceId: string): Promise<Ch
  */
 export function aiActionsLeftFor(workspaceId: string): Promise<AiActionsLeft | null> {
   return getAiAllowance(workspaceId)
-    .then((a) => ({ remaining: a.remaining, limit: a.limit, resetsAt: a.resetsAt }))
+    .then((a) => ({ remaining: a.remaining, limit: a.limit, resetsAt: a.resetsAt, topUpRemaining: a.topUpRemaining }))
     .catch((err: unknown) => {
       logger.warn(`The AI actions count failed: ${describeError(err)}`, {
         event: "ai.allowance.count_failed",
@@ -398,7 +398,7 @@ export async function askQuestion(
       500,
       "ai_chat_not_saved",
       "Here's your answer, but it couldn't be saved to this chat.",
-      { answer, ai: { remaining: charge.remaining ?? 0, limit: charge.limit } },
+      { answer, ai: { remaining: charge.remaining ?? 0, limit: charge.limit, topUpRemaining: charge.topUpRemaining ?? 0 } },
     );
   }
 }
@@ -507,7 +507,9 @@ async function saveAnswer(opts: {
       messages: rows
         .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
         .map(messageDTO),
-      ai: charge ? { remaining: charge.remaining ?? 0, limit: charge.limit } : null,
+      ai: charge
+        ? { remaining: charge.remaining ?? 0, limit: charge.limit, topUpRemaining: charge.topUpRemaining ?? 0 }
+        : null,
     };
   });
 }

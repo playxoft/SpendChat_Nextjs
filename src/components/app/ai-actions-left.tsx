@@ -9,7 +9,9 @@ import { usePlan } from "./upgrade-dialog";
 
 /**
  * "38 of 50 AI actions left this month" — the workspace's monthly AI allowance,
- * on the composers that spend it (the tracker's AI mode and Ask).
+ * on the composers that spend it (the tracker's AI mode and Ask), plus any
+ * top-up actions it has left ("· +450 top-up"), which carry on once the
+ * month's allowance is spent.
  *
  * The page streams the first value (`allowance`, a promise it never awaits, so
  * the count can't hold up the page); after each use the composer passes the
@@ -55,7 +57,23 @@ function Streamed({
 function Line({ value, className }: { value: AiActionsLeft; className?: string }) {
   const { plan, showUpgrade } = usePlan();
   const remaining = Math.max(0, value.remaining);
+  const topUp = Math.max(0, value.topUpRemaining ?? 0);
   const limit = value.limit.toLocaleString("en-US");
+  if (remaining === 0 && topUp > 0) {
+    // The month's allowance is spent and a top-up is carrying on (C4).
+    const full = `This month's AI actions are used — ${topUp.toLocaleString("en-US")} top-up actions left`;
+    return (
+      <span
+        className={cn("min-w-0 truncate text-xs text-muted-foreground tabular-nums", className)}
+        title={full}
+      >
+        <span className="sm:hidden" aria-hidden>
+          {topUp.toLocaleString("en-US")} top-up left
+        </span>
+        <span className="sr-only sm:not-sr-only">{full}</span>
+      </span>
+    );
+  }
   if (remaining === 0) {
     const lock = aiActionsLock(plan, value.limit);
     const refills = refillDate(value.resetsAt ?? nextMonthStartIso());
@@ -81,7 +99,8 @@ function Line({ value, className }: { value: AiActionsLeft; className?: string }
       </span>
     );
   }
-  const full = `${remaining.toLocaleString("en-US")} of ${limit} AI actions left this month`;
+  const extra = topUp > 0 ? ` · +${topUp.toLocaleString("en-US")} top-up` : "";
+  const full = `${remaining.toLocaleString("en-US")} of ${limit} AI actions left this month${extra}`;
   return (
     <span
       className={cn("min-w-0 truncate text-xs text-muted-foreground tabular-nums", className)}

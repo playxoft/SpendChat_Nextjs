@@ -60,6 +60,8 @@ export const MAX_TRANSCRIPT_CHARS = 2400;
 export type AiActionsLeft = {
   remaining: number;
   limit: number;
+  /** Top-up actions left (C4), spent once `remaining` is 0. Absent = none. */
+  topUpRemaining?: number;
   /** When the allowance refills (ISO) — known from the page load, not from an action. */
   resetsAt?: string;
 };
