@@ -26,15 +26,21 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   everywhere, UPI for rupee prices. The country and currency on the order
   summary are the ones charged. A workspace's first paid plan starts with a
   21-day free trial (a card or UPI is needed to start it; one trial per
-  workspace, two per person a year), and the order summary says whether this
-  purchase gets one. After paying you land on an "Activating…" page that
-  switches over as soon as the payment is confirmed.
+  workspace, two per person a year — deleting the account doesn't reset it),
+  and the order summary says whether this purchase gets one. Students can enter
+  their discount code on a plan's checkout. After paying you land on an
+  "Activating…" page that switches over as soon as the payment is confirmed —
+  or says what went wrong.
 - **Settings → Billing**: every workspace you're an admin of, with its plan,
   trial or renewal date, next charge, a change waiting for the renewal, top-ups
-  left and its invoices. Change plan (moving up starts now with the unused part
+  left and its payments. Change plan (moving up starts now with the unused part
   credited and ends a trial; moving down waits for the renewal and charges
-  nothing), cancel at the end of the period or keep the plan after all, and
-  manage the payment method.
+  nothing), cancel at the end of the period (or straight away for a plan whose
+  payment failed) or keep the plan after all, and manage the payment method. A
+  plan is paid by the admin who bought it: only they see its invoices and
+  payment page and can move it up; other admins see who manages it and can
+  still move it down or cancel. A plan you pay for in a workspace you've left is
+  listed too, so you can cancel it.
 - **AI top-ups**: 500 more AI actions for a paid workspace, used only once the
   month's allowance runs out (the oldest top-up first) and valid for 12 months.
   The "AI actions left" line and the usage panel show what's left.
@@ -54,6 +60,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - A workspace with a plan running changes plan from checkout instead of buying
   a second one.
 
+- Deleting your account stops every plan you pay for — including one in
+  someone else's workspace, which keeps its plan to the end of the period.
+- A disputed payment that ends with the money returned cancels the plan it paid
+  for.
+
 ### Security
 - Plans change only when the payment provider's signed webhook says so — never
   from the return page. Each webhook is verified, applied once, and tied to a
@@ -61,6 +72,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - A top-up is granted only when the amount received matches what we priced, for
   the workspace it was bought for. A person whose payments are disputed twice
   can't make further purchases until support clears it.
+- Each purchase is its own customer with the payment provider, so one
+  workspace's payment page never shows another's cards or invoices.
 
 ## [0.40.0] — 2026-10-09
 

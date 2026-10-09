@@ -30,8 +30,9 @@ Authentication, secrets via Doppler.
   `neon.max_cluster_size` cap (writes fail at the cap with no warning shoulder),
   largest tables, slowest statements. Exits 1 past `--warn-at` (default 80%), so
   it can gate a cron. **It also deletes** `ai_usage_log` / `email_send_log` /
-  `split_rate_log` rows past `--retention-days` (default 30; `ai_usage_log` never below 62,
-  since the monthly AI allowance is counted from it; `split_rate_log` never below 7) unless
+  `split_rate_log` / `billing_request_log` rows past `--retention-days` (default 30; `ai_usage_log`
+  never below 62, since the monthly AI allowance is counted from it; `split_rate_log` never below 7),
+  and `billing_trial_ledger` rows past 400 days, unless
   you pass `-- --no-prune`.
 - `pnpm growth:report:dev` / `growth:report:prod` — read-only signup report:
   per day, per channel (`users.acquisition`, rules in `src/lib/attribution.ts`),
@@ -113,26 +114,38 @@ Authentication, secrets via Doppler.
   Config is four env values (`DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`,
   `DODO_PAYMENTS_ENVIRONMENT`, `DODO_PRODUCTS` — from `pnpm billing:products:dev|prod`, built
   from `src/lib/billing-catalog.ts`); unset = 503 `billing_unavailable`, never a crash. Every
-  provider call goes through `src/lib/dodo.ts` (mocked in tests). Rules a change must keep:
+  provider call goes through `src/lib/dodo.ts` (mocked in tests) and counts against a per-person
+  hourly cap (`reserveBillingCall`). Rules a change must keep:
   **a workspace's plan changes only in the webhook** (`services/billing-webhook.ts`, route
   `/api/webhooks/dodo`) — never on checkout, the return page or a change request (those only ask
   the provider); webhooks are **signature-verified, applied once** (`billing_webhook_events`, in
   the same transaction as the change) and **placed through our rows** (the checkout session we
-  recorded, or the known subscription/payment), never through metadata alone; a checkout always
-  records its session (workspace, buyer, **expected amount**) before the URL is returned, and a
-  top-up is granted only when the amount received ≥ that and the workspace matches (**A3**);
-  one live subscription per workspace — a paid workspace changes plan (`changePlan`: up now and
-  prorated, down at renewal, C3) instead of a second checkout. Trials: first plan only, ≤ 2 per
-  buyer per 12 months (**B1**, `trialDaysForPurchase`). **View-only from billing** is
-  `workspaces.billing_hold` + `billing_hold_from`, folded into `readOnlyWorkspaceSql` (one
-  definition for every read-only check): a renewal that finally fails (`on_hold`) holds after 7
-  days, once per 3 months per workspace, else at once (**B3**); a dispute holds at once and a
-  buyer's second blocks their purchases (`users.purchases_blocked_at`, **B2**). Writes into a held
-  workspace get 403 `billing_hold` (via `readOnlyErrorFor` / `readOnlyErrorOf`), not
-  `plan_limit`. Top-ups (`ai_topups`) are spent only after the monthly allowance, oldest-expiring
-  first, under the allowance lock in `ai-quota.ts`; `ai_usage_log.topup_units` keeps them out of
-  the monthly count (**C4**). Billing rows have no FK to `workspaces` (history for B1/B2) except
-  `ai_topups`; `deleteAccount` cancels live subscriptions with the provider first.
+  recorded, or the known subscription/payment), never through metadata alone; **anything it can't
+  apply yet is a 503 and isn't recorded** (unplaced events, an unknown product, a refund/dispute for
+  an unseen payment), so retries and dashboard replays work (`pnpm billing:reprocess:*` forgets an
+  applied one); a checkout always records its session (workspace, buyer, **expected amount**)
+  before the URL is returned, and a top-up is granted only when the amount received ≥ that and the
+  workspace matches (**A3** — top-up checkouts take no discount code; plans are granted by product).
+  One live subscription per workspace — a paid workspace changes plan (`changePlan`: up now and
+  prorated, down at renewal, C3) instead of a second checkout. **A plan belongs to its buyer:**
+  each checkout is a new provider customer; only the buyer gets the portal, invoice PDFs and
+  changes that could charge their card (upgrade, keep, undo a downgrade) — any admin can lower
+  the bill; a buyer removed from a workspace keeps paying until they cancel (shown on their Billing
+  page). **Trials (B1) fail closed:** products carry 0 trial days; a checkout grants 21 only when
+  eligible, decided under the buyer's lock (namespace 91); the webhook voids and cancels a trial no
+  checkout granted; trials are counted from `billing_trial_ledger` (hashed email, kept after account
+  deletion). **Cancellations we owe** (`cancel_wanted`: void/duplicate subscriptions, account
+  deletion, lost disputes) are retried on every later event until the subscription isn't live.
+  **View-only from billing** is `workspaces.billing_hold` + `billing_hold_from`, folded into
+  `readOnlyWorkspaceSql` (one definition for every read-only check): a renewal that finally fails
+  (`on_hold`) holds after 7 days, once per 3 months per workspace, else at once (**B3**); a dispute
+  holds at once, a buyer's second blocks their purchases (`users.purchases_blocked_at`), a lost one
+  cancels the plan (**B2**). Writes into a held workspace get 403 `billing_hold`, not `plan_limit`.
+  Top-ups (`ai_topups`) are spent only after the monthly allowance, oldest-expiring first, under the
+  allowance lock in `ai-quota.ts`; `ai_usage_log.topup_units` keeps them out of the monthly count
+  (**C4**). Billing rows have no FK to `workspaces` except `ai_topups`; `deleteAccount` stops every
+  plan the person pays for (cancel at period end — reversible — before erasing; not-running ones
+  after) and nulls the buyer instead of deleting rows of surviving workspaces.
 - **Split groups live outside workspaces.** `split_groups` and everything under them
   are user-scoped: no `workspace_id`, no plan (50 people per group, the creator included,
   on every plan — `SPLIT_GROUP_MAX_PEOPLE`), and nothing in them is a transaction. Each

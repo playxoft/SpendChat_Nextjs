@@ -28,7 +28,8 @@ const sections: { id: string; h: string; p: React.ReactNode[] }[] = [
     h: "Plans are per workspace",
     p: [
       `Every workspace has its own plan — Free, ${PLAN_NAMES.plus} or ${PLAN_NAMES.pro} — with its own billing date and its own invoices. Everyone gets one free workspace; each extra workspace needs its own paid plan, and until it has one it's view-only.`,
-      "Only a workspace admin can buy, change or cancel its plan. Payments are processed by Dodo Payments, our merchant of record: they handle the payment, the invoice and the sales tax (GST or VAT) for your country, which is added at checkout.",
+      "Only a workspace admin can buy a plan. The admin who buys it pays for it with their own payment method, and only they see its invoices and payment details and can move it to a bigger plan; any admin can move it to a smaller one or cancel it. Payments are processed by Dodo Payments, our merchant of record: they handle the payment, the invoice and the sales tax (GST or VAT) for your country, which is added at checkout.",
+      "If you're removed from a workspace whose plan you pay for, the workspace keeps its plan and you keep paying until you cancel it — it stays listed on your Billing page. If you delete your account, every plan you pay for is cancelled at the end of its paid period.",
     ],
   },
   {
@@ -37,6 +38,7 @@ const sections: { id: string; h: string; p: React.ReactNode[] }[] = [
     p: [
       `A workspace's first ${paid} plan starts with a ${TRIAL_DAYS}-day free trial. Starting it needs a card or UPI mandate, but nothing is charged until the trial ends. Cancel before then and you're never charged.`,
       `Each workspace gets one trial, and one person can start at most ${TRIALS_PER_PERSON} trials in 12 months. Checkout tells you before you pay whether this purchase comes with a trial.`,
+      "To count trials, we keep a one-way hash of the email address that started each one (never the address itself), the date and the workspace, for about 13 months — including after the account is deleted, so deleting and re-creating an account doesn't reset the count.",
       "Upgrading during a trial (to a bigger plan, or a longer billing period) ends the trial: the new plan is charged that day.",
     ],
   },
@@ -60,7 +62,7 @@ const sections: { id: string; h: string; p: React.ReactNode[] }[] = [
     id: "cancel",
     h: "Cancelling",
     p: [
-      "Cancel any time from Settings → Billing. The plan runs to the end of the period you've paid for, then the workspace moves to Free. You can change your mind and keep the plan until that date.",
+      "Cancel any time from Settings → Billing. The plan runs to the end of the period you've paid for, then the workspace moves to Free; the person who pays for it can change their mind and keep the plan until that date. A plan whose payment has failed (or that isn't running) has no paid time left, so cancelling it ends it straight away.",
       "Nothing is deleted when a plan ends. Anything over Free's limits stays and can still be viewed and exported — you just can't add more of it — and an extra workspace beyond your free one becomes view-only.",
     ],
   },
@@ -95,14 +97,14 @@ const sections: { id: string; h: string; p: React.ReactNode[] }[] = [
     h: "Disputes and chargebacks",
     p: [
       "If a charge looks wrong, please write to us first — we'll sort it out faster than a bank can.",
-      "While a payment is disputed with your bank, the workspace it paid for is view-only (nothing is deleted). An account with repeated disputes can't make further purchases until it's resolved with us.",
+      "While a payment is disputed with your bank, the workspace it paid for is view-only (nothing is deleted). If the dispute ends with the money returned to you, the plan it paid for is cancelled, and the workspace stays view-only until you contact us. An account with repeated disputes can't make further purchases until it's resolved with us.",
     ],
   },
   {
     id: "discounts",
     h: "Discounts",
     p: [
-      `Students get ${Math.round(STUDENT_DISCOUNT * 100)}% off ${paid} after we verify a college email. Each code is for one person and one use, and applies for up to 12 billing periods. Using another country's payment details to get a different price may lead to the plan being repriced or cancelled.`,
+      `Students get ${Math.round(STUDENT_DISCOUNT * 100)}% off ${paid} after we verify a college email: we send a code to enter at checkout. Each code is for one person and one use, works on plans only (not top-ups), and applies for up to 12 billing periods, including after a change of plan. Using another country's payment details to get a different price may lead to the plan being repriced or cancelled.`,
     ],
   },
   {
