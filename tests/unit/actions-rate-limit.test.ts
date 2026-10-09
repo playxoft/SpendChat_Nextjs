@@ -161,6 +161,7 @@ describe("every server action is rate limited", () => {
     expect(byBucket("read")).toEqual(
       [
         // read-only
+        "checkoutReturnStatus",
         "countTransactionsForTag",
         "getProfileDeletionImpact",
         "getSpaceAccess",
