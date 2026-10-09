@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Users } from "lucide-react";
 import { Logo } from "@/components/logo";
-import { ThemeToggle } from "@/components/theme-toggle";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -16,16 +15,13 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-list";
-import { UserMenu } from "./user-menu";
+import { AccountControls } from "./account-controls";
 import { MobileBulkAdd } from "./mobile-bulk-add";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
 import { hrefWithProfile } from "./nav-items";
 import type { Category } from "@/db/schema";
 
 export function AppTopbar({
-  email,
-  name,
-  image,
   profiles,
   spaces,
   collapsedSpaces,
@@ -37,10 +33,6 @@ export function AppTopbar({
   today,
   canWrite,
 }: {
-  email: string | null;
-  /** The account's display name and picture, for the account menu. */
-  name: string | null;
-  image: string | null;
   profiles: SidebarProfile[];
   spaces: SidebarSpace[];
   collapsedSpaces: string[];
@@ -57,12 +49,13 @@ export function AppTopbar({
   const profile = useSearchParams().get("profile");
 
   return (
-    // On every screen size: the theme button and the account menu live here,
-    // top right. On a phone the bar also carries the logo, the profile sheet
-    // and bulk add, which the desktop sidebar already has.
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-background/90 px-4 backdrop-blur-sm print:hidden">
+    // Phones only: the logo, the profile sheet and bulk add (which the desktop
+    // sidebar has), then the theme button and the account menu. A desktop has
+    // no bar here — each page puts those two at the end of its own first row
+    // (`AccountControls`), so the page keeps the 56px this bar would take.
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b bg-background/90 px-4 backdrop-blur-sm md:hidden print:hidden">
       <div className="flex items-center gap-1">
-        <Link href={hrefWithProfile("/app", profile)} aria-label="Tracker" className="md:hidden">
+        <Link href={hrefWithProfile("/app", profile)} aria-label="Tracker">
           <Logo />
         </Link>
       </div>
@@ -70,7 +63,7 @@ export function AppTopbar({
         {/* Workspace + profile switcher, to the left of the bulk-add button. */}
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Workspaces and profiles" className="md:hidden">
+            <Button variant="ghost" size="icon" aria-label="Workspaces and profiles">
               <Users className="size-5" />
             </Button>
           </SheetTrigger>
@@ -98,19 +91,16 @@ export function AppTopbar({
         </Sheet>
         {canWrite && (
           <Suspense fallback={null}>
-            <div className="md:hidden">
-              <MobileBulkAdd
-                categories={categories}
-                profiles={profiles}
-                currency={currency}
-                locale={locale}
-                today={today}
-              />
-            </div>
+            <MobileBulkAdd
+              categories={categories}
+              profiles={profiles}
+              currency={currency}
+              locale={locale}
+              today={today}
+            />
           </Suspense>
         )}
-        <ThemeToggle />
-        <UserMenu email={email} name={name} image={image} />
+        <AccountControls inTopbar />
       </div>
     </header>
   );

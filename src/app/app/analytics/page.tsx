@@ -37,6 +37,7 @@ import { ANALYTICS_SHELL, BODY, WIDGET_GRID, WidgetCard } from "@/components/app
 import { CategoryPieChart } from "@/components/app/category-pie-chart";
 import { TrendBody } from "@/components/app/analytics/trend-card";
 import { PrintButton } from "@/components/app/print-button";
+import { AccountControls } from "@/components/app/account-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -101,7 +102,10 @@ export default async function AnalyticsPage({
           <h1 className="text-xl font-semibold">Analytics</h1>
           <p className="text-sm text-muted-foreground">{rangeLabel}</p>
         </div>
-        <PrintButton />
+        <div className="flex items-center gap-1.5">
+          <PrintButton />
+          <AccountControls />
+        </div>
       </div>
 
       <AnalyticsFilters today={today} locale={locale} />

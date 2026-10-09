@@ -14,6 +14,7 @@ import { requestCountry } from "@/lib/geo.server";
 import { workspacePriceCurrency } from "@/lib/plan-copy";
 import { AppSidebar } from "@/components/app/app-sidebar";
 import { AppTopbar } from "@/components/app/app-topbar";
+import { AccountProvider } from "@/components/app/account-controls";
 import { BottomNav } from "@/components/app/bottom-nav";
 import { GlobalShortcuts } from "@/components/app/global-shortcuts";
 import { WorkspaceSwitchDialog } from "@/components/app/workspace-switch-dialog";
@@ -63,8 +64,9 @@ export default async function AppLayout({
       getAddLimits(workspace.id, user.id),
       // Split invitations waiting for an answer — the badge on the Split nav item.
       countInvitations(user),
-      // Name and picture for the account menu (top right). The session user
-      // carries no picture, so it's read here, in the same round-trip.
+      // Name and picture for the account menu (top right of every page, through
+      // `AccountProvider`). The session user carries no picture, so it's read
+      // here, in the same round-trip.
       getAccountProfile(user.id),
     ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
@@ -83,6 +85,9 @@ export default async function AppLayout({
       currency={workspacePriceCurrency(workspace.currency, country)}
     >
     <AttachmentViewerProvider>
+    <AccountProvider
+      account={{ email, name: account?.name ?? user.name ?? null, image: account?.image ?? null }}
+    >
     <div className="flex min-h-svh">
       <AppSidebar
         profiles={profiles}
@@ -95,9 +100,6 @@ export default async function AppLayout({
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <AppTopbar
-          email={email}
-          name={account?.name ?? user.name ?? null}
-          image={account?.image ?? null}
           profiles={profiles}
           spaces={spaces}
           collapsedSpaces={collapsedSpaces}
@@ -129,6 +131,7 @@ export default async function AppLayout({
         />
       </Suspense>
     </div>
+    </AccountProvider>
     </AttachmentViewerProvider>
     </PlanProvider>
     </PermissionsProvider>

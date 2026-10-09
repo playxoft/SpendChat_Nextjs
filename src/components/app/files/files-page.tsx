@@ -67,6 +67,7 @@ import {
   NewFolderDialog,
 } from "./files-dialogs";
 import { ShareVaultItemDialog } from "./files-share-dialog";
+import { AccountControls } from "@/components/app/account-controls";
 
 const VIEW_OPTIONS: { view: FilesView; label: string; icon: typeof LayoutGrid }[] = [
   { view: "grid", label: "Grid", icon: LayoutGrid },
@@ -553,96 +554,101 @@ export function FilesPageClient({
   return (
     <div className="space-y-4">
       {/* Header: title + toolbar */}
-      <div className="flex flex-wrap items-center gap-2">
-        <h1 className="text-xl font-semibold">Files</h1>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          <StorageRing
-            usedBytes={storageUsedBytes}
-            limitBytes={storageLimitBytes}
-            trashBytes={storageTrashBytes}
-          />
-          <div className="relative">
-            <Search
-              className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-              aria-hidden
+      {/* The theme button and account menu close it on a desktop, top right
+          even when the toolbar wraps. */}
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <h1 className="text-xl font-semibold">Files</h1>
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            <StorageRing
+              usedBytes={storageUsedBytes}
+              limitBytes={storageLimitBytes}
+              trashBytes={storageTrashBytes}
             />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search files, tags…"
-              className="w-44 pl-8 sm:w-56"
-              aria-label="Search files"
-            />
+            <div className="relative">
+              <Search
+                className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder="Search files, tags…"
+                className="w-44 pl-8 sm:w-56"
+                aria-label="Search files"
+              />
+            </div>
+            <div className="flex rounded-lg border p-0.5">
+              {VIEW_OPTIONS.map(({ view: v, label, icon: Icon }) => (
+                <Button
+                  key={v}
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setView(v)}
+                  aria-label={`${label} view`}
+                  title={`${label} view`}
+                  aria-pressed={view === v}
+                  className={cn(
+                    "size-8 text-muted-foreground",
+                    view === v && "bg-accent text-accent-foreground",
+                  )}
+                >
+                  <Icon className="size-4" />
+                </Button>
+              ))}
+            </div>
+            {canWrite ? (
+              <>
+                {/* Icon-only, sitting beside the view toggle at the same `size-8`,
+                    so the toolbar fits a phone without wrapping. The name lives in
+                    `aria-label`/`title` — `title` is overridden below whenever the
+                    button is disabled, which is the case worth explaining. */}
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8"
+                  onClick={() => setNewFolderOpen(true)}
+                  disabled={!canUploadHere}
+                  aria-label="New folder"
+                  title={
+                    inSystemFolder
+                      ? "Folders can't be created in this predefined folder"
+                      : canUploadHere
+                        ? "New folder"
+                        : "Switch to a profile to create folders"
+                  }
+                >
+                  <FolderPlus className="size-4" />
+                </Button>
+                {/* Icon-only and `size-8`, matching New folder beside it, so the
+                    whole toolbar stays on one line on a phone. Keeps the default
+                    (solid) variant — it's the primary action here, and the filled
+                    button is what marks it as such next to the outlined ones. */}
+                <Button
+                  size="icon"
+                  className="size-8"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={!canUploadHere || progress !== null}
+                  aria-label="Upload"
+                  title={
+                    inSystemFolder
+                      ? "Files here come from transactions"
+                      : canUploadHere
+                        ? "Upload"
+                        : "Switch to a profile to upload"
+                  }
+                >
+                  {progress !== null ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Upload className="size-4" />
+                  )}
+                </Button>
+              </>
+            ) : null}
           </div>
-          <div className="flex rounded-lg border p-0.5">
-            {VIEW_OPTIONS.map(({ view: v, label, icon: Icon }) => (
-              <Button
-                key={v}
-                variant="ghost"
-                size="icon"
-                onClick={() => setView(v)}
-                aria-label={`${label} view`}
-                title={`${label} view`}
-                aria-pressed={view === v}
-                className={cn(
-                  "size-8 text-muted-foreground",
-                  view === v && "bg-accent text-accent-foreground",
-                )}
-              >
-                <Icon className="size-4" />
-              </Button>
-            ))}
-          </div>
-          {canWrite ? (
-            <>
-              {/* Icon-only, sitting beside the view toggle at the same `size-8`,
-                  so the toolbar fits a phone without wrapping. The name lives in
-                  `aria-label`/`title` — `title` is overridden below whenever the
-                  button is disabled, which is the case worth explaining. */}
-              <Button
-                variant="outline"
-                size="icon"
-                className="size-8"
-                onClick={() => setNewFolderOpen(true)}
-                disabled={!canUploadHere}
-                aria-label="New folder"
-                title={
-                  inSystemFolder
-                    ? "Folders can't be created in this predefined folder"
-                    : canUploadHere
-                      ? "New folder"
-                      : "Switch to a profile to create folders"
-                }
-              >
-                <FolderPlus className="size-4" />
-              </Button>
-              {/* Icon-only and `size-8`, matching New folder beside it, so the
-                  whole toolbar stays on one line on a phone. Keeps the default
-                  (solid) variant — it's the primary action here, and the filled
-                  button is what marks it as such next to the outlined ones. */}
-              <Button
-                size="icon"
-                className="size-8"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={!canUploadHere || progress !== null}
-                aria-label="Upload"
-                title={
-                  inSystemFolder
-                    ? "Files here come from transactions"
-                    : canUploadHere
-                      ? "Upload"
-                      : "Switch to a profile to upload"
-                }
-              >
-                {progress !== null ? (
-                  <Loader2 className="size-4 animate-spin" />
-                ) : (
-                  <Upload className="size-4" />
-                )}
-              </Button>
-            </>
-          ) : null}
         </div>
+        <AccountControls />
       </div>
 
       {/* Second row: breadcrumbs / result count + tag filter + sort. The

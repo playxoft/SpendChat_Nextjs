@@ -2,6 +2,7 @@ import { AnalyticsFiltersSkeleton } from "@/components/app/analytics-filters";
 import { AnalyticsResultsSkeleton, InsightsSkeleton } from "@/components/app/analytics-skeleton";
 import { ANALYTICS_SHELL, SkeletonLine } from "@/components/app/analytics/widget";
 import { PrintButton } from "@/components/app/print-button";
+import { AccountControls } from "@/components/app/account-controls";
 
 /**
  * The analytics page before its data: the same shell, heading and grid as the
@@ -16,7 +17,10 @@ export default function Loading() {
           <h1 className="text-xl font-semibold">Analytics</h1>
           <SkeletonLine className="w-48" />
         </div>
-        <PrintButton />
+        <div className="flex items-center gap-1.5">
+          <PrintButton />
+          <AccountControls />
+        </div>
       </div>
 
       <AnalyticsFiltersSkeleton />

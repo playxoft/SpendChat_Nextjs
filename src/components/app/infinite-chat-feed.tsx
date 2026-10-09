@@ -10,6 +10,7 @@ import { MonthScrollSpy } from "./month-scroll-spy";
 import { BulkActionBar } from "./bulk-action-bar";
 import { usePermissions } from "./permissions";
 import { useRowSelection } from "@/hooks/use-row-selection";
+import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
 import { setBulkSelecting } from "@/hooks/use-bulk-selecting";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
@@ -92,13 +93,10 @@ export function InfiniteChatFeed({
   // restored to the same content afterwards.
   const anchorRef = useRef<{ height: number; top: number } | null>(null);
 
-  // On first mount, pin to the newest message at the bottom (chat convention).
-  const didInitialScroll = useRef(false);
-  useLayoutEffect(() => {
-    if (didInitialScroll.current) return;
-    didInitialScroll.current = true;
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "auto" });
-  }, []);
+  // Open at the newest message and stay there while the page settles and the
+  // composer changes height — until the reader scrolls away. A mount is an
+  // opening: the feed remounts on a profile or workspace switch.
+  useStickToBottom();
 
   const loadOlder = useCallback(async () => {
     const oldest = rows[0];
@@ -166,7 +164,9 @@ export function InfiniteChatFeed({
 
   // The bar takes the composer's place while a selection is up — you aren't
   // writing while you're picking. The composer lives in another tree, so it
-  // reads this through a shared store (and stands its shortcuts down too).
+  // reads this through a shared store (and stands its shortcuts down too). It
+  // goes invisible rather than away: its box keeps the page's height, so
+  // nothing in the feed moves when a selection starts or ends.
   useEffect(() => {
     setBulkSelecting(selecting);
     return () => setBulkSelecting(false);
@@ -244,9 +244,6 @@ export function InfiniteChatFeed({
         tags={tags}
         showAuthor={showAuthor}
       />
-      {/* Clearance for the last bubbles under the fixed bar (the composer that
-          normally holds this space is hidden while selecting). */}
-      {selecting ? <div aria-hidden className="h-20" /> : null}
       {canWrite ? (
         <BulkActionBar
           selected={selection.selectedRows}

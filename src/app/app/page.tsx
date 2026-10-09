@@ -36,6 +36,7 @@ import { ViewerNotice } from "@/components/app/viewer-notice";
 import { OnboardingCards } from "@/components/app/onboarding-cards";
 import { ProfileSwitcher } from "@/components/app/profile-switcher";
 import { ProfileSwipe } from "@/components/app/profile-swipe";
+import { AccountControls } from "@/components/app/account-controls";
 import { aiActionsLeftFor } from "@/services/ai-chat";
 
 export const dynamic = "force-dynamic";
@@ -175,11 +176,13 @@ export default async function ChatPage({
       <div className="flex min-h-full flex-col">
         <header
           data-tracker-header
-          className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm"
+          className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0"
         >
           <div className="mx-auto max-w-3xl px-4 pt-3 pb-2">
             {/* Profile + balance share the first row on mobile (WhatsApp-style);
-                on desktop the balance drops to its own line below. */}
+                on desktop the balance drops to its own line below, and the
+                first row ends with the theme button and account menu (the
+                phone's top bar has those). */}
             <div className="flex items-center gap-3 md:block">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <ProfileSwitcher
@@ -201,6 +204,7 @@ export default async function ChatPage({
                     />
                   </div>
                 )}
+                <AccountControls />
               </div>
 
               <Suspense key={streamKey} fallback={<SummaryBarSkeleton />}>

@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccountControls } from "@/components/app/account-controls";
 
 /** The chat's shape while it loads: header, a few bubbles either side, the composer. */
 export default function Loading() {
@@ -12,6 +13,7 @@ export default function Loading() {
             <Skeleton className="h-4 w-32" />
             <Skeleton className="h-4 w-44" />
           </div>
+          <AccountControls />
         </div>
       </div>
       <div className="mx-auto w-full max-w-3xl flex-1 space-y-3 px-4 py-4">
