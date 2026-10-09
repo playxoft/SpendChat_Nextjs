@@ -1,15 +1,19 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccountControls } from "@/components/app/account-controls";
 
 /** The groups list's shape while it loads: a chat list. */
 export default function Loading() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1.5">
-          <Skeleton className="h-6 w-24" />
-          <Skeleton className="h-4 w-60" />
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 items-start justify-between gap-3">
+          <div className="space-y-1.5">
+            <Skeleton className="h-6 w-24" />
+            <Skeleton className="h-4 w-60" />
+          </div>
+          <Skeleton className="h-9 w-28 rounded-md" />
         </div>
-        <Skeleton className="h-9 w-28 rounded-md" />
+        <AccountControls />
       </div>
       <div className="divide-y rounded-xl border">
         {Array.from({ length: 4 }, (_, i) => (

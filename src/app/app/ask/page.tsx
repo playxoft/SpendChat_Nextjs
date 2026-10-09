@@ -3,16 +3,30 @@ import { notFound } from "next/navigation";
 import { getAppContext } from "@/lib/auth";
 import { chatAnswerMode } from "@/lib/ai-chat";
 import { ApiError } from "@/lib/errors";
-import { aiActionsLeftFor, getChat, listChats } from "@/services/ai-chat";
+import { aiActionsLeftFor, getChat, getChatTitle, listChats } from "@/services/ai-chat";
 import { AskPanel } from "@/components/app/ask/ask-panel";
 import { AskView } from "@/components/app/ask/ask-view";
 
 export const dynamic = "force-dynamic";
 
-export const metadata: Metadata = {
-  title: "SpendChat AI",
-  robots: { index: false, follow: false },
-};
+/** The tab says which chat is open: "<chat title> · SpendChat AI", or just the name. */
+export async function generateMetadata({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}): Promise<Metadata> {
+  const sp = await searchParams;
+  const chatParam = Array.isArray(sp.c) ? sp.c[0] : sp.c;
+  let chatTitle: string | null = null;
+  if (chatParam) {
+    const { user, workspace } = await getAppContext();
+    chatTitle = await getChatTitle(user.id, workspace.id, chatParam);
+  }
+  return {
+    title: chatTitle ? `${chatTitle} · SpendChat AI` : "SpendChat AI",
+    robots: { index: false, follow: false },
+  };
+}
 
 /**
  * SpendChat AI (called Ask in code, and at `/app/ask`): questions about your

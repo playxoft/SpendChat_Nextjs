@@ -27,6 +27,7 @@ import { AiTransactionInput } from "./ai-transaction-input";
 import { EntryModeToggle, MODE_ROW_DENSE } from "./entry-mode-toggle";
 import { readEntryMode, useEntryMode } from "./entry-mode-store";
 import { cn } from "@/lib/utils";
+import { useTargetProfile } from "@/hooks/use-target-profile";
 import { useContainWheel } from "@/hooks/use-contain-wheel";
 import { useBulkSelecting } from "@/hooks/use-bulk-selecting";
 import { usePendingMessages } from "./pending-messages";
@@ -126,7 +127,9 @@ export function TransactionComposer({
   const [combinedAmount, setCombinedAmount] = useState("");
   const [description, setDescription] = useState("");
   const [occurredOn, setOccurredOn] = useState(today);
-  const [profileId, setProfileId] = useState(activeProfileId ?? profiles[0]?.id ?? "");
+  // Re-seeded when the view changes (a sidebar click doesn't remount this), so
+  // an entry never lands in a profile that isn't on screen.
+  const [profileId, setProfileId] = useTargetProfile(activeProfileId, profiles);
   /**
    * The category editor, and *why* it was opened — the two are different
    * dialogs wearing one component.
@@ -1156,9 +1159,18 @@ export function TransactionComposer({
     // The strip carries the page background (not a tinted bar) so chat rows can't
     // show through the padding around/below the card as they scroll past — same
     // colour as the page, so it reads as the page, not a separate widget.
-    // Hidden while the feed has a multi-select up: its action bar takes this
-    // spot (see `useBulkSelecting`).
-    <div className={cn("sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0", bulkSelecting && "hidden")}>
+    // While the feed has a multi-select up, its action bar (fixed, same spot)
+    // stands over this strip (see `useBulkSelecting`). The strip turns
+    // invisible and inert but keeps its box: removing it would shorten the page
+    // by the composer's height, and a feed resting at the bottom would drop by
+    // that much the moment a message is picked — and rise again on clearing.
+    <div
+      inert={bulkSelecting}
+      className={cn(
+        "sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0",
+        bulkSelecting && "invisible",
+      )}
+    >
       {/* Every widget lives inside one rounded, floating card, sitting on the
           page background — the tracker list scrolls up behind the strip's top
           edge, never peeking out beneath the card. */}

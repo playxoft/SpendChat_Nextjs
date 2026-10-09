@@ -1,5 +1,6 @@
 import { ChartColumn, FolderOpen, MessageSquare, PiggyBank, Sparkles, Split, Table2 } from "lucide-react";
 import { comboFor } from "@/lib/shortcuts";
+import { canonicalProfileParam } from "@/lib/profile-scope";
 
 export const navItems = [
   { href: "/app", label: "Tracker", icon: MessageSquare, exact: true, shortcut: comboFor("nav.tracker") },
@@ -56,13 +57,20 @@ export function isActive(pathname: string, href: string, exact: boolean): boolea
 }
 
 /**
- * Carry the currently-selected profile across section navigation. The active
- * profile lives entirely in the `?profile=` query param, so a plain section
- * link would drop it and the destination would fall back to the first profile.
- * Appending it here keeps the user on their chosen profile until they switch it
- * explicitly (profile button or Shift+n shortcut). `profile` is the raw param:
- * a profile id, "all", or null (the default first-profile state → no param).
+ * Carry the current profile selection across section navigation. The selection
+ * lives entirely in the `?profile=` query param, so a plain section link would
+ * drop it and the destination would fall back to the first profile. Appending
+ * it here keeps the user on what they picked until they change it explicitly
+ * (the sidebar, the profile button, or a Shift+number shortcut).
+ *
+ * `profile` is the raw param: a profile id, "all", a multi-selection
+ * (`<id>,s.<spaceId>,…` — see `lib/profile-scope.ts`), or null (the default
+ * first-profile state → no param). It is carried in its canonical form, so a
+ * mangled value is dropped rather than passed along. That form is URL-safe by
+ * construction (hex ids, dashes, `s.`, commas, or "all"), so it goes in as is:
+ * escaping would only turn each comma into `%2C`.
  */
 export function hrefWithProfile(href: string, profile: string | null): string {
-  return profile ? `${href}?profile=${encodeURIComponent(profile)}` : href;
+  const value = canonicalProfileParam(profile);
+  return value ? `${href}?profile=${value}` : href;
 }

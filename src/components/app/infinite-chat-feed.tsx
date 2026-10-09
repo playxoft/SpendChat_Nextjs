@@ -5,11 +5,13 @@ import { Loader2 } from "lucide-react";
 import { loadOlderFeed } from "@/actions/transactions";
 import { loadRestoredTransactions } from "@/actions/trash";
 import { mergeRestoredIntoFeed } from "@/lib/merge-restored";
+import { profileInView } from "@/lib/summary";
 import { ChatFeed } from "./chat-feed";
 import { MonthScrollSpy } from "./month-scroll-spy";
 import { BulkActionBar } from "./bulk-action-bar";
 import { usePermissions } from "./permissions";
 import { useRowSelection } from "@/hooks/use-row-selection";
+import { useStickToBottom } from "@/hooks/use-stick-to-bottom";
 import { setBulkSelecting } from "@/hooks/use-bulk-selecting";
 import type { Category, Profile } from "@/db/schema";
 import type { TransactionRow } from "@/lib/queries";
@@ -47,7 +49,7 @@ function mergeLatest(accumulated: TransactionRow[], latest: TransactionRow[]): T
  */
 export function InfiniteChatFeed({
   initialRows,
-  profileId,
+  profileIds,
   pageSize,
   hasMoreInitially,
   currency,
@@ -60,7 +62,8 @@ export function InfiniteChatFeed({
   showAuthor = false,
 }: {
   initialRows: TransactionRow[];
-  profileId: string | null;
+  /** Profiles in view (one, or the sidebar's selection); null = "All profiles". */
+  profileIds: string[] | null;
   pageSize: number;
   hasMoreInitially: boolean;
   currency: string;
@@ -92,13 +95,10 @@ export function InfiniteChatFeed({
   // restored to the same content afterwards.
   const anchorRef = useRef<{ height: number; top: number } | null>(null);
 
-  // On first mount, pin to the newest message at the bottom (chat convention).
-  const didInitialScroll = useRef(false);
-  useLayoutEffect(() => {
-    if (didInitialScroll.current) return;
-    didInitialScroll.current = true;
-    window.scrollTo({ top: document.body.scrollHeight, behavior: "auto" });
-  }, []);
+  // Open at the newest message and stay there while the page settles and the
+  // composer changes height — until the reader scrolls away. A mount is an
+  // opening: the feed remounts on a profile or workspace switch.
+  useStickToBottom();
 
   const loadOlder = useCallback(async () => {
     const oldest = rows[0];
@@ -113,7 +113,7 @@ export function InfiniteChatFeed({
       top: window.scrollY,
     };
     const res = await loadOlderFeed({
-      profileId: profileId ?? undefined,
+      profileIds: profileIds ?? undefined,
       before: { occurredOn: oldest.occurredOn, createdAt: oldest.createdAt, id: oldest.id },
     });
     if (res.ok) {
@@ -133,7 +133,7 @@ export function InfiniteChatFeed({
       anchorRef.current = null;
     }
     setLoading(false);
-  }, [rows, profileId, pageSize]);
+  }, [rows, profileIds, pageSize]);
 
   // After older rows are prepended, keep the viewport anchored to the same
   // content: it grew above the fold, so shift scroll down by the height delta.
@@ -166,7 +166,9 @@ export function InfiniteChatFeed({
 
   // The bar takes the composer's place while a selection is up — you aren't
   // writing while you're picking. The composer lives in another tree, so it
-  // reads this through a shared store (and stands its shortcuts down too).
+  // reads this through a shared store (and stands its shortcuts down too). It
+  // goes invisible rather than away: its box keeps the page's height, so
+  // nothing in the feed moves when a selection starts or ends.
   useEffect(() => {
     setBulkSelecting(selecting);
     return () => setBulkSelecting(false);
@@ -175,17 +177,16 @@ export function InfiniteChatFeed({
   // Bulk results land in the accumulated rows directly: the revalidation that
   // follows only refreshes the latest page, and a row edited further up the
   // history would otherwise keep showing its old category or tags. A row moved
-  // out of the profile this feed is showing leaves it.
+  // out of the profiles this feed is showing leaves it.
   const onBulkUpdated = useCallback(
     (changed: TransactionRow[]) => {
       const byId = new Map(changed.map((r) => [r.id, r]));
+      const inView = profileInView(profileIds);
       setRows((prev) =>
-        prev
-          .map((r) => byId.get(r.id) ?? r)
-          .filter((r) => !profileId || r.profileId === profileId),
+        prev.map((r) => byId.get(r.id) ?? r).filter((r) => inView(r.profileId)),
       );
     },
-    [profileId],
+    [profileIds],
   );
   const onBulkDeleted = useCallback((ids: string[]) => {
     const gone = new Set(ids);
@@ -198,12 +199,12 @@ export function InfiniteChatFeed({
     async (ids: string[]) => {
       const res = await loadRestoredTransactions({
         ids,
-        filters: { profileId: profileId ?? undefined },
+        filters: { profileIds: profileIds ?? undefined },
       });
       if (!res.ok) return;
       setRows((prev) => mergeRestoredIntoFeed(prev, res.rows, done));
     },
-    [profileId, done],
+    [profileIds, done],
   );
 
   // Changes whenever the rendered rows do (a prepended older page, a revalidated
@@ -244,9 +245,6 @@ export function InfiniteChatFeed({
         tags={tags}
         showAuthor={showAuthor}
       />
-      {/* Clearance for the last bubbles under the fixed bar (the composer that
-          normally holds this space is hidden while selecting). */}
-      {selecting ? <div aria-hidden className="h-20" /> : null}
       {canWrite ? (
         <BulkActionBar
           selected={selection.selectedRows}

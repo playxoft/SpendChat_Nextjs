@@ -14,7 +14,12 @@ import {
   listFeedPage,
   listTransactionIds,
 } from "@/lib/queries";
-import { resolveWebProfile } from "@/lib/filters";
+import {
+  parseProfileScope,
+  resolveProfileScope,
+  writeChoicesOf,
+  writeTargetOf,
+} from "@/lib/profile-scope";
 import { canWriteInWorkspace, workspaceHasMultipleUsers } from "@/lib/workspaces";
 import { normalizeUiPrefs } from "@/lib/validation";
 import { HEARD_FROM_MAX_ACCOUNT_AGE_DAYS } from "@/lib/attribution";
@@ -36,6 +41,7 @@ import { ViewerNotice } from "@/components/app/viewer-notice";
 import { OnboardingCards } from "@/components/app/onboarding-cards";
 import { ProfileSwitcher } from "@/components/app/profile-switcher";
 import { ProfileSwipe } from "@/components/app/profile-swipe";
+import { AccountControls } from "@/components/app/account-controls";
 import { aiActionsLeftFor } from "@/services/ai-chat";
 
 export const dynamic = "force-dynamic";
@@ -134,11 +140,20 @@ export default async function ChatPage({
     },
   );
 
-  // Web default: no `?profile=` shows the first profile; "all" is explicit.
-  const filterProfileId = resolveWebProfile(profileParam ?? null, profiles[0]?.id);
-  const allProfiles = !filterProfileId;
-  // Which profile new transactions land in (falls back to the first profile).
-  const composerProfileId = filterProfileId ?? profiles[0]?.id;
+  // Web default: no `?profile=` shows the first profile; "all" is explicit; a
+  // sidebar multi-selection (profiles and spaces) is expanded against the
+  // profiles this viewer can see — and every query intersects it again.
+  const scope = resolveProfileScope(parseProfileScope(profileParam), profiles);
+  // The one profile in view, or undefined for "All profiles" and selections.
+  const filterProfileId = scope.single;
+  // Profiles in view for the feed and the balance; undefined = all of them.
+  const viewProfileIds = scope.profileIds;
+  // Which profile new transactions land in: the one in view, locked; else a
+  // picker, starting on the selection's first profile (or the first profile).
+  const { activeProfileId: composerProfileId, allProfiles } = writeTargetOf(scope, profiles);
+  // The composer's picker: on a selection, only the profiles in it — an entry
+  // sent anywhere else would leave the feed it was typed into.
+  const composerProfiles = writeChoicesOf(scope, profiles);
 
   const uiPrefs = normalizeUiPrefs(settings.uiPrefs);
   // One card at a time above the feed: the channel question for a fresh
@@ -162,7 +177,7 @@ export default async function ChatPage({
   // workspace is part of it: on "All profiles" the profile half is the same
   // in every workspace, so a switch kept the feed mounted — merging the old
   // workspace's history into the new one's, along with any selection over it.
-  const streamKey = `${workspace.id}:${filterProfileId ?? "all"}`;
+  const streamKey = `${workspace.id}:${viewProfileIds?.join(",") ?? "all"}`;
   // AI mode's "38 of 50 AI actions left this month": started here and never
   // awaited, so the count streams in beside the composer instead of holding up
   // the tracker's first paint. One indexed sum, and only for people who can
@@ -175,11 +190,13 @@ export default async function ChatPage({
       <div className="flex min-h-full flex-col">
         <header
           data-tracker-header
-          className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm"
+          className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0"
         >
           <div className="mx-auto max-w-3xl px-4 pt-3 pb-2">
             {/* Profile + balance share the first row on mobile (WhatsApp-style);
-                on desktop the balance drops to its own line below. */}
+                on desktop the balance drops to its own line below, and the
+                first row ends with the theme button and account menu (the
+                phone's top bar has those). */}
             <div className="flex items-center gap-3 md:block">
               <div className="flex min-w-0 flex-1 items-center gap-3">
                 <ProfileSwitcher
@@ -201,6 +218,7 @@ export default async function ChatPage({
                     />
                   </div>
                 )}
+                <AccountControls />
               </div>
 
               <Suspense key={streamKey} fallback={<SummaryBarSkeleton />}>
@@ -210,7 +228,7 @@ export default async function ChatPage({
                   currentStart={currentStart}
                   currentEnd={end}
                   currentMonthKey={currentMonthKey}
-                  profileId={filterProfileId}
+                  profileIds={viewProfileIds}
                   currency={currency}
                   locale={locale}
                 />
@@ -230,7 +248,7 @@ export default async function ChatPage({
             <FeedStream
               userId={user.id}
               workspaceId={workspace.id}
-              profileId={filterProfileId}
+              profileIds={viewProfileIds}
               currency={currency}
               locale={locale}
               timeZone={timeZone}
@@ -251,7 +269,7 @@ export default async function ChatPage({
             currency={currency}
             locale={locale}
             today={today}
-            profiles={profiles}
+            profiles={composerProfiles}
             activeProfileId={composerProfileId}
             allProfiles={allProfiles}
             inputMode={settings.inputMode as InputMode}
@@ -278,7 +296,7 @@ async function SummaryStream({
   currentStart,
   currentEnd,
   currentMonthKey,
-  profileId,
+  profileIds,
   currency,
   locale,
 }: {
@@ -288,7 +306,8 @@ async function SummaryStream({
   currentStart: string;
   currentEnd: string;
   currentMonthKey: string;
-  profileId?: string;
+  /** Profiles in view; undefined = every profile the viewer can see. */
+  profileIds?: string[];
   currency: string;
   locale: string;
 }) {
@@ -304,8 +323,8 @@ async function SummaryStream({
     "tracker.summary",
     () =>
       Promise.all([
-        getMonthlyTotals(userId, workspaceId, { profileId }),
-        listTransactionIds(userId, workspaceId, { from: currentStart, to: currentEnd, profileId }),
+        getMonthlyTotals(userId, workspaceId, { profileIds }),
+        listTransactionIds(userId, workspaceId, { from: currentStart, to: currentEnd, profileIds }),
       ]),
     { event: "tracker.summary.timing" },
   );
@@ -316,7 +335,7 @@ async function SummaryStream({
       serverTxnIds={txnIds}
       currency={currency}
       locale={locale}
-      profileId={profileId ?? null}
+      profileIds={profileIds ?? null}
     />
   );
 }
@@ -344,7 +363,7 @@ function SummaryBarSkeleton() {
 async function FeedStream({
   userId,
   workspaceId,
-  profileId,
+  profileIds,
   currency,
   locale,
   timeZone,
@@ -357,7 +376,8 @@ async function FeedStream({
 }: {
   userId: string;
   workspaceId: string;
-  profileId?: string;
+  /** Profiles in view; undefined = every profile the viewer can see. */
+  profileIds?: string[];
   currency: string;
   locale: string;
   timeZone: string;
@@ -372,7 +392,7 @@ async function FeedStream({
   // for the chat. Older pages stream in as the user scrolls up.
   const newestFirst = await time(
     "tracker.feed",
-    () => listFeedPage(userId, workspaceId, { profileId, limit: FEED_PAGE_SIZE }),
+    () => listFeedPage(userId, workspaceId, { profileIds, limit: FEED_PAGE_SIZE }),
     { event: "tracker.feed.timing" },
   );
   const rows = [...newestFirst].reverse();
@@ -383,13 +403,13 @@ async function FeedStream({
       currency={currency}
       locale={locale}
       timeZone={timeZone}
-      profileId={profileId ?? null}
+      profileIds={profileIds ?? null}
       showAuthor={showAuthor}
       currentUser={currentUser}
     >
       <InfiniteChatFeed
         initialRows={rows}
-        profileId={profileId ?? null}
+        profileIds={profileIds ?? null}
         pageSize={FEED_PAGE_SIZE}
         hasMoreInitially={newestFirst.length === FEED_PAGE_SIZE}
         currency={currency}

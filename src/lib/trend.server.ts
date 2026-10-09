@@ -17,25 +17,28 @@ export async function getTrend(
     from?: string;
     to?: string;
     profileId?: string;
+    /** The sidebar's selection, intersected with what the caller can view
+     *  (`TxnFilters.profileIds`). */
+    profileIds?: string[];
     /** The viewer's local date, for "All time". */
     today: string;
     firstDay: 0 | 1;
     kept: boolean;
   },
 ): Promise<Trend> {
-  const { profileId, firstDay, kept } = opts;
+  const { profileId, profileIds, firstDay, kept } = opts;
   let span: TrendSpan;
   let monthly: Awaited<ReturnType<typeof getMonthlyTotals>> | undefined;
   if (opts.from && opts.to) {
     span = trendSpan(opts.from, opts.to);
   } else {
     // All time: every month there is, which also serves month and year columns.
-    monthly = await getMonthlyTotals(userId, workspaceId, { profileId, to: opts.today });
+    monthly = await getMonthlyTotals(userId, workspaceId, { profileId, profileIds, to: opts.today });
     const first = monthly[0]?.month ?? opts.today.slice(0, 7);
     span = trendSpan(monthStart(first), opts.today);
   }
 
-  const range = { from: span.from, to: span.to, profileId };
+  const range = { from: span.from, to: span.to, profileId, profileIds };
   if (needsDaily(bucketFor(span))) {
     return buildTrend({ span, firstDay, kept, daily: await getDailyTotals(userId, workspaceId, range) });
   }

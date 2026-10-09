@@ -1,4 +1,5 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccountControls } from "@/components/app/account-controls";
 
 /**
  * Skeleton for the files page while the server loads the vault. Folder
@@ -15,19 +16,22 @@ export default function FilesLoading() {
   return (
     <div className="mx-auto max-w-5xl space-y-4 px-4 py-6">
       {/* Title + toolbar. Wraps exactly like the real header. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Skeleton className="h-7 w-16" />
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {/* Storage ring. */}
-          <Skeleton className="size-8 rounded-full" />
-          {/* Search: matches `w-44 sm:w-56` on the real input. */}
-          <Skeleton className="h-8 w-44 sm:w-56" />
-          {/* View toggle: three `size-8` buttons in one bordered group. */}
-          <Skeleton className="h-9 w-[6.5rem]" />
-          {/* New folder (icon) + Upload. */}
-          <Skeleton className="size-8" />
-          <Skeleton className="h-8 w-24" />
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+          <Skeleton className="h-7 w-16" />
+          <div className="ml-auto flex flex-wrap items-center gap-2">
+            {/* Storage ring. */}
+            <Skeleton className="size-8 rounded-full" />
+            {/* Search: matches `w-44 sm:w-56` on the real input. */}
+            <Skeleton className="h-8 w-44 sm:w-56" />
+            {/* View toggle: three `size-8` buttons in one bordered group. */}
+            <Skeleton className="h-9 w-[6.5rem]" />
+            {/* New folder (icon) + Upload. */}
+            <Skeleton className="size-8" />
+            <Skeleton className="h-8 w-24" />
+          </div>
         </div>
+        <AccountControls />
       </div>
 
       {/* Breadcrumb / count row + sort controls. */}

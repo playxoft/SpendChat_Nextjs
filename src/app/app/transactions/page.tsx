@@ -19,7 +19,14 @@ import {
   TRANSACTIONS_PAGE_SIZE,
   type TxnFilters,
 } from "@/lib/queries";
-import { parseTxnFilters, parseTxnSort, resolveWebProfile } from "@/lib/filters";
+import { parseTxnFilters, parseTxnSort } from "@/lib/filters";
+import {
+  canonicalProfileParam,
+  parseProfileScope,
+  resolveProfileScope,
+  scopeLabel,
+  writeTargetOf,
+} from "@/lib/profile-scope";
 import { canWriteInWorkspace } from "@/lib/workspaces";
 import { parseISODate, todayISO } from "@/lib/dates";
 import { getTimeZone } from "@/lib/timezone.server";
@@ -33,6 +40,7 @@ import { TransactionsResultsSkeleton } from "@/components/app/transactions-skele
 import { TransactionsActions } from "@/components/app/transactions-actions";
 import { TransactionColumnsMenu } from "@/components/app/transaction-columns-menu";
 import { PrintButton } from "@/components/app/print-button";
+import { AccountControls } from "@/components/app/account-controls";
 import { ViewerNotice } from "@/components/app/viewer-notice";
 
 export const dynamic = "force-dynamic";
@@ -84,16 +92,17 @@ export default async function TransactionsPage({
   const today = todayISO(await getTimeZone());
 
   const filters = parseTxnFilters(one);
-  // Web default: no `?profile=` shows the first profile; "all" is explicit.
-  filters.profileId = resolveWebProfile(one("profile"), profiles[0]?.id);
+  // Web default: no `?profile=` shows the first profile; "all" is explicit; a
+  // sidebar selection is expanded against the profiles this viewer can see
+  // (and intersected with them again in every query).
+  const scope = resolveProfileScope(parseProfileScope(one("profile")), profiles);
+  filters.profileId = undefined;
+  filters.profileIds = scope.profileIds;
   const { sort, dir } = parseTxnSort(one("sort"), one("dir"));
   filters.sort = sort;
   filters.dir = dir;
-  const allProfiles = !filters.profileId;
-  const composerProfileId = filters.profileId ?? profiles[0]?.id;
-  const profileName = filters.profileId
-    ? (profiles.find((p) => p.id === filters.profileId)?.name ?? "Selected profile")
-    : "All profiles";
+  const { activeProfileId: composerProfileId, allProfiles } = writeTargetOf(scope, profiles);
+  const profileName = scopeLabel(scope, profiles, Infinity);
   const printLabel = printRange(filters.from, filters.to).label;
   const { currency, locale } = workspace;
 
@@ -102,8 +111,9 @@ export default async function TransactionsPage({
     const val = Array.isArray(v) ? v[0] : v;
     if (val && k !== "page" && k !== "profile") baseParams.set(k, val);
   }
-  // Carry the resolved profile so export/print links match the view.
-  baseParams.set("profile", filters.profileId ?? "all");
+  // Carry the selection so export/print links match the view: the default
+  // (first profile) spelled out, else the parameter in its canonical form.
+  baseParams.set("profile", scope.single ?? canonicalProfileParam(one("profile")) ?? "all");
   const base = baseParams.toString();
   const exportHref = `/api/transactions/export${base ? `?${base}` : ""}`;
   // Remount the results on a filter change (fresh count + skeleton). Sort is left
@@ -137,30 +147,35 @@ export default async function TransactionsPage({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <h1 className="text-xl font-semibold">Transactions</h1>
-        <div className="flex items-center gap-1.5">
-          {canWrite && (
-            <TransactionsActions
-              categories={categories}
-              profiles={profiles}
-              tags={tags}
-              activeProfileId={composerProfileId}
-              currency={currency}
-              locale={locale}
-              today={today}
-              allProfiles={allProfiles}
-            />
-          )}
-          <TransactionColumnsMenu />
-          <Button asChild variant="outline">
-            <a href={exportHref}>
-              <Download className="size-4" />
-              <span className="hidden sm:inline">CSV</span>
-            </a>
-          </Button>
-          <PrintButton />
+      {/* The title row; the theme button and account menu close it on a
+          desktop, top right even when the actions wrap below the title. */}
+      <div className="flex items-start gap-3 print:hidden">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold">Transactions</h1>
+          <div className="flex items-center gap-1.5">
+            {canWrite && (
+              <TransactionsActions
+                categories={categories}
+                profiles={profiles}
+                tags={tags}
+                activeProfileId={composerProfileId}
+                currency={currency}
+                locale={locale}
+                today={today}
+                allProfiles={allProfiles}
+              />
+            )}
+            <TransactionColumnsMenu />
+            <Button asChild variant="outline">
+              <a href={exportHref}>
+                <Download className="size-4" />
+                <span className="hidden sm:inline">CSV</span>
+              </a>
+            </Button>
+            <PrintButton />
+          </div>
         </div>
+        <AccountControls />
       </div>
 
       {!canWrite && <ViewerNotice className="mt-4 print:hidden" />}
@@ -239,7 +254,7 @@ async function TransactionsData({
     to: filters.to,
     type: filters.type,
     categoryId: filters.categoryId,
-    profileId: filters.profileId,
+    profileIds: filters.profileIds,
     // Load-more re-runs the query from these alone. A filter listed on the page
     // but missing here doesn't narrow the next page, so scrolling a filtered
     // list appends rows that contradict the count above it.

@@ -56,6 +56,14 @@ export type TxnFilters = {
   type?: "income" | "expense";
   categoryId?: string;
   profileId?: string;
+  /**
+   * Only these profiles — the web sidebar's multi-selection, already expanded
+   * from spaces to profiles. Narrows, never widens: it is intersected with the
+   * profiles the caller can view (`profilesInScope`), so a forged or foreign id
+   * reads as nothing, and an empty list is an empty result, not "all".
+   * Absent means every profile the caller can view.
+   */
+  profileIds?: string[];
   /** Match transactions carrying **any** of these tags (OR, not AND). Empty or
    *  absent means "don't filter by tag". */
   tagIds?: string[];
@@ -129,6 +137,32 @@ const accessibleProfileIdList = cache(
       return rows.map((r) => r.id);
     }),
 );
+
+/**
+ * The profiles a read covers: the ones the caller can view in this workspace,
+ * narrowed to `selection` when there is one (`TxnFilters.profileIds`).
+ *
+ * The intersection is the whole security story of the sidebar's multi-select:
+ * the selection comes from a URL or a client, so it is only ever used to pick
+ * *among* `accessibleProfileIdList` — which already skips trashed profiles and
+ * other workspaces — never as a list of its own. An empty selection is an
+ * empty result; it must not fall through to "everything".
+ *
+ * Kept as a list (rather than an extra `profile_id in (…)` predicate) so the
+ * per-profile merge in `pageOf` / `listFeedPage` runs over just the selected
+ * profiles: three picked profiles are three ordered index scans, not one per
+ * profile in the workspace.
+ */
+async function profilesInScope(
+  userId: string,
+  workspaceId: string,
+  selection: readonly string[] | undefined,
+): Promise<string[]> {
+  const accessible = await accessibleProfileIdList(userId, workspaceId);
+  if (selection === undefined) return accessible;
+  const wanted = new Set(selection);
+  return accessible.filter((id) => wanted.has(id));
+}
 
 /**
  * Drop the memoized profile list, for a request that just created a profile and
@@ -527,7 +561,7 @@ export async function listTransactions(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<TransactionRow[]> {
-  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  const profileIds = await profilesInScope(userId, workspaceId, f.profileIds);
   if (profileIds.length === 0) return [];
   return decorate(pageOf(profileIds, f), f);
 }
@@ -621,9 +655,15 @@ function feedConditions(profileIds: string[], opts: { profileId?: string; before
 export async function listFeedPage(
   userId: string,
   workspaceId: string,
-  opts: { profileId?: string; limit: number; before?: FeedCursor },
+  opts: {
+    profileId?: string;
+    /** The sidebar's selection; see `TxnFilters.profileIds`. */
+    profileIds?: string[];
+    limit: number;
+    before?: FeedCursor;
+  },
 ): Promise<TransactionRow[]> {
-  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  const profileIds = await profilesInScope(userId, workspaceId, opts.profileIds);
   if (profileIds.length === 0) return [];
   // The cursor's `(occurred_on, created_at, id)` order is exactly
   // `transactions_profile_date_idx`'s trailing columns, so one profile reads
@@ -652,7 +692,7 @@ export async function countTransactions(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<number> {
-  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  const profileIds = await profilesInScope(userId, workspaceId, f.profileIds);
   if (profileIds.length === 0) return 0;
   const db = getDb();
   const [row] = await db
@@ -674,7 +714,7 @@ export async function listTransactionIds(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<string[]> {
-  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  const profileIds = await profilesInScope(userId, workspaceId, f.profileIds);
   if (profileIds.length === 0) return [];
   const db = getDb();
   const rows = await db
@@ -691,7 +731,7 @@ export async function getSummary(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<Summary> {
-  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  const profileIds = await profilesInScope(userId, workspaceId, f.profileIds);
   if (profileIds.length === 0) return { income: 0, expense: 0, balance: 0 };
   const db = getDb();
   const rows = await db
@@ -726,7 +766,7 @@ export async function getMonthlyTotals(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<MonthTotals[]> {
-  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  const profileIds = await profilesInScope(userId, workspaceId, f.profileIds);
   if (profileIds.length === 0) return [];
   const db = getDb();
   const monthExpr = sql<string>`to_char(${transactions.occurredOn}, 'YYYY-MM')`;
@@ -763,7 +803,7 @@ export async function getDailyTotals(
   workspaceId: string,
   f: TxnFilters = {},
 ): Promise<DayTotals[]> {
-  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  const profileIds = await profilesInScope(userId, workspaceId, f.profileIds);
   if (profileIds.length === 0) return [];
   const db = getDb();
   const rows = await db
@@ -799,7 +839,7 @@ export async function getCategoryBreakdown(
   type: "income" | "expense",
   f: TxnFilters = {},
 ): Promise<CategoryBreakdownRow[]> {
-  const profileIds = await accessibleProfileIdList(userId, workspaceId);
+  const profileIds = await profilesInScope(userId, workspaceId, f.profileIds);
   if (profileIds.length === 0) return [];
   const db = getDb();
   const rows = await db
@@ -1179,21 +1219,45 @@ export type VaultFolderRow = typeof folders.$inferSelect;
 export const VAULT_FILES_LIMIT = 500;
 
 /**
+ * A vault read's profile filter: one profile (the API's `?profile=`), several
+ * (the web sidebar's selection), or undefined / "" for every profile the caller
+ * can view. Like `TxnFilters.profileIds`, a list only narrows: an empty one
+ * reads nothing.
+ */
+export type VaultProfileFilter = string | readonly string[] | undefined;
+
+/** The filter as a list of ids, or null for "no filter". */
+function vaultFilterIds(filter: VaultProfileFilter): readonly string[] | null {
+  if (typeof filter === "string") return filter ? [filter] : null;
+  return filter ?? null;
+}
+
+/** `accessible` narrowed by the filter — the vault's `profilesInScope`. */
+function narrowVault(accessible: string[], filter: VaultProfileFilter): string[] {
+  const ids = vaultFilterIds(filter);
+  if (!ids) return accessible;
+  const wanted = new Set(ids);
+  return accessible.filter((id) => wanted.has(id));
+}
+
+/**
  * Every folder the user can view in the current workspace (optionally one
- * profile). The whole tree ships to the client — folders are lightweight rows
+ * profile, or the sidebar's selection). The whole tree ships to the client — folders are lightweight rows
  * and the breadcrumbs/tree view need ancestry, so there's no point paging.
  */
 export async function listVaultFolders(
   userId: string,
   workspaceId: string,
-  profileId?: string,
+  profile?: VaultProfileFilter,
 ): Promise<FolderDTO[]> {
   const db = getDb();
+  const only = vaultFilterIds(profile);
+  if (only?.length === 0) return [];
   const conds = [
     notTrashed(folders),
     inArray(folders.profileId, accessibleProfileIds(userId, workspaceId)),
   ];
-  if (profileId) conds.push(eq(folders.profileId, profileId));
+  if (only) conds.push(inArray(folders.profileId, [...only]));
   const rows = await db
     .select({
       id: folders.id,
@@ -1263,12 +1327,12 @@ function mergeVaultFiles(branches: ReturnType<typeof vaultFileBranch>[], limit: 
 export async function listVaultFiles(
   userId: string,
   workspaceId: string,
-  profileId?: string,
+  profile?: VaultProfileFilter,
 ): Promise<FileDTO[]> {
   const accessible = await accessibleProfileIdList(userId, workspaceId);
   // An explicit profile still has to be one the caller can reach; intersecting
   // here is what the old `inArray(accessible) AND profile_id = $1` did.
-  const scoped = profileId ? accessible.filter((id) => id === profileId) : accessible;
+  const scoped = narrowVault(accessible, profile);
   if (scoped.length === 0) return [];
 
   // One ordered index scan per profile, merged — the same shape and the same
@@ -1385,11 +1449,13 @@ export const getWorkspaceStorageUsageCached = cache(getWorkspaceStorageUsage);
 export async function listVaultTags(
   userId: string,
   workspaceId: string,
-  profileId?: string,
+  profile?: VaultProfileFilter,
 ): Promise<TagDTO[]> {
   const db = getDb();
+  const only = vaultFilterIds(profile);
+  if (only?.length === 0) return [];
   const conds = [inArray(fileTags.profileId, accessibleProfileIds(userId, workspaceId))];
-  if (profileId) conds.push(eq(fileTags.profileId, profileId));
+  if (only) conds.push(inArray(fileTags.profileId, [...only]));
   const rows = await db
     .select()
     .from(fileTags)
@@ -1519,10 +1585,10 @@ function notAmongTrashedParents(trashedIds: string[]): SQL | undefined {
 export async function listTransactionFilesForVault(
   userId: string,
   workspaceId: string,
-  profileId?: string,
+  profile?: VaultProfileFilter,
 ): Promise<TxnFileDTO[]> {
   const accessible = await accessibleProfileIdList(userId, workspaceId);
-  const scoped = profileId ? accessible.filter((id) => id === profileId) : accessible;
+  const scoped = narrowVault(accessible, profile);
   if (scoped.length === 0) return [];
   const hidden = notAmongTrashedParents(await trashedReceiptParents(scoped));
 

@@ -11,15 +11,22 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { scopeLabel } from "@/lib/profile-scope";
+import { useProfileScope } from "@/hooks/use-profile-scope";
 import { useLoadingOverlay } from "./loading-overlay";
 import type { Profile } from "@/db/schema";
 
-type P = Pick<Profile, "id" | "name" | "icon">;
+type P = Pick<Profile, "id" | "name" | "icon" | "spaceId">;
 
 /**
  * The tracker header's profile display. On mobile it's a dropdown to switch
  * profiles (the sidebar is hidden there); on desktop it's static, since the
  * sidebar already handles switching.
+ *
+ * A sidebar multi-selection (several profiles, or a space) reads straight from
+ * the URL: the page resolves it the same way, and passes no single
+ * `filterProfileId` for it. It shows the selection's names and how many
+ * profiles it covers; picking a profile from the menu narrows back to one.
  */
 export function ProfileSwitcher({
   profiles,
@@ -35,12 +42,17 @@ export function ProfileSwitcher({
   const sp = useSearchParams();
   const { runQuiet } = useLoadingOverlay();
 
+  const { resolved } = useProfileScope(profiles);
+  const selection = resolved.multi ? (resolved.profileIds ?? []) : null;
+  const checked = new Set(selection ?? (filterProfileId ? [filterProfileId] : []));
   const active = profiles.find((p) => p.id === filterProfileId) ?? null;
-  const icon = active?.icon ?? (filterProfileId ? "👤" : "🗂️");
-  const name = active?.name ?? "All profiles";
-  const subtitle = allProfiles
-    ? `${profiles.length} profile${profiles.length === 1 ? "" : "s"}`
-    : "Transactions this month";
+  const icon = selection ? "🗂️" : (active?.icon ?? (filterProfileId ? "👤" : "🗂️"));
+  const name = selection ? scopeLabel(resolved, profiles, 2) : (active?.name ?? "All profiles");
+  const subtitle = selection
+    ? `${selection.length} profile${selection.length === 1 ? "" : "s"} selected`
+    : allProfiles
+      ? `${profiles.length} profile${profiles.length === 1 ? "" : "s"}`
+      : "Transactions this month";
 
   function go(id: string | null) {
     const params = new URLSearchParams(sp.toString());
@@ -92,7 +104,7 @@ export function ProfileSwitcher({
             >
               <span aria-hidden>{p.icon ?? "👤"}</span>
               <span className="flex-1 truncate">{p.name}</span>
-              {p.id === filterProfileId && <Check className="size-4" />}
+              {checked.has(p.id) && <Check className="size-4" />}
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
@@ -102,7 +114,7 @@ export function ProfileSwitcher({
           >
             <LayoutGrid className="size-4" />
             <span className="flex-1">All profiles</span>
-            {!filterProfileId && <Check className="size-4" />}
+            {!filterProfileId && !selection && <Check className="size-4" />}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

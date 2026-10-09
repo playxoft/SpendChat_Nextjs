@@ -24,6 +24,7 @@ import {
   type BulkUpdateTransactionsInput,
   type TransactionInput,
 } from "@/lib/validation";
+import { SCOPE_MAX_PROFILE_IDS } from "@/lib/profile-scope";
 import type { BulkDraft } from "@/lib/bulk-parser";
 import type { TxnTagDTO } from "@/lib/tags";
 import { MAX_INPUT_CHARS, parseTransactionsText, type AiParsedDraft } from "@/lib/ai-parse";
@@ -45,6 +46,10 @@ const loadMoreSchema = z.object({
     type: z.enum(["income", "expense"]).optional(),
     categoryId: z.string().optional(),
     profileId: z.string().optional(),
+    // The sidebar's selection, already expanded to profiles. Bounded like the
+    // tags below, and like them it can only narrow: `listTransactions`
+    // intersects it with the caller's own profiles.
+    profileIds: z.array(z.string().uuid()).max(SCOPE_MAX_PROFILE_IDS).optional(),
     // Bounded like the rest: a tampered list can only ever narrow what the
     // caller could already see, but an unbounded array here would be an
     // unbounded `IN` list in the query.
@@ -56,11 +61,13 @@ const loadMoreSchema = z.object({
   offset: z.number().int().min(0).max(1_000_000),
 });
 
-/** Cursor + profile for loading the next older page of the tracker feed. Access
+/** Cursor + profiles for loading the next older page of the tracker feed. Access
  * is still enforced server side by `listFeedPage` (scoped to the caller's
  * accessible profiles), so a tampered profile id simply returns nothing. */
 const loadOlderFeedSchema = z.object({
   profileId: z.string().optional(),
+  /** The profiles in view (one, or the sidebar's selection); absent = all. */
+  profileIds: z.array(z.string().uuid()).max(SCOPE_MAX_PROFILE_IDS).optional(),
   before: z.object({
     occurredOn: z.string(),
     createdAt: z.coerce.date(),
@@ -240,9 +247,10 @@ export async function loadOlderFeed(
   return runAction(
     "loadOlderFeed",
     async () => {
-      const { profileId, before, limit } = parseOrThrow(loadOlderFeedSchema, input);
+      const { profileId, profileIds, before, limit } = parseOrThrow(loadOlderFeedSchema, input);
       const newestFirst = await listFeedPage(user.id, workspace.id, {
         profileId,
+        profileIds,
         before,
         limit: limit ?? FEED_PAGE_SIZE,
       });

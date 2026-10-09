@@ -50,6 +50,7 @@ import { SettleDialog, type SettleTarget } from "./settle-dialog";
 import { SplitComposer } from "./split-composer";
 import { SplitFeed } from "./split-feed";
 import { UpdateEntryDialog, type UpdateEntryTarget } from "./update-entry-dialog";
+import { AccountControls } from "@/components/app/account-controls";
 
 type Confirm =
   | { kind: "delete-group" }
@@ -263,7 +264,7 @@ export function SplitChat({
 
   return (
     <div className="flex min-h-full flex-col">
-      <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm">
+      <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0">
         <div className="mx-auto flex max-w-3xl items-center gap-2 px-2 py-2 sm:px-4">
           <Button asChild variant="ghost" size="icon" className="shrink-0">
             <Link href="/app/split" aria-label="Back to Split">
@@ -342,6 +343,7 @@ export function SplitChat({
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+          <AccountControls />
         </div>
       </header>
 

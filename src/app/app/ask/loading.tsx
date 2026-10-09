@@ -1,20 +1,22 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccountControls } from "@/components/app/account-controls";
 
 export default function Loading() {
   return (
     <div className="flex">
       {/* The chat column (desktop), like `AskPanel`. */}
-      <aside className="sticky top-14 hidden h-[calc(100svh-3.5rem)] w-64 shrink-0 flex-col space-y-2 border-r px-3 pt-3 lg:flex">
+      <aside className="sticky top-0 hidden h-svh w-64 shrink-0 flex-col space-y-2 border-r px-3 pt-3 lg:flex">
         <Skeleton className="h-9 w-full rounded-lg" />
         <Skeleton className="h-8 w-full rounded-lg" />
         <Skeleton className="h-8 w-4/5 rounded-lg" />
         <Skeleton className="h-8 w-3/5 rounded-lg" />
       </aside>
-      <div className="flex min-h-[calc(100svh-7.5rem)] min-w-0 flex-1 flex-col md:min-h-[calc(100svh-3.5rem)]">
-        <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm">
+      <div className="flex min-h-[calc(100svh-7.5rem)] min-w-0 flex-1 flex-col md:min-h-svh">
+        <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0">
           <div className="mx-auto flex h-12 max-w-3xl items-center gap-2 px-4">
             <Skeleton className="size-7 rounded-md lg:hidden" />
             <Skeleton className="h-4 w-40" />
+            <AccountControls className="ml-auto" />
           </div>
         </header>
         <div className="mx-auto w-full max-w-3xl flex-1 space-y-5 px-4 py-6">

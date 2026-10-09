@@ -23,31 +23,55 @@ export type PendingContribution = {
  * A contribution is counted until its saved id turns up in `serverTxnIds` — at
  * that point the server total already includes it, so counting it too would
  * double it. It's ignored when it failed to save, falls outside the month
- * window, or belongs to a different profile than the one in view (`profileId`
- * null = "All profiles", which counts everything). This mirrors how the chat
- * feed retires a ghost bubble once its real row appears.
+ * window, or belongs to a profile that isn't in view (`profileIds` — or the
+ * single `profileId` — null = "All profiles", which counts everything). This
+ * mirrors how the chat feed retires a ghost bubble once its real row appears.
  */
 export function optimisticTotals(
   base: { income: number; expense: number },
   pending: readonly PendingContribution[],
   opts: {
     serverTxnIds: Iterable<string>;
-    profileId: string | null;
+    /** The one profile in view; null = "All profiles". Ignored when `profileIds` is given. */
+    profileId?: string | null;
+    /** The profiles in view (the sidebar's selection); null = "All profiles". */
+    profileIds?: readonly string[] | null;
     monthStart: string;
     monthEnd: string;
   },
 ): Totals {
   const serverSet =
     opts.serverTxnIds instanceof Set ? opts.serverTxnIds : new Set(opts.serverTxnIds);
+  const inView = profileInView(
+    opts.profileIds !== undefined
+      ? opts.profileIds
+      : opts.profileId != null
+        ? [opts.profileId]
+        : null,
+  );
   let income = base.income;
   let expense = base.expense;
   for (const m of pending) {
     if (m.status === "failed") continue; // not saved — don't count it
-    if (opts.profileId !== null && m.profileId !== opts.profileId) continue;
+    if (!inView(m.profileId)) continue;
     if (m.occurredOn < opts.monthStart || m.occurredOn > opts.monthEnd) continue;
     if (m.realId && serverSet.has(m.realId)) continue; // already in the server total
     if (m.type === "income") income += m.amountMinor;
     else expense += m.amountMinor;
   }
   return { income, expense, balance: income - expense };
+}
+
+/**
+ * "Is a row of this profile in view?" for the profiles a view shows — null for
+ * "All profiles", where everything is. The tracker's ghost bubbles, its
+ * optimistic balance and its bulk edits all ask it, so a pending transaction
+ * shows in exactly the views its saved row will.
+ */
+export function profileInView(
+  profileIds: readonly string[] | null,
+): (profileId: string | null) => boolean {
+  if (profileIds === null) return () => true;
+  const set = new Set(profileIds);
+  return (profileId) => profileId !== null && set.has(profileId);
 }

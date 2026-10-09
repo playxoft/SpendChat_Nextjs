@@ -1,9 +1,13 @@
 import { Skeleton } from "@/components/ui/skeleton";
+import { AccountControls } from "@/components/app/account-controls";
 
 export default function Loading() {
   return (
     <div className="mx-auto max-w-5xl space-y-6 px-4 pb-16 pt-6">
-      <Skeleton className="h-4 w-24" />
+      <div className="flex items-center justify-between gap-3">
+        <Skeleton className="h-4 w-24" />
+        <AccountControls />
+      </div>
       <div className="max-w-2xl space-y-2">
         <Skeleton className="h-4 w-40" />
         <Skeleton className="h-8 w-80" />

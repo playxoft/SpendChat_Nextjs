@@ -11,6 +11,7 @@ import { listSpaces } from "@/services/spaces";
 import { openWorkspaceIfAccessible } from "@/services/workspaces";
 import { BudgetManager } from "@/components/app/budgets/budget-manager";
 import type { BudgetItem } from "@/components/app/budgets/budget-parts";
+import { AccountControls } from "@/components/app/account-controls";
 
 export const dynamic = "force-dynamic";
 
@@ -97,11 +98,14 @@ export default async function BudgetsPage({
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-      <div>
-        <h1 className="text-xl font-semibold">Budgets</h1>
-        <p className="text-sm text-muted-foreground">
-          Monthly limits on spending. Each one starts again on the 1st.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Budgets</h1>
+          <p className="text-sm text-muted-foreground">
+            Monthly limits on spending. Each one starts again on the 1st.
+          </p>
+        </div>
+        <AccountControls />
       </div>
       <BudgetManager
         budgets={items}
