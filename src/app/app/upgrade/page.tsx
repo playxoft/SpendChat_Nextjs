@@ -10,6 +10,7 @@ import { ComparisonTable } from "@/components/pricing/comparison-table";
 import { PlanCards, PricingExtras } from "@/components/pricing/plan-cards";
 import { PricingStateProvider } from "@/components/pricing/pricing-state";
 import { PlanBadge } from "@/components/app/plan-badge";
+import { AccountControls } from "@/components/app/account-controls";
 import { UsageStrip } from "./_components/usage-strip";
 
 export const dynamic = "force-dynamic";
@@ -35,19 +36,22 @@ export default async function UpgradePage() {
 
   return (
     <div className="mx-auto max-w-7xl px-4 pb-16 pt-6">
-      <header className="max-w-3xl">
-        <p className="flex items-center gap-2 text-xs text-muted-foreground">
-          {workspace.name} is on <PlanBadge plan={plan} className="h-5 px-2 text-xs" />
-        </p>
-        <h1 className="mt-2 text-balance text-2xl font-semibold tracking-tight sm:text-3xl">{hero.title}</h1>
-        <p className="mt-2 text-pretty text-muted-foreground">{hero.body}</p>
-        {usage.readOnly ? (
-          <p className="mt-3 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            This workspace is view-only: everyone gets one free workspace, and this one is extra.
-            Nothing in it is deleted — it opens up again with its own Plus or Pro plan.
+      <div className="flex items-start justify-between gap-4">
+        <header className="max-w-3xl">
+          <p className="flex items-center gap-2 text-xs text-muted-foreground">
+            {workspace.name} is on <PlanBadge plan={plan} className="h-5 px-2 text-xs" />
           </p>
-        ) : null}
-      </header>
+          <h1 className="mt-2 text-balance text-2xl font-semibold tracking-tight sm:text-3xl">{hero.title}</h1>
+          <p className="mt-2 text-pretty text-muted-foreground">{hero.body}</p>
+          {usage.readOnly ? (
+            <p className="mt-3 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              This workspace is view-only: everyone gets one free workspace, and this one is extra.
+              Nothing in it is deleted — it opens up again with its own Plus or Pro plan.
+            </p>
+          ) : null}
+        </header>
+        <AccountControls />
+      </div>
 
       <div className="mt-6">
         <UsageStrip usage={usage} />

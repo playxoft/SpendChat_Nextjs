@@ -3,8 +3,8 @@ import { ChatList } from "./chat-list";
 
 /**
  * Ask's chat list as a second column, flush against the sidebar's right edge
- * (Notion-style) and as tall as the window below the top bar, staying put
- * while the conversation scrolls.
+ * (Notion-style) and as tall as the window, staying put while the
+ * conversation scrolls. (It only shows from `lg`, where there's no top bar.)
  *
  * It's part of the Ask *page*, not a layout or a parallel-route slot, on
  * purpose:
@@ -23,7 +23,7 @@ export function AskPanel({ chats }: { chats: ChatSummary[] }) {
   return (
     <aside
       aria-label="Your chats"
-      className="sticky top-14 hidden h-[calc(100svh-3.5rem)] w-64 shrink-0 flex-col border-r bg-background pt-3 lg:flex print:hidden"
+      className="sticky top-0 hidden h-svh w-64 shrink-0 flex-col border-r bg-background pt-3 lg:flex print:hidden"
     >
       <ChatList chats={chats} className="flex-1" />
     </aside>

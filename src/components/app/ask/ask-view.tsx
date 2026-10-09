@@ -38,6 +38,7 @@ import { usePlan } from "../upgrade-dialog";
 import { AnswerMarkdown } from "./answer-markdown";
 import { askHref } from "./ask-paths";
 import { ChatList } from "./chat-list";
+import { AccountControls } from "@/components/app/account-controls";
 
 /** The answer and count an `ai_chat_not_saved` failure carries, if well-formed. */
 function unsavedAnswerOf(details: unknown): { answer: string; ai: AiActionsLeft } | null {
@@ -266,7 +267,7 @@ export function AskView({
   const empty = messages.length === 0 && !pendingQuestion && !failed;
 
   return (
-    <div className="flex min-h-[calc(100svh-7.5rem)] flex-col md:min-h-[calc(100svh-3.5rem)]">
+    <div className="flex min-h-[calc(100svh-7.5rem)] flex-col md:min-h-svh">
       <AskHeader title={title} chats={chats} profile={profile} />
 
       <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-6">
@@ -402,7 +403,10 @@ export function AskView({
   );
 }
 
-/** The page's title row. Below `lg` it also carries the chat list (a sheet) and "New chat". */
+/**
+ * The page's title row. Below `lg` it also carries the chat list (a sheet) and
+ * "New chat"; from `md` it ends with the theme button and account menu.
+ */
 function AskHeader({
   title,
   chats,
@@ -414,11 +418,12 @@ function AskHeader({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm print:hidden">
+    <header className="sticky top-14 z-10 border-b bg-background/90 backdrop-blur-sm md:top-0 print:hidden">
       {/* Three columns, the outer two the same width whether or not their
-          buttons show (they're phone-only), so the title is centred on every
-          screen. */}
-      <div className="mx-auto grid h-12 max-w-3xl grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-2 px-4">
+          buttons show, so the title is centred on every screen. The right one
+          holds "New chat" below `lg` and the account controls from `md`:
+          2rem on a phone, both (7rem) from `md`, the controls alone from `lg`. */}
+      <div className="mx-auto grid h-12 max-w-3xl grid-cols-[2rem_minmax(0,1fr)_2rem] items-center gap-2 px-4 md:grid-cols-[7rem_minmax(0,1fr)_7rem] lg:grid-cols-[4.75rem_minmax(0,1fr)_4.75rem]">
         <Sheet open={open} onOpenChange={setOpen}>
           <SheetTrigger asChild>
             <Button variant="ghost" size="icon-sm" aria-label="Your chats" className="lg:hidden">
@@ -439,11 +444,14 @@ function AskHeader({
           <h1 className="truncate text-sm font-semibold">SpendChat AI</h1>
           {title && <p className="truncate text-xs text-muted-foreground">{title}</p>}
         </div>
-        <Button asChild variant="ghost" size="icon-sm" className="col-start-3 justify-self-end lg:hidden">
-          <Link href={askHref({ profile })} aria-label="New chat" title="New chat">
-            <SquarePen className="size-4" />
-          </Link>
-        </Button>
+        <div className="col-start-3 flex items-center justify-end gap-1">
+          <Button asChild variant="ghost" size="icon-sm" className="lg:hidden">
+            <Link href={askHref({ profile })} aria-label="New chat" title="New chat">
+              <SquarePen className="size-4" />
+            </Link>
+          </Button>
+          <AccountControls />
+        </div>
       </div>
     </header>
   );

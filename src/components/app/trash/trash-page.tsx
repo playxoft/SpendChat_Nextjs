@@ -44,6 +44,7 @@ import type { TrashedTransactionRow } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { LimitPanel } from "../limit-lock";
 import { usePlan } from "../upgrade-dialog";
+import { AccountControls } from "@/components/app/account-controls";
 
 type TxnRow = TrashedTransactionRow & { canRestore: boolean };
 type Kind = "transaction" | "file" | "folder" | "profile";
@@ -293,25 +294,28 @@ export function TrashPageClient({
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight">Trash</h1>
-          <p className="text-sm text-muted-foreground">
-            Deleted items wait here for {TRASH_DAYS} days, then they’re gone for good.
-            {trashBytes > 0
-              ? ` They use ${formatFileSize(trashBytes)} of your storage until then.`
-              : null}
-          </p>
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 space-y-1">
+            <h1 className="text-xl font-semibold tracking-tight">Trash</h1>
+            <p className="text-sm text-muted-foreground">
+              Deleted items wait here for {TRASH_DAYS} days, then they’re gone for good.
+              {trashBytes > 0
+                ? ` They use ${formatFileSize(trashBytes)} of your storage until then.`
+                : null}
+            </p>
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={pending || emptyTotal === 0}
+            onClick={() => setConfirm("empty")}
+          >
+            <Trash2 className="size-4" />
+            Empty trash
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          disabled={pending || emptyTotal === 0}
-          onClick={() => setConfirm("empty")}
-        >
-          <Trash2 className="size-4" />
-          Empty trash
-        </Button>
+        <AccountControls />
       </div>
 
       {selectedCount > 0 && (

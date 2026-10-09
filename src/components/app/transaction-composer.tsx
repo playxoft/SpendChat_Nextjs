@@ -1156,9 +1156,18 @@ export function TransactionComposer({
     // The strip carries the page background (not a tinted bar) so chat rows can't
     // show through the padding around/below the card as they scroll past — same
     // colour as the page, so it reads as the page, not a separate widget.
-    // Hidden while the feed has a multi-select up: its action bar takes this
-    // spot (see `useBulkSelecting`).
-    <div className={cn("sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0", bulkSelecting && "hidden")}>
+    // While the feed has a multi-select up, its action bar (fixed, same spot)
+    // stands over this strip (see `useBulkSelecting`). The strip turns
+    // invisible and inert but keeps its box: removing it would shorten the page
+    // by the composer's height, and a feed resting at the bottom would drop by
+    // that much the moment a message is picked — and rise again on clearing.
+    <div
+      inert={bulkSelecting}
+      className={cn(
+        "sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0",
+        bulkSelecting && "invisible",
+      )}
+    >
       {/* Every widget lives inside one rounded, floating card, sitting on the
           page background — the tracker list scrolls up behind the strip's top
           edge, never peeking out beneath the card. */}

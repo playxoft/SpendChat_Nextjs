@@ -13,6 +13,7 @@ import { formatMoney } from "@/lib/money";
 import { payersLabel } from "@/lib/split-display";
 import { BalanceChip } from "./balance-text";
 import { NewGroupDialog } from "./new-group-dialog";
+import { AccountControls } from "@/components/app/account-controls";
 
 /** The preview line under a group's name — what happened last. */
 function activityLine(a: SplitActivity | null, currency: string, locale: string): string {
@@ -98,16 +99,19 @@ export function SplitHome({
 
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight">Split</h1>
-          <p className="text-sm text-muted-foreground">
-            Share costs with anyone — no workspace needed. Everyone sees who owes whom.
-          </p>
+      <div className="flex items-start gap-3">
+        <div className="flex min-w-0 flex-1 flex-wrap items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="text-xl font-semibold tracking-tight">Split</h1>
+            <p className="text-sm text-muted-foreground">
+              Share costs with anyone — no workspace needed. Everyone sees who owes whom.
+            </p>
+          </div>
+          <Button onClick={() => setCreating(true)}>
+            <Plus /> New group
+          </Button>
         </div>
-        <Button onClick={() => setCreating(true)}>
-          <Plus /> New group
-        </Button>
+        <AccountControls />
       </div>
 
       {invitations.length > 0 && (

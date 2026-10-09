@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, ArrowRight, Check, Loader2, ShieldCheck, Timer, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { PlanBadge } from "@/components/app/plan-badge";
+import { AccountControls } from "@/components/app/account-controls";
 import { usePlan } from "@/components/app/upgrade-dialog";
 import { Segmented } from "@/components/pricing/segmented";
 import { startCheckout } from "@/actions/billing";
@@ -66,12 +67,15 @@ export function CheckoutForm({
 
   return (
     <div className="mx-auto max-w-5xl px-4 pb-16 pt-6">
-      <Link
-        href="/app/upgrade"
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
-      >
-        <ArrowLeft className="size-4" /> Plans
-      </Link>
+      <div className="flex items-center justify-between gap-3">
+        <Link
+          href="/app/upgrade"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="size-4" /> Plans
+        </Link>
+        <AccountControls />
+      </div>
 
       {refusal ? (
         <Refused

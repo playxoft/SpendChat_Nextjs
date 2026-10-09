@@ -36,6 +36,7 @@ import {
 } from "@/lib/tools/split-bill";
 import { toolPath } from "@/lib/tools";
 import { cn } from "@/lib/utils";
+import { AccountControls } from "@/components/app/account-controls";
 
 /**
  * `/app/split/import`: the group from the free split calculator, made real.
@@ -273,11 +274,14 @@ function ImportFlow({
     const expenses = `${draft.expenses.length} ${draft.expenses.length === 1 ? "expense" : "expenses"}`;
     return (
       <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight">Create “{groupName}” and invite everyone?</h1>
-          <p className="text-sm text-muted-foreground">
-            From the free split calculator: {expenses}, {fmt(ledger.totalMinor)} in all. Nothing has been sent yet.
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="text-xl font-semibold tracking-tight">Create “{groupName}” and invite everyone?</h1>
+            <p className="text-sm text-muted-foreground">
+              From the free split calculator: {expenses}, {fmt(ledger.totalMinor)} in all. Nothing has been sent yet.
+            </p>
+          </div>
+          <AccountControls />
         </div>
         <ul className="divide-y rounded-xl border text-sm">
           <li className="flex items-baseline justify-between gap-3 px-3 py-2.5">
@@ -344,11 +348,14 @@ function ImportFlow({
   if (phase.kind === "ask-me") {
     return (
       <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
-        <div className="space-y-1">
-          <h1 className="text-xl font-semibold tracking-tight">Which one is you?</h1>
-          <p className="text-sm text-muted-foreground">
-            Everyone else gets an invite to “{groupName}” as soon as you pick — you&apos;re in it already.
-          </p>
+        <div className="flex items-start justify-between gap-3">
+          <div className="space-y-1">
+            <h1 className="text-xl font-semibold tracking-tight">Which one is you?</h1>
+            <p className="text-sm text-muted-foreground">
+              Everyone else gets an invite to “{groupName}” as soon as you pick — you&apos;re in it already.
+            </p>
+          </div>
+          <AccountControls />
         </div>
         <div className="grid gap-2 sm:grid-cols-2">
           {draft.people.map((p) => (
@@ -374,13 +381,16 @@ function ImportFlow({
 
   return (
     <form onSubmit={submit} className="mx-auto max-w-3xl space-y-6 px-4 py-6" noValidate>
-      <div className="space-y-1">
-        <h1 className="text-xl font-semibold tracking-tight">Bring your group in</h1>
-        <p className="text-sm text-muted-foreground">
-          From the free split calculator: {draft.people.length} {draft.people.length === 1 ? "person" : "people"},{" "}
-          {draft.expenses.length} {draft.expenses.length === 1 ? "expense" : "expenses"}, {fmt(ledger.totalMinor)}{" "}
-          in all. Add everyone&apos;s email and it becomes a group you can all see.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1">
+          <h1 className="text-xl font-semibold tracking-tight">Bring your group in</h1>
+          <p className="text-sm text-muted-foreground">
+            From the free split calculator: {draft.people.length} {draft.people.length === 1 ? "person" : "people"},{" "}
+            {draft.expenses.length} {draft.expenses.length === 1 ? "expense" : "expenses"}, {fmt(ledger.totalMinor)}{" "}
+            in all. Add everyone&apos;s email and it becomes a group you can all see.
+          </p>
+        </div>
+        <AccountControls />
       </div>
 
       {banner && (
@@ -552,9 +562,12 @@ function NothingToImport() {
 function ImportSkeleton() {
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-6" aria-busy="true">
-      <div className="space-y-1.5">
-        <Skeleton className="h-6 w-48" />
-        <Skeleton className="h-4 w-80" />
+      <div className="flex items-start justify-between gap-3">
+        <div className="space-y-1.5">
+          <Skeleton className="h-6 w-48" />
+          <Skeleton className="h-4 w-80" />
+        </div>
+        <AccountControls />
       </div>
       {Array.from({ length: 3 }, (_, i) => (
         <Skeleton key={i} className="h-12 w-full rounded-xl" />

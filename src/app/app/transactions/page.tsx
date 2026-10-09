@@ -33,6 +33,7 @@ import { TransactionsResultsSkeleton } from "@/components/app/transactions-skele
 import { TransactionsActions } from "@/components/app/transactions-actions";
 import { TransactionColumnsMenu } from "@/components/app/transaction-columns-menu";
 import { PrintButton } from "@/components/app/print-button";
+import { AccountControls } from "@/components/app/account-controls";
 import { ViewerNotice } from "@/components/app/viewer-notice";
 
 export const dynamic = "force-dynamic";
@@ -137,30 +138,35 @@ export default async function TransactionsPage({
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 print:hidden">
-        <h1 className="text-xl font-semibold">Transactions</h1>
-        <div className="flex items-center gap-1.5">
-          {canWrite && (
-            <TransactionsActions
-              categories={categories}
-              profiles={profiles}
-              tags={tags}
-              activeProfileId={composerProfileId}
-              currency={currency}
-              locale={locale}
-              today={today}
-              allProfiles={allProfiles}
-            />
-          )}
-          <TransactionColumnsMenu />
-          <Button asChild variant="outline">
-            <a href={exportHref}>
-              <Download className="size-4" />
-              <span className="hidden sm:inline">CSV</span>
-            </a>
-          </Button>
-          <PrintButton />
+      {/* The title row; the theme button and account menu close it on a
+          desktop, top right even when the actions wrap below the title. */}
+      <div className="flex items-start gap-3 print:hidden">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-3">
+          <h1 className="text-xl font-semibold">Transactions</h1>
+          <div className="flex items-center gap-1.5">
+            {canWrite && (
+              <TransactionsActions
+                categories={categories}
+                profiles={profiles}
+                tags={tags}
+                activeProfileId={composerProfileId}
+                currency={currency}
+                locale={locale}
+                today={today}
+                allProfiles={allProfiles}
+              />
+            )}
+            <TransactionColumnsMenu />
+            <Button asChild variant="outline">
+              <a href={exportHref}>
+                <Download className="size-4" />
+                <span className="hidden sm:inline">CSV</span>
+              </a>
+            </Button>
+            <PrintButton />
+          </div>
         </div>
+        <AccountControls />
       </div>
 
       {!canWrite && <ViewerNotice className="mt-4 print:hidden" />}
