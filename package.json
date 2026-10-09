@@ -56,6 +56,9 @@
     "//billing:products": "Create/update the 7 Dodo products (Plus/Pro x 1/3/12 months + the AI top-up) from src/lib/billing-catalog.ts and print the DODO_PRODUCTS line for Doppler. Idempotent; -- --dry-run writes nothing. :dev must be test_mode, :prod live_mode (the script refuses otherwise).",
     "billing:products:dev": "doppler run --config dev -- node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/billing-products.mjs --env=dev",
     "billing:products:prod": "doppler run --config prd -- node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/billing-products.mjs --env=prod",
+    "//billing:reprocess": "Forget one applied billing webhook (-- --event=<webhook-id>) so a resend from Dodo's dashboard is applied again; -- --list shows the newest. For recovery after a fix.",
+    "billing:reprocess:dev": "doppler run --config dev -- node scripts/billing-reprocess.mjs",
+    "billing:reprocess:prod": "doppler run --config prd -- node scripts/billing-reprocess.mjs",
     "growth:report:dev": "doppler run --config dev -- node scripts/growth-report.mjs",
     "growth:report:prod": "doppler run --config prd -- node scripts/growth-report.mjs",
     "kill-port": "lsof -ti:3010 | xargs kill -9"
