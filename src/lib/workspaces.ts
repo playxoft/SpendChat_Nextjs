@@ -14,6 +14,7 @@ import {
   workspaceInvites,
   workspaceMembers,
   workspaces,
+  type BillingHold,
   type ProfileAccessLevel,
   type SpaceRole,
   type WorkspaceRole,
@@ -21,7 +22,7 @@ import {
 import { DEFAULT_CATEGORIES, DEFAULT_TAGS } from "@/lib/categories";
 import { findUserById } from "@/lib/directory";
 import { notTrashed } from "@/lib/trash-scope";
-import { forbidden, notFound, planLimit, type ApiError } from "@/lib/errors";
+import { ApiError, forbidden, notFound, planLimit } from "@/lib/errors";
 import type { PersonalPlan } from "@/lib/plans";
 import {
   accessLevelsAtLeast,
@@ -142,14 +143,19 @@ export async function getWorkspaceRole(
 // ── Read-only workspaces ───────────────────────────────────────────────────
 
 /**
- * SQL boolean: is this workspace **view-only** because it's over the "one free
- * workspace per person" rule?
+ * SQL boolean: is this workspace **view-only**? Two reasons, one definition:
  *
- * True for a Free workspace whose owner has an *older* Free workspace — from
- * the day plans ship, with no grace period. The oldest free workspace always
- * stays writable.
- * Nothing is deleted: members can still read and export, they just can't add
- * or change anything until the workspace upgrades.
+ *  - **an extra free workspace** — Free, and its owner has an *older* Free
+ *    workspace ("one free workspace per person", from the day plans ship, with
+ *    no grace period). The oldest free workspace always stays writable;
+ *  - **a billing hold** — `billing_hold_from` has passed: a renewal that failed
+ *    past its grace (abuse rule B3) or a disputed payment (B2), set only by the
+ *    billing webhook (`services/billing-webhook.ts`). A future instant is a
+ *    grace still running, so nothing is held yet.
+ *
+ * Nothing is deleted either way: members can still read and export, they just
+ * can't add or change anything until the workspace upgrades or its billing is
+ * sorted out (`readOnlyErrorFor` says which).
  *
  * One SQL definition, used by `accessibleProfileIds` (lists), by
  * `getEffectiveProfileRole` (one profile) and by the entitlements, so they
@@ -167,22 +173,69 @@ export function readOnlyWorkspaceSql(workspaceId: SQL | string): SQL<boolean> {
   return sql<boolean>`exists (
     select 1 from "workspaces" as "ro_self"
     where "ro_self"."id" = ${workspaceId}
-      and "ro_self"."plan" = 'free'
-      and exists (
-        select 1 from "workspaces" as "ro_older"
-        where "ro_older"."owner_id" = "ro_self"."owner_id"
-          and "ro_older"."plan" = 'free'
-          and ("ro_older"."created_at", "ro_older"."id") < ("ro_self"."created_at", "ro_self"."id")
+      and (
+        ("ro_self"."billing_hold_from" is not null and "ro_self"."billing_hold_from" <= now())
+        or (
+          "ro_self"."plan" = 'free'
+          and exists (
+            select 1 from "workspaces" as "ro_older"
+            where "ro_older"."owner_id" = "ro_self"."owner_id"
+              and "ro_older"."plan" = 'free'
+              and ("ro_older"."created_at", "ro_older"."id") < ("ro_self"."created_at", "ro_self"."id")
+          )
+        )
       )
   )`;
 }
 
-/** The `plan_limit` error for a write into a view-only workspace. */
+/** Why a workspace is view-only, for the words a refusal or a notice uses. */
+export type ReadOnlyReason = "extra_free" | BillingHold;
+
+/**
+ * The billing hold in force on a workspace row right now, or null — a hold
+ * whose instant hasn't come (a B3 grace still running) isn't in force yet.
+ */
+export function activeBillingHold(
+  row: { billingHold: BillingHold | null; billingHoldFrom: Date | null },
+  now: Date = new Date(),
+): BillingHold | null {
+  if (!row.billingHold || !row.billingHoldFrom) return null;
+  return row.billingHoldFrom.getTime() <= now.getTime() ? row.billingHold : null;
+}
+
+/** The `plan_limit` error for a write into an extra free workspace. */
 export function readOnlyWorkspaceError(): ApiError {
   return planLimit(
     "This workspace is view-only on the Free plan — you can have one free workspace. Upgrade it to keep adding to it.",
     { limit: "freeWorkspaces", plan: "free", upgradeTo: "plus" },
   );
+}
+
+/**
+ * The 403 `billing_hold` for a write into a workspace billing has made
+ * view-only. Not a `plan_limit`: upgrading isn't the way out — paying the
+ * failed renewal (B3) or settling the dispute with support (B2) is.
+ */
+export function billingHoldError(hold: BillingHold): ApiError {
+  return new ApiError(
+    403,
+    "billing_hold",
+    hold === "dispute"
+      ? "This workspace is view-only while a disputed payment is reviewed. Everything in it is still here — contact support to sort it out."
+      : "This workspace is view-only because its plan's payment didn't go through. Update the payment method in Settings → Billing to keep adding.",
+    { reason: hold },
+  );
+}
+
+/** The right refusal for a write into a view-only workspace (one read, only on the failure path). */
+export async function readOnlyErrorFor(workspaceId: string): Promise<ApiError> {
+  const [row] = await getDb()
+    .select({ billingHold: workspaces.billingHold, billingHoldFrom: workspaces.billingHoldFrom })
+    .from(workspaces)
+    .where(eq(workspaces.id, workspaceId))
+    .limit(1);
+  const hold = row ? activeBillingHold(row) : null;
+  return hold ? billingHoldError(hold) : readOnlyWorkspaceError();
 }
 
 // ── Profile access ─────────────────────────────────────────────────────────
@@ -473,7 +526,7 @@ export async function requireProfileRole(
   const access = await getEffectiveProfileRole(userId, profileId);
   if (!access) throw notFound("Profile not found");
   if (!atLeastRole(access.role, minRole)) {
-    if (access.readOnly && atLeastRole(minRole, "editor")) throw readOnlyWorkspaceError();
+    if (access.readOnly && atLeastRole(minRole, "editor")) throw await readOnlyErrorFor(access.workspaceId);
     throw forbidden("You don't have permission to do that");
   }
   return access;
@@ -508,7 +561,7 @@ export async function requireSharedListEdit(userId: string, workspaceId: string)
   const [ro] = (
     await db.execute<{ ro: boolean }>(sql`select ${readOnlyWorkspaceSql(workspaceId)} as ro`)
   ).rows;
-  if (ro?.ro) throw readOnlyWorkspaceError();
+  if (ro?.ro) throw await readOnlyErrorFor(workspaceId);
   if (role === "admin") return;
   const [all, writable] = await Promise.all([
     // Live profiles: a trashed one is nobody's to write, so counting it would
