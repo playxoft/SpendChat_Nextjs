@@ -84,7 +84,8 @@ Authentication, secrets via Doppler.
   keep everything and can't add more; nothing is ever deleted. They apply from the day plans
   ship — there is no grace period. The UI reads `getAddLimits` to show a limit *before* a
   create form is submitted. AI actions are a monthly allowance per workspace counted from
-  `ai_usage_log.units`. Until billing exists, `pnpm plan:set:dev` changes a dev workspace's plan.
+  `ai_usage_log.units` (less `topup_units`). `pnpm plan:set:dev` still changes a dev workspace's
+  plan by hand (no subscription behind it — billing treats it as having none).
   Analytics' "Insights & trends" (`advancedAnalytics`, Plus+) is a read gate, not an add
   limit: `getAdvancedAnalytics` (`src/lib/insights-queries.ts`) asserts it before reading
   anything, the judgement maths (projection, unusual, recurring) is pure in `src/lib/insights.ts`,
@@ -108,6 +109,30 @@ Authentication, secrets via Doppler.
   succeeded; account holders get an in-app invitation instead. **Never let a response say
   whether an address has an account** — adds answer `invited` either way. ZeptoMail is
   transactional-only — don't add newsletters or drip campaigns to this pipe.
+- **Billing (Dodo Payments, merchant of record)** buys plans and AI top-ups per workspace.
+  Config is four env values (`DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`,
+  `DODO_PAYMENTS_ENVIRONMENT`, `DODO_PRODUCTS` — from `pnpm billing:products:dev|prod`, built
+  from `src/lib/billing-catalog.ts`); unset = 503 `billing_unavailable`, never a crash. Every
+  provider call goes through `src/lib/dodo.ts` (mocked in tests). Rules a change must keep:
+  **a workspace's plan changes only in the webhook** (`services/billing-webhook.ts`, route
+  `/api/webhooks/dodo`) — never on checkout, the return page or a change request (those only ask
+  the provider); webhooks are **signature-verified, applied once** (`billing_webhook_events`, in
+  the same transaction as the change) and **placed through our rows** (the checkout session we
+  recorded, or the known subscription/payment), never through metadata alone; a checkout always
+  records its session (workspace, buyer, **expected amount**) before the URL is returned, and a
+  top-up is granted only when the amount received ≥ that and the workspace matches (**A3**);
+  one live subscription per workspace — a paid workspace changes plan (`changePlan`: up now and
+  prorated, down at renewal, C3) instead of a second checkout. Trials: first plan only, ≤ 2 per
+  buyer per 12 months (**B1**, `trialDaysForPurchase`). **View-only from billing** is
+  `workspaces.billing_hold` + `billing_hold_from`, folded into `readOnlyWorkspaceSql` (one
+  definition for every read-only check): a renewal that finally fails (`on_hold`) holds after 7
+  days, once per 3 months per workspace, else at once (**B3**); a dispute holds at once and a
+  buyer's second blocks their purchases (`users.purchases_blocked_at`, **B2**). Writes into a held
+  workspace get 403 `billing_hold` (via `readOnlyErrorFor` / `readOnlyErrorOf`), not
+  `plan_limit`. Top-ups (`ai_topups`) are spent only after the monthly allowance, oldest-expiring
+  first, under the allowance lock in `ai-quota.ts`; `ai_usage_log.topup_units` keeps them out of
+  the monthly count (**C4**). Billing rows have no FK to `workspaces` (history for B1/B2) except
+  `ai_topups`; `deleteAccount` cancels live subscriptions with the provider first.
 - **Split groups live outside workspaces.** `split_groups` and everything under them
   are user-scoped: no `workspace_id`, no plan (50 people per group, the creator included,
   on every plan — `SPLIT_GROUP_MAX_PEOPLE`), and nothing in them is a transaction. Each

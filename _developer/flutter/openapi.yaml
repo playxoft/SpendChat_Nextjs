@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.10.0"
+  version: "6.11.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -3819,14 +3819,15 @@ components:
                      storage_quota_exceeded, ai_unavailable, ai_failed,
                      storage_unavailable, split_group_full, settle_first,
                      amount_required, invite_cooldown, payers_required,
-                     internal_error]
+                     billing_hold, internal_error]
             message: { type: string }
             details:
               description: >
                 Optional. For `validation_error`, a flat `{ field: message }`
                 map. For `plan_limit` and `storage_quota_exceeded`, a
                 `PlanLimitDetails` object. For `rate_limited`, a
-                `RateLimitedDetails` object.
+                `RateLimitedDetails` object. For `billing_hold` (since
+                6.11.0), `{ reason: "payment_failed" | "dispute" }`.
               oneOf:
                 - type: object
                   additionalProperties: { type: string }
@@ -4537,19 +4538,38 @@ components:
         readOnly:
           type: boolean
           description: >
-            An extra free workspace (its owner has an older free one):
-            view-only. Writes inside a profile and adds of profiles, spaces,
-            categories and tags get `403 plan_limit` (`freeWorkspaces`).
+            The workspace is view-only — see `readOnlyReason`. Writes inside a
+            profile and adds of profiles, spaces, categories and tags are
+            refused: `403 plan_limit` (`freeWorkspaces`) for an extra free
+            workspace, `403 billing_hold` for a billing hold (since 6.11.0).
+        readOnlyReason:
+          type: [string, "null"]
+          enum: [extra_free, payment_failed, dispute, null]
+          description: >
+            Why it's view-only (since 6.11.0); null when it isn't.
+            `extra_free` — an extra free workspace (its owner has an older free
+            one): upgrading it opens it up. `payment_failed` — its plan's
+            renewal failed and the 7-day grace has passed: fixing the payment
+            method (web, Settings → Billing) opens it up. `dispute` — a payment
+            for it was disputed with the bank: support sorts it out. Nothing is
+            deleted in any case.
         ai:
           type: object
-          description: The monthly AI allowance (parse + transcribe), shared by the workspace.
+          description: >
+            The monthly AI allowance (parse + transcribe), shared by the
+            workspace, plus its AI top-ups — spent only once the month's
+            allowance is gone, oldest-expiring first.
           properties:
-            used: { type: integer, description: AI actions counted this calendar month (UTC). }
+            used: { type: integer, description: "AI actions counted against this calendar month's allowance (UTC); actions a top-up paid for aren't included." }
             limit: { type: integer, description: The plan's monthly allowance. }
             remaining: { type: integer, description: "max(0, limit - used)." }
-            topUpRemaining: { type: integer, description: Top-up actions left (0 until top-ups exist). }
+            topUpRemaining: { type: integer, description: "Top-up actions left (since 6.11.0 a real balance: bought top-ups, unexpired, not refunded). AI keeps working at remaining = 0 while this is above 0." }
+            topUpExpiresAt:
+              type: [string, "null"]
+              format: date-time
+              description: When the soonest-expiring top-up with actions left expires (since 6.11.0); null when there are none.
             resetsAt: { type: string, format: date-time, description: When the allowance refills — the first instant of next month (UTC). }
-          required: [used, limit, remaining, topUpRemaining, resetsAt]
+          required: [used, limit, remaining, topUpRemaining, topUpExpiresAt, resetsAt]
         storage:
           type: object
           description: >
@@ -4591,7 +4611,7 @@ components:
           description: The per-space profile cap (compare with each `Space.profileCount`).
         voice: { type: boolean, description: Whether voice entry (`POST /ai/transcribe`) is available. }
         profileLevelAccess: { type: boolean, description: Whether per-profile overrides can be changed (Plus/Pro). }
-      required: [plan, readOnly, ai, storage, members, spaces,
+      required: [plan, readOnly, readOnlyReason, ai, storage, members, spaces,
                  categories, tags, budgets, profilesPerSpace, voice, profileLevelAccess]
 
     Budget:

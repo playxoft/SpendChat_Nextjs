@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.10.0.** Every API change bumps this version and is logged
+**API spec version: 6.11.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -53,7 +53,8 @@ Every JSON response uses one of two shapes:
 | `bad_request` | 400 | Malformed JSON body; wrong confirm string |
 | `unauthorized` | 401 | Missing/invalid/expired bearer token |
 | `forbidden` | 403 | Email not verified; RBAC role too low; no writable profile |
-| `plan_limit` | 403 | The workspace's **plan** doesn't allow this — a cap is reached or the feature is on a higher plan; also writes into a view-only workspace. `details` = `PlanLimitDetails` (see below). Since 6.5.0. |
+| `plan_limit` | 403 | The workspace's **plan** doesn't allow this — a cap is reached or the feature is on a higher plan; also writes into a view-only (extra free) workspace. `details` = `PlanLimitDetails` (see below). Since 6.5.0. |
+| `billing_hold` | 403 | A write into a workspace that **billing** has made view-only: its renewal failed past the grace, or a payment was disputed. No plan lifts it — the message says what to do. `details: { reason: "payment_failed" \| "dispute" }`. Since 6.11.0. |
 | `not_found` | 404 | Resource / workspace / profile not accessible to the caller |
 | `conflict` | 409 | Duplicate name; last profile; non-empty profile delete; email already registered with a different sign-in method (unverified email only — see § Authentication) |
 | `validation_error` | 422 | Zod validation failed (`details` = field→message) |
@@ -520,8 +521,11 @@ inside their space; `read` / `write` open it even in a space they're not in.
 ```jsonc
 {
   "plan": "free" | "plus" | "pro",
-  "readOnly": false,           // view-only (extra free workspace) — render read-only
-  "ai": { "used": 12, "limit": 50, "remaining": 38, "topUpRemaining": 0,
+  "readOnly": false,           // view-only — render read-only
+  "readOnlyReason": null,      // 6.11.0: "extra_free" | "payment_failed" | "dispute" | null
+  "ai": { "used": 12, "limit": 50, "remaining": 38,
+          "topUpRemaining": 450,                           // 6.11.0: real top-up balance, spent after `remaining`
+          "topUpExpiresAt": "2027-09-30T10:00:00.000Z",    // 6.11.0: soonest top-up expiry, or null
           "resetsAt": "2026-11-01T00:00:00.000Z" },   // first instant of next month, UTC
   "storage": { "usedBytes": 52428800, "limitBytes": 1073741824,
                "trashBytes": 1048576 },  // 6.7.0: the part of usedBytes in the trash
@@ -537,6 +541,16 @@ inside their space; `read` / `write` open it even in a space they're not in.
 ```
 `used` can exceed `limit` (a downgraded workspace keeps what it has) — it just
 can't add more until it's back under.
+
+Since 6.11.0: `readOnlyReason` says *why* a workspace is view-only, so the app
+can word it — `extra_free` (upgrade it), `payment_failed` (its renewal failed
+past the 7-day grace; the payment method is fixed on the web, Settings →
+Billing) or `dispute` (a disputed payment; contact support). Writes into a
+`payment_failed` / `dispute` workspace get **403 `billing_hold`**, not
+`plan_limit`. `ai.topUpRemaining` is the workspace's real AI top-up balance
+(top-ups are bought on the web); AI keeps working while `remaining` is 0 and
+`topUpRemaining` is above 0. Buying and managing plans stays web-only — there
+is no billing endpoint in `/api/v1`.
 
 ### Split models (6.9.0 — user-scoped, outside every workspace)
 Every amount is in the **group's** currency (`currency`), as `…Minor` integers
