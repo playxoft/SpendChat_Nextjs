@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
-import { resolveWebProfile } from "@/lib/filters";
+import { parseProfileScope, resolveProfileScope } from "@/lib/profile-scope";
 import { getProfiles, getTrashBytes } from "@/lib/queries";
 import { getStorageLimitBytes } from "@/lib/entitlements";
 import { getVaultWorkingSet } from "@/services/files";
@@ -26,13 +26,20 @@ export default async function FilesPage({
   const workspace = await getCurrentWorkspace(user.id);
   const sp = await searchParams;
   const profiles = await getProfiles(user.id, workspace.id);
-  const activeProfileId = resolveWebProfile(sp.profile ?? null, profiles[0]?.id);
+  // One profile, "all", or the sidebar's selection — expanded against the
+  // profiles this viewer can see, and intersected with them again by every read.
+  const scope = resolveProfileScope(parseProfileScope(sp.profile), profiles);
+  const activeProfileId = scope.single;
+  // A selection shows like "All profiles", over just the profiles in it; one
+  // profile and "all" hand the vault every profile, as they always have.
+  const inView = scope.multi ? new Set(scope.profileIds) : null;
+  const shownProfiles = inView ? profiles.filter((p) => inView.has(p.id)) : profiles;
 
   // Exactly what `GET /api/v1/files` serves the Flutter app — one function, so
   // the two working sets can't drift.
   const [{ folders, files, transactionFiles, tags, storageUsedBytes, filesCapped }, trashBytes] =
     await Promise.all([
-      getVaultWorkingSet(user.id, workspace.id, activeProfileId, {
+      getVaultWorkingSet(user.id, workspace.id, activeProfileId ?? scope.profileIds, {
         dedupeStorageRead: true,
       }),
       getTrashBytes(workspace.id),
@@ -45,7 +52,7 @@ export default async function FilesPage({
         files={files}
         txnFiles={transactionFiles}
         tags={tags}
-        profiles={profiles.map((p) => ({ id: p.id, name: p.name, icon: p.icon, color: p.color }))}
+        profiles={shownProfiles.map((p) => ({ id: p.id, name: p.name, icon: p.icon, color: p.color }))}
         activeProfileId={activeProfileId ?? null}
         currency={workspace.currency}
         locale={workspace.locale}

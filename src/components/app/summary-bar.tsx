@@ -28,7 +28,7 @@ export function SummaryBar({
   serverTxnIds,
   currency,
   locale,
-  profileId,
+  profileIds,
 }: {
   /** Per-month income/expense across the loaded scroll window, keyed "YYYY-MM". */
   monthTotals: MonthTotals[];
@@ -38,8 +38,9 @@ export function SummaryBar({
   serverTxnIds: string[];
   currency: string;
   locale: string;
-  /** Profile in view; null = "All profiles" (count every pending transaction). */
-  profileId: string | null;
+  /** Profiles in view (one, or the sidebar's selection); null = "All profiles"
+   *  (count every pending transaction). */
+  profileIds: string[] | null;
 }) {
   const { activeMonth } = useActiveMonth();
   const { pending } = usePendingMessages();
@@ -68,9 +69,9 @@ export function SummaryBar({
         occurredOn: m.input.occurredOn,
         realId: m.realId,
       })),
-      { serverTxnIds: serverSet, profileId, monthStart: start, monthEnd: end },
+      { serverTxnIds: serverSet, profileIds, monthStart: start, monthEnd: end },
     );
-  }, [activeMonth, currentMonthKey, totalsByMonth, pending, serverSet, profileId]);
+  }, [activeMonth, currentMonthKey, totalsByMonth, pending, serverSet, profileIds]);
 
   const negative = balance < 0 && "text-rose-600 dark:text-rose-400";
   const label = monthLabel(activeMonth, locale);

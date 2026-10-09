@@ -5,24 +5,14 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const SORT_COLUMNS: SortColumn[] = ["date", "category", "title", "description", "amount"];
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** A `?profile=` value that names a real profile, or undefined for "all". */
+/**
+ * A `?profile=` value that names one profile, or undefined for "all" — the
+ * mobile API's reading, where no parameter means every profile. The web UI
+ * reads the same parameter through `lib/profile-scope.ts` instead: its default
+ * is the first profile, and it also takes the sidebar's multi-selection.
+ */
 export function parseActiveProfile(value: string | null): string | undefined {
   return value && value !== "all" && UUID_RE.test(value) ? value : undefined;
-}
-
-/**
- * Resolve the profile filter for the web UI, where the default (no `?profile=`)
- * is the user's *first* profile and "All profiles" must be chosen explicitly
- * (`?profile=all`). Returns undefined only when All profiles is active. The
- * mobile API keeps its own default — all profiles — via `parseActiveProfile`,
- * which is why this resolver lives separately.
- */
-export function resolveWebProfile(
-  value: string | null,
-  firstProfileId: string | undefined,
-): string | undefined {
-  if (value === "all") return undefined; // explicit "All profiles"
-  return parseActiveProfile(value) ?? firstProfileId;
 }
 
 /**

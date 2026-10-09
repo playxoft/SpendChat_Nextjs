@@ -8,7 +8,13 @@ import {
   getProfiles,
   getSummary,
 } from "@/lib/queries";
-import { parseTxnFilters, resolveWebProfile } from "@/lib/filters";
+import { parseTxnFilters } from "@/lib/filters";
+import {
+  parseProfileScope,
+  resolveProfileScope,
+  scopeLabel,
+  type ProfileScope,
+} from "@/lib/profile-scope";
 import { formatDateLabel, monthKey, monthRange, todayISO } from "@/lib/dates";
 import {
   advancedAnalyticsAllowed,
@@ -74,11 +80,13 @@ export default async function AnalyticsPage({
   const allTime = get("span") === "all";
   const from = allTime ? undefined : (parsed.from ?? start);
   const to = allTime ? undefined : (parsed.to ?? end);
-  // Web default: no `?profile=` shows the first profile; "all" is explicit.
-  const profileId = resolveWebProfile(get("profile"), profiles[0]?.id);
-  const profileName = profileId
-    ? (profiles.find((p) => p.id === profileId)?.name ?? "Selected profile")
-    : "All profiles";
+  // Web default: no `?profile=` shows the first profile; "all" is explicit; a
+  // sidebar selection is expanded against the profiles this viewer can see
+  // (and intersected with them again in every query).
+  const picked = parseProfileScope(get("profile"));
+  const scope = resolveProfileScope(picked, profiles);
+  const profileIds = scope.profileIds;
+  const profileName = scopeLabel(scope, profiles, Infinity);
 
   const rangeLabel = allTime
     ? "All time"
@@ -88,7 +96,7 @@ export default async function AnalyticsPage({
   // follow the Type filter, so their key leaves it out: changing Type keeps
   // them on screen instead of blanking them to a skeleton (the server still
   // renders them again with the rest of the page).
-  const insightsKey = `${profileId ?? "all"}|${allTime ? "all" : `${from}|${to}`}`;
+  const insightsKey = `${profileIds?.join(",") ?? "all"}|${allTime ? "all" : `${from}|${to}`}`;
   const streamKey = `${insightsKey}|${parsed.type ?? "all"}`;
   // Budgets are monthly, so they show when the range is exactly this month.
   const showBudgets = from === start && to === end;
@@ -142,7 +150,8 @@ export default async function AnalyticsPage({
           workspaceId={workspace.id}
           from={from}
           to={to}
-          profileId={profileId}
+          profileIds={profileIds}
+          picked={picked}
           type={parsed.type}
           currency={currency}
           locale={locale}
@@ -163,7 +172,7 @@ export default async function AnalyticsPage({
             workspaceId={workspace.id}
             from={from}
             to={to}
-            profileId={profileId}
+            profileIds={profileIds}
             currency={currency}
             locale={locale}
             today={today}
@@ -213,7 +222,8 @@ async function AdvancedResults({
   workspaceId: string;
   from?: string;
   to?: string;
-  profileId?: string;
+  /** Profiles in view; undefined = every profile the viewer can see. */
+  profileIds?: string[];
   currency: string;
   locale: string;
   today: string;
@@ -245,7 +255,8 @@ async function AnalyticsResults({
   workspaceId,
   from,
   to,
-  profileId,
+  profileIds,
+  picked,
   type,
   currency,
   locale,
@@ -258,7 +269,10 @@ async function AnalyticsResults({
   workspaceId: string;
   from?: string;
   to?: string;
-  profileId?: string;
+  /** Profiles in view; undefined = every profile the viewer can see. */
+  profileIds?: string[];
+  /** What the sidebar picked — which spaces were picked whole, for their budgets. */
+  picked: ProfileScope;
   type?: "income" | "expense";
   currency: string;
   locale: string;
@@ -268,7 +282,7 @@ async function AnalyticsResults({
   kept: boolean;
   firstDay: 0 | 1;
 }) {
-  const filters = { from, to, profileId };
+  const filters = { from, to, profileIds };
   // The Type filter scopes the category breakdown; without it we keep the
   // default expense view. The overview cards and trend stay the full picture.
   const breakdownType = type ?? "expense";
@@ -276,12 +290,21 @@ async function AnalyticsResults({
   const [summary, breakdown, trend, budgets] = await Promise.all([
     getSummary(userId, workspaceId, filters),
     getCategoryBreakdown(userId, workspaceId, breakdownType, filters),
-    getTrend(userId, workspaceId, { from, to, profileId, today, firstDay, kept }),
+    getTrend(userId, workspaceId, { from, to, profileIds, today, firstDay, kept }),
     showBudgets ? listBudgets(userId, workspaceId, monthKey(today)) : Promise.resolve([]),
   ]);
-  // One profile selected: its own budget. All profiles: every budget the viewer can see.
-  const shownBudgets = profileId
-    ? budgets.filter((b) => b.scope === "profile" && b.profileId === profileId)
+  // All profiles: every budget the viewer can see. One profile or a selection:
+  // the budgets of the profiles in view, plus those of spaces picked whole.
+  const inView = new Set(profileIds ?? []);
+  const pickedSpaces = new Set(
+    picked.kind === "pick" ? picked.items.filter((i) => i.kind === "space").map((i) => i.id) : [],
+  );
+  const shownBudgets = profileIds
+    ? budgets.filter(
+        (b) =>
+          (b.scope === "profile" && b.profileId !== null && inView.has(b.profileId)) ||
+          (b.scope === "space" && b.spaceId !== null && pickedSpaces.has(b.spaceId)),
+      )
     : budgets;
 
   const pieData = breakdown.map((b) => ({

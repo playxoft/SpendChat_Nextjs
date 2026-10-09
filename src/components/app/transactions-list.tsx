@@ -22,6 +22,8 @@ export type TxnQueryFilters = {
   type?: "income" | "expense";
   categoryId?: string;
   profileId?: string;
+  /** The profiles in view (one, or the sidebar's selection); absent = all. */
+  profileIds?: string[];
   tagIds?: string[];
   search?: string;
   sort?: "date" | "category" | "title" | "description" | "amount";
