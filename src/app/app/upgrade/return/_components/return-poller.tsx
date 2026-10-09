@@ -105,7 +105,7 @@ export function ReturnPoller({
             title={status.reason === "change" ? "The upgrade didn't go through" : "The payment didn't go through"}
             body={
               status.reason === "amount"
-                ? "The payment didn't match the order, so nothing was added. Write to support and we'll sort it out — any money taken will be refunded."
+                ? "The payment didn't match the order, so nothing was added. Write to support and we'll refund any money taken."
                 : status.reason === "change"
                   ? "The charge for the new plan failed, so the workspace stays on its current plan. Check the payment method in Billing and try again."
                   : "The workspace hasn't changed. You can try again with another card or UPI app."
@@ -115,7 +115,7 @@ export function ReturnPoller({
           <Message
             icon={<CircleAlert className="size-8 text-amber-600 dark:text-amber-500" />}
             title="You were charged twice"
-            body="This workspace already had this plan from another checkout, so this second one is cancelled and we'll refund the extra payment. If you don't see the refund within a few days, contact support."
+            body="This workspace already had this plan from another checkout, so this second one is cancelled. Write to support and we'll refund the extra payment."
           />
         ) : gaveUp ? (
           <Message

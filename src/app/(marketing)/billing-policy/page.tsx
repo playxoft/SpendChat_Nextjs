@@ -29,7 +29,7 @@ const sections: { id: string; h: string; p: React.ReactNode[] }[] = [
     p: [
       `Every workspace has its own plan — Free, ${PLAN_NAMES.plus} or ${PLAN_NAMES.pro} — with its own billing date and its own invoices. Everyone gets one free workspace; each extra workspace needs its own paid plan, and until it has one it's view-only.`,
       "Only a workspace admin can buy a plan. The admin who buys it pays for it with their own payment method, and only they see its invoices and payment details and can move it to a bigger plan (or to any plan that renews at a higher price); any admin can move it to a plan that renews for no more, or cancel it. Payments are processed by Dodo Payments, our merchant of record: they handle the payment, the invoice and the sales tax (GST or VAT) for your country, which is added at checkout.",
-      "If you're removed from a workspace whose plan you pay for, the workspace keeps its plan and you keep paying until you cancel it — it stays listed on your Billing page. If you delete your account, every plan you pay for is cancelled at the end of its paid period, and a checkout you'd opened but not finished (links stay open for 24 hours) is cancelled and refunded if it's paid later.",
+      "If you're removed from a workspace whose plan you pay for, the workspace keeps its plan and you keep paying until you cancel it — it stays listed on your Billing page. If you delete your account, every plan you pay for is cancelled at the end of its paid period, and a checkout you'd opened but not finished (links stay open for 24 hours) is cancelled if it's paid later — write to us and we'll refund that payment.",
     ],
   },
   {
@@ -80,14 +80,16 @@ const sections: { id: string; h: string; p: React.ReactNode[] }[] = [
     p: [
       `On ${paid}, a one-time AI top-up adds ${TOPUP.actions.toLocaleString("en-US")} AI actions to a workspace. They're used only after the workspace's monthly allowance runs out, and they're valid for ${TOPUP.validityMonths} months from purchase.`,
       "Top-ups belong to the workspace they were bought for: they can't be moved to another workspace, and they're lost if the workspace is deleted. If the workspace's plan later ends, unused top-up actions stay with it until they expire.",
-      "Top-ups aren't refundable once any of their actions have been used. A top-up that's refunded or disputed loses the actions it has left.",
+      "A top-up is a one-time purchase: it can't be cancelled, and it isn't refundable — whether or not its actions have been used. If a top-up is refunded anyway (see Refunds) or disputed, it loses the actions it has left.",
     ],
   },
   {
     id: "refunds",
     h: "Refunds",
     p: [
-      `Because every plan can start with a free trial, payments are non-refundable — including for the unused part of a period, a downgrade, a cancellation, or unused AI actions or storage. Any refund, credit or exception is made solely at ${siteConfig.name}'s discretion, and granting one doesn't oblige us to do it again.`,
+      `There are no automatic refunds: nothing is refunded on its own when you cancel, move to a smaller plan or stop using a workspace. Refunds are handled only by our support team — to ask for one, write to ${siteConfig.supportEmail} with the workspace and the payment.`,
+      `Because every plan can start with a free trial, plan payments are otherwise non-refundable — including the unused part of a period, a downgrade, a cancellation, or unused AI actions or storage. AI top-ups can't be cancelled and aren't refundable. Any refund, credit or exception is made solely at ${siteConfig.name}'s discretion, and granting one doesn't oblige us to do it again.`,
+      "If you were charged by mistake — the same plan twice, or a payment that didn't match the order — write to us and we'll refund it.",
       "Refunding a plan payment doesn't end the plan by itself; if we end a plan as part of a refund, we tell you.",
       "Where the law in your country gives you a right to a refund that can't be waived, that right applies.",
     ],

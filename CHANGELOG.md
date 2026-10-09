@@ -50,7 +50,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   goes straight to checkout; until it's paid the new workspace is view-only.
 - A public **Billing & refund policy** (linked from the footer, the Terms and
   Billing): per-workspace billing, the trial, renewals, plan changes,
-  cancelling, failed payments, top-ups, refunds and disputes.
+  cancelling, failed payments, top-ups, refunds and disputes. Nothing is
+  refunded automatically — refunds go through support — and an AI top-up can't
+  be cancelled or refunded.
 
 ### Changed
 - A paid workspace whose renewal payment fails keeps working while the payment

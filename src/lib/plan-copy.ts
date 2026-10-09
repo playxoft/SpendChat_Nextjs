@@ -188,9 +188,12 @@ export const PURCHASE = {
   topUpCta: `Buy ${count(TOPUP.actions)} AI actions`,
   /** Under a buy button, for the currency on screen. */
   ctaNote: (currency: Currency, inIndia: boolean) => `Pay by ${paymentMethods(currency, inIndia)}. Cancel any time.`,
-  /** Under the plan cards, and on the checkout page. */
+  /** Under the plan cards, and on a plan's checkout page. */
   billing: (currency: Currency, inIndia: boolean) =>
     `Billed per workspace. Pay by ${paymentMethods(currency, inIndia)}. Cancel any time — the plan runs to the end of what you paid for.`,
+  /** On a top-up's checkout page: one payment, nothing to cancel. */
+  topUpBilling: (currency: Currency, inIndia: boolean) =>
+    `For this workspace only. Pay by ${paymentMethods(currency, inIndia)}. A one-time payment — nothing renews, and a top-up can't be cancelled or refunded.`,
   keepsEverything: "Your transactions, files and members stay exactly as they are.",
 } as const;
 

@@ -517,7 +517,9 @@ function Summary({
         </p>
       )}
 
-      <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{PURCHASE.billing(currency, upi)}</p>
+      <p className="mt-4 text-xs leading-relaxed text-muted-foreground">
+        {input?.item === "topup" ? PURCHASE.topUpBilling(currency, upi) : PURCHASE.billing(currency, upi)}
+      </p>
     </aside>
   );
 }
