@@ -11,15 +11,19 @@ import { PLAN_NAMES, type PersonalPlan } from "@/lib/plans";
 type Status = Awaited<ReturnType<typeof checkoutReturnStatus>>;
 type Known = Extract<Status, { ok: true }>["status"];
 
-/** How often to ask, and for how long before saying it's taking a while. */
+/** How often to ask; when to say it's taking a while; when to stop asking. */
 const POLL_MS = 2_000;
 const PATIENT_MS = 90_000;
+const GIVE_UP_MS = 5 * 60_000;
 
 /**
  * "Activating…" until the webhook has landed. Asks our server every two
  * seconds (a read, rate-limited like any other); the provider is never asked.
- * After 90 seconds it keeps asking, more slowly, and says why it can take a
- * while (a UPI mandate, a bank's check).
+ * After 90 seconds it asks more slowly and says why it can take a while (a UPI
+ * mandate, a bank's check); after 5 minutes it stops and points to Settings →
+ * Billing, which shows the outcome whenever it lands. A failure the server can
+ * see (a failed or cancelled payment, an amount that didn't match, an upgrade
+ * whose charge failed) ends it at once.
  */
 export function ReturnPoller({
   workspace,
@@ -31,6 +35,7 @@ export function ReturnPoller({
   const router = useRouter();
   const [status, setStatus] = React.useState<Known | null>(null);
   const [slow, setSlow] = React.useState(false);
+  const [gaveUp, setGaveUp] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const expectKey = expect ? `${expect.plan}:${expect.period}` : "";
 
@@ -54,6 +59,10 @@ export function ReturnPoller({
         return;
       }
       const waited = Date.now() - started;
+      if (waited > GIVE_UP_MS) {
+        setGaveUp(true);
+        return;
+      }
       if (waited > PATIENT_MS) setSlow(true);
       timer = setTimeout(tick, waited > PATIENT_MS ? POLL_MS * 5 : POLL_MS);
     }
@@ -93,8 +102,20 @@ export function ReturnPoller({
         ) : status?.state === "failed" ? (
           <Message
             icon={<CircleAlert className="size-8 text-destructive" />}
-            title="The payment didn't go through"
-            body="Nothing was charged and the workspace hasn't changed. You can try again with another card or UPI app."
+            title={status.reason === "change" ? "The upgrade didn't go through" : "The payment didn't go through"}
+            body={
+              status.reason === "amount"
+                ? "The payment didn't match the order, so nothing was added. Write to support and we'll sort it out — any money taken will be refunded."
+                : status.reason === "change"
+                  ? "The charge for the new plan failed, so the workspace stays on its current plan. Check the payment method in Billing and try again."
+                  : "The workspace hasn't changed. You can try again with another card or UPI app."
+            }
+          />
+        ) : gaveUp ? (
+          <Message
+            icon={<CircleAlert className="size-8 text-muted-foreground" />}
+            title="Taking longer than usual"
+            body="The payment hasn't been confirmed yet. Check Settings → Billing in a little while — the workspace updates there as soon as it is."
           />
         ) : status?.state === "none" ? (
           <Message
@@ -121,7 +142,7 @@ export function ReturnPoller({
               Open {workspace.name} <ArrowRight className="size-4" />
             </Link>
           </Button>
-        ) : status?.state === "failed" || status?.state === "none" ? (
+        ) : status?.state === "failed" || status?.state === "none" || gaveUp ? (
           <Button asChild>
             <Link href="/app/upgrade">
               Back to plans <ArrowRight className="size-4" />

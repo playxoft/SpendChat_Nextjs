@@ -30,6 +30,8 @@ type PricingState = {
   setCurrency: (c: Currency) => void;
   /** The currencies the switcher offers. */
   currencies: Currency[];
+  /** The visitor is in India — UPI is offered there, with rupees; elsewhere it's card only. */
+  upi: boolean;
 };
 
 const Ctx = createContext<PricingState | null>(null);
@@ -42,9 +44,12 @@ const Ctx = createContext<PricingState | null>(null);
 export function PricingStateProvider({
   initialCurrency,
   currencies = ALL_CURRENCIES,
+  upi = false,
   children,
 }: {
   initialCurrency: Currency;
+  /** The request comes from India (`cf-ipcountry`), where UPI is offered. */
+  upi?: boolean;
   /**
    * Limit the switcher — the in-app page passes `checkoutCurrencies(country)`
    * so it only offers prices checkout will charge. The public page shows all.
@@ -56,7 +61,7 @@ export function PricingStateProvider({
   const [period, setPeriod] = useState<Period>("yearly");
   const [currency, setCurrency] = useState<Currency>(initialCurrency);
   return (
-    <Ctx.Provider value={{ period, setPeriod, currency, setCurrency, currencies }}>
+    <Ctx.Provider value={{ period, setPeriod, currency, setCurrency, currencies, upi }}>
       {children}
     </Ctx.Provider>
   );

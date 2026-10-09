@@ -42,7 +42,7 @@ import { PricingControls, usePricingState } from "./pricing-state";
  * it goes through sign-up, which hands the visitor on to the same checkout.
  */
 export function PlanCards({ currentPlan }: { currentPlan?: PersonalPlan }) {
-  const { period, currency } = usePricingState();
+  const { period, currency, upi } = usePricingState();
   return (
     <div>
       <div className="flex flex-col items-center gap-4">
@@ -64,7 +64,7 @@ export function PlanCards({ currentPlan }: { currentPlan?: PersonalPlan }) {
 
       <p className="mx-auto flex max-w-xl items-start justify-center gap-1.5 text-center text-xs text-muted-foreground">
         <ShieldCheck className="mt-px size-3.5 shrink-0" />
-        {PURCHASE.billing(currency)}
+        {PURCHASE.billing(currency, upi)}
       </p>
     </div>
   );
@@ -186,6 +186,7 @@ function PlanAction({
   currentPlan?: PersonalPlan;
   featured: boolean;
 }) {
+  const { upi } = usePricingState();
   // In the app: the current plan and anything below it have nothing to do.
   if (currentPlan && planAtLeast(currentPlan, id)) {
     return (
@@ -231,7 +232,7 @@ function PlanAction({
           {planCta(id, currentPlan)} <ArrowRight className="size-4" />
         </Link>
       </Button>
-      <p className="mt-2 min-h-5 text-center text-xs text-muted-foreground">{PURCHASE.ctaNote(currency)}</p>
+      <p className="mt-2 min-h-5 text-center text-xs text-muted-foreground">{PURCHASE.ctaNote(currency, upi)}</p>
     </div>
   );
 }

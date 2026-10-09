@@ -6,10 +6,10 @@ import { planChangeKind } from "@/lib/billing-rules";
 import { checkoutCurrency, parseCheckoutParams } from "@/lib/checkout";
 import { requestCountry } from "@/lib/geo.server";
 import { pricingCurrencyFor } from "@/lib/plan-copy";
-import type { PaidPersonalPlan } from "@/lib/pricing";
+import { isCurrency, type PaidPersonalPlan } from "@/lib/pricing";
 import { getAccountProfile } from "@/lib/queries";
 import { DEFAULT_WORKSPACE_ICON } from "@/lib/validation";
-import { getLiveSubscription, inTrialNow, trialDaysForPurchase } from "@/services/billing";
+import { getLiveSubscription, inTrialNow, isStalePending, trialDaysForPurchase } from "@/services/billing";
 import { CheckoutForm, type LivePlan } from "./_components/checkout-form";
 
 export const dynamic = "force-dynamic";
@@ -45,14 +45,22 @@ export default async function CheckoutPage({
     // The trial this purchase would really get (B1) — the server decides it again at checkout.
     canBuy ? trialDaysForPurchase(user.id, workspace.id, workspace.plan) : Promise.resolve(0),
   ]);
-  const livePlan: LivePlan | null = live
+  // A `pending` subscription nobody finished in a day doesn't hold the place: buy afresh.
+  const running = live && !isStalePending(live) ? live : null;
+  const livePlan: LivePlan | null = running
     ? {
-        plan: live.plan as PaidPersonalPlan,
-        period: live.period,
-        status: live.status,
-        inTrial: inTrialNow(live),
-        nextBillingDate: live.nextBillingDate?.toISOString() ?? null,
-        change: item.item === "plan" ? planChangeKind({ plan: live.plan as PaidPersonalPlan, period: live.period }, item) : null,
+        plan: running.plan as PaidPersonalPlan,
+        period: running.period,
+        status: running.status,
+        inTrial: inTrialNow(running),
+        nextBillingDate: running.nextBillingDate?.toISOString() ?? null,
+        change:
+          item.item === "plan"
+            ? planChangeKind({ plan: running.plan as PaidPersonalPlan, period: running.period }, item)
+            : null,
+        // A plan's currency is locked for its life: a change is priced in it.
+        currency: isCurrency(running.currency) ? running.currency : null,
+        isBuyer: running.buyerUserId === user.id,
       }
     : null;
 
@@ -68,6 +76,7 @@ export default async function CheckoutPage({
       // The same rule the server charges by, so the page shows what's charged.
       currency={checkoutCurrency(item.currency ?? pricingCurrencyFor(workspace.currency), country)}
       canBuy={canBuy}
+      upi={country?.toUpperCase() === "IN"}
       ownerName={owner?.name?.trim() || null}
       trialDays={trialDays}
       live={livePlan}

@@ -64,6 +64,7 @@ export default async function UpgradePage() {
       <PricingStateProvider
         initialCurrency={workspacePriceCurrency(workspace.currency, country)}
         currencies={checkoutCurrencies(country)}
+        upi={country?.toUpperCase() === "IN"}
       >
         <section aria-labelledby="plans-heading" className="mt-10">
           <h2 id="plans-heading" className="text-lg font-semibold tracking-tight">

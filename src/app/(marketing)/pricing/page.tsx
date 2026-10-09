@@ -67,12 +67,13 @@ const promises = [
 const faqs = pricingFaqs({ selfHost: true });
 
 export default async function PricingPage() {
-  const currency = currencyForCountry(await detectCountry());
+  const country = await detectCountry();
+  const currency = currencyForCountry(country);
 
   return (
     <div className="relative">
       <JsonLd data={faqJsonLd(faqs)} />
-      <PricingStateProvider initialCurrency={currency}>
+      <PricingStateProvider initialCurrency={currency} upi={country?.toUpperCase() === "IN"}>
         <div className="mx-auto max-w-7xl px-4 pb-24 pt-10 sm:pt-16">
           {/* Header */}
           <div className="mx-auto max-w-2xl text-center">

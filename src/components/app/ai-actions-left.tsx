@@ -2,7 +2,7 @@
 
 import { Suspense, use, useDeferredValue } from "react";
 import { aiActionsLock } from "@/lib/add-limits";
-import type { AiActionsLeft } from "@/lib/ai-limits";
+import { aiActionsSpent, type AiActionsLeft } from "@/lib/ai-limits";
 import { cn } from "@/lib/utils";
 import { LockGlyph } from "./limit-lock";
 import { usePlan } from "./upgrade-dialog";
@@ -74,7 +74,7 @@ function Line({ value, className }: { value: AiActionsLeft; className?: string }
       </span>
     );
   }
-  if (remaining === 0) {
+  if (aiActionsSpent(value)) {
     const lock = aiActionsLock(plan, value.limit);
     const refills = refillDate(value.resetsAt ?? nextMonthStartIso());
     return (

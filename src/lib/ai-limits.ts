@@ -67,6 +67,14 @@ export type AiActionsLeft = {
 };
 
 /**
+ * Is the workspace out of AI actions — the month's allowance **and** every
+ * top-up (C4)? A spent allowance with top-ups left is not spent: they carry on.
+ */
+export function aiActionsSpent(left: AiActionsLeft | null | undefined): boolean {
+  return Boolean(left) && left!.remaining <= 0 && (left!.topUpRemaining ?? 0) <= 0;
+}
+
+/**
  * Why Ask has no composer for a viewer, and the 403 a direct call gets. Ask
  * spends the workspace's shared AI actions, so — like the composer's AI mode —
  * it needs edit access; a read-only member can't drain the allowance.

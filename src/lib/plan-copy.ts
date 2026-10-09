@@ -172,9 +172,13 @@ export const FEATURED_BADGE = "Best value";
 
 // ── Buying ─────────────────────────────────────────────────────────────────
 
-/** How a buyer can pay in `currency`: UPI only exists for payments in rupees. */
-export function paymentMethods(currency: Currency): string {
-  return currency === "INR" ? "card or UPI" : "card";
+/**
+ * How a buyer can pay: UPI is offered only to buyers in India paying in
+ * rupees (the provider shows it nowhere else — not even in the other
+ * rupee-priced countries); card everywhere.
+ */
+export function paymentMethods(currency: Currency, inIndia: boolean): string {
+  return currency === "INR" && inIndia ? "card or UPI" : "card";
 }
 
 /** The words on every buy button and the lines around them. */
@@ -183,10 +187,10 @@ export const PURCHASE = {
   trialCta: `Start ${TRIAL_DAYS}-day free trial`,
   topUpCta: `Buy ${count(TOPUP.actions)} AI actions`,
   /** Under a buy button, for the currency on screen. */
-  ctaNote: (currency: Currency) => `Pay by ${paymentMethods(currency)}. Cancel any time.`,
+  ctaNote: (currency: Currency, inIndia: boolean) => `Pay by ${paymentMethods(currency, inIndia)}. Cancel any time.`,
   /** Under the plan cards, and on the checkout page. */
-  billing: (currency: Currency) =>
-    `Billed per workspace. Pay by ${paymentMethods(currency)}. Cancel any time — the plan runs to the end of what you paid for.`,
+  billing: (currency: Currency, inIndia: boolean) =>
+    `Billed per workspace. Pay by ${paymentMethods(currency, inIndia)}. Cancel any time — the plan runs to the end of what you paid for.`,
   keepsEverything: "Your transactions, files and members stay exactly as they are.",
 } as const;
 
@@ -209,18 +213,6 @@ export function cardTrialLine(currentPlan?: PersonalPlan): string | null {
 export function chargeLine(price: string, period: Period, trialDays: number): string {
   const billed = `${price} ${PERIOD_LABEL[period].billed}`;
   return trialDays > 0 ? `${trialDays} days free, then ${billed}` : `${billed}, starting today`;
-}
-
-/** The invoice line the payment provider prints: "SpendChat Pro · 1 year · Workspace: Home". */
-export function checkoutDescription(
-  item: { kind: "plan"; plan: PaidPersonalPlan; period: Period } | { kind: "topup" },
-  workspaceName: string,
-): string {
-  const what =
-    item.kind === "plan"
-      ? `${siteConfig.name} ${PLAN_NAMES[item.plan]} · ${PERIOD_LABEL[item.period].toggle}`
-      : `${siteConfig.name} AI top-up · ${count(TOPUP.actions)} actions`;
-  return `${what} · Workspace: ${workspaceName}`;
 }
 
 /** Why checkout can't sell this — shown on the checkout page and returned by the server. */

@@ -55,7 +55,14 @@ export type LivePlan = {
   nextBillingDate: string | null;
   /** What buying `item` would be against it; null for a top-up. */
   change: PlanChangeKind | null;
+  /** The currency the plan is locked to — a change is priced in it. */
+  currency: Currency | null;
+  /** This person pays for it — only they can move it up (it charges their card). */
+  isBuyer: boolean;
 };
+
+/** The buyer is in India — UPI is offered (with rupees). Read by the summary's payment line. */
+const UpiContext = React.createContext(false);
 
 /** Shown in place of the buy button on a server without payment keys. */
 const PAYMENTS_UNAVAILABLE = "Payments aren't available on this server yet.";
@@ -76,6 +83,7 @@ export function CheckoutForm({
   trialDays,
   live,
   billingReady,
+  upi,
 }: {
   workspace: WorkspaceInfo;
   currentPlan: PersonalPlan;
@@ -83,6 +91,8 @@ export function CheckoutForm({
   currency: Currency;
   canBuy: boolean;
   ownerName: string | null;
+  /** The buyer is in India, where UPI is offered (with rupees). */
+  upi: boolean;
   /** The trial this purchase would start with (B1), decided on the server. */
   trialDays: number;
   live: LivePlan | null;
@@ -90,14 +100,14 @@ export function CheckoutForm({
 }) {
   if (item.item === "plan" && live) {
     return (
-      <Shell>
+      <Shell upi={upi}>
         <PlanChangeView
           workspace={workspace}
           currentPlan={currentPlan}
           live={live}
           plan={item.plan}
           initialPeriod={item.period}
-          currency={currency}
+          currency={live.currency ?? currency}
           canBuy={canBuy}
           ownerName={ownerName}
           billingReady={billingReady}
@@ -108,7 +118,7 @@ export function CheckoutForm({
   const refusal = checkoutRefusal(currentPlan, item);
 
   return (
-    <Shell>
+    <Shell upi={upi}>
       {refusal ? (
         <Refused
           workspace={workspace}
@@ -141,8 +151,9 @@ export function CheckoutForm({
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({ children, upi }: { children: React.ReactNode; upi: boolean }) {
   return (
+    <UpiContext.Provider value={upi}>
     <div className="mx-auto max-w-5xl px-4 pb-16 pt-6">
       <div className="flex items-center justify-between gap-3">
         <Link
@@ -155,6 +166,7 @@ function Shell({ children }: { children: React.ReactNode }) {
       </div>
       {children}
     </div>
+    </UpiContext.Provider>
   );
 }
 
@@ -426,6 +438,7 @@ function Summary({
   onBuy?: () => Promise<void>;
 }) {
   const { reportFailure } = usePlan();
+  const upi = React.useContext(UpiContext);
   const [pending, startTransition] = React.useTransition();
 
   function buy() {
@@ -502,7 +515,7 @@ function Summary({
         </p>
       )}
 
-      <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{PURCHASE.billing(currency)}</p>
+      <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{PURCHASE.billing(currency, upi)}</p>
     </aside>
   );
 }
@@ -566,12 +579,31 @@ function PlanChangeView({
   }
 
   if (live.status !== "active") {
+    const notRunning = live.status === "paused" || live.status === "pending";
     return (
       <Notice
         workspace={workspace}
         currentPlan={currentPlan}
-        title="Sort out the payment first"
-        body="This workspace's last payment didn't go through, so its plan can't change yet. Update the payment method in Billing — the plan carries on once it's paid."
+        title={notRunning ? "This plan isn't running" : "Sort out the payment first"}
+        body={
+          notRunning
+            ? live.status === "paused"
+              ? "This workspace's plan is paused, so it can't change. Cancel it in Billing, then buy the plan you want."
+              : "A payment for this workspace's plan is still being confirmed. Try again in a few minutes — or cancel it in Billing to start over."
+            : "This workspace's last payment didn't go through, so its plan can't change yet. Update the payment method in Billing — the plan carries on once it's paid."
+        }
+        href="/app/settings/billing"
+        cta="Open Billing"
+      />
+    );
+  }
+  if (kind === "upgrade" && !live.isBuyer) {
+    return (
+      <Notice
+        workspace={workspace}
+        currentPlan={currentPlan}
+        title="Ask the person who pays for it"
+        body="Moving this plan up charges the card it's paid with, so only the person who bought it can do it. You can still move it down, or cancel it, in Billing."
         href="/app/settings/billing"
         cta="Open Billing"
       />

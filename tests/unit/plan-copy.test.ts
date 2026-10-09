@@ -5,7 +5,6 @@ import {
   PURCHASE,
   cardTrialLine,
   chargeLine,
-  checkoutDescription,
   checkoutRefusalMessage,
   count,
   limitPitch,
@@ -224,17 +223,19 @@ describe("purchase copy", () => {
     }
   });
 
-  it("offers UPI only where it exists — payments in rupees", () => {
-    expect(paymentMethods("INR")).toBe("card or UPI");
-    expect(PURCHASE.ctaNote("INR")).toBe("Pay by card or UPI. Cancel any time.");
-    expect(PURCHASE.billing("INR")).toContain("card or UPI");
+  it("offers UPI only where it exists — rupees, from India", () => {
+    expect(paymentMethods("INR", true)).toBe("card or UPI");
+    expect(PURCHASE.ctaNote("INR", true)).toBe("Pay by card or UPI. Cancel any time.");
+    expect(PURCHASE.billing("INR", true)).toContain("card or UPI");
+    // Rupees from Nepal, Bhutan, Bangladesh or Sri Lanka: the provider shows no UPI there.
+    expect(paymentMethods("INR", false)).toBe("card");
     for (const { code } of CURRENCIES.filter((c) => c.code !== "INR")) {
-      expect(paymentMethods(code)).toBe("card");
-      expect(PURCHASE.ctaNote(code)).not.toMatch(/UPI/);
-      expect(PURCHASE.billing(code)).not.toMatch(/UPI/);
+      expect(paymentMethods(code, true)).toBe("card");
+      expect(PURCHASE.ctaNote(code, true)).not.toMatch(/UPI/);
+      expect(PURCHASE.billing(code, true)).not.toMatch(/UPI/);
     }
     for (const { code } of CURRENCIES) {
-      for (const str of [PURCHASE.ctaNote(code), PURCHASE.billing(code)]) {
+      for (const str of [PURCHASE.ctaNote(code, true), PURCHASE.billing(code, true)]) {
         for (const re of [...NOT_YET, ...BANNED]) expect(str).not.toMatch(re);
       }
     }
@@ -260,14 +261,6 @@ describe("purchase copy", () => {
   it("says what is charged and when", () => {
     expect(chargeLine("₹1,299", "yearly", TRIAL_DAYS)).toBe(`${TRIAL_DAYS} days free, then ₹1,299 billed yearly`);
     expect(chargeLine("$5.99", "monthly", 0)).toBe("$5.99 billed monthly, starting today");
-  });
-
-  it("names the plan, the period and the workspace on the invoice line", () => {
-    const d = checkoutDescription({ kind: "plan", plan: "pro", period: "yearly" }, "Home");
-    expect(d).toContain("Pro");
-    expect(d).toContain("1 year");
-    expect(d).toContain("Workspace: Home");
-    expect(checkoutDescription({ kind: "topup" }, "Shop")).toContain(count(TOPUP.actions));
   });
 
   it("explains each refusal in words", () => {
