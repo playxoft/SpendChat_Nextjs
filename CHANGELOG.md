@@ -18,6 +18,31 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.40.0] — 2026-10-09
+
+### Added
+- **See several spaces and profiles at once.** Shift-click spaces and profiles
+  in the sidebar and the tracker, transactions, analytics and files show just
+  that selection. Holding Shift outlines what can be picked, a "N selected ·
+  Clear" bar shows and clears it, Shift+Enter does the same from the keyboard,
+  and on touch "Select" turns taps into picks. Links to one profile still work,
+  and the selection stays put between pages.
+
+### Changed
+- **On a computer, the bar across the top of the app is gone:** the theme button
+  and your account menu sit at the right of each page's own title row, so every
+  page gets that space back. Phones keep their top bar.
+- Clicking a space's name now shows that space; the chevron folds it.
+- SpendChat AI's heading is the open chat's title; "SpendChat AI" shows only on
+  a new chat.
+
+### Fixed
+- The tracker always opens at your newest transaction, including after
+  switching profiles, instead of sometimes stopping part-way up.
+- Selecting transactions no longer makes the list jump, and it doesn't move when
+  the entry box grows or shrinks — unless you're at the newest transaction,
+  which then stays in view just above the box.
+
 ## [0.39.0] — 2026-10-09
 
 ### Added
