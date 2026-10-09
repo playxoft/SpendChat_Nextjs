@@ -27,6 +27,8 @@ export type AddLimitsData = {
   plan: PersonalPlan;
   /** View-only workspace: nothing can be added at all. */
   readOnly: boolean;
+  /** Why: an extra free workspace, or a billing hold. Optional so older callers/tests fit. */
+  readOnlyReason?: "extra_free" | "payment_failed" | "dispute" | null;
   spaces: AddMeter;
   categories: AddMeter;
   tags: AddMeter;
@@ -143,7 +145,18 @@ export function newWorkspaceLock(
 }
 
 /** The lock for a view-only workspace — every create in it. */
-export function readOnlyLock(plan: PersonalPlan): AddLock {
+export function readOnlyLock(plan: PersonalPlan, reason?: AddLimitsData["readOnlyReason"]): AddLock {
+  if (reason === "payment_failed" || reason === "dispute") {
+    return {
+      title: "This workspace is view-only",
+      reason:
+        reason === "dispute"
+          ? "A payment for this workspace is disputed — contact support to keep adding."
+          : "This workspace's plan payment didn't go through — update it in Billing to keep adding.",
+      cta: reason === "dispute" ? "Contact us" : "Open Billing",
+      info: { limit: "billingHold", plan, upgradeTo: null, holdReason: reason },
+    };
+  }
   return {
     title: "This workspace is view-only",
     reason: "This workspace is view-only — upgrade it to add more.",
@@ -287,7 +300,7 @@ export function addLock(
     return limits.profileLevelAccess ? null : profileAccessLock(plan);
   }
 
-  if (limits.readOnly) return readOnlyLock(plan);
+  if (limits.readOnly) return readOnlyLock(plan, limits.readOnlyReason);
 
   if (kind === "budgets") {
     const meter = limits.budgets;

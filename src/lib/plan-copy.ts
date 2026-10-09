@@ -85,10 +85,10 @@ export function pricingCurrencyFor(code: string | null | undefined): Currency {
 
 /**
  * The currency the app quotes a workspace's plans in for this request: the
- * one checkout would charge (`checkoutCurrency`), with the workspace's own
- * currency as the preference. So the rupee list shows only to a request from
- * a rupee country (`country` = `requestCountry()`), and the plan cards and the
- * upgrade dialog never quote a price that checkout then changes.
+ * one checkout would charge (`checkoutCurrency`) — the request country's
+ * (`country` = `requestCountry()`), with the workspace's own currency as the
+ * preference only in local development. So the plan cards and the upgrade
+ * dialog never quote a price that checkout then changes.
  */
 export function workspacePriceCurrency(
   code: string | null | undefined,
@@ -172,9 +172,13 @@ export const FEATURED_BADGE = "Best value";
 
 // ── Buying ─────────────────────────────────────────────────────────────────
 
-/** How a buyer can pay in `currency`: UPI only exists for payments in rupees. */
-export function paymentMethods(currency: Currency): string {
-  return currency === "INR" ? "card or UPI" : "card";
+/**
+ * How a buyer can pay: UPI is offered only to buyers in India paying in
+ * rupees (the provider shows it nowhere else — not even in the other
+ * rupee-priced countries); card everywhere.
+ */
+export function paymentMethods(currency: Currency, inIndia: boolean): string {
+  return currency === "INR" && inIndia ? "card or UPI" : "card";
 }
 
 /** The words on every buy button and the lines around them. */
@@ -183,10 +187,13 @@ export const PURCHASE = {
   trialCta: `Start ${TRIAL_DAYS}-day free trial`,
   topUpCta: `Buy ${count(TOPUP.actions)} AI actions`,
   /** Under a buy button, for the currency on screen. */
-  ctaNote: (currency: Currency) => `Pay by ${paymentMethods(currency)}. Cancel any time.`,
-  /** Under the plan cards, and on the checkout page. */
-  billing: (currency: Currency) =>
-    `Billed per workspace. Pay by ${paymentMethods(currency)}. Cancel any time — the plan runs to the end of what you paid for.`,
+  ctaNote: (currency: Currency, inIndia: boolean) => `Pay by ${paymentMethods(currency, inIndia)}. Cancel any time.`,
+  /** Under the plan cards, and on a plan's checkout page. */
+  billing: (currency: Currency, inIndia: boolean) =>
+    `Billed per workspace. Pay by ${paymentMethods(currency, inIndia)}. Cancel any time — the plan runs to the end of what you paid for.`,
+  /** On a top-up's checkout page: one payment, nothing to cancel. */
+  topUpBilling: (currency: Currency, inIndia: boolean) =>
+    `For this workspace only. Pay by ${paymentMethods(currency, inIndia)}. A one-time payment — nothing renews, and a top-up can't be cancelled or refunded.`,
   keepsEverything: "Your transactions, files and members stay exactly as they are.",
 } as const;
 
@@ -209,18 +216,6 @@ export function cardTrialLine(currentPlan?: PersonalPlan): string | null {
 export function chargeLine(price: string, period: Period, trialDays: number): string {
   const billed = `${price} ${PERIOD_LABEL[period].billed}`;
   return trialDays > 0 ? `${trialDays} days free, then ${billed}` : `${billed}, starting today`;
-}
-
-/** The invoice line the payment provider prints: "SpendChat Pro · 1 year · Workspace: Home". */
-export function checkoutDescription(
-  item: { kind: "plan"; plan: PaidPersonalPlan; period: Period } | { kind: "topup" },
-  workspaceName: string,
-): string {
-  const what =
-    item.kind === "plan"
-      ? `${siteConfig.name} ${PLAN_NAMES[item.plan]} · ${PERIOD_LABEL[item.period].toggle}`
-      : `${siteConfig.name} AI top-up · ${count(TOPUP.actions)} actions`;
-  return `${what} · Workspace: ${workspaceName}`;
 }
 
 /** Why checkout can't sell this — shown on the checkout page and returned by the server. */
@@ -419,6 +414,15 @@ export const LIMIT_PITCH: Record<UpgradeLimit, LimitPitchDef> = {
       `On ${current}, deleting a file or folder is final. Deleted transactions still go to the trash for ${TRASH_DAYS} days.`,
     pitch: ({ next }) =>
       `${next} keeps deleted files and folders in the trash for ${TRASH_DAYS} days, so one wrong click never costs you a contract or a warranty.`,
+  },
+  // Billing made the workspace view-only — no plan lifts it (the dialog shows its own buttons).
+  billingHold: {
+    headline: "This workspace is view-only for now",
+    status: ({ info }) =>
+      info.holdReason === "dispute"
+        ? "A payment for this workspace was disputed with the bank, so nothing can be added until it's sorted out. Everything in it is still here to browse and export — contact support."
+        : "Its plan's last payment didn't go through, so nothing can be added until it's paid. Everything in it is still here — update the payment method in Billing and it opens up again.",
+    pitch: () => "",
   },
   // "New workspace", when the person already has their free one.
   newWorkspace: {

@@ -3,6 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
   aiChats,
+  billingPayments,
   organizations,
   profileAccess,
   profileOverrides,
@@ -23,6 +24,11 @@ import { sendEmail } from "@/lib/email";
 import { deleteObjects, keyFromPublicUrl } from "@/lib/r2";
 import { collectProfileObjectKeys } from "./storage-keys";
 import { forgetSplitUser } from "./split";
+import {
+  finishBillingAfterAccountDeletion,
+  forgetBuyerInTransaction,
+  prepareBillingForAccountDeletion,
+} from "./billing";
 import { assertEmailSendAllowed } from "@/lib/email-quota";
 import { siteConfig } from "@/lib/site";
 import { badRequest, conflict, isForeignKeyViolation, validationError } from "@/lib/errors";
@@ -210,6 +216,13 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
   if (confirm !== "DELETE") throw badRequest("Type DELETE to confirm");
   const db = getDb();
 
+  // Nothing may keep charging this person, or for a workspace that's about to
+  // be gone: every plan they pay for (in anyone's workspace) and every plan on
+  // a workspace they own is stopped first — reversibly (cancel at period end),
+  // so a deletion that then fails leaves only "cancelling" plans behind. A
+  // provider refusal stops the deletion here, before anything is erased.
+  const stopping = await prepareBillingForAccountDeletion(userId);
+
   // **One transaction, for the same reason `deleteProfile` uses one.** These are
   // eight destructive statements that are only safe together: `transactions
   // .profile_id` is ON DELETE restrict, so emptying a profile and deleting it
@@ -286,6 +299,21 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
       // would cascade below, but chats in someone else's are only theirs to
       // take. Messages go with each chat (FK cascade).
       await tx.delete(aiChats).where(eq(aiChats.userId, userId));
+      // Billing: the plans from above are marked as cancelling (retried on
+      // every later webhook until they end) and the buyer is forgotten. The
+      // subscription rows stay, so those webhooks can still place them and a
+      // surviving workspace (someone else's, that this person paid for) goes
+      // back to Free when its plan ends. Payments of the workspaces being
+      // deleted go with them; a surviving workspace keeps its payment
+      // history, with nobody's name on it (and no invoice link). **Checkout
+      // sessions are kept** (ids only): a checkout link stays payable for
+      // 24 hours, so one paid after this deletion must still be placed — and
+      // voided and cancelled (`buyer_gone` / `workspace_gone`) — rather than
+      // retried forever. The trial ledger stays (B1) — it holds no address.
+      await forgetBuyerInTransaction(tx, userId, stopping);
+      if (ownedIds.length > 0) {
+        await tx.delete(billingPayments).where(inArray(billingPayments.workspaceId, ownedIds));
+      }
       if (ownedIds.length > 0) {
         // Members/invites cascade with the workspace rows.
         await tx.delete(workspaces).where(inArray(workspaces.id, ownedIds));
@@ -325,6 +353,8 @@ export async function deleteAccount(userId: string, confirm: string): Promise<vo
   // would otherwise have already announced a deletion that did not happen.
   const objects = doomedKeys.keys.filter((k): k is string => Boolean(k));
   await deleteObjects(objects);
+  // Plans that weren't running are cancelled now that the account is gone.
+  finishBillingAfterAccountDeletion(stopping);
   // `objects`, not the raw array: every row contributes a thumbnail slot whether
   // or not it has one, so the unfiltered length double-counts. It is still the
   // count *submitted*, not the count removed — `deleteObjects` de-duplicates and

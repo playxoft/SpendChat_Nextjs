@@ -372,7 +372,7 @@ describe("voice", () => {
     expect(await transcribeVoiceNoteAction(form)).toEqual({
       ok: true,
       text: "200 fruits",
-      ai: { remaining: PLAN_LIMITS.pro.aiActionsPerMonth - 2, limit: PLAN_LIMITS.pro.aiActionsPerMonth },
+      ai: { remaining: PLAN_LIMITS.pro.aiActionsPerMonth - 2, limit: PLAN_LIMITS.pro.aiActionsPerMonth, topUpRemaining: 0 },
     });
 
     expect(await ledger("a")).toEqual([

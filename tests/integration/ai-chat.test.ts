@@ -223,7 +223,7 @@ describe("askAi — what a question costs", () => {
       ["user", "How much did I spend on food this month?"],
       ["assistant", "**Food** — $12.50 this month."],
     ]);
-    expect(res.ai).toEqual({ remaining: PLAN_LIMITS.free.aiActionsPerMonth - 1, limit: PLAN_LIMITS.free.aiActionsPerMonth });
+    expect(res.ai).toEqual({ remaining: PLAN_LIMITS.free.aiActionsPerMonth - 1, limit: PLAN_LIMITS.free.aiActionsPerMonth, topUpRemaining: 0 });
 
     // The chat model, never the parse model; the data rides in the system prompt.
     expect(requests).toHaveLength(1);
@@ -472,7 +472,7 @@ describe("askAi — what a question costs", () => {
       error: "Here's your answer, but it couldn't be saved to this chat.",
       details: {
         answer: "SECRET-ANSWER Food is $12.50.",
-        ai: { remaining: PLAN_LIMITS.free.aiActionsPerMonth - 1, limit: PLAN_LIMITS.free.aiActionsPerMonth },
+        ai: { remaining: PLAN_LIMITS.free.aiActionsPerMonth - 1, limit: PLAN_LIMITS.free.aiActionsPerMonth, topUpRemaining: 0 },
       },
     });
     // The model did the work: no refund.

@@ -12,7 +12,8 @@ import { requestCountry } from "@/lib/geo.server";
 import { marketingCta } from "@/lib/marketing";
 import { PLAN_PITCH, PRICING_HERO, pricingFaqs } from "@/lib/plan-copy";
 import { PERSONAL_PLANS, PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
-import { STUDENT_DISCOUNT, TRIAL_DAYS, currencyForCountry, pct } from "@/lib/pricing";
+import { checkoutCurrencies, checkoutCurrency, currencyChoiceAllowed } from "@/lib/checkout";
+import { STUDENT_DISCOUNT, TRIAL_DAYS, pct } from "@/lib/pricing";
 import { createMetadata, faqJsonLd } from "@/lib/seo";
 
 /**
@@ -30,10 +31,14 @@ export const metadata = createMetadata({
   path: "/pricing",
 });
 
-/** The visitor's country — Cloudflare's edge header first, then their browser's language region. */
-async function detectCountry(): Promise<string> {
+/**
+ * The visitor's country — Cloudflare's, the one checkout charges by. Only in
+ * local development, where there's no edge, the browser's language region
+ * stands in for it.
+ */
+async function detectCountry(): Promise<string | null> {
   const cf = await requestCountry();
-  if (cf) return cf;
+  if (cf || !currencyChoiceAllowed()) return cf;
   for (const tag of parseAcceptLanguage((await headers()).get("accept-language"))) {
     const region = regionFromLocale(tag);
     if (region) return region;
@@ -67,12 +72,17 @@ const promises = [
 const faqs = pricingFaqs({ selfHost: true });
 
 export default async function PricingPage() {
-  const currency = currencyForCountry(await detectCountry());
+  const country = await detectCountry();
+  const currency = checkoutCurrency(undefined, country);
 
   return (
     <div className="relative">
       <JsonLd data={faqJsonLd(faqs)} />
-      <PricingStateProvider initialCurrency={currency}>
+      <PricingStateProvider
+        initialCurrency={currency}
+        currencies={checkoutCurrencies(country)}
+        upi={country?.toUpperCase() === "IN"}
+      >
         <div className="mx-auto max-w-7xl px-4 pb-24 pt-10 sm:pt-16">
           {/* Header */}
           <div className="mx-auto max-w-2xl text-center">

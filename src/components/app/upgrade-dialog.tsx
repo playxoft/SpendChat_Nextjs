@@ -181,6 +181,9 @@ export function UpgradeDialog({
   currency?: Currency;
 }) {
   if (!info) return null;
+  if (info.limit === "billingHold") {
+    return <BillingHoldDialog info={info} open={open} onOpenChange={onOpenChange} />;
+  }
   const copy = limitPitch(info);
   const target = copy.upgradeTo;
   const paid = target && isPaidPersonalPlan(target) ? target : null;
@@ -285,5 +288,51 @@ export function UpgradeHint({
         See what&apos;s included
       </Button>
     </p>
+  );
+}
+
+/**
+ * Billing made the workspace view-only: no plan lifts it, so instead of an
+ * upgrade this points to Billing (a failed renewal — fix the payment method)
+ * or to support (a disputed payment).
+ */
+function BillingHoldDialog({
+  info,
+  open,
+  onOpenChange,
+}: {
+  info: PlanLimitInfo;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const copy = limitPitch(info);
+  const dispute = info.holdReason === "dispute";
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" closeOnOutsideClick>
+        <DialogHeader>
+          <DialogTitle className="leading-snug">{copy.headline}</DialogTitle>
+          <DialogDescription>{copy.status}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
+            Close
+          </Button>
+          <Button asChild>
+            {dispute ? (
+              <a href={`mailto:${siteConfig.supportEmail}`}>
+                <Mail className="size-4" />
+                Contact support
+              </a>
+            ) : (
+              <Link href="/app/settings/billing" onClick={() => onOpenChange(false)}>
+                Open Billing
+                <ArrowRight className="size-4" />
+              </Link>
+            )}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -34,6 +34,29 @@ export async function createWorkspace(
   );
 }
 
+/**
+ * "New workspace" with its own paid plan, when the person already has their
+ * free one: creates it (view-only until paid) and returns the checkout to send
+ * them to. Nothing is charged here.
+ */
+export async function createWorkspaceForPurchase(input: {
+  name: string;
+  icon?: string;
+  plan: "plus" | "pro";
+  period: "monthly" | "quarterly" | "yearly";
+}): Promise<ActionResult<{ id: string; reused: boolean; checkoutPath: string }>> {
+  const user = await requireUser();
+  return runAction(
+    "createWorkspaceForPurchase",
+    async () => {
+      const res = await ws.createWorkspaceForPurchase(user.id, input);
+      revalidateApp();
+      return { id: res.workspace.id, reused: res.reused, checkoutPath: res.checkoutPath };
+    },
+    { userId: user.id },
+  );
+}
+
 /** Update a workspace's name + emoji icon (admin only). */
 export async function updateWorkspace(
   id: string,

@@ -357,11 +357,20 @@ export type ApiMeter = { used: number; limit: number };
 export type ApiUsage = {
   plan: PersonalPlan;
   readOnly: boolean;
+  /**
+   * Why it's view-only (null when it isn't): `extra_free` — an extra free
+   * workspace; `payment_failed` — its renewal failed past the grace;
+   * `dispute` — a payment was disputed. Since 6.11.0.
+   */
+  readOnlyReason: "extra_free" | "payment_failed" | "dispute" | null;
   ai: {
     used: number;
     limit: number;
     remaining: number;
+    /** Top-up actions left, spent once `remaining` is 0 (real since 6.11.0). */
     topUpRemaining: number;
+    /** ISO 8601 — when the soonest-expiring top-up with actions left expires; null when none. Since 6.11.0. */
+    topUpExpiresAt: string | null;
     /** ISO 8601 — the first instant of next month (UTC). */
     resetsAt: string;
   };
@@ -382,11 +391,13 @@ export function serializeUsage(u: WorkspaceUsage): ApiUsage {
   return {
     plan: u.plan,
     readOnly: u.readOnly,
+    readOnlyReason: u.readOnlyReason,
     ai: {
       used: u.ai.used,
       limit: u.ai.limit,
       remaining: u.ai.remaining,
       topUpRemaining: u.ai.topUpRemaining,
+      topUpExpiresAt: u.ai.topUpExpiresAt,
       resetsAt: u.ai.resetsAt,
     },
     storage: {

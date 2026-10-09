@@ -40,7 +40,17 @@ type Meter = { used: number; limit: number };
 export type UsageData = {
   plan: PersonalPlan;
   readOnly: boolean;
-  ai: { used: number; limit: number; remaining: number; resetsAt: string };
+  /** Why it's view-only; optional so older callers fit. */
+  readOnlyReason?: "extra_free" | "payment_failed" | "dispute" | null;
+  ai: {
+    used: number;
+    limit: number;
+    remaining: number;
+    resetsAt: string;
+    /** Top-up actions left (C4), and when the soonest expires. Optional so older callers fit. */
+    topUpRemaining?: number;
+    topUpExpiresAt?: string | null;
+  };
   storage: { usedBytes: number; limitBytes: number };
   members: Meter;
   spaces: Meter;
@@ -83,8 +93,11 @@ export function UsagePanel({ usage }: { usage: UsageData }) {
       <CardContent className="space-y-5">
         {usage.readOnly && (
           <p className="rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-            This workspace is view-only — you can have one free workspace. Everything in it is
-            still here to browse and export.
+            {usage.readOnlyReason === "dispute"
+              ? "This workspace is view-only while a disputed payment is sorted out — contact support. Everything in it is still here to browse and export."
+              : usage.readOnlyReason === "payment_failed"
+                ? "This workspace is view-only because its plan's payment didn't go through — update the payment method in Settings → Billing. Everything in it is still here."
+                : "This workspace is view-only — you can have one free workspace. Everything in it is still here to browse and export."}
           </p>
         )}
 
@@ -93,7 +106,13 @@ export function UsagePanel({ usage }: { usage: UsageData }) {
           used={usage.ai.used}
           limit={usage.ai.limit}
           display={`${usage.ai.used.toLocaleString("en-US")} of ${usage.ai.limit.toLocaleString("en-US")}`}
-          note={`${usage.ai.remaining.toLocaleString("en-US")} left · refills on ${resets}`}
+          note={`${usage.ai.remaining.toLocaleString("en-US")} left · refills on ${resets}${
+            (usage.ai.topUpRemaining ?? 0) > 0
+              ? ` · plus ${usage.ai.topUpRemaining!.toLocaleString("en-US")} top-up actions${
+                  usage.ai.topUpExpiresAt ? ` (the first expire ${formatResetDate(usage.ai.topUpExpiresAt)})` : ""
+                }`
+              : ""
+          }`}
           onUpgrade={() =>
             showUpgrade({
               limit: "aiActions",

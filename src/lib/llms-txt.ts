@@ -224,6 +224,7 @@ export function buildLlmsTxt({ features, comparisons, posts, faqs, docs, tools =
   const optional = section("Optional", [
     item("Privacy policy", abs("/privacy"), "What is stored, where, and for how long."),
     item("Terms of service", abs("/terms")),
+    item("Billing & refund policy", abs("/billing-policy"), "Per-workspace plans, trials, renewals, cancelling, refunds."),
     item("Cookie policy", abs("/cookie-policy")),
     item("Sign in", abs("/sign-in"), "Existing accounts."),
     item("Create an account", abs("/sign-up"), "Free; Google or email and password."),

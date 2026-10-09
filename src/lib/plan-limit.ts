@@ -43,8 +43,11 @@ export type PlanLimitKey = (typeof PLAN_LIMIT_KEYS)[number];
  *    knows which one it hit, so it names it.
  *  - `fileTrash` — the trash for files and folders (Plus/Pro). Never a server
  *    refusal (on Free a file delete simply is final); the trash page offers it.
+ *  - `billingHold` — billing made the workspace view-only (a failed renewal
+ *    past its grace, or a disputed payment). No plan lifts it: the dialog
+ *    points to Billing, or to support for a dispute (`holdReason`).
  */
-export const UPGRADE_LIMITS = [...PLAN_LIMIT_KEYS, "newWorkspace", "fileTrash"] as const;
+export const UPGRADE_LIMITS = [...PLAN_LIMIT_KEYS, "newWorkspace", "fileTrash", "billingHold"] as const;
 export type UpgradeLimit = (typeof UPGRADE_LIMITS)[number];
 
 export type PlanLimitInfo = {
@@ -65,6 +68,8 @@ export type PlanLimitInfo = {
   freeSlotHere?: boolean;
   /** For `newWorkspace`: free workspaces the person owns. More than one = upgrading one won't make room. */
   freeOwned?: number;
+  /** For `billingHold`: why billing holds the workspace. */
+  holdReason?: "payment_failed" | "dispute";
 };
 
 function isLimitKey(value: unknown): value is PlanLimitKey {

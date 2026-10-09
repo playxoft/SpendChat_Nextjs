@@ -34,6 +34,7 @@ const groups = [
     links: [
       { href: "/privacy", label: "Privacy" },
       { href: "/terms", label: "Terms" },
+      { href: "/billing-policy", label: "Billing & refunds" },
       { href: "/cookie-policy", label: "Cookie Policy" },
     ],
   },

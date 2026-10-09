@@ -1,7 +1,7 @@
 import "server-only";
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { getDb } from "@/db";
-import { getWorkspaceEntitlements } from "@/lib/entitlements";
+import { getWorkspaceEntitlements, readOnlyErrorOf } from "@/lib/entitlements";
 import { categories, profiles, tags, transactionAttachments, transactions } from "@/db/schema";
 import { ensureBootstrap } from "@/lib/auth";
 import { badRequest, forbidden, validationError } from "@/lib/errors";
@@ -24,7 +24,7 @@ import {
   accessibleProfileIds,
   getDefaultSpaceId,
   getEffectiveProfileRole,
-  readOnlyWorkspaceError,
+  readOnlyErrorFor,
   getWorkspaceMoneyFormat,
   getWorkspaceRole,
   requireProfileRole,
@@ -111,8 +111,8 @@ async function resolveProfileId(
   if (profileId && writable.includes(profileId)) return profileId;
   if (strict) {
     // The caller named a profile and means it — no falling back to another.
-    const { readOnly } = await getWorkspaceEntitlements(workspaceId);
-    if (readOnly) throw readOnlyWorkspaceError();
+    const ent = await getWorkspaceEntitlements(workspaceId);
+    if (ent.readOnly) throw readOnlyErrorOf(ent);
     throw forbidden("You can't add to that profile");
   }
   if (writable[0]) return writable[0];
@@ -121,8 +121,8 @@ async function resolveProfileId(
   // Nothing writable may mean the workspace is view-only (an extra free
   // workspace) — then say so, and never self-heal a
   // profile into it.
-  const { readOnly } = await getWorkspaceEntitlements(workspaceId);
-  if (readOnly) throw readOnlyWorkspaceError();
+  const ent = await getWorkspaceEntitlements(workspaceId);
+  if (ent.readOnly) throw readOnlyErrorOf(ent);
   if (role === "admin") {
     const db = getDb();
     const spaceId = await getDefaultSpaceId(workspaceId);
@@ -291,7 +291,7 @@ async function editableInWorkspace(
   const access = await getEffectiveProfileRole(userId, profileId);
   if (!access || access.workspaceId !== workspaceId) return false;
   if (!rolesAtLeast("editor").includes(access.role)) {
-    if (access.readOnly) throw readOnlyWorkspaceError();
+    if (access.readOnly) throw await readOnlyErrorFor(access.workspaceId);
     throw forbidden("You don't have permission to do that");
   }
   setLogContext({ profileId }); // the profile this single-row op touches
