@@ -38,6 +38,22 @@ export async function findBrand(call, name) {
   throw new Error(`${live.length} brands are named "${name}" — rename or archive the extras, then run this again.`);
 }
 
+/**
+ * The brand to file products under: the id `DODO_BRAND_ID` holds, checked to
+ * be a live brand on this account — or, when it's unset, the one live brand
+ * named `name` (`byName`, so the caller can say to pin it).
+ */
+export async function resolveBrand(call, { id, name }) {
+  if (!id) return { id: await findBrand(call, name), name, byName: true };
+  const res = await call("GET", "/brands");
+  const items = Array.isArray(res) ? res : (res?.items ?? []);
+  const brand = items.find((b) => b?.brand_id === id);
+  if (!brand || brand.archived_at) {
+    throw new Error(`DODO_BRAND_ID (${id}) isn't a live brand on this account — check it, then run this again.`);
+  }
+  return { id, name: brand.name ?? id, byName: false };
+}
+
 /** Fields that decide whether an existing product needs a PATCH. */
 export function differs(existing, body) {
   const changes = [];

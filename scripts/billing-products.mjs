@@ -17,9 +17,9 @@
  *  - the one-time AI top-up;
  *  - each priced in rupees, with a localized price — our own number, never an
  *    FX conversion — for USD, EUR, GBP, AUD and JPY (`pricing_mode: by_currency`);
- *  - filed under the brand named `BILLING_BRAND_NAME` ("SpendChat") — the brand
- *    is whose name and logo checkout and invoices show; the run aborts unless
- *    exactly one live brand has that name.
+ *  - filed under our brand — `DODO_BRAND_ID`, or when that's unset the one live
+ *    brand named `BILLING_BRAND_NAME` ("SpendChat"). The brand is whose name
+ *    and logo checkout and invoices show; the run aborts if it can't be found.
  *
  * Idempotent: existing products are found by the `metadata.sku` this script
  * sets (else the id `DODO_PRODUCTS` already holds, else one product with the
@@ -62,7 +62,7 @@ registerHooks({
 const { BILLING_BRAND_NAME, BILLING_SKUS, parseDodoProducts, productBody, productSpecs } = await import(
   "../src/lib/billing-catalog.ts"
 );
-const { findBrand, syncProducts } = await import("./lib/billing-products-sync.mjs");
+const { resolveBrand, syncProducts } = await import("./lib/billing-products-sync.mjs");
 
 const HOSTS = { test: "https://test.dodopayments.com", live: "https://live.dodopayments.com" };
 /** What `DODO_PAYMENTS_LIVE_MODE` must be for each `--env`. */
@@ -90,6 +90,7 @@ const apiKey = process.env.DODO_PAYMENTS_API_KEY?.trim();
 // Same rule as `parseLiveMode` in src/lib/billing-config.ts (server-only, so not importable here).
 const liveRaw = process.env.DODO_PAYMENTS_LIVE_MODE?.trim().toLowerCase();
 const liveMode = liveRaw === "true" ? true : liveRaw === "false" ? false : null;
+const brandIdEnv = process.env.DODO_BRAND_ID?.trim() || null;
 const specs = productSpecs();
 
 function printSpec(spec) {
@@ -148,9 +149,11 @@ const knownIds = cached.ok ? cached.products : null;
 
 try {
   log(`Dodo ${liveMode ? "live mode" : "test mode"} — ${opts.dryRun ? "dry run, nothing will be written" : "creating / updating products"}`);
-  const brandId = await findBrand(call, BILLING_BRAND_NAME);
-  log(`Brand: ${BILLING_BRAND_NAME} (${brandId})\n`);
-  const bodyOf = (spec) => ({ ...productBody(spec), brand_id: brandId });
+  const brand = await resolveBrand(call, { id: brandIdEnv, name: BILLING_BRAND_NAME });
+  log(`Brand: ${brand.name} (${brand.id})`);
+  if (brand.byName) log(`  Found by name — pin it: set DODO_BRAND_ID=${brand.id} in Doppler.`);
+  log("");
+  const bodyOf = (spec) => ({ ...productBody(spec), brand_id: brand.id });
   const ids = await syncProducts({ call, specs, bodyOf, knownIds, dryRun: opts.dryRun, log });
   if (opts.dryRun) {
     log("\nDry run — nothing was written. Run without --dry-run to create/update, then paste the line it prints.");

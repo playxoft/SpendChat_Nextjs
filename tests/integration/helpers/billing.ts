@@ -22,6 +22,9 @@ export const PRODUCTS: DodoProducts = {
   topup: "pdt_topup",
 };
 
+/** Our brand on the fake provider account; the provider stamps it on every payment. */
+export const BRAND_ID = "brnd_SpendChatTest";
+
 export const WEBHOOK_SECRET = `whsec_${Buffer.from("integration-test-webhook-secret!").toString("base64")}`;
 
 const ENV = {
@@ -29,6 +32,7 @@ const ENV = {
   DODO_PAYMENTS_WEBHOOK_KEY: WEBHOOK_SECRET,
   DODO_PAYMENTS_LIVE_MODE: "false",
   DODO_PRODUCTS: JSON.stringify(PRODUCTS),
+  DODO_BRAND_ID: BRAND_ID,
 };
 
 export function configureBilling(): void {
@@ -107,6 +111,7 @@ export function paymentData(over: Record<string, unknown> = {}) {
     subscription_id: null,
     checkout_session_id: null,
     invoice_url: "https://test.dodopayments.com/invoices/payments/x",
+    brand_id: BRAND_ID,
     metadata: { app: BILLING_APP },
     customer: { customer_id: "cus_1", email: "own@example.com", name: "own" },
     ...over,

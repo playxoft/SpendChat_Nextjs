@@ -152,6 +152,12 @@ describe("parseBillingConfig", () => {
     products: JSON.stringify(IDS),
   };
 
+  it("carries the brand id when set, and null when not", () => {
+    expect(parseBillingConfig({ ...good, brandId: " brnd_abc " })).toMatchObject({ ok: true, config: { brandId: "brnd_abc" } });
+    expect(parseBillingConfig({ ...good, brandId: "bus_primary" })).toMatchObject({ ok: true, config: { brandId: "bus_primary" } });
+    expect(parseBillingConfig(good)).toMatchObject({ ok: true, config: { brandId: null } });
+  });
+
   it("picks the API host from the live-mode switch alone", () => {
     expect(parseBillingConfig(good)).toMatchObject({ ok: true, config: { liveMode: false, baseUrl: DODO_HOSTS.test } });
     expect(parseBillingConfig({ ...good, liveMode: " TRUE " })).toMatchObject({
@@ -164,6 +170,8 @@ describe("parseBillingConfig", () => {
     expect(parseBillingConfig({ ...good, apiKey: "" }).ok).toBe(false);
     expect(parseBillingConfig({ ...good, webhookKey: undefined }).ok).toBe(false);
     expect(parseBillingConfig({ ...good, webhookKey: "not-a-whsec" }).ok).toBe(false);
+    // A brand id, when given, must look like one.
+    expect(parseBillingConfig({ ...good, brandId: "SpendChat" }).ok).toBe(false);
     // Only true/false: anything else would be a guess between real and test money.
     for (const liveMode of [undefined, "", "1", "yes", "live_mode", "test_mode"]) {
       expect(parseBillingConfig({ ...good, liveMode }).ok).toBe(false);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { productBody, productSpecs, BILLING_SKUS } from "@/lib/billing-catalog";
 // @ts-expect-error — a plain .mjs module (the products script's core), no types.
-import { differs, findBrand, ruleIdOf, syncProducts } from "../../scripts/lib/billing-products-sync.mjs";
+import { differs, findBrand, resolveBrand, ruleIdOf, syncProducts } from "../../scripts/lib/billing-products-sync.mjs";
 
 /**
  * `pnpm billing:products:*` against a fake provider: what it creates, that a
@@ -154,6 +154,19 @@ describe("billing:products sync", () => {
     await expect(
       findBrand(brands([{ brand_id: "a", name: "SpendChat" }, { brand_id: "b", name: "SpendChat" }]), "SpendChat"),
     ).rejects.toThrow(/2 brands are named/);
+  });
+
+  it("uses DODO_BRAND_ID when it names a live brand, else finds the brand by name", async () => {
+    const listing = async () => ({
+      items: [
+        { brand_id: "brnd_s", name: "SpendChat" },
+        { brand_id: "brnd_old", name: "Old", archived_at: "2026-01-01" },
+      ],
+    });
+    expect(await resolveBrand(listing, { id: "brnd_s", name: "SpendChat" })).toEqual({ id: "brnd_s", name: "SpendChat", byName: false });
+    expect(await resolveBrand(listing, { id: null, name: "SpendChat" })).toEqual({ id: "brnd_s", name: "SpendChat", byName: true });
+    await expect(resolveBrand(listing, { id: "brnd_gone", name: "SpendChat" })).rejects.toThrow(/isn't a live brand/);
+    await expect(resolveBrand(listing, { id: "brnd_old", name: "SpendChat" })).rejects.toThrow(/isn't a live brand/);
   });
 
   it("reads a localized price's id under any of its names, and compares bodies field by field", () => {

@@ -234,7 +234,7 @@ Derived from what the code actually reads:
 | `AI_PARSE_MODEL`, `AI_PARSE_MODEL_CURRENT` | composer AI mode answers "not available" |
 | `AI_TRANSCRIBE_MODEL`, `AI_TRANSCRIBE_MODEL_CURRENT` | hold-to-talk mic dies |
 | `AI_CHAT_MODEL`, `AI_CHAT_MODEL_CURRENT` | every SpendChat AI question answers "Couldn't answer right now" (beta: sample answers instead) |
-| `DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`, `DODO_PAYMENTS_LIVE_MODE`, `DODO_PRODUCTS` | checkout says "Payments aren't available on this server yet", and `/api/webhooks/dodo` answers 503 — **a payment made before the fix never upgrades its workspace until the provider's retries reach a fixed Worker** (8 tries over ~1.5 days; replay from Dodo → Webhooks after that) |
+| `DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`, `DODO_PAYMENTS_LIVE_MODE`, `DODO_PRODUCTS` (and `DODO_BRAND_ID`, optional) | checkout says "Payments aren't available on this server yet", and `/api/webhooks/dodo` answers 503 — **a payment made before the fix never upgrades its workspace until the provider's retries reach a fixed Worker** (8 tries over ~1.5 days; replay from Dodo → Webhooks after that) |
 
 **The AI and mail ones fail *quietly*** — no error, just a feature that stopped
 existing. That is why they are enumerated instead of "it deployed fine".

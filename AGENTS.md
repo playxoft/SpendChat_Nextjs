@@ -111,8 +111,9 @@ Authentication, secrets via Doppler.
   whether an address has an account** — adds answer `invited` either way. ZeptoMail is
   transactional-only — don't add newsletters or drip campaigns to this pipe.
 - **Billing (Dodo Payments, merchant of record)** buys plans and AI top-ups per workspace.
-  Config is four env values (`DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`,
-  `DODO_PAYMENTS_LIVE_MODE` — `true`/`false`, `DODO_PRODUCTS` — from `pnpm billing:products:dev|prod`, built
+  Config is four env values plus one optional (`DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`,
+  `DODO_PAYMENTS_LIVE_MODE` — `true`/`false`, optional `DODO_BRAND_ID` — our brand on a provider
+  account shared with other brands, `DODO_PRODUCTS` — from `pnpm billing:products:dev|prod`, built
   from `src/lib/billing-catalog.ts`); unset = 503 `billing_unavailable`, never a crash. Every
   provider call goes through `src/lib/dodo.ts` (mocked in tests) and counts against a per-person
   hourly cap (`reserveBillingCall`). Rules a change must keep:

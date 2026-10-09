@@ -13,6 +13,10 @@ import { logger } from "@/lib/logger";
  *   DODO_PAYMENTS_WEBHOOK_KEY  the webhook signing secret, `whsec_…`
  *   DODO_PAYMENTS_LIVE_MODE    `true` = live mode, real money; `false` = test mode
  *   DODO_PRODUCTS              the product ids, printed by `pnpm billing:products:*`
+ *   DODO_BRAND_ID              optional: the brand we sell under (`brnd_…`). One
+ *                              provider account can sell for several brands; set,
+ *                              it's what the products are filed under and how the
+ *                              webhook tells our payments from theirs
  *
  * The API host comes from the live-mode switch alone. `DODO_PAYMENTS_BASE_URL`
  * (the provider SDK's override) is never read: setting it together with the
@@ -29,6 +33,8 @@ export type BillingConfig = {
   webhookKey: string;
   /** True when payments are real (live mode); false in test mode. */
   liveMode: boolean;
+  /** Our brand on the provider account (`DODO_BRAND_ID`), or null when unset. */
+  brandId: string | null;
   /** `https://test.dodopayments.com` or `https://live.dodopayments.com`. */
   baseUrl: string;
   products: DodoProducts;
@@ -57,6 +63,7 @@ export function parseBillingConfig(env: {
   webhookKey?: string;
   liveMode?: string;
   products?: string;
+  brandId?: string;
 }): BillingConfigResult {
   const apiKey = env.apiKey?.trim();
   const webhookKey = env.webhookKey?.trim();
@@ -71,6 +78,11 @@ export function parseBillingConfig(env: {
   }
   const products = parseDodoProducts(env.products);
   if (!products.ok) return { ok: false, reason: products.error };
+  const brandId = env.brandId?.trim() || null;
+  // A primary brand's id is the business's own (`bus_…`).
+  if (brandId && !/^(brnd|bus)_[A-Za-z0-9]+$/.test(brandId)) {
+    return { ok: false, reason: "DODO_BRAND_ID must be a brand id (brnd_…)" };
+  }
   return {
     ok: true,
     config: {
@@ -79,6 +91,7 @@ export function parseBillingConfig(env: {
       liveMode,
       baseUrl: liveMode ? DODO_HOSTS.live : DODO_HOSTS.test,
       products: products.products,
+      brandId,
     },
   };
 }
@@ -92,6 +105,7 @@ export function readBillingConfig(): BillingConfigResult {
     webhookKey: process.env.DODO_PAYMENTS_WEBHOOK_KEY,
     liveMode: process.env.DODO_PAYMENTS_LIVE_MODE,
     products: process.env.DODO_PRODUCTS,
+    brandId: process.env.DODO_BRAND_ID,
   });
   if (!result.ok && !warned) {
     warned = true;

@@ -876,13 +876,33 @@ describe("another brand on the same provider account", () => {
     );
     const pay = await deliver(
       "payment.succeeded",
-      paymentData({ payment_id: "pay_theirs", subscription_id: "sub_theirs", checkout_session_id: "cks_theirs", total_amount: 99900, metadata: theirs }),
+      paymentData({
+        payment_id: "pay_theirs",
+        subscription_id: "sub_theirs",
+        checkout_session_id: "cks_theirs",
+        total_amount: 99900,
+        brand_id: "brnd_theirs",
+        metadata: theirs,
+      }),
     );
     expect([sub.status, pay.status]).toEqual([200, 200]);
     expect(await db().select().from(billingWebhookEvents)).toEqual([]);
     expect(await db().select().from(workspaceSubscriptions)).toEqual([]);
     expect(await db().select().from(billingPayments)).toEqual([]);
     expect(await workspaceRow(W)).toMatchObject({ plan: "free", billingHold: null });
+  });
+
+  it("a payment's brand outranks its metadata when DODO_BRAND_ID is set", async () => {
+    await ownWorkspace();
+    // Another brand's payment, even with metadata that looks like ours: dropped.
+    const theirs = await deliver("payment.succeeded", paymentData({ payment_id: "pay_b1", brand_id: "brnd_theirs" }));
+    // Our brand with no mark (and nothing that places it yet): ours, so retried.
+    const ours = await deliver("payment.succeeded", paymentData({ payment_id: "pay_b2", metadata: {} }));
+    expect([theirs.status, ours.status]).toEqual([200, 503]);
+    // Without a brand id configured, the mark decides as before.
+    delete process.env.DODO_BRAND_ID;
+    const marked = await deliver("payment.succeeded", paymentData({ payment_id: "pay_b3", brand_id: "brnd_theirs" }));
+    expect(marked.status).toBe(503);
   });
 
   it("keeps an unmarked event that our rows or products know — older checkouts carried no mark", async () => {

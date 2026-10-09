@@ -206,7 +206,7 @@ new_sqlite_classes = ["RateLimiter"]
 # R2_*, ZEPTOMAIL_*, MAIL_FROM_*, BETTERSTACK_*, LOG_LEVEL, AI_PARSE_MODEL,
 # AI_PARSE_MODEL_CURRENT, AI_TRANSCRIBE_MODEL, AI_TRANSCRIBE_MODEL_CURRENT,
 # AI_CHAT_MODEL, AI_CHAT_MODEL_CURRENT, DODO_PAYMENTS_API_KEY,
-# DODO_PAYMENTS_WEBHOOK_KEY, DODO_PAYMENTS_LIVE_MODE, DODO_PRODUCTS):
+# DODO_PAYMENTS_WEBHOOK_KEY, DODO_PAYMENTS_LIVE_MODE, DODO_PRODUCTS, DODO_BRAND_ID):
 #
 # Anything missing from that list fails *quietly* in the worker — the AI ones in
 # particular just make the composer's AI mode answer "not available" (the
