@@ -56,12 +56,14 @@ export default async function SharedInvoicePage({ params }: { params: Promise<{ 
                 {shared.invoice.status === "void" && " · void — no longer valid"}
               </p>
             </div>
-            <a
-              href={`${base}/pdf?download=1`}
-              className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80"
-            >
-              <Download className="size-4" /> Download PDF
-            </a>
+            {shared.invoice.status !== "void" && (
+              <a
+                href={`${base}/pdf?download=1`}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-primary px-3 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80"
+              >
+                <Download className="size-4" /> Download PDF
+              </a>
+            )}
           </div>
           <InvoicePaper
             invoice={shared.invoice}

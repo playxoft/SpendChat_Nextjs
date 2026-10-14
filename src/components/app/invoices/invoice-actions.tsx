@@ -262,7 +262,10 @@ function MarkPaidDialog({
   const same = doc.currency === workspaceCurrency;
   const [amount, setAmount] = useState(same ? minorToInputString(doc.totalMinor, workspaceCurrency, locale) : "");
   const [paidOn, setPaidOn] = useState(today);
-  const [categoryId, setCategoryId] = useState(incomeCategories[0]?.id ?? "");
+  // Invoice income is usually freelance or business income — preselect that if the workspace has it.
+  const [categoryId, setCategoryId] = useState(
+    incomeCategories.find((c) => /freelanc|business|invoice|sales/i.test(c.name))?.id ?? "",
+  );
   const [pending, startTransition] = useTransition();
   const parsed = amount.trim() ? parseNumber(amount, locale) : null;
   const error = amount.trim() && (parsed === null || parsed <= 0) ? "Enter the amount you received." : null;

@@ -544,6 +544,11 @@ describe("share links", () => {
     // Sending again reuses the live link.
     expect((await sendInvoiceAsLink(A(), W, draft.id)).share.id).toBe(share.id);
 
+    // Voided: the page still says what it was (and that it's void), but the PDF isn't handed out.
+    await voidInvoice(A(), W, draft.id);
+    expect((await resolveInvoiceShare(share.token))?.invoice.status).toBe("void");
+    expect(await getSharedInvoicePdf(share.token)).toBeNull();
+
     expect(await revokeInvoiceShare(A(), W, draft.id, share.id)).toBe(true);
     expect(await resolveInvoiceShare(share.token)).toBeNull();
     expect(await resolveInvoiceShare("not-a-token!")).toBeNull();

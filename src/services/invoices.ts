@@ -453,12 +453,16 @@ async function draftColumns(
   }
   const discountFixedMinor = data.discountType === "fixed" ? priceToMinor(data.discount, data.currency) : 0;
   if (discountFixedMinor === null) throw validationError("The discount is too large");
+  // Rates keep four decimals — the columns' scale — and the totals are worked
+  // out from exactly what's stored, so reopening a draft re-totals the same.
+  const discountRate = data.discountType === "percent" ? roundQuantity(data.discount) : 0;
+  const taxRate = roundQuantity(data.taxRate);
   const figures = computeInvoiceFigures({
     items: priced,
     discountType: data.discountType,
-    discountRate: data.discountType === "percent" ? data.discount : 0,
+    discountRate,
     discountFixedMinor,
-    taxRate: data.taxRate,
+    taxRate,
   });
   if (!figures) throw validationError("These amounts are too large to total exactly");
   figures.lines.forEach((amount, i) => (lines[i]!.amountMinor = amount));
@@ -482,10 +486,10 @@ async function draftColumns(
       dueDate: data.dueDate,
       currency: data.currency,
       discountType: data.discountType,
-      discountRate: String(data.discountType === "percent" ? data.discount : 0),
+      discountRate: String(discountRate),
       discountFixedMinor: Math.min(discountFixedMinor, figures.totals.subtotal),
       taxLabel: data.taxLabel,
-      taxRate: String(data.taxRate),
+      taxRate: String(taxRate),
       subtotalMinor: figures.totals.subtotal,
       discountMinor: figures.totals.discount,
       taxMinor: figures.totals.tax,
@@ -1135,10 +1139,14 @@ export async function resolveInvoiceShare(token: unknown): Promise<SharedInvoice
   return { invoice, locale: money.locale, hasLogo };
 }
 
-/** The PDF behind a share link. */
+/**
+ * The PDF behind a share link — not for a void document: its copy was issued
+ * before it was voided and says nothing of it, so the link's page says it's
+ * void instead of handing that file out.
+ */
 export async function getSharedInvoicePdf(token: unknown): Promise<InvoicePdf | null> {
   const found = await activeShare(token);
-  if (!found) return null;
+  if (!found || found.invoice.status === "void") return null;
   const items = await getDb().select().from(invoiceItems).where(eq(invoiceItems.invoiceId, found.invoice.id));
   const dto = serializeInvoice(found.invoice, items, false);
   return pdfOf(dto, found.invoice.workspaceId, found.invoice.pdfKey);

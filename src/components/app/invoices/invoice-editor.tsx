@@ -149,14 +149,18 @@ export function InvoiceEditor({
 
   const pickProfile = (id: string) => {
     setProfileId(id);
-    // Saved clients and details belong to a profile — the picks don't carry over.
+    // Saved clients and details belong to a profile — a pick from another one doesn't carry over.
     if (clientId && !clientList.some((c) => c.id === clientId && c.profileId === id)) setClientId(null);
-    const sellerHere = sellers.find((s) => s.profileId === id);
-    if (sellerId && !sellers.some((s) => s.id === sellerId && s.profileId === id)) {
-      setSellerId(null);
-      update({ logo: null });
+    const sellerStays = sellerId !== null && sellers.some((s) => s.id === sellerId && s.profileId === id);
+    if (!sellerStays) {
+      const here = sellers.find((s) => s.profileId === id);
+      if (here) {
+        pickSellerFrom(here);
+      } else {
+        setSellerId(null);
+        update({ logo: null });
+      }
     }
-    if (!sellerId && sellerHere && !doc.from.name.trim()) pickSellerFrom(sellerHere);
   };
   const pickSellerFrom = (seller: InvoiceSellerDTO) => {
     setSellerId(seller.id);
