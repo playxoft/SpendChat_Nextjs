@@ -32,6 +32,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   the window on every page**, instead of wherever that page's content column
   ended (which on most pages was well inside the screen). They also stay in
   place while you scroll and when you move between pages.
+- A page's own top-right buttons (Bulk add, Print, the Files toolbar…) line up
+  with the right edge of that page's content again, with no gap — they only
+  step aside on a window narrow enough to reach the corner.
 
 ## [0.41.0] — 2026-10-09
 
