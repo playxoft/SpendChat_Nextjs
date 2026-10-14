@@ -51,6 +51,15 @@ export type AddLimitsData = {
   freeOwned?: number;
   profileLevelAccess: boolean;
   voice: boolean;
+  /**
+   * Invoicing's free tier: invoices + quotes this month, saved clients and
+   * business details. Optional so older callers/tests fit; absent = no lock.
+   * No plan lifts these, so they show their own note rather than the upgrade
+   * lock.
+   */
+  invoices?: AddMeter;
+  invoiceClients?: AddMeter;
+  invoiceSellers?: AddMeter;
 };
 
 export type AddLockKind =

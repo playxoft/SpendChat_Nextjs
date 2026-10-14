@@ -1,4 +1,4 @@
-import { ChartColumn, FolderOpen, MessageSquare, PiggyBank, Sparkles, Split, Table2 } from "lucide-react";
+import { ChartColumn, FolderOpen, MessageSquare, PiggyBank, ReceiptText, Sparkles, Split, Table2 } from "lucide-react";
 import { comboFor } from "@/lib/shortcuts";
 import { canonicalProfileParam } from "@/lib/profile-scope";
 
@@ -19,6 +19,7 @@ export const navItems = [
   { href: "/app/analytics", label: "Analytics", icon: ChartColumn, exact: false, shortcut: comboFor("nav.analytics") },
   { href: "/app/budgets", label: "Budgets", icon: PiggyBank, exact: false, shortcut: comboFor("nav.budgets") },
   { href: "/app/files", label: "Files", icon: FolderOpen, exact: false, shortcut: comboFor("nav.files") },
+  { href: "/app/invoices", label: "Invoices", icon: ReceiptText, exact: false, shortcut: comboFor("nav.invoices") },
 ] as const;
 
 /**

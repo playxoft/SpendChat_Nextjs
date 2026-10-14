@@ -269,8 +269,29 @@ const TERM_CHIPS: Record<InvoiceKind, number[]> = { invoice: [0, 7, 15, 30], quo
  * format so they read (and re-parse) the way the person types them. `logo` is
  * the URL the paper should draw, when there is one.
  */
+/** What `invoiceToDoc` reads off an invoice. */
+export type InvoiceDocSource = Pick<
+  InvoiceDTO,
+  | "kind"
+  | "quoteTitle"
+  | "number"
+  | "issueDate"
+  | "dueDate"
+  | "seller"
+  | "client"
+  | "discountType"
+  | "discountRate"
+  | "discountFixedMinor"
+  | "taxLabel"
+  | "taxRate"
+  | "notes"
+  | "terms"
+  | "currency"
+  | "showCredit"
+> & { items: Omit<InvoiceItemDTO, "position">[] };
+
 export function invoiceToDoc(
-  invoice: Omit<InvoiceDTO, "items"> & { items: Omit<InvoiceItemDTO, "position">[] },
+  invoice: InvoiceDocSource,
   { locale, logo = null }: { locale: string; logo?: string | null },
 ): BusinessDoc {
   const currency = isSupportedCurrency(invoice.currency) ? invoice.currency : "USD";
@@ -389,6 +410,11 @@ export function invoicePayment(
   });
   if (!link) return null;
   return { label: "Pay by UPI", upiId: invoice.upiId, qr: qrMatrix(link) };
+}
+
+/** The URL the app's paper draws a seller's logo from (its version keeps a changed logo from showing stale). */
+export function sellerLogoUrl(seller: { id: string; hasLogo: boolean; logoVersion: string | null }): string | null {
+  return seller.hasLogo ? `/api/invoices/sellers/${seller.id}/logo?v=${seller.logoVersion ?? ""}` : null;
 }
 
 /** A safe download name: `INV-0007.pdf`, or `draft-invoice.pdf` before it has a number. */

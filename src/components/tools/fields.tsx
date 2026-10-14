@@ -506,3 +506,33 @@ export function ChoiceChips({
     </fieldset>
   );
 }
+
+/** A multi-line field with the same shape as the shared text fields. */
+export function TextAreaField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  maxLength: number;
+}) {
+  const id = useId();
+  return (
+    <Field id={id} label={label}>
+      <textarea
+        id={id}
+        value={value}
+        rows={3}
+        maxLength={maxLength}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="field-sizing-content min-h-24 w-full min-w-0 resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-base leading-relaxed outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 dark:bg-input/30"
+      />
+    </Field>
+  );
+}

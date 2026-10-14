@@ -16,7 +16,7 @@ import type { TxnTagDTO } from "@/lib/tags";
 
 /**
  * App-wide keyboard shortcuts that work from any page: jump between sections
- * (q/c/t/e/s…), add a transaction (r) or bulk add (b), and show the shortcuts
+ * (q/c/t/e/i/s…), add a transaction (r) or bulk add (b), and show the shortcuts
  * cheat sheet (/). The dialogs are mounted here so the keys open them anywhere.
  * (The tracker's Manual/AI toggle, `a`, lives in the composer since it needs its
  * state — see `transaction-composer.tsx`.)
@@ -69,6 +69,7 @@ export function GlobalShortcuts({
   useShortcut(comboFor("nav.analytics"), () => router.push(hrefWithProfile("/app/analytics", profileParam)), nav);
   useShortcut(comboFor("nav.budgets"), () => router.push(hrefWithProfile("/app/budgets", profileParam)), nav);
   useShortcut(comboFor("nav.files"), () => router.push(hrefWithProfile("/app/files", profileParam)), nav);
+  useShortcut(comboFor("nav.invoices"), () => router.push(hrefWithProfile("/app/invoices", profileParam)), nav);
   // Split lives outside workspaces, so it doesn't carry the profile along.
   useShortcut(comboFor("nav.split"), () => router.push("/app/split"), nav);
   useShortcut(comboFor("nav.settings"), () => router.push(hrefWithProfile("/app/settings", profileParam)), nav);
