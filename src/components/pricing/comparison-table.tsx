@@ -146,7 +146,7 @@ function sections(currency: Currency, selfHost: boolean): { title: string; rows:
         },
         {
           label: "Files vault & share links",
-          hint: "Folders, tags and a link you can send to anyone, for any file.",
+          hint: "Folders, descriptions and a link you can send to anyone, for any file.",
           cell: everywhere(true),
         },
         {

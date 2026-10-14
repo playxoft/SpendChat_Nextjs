@@ -73,7 +73,7 @@ export const faqs: Faq[] = [
   },
   {
     q: "Can I attach receipts to a transaction?",
-    a: `Yes. Attach receipts, bills or invoices to any transaction, or keep them in a Drive-style vault with folders, colour tags and share links. A workspace gets ${storage("free")} of storage on Free, ${storage("plus")} on Plus and ${storage("pro")} on Pro.`,
+    a: `Yes. Attach receipts, bills or invoices to any transaction, or keep them in a Drive-style vault with folders, searchable descriptions and share links. A workspace gets ${storage("free")} of storage on Free, ${storage("plus")} on Plus and ${storage("pro")} on Pro.`,
   },
   {
     q: "Does SpendChat work offline or as an installed app?",

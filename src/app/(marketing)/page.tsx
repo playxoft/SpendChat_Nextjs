@@ -76,7 +76,7 @@ const spendByCategory = [
 
 /** The vault's specifics, server-rendered beside the live panel. */
 const fileFacts = [
-  "Folders you can colour, tags you define",
+  "Folders you can colour, files that say what they are",
   "Grid, list or column view",
   "Drag files in from your desktop",
   "A revocable share link per file",
@@ -418,8 +418,9 @@ export default function LandingPage() {
               <p className="mt-3 leading-relaxed text-muted-foreground">
                 Attach a bill, invoice or photo to any transaction and it lands
                 in the vault beside it. Everything else lives in folders you
-                colour and tags you define — and when someone needs one document
-                rather than your account, they get a link to that one document.
+                colour, each file with a line on what it is — and when someone
+                needs one document rather than your account, they get a link to
+                that one document.
               </p>
               {/* Rendered on the server, so the specifics are readable — and
                   indexable — whether or not the panel beside them ever loads. */}
