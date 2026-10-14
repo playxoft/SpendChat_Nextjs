@@ -6,6 +6,10 @@ import { deleteTag, updateTag } from "@/services/files";
 
 export const dynamic = "force-dynamic";
 
+// Deprecated since API 6.12.0: the web app no longer shows or edits vault tags
+// (descriptions replaced them). These endpoints keep working, unchanged, so the
+// Flutter app's existing calls don't break; nothing is deleted.
+
 type Ctx = { params: Promise<{ id: string }> };
 
 /**

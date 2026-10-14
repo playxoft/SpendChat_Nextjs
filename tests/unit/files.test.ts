@@ -9,15 +9,18 @@ import {
   resolveFileType,
   tagIdsSchema,
   updateFileSchema,
+  updateFolderSchema,
   vaultColorSchema,
+  vaultDescriptionSchema,
+  VAULT_DESCRIPTION_MAX,
 } from "@/lib/validation";
 import {
-  FILE_CATEGORY_LABELS,
   VAULT_COLORS,
   computeFolderSizes,
   contentDisposition,
   fileTypeLabel,
   formatStorageCompact,
+  normalizeVaultQuery,
   profileAccentColor,
   rendersInBrowser,
   serializeFile,
@@ -25,8 +28,8 @@ import {
   serializeFolder,
   serializeTag,
   storageUsageTone,
+  vaultTextMatches,
 } from "@/lib/files";
-import { FILE_CATEGORIES } from "@/lib/validation";
 import { PLAN_LIMITS } from "@/lib/plans";
 
 const UUID = "0198f6a2-0000-7000-8000-000000000000";
@@ -243,13 +246,69 @@ describe("share + folder input schemas", () => {
   });
 });
 
-describe("lib/files display helpers", () => {
-  it("labels every preset category", () => {
-    for (const c of FILE_CATEGORIES) {
-      expect(FILE_CATEGORY_LABELS[c]).toBeTruthy();
-    }
+describe("vault descriptions — validation", () => {
+  it("trims, and turns a blank description into null", () => {
+    expect(vaultDescriptionSchema.parse("  Sale deed, plot 42  ")).toBe("Sale deed, plot 42");
+    expect(vaultDescriptionSchema.parse("")).toBeNull();
+    expect(vaultDescriptionSchema.parse("   \n\t ")).toBeNull();
+    expect(vaultDescriptionSchema.parse(null)).toBeNull();
+    // Absent stays absent — PATCH leaves the stored description alone.
+    expect(vaultDescriptionSchema.parse(undefined)).toBeUndefined();
   });
 
+  it("allows exactly 250 characters and refuses 251", () => {
+    expect(VAULT_DESCRIPTION_MAX).toBe(250);
+    const max = "a".repeat(VAULT_DESCRIPTION_MAX);
+    expect(vaultDescriptionSchema.parse(max)).toBe(max);
+    expect(vaultDescriptionSchema.safeParse(`${max}b`).success).toBe(false);
+    // The cap applies after trimming: padding doesn't count against it.
+    expect(vaultDescriptionSchema.parse(`  ${max}  `)).toBe(max);
+  });
+
+  it("keeps line breaks inside the text", () => {
+    expect(vaultDescriptionSchema.parse("Plot 42\nRegistered 2019")).toBe(
+      "Plot 42\nRegistered 2019",
+    );
+  });
+
+  it("rides on folder create and on file + folder updates", () => {
+    expect(
+      createFolderSchema.parse({ profileId: UUID, name: "Land", description: " Deeds " })
+        .description,
+    ).toBe("Deeds");
+    expect(createFolderSchema.parse({ profileId: UUID, name: "Land" }).description).toBeUndefined();
+    expect(updateFolderSchema.parse({ id: UUID, description: "" }).description).toBeNull();
+    expect(updateFileSchema.parse({ id: UUID, description: null }).description).toBeNull();
+    expect(updateFileSchema.parse({ id: UUID, name: "a.pdf" }).description).toBeUndefined();
+    expect(
+      updateFileSchema.safeParse({ id: UUID, description: "x".repeat(251) }).success,
+    ).toBe(false);
+    expect(updateFileSchema.safeParse({ id: UUID, description: 42 }).success).toBe(false);
+  });
+});
+
+describe("vault search — names and descriptions", () => {
+  const match = (q: string, texts: (string | null | undefined)[]) =>
+    vaultTextMatches(normalizeVaultQuery(q), texts);
+
+  it("matches the description as well as the name", () => {
+    expect(match("plot 42", ["deed.pdf", "Sale deed for plot 42"])).toBe(true);
+    expect(match("deed", ["deed.pdf", null])).toBe(true);
+    expect(match("warranty", ["deed.pdf", "Sale deed for plot 42"])).toBe(false);
+  });
+
+  it("uses the name's rules for the description: trimmed, case-insensitive substring", () => {
+    expect(match("  PLOT  ", ["deed.pdf", "sale deed for plot 42"])).toBe(true);
+    expect(match("Registered", ["x", "Plot 42\nregistered 2019"])).toBe(true);
+  });
+
+  it("treats a missing description as no text, and an empty query as everything", () => {
+    expect(match("deed", [null, undefined])).toBe(false);
+    expect(match("   ", ["anything", null])).toBe(true);
+  });
+});
+
+describe("lib/files display helpers", () => {
   it("labels media and archive types the attachments label map doesn't know", () => {
     expect(fileTypeLabel("video/mp4")).toBe("Video");
     expect(fileTypeLabel("audio/mpeg")).toBe("Audio");
@@ -265,6 +324,7 @@ describe("lib/files display helpers", () => {
       profileId: "p",
       folderId: null,
       name: "deed.pdf",
+      description: "Sale deed, plot 42",
       contentType: "application/pdf",
       sizeBytes: 1234,
       category: "land",
@@ -275,6 +335,7 @@ describe("lib/files display helpers", () => {
     expect(file.createdAt).toBe(createdAt.toISOString());
     expect(file.hasThumbnail).toBe(true);
     expect(file.tagIds).toEqual([UUID]);
+    expect(file.description).toBe("Sale deed, plot 42");
     expect("r2Key" in file).toBe(false);
     expect("thumbnailKey" in file).toBe(false);
 
@@ -283,6 +344,7 @@ describe("lib/files display helpers", () => {
       profileId: "p",
       parentId: null,
       name: "Transaction attachments",
+      description: null,
       color: "#3b82f6",
       systemKey: "transactions",
       tagIds: [],
@@ -294,6 +356,7 @@ describe("lib/files display helpers", () => {
     expect(folder.createdAt).toBe(createdAt.toISOString());
     expect(folder.updatedAt).toBe(createdAt.toISOString());
     expect(folder.createdByName).toBeNull();
+    expect(folder.description).toBeNull();
 
     const tag = serializeTag({
       id: "t",
@@ -327,6 +390,7 @@ describe("lib/files display helpers", () => {
       profileId: "p",
       folderId: null,
       name: "holiday.mkv",
+      description: null,
       contentType: "application/octet-stream",
       sizeBytes: 10,
       category: null,

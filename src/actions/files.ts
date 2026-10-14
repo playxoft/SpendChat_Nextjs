@@ -5,21 +5,20 @@ import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { notFound } from "@/lib/errors";
 import { runAction, type ActionResult } from "@/lib/action-result";
 import * as filesService from "@/services/files";
-import type { FileDTO, FileShareDTO, FolderDTO, TagDTO } from "@/lib/files";
+import type { FileDTO, FileShareDTO, FolderDTO } from "@/lib/files";
 import type {
   CreateFileShareInput,
   CreateFolderInput,
-  CreateTagInput,
   UpdateFileInput,
   UpdateFolderInput,
-  UpdateTagInput,
 } from "@/lib/validation";
 
 /**
  * Web server actions for the files vault. Upload (multipart) and view/download
  * (streaming/redirect) go through route handlers under `/api/files`; these are
  * the JSON-shaped operations the vault page needs. All RBAC + validation lives
- * in `src/services/files.ts`.
+ * in `src/services/files.ts`. Vault tags have no actions: the web app no longer
+ * shows or edits them (only `/api/v1/file-tags` does, for API clients).
  */
 
 function revalidateFiles() {
@@ -42,7 +41,7 @@ export async function createFolder(
   );
 }
 
-/** Rename / re-tag / move a folder (editor). */
+/** Rename / recolor / describe / move a folder (editor). */
 export async function updateFolder(
   input: UpdateFolderInput,
 ): Promise<ActionResult<{ folder: FolderDTO }>> {
@@ -76,7 +75,7 @@ export async function deleteFolder(id: string): Promise<ActionResult<{ trashed: 
   );
 }
 
-/** Rename / re-categorize / re-tag / move a file (editor). */
+/** Rename / describe / move a file (editor). */
 export async function updateFile(
   input: UpdateFileInput,
 ): Promise<ActionResult<{ file: FileDTO }>> {
@@ -104,56 +103,6 @@ export async function deleteFile(id: string): Promise<ActionResult<{ trashed: bo
       if (!outcome) throw notFound("File not found");
       revalidateFiles();
       return { trashed: outcome === "trashed" };
-    },
-    { userId: user.id, workspaceId: workspace.id },
-  );
-}
-
-/** Create a tag (per-profile; editor). Only created tags can be applied. */
-export async function createTag(
-  input: CreateTagInput,
-): Promise<ActionResult<{ tag: TagDTO }>> {
-  const user = await requireUser();
-  const workspace = await getCurrentWorkspace(user.id);
-  return runAction(
-    "createTag",
-    async () => {
-      const tag = await filesService.createTag(user.id, workspace.id, input);
-      revalidateFiles();
-      return { tag };
-    },
-    { userId: user.id, workspaceId: workspace.id },
-  );
-}
-
-/** Rename/recolor a tag — every tagged item updates at once (editor). */
-export async function updateTag(
-  input: UpdateTagInput,
-): Promise<ActionResult<{ tag: TagDTO }>> {
-  const user = await requireUser();
-  const workspace = await getCurrentWorkspace(user.id);
-  return runAction(
-    "updateTag",
-    async () => {
-      const tag = await filesService.updateTag(user.id, workspace.id, input);
-      revalidateFiles();
-      return { tag };
-    },
-    { userId: user.id, workspaceId: workspace.id },
-  );
-}
-
-/** Delete a tag and detach it from every file/folder (editor). */
-export async function deleteTag(id: string): Promise<ActionResult> {
-  const user = await requireUser();
-  const workspace = await getCurrentWorkspace(user.id);
-  return runAction(
-    "deleteTag",
-    async () => {
-      const removed = await filesService.deleteTag(user.id, workspace.id, id);
-      if (!removed) throw notFound("Tag not found");
-      revalidateFiles();
-      return {};
     },
     { userId: user.id, workspaceId: workspace.id },
   );

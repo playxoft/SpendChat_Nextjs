@@ -127,7 +127,8 @@ export function computeFolderSizes(
   return totals;
 }
 
-/** A vault tag (per-profile entity; items reference it by id). */
+/** A vault tag (per-profile entity; items reference it by id). Deprecated: the
+ * web app no longer shows or edits them; the API still serves them. */
 export type TagDTO = {
   id: string;
   profileId: string;
@@ -144,11 +145,14 @@ export type FolderDTO = {
   /** null = a root folder. */
   parentId: string | null;
   name: string;
+  /** What the folder holds (≤ `VAULT_DESCRIPTION_MAX` chars), or null. */
+  description: string | null;
   /** Accent hex, or null for the neutral default. */
   color: string | null;
+  /** Deprecated (API only): the web app no longer shows tags. */
   tagIds: string[];
   /** True for a predefined folder (e.g. "Transaction attachments"): can be
-   * recolored/tagged but never renamed, moved, deleted, shared, or given
+   * recolored or described but never renamed, moved, deleted, shared, or given
    * children. */
   system: boolean;
   createdAt: string;
@@ -164,9 +168,13 @@ export type FileDTO = {
   /** null = the profile's root. */
   folderId: string | null;
   name: string;
+  /** What the file is (≤ `VAULT_DESCRIPTION_MAX` chars), or null. */
+  description: string | null;
   contentType: string;
   sizeBytes: number;
+  /** Deprecated (API only): the web app no longer shows the preset category. */
   category: FileCategory | null;
+  /** Deprecated (API only): the web app no longer shows tags. */
   tagIds: string[];
   /** True when a small preview object exists (see `fileThumbUrl`). */
   hasThumbnail: boolean;
@@ -239,6 +247,7 @@ export function serializeFolder(row: {
   profileId: string;
   parentId: string | null;
   name: string;
+  description: string | null;
   color: string | null;
   systemKey: string | null;
   tagIds: string[];
@@ -251,6 +260,7 @@ export function serializeFolder(row: {
     profileId: row.profileId,
     parentId: row.parentId,
     name: row.name,
+    description: row.description ?? null,
     color: row.color,
     tagIds: row.tagIds,
     system: row.systemKey != null,
@@ -266,6 +276,7 @@ export function serializeFile(row: {
   profileId: string;
   folderId: string | null;
   name: string;
+  description: string | null;
   contentType: string;
   sizeBytes: number;
   category: string | null;
@@ -281,6 +292,7 @@ export function serializeFile(row: {
     profileId: row.profileId,
     folderId: row.folderId,
     name: row.name,
+    description: row.description ?? null,
     // Re-derived, not echoed: rows written before the media map exists are
     // `application/octet-stream`, and every view keys its icon, label, and
     // preview off this field (see `effectiveContentType`).
@@ -353,16 +365,24 @@ export const shareFileThumbUrl = (token: string, fileId: string): string =>
 export const SYSTEM_FOLDER_NOTICE =
   "This is a predefined folder for files attached to transactions. It can't be renamed, moved, or deleted, and folders or uploads can't be added here — attach a file to a transaction and it appears here automatically.";
 
-/** Human labels for the preset document categories. */
-export const FILE_CATEGORY_LABELS: Record<FileCategory, string> = {
-  "board-resolution": "Board resolution",
-  company: "Company document",
-  personal: "Personal document",
-  land: "Land document",
-  house: "House document",
-  certificate: "Certificate",
-  other: "Other",
-};
+/**
+ * The Files search's one rule, shared by every list it filters: the query,
+ * trimmed and lower-cased, as a substring of any of the item's searchable
+ * texts — a file's or folder's name and description, a transaction file's name
+ * and transaction title. An empty query matches everything.
+ */
+export function normalizeVaultQuery(q: string): string {
+  return q.trim().toLowerCase();
+}
+
+export function vaultTextMatches(
+  /** Already normalized (`normalizeVaultQuery`). */
+  query: string,
+  texts: readonly (string | null | undefined)[],
+): boolean {
+  if (query === "") return true;
+  return texts.some((text) => (text ?? "").toLowerCase().includes(query));
+}
 
 export const isVideoContentType = (contentType: string): boolean =>
   contentType.startsWith("video/");

@@ -7,6 +7,10 @@ import { createTag } from "@/services/files";
 
 export const dynamic = "force-dynamic";
 
+// Deprecated since API 6.12.0: the web app no longer shows or edits vault tags
+// (descriptions replaced them). These endpoints keep working, unchanged, so the
+// Flutter app's existing calls don't break; nothing is deleted.
+
 /**
  * GET /api/v1/file-tags — the vault tags of the accessible profiles in the
  * current workspace (`?profile=<uuid>` scopes to one), name-ascending. Tags

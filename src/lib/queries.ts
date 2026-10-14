@@ -1264,6 +1264,7 @@ export async function listVaultFolders(
       profileId: folders.profileId,
       parentId: folders.parentId,
       name: folders.name,
+      description: folders.description,
       color: folders.color,
       systemKey: folders.systemKey,
       tagIds: folders.tagIds,
@@ -1285,6 +1286,7 @@ const vaultFileColumns = {
   profileId: files.profileId,
   folderId: files.folderId,
   name: files.name,
+  description: files.description,
   contentType: files.contentType,
   sizeBytes: files.sizeBytes,
   category: files.category,
@@ -1366,6 +1368,7 @@ export async function listVaultFiles(
       profileId: page.profileId,
       folderId: page.folderId,
       name: page.name,
+      description: page.description,
       contentType: page.contentType,
       sizeBytes: page.sizeBytes,
       category: page.category,
@@ -1444,8 +1447,9 @@ export async function getTrashBytes(workspaceId: string): Promise<number> {
  */
 export const getWorkspaceStorageUsageCached = cache(getWorkspaceStorageUsage);
 
-/** Vault tags of the accessible profiles (optionally one), for the pickers
- * and for resolving items' `tagIds` into names + colors client-side. */
+/** Vault tags of the accessible profiles (optionally one), for API clients
+ * resolving items' `tagIds` into names + colors (deprecated — the web app no
+ * longer shows tags). */
 export async function listVaultTags(
   userId: string,
   workspaceId: string,

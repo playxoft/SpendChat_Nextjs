@@ -15,7 +15,8 @@ export const dynamic = "force-dynamic";
 /**
  * GET /api/v1/files — the vault working set in one call, mirroring the web
  * page load: every folder, file, transaction file, and tag the caller can view
- * in the current workspace. `?profile=<uuid>` scopes to one profile; anything
+ * in the current workspace (`tags` is deprecated — the web app no longer shows
+ * them). `?profile=<uuid>` scopes to one profile; anything
  * else (incl. `all` or omitted) means every accessible profile. Files are
  * capped at `VAULT_FILES_LIMIT` (newest first) — `meta.filesCapped` says when
  * the cap was hit. Also lazily materializes each profile's "Transaction
@@ -46,7 +47,8 @@ export async function GET(request: NextRequest) {
 /**
  * POST /api/v1/files — upload files into the vault (multipart, editor only).
  * Bearer-auth twin of the web upload route. Form fields: `profileId`
- * (required), `folderId` (optional; omit for the profile's root), files under
+ * (required), `folderId` (optional; omit for the profile's root), `description`
+ * (optional; ≤ 250 characters, given to every file in the request), files under
  * `files` (repeatable; `file` also accepted), and an optional client-generated
  * preview per file under `thumb_<index>` (webp). Types are permissive (unlike
  * transaction attachments); the 5 MB cap applies to each file **and** each
@@ -74,8 +76,16 @@ export async function POST(request: NextRequest) {
     }
     const folderRaw = form.get("folderId");
     const folderId = typeof folderRaw === "string" && folderRaw ? folderRaw : null;
+    // Optional; validated (≤ 250, trimmed, blank = none) in the service.
+    const descriptionRaw = form.get("description");
+    const description = typeof descriptionRaw === "string" ? descriptionRaw : undefined;
 
-    const created = await uploadVaultFiles(user.id, workspace.id, { profileId, folderId }, uploads);
+    const created = await uploadVaultFiles(
+      user.id,
+      workspace.id,
+      { profileId, folderId, description },
+      uploads,
+    );
     return apiOk(created, 201);
   });
 }

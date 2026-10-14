@@ -37,7 +37,8 @@ export default async function FilesPage({
 
   // Exactly what `GET /api/v1/files` serves the Flutter app — one function, so
   // the two working sets can't drift.
-  const [{ folders, files, transactionFiles, tags, storageUsedBytes, filesCapped }, trashBytes] =
+  // (Its `tags` are for API clients — the web vault no longer shows them.)
+  const [{ folders, files, transactionFiles, storageUsedBytes, filesCapped }, trashBytes] =
     await Promise.all([
       getVaultWorkingSet(user.id, workspace.id, activeProfileId ?? scope.profileIds, {
         dedupeStorageRead: true,
@@ -51,7 +52,6 @@ export default async function FilesPage({
         folders={folders}
         files={files}
         txnFiles={transactionFiles}
-        tags={tags}
         profiles={shownProfiles.map((p) => ({ id: p.id, name: p.name, icon: p.icon, color: p.color }))}
         activeProfileId={activeProfileId ?? null}
         currency={workspace.currency}

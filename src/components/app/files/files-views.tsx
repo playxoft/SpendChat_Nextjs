@@ -52,7 +52,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { attachmentGlyph } from "@/components/app/attachments/attachment-icon";
 import { attachmentDownloadUrl, attachmentThumbUrl, formatFileSize } from "@/lib/attachments";
 import {
-  FILE_CATEGORY_LABELS,
   fileDownloadUrl,
   fileThumbUrl,
   fileTypeLabel,
@@ -60,13 +59,11 @@ import {
   profileAccentColor,
   type FileDTO,
   type FolderDTO,
-  type TagDTO,
   type TxnFileDTO,
   type VaultProfile,
 } from "@/lib/files";
 import { formatMoney } from "@/lib/money";
 import { cn } from "@/lib/utils";
-import { TagChip } from "./vault-tags";
 
 /** An action the per-item menus can request; download is a plain link. */
 export type VaultAction = "edit" | "move" | "share" | "delete";
@@ -83,16 +80,15 @@ export const VAULT_DRAG_MIME = "application/x-spendchat-vault";
 export type VaultHandlers = {
   canWrite: boolean;
   /** True when "All profiles" is active. Items must then name their own profile
-   * wherever no divider above them already does — search and tag-filter results
-   * are flat and interleave profiles, so two files called `deed.pdf` from
-   * different profiles would otherwise be indistinguishable. */
+   * wherever no divider above them already does — search results are flat and
+   * interleave profiles, so two files called `deed.pdf` from different
+   * profiles would otherwise be indistinguishable. */
   allProfiles: boolean;
   currency: string;
   locale: string;
   /** A profile's display label ("💼 Business"), or null once a single profile
    * is selected — every row then belongs to it and saying so is noise. */
   profileLabel: (profileId: string) => string | null;
-  tagById: (id: string) => TagDTO | undefined;
   /** Total bytes in a folder incl. descendants (0 = empty), from the working set. */
   folderSize: (folderId: string) => number;
   openFolder: (folderId: string) => void;
@@ -145,45 +141,10 @@ export function TxnAmount({
   );
 }
 
-/** Colored tag labels resolved from the profile's tag entities. */
-export function TagChips({
-  tagIds,
-  handlers,
-  max = 2,
-  oneLine = false,
-}: {
-  tagIds: string[];
-  handlers: VaultHandlers;
-  max?: number;
-  /** Never wrap: clip to a single line (pair with a hover tooltip for the rest). */
-  oneLine?: boolean;
-}) {
-  const tags = tagIds
-    .map((id) => handlers.tagById(id))
-    .filter((t): t is TagDTO => t != null);
-  if (tags.length === 0) return null;
-  const shown = tags.slice(0, max);
-  return (
-    <span
-      className={cn(
-        "flex items-center gap-1",
-        oneLine ? "min-w-0 overflow-hidden" : "flex-wrap",
-      )}
-    >
-      {shown.map((t) => (
-        <TagChip key={t.id} tag={t} />
-      ))}
-      {tags.length > max ? (
-        <span className="shrink-0 text-sm text-muted-foreground">+{tags.length - max}</span>
-      ) : null}
-    </span>
-  );
-}
-
 /**
  * The item's own profile label. Rendered only where no `ProfileDivider` above
  * the item already names it — the grouped root drops it as redundant, but a
- * flat listing (search results, a tag filter, inside a folder) has to keep it
+ * flat listing (search results, inside a folder) has to keep it
  * or "All profiles" shows two identically-named rows with nothing to tell them
  * apart before a Delete lands on the wrong one.
  */
@@ -350,8 +311,8 @@ export function useFolderDrop(
  * already names the profile whose items follow, which makes it the obvious thing
  * to aim at.
  *
- * Internal item drags are deliberately NOT accepted — a file's folder, tags and
- * share links are all profile-scoped, so moving one across profiles is a real
+ * Internal item drags are deliberately NOT accepted — a file's folder and
+ * share links are both profile-scoped, so moving one across profiles is a real
  * operation, not something a drop on a section heading should quietly perform.
  * They're refused *loudly* (claimed, then `dropEffect = "none"`) rather than
  * ignored: in the column view this bar sits inside the column's own root drop
@@ -448,7 +409,7 @@ function VaultMenuEntries({
         </M.Item>
         {handlers.canWrite && folder.system ? (
           <M.Item onSelect={() => handlers.onAction("edit", target)}>
-            <Palette /> Color &amp; tags
+            <Palette /> Color
           </M.Item>
         ) : null}
         {handlers.canWrite && !folder.system ? (
@@ -725,7 +686,7 @@ export function VaultEmptyState({ searching, canWrite }: { searching: boolean; c
       <p className="text-sm font-medium">{searching ? "No matches" : "No files here yet"}</p>
       <p className="max-w-xs text-xs text-muted-foreground">
         {searching
-          ? "Try a different name, tag, or category."
+          ? "Try another word from a name or a description."
           : canWrite
             ? "Upload documents or create a folder to organize board resolutions, land papers, certificates and more."
             : "Files someone uploads to this profile will appear here."}
@@ -739,14 +700,29 @@ export function VaultEmptyState({ searching, canWrite }: { searching: boolean; c
 const CARD =
   "group flex w-full flex-col gap-1.5 rounded-lg border bg-card p-2 text-left transition-all hover:bg-accent/40 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none";
 
+/**
+ * A description under an item's name in a tile: muted, at most two lines. The
+ * hover card (and the list view's cell title) carries the full text.
+ */
+function DescriptionLine({ text }: { text: string | null }) {
+  if (!text) return null;
+  return <p className="line-clamp-2 text-xs break-words text-muted-foreground">{text}</p>;
+}
+
+/** The full description inside a hover card — kept to the card's width, line
+ * breaks as typed. */
+function TooltipDescription({ text }: { text: string | null }) {
+  if (!text) return null;
+  return <p className="max-w-56 text-xs break-words whitespace-pre-line">{text}</p>;
+}
+
 /** Full folder metadata, shown instantly when a grid tile or column row is
  * hovered. Column rows pass `side="right"` so the tooltip doesn't cover the
  * rows above/below.
  *
  * `variant="surface"` because this is a card, not a hint: it carries a heading,
- * a metadata block and the folder's own tag chips, whose colors are picked
- * against the app background — on the default inverted tooltip they'd sit on a
- * white panel in dark mode and wash out. */
+ * the description and a metadata block, and reads as part of the page rather
+ * than as an inverted hint panel. */
 export function FolderMetaTooltip({
   folder,
   handlers,
@@ -756,9 +732,6 @@ export function FolderMetaTooltip({
   handlers: VaultHandlers;
   side?: "top" | "right" | "bottom" | "left";
 }) {
-  const tags = folder.tagIds
-    .map((id) => handlers.tagById(id))
-    .filter((t): t is TagDTO => t != null);
   const size = handlers.folderSize(folder.id);
   return (
     <TooltipContent
@@ -769,13 +742,7 @@ export function FolderMetaTooltip({
       className="flex-col items-start gap-1.5"
     >
       <p className="text-xs font-medium">{folder.name}</p>
-      {tags.length > 0 ? (
-        <span className="flex max-w-56 flex-wrap gap-1">
-          {tags.map((t) => (
-            <TagChip key={t.id} tag={t} />
-          ))}
-        </span>
-      ) : null}
+      <TooltipDescription text={folder.description} />
       <div className="space-y-0.5 text-sm opacity-80">
         <p>{size > 0 ? formatFileSize(size) : "Empty"}</p>
         {folder.createdByName ? <p>Created by {folder.createdByName}</p> : null}
@@ -830,20 +797,22 @@ function FolderCard({
                     <Lock className="size-3 shrink-0 text-muted-foreground" aria-hidden />
                   ) : null}
                 </div>
+                <DescriptionLine text={folder.description} />
                 {folder.createdByName ? (
                   <div className="truncate text-xs text-muted-foreground">
                     By {folder.createdByName}
                   </div>
                 ) : null}
-                <div className="mt-1 flex items-center gap-1 overflow-hidden">
-                  {folder.system ? (
-                    <span className="shrink-0 text-sm text-muted-foreground">Predefined</span>
-                  ) : null}
-                  <TagChips tagIds={folder.tagIds} handlers={handlers} oneLine />
-                  {showProfile ? (
-                    <ProfileChip profileId={folder.profileId} handlers={handlers} />
-                  ) : null}
-                </div>
+                {folder.system || showProfile ? (
+                  <div className="mt-1 flex items-center gap-1 overflow-hidden">
+                    {folder.system ? (
+                      <span className="shrink-0 text-sm text-muted-foreground">Predefined</span>
+                    ) : null}
+                    {showProfile ? (
+                      <ProfileChip profileId={folder.profileId} handlers={handlers} />
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <VaultItemMenu target={{ kind: "folder", folder }} handlers={handlers} />
             </div>
@@ -867,9 +836,6 @@ export function FileMetaTooltip({
   handlers: VaultHandlers;
   side?: "top" | "right" | "bottom" | "left";
 }) {
-  const tags = file.tagIds
-    .map((id) => handlers.tagById(id))
-    .filter((t): t is TagDTO => t != null);
   return (
     <TooltipContent
       side={side}
@@ -879,18 +845,11 @@ export function FileMetaTooltip({
       className="flex-col items-start gap-1.5"
     >
       <p className="text-xs font-medium">{file.name}</p>
-      {tags.length > 0 ? (
-        <span className="flex max-w-56 flex-wrap gap-1">
-          {tags.map((t) => (
-            <TagChip key={t.id} tag={t} />
-          ))}
-        </span>
-      ) : null}
+      <TooltipDescription text={file.description} />
       <div className="space-y-0.5 text-[11px] opacity-80">
         <p>
           {fileTypeLabel(file.contentType)} · {formatFileSize(file.sizeBytes)}
         </p>
-        {file.category ? <p>{FILE_CATEGORY_LABELS[file.category]}</p> : null}
         {file.uploaderName ? <p>Uploaded by {file.uploaderName}</p> : null}
         <p>Added {formatVaultDate(file.createdAt, handlers.locale)}</p>
       </div>
@@ -932,21 +891,16 @@ function FileCard({
             <div className="flex items-start justify-between gap-1">
               <div className="min-w-0">
                 <div className="truncate text-sm font-medium">{file.name}</div>
+                <DescriptionLine text={file.description} />
                 <div className="truncate text-xs text-muted-foreground">
                   {fileTypeLabel(file.contentType)} · {formatFileSize(file.sizeBytes)}
                   {file.uploaderName ? <> · {file.uploaderName}</> : null}
                 </div>
-                <div className="mt-1 flex flex-wrap items-center gap-1">
-                  {file.category ? (
-                    <Badge variant="outline" className="px-1.5 py-0 text-sm font-normal">
-                      {FILE_CATEGORY_LABELS[file.category]}
-                    </Badge>
-                  ) : null}
-                  <TagChips tagIds={file.tagIds} handlers={handlers} />
-                  {showProfile ? (
+                {showProfile ? (
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
                     <ProfileChip profileId={file.profileId} handlers={handlers} />
-                  ) : null}
-                </div>
+                  </div>
+                ) : null}
               </div>
               <VaultItemMenu target={{ kind: "file", file }} handlers={handlers} />
             </div>
@@ -1079,6 +1033,19 @@ export function FileGrid({
 
 /* ----------------------------- List view ---------------------------------- */
 
+/** The list view's Description column: one truncated line, the full text on
+ * hover. */
+function DescriptionCell({ text }: { text: string | null }) {
+  return (
+    <TableCell
+      className="max-w-56 truncate text-muted-foreground"
+      title={text ?? undefined}
+    >
+      {text ?? "—"}
+    </TableCell>
+  );
+}
+
 function FolderRow({
   folder,
   handlers,
@@ -1111,12 +1078,7 @@ function FolderRow({
             ) : null}
           </span>
         </TableCell>
-        <TableCell className="text-muted-foreground">
-          {folder.system ? "Predefined" : "Folder"}
-        </TableCell>
-        <TableCell>
-          <TagChips tagIds={folder.tagIds} handlers={handlers} max={3} />
-        </TableCell>
+        <DescriptionCell text={folder.description} />
         <TableCell className="text-right text-muted-foreground tabular-nums">
           {handlers.folderSize(folder.id) > 0
             ? formatFileSize(handlers.folderSize(folder.id))
@@ -1172,12 +1134,7 @@ function FileRow({
             <span className="truncate font-medium">{file.name}</span>
           </span>
         </TableCell>
-        <TableCell className="text-muted-foreground">
-          {file.category ? FILE_CATEGORY_LABELS[file.category] : "—"}
-        </TableCell>
-        <TableCell>
-          <TagChips tagIds={file.tagIds} handlers={handlers} max={3} />
-        </TableCell>
+        <DescriptionCell text={file.description} />
         <TableCell className="text-right text-muted-foreground tabular-nums">
           {formatFileSize(file.sizeBytes)}
         </TableCell>
@@ -1234,8 +1191,7 @@ export function FileListTable({
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Tags</TableHead>
+                <TableHead>Description</TableHead>
                 <TableHead className="text-right">Size</TableHead>
                 <TableHead>Added</TableHead>
                 <TableHead>Added by</TableHead>
@@ -1253,7 +1209,7 @@ export function FileListTable({
                           named "Business". `h-auto p-1.5` keeps it looking
                           exactly like the cell it replaced. */}
                       <TableHead
-                        colSpan={7}
+                        colSpan={6}
                         scope="rowgroup"
                         className="h-auto p-1.5 font-normal"
                       >

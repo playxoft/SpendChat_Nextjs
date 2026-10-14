@@ -5,14 +5,12 @@ import { TAG_COLORS } from "@/lib/tags";
 import { cn } from "@/lib/utils";
 
 /**
- * The colored tag label, shared by the transactions table, the feed bubbles,
- * the composer and the files vault.
+ * The colored tag label, shared by the transactions table, the feed bubbles
+ * and the composer.
  *
- * Lifted out of `files/vault-tags.tsx` when transaction tags arrived, rather
- * than copied: a vault tag and a transaction tag are different entities, but
- * they are the same *object* on screen, and two copies would drift the first
- * time either was adjusted. It takes `{ name, color }` and nothing else, so
- * both DTOs satisfy it without either importing the other.
+ * It started life in the files vault (whose tags the app no longer shows, since
+ * 0.43.0). It takes `{ name, color }` and nothing else, so any tag-shaped DTO
+ * satisfies it without importing another feature's types.
  *
  * The color arrives as `#rrggbb` (guaranteed by `accentColorSchema`), and the
  * chip builds its border and fill by appending an alpha suffix to it — `55` and

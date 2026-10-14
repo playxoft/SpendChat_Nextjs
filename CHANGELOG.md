@@ -14,9 +14,29 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.11.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.12.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.43.0] — 2026-10-14
+
+### Added
+- **Descriptions on files and folders.** Say what something is in up to 250
+  characters — "Sale deed for plot 42, registered 2019" — when you make a folder,
+  or from **Edit** on any file or folder. On every plan. It shows under the name
+  in the grid, as a column in the list (the full text on hover), in the column
+  view's details, and on a share link's page.
+- **Search finds descriptions too.** The Files search now matches a file's or
+  folder's description as well as its name, with the same rules.
+
+### Changed
+- **Tags and the preset category are gone from Files.** Files and folders no
+  longer show tags or a category, and the tag filter, the tag picker, the
+  category picker and the Tags and Category sorts are removed — a description
+  does that job now. Nothing was deleted: tags and categories you had are kept,
+  and the mobile app's API still serves them. The predefined Transaction
+  attachments folder's menu entry is now just **Color**.
+- Shared file and folder pages show descriptions instead of tags.
 
 ## [0.42.0] — 2026-10-14
 

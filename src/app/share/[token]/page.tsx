@@ -60,6 +60,11 @@ export default async function SharePage({
         <div className="flex flex-1 flex-col gap-4">
           <div>
             <h1 className="text-lg font-semibold">{share.folder.name}</h1>
+            {share.folder.description ? (
+              <p className="mt-1 text-sm break-words whitespace-pre-line text-muted-foreground">
+                {share.folder.description}
+              </p>
+            ) : null}
             <p className="text-xs text-muted-foreground">
               Shared folder{share.allowDownload ? "" : " · view only"}
             </p>
@@ -70,7 +75,6 @@ export default async function SharePage({
             rootName={share.folder.name}
             folders={share.folders}
             files={share.files}
-            tags={share.tags}
             allowDownload={share.allowDownload}
           />
         </div>
@@ -160,6 +164,11 @@ function SharedFile({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="truncate text-lg font-semibold">{file.name}</h1>
+          {file.description ? (
+            <p className="mt-1 text-sm break-words whitespace-pre-line text-muted-foreground">
+              {file.description}
+            </p>
+          ) : null}
           <p className="text-xs text-muted-foreground">{formatFileSize(file.sizeBytes)}</p>
         </div>
         <DownloadLink token={token} file={file} allowDownload={allowDownload} />

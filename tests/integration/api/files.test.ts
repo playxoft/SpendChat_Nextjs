@@ -21,6 +21,9 @@ import { PATCH as patchTag, DELETE as deleteTag } from "@/app/api/v1/file-tags/[
 import { GET as listShares, POST as createShare } from "@/app/api/v1/file-shares/route";
 import { DELETE as deleteShare } from "@/app/api/v1/file-shares/[id]/route";
 import { GET as shareFileBytes } from "@/app/api/share/[token]/file/[fileId]/route";
+import { POST as createProfile } from "@/app/api/v1/profiles/route";
+import { resolveShare } from "@/services/files";
+import { normalizeVaultQuery, vaultTextMatches } from "@/lib/files";
 import { eq } from "drizzle-orm";
 import { fileShares, files, folders, profileAccess, transactionAttachments } from "@/db/schema";
 import { PLAN_LIMITS } from "@/lib/plans";
@@ -276,7 +279,210 @@ describe("folders", () => {
   });
 });
 
-describe("file-tags", () => {
+describe("descriptions", () => {
+  async function newFolder(body: Record<string, unknown>) {
+    const res = await createFolder(
+      apiReq("/api/v1/folders", { method: "POST", body: jsonBody(body) }),
+    );
+    return { status: res.status, data: (await res.json()).data };
+  }
+
+  async function patchFolderBody(id: string, body: Record<string, unknown>) {
+    const res = await patchFolder(
+      apiReq(`/api/v1/folders/${id}`, { method: "PATCH", body: jsonBody(body) }),
+      ctx({ id }),
+    );
+    return { status: res.status, body: await res.json() };
+  }
+
+  async function patchFileBody(id: string, body: Record<string, unknown>) {
+    const res = await patchFile(
+      apiReq(`/api/v1/files/${id}`, { method: "PATCH", body: jsonBody(body) }),
+      ctx({ id }),
+    );
+    return { status: res.status, body: await res.json() };
+  }
+
+  it("creates, reads, edits and clears a folder's description", async () => {
+    const pid = await setup();
+    const created = await newFolder({
+      profileId: pid,
+      name: "Land",
+      description: "  Deeds and surveys for plot 42  ",
+    });
+    expect(created.status).toBe(201);
+    expect(created.data.description).toBe("Deeds and surveys for plot 42");
+
+    const plain = await newFolder({ profileId: pid, name: "Misc" });
+    expect(plain.data.description).toBeNull();
+
+    let { data } = await vault();
+    expect(data.folders.find((f: { id: string }) => f.id === created.data.id).description).toBe(
+      "Deeds and surveys for plot 42",
+    );
+
+    // A rename leaves the description alone (PATCH semantics)…
+    const renamed = await patchFolderBody(created.data.id, { name: "Land papers" });
+    expect(renamed.status).toBe(200);
+    expect(renamed.body.data.description).toBe("Deeds and surveys for plot 42");
+
+    // …a new one replaces it, and a blank one clears it.
+    const changed = await patchFolderBody(created.data.id, { description: "Plot 42 only" });
+    expect(changed.body.data.description).toBe("Plot 42 only");
+    const cleared = await patchFolderBody(created.data.id, { description: "   " });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body.data.description).toBeNull();
+
+    // Over the cap is a validation error, and nothing changes.
+    const tooLong = await patchFolderBody(created.data.id, { description: "x".repeat(251) });
+    expect(tooLong.status).toBe(422);
+    const atCap = await patchFolderBody(created.data.id, { description: "y".repeat(250) });
+    expect(atCap.status).toBe(200);
+    ({ data } = await vault());
+    expect(data.folders.find((f: { id: string }) => f.id === created.data.id).description).toBe(
+      "y".repeat(250),
+    );
+  });
+
+  it("gives every file of an upload its description, then edits and clears it", async () => {
+    const pid = await setup();
+    const uploaded = await uploadFiles(
+      uploadReq({ profileId: pid, description: " Scans from the registrar " }, [
+        "deed.pdf",
+        "survey.pdf",
+      ]),
+    );
+    expect(uploaded.status).toBe(201);
+    const [deed, survey] = (await uploaded.json()).data;
+    expect(deed.description).toBe("Scans from the registrar");
+    expect(survey.description).toBe("Scans from the registrar");
+
+    const noDescription = await uploadFiles(uploadReq({ profileId: pid }, ["plain.pdf"]));
+    expect((await noDescription.json()).data[0].description).toBeNull();
+
+    const tooLong = await uploadFiles(
+      uploadReq({ profileId: pid, description: "z".repeat(251) }, ["long.pdf"]),
+    );
+    expect(tooLong.status).toBe(422);
+
+    const edited = await patchFileBody(deed.id, { description: "Sale deed, 2019" });
+    expect(edited.status).toBe(200);
+    expect(edited.body.data.description).toBe("Sale deed, 2019");
+    const renamed = await patchFileBody(deed.id, { name: "sale deed.pdf" });
+    expect(renamed.body.data.description).toBe("Sale deed, 2019");
+    const cleared = await patchFileBody(survey.id, { description: null });
+    expect(cleared.body.data.description).toBeNull();
+
+    const { data } = await vault();
+    const byId = new Map(data.files.map((f: { id: string }) => [f.id, f]));
+    expect((byId.get(deed.id) as { description: string }).description).toBe("Sale deed, 2019");
+    expect((byId.get(survey.id) as { description: null }).description).toBeNull();
+  });
+
+  it("keeps the predefined folder's description the app's own", async () => {
+    await setup();
+    const { data } = await vault();
+    const system = data.folders.find((f: { system: boolean }) => f.system);
+    expect(system.description).toBeNull();
+    const described = await patchFolderBody(system.id, { description: "Receipts" });
+    expect(described.status).toBe(400);
+    // Restating "none" alongside a recolor is still only a recolor.
+    const recolor = await patchFolderBody(system.id, { color: "#ef4444", description: null });
+    expect(recolor.status).toBe(200);
+  });
+
+  // The Files search runs over the working set the page loads, so what it can
+  // find is exactly what that set holds: live items in profiles the person can
+  // read. A description elsewhere — another user, a profile they weren't given,
+  // the trash — never reaches the client to be matched.
+  it("only lets search see descriptions the person can read", async () => {
+    const pid = await setup();
+    const ws = await workspaceIdOf("a");
+    const otherRes = await createProfile(
+      apiReq("/api/v1/profiles", { method: "POST", body: jsonBody({ name: "Side" }) }),
+    );
+    expect(otherRes.status).toBe(201);
+    const otherPid = (await otherRes.json()).data.id as string;
+
+    const upload = async (profileId: string, name: string, description: string) => {
+      const res = await uploadFiles(uploadReq({ profileId, description }, [name]));
+      expect(res.status).toBe(201);
+      return (await res.json()).data[0].id as string;
+    };
+    const live = await upload(pid, "deed.pdf", "Plot 42 sale deed");
+    const trashed = await upload(pid, "old deed.pdf", "Plot 42 draft");
+    const otherProfile = await upload(otherPid, "side deed.pdf", "Plot 42 side copy");
+    await getTestDb()
+      .update(files)
+      .set({ deletedAt: new Date(), deletedBy: uid("a") })
+      .where(eq(files.id, trashed));
+    await newFolder({ profileId: pid, name: "Land", description: "Everything for plot 42" });
+
+    const search = (set: { files: { id: string; name: string; description: string | null }[] }) =>
+      set.files
+        .filter((f) => vaultTextMatches(normalizeVaultQuery("PLOT 42"), [f.name, f.description]))
+        .map((f) => f.id)
+        .sort();
+
+    // The owner sees both live profiles' matches — never the trashed one.
+    const own = (await vault()).data;
+    expect(search(own)).toEqual([live, otherProfile].sort());
+    expect(own.files.some((f: { id: string }) => f.id === trashed)).toBe(false);
+    expect(
+      own.folders.filter((f: { description: string | null }) =>
+        vaultTextMatches(normalizeVaultQuery("plot 42"), [f.description]),
+      ),
+    ).toHaveLength(1);
+
+    // A viewer granted only the first profile sees only its live match.
+    signInAs("b");
+    await bootstrapUser("b");
+    await getTestDb()
+      .insert(profileAccess)
+      .values({ profileId: pid, userId: uid("b"), role: "viewer" });
+    const granted = await getVault(apiReq("/api/v1/files", { headers: { "x-workspace-id": ws } }));
+    expect(granted.status).toBe(200);
+    expect(search((await granted.json()).data)).toEqual([live]);
+
+    // Someone with no access to the workspace matches nothing of it.
+    signInAs("c");
+    await bootstrapUser("c");
+    expect(search((await vault()).data)).toEqual([]);
+  });
+
+  it("shows descriptions on a share link, and no tags", async () => {
+    const pid = await setup();
+    const folder = await newFolder({ profileId: pid, name: "Land", description: "Plot 42" });
+    const up = await uploadFiles(
+      uploadReq({ profileId: pid, folderId: folder.data.id, description: "Sale deed" }),
+    );
+    const file = (await up.json()).data[0];
+
+    const share = async (body: Record<string, unknown>) => {
+      const res = await createShare(
+        apiReq("/api/v1/file-shares", { method: "POST", body: jsonBody(body) }),
+      );
+      expect(res.status).toBe(201);
+      return (await res.json()).data.token as string;
+    };
+
+    const fileShare = await resolveShare(await share({ fileId: file.id }));
+    expect(fileShare?.kind).toBe("file");
+    if (fileShare?.kind !== "file") throw new Error("expected a file share");
+    expect(fileShare.file.description).toBe("Sale deed");
+    expect("tags" in fileShare).toBe(false);
+    expect("tagIds" in fileShare.file).toBe(false);
+
+    const folderShare = await resolveShare(await share({ folderId: folder.data.id }));
+    if (folderShare?.kind !== "folder") throw new Error("expected a folder share");
+    expect(folderShare.folder.description).toBe("Plot 42");
+    expect(folderShare.folders[0]!.description).toBe("Plot 42");
+    expect(folderShare.files[0]!.description).toBe("Sale deed");
+    expect("tags" in folderShare).toBe(false);
+  });
+});
+
+describe("file-tags (deprecated, still served for API clients)", () => {
   it("creates, lists, rejects duplicates, updates, and detaches on delete", async () => {
     const pid = await setup();
     const created = await createTag(
