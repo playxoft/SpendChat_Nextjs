@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { BUDGET_DESCRIPTION_MAX, BUDGET_SCOPES, BUDGET_TITLE_MAX, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
+import { isCalendarDay } from "./dates";
+import { SCOPE_MAX_PROFILE_IDS } from "./profile-scope";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
 import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX, SPLIT_IMPORT_KEY_PATTERN } from "./split-import";
 import {
@@ -1416,6 +1418,46 @@ export const splitImportSchema = z
     (v) => new Set([v.me.ref, ...v.people.map((p) => p.ref)]).size === v.people.length + 1,
     "Two people in the draft share a key — open the calculator and try again",
   );
+
+// ── Tracker feed: paging forward and "go to a date" ──────────────────────────
+
+/**
+ * The profiles in view (one, or the sidebar's selection); absent = all. It can
+ * only narrow: every feed read intersects it with the caller's own profiles,
+ * so a tampered id simply reads as nothing. Bounded so it can't become an
+ * unbounded `IN` list.
+ */
+const feedProfileIdsSchema = z.array(z.string().uuid()).max(SCOPE_MAX_PROFILE_IDS).optional();
+
+/** A real day, "2026-10-14" — Postgres refuses "2026-02-31" rather than reading nothing. */
+export const calendarDaySchema = z
+  .string()
+  .refine(isCalendarDay, "Date must be a real day, YYYY-MM-DD, between 1970 and 2999");
+
+/** A row of the feed, as its keyset cursor: (occurredOn, createdAt, id). */
+export const feedCursorSchema = z.object({
+  occurredOn: calendarDaySchema,
+  createdAt: z.coerce.date(),
+  id: z.string().uuid(),
+});
+
+/** The page just newer than a row — the feed scrolling back towards the present after a jump. */
+export const loadNewerFeedSchema = z.object({
+  profileIds: feedProfileIdsSchema,
+  after: feedCursorSchema,
+});
+
+/** The feed opened at a day (or the nearest earlier day with transactions). */
+export const feedAroundSchema = z.object({
+  profileIds: feedProfileIdsSchema,
+  date: calendarDaySchema,
+});
+
+/** The days of a month that have transactions — the date picker's dots. */
+export const feedDaysSchema = z.object({
+  profileIds: feedProfileIdsSchema,
+  month: z.string().refine(isMonthKey, "Month must be YYYY-MM, between 1970 and 2999"),
+});
 
 // ── Budgets ────────────────────────────────────────────────────────────────
 

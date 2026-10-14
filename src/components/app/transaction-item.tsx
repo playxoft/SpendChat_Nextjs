@@ -121,6 +121,7 @@ export const TransactionItem = memo(function TransactionItem({
   return (
     <>
       <TransactionBubble
+        rowId={row.id}
         type={row.type}
         amountLabel={amountLabel}
         title={row.title}

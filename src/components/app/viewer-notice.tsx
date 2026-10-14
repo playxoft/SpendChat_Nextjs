@@ -81,6 +81,8 @@ export function ViewerNotice({
   if (variant === "bar") {
     return (
       <div
+        // Stands where the composer does, so the tracker measures it the same way.
+        data-tracker-dock
         className={cn(
           "sticky bottom-16 z-20 border-t bg-background px-3 py-3 md:bottom-0 md:bg-background/95 md:backdrop-blur-sm",
           className,

@@ -34,6 +34,8 @@ import { ChatFeedSkeleton } from "@/components/app/chat-skeleton";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FeedRegion, PendingMessagesProvider } from "@/components/app/pending-messages";
 import { ActiveMonthProvider } from "@/components/app/active-month";
+import { FeedJumpProvider } from "@/components/app/feed-jump";
+import { TrackerDateJump } from "@/components/app/tracker-date-jump";
 import { SummaryBar } from "@/components/app/summary-bar";
 import { TransactionComposer } from "@/components/app/transaction-composer";
 import { TrackerActions } from "@/components/app/tracker-actions";
@@ -187,6 +189,7 @@ export default async function ChatPage({
   return (
     <PendingMessagesProvider>
       <ActiveMonthProvider initialMonth={currentMonthKey}>
+      <FeedJumpProvider>
       <div className="flex min-h-full flex-col">
         <header
           data-tracker-header
@@ -203,6 +206,13 @@ export default async function ChatPage({
                   profiles={profiles}
                   filterProfileId={filterProfileId}
                   allProfiles={allProfiles}
+                />
+                {/* "Go to a date": every width, and viewers too — it only reads. */}
+                <TrackerDateJump
+                  key={streamKey}
+                  profileIds={viewProfileIds ?? null}
+                  today={today}
+                  locale={locale}
                 />
                 {canWrite && (
                   <div className="hidden md:block">
@@ -285,6 +295,7 @@ export default async function ChatPage({
         {/* Mobile: swipe left/right across the tracker to change profile. */}
         <ProfileSwipe profiles={profiles} filterProfileId={filterProfileId} />
       </div>
+      </FeedJumpProvider>
       </ActiveMonthProvider>
     </PendingMessagesProvider>
   );

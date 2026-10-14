@@ -172,3 +172,39 @@ describe("stepStick — the viewport changing size", () => {
     expect(stepStick(step.state, { type: "touch", down: false }).state).toEqual(settled);
   });
 });
+
+describe("stepStick: a jump to a date and back", () => {
+  it("release lets go of the end and of the opening guard", () => {
+    expect(stepStick(settled, { type: "release" })).toEqual({ state: readingHistory, stick: false });
+    expect(stepStick(OPENING_STATE, { type: "release" }).state).toEqual(readingHistory);
+  });
+
+  it("released, a layout change no longer pulls the page to the end", () => {
+    const { sticks } = run([{ type: "release" }, layout, viewport], settled);
+    expect(sticks).toEqual([false, false, false]);
+  });
+
+  it("release keeps a finger that's down", () => {
+    const touching = { pinned: true, settling: false, touching: true };
+    expect(stepStick(touching, { type: "release" }).state).toEqual({ ...readingHistory, touching: true });
+  });
+
+  it("release when already reading history changes nothing", () => {
+    const step = stepStick(readingHistory, { type: "release" });
+    expect(step.state).toBe(readingHistory);
+    expect(step.stick).toBe(false);
+  });
+
+  it("pin goes to the end and holds it again", () => {
+    expect(stepStick(readingHistory, { type: "pin" })).toEqual({ state: settled, stick: true });
+    const { sticks } = run([{ type: "pin" }, layout], readingHistory);
+    expect(sticks).toEqual([true, true]);
+  });
+
+  it("pin while already pinned still scrolls, and ends an opening", () => {
+    const step = stepStick(settled, { type: "pin" });
+    expect(step.state).toBe(settled);
+    expect(step.stick).toBe(true);
+    expect(stepStick(OPENING_STATE, { type: "pin" }).state).toEqual(settled);
+  });
+});

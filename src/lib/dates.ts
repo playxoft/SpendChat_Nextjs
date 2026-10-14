@@ -121,3 +121,16 @@ export function monthDividerLabel(monthKeyValue: string, today: string, locale =
     timeZone: "UTC",
   });
 }
+
+const CALENDAR_DAY = /^(19[7-9]\d|2\d{3})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+/**
+ * "2026-10-14" — a day that exists, between 1970 and 2999. The shape alone
+ * isn't enough for anything that reaches Postgres: `'2026-02-31'::date` is an
+ * error there, not an empty result.
+ */
+export function isCalendarDay(value: unknown): value is string {
+  if (typeof value !== "string" || !CALENDAR_DAY.test(value)) return false;
+  const [y, m, d] = value.split("-").map(Number);
+  return d <= new Date(Date.UTC(y, m, 0)).getUTCDate();
+}

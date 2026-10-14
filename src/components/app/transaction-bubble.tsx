@@ -57,6 +57,7 @@ export function TransactionBubble({
   selecting = false,
   onToggleSelect,
   renderCard,
+  rowId,
   className,
 }: {
   type: "income" | "expense";
@@ -90,6 +91,9 @@ export function TransactionBubble({
   /** Wraps the message card — the feed's right-click menu goes around it, so
    *  it opens on the message and not on the empty row beside it. */
   renderCard?: (card: ReactElement) => ReactNode;
+  /** A saved row's id: marks the bubble as a feed row, which the tracker's
+   *  scroll keeping measures (`useFeedScroll`). Pending bubbles have none. */
+  rowId?: string;
   className?: string;
 }) {
   const side: "left" | "right" = type === "income" ? "left" : "right";
@@ -189,6 +193,7 @@ export function TransactionBubble({
 
   return (
     <div
+      data-feed-row={rowId}
       className={cn(
         "group flex w-full max-w-[80%] items-start gap-2 animate-rise sm:max-w-sm sm:gap-2.5",
         side === "right" && "ml-auto flex-row-reverse",

@@ -1166,6 +1166,9 @@ export function TransactionComposer({
     // that much the moment a message is picked — and rise again on clearing.
     <div
       inert={bulkSelecting}
+      // The tracker measures this strip to float its "jump to latest" button
+      // above it (`useTrackerChromeVars`).
+      data-tracker-dock
       className={cn(
         "sticky bottom-16 z-20 bg-background px-3 pt-2 pb-2 md:bottom-0",
         bulkSelecting && "invisible",

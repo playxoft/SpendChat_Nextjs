@@ -167,6 +167,8 @@ const REGISTRY = {
   getTransactionsByIds: "transactions",
   listTransactionsAsc: "transactions",
   listFeedPage: "transactions",
+  listFeedAround: "transactions",
+  listFeedDays: "transactions",
   countTransactions: "transactions",
   listTransactionIds: "transactions",
   getSummary: "transactions",
@@ -244,6 +246,22 @@ describe("every transaction read excludes the trash", () => {
       before: { occurredOn: first.occurredOn, createdAt: first.createdAt, id: first.id },
     });
     for (const id of TRASHED_TXNS()) expect(ids(older)).not.toContain(id);
+    const newer = await queries.listFeedPage(U, W, {
+      limit: 40,
+      after: { occurredOn: "2026-01-01", createdAt: new Date(0), id: live.txn },
+    });
+    expect(ids(newer).sort()).toEqual([live.txn, live.txnWork].sort());
+  });
+
+  it("date jump: a day holding only trash lands on a live day, and gets no dot", async () => {
+    // 2 June holds the trashed row and the trashed profile's row — nothing live.
+    const around = await queries.listFeedAround(U, W, { date: "2026-06-02", limit: 40 });
+    expect(around.landed).toEqual({ day: "2026-06-01", side: "before" });
+    expect(ids(around.rows).sort()).toEqual([live.txn, live.txnWork].sort());
+    expect(await queries.listFeedDays(U, W, { month: "2026-06" })).toEqual(["2026-06-01", "2026-06-03"]);
+    // The trashed profile, asked for by id, is nothing at all.
+    expect((await queries.listFeedAround(U, W, { profileIds: [old], date: "2026-06-02", limit: 40 })).landed).toBeNull();
+    expect(await queries.listFeedDays(U, W, { profileIds: [old], month: "2026-06" })).toEqual([]);
   });
 
   it("counts, ids and every total are live-only", async () => {
