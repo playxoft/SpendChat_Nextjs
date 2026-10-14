@@ -18,6 +18,32 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.44.0] — 2026-10-14
+
+### Added
+- **Go to a date on the tracker.** A calendar button in the tracker header (on
+  phones too) opens a month calendar with a dot on every day that has
+  transactions in the profiles you're looking at. Pick a day and the feed opens
+  at the start of that day; pick **Go to <month>** and it opens at that month's
+  latest day with transactions. A day or month with nothing on it opens at the
+  nearest earlier day that has something, and a short note says so. From there
+  you can scroll both ways — older above, newer below until you're back at
+  today — and a **Jump to latest** button (also shown whenever you've scrolled a
+  long way up) takes you straight back to the newest messages. Sending a new
+  transaction from an older date goes back to the newest messages first.
+- **The date stays in view while you scroll.** Each day's date pill now sticks,
+  centred, just under the tracker header while you scroll through that day, and
+  the next day's pill pushes it up and takes over — like a chat app. It's the
+  same date line as before, so a screen reader still reads each date once.
+
+### Fixed
+- Scrolling up the tracker no longer jumps when older transactions load in: the
+  message you're looking at stays exactly where it is on screen — even if you
+  keep scrolling while they load, on a phone or a computer. The same now holds
+  when anything else above you changes height (the balance loading into the
+  header, a card above the feed being closed, a transaction further up being
+  deleted).
+
 ## [0.42.0] — 2026-10-14
 
 ### Added

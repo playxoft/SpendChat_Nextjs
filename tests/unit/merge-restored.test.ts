@@ -34,6 +34,19 @@ describe("C1: putting restored rows back in the feed", () => {
     expect(mergeRestoredIntoFeed(feed, [row("b", "2026-06-04")], true)).toBe(feed);
   });
 
+  it("after a jump into the past, leaves a row newer than the stretch for the scroll down too", () => {
+    const newer = row("new", "2026-09-01");
+    expect(mergeRestoredIntoFeed(feed, [newer], true, false)).toBe(feed);
+    expect(mergeRestoredIntoFeed(feed, [newer, row("x", "2026-06-05")], true, false).map((r) => r.id)).toEqual([
+      "a",
+      "b",
+      "x",
+      "c",
+    ]);
+    // Reaching the present again, it has its place at the end.
+    expect(mergeRestoredIntoFeed(feed, [newer], true, true).map((r) => r.id)).toEqual(["a", "b", "c", "new"]);
+  });
+
   it("orders like the feed: date, then time, then id", () => {
     expect(feedCompare(row("a", "2026-06-01"), row("b", "2026-06-01"))).toBeLessThan(0);
   });
