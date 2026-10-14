@@ -1725,6 +1725,8 @@ export const billingCheckoutSessions = pgTable(
   },
   (t) => [
     index("billing_checkout_sessions_workspace_idx").on(t.workspaceId, t.createdAt),
+    // Webhooks look a subscription up by it (placing it, and telling ours from another brand's).
+    index("billing_checkout_sessions_subscription_idx").on(t.subscriptionId),
     index("billing_checkout_sessions_buyer_idx").on(t.buyerUserId, t.createdAt),
     index("billing_checkout_sessions_email_idx").on(t.emailKey, t.createdAt),
   ],

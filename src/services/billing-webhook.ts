@@ -191,10 +191,13 @@ export async function handleDodoWebhook(rawBody: string, headers: Pick<Headers, 
   }
 
   if (!(await isOurs(event, config))) {
+    const d = event.data;
     logger.info(`Billing webhook ${event.type} is for another brand on the account — acknowledged and dropped`, {
       event: "billing.webhook_foreign",
       eventId,
       type: event.type,
+      objectId: [d.payment_id, d.subscription_id, d.refund_id, d.dispute_id].find((v) => typeof v === "string") ?? null,
+      brandId: typeof d.brand_id === "string" ? d.brand_id : null,
     });
     return respond(200);
   }
@@ -245,38 +248,38 @@ export async function handleDodoWebhook(rawBody: string, headers: Pick<Headers, 
 }
 
 /**
- * Whether an event is ours, judged before anything is written. A payment's
- * brand decides when `DODO_BRAND_ID` is set — the provider stamps it, so it
- * outranks anything else. Otherwise ours: whatever our rows already know;
- * anything from a checkout of ours (each carries `metadata.app`, and the
- * subscription and payments it makes inherit it); a subscription to one of
- * our products. A refund or dispute names only its
- * payment, so one we haven't recorded is looked up at the provider. If that
- * lookup fails we can't tell, and it counts as ours — it's retried, which is
- * better than dropping our own refund.
+ * Whether an event is ours, judged before anything is written — strongest
+ * signal first, so a misconfigured brand can't drop a payment we can place:
+ *  1. whatever our rows already know (a checkout we opened, a subscription or
+ *     payment we recorded);
+ *  2. the mark every checkout of ours carries (`metadata.app`, inherited by
+ *     its subscription and payments) — a marked payment from another brand
+ *     means `DODO_BRAND_ID` is wrong, which is logged loudly and doesn't drop it;
+ *  3. a subscription to one of our products;
+ *  4. a payment's (or refund's) brand, when `DODO_BRAND_ID` is set.
+ * A dispute names only its payment, so one we haven't recorded is looked up
+ * at the provider. If that lookup fails we can't tell, and it counts as ours —
+ * it's retried, which is better than dropping our own dispute.
  */
 async function isOurs(event: DodoEvent, config: BillingConfig): Promise<boolean> {
   const { type, data } = event;
   if (type.startsWith("subscription.")) {
+    if (typeof data.subscription_id === "string" && (await knowsSubscription(data.subscription_id))) return true;
     if (isMarked(data.metadata)) return true;
-    if (typeof data.product_id === "string" && planOfProduct(config.products, data.product_id)) return true;
-    return typeof data.subscription_id === "string" && (await knowsSubscription(data.subscription_id));
+    return typeof data.product_id === "string" && !!planOfProduct(config.products, data.product_id);
   }
-  if (type.startsWith("payment.")) {
-    const brand = brandVerdict(data, config);
-    if (brand !== null) return brand;
-    return isMarked(data.metadata) || (await knowsPayment(data));
-  }
+  if (type.startsWith("payment.")) return paymentIsOurs(data, config, event.type);
   if (type === "refund.succeeded" || type.startsWith("dispute.")) {
     // Malformed — counts as ours, so parsing it fails the delivery as before.
     if (typeof data.payment_id !== "string") return true;
     if (await knowsPayment({ payment_id: data.payment_id })) return true;
+    // A refund carries its brand; a dispute doesn't, so its payment is asked for.
+    const brand = brandVerdict(data, config);
+    if (brand !== null) return brand;
     try {
       const payment = await getPayment(config, data.payment_id);
       const fields = payment && typeof payment === "object" ? (payment as Record<string, unknown>) : {};
-      const brand = brandVerdict(fields, config);
-      if (brand !== null) return brand;
-      return isMarked(fields.metadata) || (await knowsPayment(fields));
+      return paymentIsOurs(fields, config, event.type);
     } catch {
       return true;
     }
@@ -284,10 +287,28 @@ async function isOurs(event: DodoEvent, config: BillingConfig): Promise<boolean>
   return true;
 }
 
-/** True/false when a payment names a brand and ours is configured; null when that can't decide. */
-function brandVerdict(payment: Record<string, unknown>, config: BillingConfig): boolean | null {
-  if (!config.brandId || typeof payment.brand_id !== "string") return null;
-  return payment.brand_id === config.brandId;
+async function paymentIsOurs(p: Record<string, unknown>, config: BillingConfig, type: string): Promise<boolean> {
+  if (await knowsPayment(p)) return true;
+  const brand = brandVerdict(p, config);
+  if (isMarked(p.metadata)) {
+    if (brand === false) {
+      logger.error("A payment from one of our checkouts names another brand — is DODO_BRAND_ID right?", {
+        event: "billing.brand_mismatch",
+        type,
+        paymentId: typeof p.payment_id === "string" ? p.payment_id : null,
+        paymentBrand: p.brand_id,
+        configuredBrand: config.brandId,
+      });
+    }
+    return true;
+  }
+  return brand ?? false;
+}
+
+/** True/false when a payment or refund names a brand and ours is configured; null when that can't decide. */
+function brandVerdict(p: Record<string, unknown>, config: BillingConfig): boolean | null {
+  if (!config.brandId || typeof p.brand_id !== "string") return null;
+  return p.brand_id === config.brandId;
 }
 
 function isMarked(metadata: unknown): boolean {

@@ -133,7 +133,7 @@ export function PricingControls({ className }: { className?: string }) {
       ) : (
         // One currency — the visitor's country's — so it's a label, not a picker.
         <span
-          title="Prices are in your local currency"
+          title="Priced for the country you're in"
           className="inline-flex h-11 shrink-0 items-center gap-2 rounded-full border px-3 text-sm font-medium text-muted-foreground sm:px-4 md:justify-self-end"
         >
           <span className="flex h-6 min-w-6 items-center justify-center rounded-full bg-muted px-1.5 font-semibold text-foreground">

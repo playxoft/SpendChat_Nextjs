@@ -85,11 +85,14 @@ class Ambiguous extends Error {}
  * Which existing product each SKU is, or null to create it. Throws when it
  * can't tell — the caller aborts before writing anything.
  */
-export async function matchProducts({ call, specs, listed, knownIds }) {
+export async function matchProducts({ call, specs, listed, knownIds, app = null }) {
   const bySku = new Map();
   for (const item of listed) {
     const sku = item.metadata?.sku;
     if (!sku || !specs.some((s) => s.sku === sku)) continue;
+    // The account may sell for other brands, whose products can use the same
+    // sku names ("topup"): only ours (`metadata.app`) are matched by sku.
+    if (app && item.metadata?.app !== app) continue;
     if (bySku.has(sku)) {
       throw new Ambiguous(
         `Two products carry metadata.sku = ${sku} (${bySku.get(sku)} and ${item.product_id}). Archive one in the dashboard, then run this again.`,
@@ -127,7 +130,8 @@ export async function matchProducts({ call, specs, listed, knownIds }) {
  */
 export async function syncProducts({ call, specs, bodyOf, knownIds = null, dryRun = false, log = () => {} }) {
   const listed = await listProducts(call);
-  const matched = await matchProducts({ call, specs, listed, knownIds });
+  const app = specs.length ? (bodyOf(specs[0]).metadata?.app ?? null) : null;
+  const matched = await matchProducts({ call, specs, listed, knownIds, app });
   const ids = {};
   for (const spec of specs) {
     const body = bodyOf(spec);

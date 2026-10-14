@@ -330,6 +330,13 @@
       "when": 1791539451737,
       "tag": "0046_billing_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791962767822,
+      "tag": "0047_billing_session_subscription_idx",
+      "breakpoints": true
     }
   ]
 }

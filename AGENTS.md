@@ -123,8 +123,9 @@ Authentication, secrets via Doppler.
   the same transaction as the change) and **placed through our rows** (the checkout session we
   recorded, or the known subscription/payment), never through metadata alone; **another brand's events
   are a 200 and dropped** (`isOurs` — the provider account sells for other brands too and endpoints
-  filter by event type only; ours carry `metadata.app` from our checkout, or match our rows or
-  products); **anything of ours it can't
+  filter by event type only; judged strongest-first: our rows, the `metadata.app` mark our checkouts
+  carry, our products, then a payment's brand vs `DODO_BRAND_ID` — a wrong brand id never drops a
+  payment our rows can place); **anything of ours it can't
   apply yet is a 503 and isn't recorded** (unplaced events, an unknown product, a refund/dispute for
   an unseen payment), so retries and dashboard replays work (`pnpm billing:reprocess:*` forgets an
   applied one); a checkout always records its session (workspace, buyer, **expected amount**)

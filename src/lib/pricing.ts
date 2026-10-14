@@ -178,7 +178,8 @@ export function invoiceAddonPrice(period: InvoiceAddonPeriod, currency: Currency
 }
 
 // ── Countries → nearest currency ───────────────────────────────────────────
-// Only picks the starting currency; it doesn't change any price.
+// Decides the currency a request is priced and charged in (`checkoutCurrency`):
+// each currency has its own list, so this picks the price list too.
 
 const COUNTRY_CURRENCY: Record<string, Currency> = {
   IN: "INR", NP: "INR", BT: "INR", BD: "INR", LK: "INR",

@@ -119,10 +119,18 @@ describe("billing:products sync", () => {
     expect(blind.writes).toEqual([]);
   });
 
+  it("never adopts another brand's product that uses one of our sku names", async () => {
+    const fake = fakeProvider();
+    fake.products.set("pdt_sibling", { product_id: "pdt_sibling", name: "Credits", metadata: { sku: "topup", app: "archivizz" } });
+    const ids = await run(fake.call);
+    expect(ids.topup).not.toBe("pdt_sibling");
+    expect(fake.products.get("pdt_sibling")).toMatchObject({ name: "Credits", metadata: { app: "archivizz" } });
+  });
+
   it("aborts when two products claim one SKU", async () => {
     const fake = fakeProvider();
-    fake.products.set("pdt_x", { product_id: "pdt_x", name: "x", metadata: { sku: "topup" } });
-    fake.products.set("pdt_y", { product_id: "pdt_y", name: "y", metadata: { sku: "topup" } });
+    fake.products.set("pdt_x", { product_id: "pdt_x", name: "x", metadata: { sku: "topup", app: "spendchat" } });
+    fake.products.set("pdt_y", { product_id: "pdt_y", name: "y", metadata: { sku: "topup", app: "spendchat" } });
     await expect(run(fake.call)).rejects.toThrow(/Two products carry metadata.sku = topup/);
   });
 

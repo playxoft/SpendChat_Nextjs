@@ -497,7 +497,11 @@ describe("more out-of-order and retry cases", () => {
   it("a subscription we have that moves to an unknown product still applies its status, on the last plan", async () => {
     const W = await ownWorkspace();
     const sub = await activePlan(W);
-    const res = await deliver("subscription.cancelled", subscriptionData({ subscription_id: sub, status: "cancelled", product_id: "pdt_mystery" }));
+    // No mark either (it predates it): our row alone says it's ours.
+    const res = await deliver(
+      "subscription.cancelled",
+      subscriptionData({ subscription_id: sub, status: "cancelled", product_id: "pdt_mystery", metadata: {} }),
+    );
     expect(res.status).toBe(200);
     expect(await subscriptionRow(sub)).toMatchObject({ status: "cancelled", plan: "plus" });
     expect((await workspaceRow(W)).plan).toBe("free");
@@ -892,17 +896,52 @@ describe("another brand on the same provider account", () => {
     expect(await workspaceRow(W)).toMatchObject({ plan: "free", billingHold: null });
   });
 
-  it("a payment's brand outranks its metadata when DODO_BRAND_ID is set", async () => {
+  it("with DODO_BRAND_ID set, an unmarked payment we don't know is judged by its brand", async () => {
     await ownWorkspace();
-    // Another brand's payment, even with metadata that looks like ours: dropped.
-    const theirs = await deliver("payment.succeeded", paymentData({ payment_id: "pay_b1", brand_id: "brnd_theirs" }));
-    // Our brand with no mark (and nothing that places it yet): ours, so retried.
+    // Another brand's, no mark: dropped.
+    const theirs = await deliver("payment.succeeded", paymentData({ payment_id: "pay_b1", brand_id: "brnd_theirs", metadata: {} }));
+    // Our brand, no mark (and nothing that places it yet): ours, so retried.
     const ours = await deliver("payment.succeeded", paymentData({ payment_id: "pay_b2", metadata: {} }));
-    expect([theirs.status, ours.status]).toEqual([200, 503]);
-    // Without a brand id configured, the mark decides as before.
-    delete process.env.DODO_BRAND_ID;
-    const marked = await deliver("payment.succeeded", paymentData({ payment_id: "pay_b3", brand_id: "brnd_theirs" }));
-    expect(marked.status).toBe(503);
+    // Marked as ours but stamped with another brand: DODO_BRAND_ID is suspect, so it's
+    // kept (retried here, applied once placeable) — never silently dropped.
+    const flagged = await deliver("payment.succeeded", paymentData({ payment_id: "pay_b3", brand_id: "brnd_theirs" }));
+    expect([theirs.status, ours.status, flagged.status]).toEqual([200, 503, 503]);
+  });
+
+  it("a payment from a checkout we recorded is applied even if DODO_BRAND_ID is wrong — our rows come first", async () => {
+    const W = await ownWorkspace();
+    await setWorkspacePlan(W, "plus");
+    await billing.startCheckout(uid("own"), W, { item: "topup", currency: "INR" }, { country: "IN" });
+    const session = await latestSession(W);
+    const res = await deliver(
+      "payment.succeeded",
+      paymentData({
+        payment_id: "pay_branded",
+        checkout_session_id: session.sessionId,
+        total_amount: topUpPriceMinor("INR"),
+        brand_id: "brnd_stale",
+      }),
+    );
+    expect(res.status).toBe(200);
+    const [top] = await db().select().from(aiTopups).where(eq(aiTopups.workspaceId, W));
+    expect(top).toMatchObject({ paymentId: "pay_branded", actions: TOPUP.actions });
+  });
+
+  it("a refund names its brand — another brand's is dropped without asking the provider", async () => {
+    await ownWorkspace();
+    vi.mocked(dodo.getPayment).mockClear();
+    const res = await deliver("refund.succeeded", { refund_id: "ref_b", payment_id: "pay_b", brand_id: "brnd_theirs", status: "succeeded", amount: 1 });
+    expect(res.status).toBe(200);
+    expect(dodo.getPayment).not.toHaveBeenCalled();
+    expect(await db().select().from(billingWebhookEvents)).toEqual([]);
+  });
+
+  it("a dispute on an unseen payment is dropped when the provider says that payment is another brand's", async () => {
+    await ownWorkspace();
+    vi.mocked(dodo.getPayment).mockResolvedValueOnce({ payment_id: "pay_d", brand_id: "brnd_theirs", metadata: {} });
+    const res = await deliver("dispute.opened", { dispute_id: "dsp_d", payment_id: "pay_d", dispute_status: "dispute_opened" });
+    expect(res.status).toBe(200);
+    expect(await db().select().from(billingWebhookEvents)).toEqual([]);
   });
 
   it("keeps an unmarked event that our rows or products know — older checkouts carried no mark", async () => {
