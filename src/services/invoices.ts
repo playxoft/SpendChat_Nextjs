@@ -32,6 +32,7 @@ import {
   priceToMinor,
   roundQuantity,
   type InvoiceDTO,
+  type InvoiceShareDTO,
 } from "@/lib/invoice-doc";
 import {
   getInvoiceClientRow,
@@ -961,15 +962,7 @@ export async function getInvoicePdf(userId: string, workspaceId: string, id: unk
 
 // ── Share links ────────────────────────────────────────────────────────────
 
-export type InvoiceShareDTO = {
-  id: string;
-  invoiceId: string;
-  token: string;
-  /** The public page's path — prefix the site origin. */
-  path: string;
-  expiresAt: string | null;
-  createdAt: string;
-};
+export type { InvoiceShareDTO };
 
 export const invoiceSharePath = (token: string) => `/share/invoice/${token}`;
 

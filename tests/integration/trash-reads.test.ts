@@ -187,6 +187,7 @@ const REGISTRY = {
   listTrashedTransactions: "trash",
   getWorkspaceStorageUsage: "storage",
   getWorkspaceStorageUsageCached: "storage",
+  getStorageBreakdown: "storage",
   getTrashBytes: "storage",
   // Not reads of trashable rows.
   getCategories: "n/a",
@@ -325,6 +326,7 @@ describe("receipts, vault and share links exclude the trash", () => {
   it("storage still counts all of it (C6) — the one deliberate exception", async () => {
     // 4 files + 3 receipts, 10 bytes each: nothing in the trash is free.
     expect(await queries.getWorkspaceStorageUsage(W)).toBe(70);
+    expect(await queries.getStorageBreakdown(W)).toEqual({ files: 40, attachments: 30, invoices: 0, quotations: 0, logos: 0 });
     // trashed file, file in the trashed folder, file in the trashed profile,
     // the trashed transaction's receipt, and the trashed profile's receipt.
     expect(await queries.getTrashBytes(W)).toBe(50);

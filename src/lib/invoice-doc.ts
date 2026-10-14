@@ -124,6 +124,17 @@ export type InvoiceDTO = {
   items: InvoiceItemDTO[];
 };
 
+/** A public link to a finalised invoice or quote. */
+export type InvoiceShareDTO = {
+  id: string;
+  invoiceId: string;
+  token: string;
+  /** The public page's path — prefix the site origin. */
+  path: string;
+  expiresAt: string | null;
+  createdAt: string;
+};
+
 /** The figures the server stores for a set of lines, discount and tax. */
 export type InvoiceFigures = { lines: number[]; totals: Totals };
 

@@ -1,3 +1,4 @@
+import type { InvoiceShareDTO } from "@/lib/invoice-doc";
 import { fromMinorUnits } from "@/lib/money";
 import { getCurrency } from "@/lib/currencies";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
@@ -733,4 +734,18 @@ export function serializeApiBudget(b: BudgetView): ApiBudget {
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Invoices (6.13.0) — the services' DTOs are already the wire shape            */
+/* -------------------------------------------------------------------------- */
+
+export type ApiInvoiceShare = InvoiceShareDTO & {
+  /** The public page, absolute — what to send. */
+  url: string;
+};
+
+/** A share link with its absolute URL, built from the request's own origin. */
+export function serializeApiInvoiceShare(share: InvoiceShareDTO, request: Request): ApiInvoiceShare {
+  return { ...share, url: new URL(share.path, request.url).toString() };
 }

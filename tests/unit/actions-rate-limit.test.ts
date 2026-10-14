@@ -168,6 +168,7 @@ describe("every server action is rate limited", () => {
         "getTrashCounts",
         "listAttachments",
         "listFileShares",
+        "listInvoiceShareLinks",
         "loadMoreTransactions",
         "loadOlderFeed",
         "loadSplitFeed",

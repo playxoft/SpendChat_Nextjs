@@ -639,6 +639,10 @@ describe("getAddLimits", () => {
       freeOwned: 1,
       profileLevelAccess: false,
       voice: false,
+      // Invoicing's free tier — the same on every personal plan.
+      invoices: { used: 0, limit: 20, reached: false },
+      invoiceClients: { used: 0, limit: 20, reached: false },
+      invoiceSellers: { used: 0, limit: 1, reached: false },
     });
   });
 

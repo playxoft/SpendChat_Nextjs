@@ -50,7 +50,12 @@ describe("GET /api/v1/usage", () => {
         topUpExpiresAt: null,
         resetsAt: expect.stringMatching(/^\d{4}-\d{2}-01T00:00:00\.000Z$/),
       },
-      storage: { usedBytes: 0, limitBytes: free.storageBytes, trashBytes: 0 },
+      storage: {
+        usedBytes: 0,
+        limitBytes: free.storageBytes,
+        trashBytes: 0,
+        breakdown: { files: 0, attachments: 0, invoices: 0, quotations: 0, logos: 0 },
+      },
       members: { used: 1, limit: free.members },
       spaces: { used: 1, limit: free.spaces },
       categories: { used: DEFAULT_CATEGORIES.length, limit: free.categories },
@@ -59,6 +64,14 @@ describe("GET /api/v1/usage", () => {
       profilesPerSpace: free.profilesPerSpace,
       voice: false,
       profileLevelAccess: false,
+      invoicing: {
+        tier: "free",
+        perMonth: { used: 0, limit: 20, resetsAt: data.ai.resetsAt },
+        clients: { used: 0, limit: 20 },
+        sellers: { used: 0, limit: 1 },
+        templates: 5,
+        footer: true,
+      },
     });
     expect(new Date(data.ai.resetsAt).getTime()).toBeGreaterThan(Date.now());
   });
