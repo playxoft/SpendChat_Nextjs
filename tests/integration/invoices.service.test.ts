@@ -21,6 +21,7 @@ vi.mock("@/lib/r2", () => ({
 import { and, eq } from "drizzle-orm";
 import { PDFDocument } from "pdf-lib";
 import {
+  invoiceClients,
   invoiceCounters,
   invoices,
   profileOverrides,
@@ -61,6 +62,7 @@ import {
   voidInvoice,
 } from "@/services/invoices";
 import { deleteProfile } from "@/services/profiles";
+import { deleteAccount } from "@/services/settings";
 import { deleteFromTrash, restoreFromTrash } from "@/services/trash";
 import { uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
@@ -426,6 +428,22 @@ describe("free tier limits — gate adding only", () => {
     expect((await createClient(A(), W, { profileId: P, name: "One more" })).name).toBe("One more");
   });
 
+  it("C7: over a cap (more saved than the tier allows, as after a downgrade) keeps everything and only stops adding", async () => {
+    const max = INVOICE_LIMITS.free.clients!;
+    await db()
+      .insert(invoiceClients)
+      .values(Array.from({ length: max + 5 }, (_, i) => ({ workspaceId: W, profileId: P, name: `Client ${i}`, createdBy: A() })));
+    const all = await listClients(A(), W);
+    expect(all).toHaveLength(max + 5);
+    // Using, editing and deleting what's there still work…
+    const inv = await newDraft("invoice", { clientId: all[0]!.id, client: { name: "" } });
+    expect(inv.client.name).toBe(all[0]!.name);
+    expect(await deleteClient(A(), W, all[1]!.id)).toBe(true);
+    // …adding doesn't, until it's back under.
+    await expectApiError(createClient(A(), W, { profileId: P, name: "New" }), 403, "plan_limit");
+    expect(await getAddLimits(W, A())).toMatchObject({ invoiceClients: { used: max + 4, reached: true } });
+  });
+
   it("one set of business details on the free tier", async () => {
     await createSeller(A(), W, { profileId: P, name: "Asha Studio" });
     const err = await expectApiError(createSeller(A(), W, { profileId: P, name: "Second" }), 403, "plan_limit");
@@ -608,6 +626,22 @@ describe("the trash", () => {
     expect((await listClients(A(), W, P)).map((c) => c.name)).toContain("Moved client");
     const [p] = await db().select().from(profiles).where(eq(profiles.id, work));
     expect(p!.deletedAt).not.toBeNull();
+  });
+});
+
+describe("deleting the account", () => {
+  it("takes the invoices' stored PDFs and logos with it", async () => {
+    const seller = await createSeller(A(), W, { profileId: P, name: "Asha" });
+    const png = Uint8Array.from(
+      atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="),
+      (c) => c.charCodeAt(0),
+    );
+    await setSellerLogo(A(), W, seller.id, png);
+    await finaliseInvoice(A(), W, (await newDraft("invoice", { sellerId: seller.id })).id);
+    expect(bucket.size).toBe(2);
+    await deleteAccount(A(), "DELETE");
+    expect(bucket.size).toBe(0);
+    expect(await db().select().from(invoices)).toEqual([]);
   });
 });
 
