@@ -5,7 +5,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { sanitizeKeepingCaret } from "@/components/tools/fields";
 import { EMPTY } from "@/lib/tools/format";
-import { LIMITS, MAX_ITEMS, emptyItem, type ItemResult, type LineItem } from "@/lib/tools/invoice";
+import { LIMITS, MAX_ITEMS, emptyItem, type ItemResult, type LineItem } from "@/lib/business-doc/invoice";
 import { cn } from "@/lib/utils";
 
 const input =

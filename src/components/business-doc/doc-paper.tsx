@@ -4,9 +4,9 @@ import { isSupportedCurrency } from "@/lib/currencies";
 import { formatMoney } from "@/lib/money";
 import { toolPath } from "@/lib/tools";
 import { EMPTY, formatNumber } from "@/lib/tools/format";
-import type { BusinessDoc, DocEvaluation } from "@/lib/tools/invoice";
-import { buildDocView } from "./doc-view";
-import type { DocLabels } from "./labels";
+import type { BusinessDoc, DocEvaluation } from "@/lib/business-doc/invoice";
+import { buildDocView } from "@/lib/business-doc/doc-view";
+import type { DocLabels } from "@/lib/business-doc/labels";
 
 /**
  * The document itself — what the preview shows and exactly what prints.

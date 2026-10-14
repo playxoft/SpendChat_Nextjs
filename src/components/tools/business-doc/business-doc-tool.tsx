@@ -44,14 +44,14 @@ import {
   type Buyer,
   type DocKind,
   type Seller,
-} from "@/lib/tools/invoice";
+} from "@/lib/business-doc/invoice";
 import { cn } from "@/lib/utils";
 import { clearDraft, getDraft, setDraft, useDraft } from "./draft-store";
-import { DocPaper } from "./doc-paper";
-import { buildDocView } from "./doc-view";
-import { FitPaper } from "./fit-paper";
-import { CUSTOM_TERMS, docLabels } from "./labels";
-import { LineItems } from "./line-items";
+import { DocPaper } from "@/components/business-doc/doc-paper";
+import { buildDocView } from "@/lib/business-doc/doc-view";
+import { FitPaper } from "@/components/business-doc/fit-paper";
+import { CUSTOM_TERMS, docLabels } from "@/lib/business-doc/labels";
+import { LineItems } from "@/components/business-doc/line-items";
 
 /**
  * Print only the document. Everything else on the page is hidden twice over:
@@ -341,7 +341,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
     try {
       const view = buildDocView({ doc: getDraft(kind), labels, evaluation, dates, currency, locale });
       const [pdf, regular, bold] = await Promise.all([
-        import("@/lib/tools/invoice-pdf"),
+        import("@/lib/business-doc/invoice-pdf"),
         fetchBytes("/fonts/pdf/NotoSans-Regular.ttf"),
         fetchBytes("/fonts/pdf/NotoSans-Bold.ttf"),
       ]);

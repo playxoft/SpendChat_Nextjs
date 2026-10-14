@@ -1,4 +1,4 @@
-import type { DocKind, QuoteTitle } from "@/lib/tools/invoice";
+import type { DocKind, QuoteTitle } from "@/lib/business-doc/invoice";
 
 /** The terms choice that means "I picked the date myself" (`dueDays: null`). */
 export const CUSTOM_TERMS = "custom";

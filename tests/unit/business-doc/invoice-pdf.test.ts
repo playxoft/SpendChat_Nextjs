@@ -4,7 +4,7 @@ import path from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { CURRENCIES } from "@/lib/currencies";
 import { formatMoney } from "@/lib/money";
-import { pdfText, renderDocPdf, unsupportedCharacters, wrapText, type DocView } from "@/lib/tools/invoice-pdf";
+import { pdfText, renderDocPdf, unsupportedCharacters, wrapText, type DocView } from "@/lib/business-doc/invoice-pdf";
 
 const font = (weight: string) =>
   new Uint8Array(fs.readFileSync(path.join(process.cwd(), "public/fonts/pdf", `NotoSans-${weight}.ttf`)));

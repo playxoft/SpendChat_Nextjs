@@ -19,7 +19,7 @@ import {
   sanitizeDoc,
   startNextDoc,
   type BusinessDoc,
-} from "@/lib/tools/invoice";
+} from "@/lib/business-doc/invoice";
 
 function doc(patch: Partial<BusinessDoc> = {}): BusinessDoc {
   return { ...defaultDoc("invoice"), ...patch };
