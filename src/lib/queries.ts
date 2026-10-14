@@ -9,6 +9,7 @@ import {
   gte,
   ilike,
   inArray,
+  lt,
   lte,
   notExists,
   or,
@@ -42,6 +43,8 @@ import {
   type TxnFileDTO,
 } from "@/lib/files";
 import { serializeTxnTag, type TxnTagDTO } from "@/lib/tags";
+import { monthRange } from "@/lib/dates";
+import { landingFor, type FeedLanding } from "@/lib/feed-days";
 
 /** The page size shared by the transactions list, its infinite-scroll loader,
  * and the load-more server action. */
@@ -300,19 +303,29 @@ const MERGE_APPEND_MAX_BRANCHES = 24;
  * array would come back mutated and the next non-union query built from it would
  * emit unqualified names into a join.
  */
-function cursorOrder() {
-  return [desc(transactions.occurredOn), desc(transactions.createdAt), desc(transactions.id)];
+function cursorOrder(dir: FeedDirection = "older") {
+  // "newer" walks the same index backwards — a backward scan is as cheap as a
+  // forward one, so paging towards the present costs what paging back does.
+  const by = dir === "older" ? desc : asc;
+  return [by(transactions.occurredOn), by(transactions.createdAt), by(transactions.id)];
 }
 
+/**
+ * Which way a feed page reads from its bound: back into history (newest
+ * first — the default, and the list's order) or forward towards the present
+ * (oldest first — the rows just after a cursor or from a day on).
+ */
+type FeedDirection = "older" | "newer";
+
 /** One profile's slice of a page: an ordered index scan, stopped early. */
-function pageBranch(where: SQL | undefined, take: number) {
+function pageBranch(where: SQL | undefined, take: number, dir: FeedDirection = "older") {
   const db = getDb();
   return db
     .select(pageColumns)
     // trash: every caller passes a `buildConditions` / `feedConditions` predicate.
     .from(transactions)
     .where(where)
-    .orderBy(...cursorOrder())
+    .orderBy(...cursorOrder(dir))
     .limit(take);
 }
 
@@ -326,13 +339,18 @@ function pageBranch(where: SQL | undefined, take: number) {
  * another chunk of SQL for less and less benefit. Workspaces have a handful of
  * profiles in practice; the ceiling is a guard, not a tuning knob.
  */
-function mergeAppend(branches: ReturnType<typeof pageBranch>[], limit: number, offset = 0) {
+function mergeAppend(
+  branches: ReturnType<typeof pageBranch>[],
+  limit: number,
+  offset = 0,
+  dir: FeedDirection = "older",
+) {
   // `unionAll` takes its first two operands positionally; destructuring is what
   // proves to TypeScript that they exist.
   const [first, second, ...rest] = branches;
   if (!first || !second || branches.length > MERGE_APPEND_MAX_BRANCHES) return null;
   return unionAll(first, second, ...rest)
-    .orderBy(...cursorOrder())
+    .orderBy(...cursorOrder(dir))
     .limit(limit)
     .offset(offset)
     .as("page");
@@ -617,16 +635,34 @@ export const FEED_PAGE_SIZE = 40;
 export type FeedCursor = { occurredOn: string; createdAt: Date; id: string };
 
 /**
- * Access scope, plus "strictly older than the cursor" in the feed's order.
+ * Where a feed page starts and stops. Every bound narrows; none widens.
  *
- * The cursor is written as a **row comparison**, not the equivalent ladder of
+ *  - `before` / `after`: strictly older / newer than a row, in the feed's
+ *    (occurredOn, createdAt, id) order — the keyset cursors that page the feed
+ *    back into history and forward towards the present.
+ *  - `onOrAfter` / `onOrBefore` / `beforeDay`: by day alone — how a jump to a
+ *    date finds the day it lands on and the rows on either side of it.
+ */
+type FeedBounds = {
+  profileId?: string;
+  before?: FeedCursor;
+  after?: FeedCursor;
+  onOrAfter?: string;
+  onOrBefore?: string;
+  beforeDay?: string;
+};
+
+/**
+ * Access scope, plus the page's bounds.
+ *
+ * The cursors are written as **row comparisons**, not the equivalent ladder of
  * ORs, and that is the whole difference between seeking and filtering. Postgres
  * turns `(a, b, c) < ($1, $2, $3)` into an index bound and starts the scan at
  * the cursor; the OR form it can only evaluate as a filter, so every page reads
  * from the newest row and throws away everything above the cursor — which makes
  * scrolling back cost more the further back you have already scrolled. Measured
  * on a 300,000-row table at a cursor 150,000 rows deep: 43 buffer reads against
- * 50,453.
+ * 50,453. The same holds for `>` read the other way along the index.
  *
  * The seek only works because `transactions_profile_date_idx` sorts all three
  * columns the same way. What the form needs to be *correct*, though, is that
@@ -634,23 +670,71 @@ export type FeedCursor = { occurredOn: string; createdAt: Date; id: string };
  * fraction early silently excludes everything tied with that row. `created_at`
  * is `timestamptz(3)` for precisely that reason — see the column — because the
  * cursor round-trips through a JavaScript `Date`.
+ *
+ * The day bounds are plain ranges on `occurred_on`, the index's second column,
+ * so they seek too. `buildConditions` leads with the literal `deleted_at is
+ * null`, which is what lets every branch use the partial index.
  */
-function feedConditions(profileIds: string[], opts: { profileId?: string; before?: FeedCursor }) {
-  const base = buildConditions(profileIds, { profileId: opts.profileId });
-  const b = opts.before;
-  if (!b) return base;
-  return and(
-    base,
-    sql`(${transactions.occurredOn}, ${transactions.createdAt}, ${transactions.id}) <
+function feedConditions(profileIds: string[], bounds: FeedBounds) {
+  const conds = [
+    buildConditions(profileIds, {
+      profileId: bounds.profileId,
+      from: bounds.onOrAfter,
+      to: bounds.onOrBefore,
+    }),
+  ];
+  if (bounds.beforeDay) conds.push(lt(transactions.occurredOn, bounds.beforeDay));
+  const b = bounds.before;
+  if (b) {
+    conds.push(
+      sql`(${transactions.occurredOn}, ${transactions.createdAt}, ${transactions.id}) <
         (${b.occurredOn}::date, ${b.createdAt}::timestamptz, ${b.id}::uuid)`,
-  );
+    );
+  }
+  const a = bounds.after;
+  if (a) {
+    conds.push(
+      sql`(${transactions.occurredOn}, ${transactions.createdAt}, ${transactions.id}) >
+        (${a.occurredOn}::date, ${a.createdAt}::timestamptz, ${a.id}::uuid)`,
+    );
+  }
+  return and(...conds);
 }
 
 /**
- * One page of the tracker chat feed, newest-first, optionally older than a
- * cursor. Keyset paginated on (occurredOn, createdAt, id) so paging stays stable
- * as new rows land at the top (an offset would drift). Not month-scoped —
- * scrolling up walks further into history. The caller reverses to oldest-first.
+ * The page subquery for a slice of the feed: `limit` rows from `bounds`, read
+ * in `dir`. The cursor's `(occurred_on, created_at, id)` order is exactly
+ * `transactions_profile_date_idx`'s trailing columns, so one profile reads
+ * straight off the index — no sort, and (because `feedConditions` seeks rather
+ * than filters) the page costs the same at any depth in history. Several
+ * profiles need the same merge as the list: a btree led by `profile_id` orders
+ * by profile first, so `profile_id in (…)` cannot produce global date order
+ * and Postgres falls back to sorting the whole match set. "All profiles" is a
+ * supported mode on the app's busiest page, so it gets one ordered scan per
+ * profile too. There is no offset here, and that is what makes `limit` rows
+ * per branch enough: the global top-`limit` can take at most `limit` rows from
+ * any one branch. Add an offset and each branch would have to cover it, the
+ * way `pageOf` does.
+ */
+function feedSlice(profileIds: string[], bounds: FeedBounds, dir: FeedDirection, limit: number) {
+  const merged = bounds.profileId
+    ? null
+    : mergeAppend(
+        profileIds.map((id) => pageBranch(feedConditions([id], bounds), limit, dir)),
+        limit,
+        0,
+        dir,
+      );
+  return merged ?? pageBranch(feedConditions(profileIds, bounds), limit, dir).as("page");
+}
+
+/**
+ * One page of the tracker chat feed, newest-first: the latest rows, the rows
+ * just older than `before`, or — with `after` — the `limit` rows just newer
+ * than it (the feed paging forward again after a jump into the past). Keyset
+ * paginated on (occurredOn, createdAt, id) so paging stays stable as new rows
+ * land at the top (an offset would drift). Not month-scoped — scrolling walks
+ * through all history. The caller reverses to oldest-first.
  */
 export async function listFeedPage(
   userId: string,
@@ -661,30 +745,111 @@ export async function listFeedPage(
     profileIds?: string[];
     limit: number;
     before?: FeedCursor;
+    after?: FeedCursor;
   },
 ): Promise<TransactionRow[]> {
   const profileIds = await profilesInScope(userId, workspaceId, opts.profileIds);
   if (profileIds.length === 0) return [];
-  // The cursor's `(occurred_on, created_at, id)` order is exactly
-  // `transactions_profile_date_idx`'s trailing columns, so one profile reads
-  // straight off the index — no sort, and (because `feedConditions` seeks rather
-  // than filters) the page costs the same at any depth in history. Several
-  // profiles need the same merge as the list: a btree led by
-  // `profile_id` orders by profile first, so `profile_id in (…)` cannot produce
-  // global date order and Postgres falls back to sorting the whole match set.
-  // "All profiles" is a supported mode on the app's busiest page, so it gets one
-  // ordered scan per profile too. There is no offset here, and that is what
-  // makes `limit` rows per branch enough: the global top-`limit` can take at
-  // most `limit` rows from any one branch. Add an offset and each branch would
-  // have to cover it, the way `pageOf` does.
-  const merged = opts.profileId
-    ? null
-    : mergeAppend(
-        profileIds.map((id) => pageBranch(feedConditions([id], opts), opts.limit)),
-        opts.limit,
-      );
-  const page = merged ?? pageBranch(feedConditions(profileIds, opts), opts.limit).as("page");
+  const page = feedSlice(profileIds, opts, opts.after ? "newer" : "older", opts.limit);
   return decorate(page, {});
+}
+
+/** The nearest day with a live row in `bounds`, reading in `dir` — one row per profile, merged. */
+async function feedEdgeDay(
+  profileIds: string[],
+  bounds: FeedBounds,
+  dir: FeedDirection,
+): Promise<string | null> {
+  const page = feedSlice(profileIds, bounds, dir, 1);
+  const [row] = await getDb().select({ day: page.occurredOn }).from(page);
+  return row?.day ?? null;
+}
+
+/** The feed opened at a day: see `listFeedAround`. */
+export type FeedWindow = {
+  /** Where it landed; null when there's nothing in view to land on. */
+  landed: FeedLanding | null;
+  /** Oldest-first, like the chat: up to `limit` rows before the day, then up to `limit` from its start. */
+  rows: TransactionRow[];
+  /** More rows exist before the first one returned. */
+  hasOlder: boolean;
+  /** More rows exist after the last one returned — the window doesn't reach the present. */
+  hasNewer: boolean;
+};
+
+/**
+ * The tracker feed opened at a date — "go to a date" in the tracker header.
+ *
+ * It lands on `date` if anything happened that day; otherwise on the nearest
+ * earlier day that has something; otherwise (nothing that early at all) on the
+ * first day after it. Then it reads the window around that day: up to `limit`
+ * rows from the **start** of the day onwards — so the day's separator is the
+ * first thing below the header, however busy the day was — and up to `limit`
+ * rows before it, so there is history to scroll up into straight away. From
+ * there the feed pages on with the usual cursors (`before` the first row,
+ * `after` the last), in both directions.
+ *
+ * Each read is an index seek per profile (one row each for the landing day,
+ * `limit + 1` each for the two sides — the extra row is what answers "is there
+ * more?" without another round trip). Days are `occurred_on`, exactly what the
+ * feed groups its separators by.
+ */
+export async function listFeedAround(
+  userId: string,
+  workspaceId: string,
+  opts: { profileIds?: string[]; date: string; limit: number },
+): Promise<FeedWindow> {
+  const nothing: FeedWindow = { landed: null, rows: [], hasOlder: false, hasNewer: false };
+  const profileIds = await profilesInScope(userId, workspaceId, opts.profileIds);
+  if (profileIds.length === 0) return nothing;
+  const day =
+    (await feedEdgeDay(profileIds, { onOrBefore: opts.date }, "older")) ??
+    (await feedEdgeDay(profileIds, { onOrAfter: opts.date }, "newer"));
+  if (!day) return nothing;
+
+  const take = opts.limit + 1;
+  const [fromDay, beforeDay] = await Promise.all([
+    decorate(feedSlice(profileIds, { onOrAfter: day }, "newer", take), {}),
+    decorate(feedSlice(profileIds, { beforeDay: day }, "older", take), {}),
+  ]);
+  // Both come back newest-first (`decorate`'s order). From the day on, keep the
+  // *oldest* `limit`; before it, the *newest* `limit` — the rows nearest the day.
+  const newer = fromDay.reverse();
+  const older = beforeDay.slice(0, opts.limit).reverse();
+  return {
+    landed: landingFor(day, opts.date),
+    rows: [...older, ...newer.slice(0, opts.limit)],
+    hasOlder: beforeDay.length > opts.limit,
+    hasNewer: newer.length > opts.limit,
+  };
+}
+
+/**
+ * The days in a month ("YYYY-MM") with at least one live transaction in view —
+ * the dots on the tracker's date picker. One grouped read of the month, under
+ * the feed's own scope (access, trash, the profile selection), so a dot means
+ * the jump to that day lands on that day.
+ *
+ * Cheap by construction: `profile_id in (…)` plus a range on `occurred_on` is a
+ * range scan of the leading columns of `transactions_profile_date_idx`, and
+ * `buildConditions` carries the literal `deleted_at is null` the partial index
+ * needs. It reads the month's rows and nothing else.
+ */
+export async function listFeedDays(
+  userId: string,
+  workspaceId: string,
+  opts: { profileIds?: string[]; month: string },
+): Promise<string[]> {
+  const profileIds = await profilesInScope(userId, workspaceId, opts.profileIds);
+  if (profileIds.length === 0) return [];
+  const { start, end } = monthRange(`${opts.month}-01`);
+  const rows = await getDb()
+    .select({ day: transactions.occurredOn })
+    .from(transactions)
+    .where(buildConditions(profileIds, { from: start, to: end }))
+    .groupBy(transactions.occurredOn)
+    .orderBy(asc(transactions.occurredOn));
+  return rows.map((r) => r.day);
 }
 
 export async function countTransactions(

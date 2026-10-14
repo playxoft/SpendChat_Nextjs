@@ -3,6 +3,8 @@ import { eq, inArray, sql } from "drizzle-orm";
 import {
   listTransactions,
   listTransactionsAsc,
+  listFeedAround,
+  listFeedDays,
   listFeedPage,
   listVaultFiles,
   listTransactionFilesForVault,
@@ -778,6 +780,15 @@ describe("index/sort agreement", () => {
     for (const [label, merged, run] of [
       ["feed, one profile", false, () => listFeedPage(U, W, { profileId: personal, limit: 40 })],
       ["feed, all profiles", true, () => listFeedPage(U, W, { limit: 40 })],
+      [
+        "feed, all profiles, newer than a cursor",
+        true,
+        () =>
+          listFeedPage(U, W, {
+            limit: 40,
+            after: { occurredOn: "2020-03-01", createdAt: new Date("2020-01-01T00:10:00Z"), id: personal },
+          }),
+      ],
       ["list, default order", true, () => listTransactions(U, W, { limit: 50 })],
     ] as const) {
       const plan = await explain(run);
@@ -785,6 +796,33 @@ describe("index/sort agreement", () => {
       expect(sortsIn(plan), `${label} sorts the page:\n${plan}`).toBe(merged ? 1 : 0);
       if (merged) expect(plan, `${label} lost its merge:\n${plan}`).toContain("Merge Append");
     }
+
+    // A jump to a date: the landing day and both sides of it are each a seek
+    // per profile, merged — never a scan of the workspace.
+    const planOf = async (st: { text: string; params: unknown[] }) => {
+      const explained = await getTestClient().query(`explain (costs off) ${st.text}`, st.params);
+      return (explained.rows as { "QUERY PLAN": string }[]).map((r) => r["QUERY PLAN"]).join("\n");
+    };
+    const around = (await captureSql(() => listFeedAround(U, W, { date: "2020-03-15", limit: 40 }))).filter(
+      (st) => st.text.includes("order by") && st.text.includes("limit"),
+    );
+    expect(around.length, "the jump's reads weren't captured").toBeGreaterThanOrEqual(3);
+    for (const st of around) {
+      const plan = await planOf(st);
+      expect(plan, `a jump read ignores the partial feed index:\n${plan}`).toContain("transactions_profile_date_idx");
+      expect(plan, `a jump read lost its merge:\n${plan}`).toContain("Merge Append");
+      expect(plan, `a jump read scans the table:\n${plan}`).not.toMatch(/Seq Scan on transactions/);
+    }
+
+    // The picker's dots: one grouped read of the month's range, off the same index.
+    const [days] = (await captureSql(() => listFeedDays(U, W, { month: "2020-03" }))).filter((st) =>
+      st.text.includes("group by"),
+    );
+    const daysPlan = await planOf(days!);
+    expect(daysPlan, `the month's days ignore the partial feed index:\n${daysPlan}`).toContain(
+      "transactions_profile_date_idx",
+    );
+    expect(daysPlan, `the month's days scan the table:\n${daysPlan}`).not.toMatch(/Seq Scan on transactions/);
 
     const trashPlan = await explain(() => listTrashedTransactions(U, W, { limit: 50 }));
     expect(trashPlan, `the trash list ignores its index:\n${trashPlan}`).toContain("transactions_trash_idx");

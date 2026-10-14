@@ -7,6 +7,7 @@ import {
   formatDateLabel,
   dayDividerLabel,
   monthLabel,
+  isCalendarDay,
 } from "@/lib/dates";
 
 afterEach(() => vi.useRealTimers());
@@ -95,5 +96,26 @@ describe("monthLabel", () => {
   });
   it("defaults a missing month to January", () => {
     expect(monthLabel("2026")).toBe("Jan 2026");
+  });
+});
+
+describe("isCalendarDay", () => {
+  it("accepts a real day", () => {
+    expect(isCalendarDay("2026-10-14")).toBe(true);
+    expect(isCalendarDay("2028-02-29")).toBe(true);
+    expect(isCalendarDay("1970-01-01")).toBe(true);
+    expect(isCalendarDay("2999-12-31")).toBe(true);
+  });
+
+  it("refuses a day the month doesn't have — Postgres would error on it", () => {
+    expect(isCalendarDay("2026-02-29")).toBe(false);
+    expect(isCalendarDay("2026-04-31")).toBe(false);
+    expect(isCalendarDay("2026-02-31")).toBe(false);
+  });
+
+  it("refuses the wrong shape, out-of-range parts and non-strings", () => {
+    for (const bad of ["2026-1-14", "2026-13-01", "2026-00-10", "2026-10-00", "1969-12-31", "3000-01-01", "", "2026-10-14T00:00", 20261014, null]) {
+      expect(isCalendarDay(bad), String(bad)).toBe(false);
+    }
   });
 });

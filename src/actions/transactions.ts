@@ -13,12 +13,18 @@ import {
   FEED_PAGE_SIZE,
   getCategories,
   getTags,
+  listFeedAround,
+  listFeedDays,
   listFeedPage,
   listTransactions,
   TRANSACTIONS_PAGE_SIZE,
+  type FeedWindow,
   type TransactionRow,
 } from "@/lib/queries";
 import {
+  feedAroundSchema,
+  feedDaysSchema,
+  loadNewerFeedSchema,
   TAGS_PER_TRANSACTION_MAX,
   updateTransactionSchema,
   type BulkUpdateTransactionsInput,
@@ -258,6 +264,68 @@ export async function loadOlderFeed(
       });
       // Oldest-first for the chat feed; the client prepends these above.
       return { rows: newestFirst.reverse() };
+    },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
+  );
+}
+
+/**
+ * The page just newer than a row — the tracker scrolling back down towards the
+ * present after a jump into the past. Oldest-first, appended below; `hasMore`
+ * is false once it reaches the newest row, when the feed is live again.
+ */
+export async function loadNewerFeed(
+  input: z.input<typeof loadNewerFeedSchema>,
+): Promise<ActionResult<{ rows: TransactionRow[]; hasMore: boolean }>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "loadNewerFeed",
+    async () => {
+      const { profileIds, after } = parseOrThrow(loadNewerFeedSchema, input);
+      // One row past the page answers "is there more?" without another trip.
+      const newestFirst = await listFeedPage(user.id, workspace.id, {
+        profileIds,
+        after,
+        limit: FEED_PAGE_SIZE + 1,
+      });
+      const rows = newestFirst.reverse();
+      return { rows: rows.slice(0, FEED_PAGE_SIZE), hasMore: rows.length > FEED_PAGE_SIZE };
+    },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
+  );
+}
+
+/**
+ * The tracker feed opened at a date — the header's "go to a date". Lands on the
+ * day, or the nearest earlier day with transactions (see `listFeedAround`).
+ */
+export async function loadFeedAround(
+  input: z.input<typeof feedAroundSchema>,
+): Promise<ActionResult<FeedWindow>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "loadFeedAround",
+    async () => {
+      const { profileIds, date } = parseOrThrow(feedAroundSchema, input);
+      return listFeedAround(user.id, workspace.id, { profileIds, date, limit: FEED_PAGE_SIZE });
+    },
+    { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
+  );
+}
+
+/** The days of a month with transactions in view — the date picker's dots. */
+export async function loadFeedDays(
+  input: z.input<typeof feedDaysSchema>,
+): Promise<ActionResult<{ days: string[] }>> {
+  const user = await requireUser();
+  const workspace = await getCurrentWorkspace(user.id);
+  return runAction(
+    "loadFeedDays",
+    async () => {
+      const { profileIds, month } = parseOrThrow(feedDaysSchema, input);
+      return { days: await listFeedDays(user.id, workspace.id, { profileIds, month }) };
     },
     { userId: user.id, rateLimit: "read", workspaceId: workspace.id },
   );
