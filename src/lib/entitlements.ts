@@ -1,7 +1,8 @@
 import "server-only";
-import { and, count, eq, exists, gte, isNull, or, sql } from "drizzle-orm";
+import { and, count, eq, exists, gt, gte, isNull, or, sql } from "drizzle-orm";
 import { getDb } from "@/db";
 import {
+  aiTopups,
   aiUsageLog,
   budgets,
   categories,
@@ -26,7 +27,14 @@ import {
 import { budgetsAllowance, nextPlanForBudgets } from "@/lib/plan-limit";
 import { getTrashBytes, getWorkspaceStorageUsage } from "@/lib/queries";
 import { forgetForRequest, memoizeForRequest } from "@/lib/request-cache";
-import { listUserWorkspaces, readOnlyWorkspaceError, readOnlyWorkspaceSql } from "@/lib/workspaces";
+import {
+  activeBillingHold,
+  billingHoldError,
+  listUserWorkspaces,
+  readOnlyWorkspaceError,
+  readOnlyWorkspaceSql,
+  type ReadOnlyReason,
+} from "@/lib/workspaces";
 import { notTrashed } from "@/lib/trash-scope";
 
 /**
@@ -54,8 +62,13 @@ export type WorkspaceEntitlements = {
   ownerId: string;
   plan: PersonalPlan;
   limits: PlanLimits;
-  /** An extra free workspace (the owner has an older free one): everything is view-only. */
+  /**
+   * Everything is view-only: an extra free workspace (the owner has an older
+   * free one), or a billing hold (a failed renewal past its grace, a dispute).
+   */
   readOnly: boolean;
+  /** Why it's view-only, or null when it isn't. */
+  readOnlyReason: ReadOnlyReason | null;
 };
 
 const entitlementsKey = (workspaceId: string) => `entitlements:${workspaceId}`;
@@ -71,18 +84,22 @@ export function getWorkspaceEntitlements(workspaceId: string): Promise<Workspace
       .select({
         ownerId: workspaces.ownerId,
         plan: workspaces.plan,
+        billingHold: workspaces.billingHold,
+        billingHoldFrom: workspaces.billingHoldFrom,
         readOnly: readOnlyWorkspaceSql(workspaceId),
       })
       .from(workspaces)
       .where(eq(workspaces.id, workspaceId))
       .limit(1);
     if (!row) throw notFound("Workspace not found");
+    const readOnly = Boolean(row.readOnly);
     return {
       workspaceId,
       ownerId: row.ownerId,
       plan: row.plan,
       limits: PLAN_LIMITS[row.plan],
-      readOnly: Boolean(row.readOnly),
+      readOnly,
+      readOnlyReason: readOnly ? (activeBillingHold(row) ?? "extra_free") : null,
     };
   });
 }
@@ -343,7 +360,13 @@ export async function countTags(workspaceId: string): Promise<number> {
  * reading stay open, so the owner can still clean up or export.
  */
 function assertWritable(ent: WorkspaceEntitlements): void {
-  if (ent.readOnly) throw readOnlyWorkspaceError();
+  if (ent.readOnly) throw readOnlyErrorOf(ent);
+}
+
+/** The refusal for a write into this view-only workspace: the upgrade prompt, or the billing hold's own words. */
+export function readOnlyErrorOf(ent: Pick<WorkspaceEntitlements, "readOnlyReason">): ApiError {
+  const reason = ent.readOnlyReason;
+  return reason && reason !== "extra_free" ? billingHoldError(reason) : readOnlyWorkspaceError();
 }
 
 /** `assertWritable` for callers that hold only the id — granting access counts as adding. */
@@ -642,37 +665,71 @@ export function aiUsageScope(ent: Pick<WorkspaceEntitlements, "workspaceId" | "o
     : eq(aiUsageLog.workspaceId, ent.workspaceId);
 }
 
-/** AI actions counted against the workspace this calendar month. */
+/**
+ * AI actions counted against the workspace's **monthly allowance** this
+ * calendar month: every charged action, less the part a top-up paid for
+ * (`topup_units` — top-ups are spent only once the allowance is gone, C4).
+ */
 export async function aiActionsUsedThisMonth(
   ent: Pick<WorkspaceEntitlements, "workspaceId" | "ownerId" | "plan">,
   now: Date = new Date(),
   db: Pick<ReturnType<typeof getDb>, "select"> = getDb(),
 ): Promise<number> {
   const [row] = await db
-    .select({ used: sql<string>`coalesce(sum(${aiUsageLog.units}), 0)::text` })
+    .select({ used: sql<string>`coalesce(sum(${aiUsageLog.units} - ${aiUsageLog.topupUnits}), 0)::text` })
     .from(aiUsageLog)
     .where(and(aiUsageScope(ent), gte(aiUsageLog.createdAt, monthStartUtc(now))));
   return Number(row?.used ?? 0);
+}
+
+/** The SQL filter for a workspace's top-ups that can still be spent: unexpired, unrevoked, not empty. */
+export function liveTopUps(workspaceId: string, now: Date) {
+  return and(
+    eq(aiTopups.workspaceId, workspaceId),
+    gt(aiTopups.remaining, 0),
+    gt(aiTopups.expiresAt, now),
+    isNull(aiTopups.revokedAt),
+  )!;
+}
+
+/** Top-up actions the workspace has left, and when the soonest of them expires. */
+export async function getTopUpBalance(
+  workspaceId: string,
+  now: Date = new Date(),
+  db: Pick<ReturnType<typeof getDb>, "select"> = getDb(),
+): Promise<{ remaining: number; nextExpiresAt: Date | null }> {
+  const [row] = await db
+    .select({
+      remaining: sql<string>`coalesce(sum(${aiTopups.remaining}), 0)::text`,
+      nextExpiresAt: sql<Date | string | null>`min(${aiTopups.expiresAt})`,
+    })
+    .from(aiTopups)
+    .where(liveTopUps(workspaceId, now));
+  const raw = row?.nextExpiresAt ?? null;
+  return { remaining: Number(row?.remaining ?? 0), nextExpiresAt: raw ? new Date(raw) : null };
 }
 
 export type AiAllowance = {
   used: number;
   limit: number;
   remaining: number;
-  /** Top-up actions left (personal phase 9); 0 until top-ups exist. */
+  /** Top-up actions left (C4): spent once `remaining` is 0. */
   topUpRemaining: number;
+  /** When the soonest-expiring top-up with actions left expires (ISO), or null. */
+  topUpExpiresAt: string | null;
   resetsAt: string;
 };
 
 export async function getAiAllowance(workspaceId: string, now: Date = new Date()): Promise<AiAllowance> {
   const ent = await getWorkspaceEntitlements(workspaceId);
-  const used = await aiActionsUsedThisMonth(ent, now);
+  const [used, topUps] = await Promise.all([aiActionsUsedThisMonth(ent, now), getTopUpBalance(workspaceId, now)]);
   const limit = ent.limits.aiActionsPerMonth;
   return {
     used,
     limit,
     remaining: Math.max(0, limit - used),
-    topUpRemaining: 0,
+    topUpRemaining: topUps.remaining,
+    topUpExpiresAt: topUps.nextExpiresAt?.toISOString() ?? null,
     resetsAt: nextMonthStartUtc(now).toISOString(),
   };
 }
@@ -712,6 +769,8 @@ export type AddLimits = {
   plan: PersonalPlan;
   /** View-only workspace: nothing can be added at all. */
   readOnly: boolean;
+  /** Why (an extra free workspace, or a billing hold), or null. */
+  readOnlyReason: ReadOnlyReason | null;
   spaces: AddMeter;
   categories: AddMeter;
   tags: AddMeter;
@@ -766,6 +825,7 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
   return {
     plan: ent.plan,
     readOnly: ent.readOnly,
+    readOnlyReason: ent.readOnlyReason,
     spaces: meter(Number(row?.spaces ?? 0), ent.limits.spaces),
     categories: meter(Number(row?.categories ?? 0), ent.limits.categories),
     tags: meter(Number(row?.tags ?? 0), ent.limits.tags),
@@ -790,6 +850,8 @@ export type Meter = { used: number; limit: number };
 export type WorkspaceUsage = {
   plan: PersonalPlan;
   readOnly: boolean;
+  /** Why it's view-only, or null. */
+  readOnlyReason: ReadOnlyReason | null;
   ai: AiAllowance;
   /** `trashBytes` is the part of `usedBytes` sitting in the trash (C6). */
   storage: { usedBytes: number; limitBytes: number; trashBytes: number };
@@ -822,6 +884,7 @@ export async function getUsage(workspaceId: string): Promise<WorkspaceUsage> {
   return {
     plan: ent.plan,
     readOnly: ent.readOnly,
+    readOnlyReason: ent.readOnlyReason,
     ai,
     storage: { usedBytes: storageUsed, limitBytes: ent.limits.storageBytes, trashBytes },
     members: { used: members, limit: ent.limits.members },

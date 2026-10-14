@@ -12,7 +12,7 @@ import {
   users,
 } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
-import { assertCanRestoreProfiles, getWorkspaceEntitlements } from "@/lib/entitlements";
+import { assertCanRestoreProfiles, getWorkspaceEntitlements, readOnlyErrorOf } from "@/lib/entitlements";
 import { forbidden } from "@/lib/errors";
 import { logger } from "@/lib/logger";
 import { deleteObjects } from "@/lib/r2";
@@ -34,7 +34,7 @@ import {
 } from "@/lib/trash";
 import { notTrashed, trashedOnly } from "@/lib/trash-scope";
 import { FOLDER_NAME_MAX, PROFILE_NAME_MAX, trashSelectionSchema } from "@/lib/validation";
-import { accessibleProfileIds, getWorkspaceRole, readOnlyWorkspaceError } from "@/lib/workspaces";
+import { accessibleProfileIds, getWorkspaceRole } from "@/lib/workspaces";
 import { destroyProfiles } from "./storage-keys";
 import { scheduleBudgetCheck } from "./budget-alerts";
 import {
@@ -911,7 +911,8 @@ export async function deleteFromTrash(
     if ((await getWorkspaceRole(userId, workspaceId)) === "admin") {
       // A view-only workspace changes nothing — not even a delete for good
       // through the admin path, which doesn't go through a profile role.
-      if ((await getWorkspaceEntitlements(workspaceId)).readOnly) throw readOnlyWorkspaceError();
+      const ent = await getWorkspaceEntitlements(workspaceId);
+      if (ent.readOnly) throw readOnlyErrorOf(ent);
       await run(
         destroyTrashedProfiles(
           and(inArray(profiles.id, sel.profileIds), eq(profiles.workspaceId, workspaceId))!,
@@ -954,7 +955,7 @@ export async function emptyTrash(
   // empty there, and the admin branch (profiles) is skipped too.
   const admin = role === "admin" && !ent.readOnly;
   if (writable.length === 0 && !admin) {
-    if (ent.readOnly) throw readOnlyWorkspaceError();
+    if (ent.readOnly) throw readOnlyErrorOf(ent);
     throw forbidden("You don't have permission to do that");
   }
   const counts: TrashCounts = { ...EMPTY_TRASH_COUNTS };

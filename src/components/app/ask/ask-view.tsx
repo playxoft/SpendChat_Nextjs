@@ -25,7 +25,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { aiActionsLock } from "@/lib/add-limits";
-import { ASK_NEEDS_EDIT_MESSAGE, type AiActionsLeft } from "@/lib/ai-limits";
+import { ASK_NEEDS_EDIT_MESSAGE, aiActionsSpent, type AiActionsLeft } from "@/lib/ai-limits";
 import { planLimitOf } from "@/lib/plan-limit";
 import { AI_CHAT_QUESTION_MAX } from "@/lib/validation";
 import { cn } from "@/lib/utils";
@@ -153,7 +153,8 @@ export function AskView({
   }, [currentChatId]);
 
   const left = aiLeft ?? allowance;
-  const spent = !sampleAnswers && left !== null && left.remaining <= 0;
+  // Spent only when the month's allowance *and* any top-up are gone (C4).
+  const spent = !sampleAnswers && left !== null && aiActionsSpent(left);
   const lock = spent ? aiActionsLock(plan, left.limit) : null;
   const busy = asking || pendingQuestion !== null;
 

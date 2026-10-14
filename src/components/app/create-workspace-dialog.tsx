@@ -18,17 +18,33 @@ import { EmojiPicker } from "@/components/ui/emoji-picker";
 import { useLoadingOverlay } from "./loading-overlay";
 import { usePlan } from "./upgrade-dialog";
 import { LimitPanel, LockedButton, useAddLimits, useAddLock } from "./limit-lock";
-import { createWorkspace } from "@/actions/workspaces";
+import { Segmented } from "@/components/pricing/segmented";
+import { createWorkspace, createWorkspaceForPurchase } from "@/actions/workspaces";
 import { DEFAULT_WORKSPACE_ICON, WORKSPACE_NAME_MAX } from "@/lib/validation";
 import { newWorkspaceLock } from "@/lib/add-limits";
 import { planLimitOf } from "@/lib/plan-limit";
+import { PLAN_NAMES } from "@/lib/plans";
+import {
+  PAID_PERSONAL_PLANS,
+  PERIODS,
+  PERIOD_LABEL,
+  formatAmount,
+  quote,
+  type PaidPersonalPlan,
+  type Period,
+} from "@/lib/pricing";
 
 /**
  * Modal for creating a new workspace. Reused by the sidebar workspace switcher,
  * the workspace settings page and the organisation page. An outside click never
  * dismisses it (the dialog's app-wide default), so a stray click can't lose a
- * half-typed name. Someone who already owns a free workspace sees why up front
- * (one free workspace per person) and can't submit.
+ * half-typed name.
+ *
+ * Someone who already owns a free workspace (one per person, C5) picks a plan
+ * for the new one here instead: it's created view-only and they go straight
+ * to checkout for it (`createWorkspaceForPurchase`). Paying opens it up; not
+ * paying leaves an empty view-only workspace, which the next "New workspace"
+ * reuses rather than making another.
  */
 export function CreateWorkspaceDialog({
   open,
@@ -42,11 +58,15 @@ export function CreateWorkspaceDialog({
 }) {
   const router = useRouter();
   const { run, pending } = useLoadingOverlay();
-  const { handlePlanLimit, showUpgrade, plan } = usePlan();
+  const { handlePlanLimit, showUpgrade, plan, reportFailure, currency } = usePlan();
   const limits = useAddLimits();
   const lock = useAddLock("workspaces");
+  // Already has their free workspace: the new one comes with a plan of its own.
+  const buying = Boolean(lock);
   const [name, setName] = React.useState("");
   const [icon, setIcon] = React.useState(DEFAULT_WORKSPACE_ICON);
+  const [buyPlan, setBuyPlan] = React.useState<PaidPersonalPlan>("plus");
+  const [buyPeriod, setBuyPeriod] = React.useState<Period>("yearly");
 
   // Reset fields each time the dialog opens.
   const [wasOpen, setWasOpen] = React.useState(open);
@@ -60,10 +80,24 @@ export function CreateWorkspaceDialog({
 
   function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (lock) return showUpgrade(lock.info);
     const trimmed = name.trim();
     if (!trimmed) {
       toast.error("Enter a workspace name");
+      return;
+    }
+    if (buying) {
+      run(async () => {
+        const res = await createWorkspaceForPurchase({ name: trimmed, icon, plan: buyPlan, period: buyPeriod });
+        if (!res.ok) {
+          reportFailure(res, "Couldn't create the workspace. Please try again.");
+          return;
+        }
+        if (res.reused) toast.message("You already have a workspace waiting for its plan — continuing with that one.");
+        onOpenChange(false);
+        onCreated?.();
+        router.push(res.checkoutPath);
+        router.refresh();
+      }, "Creating workspace…");
       return;
     }
     // Full-screen loader covers the create + switch into the new workspace.
@@ -110,7 +144,34 @@ export function CreateWorkspaceDialog({
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleCreate} className="space-y-4">
-          <LimitPanel lock={lock} />
+          {buying ? (
+            <div className="space-y-3 rounded-lg border bg-muted/30 p-3">
+              <p className="text-sm text-muted-foreground">
+                You already have your free workspace, so this one comes with its own plan. Pick one —
+                you&apos;ll pay on the next page, and the workspace stays view-only until you do.
+              </p>
+              <Segmented
+                label="Plan"
+                value={buyPlan}
+                onChange={setBuyPlan}
+                options={PAID_PERSONAL_PLANS.map((p) => ({ value: p, label: PLAN_NAMES[p] }))}
+                className="w-full"
+              />
+              <Segmented
+                label="Billing period"
+                value={buyPeriod}
+                onChange={setBuyPeriod}
+                options={PERIODS.map((p) => ({ value: p, label: PERIOD_LABEL[p].toggle }))}
+                className="w-full"
+              />
+              <p className="text-xs tabular-nums text-muted-foreground">
+                {formatAmount(quote(buyPlan, buyPeriod, currency ?? "USD").price, currency ?? "USD")}{" "}
+                {PERIOD_LABEL[buyPeriod].billed}, plus tax.
+              </p>
+            </div>
+          ) : (
+            <LimitPanel lock={lock} />
+          )}
           <div className="space-y-1.5">
             <Label htmlFor="workspace-name">Name & icon</Label>
             <div className="flex items-center gap-2">
@@ -137,9 +198,15 @@ export function CreateWorkspaceDialog({
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <LockedButton type="submit" lock={lock} disabled={pending}>
-              Create
-            </LockedButton>
+            {buying ? (
+              <Button type="submit" disabled={pending}>
+                Create and continue to payment
+              </Button>
+            ) : (
+              <LockedButton type="submit" lock={lock} disabled={pending}>
+                Create
+              </LockedButton>
+            )}
           </DialogFooter>
         </form>
       </DialogContent>

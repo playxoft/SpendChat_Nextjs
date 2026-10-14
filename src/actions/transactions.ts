@@ -82,7 +82,9 @@ const loadOlderFeedSchema = z.object({
  * that charged nothing (a dictated note's parse), which leaves the line as is.
  */
 function actionsLeft(charge: AiCharge): AiActionsLeft | null {
-  return charge.remaining === null ? null : { remaining: charge.remaining, limit: charge.limit };
+  return charge.remaining === null
+    ? null
+    : { remaining: charge.remaining, limit: charge.limit, topUpRemaining: charge.topUpRemaining ?? 0 };
 }
 
 function revalidateApp() {

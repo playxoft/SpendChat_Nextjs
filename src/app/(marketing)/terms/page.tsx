@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createMetadata } from "@/lib/seo";
 import { siteConfig } from "@/lib/site";
 
@@ -7,7 +8,7 @@ export const metadata = createMetadata({
   path: "/terms",
 });
 
-const LAST_UPDATED = "June 17, 2026";
+const LAST_UPDATED = "October 9, 2026";
 
 export default function TermsPage() {
   return (
@@ -27,7 +28,7 @@ export default function TermsPage() {
         <section className="space-y-3">
           <h2 className="text-xl font-medium text-foreground">The service</h2>
           <p>
-            {siteConfig.name} is a free personal money tracker provided on an
+            {siteConfig.name} is a personal money tracker, free with optional paid plans, provided on an
             &ldquo;as is&rdquo; and &ldquo;as available&rdquo; basis. It is a tool for
             recording your own income and expenses and is not financial, tax, or
             accounting advice.
@@ -48,6 +49,19 @@ export default function TermsPage() {
           <p>
             You agree not to misuse the Service, including attempting to disrupt it,
             access other users&apos; data, or use it for unlawful purposes.
+          </p>
+        </section>
+
+        <section className="space-y-3">
+          <h2 className="text-xl font-medium text-foreground">Paid plans</h2>
+          <p>
+            Free is free for good. Paid plans are bought per workspace and billed in advance until
+            cancelled; trials, renewals, plan changes, cancellation, failed payments, AI top-ups
+            and refunds are covered by our{" "}
+            <Link href="/billing-policy" className="text-foreground underline underline-offset-4 hover:no-underline">
+              Billing &amp; refund policy
+            </Link>
+            , which forms part of these Terms.
           </p>
         </section>
 

@@ -83,11 +83,14 @@ export default async function WorkspaceSettingsPage() {
       usage={{
         plan: usage.plan,
         readOnly: usage.readOnly,
+        readOnlyReason: usage.readOnlyReason,
         ai: {
           used: usage.ai.used,
           limit: usage.ai.limit,
           remaining: usage.ai.remaining,
           resetsAt: usage.ai.resetsAt,
+          topUpRemaining: usage.ai.topUpRemaining,
+          topUpExpiresAt: usage.ai.topUpExpiresAt,
         },
         storage: usage.storage,
         members: usage.members,

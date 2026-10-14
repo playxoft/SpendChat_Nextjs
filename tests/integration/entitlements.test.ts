@@ -625,6 +625,7 @@ describe("getAddLimits", () => {
     expect(await getAddLimits(W, uid("own"))).toEqual({
       plan: "free",
       readOnly: false,
+      readOnlyReason: null,
       spaces: { used: 1, limit: 2, reached: false },
       categories: { used: 10, limit: 20, reached: false },
       tags: { used: 2, limit: 5, reached: false },

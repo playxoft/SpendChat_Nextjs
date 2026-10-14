@@ -19,6 +19,33 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.11.0 — 2026-10-09
+
+Additive. Paid plans and AI top-ups can now be bought (on the web — there is
+still no billing endpoint here), so two things the app reads become real:
+
+- **`Usage.readOnlyReason`** (new): why a workspace is view-only — `extra_free`
+  (an extra free workspace, as before), `payment_failed` (its plan's renewal
+  failed and the 7-day grace has passed) or `dispute` (a payment for it was
+  disputed); `null` when it isn't view-only. `readOnly` is true in all three.
+- **`Usage.ai.topUpRemaining`** is now the workspace's real top-up balance, and
+  **`Usage.ai.topUpExpiresAt`** (new, nullable) is when the soonest top-up with
+  actions left expires. Top-ups are spent only after the month's allowance, so
+  AI keeps working at `remaining: 0` while `topUpRemaining > 0`; `ai.used` counts
+  only what the monthly allowance paid for.
+- **New error `403 billing_hold`** — `details: { reason }` — on a write into a
+  `payment_failed` or `dispute` workspace (an extra free workspace still gets
+  `plan_limit` `freeWorkspaces`).
+
+**Flutter impact:** optional. Decode `readOnlyReason` to word the view-only
+banner (for `payment_failed`, point to the web's Settings → Billing; for
+`dispute`, to support) and treat `billing_hold` like `plan_limit` for display
+(show the message; no upgrade prompt). Show `topUpRemaining` beside the AI
+allowance and don't block AI entry at `remaining: 0` while it's above 0.
+Nothing breaks if ignored.
+
+---
+
 ## 6.10.0 — 2026-10-07
 
 Additive, with one guard on editing multi-payer expenses (below).

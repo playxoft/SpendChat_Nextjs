@@ -36,7 +36,7 @@ import {
   accessibleProfileIds,
   getWorkspaceMoneyFormat,
   getWorkspaceRole,
-  readOnlyWorkspaceError,
+  readOnlyErrorFor,
   readOnlyWorkspaceSql,
 } from "@/lib/workspaces";
 
@@ -361,7 +361,7 @@ export async function createBudget(
     });
     names.spaceName = space?.name;
   }
-  if (access.readOnly) throw readOnlyWorkspaceError();
+  if (access.readOnly) throw await readOnlyErrorFor(workspaceId);
   if (!canManageBudget(target, access)) throw manageError(target);
 
   try {
@@ -427,7 +427,7 @@ export async function updateBudget(
   const found = await visibleBudget(userId, workspaceId, id);
   if (!found) return false;
   const { row, access } = found;
-  if (access.readOnly) throw readOnlyWorkspaceError();
+  if (access.readOnly) throw await readOnlyErrorFor(workspaceId);
   if (!canManageBudget(row, access)) throw manageError(row);
 
   const patch: Partial<typeof budgets.$inferInsert> = { updatedAt: new Date() };

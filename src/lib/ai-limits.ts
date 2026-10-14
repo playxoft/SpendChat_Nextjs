@@ -60,9 +60,19 @@ export const MAX_TRANSCRIPT_CHARS = 2400;
 export type AiActionsLeft = {
   remaining: number;
   limit: number;
+  /** Top-up actions left (C4), spent once `remaining` is 0. Absent = none. */
+  topUpRemaining?: number;
   /** When the allowance refills (ISO) — known from the page load, not from an action. */
   resetsAt?: string;
 };
+
+/**
+ * Is the workspace out of AI actions — the month's allowance **and** every
+ * top-up (C4)? A spent allowance with top-ups left is not spent: they carry on.
+ */
+export function aiActionsSpent(left: AiActionsLeft | null | undefined): boolean {
+  return Boolean(left) && left!.remaining <= 0 && (left!.topUpRemaining ?? 0) <= 0;
+}
 
 /**
  * Why Ask has no composer for a viewer, and the 403 a direct call gets. Ask

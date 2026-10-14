@@ -8,7 +8,7 @@ export const metadata = createMetadata({
   path: "/privacy",
 });
 
-const LAST_UPDATED = "September 30, 2026";
+const LAST_UPDATED = "October 9, 2026";
 
 /**
  * Every claim on this page has to be a statement about code in the repository,
@@ -46,6 +46,11 @@ const PROCESSORS = [
     name: "ZeptoMail",
     role: "Transactional email",
     data: "The recipient's email address, when you invite someone to a workspace.",
+  },
+  {
+    name: "Dodo Payments (merchant of record)",
+    role: "Takes payments for paid plans and AI top-ups, issues invoices, handles tax",
+    data: "Your name, email, billing country and payment details (entered on their page, never ours), and which plan you bought",
   },
   {
     name: "BetterStack",
@@ -252,6 +257,17 @@ export default function PrivacyPage() {
             delete your account. Server logs and the internal rate-limit records that stop
             abuse of email and AI features are short-lived operational data, pruned by the
             operator on a roughly 30-day window.
+          </p>
+          <p>
+            Billing records — which plan a workspace had, its payments and invoice links — are
+            kept with the workspace; deleting your account removes your name from them. To
+            enforce the limit on free trials, we keep a one-way hash of the email address that
+            started each trial (never the address), with its date, for about 13 months — also
+            after the account is deleted. See the{" "}
+            <Link href="/billing-policy" className="text-foreground underline underline-offset-4">
+              Billing &amp; refund policy
+            </Link>
+            .
           </p>
         </section>
 

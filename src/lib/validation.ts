@@ -933,6 +933,17 @@ export const createWorkspaceSchema = z.object({
 });
 export type CreateWorkspaceInput = z.infer<typeof createWorkspaceSchema>;
 
+/**
+ * A new workspace that starts with its own paid plan — "New workspace" when the
+ * person already has their free one. The plan and period pick the checkout it
+ * leads to; nothing is charged by creating it.
+ */
+export const createWorkspaceForPurchaseSchema = createWorkspaceSchema.extend({
+  plan: z.enum(PAID_PERSONAL_PLANS as readonly [PaidPersonalPlan, ...PaidPersonalPlan[]]),
+  period: z.enum(PERIODS as readonly [Period, ...Period[]]),
+});
+export type CreateWorkspaceForPurchaseInput = z.infer<typeof createWorkspaceForPurchaseSchema>;
+
 /** Update a workspace's display details (name + icon), admin-gated. */
 export const updateWorkspaceSchema = z.object({
   name: workspaceNameSchema,
@@ -1111,6 +1122,13 @@ export const startCheckoutSchema = z.discriminatedUnion("item", [
   }),
 ]);
 export type StartCheckoutInput = z.infer<typeof startCheckoutSchema>;
+
+/** A paid workspace's plan change (Settings → Billing, or checkout on a paid workspace). */
+export const changePlanSchema = z.object({
+  plan: z.enum(PAID_PERSONAL_PLANS as readonly [PaidPersonalPlan, ...PaidPersonalPlan[]]),
+  period: z.enum(PERIODS as readonly [Period, ...Period[]]),
+});
+export type ChangePlanInput = z.infer<typeof changePlanSchema>;
 
 /* -------------------------------------------------------------------------- */
 /* Split (groups outside workspaces)                                           */

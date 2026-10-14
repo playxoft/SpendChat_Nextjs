@@ -1,0 +1,1 @@
+CREATE INDEX "billing_checkout_sessions_subscription_idx" ON "billing_checkout_sessions" USING btree ("subscription_id");

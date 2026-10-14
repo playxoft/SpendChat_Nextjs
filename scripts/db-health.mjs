@@ -9,8 +9,10 @@
  *
  * It also prunes the append-only usage logs. `email_send_log` is read by the
  * invite-email quota over a one-hour window, `ai_usage_log` by the monthly AI
- * allowance (so it is kept at least 62 days), and `split_rate_log` by Split's
- * anti-abuse caps over up to 7 days (so never below that); nothing else
+ * allowance (so it is kept at least 62 days), `split_rate_log` by Split's
+ * anti-abuse caps over up to 7 days (so never below that), `billing_request_log`
+ * by billing's hourly cap, and `billing_trial_ledger` (exactly 400 days) by the
+ * 12-month trial count; nothing else
  * deletes from them, so without this they grow forever. (Per-person request
  * rate limits don't use any of them — they live in a Durable Object.) Pruning
  * caps that growth; it does not hand the space back — see the note above the
@@ -97,6 +99,8 @@ const RETENTION_DAYS = number("retention-days") ?? 30;
 const AI_USAGE_RETENTION_DAYS_MIN = 62;
 /** Floor for `split_rate_log`: its longest cap window (invite emails per inbox) is 7 days. */
 const SPLIT_RATE_RETENTION_DAYS_MIN = 7;
+/** `billing_trial_ledger`: B1 counts trials over 12 months; kept a little longer, then gone. */
+const TRIAL_LEDGER_RETENTION_DAYS = 400;
 const WARN_AT = number("warn-at") ?? 80;
 
 const url = process.env.NEON_POSTGRES_DATABASE_URL;
@@ -211,17 +215,21 @@ async function main() {
     // `created_at` alone is a sequential scan. That's the right trade here: the
     // tables are small and capped per user, this runs by hand or on a cron, and
     // a second index would cost a write on every AI call and every email send.
-    for (const table of ["ai_usage_log", "email_send_log", "split_rate_log"]) {
+    for (const table of ["ai_usage_log", "email_send_log", "split_rate_log", "billing_request_log", "billing_trial_ledger"]) {
       // `ai_usage_log` is also the monthly AI allowance's ledger: pruning a row
       // from the current calendar month would hand that workspace its actions
       // back. So it never goes below AI_USAGE_RETENTION_DAYS_MIN, whatever
       // --retention-days says (two months: the current one is always whole).
+      // `billing_trial_ledger` counts trials over 12 months (abuse rule B1), so
+      // it's kept TRIAL_LEDGER_RETENTION_DAYS whatever --retention-days says.
       const days =
         table === "ai_usage_log"
           ? Math.max(RETENTION_DAYS, AI_USAGE_RETENTION_DAYS_MIN)
           : table === "split_rate_log"
             ? Math.max(RETENTION_DAYS, SPLIT_RATE_RETENTION_DAYS_MIN)
-            : RETENTION_DAYS;
+            : table === "billing_trial_ledger"
+              ? TRIAL_LEDGER_RETENTION_DAYS
+              : RETENTION_DAYS;
       const tableCutoff = `${days} days`;
       const { rowCount } = await client.query(
         `delete from ${table} where created_at < now() - $1::interval`,

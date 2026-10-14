@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import {
   CHECKOUT_PATH,
   checkoutPath,
@@ -130,30 +130,33 @@ describe("trial and refusals", () => {
 });
 
 describe("checkoutCurrency", () => {
-  it("allows the rupee list only for a rupee country, judged by the request's country", async () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it("charges the request country's currency — whatever the buyer or the workspace prefers", async () => {
     const { checkoutCurrency } = await import("@/lib/checkout");
     expect(checkoutCurrency("INR", "IN")).toBe("INR");
     expect(checkoutCurrency("INR", "NP")).toBe("INR");
     expect(checkoutCurrency("INR", "US")).toBe("USD");
     expect(checkoutCurrency("INR", "DE")).toBe("EUR");
     expect(checkoutCurrency("INR", null)).toBe("USD");
-  });
-  it("lets anyone pick a global-price currency, and defaults to the regional one", async () => {
-    const { checkoutCurrency } = await import("@/lib/checkout");
-    expect(checkoutCurrency("GBP", "IN")).toBe("GBP");
-    expect(checkoutCurrency("JPY", "US")).toBe("JPY");
-    expect(checkoutCurrency(undefined, "IN")).toBe("INR");
+    // No cheaper list by picking it: a US buyer can't choose rupees, a UK one dollars.
+    expect(checkoutCurrency("GBP", "IN")).toBe("INR");
+    expect(checkoutCurrency("USD", "GB")).toBe("GBP");
+    expect(checkoutCurrency("JPY", "US")).toBe("USD");
     expect(checkoutCurrency(undefined, "AU")).toBe("AUD");
     expect(checkoutCurrency(undefined, undefined)).toBe("USD");
   });
-  it("lists only the currencies it would charge as is — the in-app switcher's options", async () => {
-    const { checkoutCurrencies } = await import("@/lib/checkout");
-    expect(checkoutCurrencies("IN")).toContain("INR");
-    for (const country of ["US", "DE", null]) {
-      const list = checkoutCurrencies(country);
-      expect(list).not.toContain("INR");
-      expect(list).toEqual(expect.arrayContaining(["USD", "EUR", "GBP", "AUD", "JPY"]));
-    }
+
+  it("offers one currency outside local development, and every one in it", async () => {
+    const { checkoutCurrencies, checkoutCurrency } = await import("@/lib/checkout");
+    expect(checkoutCurrencies("IN")).toEqual(["INR"]);
+    expect(checkoutCurrencies("US")).toEqual(["USD"]);
+    expect(checkoutCurrencies(null)).toEqual(["USD"]);
+    vi.stubEnv("NODE_ENV", "development");
+    expect(checkoutCurrencies("US")).toEqual(expect.arrayContaining(["INR", "USD", "EUR", "GBP", "AUD", "JPY"]));
+    // On localhost any price list can be tried.
+    expect(checkoutCurrency("INR", "US")).toBe("INR");
+    expect(checkoutCurrency(undefined, "US")).toBe("USD");
   });
 });
 

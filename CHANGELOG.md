@@ -14,9 +14,73 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.10.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.11.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.41.0] — 2026-10-09
+
+### Added
+- **Paid plans can be bought.** Plus and Pro, every month, 3 months or year, for
+  one workspace at a time, through Dodo Payments' secure checkout — card
+  everywhere, UPI for rupee prices. The country and currency on the order
+  summary are the ones charged. A workspace's first paid plan starts with a
+  21-day free trial (a card or UPI is needed to start it; one trial per
+  workspace, two per person a year — deleting the account doesn't reset it),
+  and the order summary says whether this purchase gets one. Students can enter
+  their discount code on a plan's checkout. After paying you land on an
+  "Activating…" page that switches over as soon as the payment is confirmed —
+  or says what went wrong.
+- **Settings → Billing**: every workspace you're an admin of, with its plan,
+  trial or renewal date, next charge, a change waiting for the renewal, top-ups
+  left and its payments. Change plan (moving up starts now with the unused part
+  credited and ends a trial; moving down waits for the renewal and charges
+  nothing), cancel at the end of the period (or straight away for a plan whose
+  payment failed) or keep the plan after all, and manage the payment method. A
+  plan is paid by the admin who bought it: only they see its invoices and
+  payment page and can move it up (or to any plan that renews for more); other
+  admins see who manages it and can still pick a plan that renews for less, or
+  cancel. Every change says what it renews at, and when. A plan you pay for in a workspace you've left is
+  listed too, so you can cancel it.
+- **AI top-ups**: 500 more AI actions for a paid workspace, used only once the
+  month's allowance runs out (the oldest top-up first) and valid for 12 months.
+  The "AI actions left" line and the usage panel show what's left.
+- **A new workspace can start with its own plan.** If you already have your
+  free workspace, "New workspace" asks which plan the new one should have and
+  goes straight to checkout; until it's paid the new workspace is view-only.
+- A public **Billing & refund policy** (linked from the footer, the Terms and
+  Billing): per-workspace billing, the trial, renewals, plan changes,
+  cancelling, failed payments, top-ups, refunds and disputes. Nothing is
+  refunded automatically — refunds go through support — and an AI top-up can't
+  be cancelled or refunded.
+
+### Changed
+- A paid workspace whose renewal payment fails keeps working while the payment
+  is retried, then for 7 more days (once every 3 months), then turns view-only
+  until it's paid — nothing is deleted. A disputed payment makes its workspace
+  view-only straight away. View-only notices now say which of these it is, and
+  what to do.
+- A workspace with a plan running changes plan from checkout instead of buying
+  a second one.
+- **Prices are in your country's currency, and that's the one you pay in.** The
+  pricing pages no longer have a currency picker — they show the price for
+  where you are (US dollars where there's no local price), and checkout charges
+  exactly that.
+
+- Deleting your account stops every plan you pay for — including one in
+  someone else's workspace, which keeps its plan to the end of the period.
+- A disputed payment that ends with the money returned cancels the plan it paid
+  for.
+
+### Security
+- Plans change only when the payment provider's signed webhook says so — never
+  from the return page. Each webhook is verified, applied once, and tied to a
+  workspace through the checkout we opened, not the data that came with it.
+- A top-up is granted only when the amount received matches what we priced, for
+  the workspace it was bought for. A person whose payments are disputed twice
+  can't make further purchases until support clears it.
+- Each purchase is its own customer with the payment provider, so one
+  workspace's payment page never shows another's cards or invoices.
 
 ## [0.40.0] — 2026-10-09
 

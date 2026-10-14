@@ -45,8 +45,11 @@ export default async function UpgradePage() {
           <p className="mt-2 text-pretty text-muted-foreground">{hero.body}</p>
           {usage.readOnly ? (
             <p className="mt-3 rounded-lg border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-              This workspace is view-only: everyone gets one free workspace, and this one is extra.
-              Nothing in it is deleted — it opens up again with its own Plus or Pro plan.
+              {usage.readOnlyReason === "dispute"
+                ? "This workspace is view-only while a disputed payment is sorted out — contact support. Nothing in it is deleted."
+                : usage.readOnlyReason === "payment_failed"
+                  ? "This workspace is view-only because its plan's payment didn't go through. Update the payment method in Settings → Billing and it opens up again. Nothing in it is deleted."
+                  : "This workspace is view-only: everyone gets one free workspace, and this one is extra. Nothing in it is deleted — it opens up again with its own Plus or Pro plan."}
             </p>
           ) : null}
         </header>
@@ -61,6 +64,7 @@ export default async function UpgradePage() {
       <PricingStateProvider
         initialCurrency={workspacePriceCurrency(workspace.currency, country)}
         currencies={checkoutCurrencies(country)}
+        upi={country?.toUpperCase() === "IN"}
       >
         <section aria-labelledby="plans-heading" className="mt-10">
           <h2 id="plans-heading" className="text-lg font-semibold tracking-tight">

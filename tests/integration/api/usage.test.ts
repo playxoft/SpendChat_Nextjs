@@ -41,11 +41,13 @@ describe("GET /api/v1/usage", () => {
     expect(data).toEqual({
       plan: "free",
       readOnly: false,
+      readOnlyReason: null,
       ai: {
         used: 0,
         limit: free.aiActionsPerMonth,
         remaining: free.aiActionsPerMonth,
         topUpRemaining: 0,
+        topUpExpiresAt: null,
         resetsAt: expect.stringMatching(/^\d{4}-\d{2}-01T00:00:00\.000Z$/),
       },
       storage: { usedBytes: 0, limitBytes: free.storageBytes, trashBytes: 0 },
@@ -100,7 +102,11 @@ describe("GET /api/v1/usage", () => {
     await setWorkspacePlan(Wa, "free"); // two free workspaces → the newer one is view-only
 
     expect(await usage({ "X-Workspace-Id": Wa })).toMatchObject({ plan: "free", readOnly: false });
-    expect(await usage({ "X-Workspace-Id": side })).toMatchObject({ plan: "free", readOnly: true });
+    expect(await usage({ "X-Workspace-Id": side })).toMatchObject({
+      plan: "free",
+      readOnly: true,
+      readOnlyReason: "extra_free",
+    });
 
     // Every profile there reads as read-only, and a write is refused with the upgrade error.
     const list = await listProfiles(apiReq("/api/v1/profiles", { headers: { "X-Workspace-Id": side } }));

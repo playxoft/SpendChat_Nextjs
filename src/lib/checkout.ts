@@ -117,33 +117,38 @@ export type CheckoutQuote = {
 };
 
 /**
- * The currency an order is charged in. The buyer's choice (or their
- * workspace's) is only a preference: the rupee list carries the regional
- * discount, so INR is allowed only when the request comes from a country
- * priced in rupees — judged by Cloudflare's `cf-ipcountry`, never by
- * `Accept-Language`, which the client writes. Anything else falls back to the
- * buyer's regional currency (USD when the country is unknown). Every other
- * currency is the global price, so it's theirs to pick. The payment provider
- * should pin the billing country as well (personal phase 9).
+ * Whether a buyer may pick the currency: only in local development (`next
+ * dev`), so every price list can be tried on localhost. Anywhere else the
+ * request's country decides — the lists are priced per region, so a picker
+ * would let anyone pay the cheapest one.
+ */
+export function currencyChoiceAllowed(): boolean {
+  return process.env.NODE_ENV === "development";
+}
+
+/**
+ * The currency an order is charged in: the one for the request's country
+ * (`currencyForCountry` — Cloudflare's `cf-ipcountry`, never
+ * `Accept-Language`, which the client writes; USD when it's unknown). The
+ * buyer's choice, or their workspace's currency, counts only in local
+ * development (`currencyChoiceAllowed`). The provider's page pins the same
+ * currency and billing country, so it can't be switched there either.
  */
 export function checkoutCurrency(
   preferred: Currency | undefined,
   country: string | null | undefined,
 ): Currency {
   const regional = currencyForCountry(country);
-  if (!preferred) return regional;
-  if (preferred === "INR" && regional !== "INR") return regional;
-  return preferred;
+  return preferred && currencyChoiceAllowed() ? preferred : regional;
 }
 
 /**
- * The currencies checkout charges a request from `country` in, as is — every
- * global-price currency, and the rupee list only from a rupee country. The
- * in-app plans page offers only these, so its switcher can't show a price
- * that checkout would then change.
+ * The currencies a request from `country` can be charged in — what the
+ * pricing pages' currency control offers: just the regional one, except in
+ * local development, where it's every currency we sell in.
  */
 export function checkoutCurrencies(country: string | null | undefined): Currency[] {
-  return CURRENCIES.map((c) => c.code).filter((code) => checkoutCurrency(code, country) === code);
+  return currencyChoiceAllowed() ? CURRENCIES.map((c) => c.code) : [currencyForCountry(country)];
 }
 
 /** The price of one billing period of `plan`, from `pricing.ts` — never from the client. */
