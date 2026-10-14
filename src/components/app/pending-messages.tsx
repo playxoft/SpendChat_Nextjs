@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   useTransition,
   type ReactNode,
@@ -72,6 +73,12 @@ type PendingContextValue = {
   send: (draft: PendingDraft) => void;
   retry: (tempId: string) => void;
   dismiss: (tempId: string) => void;
+  /**
+   * Be told the moment a message is sent, in the same event as the send — the
+   * feed uses it to leave an older date it's showing, so the new bubble lands
+   * under the newest messages in the same render. Returns the unsubscribe.
+   */
+  onSend: (listener: () => void) => () => void;
 };
 
 const PendingContext = createContext<PendingContextValue | null>(null);
@@ -142,9 +149,18 @@ export function PendingMessagesProvider({ children }: { children: ReactNode }) {
     [startTransition, router, handlePlanLimit],
   );
 
+  const sendListeners = useRef(new Set<() => void>());
+  const onSend = useCallback((listener: () => void) => {
+    sendListeners.current.add(listener);
+    return () => {
+      sendListeners.current.delete(listener);
+    };
+  }, []);
+
   const send = useCallback(
     (draft: PendingDraft) => {
       const tempId = crypto.randomUUID();
+      for (const listener of sendListeners.current) listener();
       setPending((prev) => [
         ...prev,
         { ...draft, tempId, status: "sending", createdAt: new Date() },
@@ -173,8 +189,8 @@ export function PendingMessagesProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ pending, send, retry, dismiss }),
-    [pending, send, retry, dismiss],
+    () => ({ pending, send, retry, dismiss, onSend }),
+    [pending, send, retry, dismiss, onSend],
   );
 
   return <PendingContext.Provider value={value}>{children}</PendingContext.Provider>;

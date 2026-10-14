@@ -344,8 +344,8 @@ A workspace-scoped label. Any number of transactions can carry a tag, and a
 transaction can carry up to 10 — `tags` above is the resolved list, and
 `tagIds` on create/update is how you set it. Shared by every member of the
 workspace, like categories, and managed through **`/tags`** (6.2.0). Distinct
-from the vault's per-profile file tags (`/file-tags`), which are a different
-entity in a different table.
+from the vault's per-profile file tags (`/file-tags`, deprecated since 6.12.0),
+which are a different entity in a different table.
 ```jsonc
 {
   "id": "uuid",
@@ -376,17 +376,25 @@ Metadata only — the bytes live in object storage; fetch them via
 ### Files vault models
 The vault (a Drive-like document store, per profile) has five shapes —
 `GET /files` returns the first four in one call; share links are managed
-separately. Resolve `tagIds` against the `tags` list client-side.
+separately.
+
+**Since 6.12.0** files and folders carry an optional **`description`** (≤ 250
+characters, every plan) — show it under the name and search it along with the
+name, as the web app does. **Vault tags (`tagIds`, `FileTag`, `/file-tags`) and
+the preset file `category` are deprecated**: the web app no longer shows or
+edits them. They are still sent and still accepted, and existing values are
+kept — stop displaying and offering them.
 
 ```jsonc
 // Folder — system: true = the predefined "Transaction attachments" folder
-// (recolor/tag only; never rename/move/delete/share/upload-into/nest-under)
+// (recolor/tag only; never rename/describe/move/delete/share/upload-into/nest-under)
 {
   "id": "uuid", "profileId": "uuid",
   "parentId": "uuid" | null,          // null = a root folder
   "name": "Land documents",           // ≤ 40 chars
+  "description": "Deeds for plot 42" | null,   // ≤ 250 chars (6.12.0)
   "color": "#3b82f6" | null,          // accent hex; null = neutral default
-  "tagIds": ["uuid"],
+  "tagIds": ["uuid"],                 // deprecated (6.12.0)
   "system": false,
   "createdAt": "…", "updatedAt": "…",
   "createdByName": "Ada" | null       // display attribution
@@ -397,10 +405,11 @@ separately. Resolve `tagIds` against the `tags` list client-side.
   "id": "uuid", "profileId": "uuid",
   "folderId": "uuid" | null,          // null = the profile's root
   "name": "deed.pdf",                 // ≤ 200 chars
+  "description": "Sale deed, 2019" | null,   // ≤ 250 chars (6.12.0)
   "contentType": "application/pdf",   // NO allowlist; unknown → application/octet-stream
   "sizeBytes": 83211,                 // ≤ 5 MB
-  "category": "land" | null,          // board-resolution|company|personal|land|house|certificate|other
-  "tagIds": ["uuid"],
+  "category": "land" | null,          // deprecated (6.12.0): board-resolution|company|personal|land|house|certificate|other
+  "tagIds": ["uuid"],                 // deprecated (6.12.0)
   "hasThumbnail": true,               // small webp preview exists (?variant=thumb)
   "createdAt": "…",
   "uploaderName": "Ada" | null,
@@ -418,7 +427,7 @@ separately. Resolve `tagIds` against the `tags` list client-side.
   "profileId": "uuid", "profileName": "…" | null, "profileIcon": "…" | null
 }
 
-// FileTag — per-profile entity; only a created tag can be applied
+// FileTag — deprecated (6.12.0); per-profile entity; only a created tag can be applied
 {
   "id": "uuid", "profileId": "uuid",
   "name": "legal",                    // ≤ 20 chars, unique per profile (case-insensitive)
@@ -992,22 +1001,24 @@ workspace's **storage quota** — its plan's storage, 1 / 5 / 20 GB (vault files
 + transaction attachments together; 413 `storage_quota_exceeded` when the batch
 doesn't fit — `GET /files` reports usage in `meta.storage`). The predefined
 **"Transaction attachments"** folder (`system: true`, one per profile) accepts
-only color + tags — rename/move/delete/share/upload-into are 400s.
+only color + tags — rename/describe/move/delete/share/upload-into are 400s.
+A **`description`** (6.12.0) is optional everywhere: trimmed, at most 250
+characters (422 past that), and blank or `null` means none.
 `503 storage_unavailable` on upload/url when file storage isn't configured.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit, storage }` | The whole working set in one call (mirrors the web page load). Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. `storage` = workspace usage vs the plan's storage (see § meta). Also lazily creates the predefined folder for each profile the caller can **write** to — a viewer's read never creates rows, so a view-only user may not see it until an editor opens the vault (their transaction files are still returned in `transactionFiles`). |
-| `POST /files` | **multipart** — `profileId` (required), `folderId?`, files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. `<index>` counts file parts in send order (`files` before `file`) and is **not** renumbered around non-file parts. 400 no files / > 10 / predefined-folder destination; **413** file **or preview** > 5 MB (`payload_too_large`) or workspace quota exceeded (`storage_quota_exceeded`); 404 profile/folder not reachable |
-| `PATCH /files/{id}` | `{ name?, category?, tagIds?, folderId? }` (≥1; `category: null` clears, `folderId: null` → root) | 200 `data: VaultFile` | Editor. 400 "Nothing to update"; 422; 404 |
+| `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit, storage }` | The whole working set in one call (mirrors the web page load). `tags` is deprecated (6.12.0) — still sent. Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. `storage` = workspace usage vs the plan's storage (see § meta). Also lazily creates the predefined folder for each profile the caller can **write** to — a viewer's read never creates rows, so a view-only user may not see it until an editor opens the vault (their transaction files are still returned in `transactionFiles`). |
+| `POST /files` | **multipart** — `profileId` (required), `folderId?`, `description?` (6.12.0; given to every file in the request), files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. 422 `description` over 250 characters. `<index>` counts file parts in send order (`files` before `file`) and is **not** renumbered around non-file parts. 400 no files / > 10 / predefined-folder destination; **413** file **or preview** > 5 MB (`payload_too_large`) or workspace quota exceeded (`storage_quota_exceeded`); 404 profile/folder not reachable |
+| `PATCH /files/{id}` | `{ name?, description?, folderId? }` + deprecated `category?`, `tagIds?` (≥1; `description: null`/blank and `category: null` clear, `folderId: null` → root) | 200 `data: VaultFile` | Editor. 400 "Nothing to update"; 422; 404 |
 | `DELETE /files/{id}` | — | 200 `data: { id, deleted: true, trashed }` | Editor. **Plus/Pro** (6.7.0): `trashed: true` — the file goes to the trash for 30 days (bytes kept, still counted toward storage; its share links stop working until it's restored). **Free**: `trashed: false` — removed for good with its stored object, preview and share links. 422 non-UUID; 404 |
 | `GET /files/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Same contract as `GET /attachments/{id}/url` (`?variant=thumb`, `?download=1`; ~5 min TTL; GET without the Authorization header). **Inline only for previewable types** — images, PDF, text/CSV/Markdown, and **every `video/*` or `audio/*` type the server recognizes** (don't hard-code the list: it's whatever `contentType` comes back as for a media file, currently 23 types incl. `video/x-m4v`→`video/mp4`, `video/3gpp2` and `audio/webm`). Anything else is served `attachment` even without `?download=1`, since the vault takes any MIME type and a stored HTML/SVG must never render in a WebView. Media is inline across the board because media bytes go to the decoder, never to a document parser. Whether a given container actually plays is the **player's** call — expect a decode failure on some formats and fall back to a download. The URL also carries a `Content-Type` matching the `contentType` in the response, so a file stored before its container could be named still arrives typed. `?variant=thumb` is always inline. 404 |
-| `POST /folders` | `{ profileId, name, parentId?, color?, tagIds? }` | 201 `data: Folder` | Editor. 409 duplicate sibling name (case-insensitive); 400 predefined-folder parent; 422; 404 |
-| `PATCH /folders/{id}` | `{ name?, color?, tagIds?, parentId? }` (≥1; `parentId: null` → root, `color: null` clears) | 200 `data: Folder` | Editor. Predefined folder: color+tags only (400 otherwise). 400 move-into-own-subtree / "Nothing to update"; 409 duplicate name; 422; 404 |
+| `POST /folders` | `{ profileId, name, parentId?, color?, description? }` + deprecated `tagIds?` | 201 `data: Folder` | Editor. 409 duplicate sibling name (case-insensitive); 400 predefined-folder parent; 422; 404 |
+| `PATCH /folders/{id}` | `{ name?, color?, description?, parentId? }` + deprecated `tagIds?` (≥1; `parentId: null` → root, `color: null` and `description: null`/blank clear) | 200 `data: Folder` | Editor. Predefined folder: color+tags only (400 otherwise, a description included). 400 move-into-own-subtree / "Nothing to update"; 409 duplicate name; 422; 404 |
 | `DELETE /folders/{id}` | — | 200 `data: { id, deleted: true, trashed }` | Editor. The whole subtree goes: on **Plus/Pro** (6.7.0) to the trash as one item (`trashed: true`, restorable together); on **Free** for good (`trashed: false` — nested folders, files, stored objects, share links). 400 predefined folder; 422; 404 |
-| `GET /file-tags` | — | 200 `data: FileTag[]` | Viewer. Name-ascending; `?profile=` scopes. (Also included in `GET /files` — this is for pickers.) |
-| `POST /file-tags` | `{ profileId, name, color }` | 201 `data: FileTag` | Editor. 409 duplicate name per profile (case-insensitive); 422 |
-| `PATCH /file-tags/{id}` | `{ name?, color? }` (≥1) | 200 `data: FileTag` | Editor. Every referencing item updates at once. 409; 422; 404 |
-| `DELETE /file-tags/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Detaches from every file/folder first. 422; 404 |
+| `GET /file-tags` | — | 200 `data: FileTag[]` | **Deprecated (6.12.0)**, still served. Viewer. Name-ascending; `?profile=` scopes. (Also included in `GET /files`.) |
+| `POST /file-tags` | `{ profileId, name, color }` | 201 `data: FileTag` | **Deprecated (6.12.0)**, still works. Editor. 409 duplicate name per profile (case-insensitive); 422 |
+| `PATCH /file-tags/{id}` | `{ name?, color? }` (≥1) | 200 `data: FileTag` | **Deprecated (6.12.0)**, still works. Editor. Every referencing item updates at once. 409; 422; 404 |
+| `DELETE /file-tags/{id}` | — | 200 `data: { id, deleted: true }` | **Deprecated (6.12.0)**, still works. Editor. Detaches from every file/folder first. 422; 404 |
 | `GET /file-shares` | — (query `fileId` **or** `folderId`, exactly one) | 200 `data: FileShare[]` | **Editor** (tokens grant public access). Newest first, **active links only** — an expired one is omitted, since its token no longer opens the share page. 422 neither/both; 404 |
 | `POST /file-shares` | `{ fileId? \| folderId?, allowDownload?, expiresInDays? }` | 201 `data: FileShare` | Editor. Exactly one target (422). Folder link shares the whole subtree; 400 predefined folder. Build the link as `<web-origin>` + `sharePath`. `allowDownload: false` is enforced as *no bytes leave except as a preview the browser renders* — the share page serves playable media and previewable documents inline, and 403s anything else (a `.avi`/`.wmv` "preview" would just be a download). |
 | `DELETE /file-shares/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Token stops working immediately. 422; 404 |

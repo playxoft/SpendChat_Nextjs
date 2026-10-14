@@ -56,6 +56,52 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 - Settings → plan & usage says where your storage goes (files, attachments,
   invoices, quotations, logos) and how many invoices you've made this month.
 
+## [0.44.0] — 2026-10-14
+
+### Added
+- **Go to a date on the tracker.** A calendar button in the tracker header (on
+  phones too) opens a month calendar with a dot on every day that has
+  transactions in the profiles you're looking at. Pick a day and the feed opens
+  at the start of that day; pick **Go to <month>** and it opens at that month's
+  latest day with transactions. A day or month with nothing on it opens at the
+  nearest earlier day that has something, and a short note says so. From there
+  you can scroll both ways — older above, newer below until you're back at
+  today — and a **Jump to latest** button (also shown whenever you've scrolled a
+  long way up) takes you straight back to the newest messages. Sending a new
+  transaction from an older date goes back to the newest messages first.
+- **The date stays in view while you scroll.** Each day's date pill now sticks,
+  centred, just under the tracker header while you scroll through that day, and
+  the next day's pill pushes it up and takes over — like a chat app. It's the
+  same date line as before, so a screen reader still reads each date once.
+
+### Fixed
+- Scrolling up the tracker no longer jumps when older transactions load in: the
+  message you're looking at stays exactly where it is on screen — even if you
+  keep scrolling while they load, on a phone or a computer. The same now holds
+  when anything else above you changes height (the balance loading into the
+  header, a card above the feed being closed, a transaction further up being
+  deleted).
+
+## [0.43.0] — 2026-10-14
+
+### Added
+- **Descriptions on files and folders.** Say what something is in up to 250
+  characters — "Sale deed for plot 42, registered 2019" — when you make a folder,
+  or from **Edit** on any file or folder. On every plan. It shows under the name
+  in the grid, as a column in the list (the full text on hover), in the column
+  view's details, and on a share link's page.
+- **Search finds descriptions too.** The Files search now matches a file's or
+  folder's description as well as its name, with the same rules.
+
+### Changed
+- **Tags and the preset category are gone from Files.** Files and folders no
+  longer show tags or a category, and the tag filter, the tag picker, the
+  category picker and the Tags and Category sorts are removed — a description
+  does that job now. Nothing was deleted: tags and categories you had are kept,
+  and the mobile app's API still serves them. The predefined Transaction
+  attachments folder's menu entry is now just **Color**.
+- Shared file and folder pages show descriptions instead of tags.
+
 ## [0.42.0] — 2026-10-14
 
 ### Added

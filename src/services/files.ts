@@ -51,6 +51,7 @@ import {
   updateFileSchema,
   updateFolderSchema,
   updateTagSchema,
+  vaultDescriptionSchema,
 } from "@/lib/validation";
 
 /**
@@ -137,7 +138,8 @@ export async function ensureSystemFolders(
 /**
  * Everything the vault shows in one load: every folder, file, transaction file
  * and tag the caller can view in the workspace (optionally scoped to one
- * profile), plus the workspace's storage usage. The system folders are
+ * profile), plus the workspace's storage usage. (Tags ride along for API
+ * clients only — the web page no longer shows them.) The system folders are
  * materialized first so a freshly-created profile's predefined folder is in the
  * same response.
  *
@@ -337,6 +339,7 @@ export async function createFolder(
         parentId: parsed.parentId ?? null,
         userId,
         name: parsed.name,
+        description: parsed.description ?? null,
         color: parsed.color ?? null,
         tagIds: parsed.tagIds,
       })
@@ -346,8 +349,9 @@ export async function createFolder(
   return serializeFolder(row);
 }
 
-/** Rename / re-tag / move a folder. Moving checks the target isn't the folder
- * itself or one of its descendants (which would orphan the subtree as a cycle). */
+/** Rename / recolor / describe / move a folder (and re-tag, for API clients).
+ * Moving checks the target isn't the folder itself or one of its descendants
+ * (which would orphan the subtree as a cycle). */
 export async function updateFolder(
   userId: string,
   workspaceId: string,
@@ -358,13 +362,15 @@ export async function updateFolder(
   if (!existing) throw notFound("Folder not found");
   await assertEditorOnProfile(userId, workspaceId, existing.profileId);
 
-  // A predefined folder accepts only cosmetic changes (color + tags).
+  // A predefined folder accepts only cosmetic changes (color, and the API's
+  // deprecated tags). Its description is the app's own notice, so it takes none.
   if (
     existing.systemKey != null &&
     ((parsed.name !== undefined && parsed.name !== existing.name) ||
-      parsed.parentId !== undefined)
+      parsed.parentId !== undefined ||
+      (parsed.description !== undefined && parsed.description !== existing.description))
   ) {
-    throw badRequest("This predefined folder can't be renamed or moved");
+    throw badRequest("This predefined folder can't be renamed, moved or described");
   }
 
   const set: Partial<typeof folders.$inferInsert> = {};
@@ -378,6 +384,7 @@ export async function updateFolder(
     set.name = parsed.name;
   }
   if (parsed.color !== undefined) set.color = parsed.color ?? null;
+  if (parsed.description !== undefined) set.description = parsed.description ?? null;
   if (parsed.tagIds !== undefined) {
     await assertTagsInProfile(existing.profileId, parsed.tagIds);
     set.tagIds = parsed.tagIds;
@@ -534,11 +541,12 @@ export async function deleteFolder(
  * before touching R2, then uploads and inserts the rows in one statement; a
  * failure rolls the created objects back so nothing orphans. Unlike
  * transaction attachments there is no type allowlist — see `resolveFileType`.
+ * An optional `description` is given to every file in the batch.
  */
 export async function uploadVaultFiles(
   userId: string,
   workspaceId: string,
-  target: { profileId: string; folderId: string | null },
+  target: { profileId: string; folderId: string | null; description?: string | null },
   uploads: VaultUpload[],
 ): Promise<FileDTO[]> {
   if (uploads.length === 0) throw badRequest("No files were provided");
@@ -549,6 +557,7 @@ export async function uploadVaultFiles(
   if (target.folderId != null && !isUuid(target.folderId)) {
     throw validationError("Invalid folder");
   }
+  const description = parseOrThrow(vaultDescriptionSchema, target.description) ?? null;
   await assertEditorOnProfile(userId, workspaceId, target.profileId);
   if (target.folderId) await requireFolderInProfile(target.folderId, target.profileId);
 
@@ -607,6 +616,7 @@ export async function uploadVaultFiles(
             r2Key: key,
             thumbnailKey,
             name: item.name,
+            description,
             contentType: item.contentType,
             sizeBytes: item.size,
           })),
@@ -623,7 +633,8 @@ export async function uploadVaultFiles(
   }
 }
 
-/** Rename / re-categorize / re-tag / move a file (editor). PATCH semantics. */
+/** Rename / describe / move a file (and re-categorize / re-tag, for API
+ * clients) — editor. PATCH semantics. */
 export async function updateFile(
   userId: string,
   workspaceId: string,
@@ -636,6 +647,7 @@ export async function updateFile(
 
   const set: Partial<typeof files.$inferInsert> = {};
   if (parsed.name !== undefined) set.name = sanitizeFileName(parsed.name);
+  if (parsed.description !== undefined) set.description = parsed.description ?? null;
   if (parsed.category !== undefined) set.category = parsed.category ?? null;
   if (parsed.tagIds !== undefined) {
     await assertTagsInProfile(existing.profileId, parsed.tagIds);
@@ -711,6 +723,9 @@ export async function getFileForDownload(
 /* -------------------------------------------------------------------------- */
 /* Tags (per-profile entities; items reference them by id)                     */
 /* -------------------------------------------------------------------------- */
+
+// Deprecated: since app 0.43.0 only `/api/v1/file-tags` reaches these — the web
+// app neither shows nor edits vault tags. Kept, with the data, for API clients.
 
 /** Reject a same-profile tag with the same (case-insensitive) name. */
 async function assertTagNameFree(profileId: string, name: string, ignoreId?: string) {
@@ -960,27 +975,26 @@ export async function revokeFileShare(
 /* -------------------------------------------------------------------------- */
 
 /** What a share page may show for a file — display metadata only, no R2 key,
- * no profile/workspace identifiers beyond what the viewer already implies. */
+ * no profile/workspace identifiers beyond what the viewer already implies.
+ * The description is shown, like the name: whoever shares a file shares what
+ * it says about itself. Tags are not (the app no longer shows them). */
 export type SharedFilePublic = {
   id: string;
   folderId: string | null;
   name: string;
+  description: string | null;
   contentType: string;
   sizeBytes: number;
   hasThumbnail: boolean;
-  tagIds: string[];
   createdAt: string;
 };
-
-/** A tag as the share page sees it: just the label + color. */
-export type SharedTagPublic = { id: string; name: string; color: string };
 
 export type SharedFolderPublic = {
   id: string;
   parentId: string | null;
   name: string;
+  description: string | null;
   color: string | null;
-  tagIds: string[];
 };
 
 export type ShareResolution =
@@ -989,45 +1003,30 @@ export type ShareResolution =
       token: string;
       allowDownload: boolean;
       file: SharedFilePublic;
-      tags: SharedTagPublic[];
     }
   | {
       kind: "folder";
       token: string;
       allowDownload: boolean;
-      folder: { id: string; name: string; color: string | null };
+      folder: { id: string; name: string; description: string | null; color: string | null };
       /** The shared folder's subtree (itself included), for nested browsing. */
       folders: SharedFolderPublic[];
       files: SharedFilePublic[];
-      /** Every tag referenced by the folders/files above (names + colors). */
-      tags: SharedTagPublic[];
     };
 
 const toPublicFile = (row: VaultFileRow): SharedFilePublic => ({
   id: row.id,
   folderId: row.folderId,
   name: row.name,
+  description: row.description,
   // Re-derived like `serializeFile`, and for the same reason: a file stored
   // before we could name its container is `application/octet-stream`, and the
   // share page decides preview vs. download card off this field.
   contentType: effectiveContentType(row.name, row.contentType),
   sizeBytes: row.sizeBytes,
   hasThumbnail: row.thumbnailKey != null,
-  tagIds: row.tagIds,
   createdAt: row.createdAt.toISOString(),
 });
-
-/** The tag entities behind a set of referenced ids (names + colors only). */
-async function publicTags(tagIds: string[]): Promise<SharedTagPublic[]> {
-  const unique = [...new Set(tagIds)];
-  if (unique.length === 0) return [];
-  const db = getDb();
-  const rows = await db
-    .select({ id: fileTags.id, name: fileTags.name, color: fileTags.color })
-    .from(fileTags)
-    .where(inArray(fileTags.id, unique));
-  return rows;
-}
 
 /** The share row for a token, or null when unknown, expired, or its profile is
  * in the trash (a link stops working while what it shares is in the trash, and
@@ -1065,13 +1064,11 @@ export async function resolveShare(token: string): Promise<ShareResolution | nul
       .where(and(eq(files.id, share.fileId), notTrashed(files)))
       .limit(1);
     if (!file) return null;
-    const pub = toPublicFile(file);
     return {
       kind: "file",
       token: share.token,
       allowDownload: share.allowDownload,
-      file: pub,
-      tags: await publicTags(pub.tagIds),
+      file: toPublicFile(file),
     };
   }
 
@@ -1091,8 +1088,8 @@ export async function resolveShare(token: string): Promise<ShareResolution | nul
         id: folders.id,
         parentId: folders.parentId,
         name: folders.name,
+        description: folders.description,
         color: folders.color,
-        tagIds: folders.tagIds,
       })
       .from(folders)
       .where(and(inArray(folders.id, subtree), notTrashed(folders)))
@@ -1103,19 +1100,13 @@ export async function resolveShare(token: string): Promise<ShareResolution | nul
       .where(and(inArray(files.folderId, subtree), notTrashed(files)))
       .orderBy(asc(files.name)),
   ]);
-  const pubFiles = subFiles.map(toPublicFile);
-  const tags = await publicTags([
-    ...subFolders.flatMap((f) => f.tagIds),
-    ...pubFiles.flatMap((f) => f.tagIds),
-  ]);
   return {
     kind: "folder",
     token: share.token,
     allowDownload: share.allowDownload,
-    folder: { id: root.id, name: root.name, color: root.color },
+    folder: { id: root.id, name: root.name, description: root.description, color: root.color },
     folders: subFolders,
-    files: pubFiles,
-    tags,
+    files: subFiles.map(toPublicFile),
   };
 }
 

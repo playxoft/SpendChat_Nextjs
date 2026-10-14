@@ -13,7 +13,13 @@ import {
 import { parseProfileScope, resolveProfileScope } from "@/lib/profile-scope";
 import { getAdvancedAnalytics } from "@/lib/insights-queries";
 import { getTrend } from "@/lib/trend.server";
-import { loadMoreTransactions, loadOlderFeed } from "@/actions/transactions";
+import {
+  loadFeedAround,
+  loadFeedDays,
+  loadMoreTransactions,
+  loadNewerFeed,
+  loadOlderFeed,
+} from "@/actions/transactions";
 import { deleteTransaction } from "@/services/transactions";
 import { GET as webExportRoute } from "@/app/api/transactions/export/route";
 import { signInAs, uid } from "./helpers/session";
@@ -147,6 +153,34 @@ describe("profile selection — forged and foreign ids", () => {
       before: { occurredOn: "2099-01-01", createdAt: new Date(), id: FORGED },
     });
     expect(older.ok && older.rows).toEqual([]);
+  });
+
+  it("holds for the date jump: the window, the newer pages and the picker's dots", async () => {
+    const f = await build();
+    signInAs("adm");
+    const mixed = [f.kids, f.elsewhere, FORGED];
+
+    const around = await loadFeedAround({ profileIds: mixed, date: DAY });
+    expect(around.ok && around.landed).toEqual({ day: DAY, side: "on" });
+    expect(around.ok && titles(around.rows)).toEqual(["kids row"]);
+    const nothing = await loadFeedAround({ profileIds: [f.elsewhere, FORGED], date: DAY });
+    expect(nothing.ok && nothing).toMatchObject({ landed: null, rows: [] });
+
+    const newer = await loadNewerFeed({
+      profileIds: mixed,
+      after: { occurredOn: "2000-01-01", createdAt: new Date(0), id: FORGED },
+    });
+    expect(newer.ok && titles(newer.rows)).toEqual(["kids row"]);
+    const none = await loadNewerFeed({
+      profileIds: [f.elsewhere],
+      after: { occurredOn: "2000-01-01", createdAt: new Date(0), id: FORGED },
+    });
+    expect(none.ok && none.rows).toEqual([]);
+
+    expect(await loadFeedDays({ profileIds: mixed, month: "2026-10" })).toEqual({ ok: true, days: [DAY] });
+    expect(await loadFeedDays({ profileIds: [f.elsewhere], month: "2026-10" })).toEqual({ ok: true, days: [] });
+    // The trashed profile's live rows and Personal's trashed row add no dot of their own.
+    expect(await loadFeedDays({ profileIds: [f.old], month: "2026-10" })).toEqual({ ok: true, days: [] });
   });
 
   it("holds for the CSV export link", async () => {

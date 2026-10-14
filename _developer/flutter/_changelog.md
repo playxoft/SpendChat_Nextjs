@@ -54,6 +54,33 @@ values as "show the message" (no upgrade).
 
 ---
 
+## 6.12.0 — 2026-10-14
+
+Additive, plus deprecations. Files and folders can say what they are, and the
+vault's tags and preset category are on their way out:
+
+- **`description`** (new, `string | null`, ≤ 250 characters, every plan) on
+  `Folder` and `VaultFile`. Set it with `POST /folders`, `PATCH /folders/{id}`
+  and `PATCH /files/{id}` (JSON), or the new optional `description` form field
+  on `POST /files`, which gives it to every file in that upload. Trimmed; blank
+  or `null` clears it; over 250 → 422. The predefined "Transaction
+  attachments" folder takes none (400).
+- **Deprecated:** vault tags — `/file-tags` (all four endpoints), `tags` in
+  `GET /files`, and `tagIds` on `Folder`, `VaultFile` and their create/update
+  bodies — and the preset file **`category`** (`VaultFile.category`,
+  `PATCH /files/{id}` `category`). The web app no longer shows or edits them;
+  descriptions replaced them. Nothing about them changes: they are still sent,
+  still accepted, and existing values are kept. They may go in a future major
+  version.
+
+**Flutter impact:** optional, recommended. Decode `description` (nullable) on
+folders and files, show it under the name, let people set it in the create and
+edit sheets (with a 250-character counter), and match it in vault search along
+with the name. Stop showing tag chips, the tag filter/picker and the category,
+and stop sending `tagIds` / `category` — nothing breaks if you don't yet.
+
+---
+
 ## 6.11.0 — 2026-10-09
 
 Additive. Paid plans and AI top-ups can now be bought (on the web — there is

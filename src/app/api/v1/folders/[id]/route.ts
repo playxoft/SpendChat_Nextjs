@@ -9,10 +9,11 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * PATCH /api/v1/folders/:id — rename / recolor / re-tag / move a folder. Any
- * subset of `{ name, color, tagIds, parentId }`; `parentId: null` moves it to
- * the root, `color: null` clears the accent. The predefined "Transaction
- * attachments" folder accepts only color + tags (400 otherwise). Moving into
+ * PATCH /api/v1/folders/:id — rename / recolor / describe / move a folder. Any
+ * subset of `{ name, color, description, parentId }`, plus the deprecated
+ * `tagIds`; `parentId: null` moves it to the root, `color: null` clears the
+ * accent, `description: null` (or blank) clears the description. The predefined
+ * "Transaction attachments" folder accepts only color + tags (400 otherwise). Moving into
  * the folder's own subtree is rejected. Requires the editor role.
  */
 export async function PATCH(request: NextRequest, ctx: Ctx) {

@@ -124,16 +124,6 @@ export const DEMO_SEEDS: Record<DemoProfile, DemoTxn[]> = {
 export const DEMO_STORAGE_LIMIT_BYTES = PLAN_LIMITS.free.storageBytes;
 export const DEMO_STORAGE_USED_BYTES = 118_400_000;
 
-export type DemoFileTag = { name: string; color: string };
-
-/** Colours are drawn from the vault's own swatch list (`VAULT_COLORS`). */
-export const DEMO_FILE_TAGS: DemoFileTag[] = [
-  { name: "Receipts", color: "#22c55e" },
-  { name: "Invoices", color: "#3b82f6" },
-  { name: "Warranties", color: "#f59e0b" },
-  { name: "Tax", color: "#a855f7" },
-];
-
 export type DemoFolder = {
   name: string;
   color: string;
@@ -151,33 +141,30 @@ export type DemoFile = {
   id: number;
   contentType: string;
   name: string;
+  /** What the file is — the vault's optional description (≤ 250 characters). */
+  description: string;
   bytes: number;
   /** Fixed English label, like the day dividers — see the note at the top. */
   modified: string;
-  tags: string[];
   folder: string;
 };
 
 /**
  * The vault's contents: a receipt the app filed itself, a bill, an invoice, a
- * warranty and a spreadsheet — a spread of types so the glyphs, the tag dots
- * and the size column all have something to show.
+ * warranty and a spreadsheet — a spread of types so the glyphs and the size
+ * column have something to show, each with the short description the vault
+ * lets you search by.
  */
 export const DEMO_FILES: DemoFile[] = [
-  { id: 1, name: "Grocery receipt.jpg", contentType: "image/jpeg", bytes: 842_000, modified: "21 Aug", tags: ["Receipts"], folder: "Transaction attachments" },
-  { id: 2, name: "Electricity bill July.pdf", contentType: "application/pdf", bytes: 214_000, modified: "18 Aug", tags: ["Invoices"], folder: "Home" },
-  { id: 3, name: "Client invoice 0042.pdf", contentType: "application/pdf", bytes: 186_000, modified: "15 Aug", tags: ["Invoices", "Tax"], folder: "2026 tax" },
-  { id: 4, name: "Laptop warranty.pdf", contentType: "application/pdf", bytes: 512_000, modified: "9 Aug", tags: ["Warranties"], folder: "Home" },
-  { id: 5, name: "Rent receipt Aug.png", contentType: "image/png", bytes: 640_000, modified: "5 Aug", tags: ["Receipts", "Tax"], folder: "2026 tax" },
-  { id: 6, name: "Expenses Q2.csv", contentType: "text/csv", bytes: 38_000, modified: "1 Aug", tags: ["Tax"], folder: "2026 tax" },
-  { id: 7, name: "Pharmacy receipt.jpg", contentType: "image/jpeg", bytes: 402_000, modified: "12 Aug", tags: ["Receipts"], folder: "Transaction attachments" },
-  { id: 8, name: "Insurance policy.pdf", contentType: "application/pdf", bytes: 928_000, modified: "28 Jul", tags: ["Warranties"], folder: "Home" },
+  { id: 1, name: "Grocery receipt.jpg", description: "Weekly shop, attached from the transaction", contentType: "image/jpeg", bytes: 842_000, modified: "21 Aug", folder: "Transaction attachments" },
+  { id: 2, name: "Electricity bill July.pdf", description: "July bill, paid by autopay", contentType: "application/pdf", bytes: 214_000, modified: "18 Aug", folder: "Home" },
+  { id: 3, name: "Client invoice 0042.pdf", description: "Logo design for Acme, due 30 Aug", contentType: "application/pdf", bytes: 186_000, modified: "15 Aug", folder: "2026 tax" },
+  { id: 4, name: "Laptop warranty.pdf", description: "Two years of cover, ends Aug 2028", contentType: "application/pdf", bytes: 512_000, modified: "9 Aug", folder: "Home" },
+  { id: 5, name: "Rent receipt Aug.png", description: "August rent, for the tax return", contentType: "image/png", bytes: 640_000, modified: "5 Aug", folder: "2026 tax" },
+  { id: 6, name: "Expenses Q2.csv", description: "April to June, for the accountant", contentType: "text/csv", bytes: 38_000, modified: "1 Aug", folder: "2026 tax" },
+  { id: 7, name: "Pharmacy receipt.jpg", description: "Prescription refill", contentType: "image/jpeg", bytes: 402_000, modified: "12 Aug", folder: "Transaction attachments" },
+  { id: 8, name: "Insurance policy.pdf", description: "Home contents cover, renews in July", contentType: "application/pdf", bytes: 928_000, modified: "28 Jul", folder: "Home" },
 ];
-
-/** Swatch for a tag name; slate for anything unrecognised. */
-export function demoTagColor(name: string): string {
-  return DEMO_FILE_TAGS.find((t) => t.name === name)?.color ?? "#64748b";
-}
 
 /* ── Helpers ────────────────────────────────────────────────────────────── */
 

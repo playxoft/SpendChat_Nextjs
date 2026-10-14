@@ -18,8 +18,9 @@ export const dynamic = "force-dynamic";
  * size/count validation, R2 upload and the DB rows all live in
  * `src/services/files.ts`.
  *
- * Request: multipart form data — `profileId`, optional `folderId`, files under
- * field `files` (or `file`).
+ * Request: multipart form data — `profileId`, optional `folderId`, optional
+ * `description` (given to every file in the batch), files under field `files`
+ * (or `file`).
  * Response: `{ files: FileDTO[] }` or `{ error }`.
  */
 
@@ -102,6 +103,9 @@ export async function POST(request: NextRequest) {
     }
     const folderRaw = form.get("folderId");
     const folderId = typeof folderRaw === "string" && folderRaw ? folderRaw : null;
+    // Optional; validated (≤ 250, trimmed, blank = none) in the service.
+    const descriptionRaw = form.get("description");
+    const description = typeof descriptionRaw === "string" ? descriptionRaw : undefined;
 
     try {
       const workspace = await getCurrentWorkspace(user.id);
@@ -109,7 +113,7 @@ export async function POST(request: NextRequest) {
       const files = await uploadVaultFiles(
         user.id,
         workspace.id,
-        { profileId, folderId },
+        { profileId, folderId, description },
         prepared,
       );
       return Response.json({ files });

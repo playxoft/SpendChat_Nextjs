@@ -37,6 +37,10 @@ function decadeStart(view: Date): number {
  * - `"single"` (default): one day; `onSelect(iso)` fires per click.
  * - `"range"`: pick a start then an end (either click order works); the span is
  *   previewed on hover and `onRangeSelect(start, end)` fires on the second click.
+ *
+ * `markedDays` puts a dot under the days that have something on them (the
+ * tracker's "go to a date"), and says so to a screen reader; `onMonthChange`
+ * reports the month on show ("YYYY-MM") so the marks can be loaded per month.
  */
 export function Calendar({
   selected,
@@ -47,6 +51,10 @@ export function Calendar({
   onRangeSelect,
   min,
   max,
+  today: todayISO,
+  defaultMonth,
+  markedDays,
+  onMonthChange,
   className,
 }: {
   selected?: string | null;
@@ -57,6 +65,14 @@ export function Calendar({
   onRangeSelect?: (start: string, end: string) => void;
   min?: string;
   max?: string;
+  /** Today as YYYY-MM-DD — the viewer's zone, as the server sees it; else the device's. */
+  today?: string;
+  /** The month ("YYYY-MM") to open on when nothing is selected. */
+  defaultMonth?: string;
+  /** Days (YYYY-MM-DD) to mark with a dot. */
+  markedDays?: ReadonlySet<string>;
+  /** The month on show changed (and once on mount), as "YYYY-MM". */
+  onMonthChange?: (month: string) => void;
   className?: string;
 }) {
   const isRange = selectionMode === "range";
@@ -64,8 +80,25 @@ export function Calendar({
   const anchorISO = (isRange ? startDate : selected) ?? null;
   const selectedDate = selected ? parseISODate(selected) : null;
   const [view, setView] = React.useState<Date>(() =>
-    startOfMonth(anchorISO ? parseISODate(anchorISO) : new Date()),
+    startOfMonth(
+      anchorISO
+        ? parseISODate(anchorISO)
+        : defaultMonth
+          ? parseISODate(`${defaultMonth}-01`)
+          : new Date(),
+    ),
   );
+
+  // Reported from an effect so a parent can load that month's marks. Through a
+  // ref, so a parent passing a fresh callback each render doesn't re-report.
+  const onMonthChangeRef = React.useRef(onMonthChange);
+  React.useEffect(() => {
+    onMonthChangeRef.current = onMonthChange;
+  });
+  const viewMonth = format(view, "yyyy-MM");
+  React.useEffect(() => {
+    onMonthChangeRef.current?.(viewMonth);
+  }, [viewMonth]);
   // "days" shows the day grid; "months" shows a 12-month quick picker so you can
   // jump to any month (Jan…Dec) without stepping one month at a time.
   const [mode, setMode] = React.useState<"days" | "months" | "years">("days");
@@ -85,7 +118,7 @@ export function Calendar({
 
   const minDate = min ? parseISODate(min) : null;
   const maxDate = max ? parseISODate(max) : null;
-  const today = new Date();
+  const today = todayISO ? parseISODate(todayISO) : new Date();
 
   const days = eachDayOfInterval({
     start: startOfWeek(startOfMonth(view)),
@@ -260,15 +293,25 @@ export function Calendar({
             const inRange =
               isRange && !!rangeStart && !!rangeEnd && iso > rangeStart && iso < rangeEnd;
             const highlighted = isSel || isEndpoint;
+            const marked = markedDays?.has(iso) ?? false;
             return (
               <button
                 key={d.toISOString()}
                 type="button"
                 disabled={disabled}
+                // With marks on, every day says its full date and whether it
+                // has anything — the dot alone is invisible to a screen reader.
+                aria-label={
+                  markedDays
+                    ? `${format(d, "EEEE d MMMM yyyy")}${marked ? ", has transactions" : ""}`
+                    : undefined
+                }
+                aria-current={markedDays && isToday ? "date" : undefined}
                 onClick={() => (isRange ? handleRangeClick(iso) : onSelect?.(iso))}
                 onMouseEnter={() => isRange && !disabled && setHovered(iso)}
                 className={cn(
                   "flex h-8 items-center justify-center rounded-md text-sm tabular-nums transition-colors",
+                  markedDays && "relative",
                   !inMonth && "text-muted-foreground/40",
                   disabled && "cursor-not-allowed opacity-30 hover:bg-transparent",
                   highlighted && "bg-foreground font-medium text-background",
@@ -278,6 +321,15 @@ export function Calendar({
                 )}
               >
                 {d.getDate()}
+                {marked ? (
+                  <span
+                    aria-hidden
+                    className={cn(
+                      "absolute bottom-1 left-1/2 size-1 -translate-x-1/2 rounded-full",
+                      highlighted ? "bg-background" : "bg-foreground/70",
+                    )}
+                  />
+                ) : null}
               </button>
             );
           })}

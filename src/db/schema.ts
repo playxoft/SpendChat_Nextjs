@@ -41,6 +41,7 @@ import {
   TAG_NAME_MAX,
   TRANSACTION_DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX,
+  VAULT_DESCRIPTION_MAX,
 } from "../lib/validation";
 import type { UiPrefs } from "../lib/validation";
 import type { Acquisition } from "../lib/attribution";
@@ -1088,8 +1089,11 @@ export const transactionAttachments = pgTable(
  * A vault tag: a per-profile named + colored label. Files and folders
  * reference tags by id (`tag_ids` uuid[]) — free-text tags don't exist, so a
  * tag rename/recolor updates every tagged item at once. `color` is hex text
- * (`#rrggbb`); today's UI picks from a fixed palette but the column accepts
- * any hex so custom colors need no migration.
+ * (`#rrggbb`); the column accepts any hex so custom colors need no migration.
+ *
+ * Deprecated: since app 0.43.0 the web app neither shows nor edits vault tags
+ * (descriptions replaced them). The table, its rows and the `/api/v1/file-tags`
+ * endpoints stay for API clients; nothing is deleted.
  */
 export const fileTags = pgTable(
   "file_tags",
@@ -1142,6 +1146,8 @@ export const folders = pgTable(
     // Creator attribution — access is the profile role, never this column.
     userId: uuid("user_id").notNull(),
     name: varchar("name", { length: FOLDER_NAME_MAX }).notNull(),
+    // What the folder holds, in a sentence; null = none. Searchable in the app.
+    description: varchar("description", { length: VAULT_DESCRIPTION_MAX }),
     // Optional accent (hex, like `file_tags.color`); null = the neutral default.
     color: varchar("color", { length: 16 }),
     /**
@@ -1152,6 +1158,8 @@ export const folders = pgTable(
      * user folder.
      */
     systemKey: text("system_key"),
+    // No longer shown or edited in the app (2026-10, app 0.43.0); kept, with its
+    // data, for API clients — see `file_tags`.
     tagIds: uuid("tag_ids")
       .array()
       .notNull()
@@ -1206,6 +1214,10 @@ export const files = pgTable(
     name: varchar("name", { length: FILE_NAME_MAX }).notNull(),
     contentType: text("content_type").notNull(),
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    // What the file is, in a sentence; null = none. Searchable in the app.
+    description: varchar("description", { length: VAULT_DESCRIPTION_MAX }),
+    // `category` and `tag_ids` are no longer shown or edited in the app (2026-10,
+    // app 0.43.0); kept, with their data, for API clients.
     category: varchar("category", { length: FILE_CATEGORY_MAX }),
     tagIds: uuid("tag_ids")
       .array()

@@ -40,8 +40,8 @@ const faqs = [
     a: "Yes. Create a share link for a file and anyone with the link can view it — useful for sending a landlord a receipt or an accountant a single invoice without giving them access to anything else. Links can be revoked.",
   },
   {
-    q: "How do tags differ from folders?",
-    a: "A file lives in one folder but can carry several tags. Folders are where something is kept; tags are what it is. A rent receipt can sit in \"2026 tax\" while being tagged both Receipts and Tax.",
+    q: "Can I note what a file is?",
+    a: "Yes. Every file and folder can carry a short description, up to 250 characters, on every plan — \"August rent, for the tax return\" says more than a file name ever will. Search looks through descriptions as well as names, so the note is also how you find it again.",
   },
   {
     q: "Is the vault only for receipts?",
@@ -54,7 +54,7 @@ export default function ReceiptsAndFilesPage() {
     <FeaturePage
       slug={SLUG}
       demo={<FilesDemo />}
-      demoAction="filter by a tag, search, or switch between grid and list"
+      demoAction="open a folder, search names and descriptions, or switch between grid and list"
       faqs={faqs}
       intro={
         <>
@@ -62,11 +62,11 @@ export default function ReceiptsAndFilesPage() {
             A receipt is only useful if you can find it next to the expense it
             belongs to. Attach one to any transaction, and keep everything else —
             bills, invoices, warranties, policies — in a vault with folders,
-            colour tags and share links.
+            descriptions and share links.
           </p>
           <p>
-            The demo below filters and searches for real. Every workspace gets
-            1&nbsp;GB.
+            The demo below opens folders and searches for real. Every workspace
+            gets 1&nbsp;GB.
           </p>
         </>
       }
@@ -79,11 +79,11 @@ export default function ReceiptsAndFilesPage() {
           },
           {
             title: "Or file it in the vault",
-            body: "Folders with colour tints, tags with their own colours, drag-and-drop between folders, and drop straight from your desktop.",
+            body: "Folders with colour tints, a short description on any file or folder, drag-and-drop between folders, and drop straight from your desktop.",
           },
           {
             title: "Find it later",
-            body: "Search by name, filter by tag, and switch between grid, list and column views depending on what you're doing.",
+            body: "Search names and descriptions at once, and switch between grid, list and column views depending on what you're doing.",
           },
         ]}
       />
@@ -109,19 +109,19 @@ export default function ReceiptsAndFilesPage() {
         </p>
       </FeatureSection>
 
-      <FeatureSection title="Folders for where, tags for what">
+      <FeatureSection title="Folders for where, descriptions for what">
         <p>
-          A file lives in exactly one folder and can carry as many tags as make
-          sense. That distinction does real work: a rent receipt belongs in
-          &ldquo;2026 tax&rdquo; and is also, separately, a receipt. Folders
-          alone would force you to choose; tags alone would leave you without a
-          place to put things.
+          A file lives in exactly one folder, and can say in a sentence what it
+          is. That distinction does real work: a rent receipt belongs in
+          &ldquo;2026 tax&rdquo;, and its description — &ldquo;August rent, for
+          the tax return&rdquo; — is what you&apos;ll type into search next
+          spring, because search reads descriptions as well as names.
         </p>
         <p>
-          Both carry colour — folders get a tint, tags get a dot — so a vault
-          with a few hundred files is still scannable. Attachments from
-          transactions land in a system folder of their own, which keeps them
-          from cluttering the folders you made on purpose.
+          Folders carry a colour tint, so a vault with a few hundred files is
+          still scannable. Attachments from transactions land in a system folder
+          of their own, which keeps them from cluttering the folders you made on
+          purpose.
         </p>
       </FeatureSection>
 
@@ -166,7 +166,7 @@ export default function ReceiptsAndFilesPage() {
           },
           {
             title: "Freelancers and small businesses",
-            body: "Invoices out, receipts in, and everything tagged for the year it belongs to when the accountant asks.",
+            body: "Invoices out, receipts in, and everything filed under the year it belongs to when the accountant asks.",
           },
           {
             title: "Households",

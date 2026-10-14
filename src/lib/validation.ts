@@ -14,6 +14,8 @@ import {
   isInvoiceTemplateId,
   isValidUpiId,
 } from "./invoices";
+import { isCalendarDay } from "./dates";
+import { SCOPE_MAX_PROFILE_IDS } from "./profile-scope";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
 import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX, SPLIT_IMPORT_KEY_PATTERN } from "./split-import";
 import {
@@ -374,6 +376,14 @@ export const FILE_MAX_BYTES = ATTACHMENT_MAX_BYTES;
 export const FILE_NAME_MAX = 200;
 /** Folder + tag names are deliberately short — they're labels, not documents. */
 export const FOLDER_NAME_MAX = 40;
+/**
+ * A file's or folder's description: what the thing is, in a sentence or two
+ * ("Sale deed for plot 42, registered 2019"). Every plan, no gate. The column
+ * is `varchar(250)` on both tables, which counts characters — JavaScript's
+ * `length` counts UTF-16 units, never fewer, so a value this cap accepts
+ * always fits the column.
+ */
+export const VAULT_DESCRIPTION_MAX = 250;
 /** DB cap for the free-text category column (presets are far shorter). */
 export const FILE_CATEGORY_MAX = 40;
 export const FILE_TAG_MAX = 20;
@@ -433,6 +443,21 @@ export const updateTagSchema = z.object({
 });
 export type UpdateTagInput = z.input<typeof updateTagSchema>;
 
+/**
+ * A vault description: trimmed, at most `VAULT_DESCRIPTION_MAX` characters,
+ * and blank means none (null). PATCH semantics come from the `nullish()`:
+ * absent leaves it alone, `null` or `""` clears it.
+ */
+export const vaultDescriptionSchema = z
+  .string()
+  .trim()
+  .max(
+    VAULT_DESCRIPTION_MAX,
+    `Description is too long (max ${VAULT_DESCRIPTION_MAX} characters)`,
+  )
+  .transform((v) => (v === "" ? null : v))
+  .nullish();
+
 const folderNameSchema = z
   .string()
   .trim()
@@ -450,27 +475,37 @@ export const createFolderSchema = z.object({
   parentId: z.string().uuid().nullish(),
   name: folderNameSchema,
   color: vaultColorSchema.nullish(),
+  description: vaultDescriptionSchema,
+  /** Deprecated: tags are no longer shown in the app. Still accepted for API clients. */
   tagIds: tagIdsSchema.optional().default([]),
 });
 export type CreateFolderInput = z.input<typeof createFolderSchema>;
 
 /** PATCH semantics: `undefined` leaves a field untouched; `parentId: null`
- * moves the folder to the root; `color: null` clears the accent. */
+ * moves the folder to the root; `color: null` clears the accent;
+ * `description: null` (or blank) clears the description. */
 export const updateFolderSchema = z.object({
   id: z.string().uuid(),
   name: folderNameSchema.optional(),
   color: vaultColorSchema.nullish(),
+  description: vaultDescriptionSchema,
+  /** Deprecated: tags are no longer shown in the app. Still accepted for API clients. */
   tagIds: tagIdsSchema.optional(),
   parentId: z.string().uuid().nullish(),
 });
 export type UpdateFolderInput = z.input<typeof updateFolderSchema>;
 
 /** PATCH semantics: `folderId: null` moves the file to the root, `category:
- * null` clears the category. */
+ * null` clears the category, `description: null` (or blank) clears the
+ * description. */
 export const updateFileSchema = z.object({
   id: z.string().uuid(),
   name: fileNameSchema.optional(),
+  description: vaultDescriptionSchema,
+  /** Deprecated: the preset category is no longer shown in the app. Still
+   * accepted for API clients. */
   category: fileCategorySchema.nullish(),
+  /** Deprecated: tags are no longer shown in the app. Still accepted for API clients. */
   tagIds: tagIdsSchema.optional(),
   folderId: z.string().uuid().nullish(),
 });
@@ -1396,6 +1431,46 @@ export const splitImportSchema = z
     (v) => new Set([v.me.ref, ...v.people.map((p) => p.ref)]).size === v.people.length + 1,
     "Two people in the draft share a key — open the calculator and try again",
   );
+
+// ── Tracker feed: paging forward and "go to a date" ──────────────────────────
+
+/**
+ * The profiles in view (one, or the sidebar's selection); absent = all. It can
+ * only narrow: every feed read intersects it with the caller's own profiles,
+ * so a tampered id simply reads as nothing. Bounded so it can't become an
+ * unbounded `IN` list.
+ */
+const feedProfileIdsSchema = z.array(z.string().uuid()).max(SCOPE_MAX_PROFILE_IDS).optional();
+
+/** A real day, "2026-10-14" — Postgres refuses "2026-02-31" rather than reading nothing. */
+export const calendarDaySchema = z
+  .string()
+  .refine(isCalendarDay, "Date must be a real day, YYYY-MM-DD, between 1970 and 2999");
+
+/** A row of the feed, as its keyset cursor: (occurredOn, createdAt, id). */
+export const feedCursorSchema = z.object({
+  occurredOn: calendarDaySchema,
+  createdAt: z.coerce.date(),
+  id: z.string().uuid(),
+});
+
+/** The page just newer than a row — the feed scrolling back towards the present after a jump. */
+export const loadNewerFeedSchema = z.object({
+  profileIds: feedProfileIdsSchema,
+  after: feedCursorSchema,
+});
+
+/** The feed opened at a day (or the nearest earlier day with transactions). */
+export const feedAroundSchema = z.object({
+  profileIds: feedProfileIdsSchema,
+  date: calendarDaySchema,
+});
+
+/** The days of a month that have transactions — the date picker's dots. */
+export const feedDaysSchema = z.object({
+  profileIds: feedProfileIdsSchema,
+  month: z.string().refine(isMonthKey, "Month must be YYYY-MM, between 1970 and 2999"),
+});
 
 // ── Budgets ────────────────────────────────────────────────────────────────
 

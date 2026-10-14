@@ -5,7 +5,6 @@ import { Download, Eye, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { attachmentDownloadUrl, formatFileSize } from "@/lib/attachments";
 import {
-  FILE_CATEGORY_LABELS,
   SYSTEM_FOLDER_NOTICE,
   fileDownloadUrl,
   fileTypeLabel,
@@ -21,9 +20,7 @@ import {
   FileThumb,
   FolderGlyph,
   FolderMetaTooltip,
-  ProfileChip,
   ProfileDivider,
-  TagChips,
   TxnAmount,
   VaultContextMenu,
   VaultEmptyState,
@@ -55,7 +52,6 @@ export function FilesColumnView({
   handlers,
   path,
   onNavigate,
-  filtering = false,
   rootProfiles = null,
 }: {
   folders: FolderDTO[];
@@ -65,8 +61,6 @@ export function FilesColumnView({
   /** Folder ids from root to the open folder (the breadcrumb chain). */
   path: FolderDTO[];
   onNavigate: (folderId: string | null) => void;
-  /** True when a tag filter pruned the tree (affects the empty-state copy). */
-  filtering?: boolean;
   /** "All profiles": sidebar-ordered profiles to group the ROOT column by.
    * Deeper columns are single-profile by construction and never group. */
   rootProfiles?: VaultProfile[] | null;
@@ -81,7 +75,7 @@ export function FilesColumnView({
     selected?.kind === "txn" ? (txnFiles.find((t) => t.id === selected.id) ?? null) : null;
 
   if (folders.length === 0 && files.length === 0 && txnFiles.length === 0) {
-    return <VaultEmptyState searching={filtering} canWrite={handlers.canWrite} />;
+    return <VaultEmptyState searching={false} canWrite={handlers.canWrite} />;
   }
 
   // Column N shows the children of path[N-1]; column 0 shows the roots.
@@ -133,11 +127,6 @@ export function FilesColumnView({
         .filter((s) => s.folders.length > 0 || s.files.length > 0)
     : null;
 
-  // Without the dividers — "All profiles" under a tag filter, which prunes the
-  // tree instead of grouping it — the root column interleaves profiles with
-  // nothing to tell two same-named items apart, so each row names its own.
-  const showProfile = rootProfiles === null && handlers.allProfiles;
-
   return (
     // Fills the viewport below the toolbar (plus the top bar and bottom nav on
     // a phone; a desktop has neither), so the column rules run the full height
@@ -152,7 +141,6 @@ export function FilesColumnView({
             files={childFiles(parent)}
             txns={childTxns(parent)}
             sections={parent === null ? rootSections : null}
-            showProfile={showProfile}
             activeFolderId={path[i]?.id ?? null}
             selectedItemId={selectedFile?.id ?? selectedTxn?.id ?? null}
             handlers={handlers}
@@ -206,7 +194,6 @@ function Column({
   files,
   txns,
   sections,
-  showProfile,
   activeFolderId,
   selectedItemId,
   handlers,
@@ -220,8 +207,6 @@ function Column({
   txns: TxnFileDTO[];
   /** "All profiles" root grouping — when set, replaces the flat folder/file lists. */
   sections?: ProfileSection[] | null;
-  /** True when no divider names the profile, so each row must (see `ProfileChip`). */
-  showProfile: boolean;
   /** The folder of this column the path continues into (highlighted). */
   activeFolderId: string | null;
   selectedItemId: string | null;
@@ -258,7 +243,6 @@ function Column({
                 folder={folder}
                 active={folder.id === activeFolderId}
                 handlers={handlers}
-                showProfile={showProfile}
                 onOpen={() => onOpenFolder(folder)}
               />
             ))}
@@ -268,7 +252,6 @@ function Column({
                 file={file}
                 selected={file.id === selectedItemId}
                 handlers={handlers}
-                showProfile={showProfile}
                 onSelect={() => onSelectFile(file)}
               />
             ))}
@@ -282,7 +265,6 @@ function Column({
               folder={folder}
               active={folder.id === activeFolderId}
               handlers={handlers}
-              showProfile={showProfile}
               onOpen={() => onOpenFolder(folder)}
             />
           ))}
@@ -292,7 +274,6 @@ function Column({
               file={file}
               selected={file.id === selectedItemId}
               handlers={handlers}
-              showProfile={showProfile}
               onSelect={() => onSelectFile(file)}
             />
           ))}
@@ -337,14 +318,11 @@ function FileColumnRow({
   file,
   selected,
   handlers,
-  showProfile,
   onSelect,
 }: {
   file: FileDTO;
   selected: boolean;
   handlers: VaultHandlers;
-  /** True when no divider above this row names the profile (see `ProfileChip`). */
-  showProfile: boolean;
   onSelect: () => void;
 }) {
   return (
@@ -374,13 +352,6 @@ function FileColumnRow({
               />
             </span>
             <span className="min-w-0 flex-1 truncate">{file.name}</span>
-            {showProfile ? (
-              <ProfileChip
-                profileId={file.profileId}
-                handlers={handlers}
-                className="max-w-20 px-1"
-              />
-            ) : null}
             <RowMenu target={{ kind: "file", file }} handlers={handlers} visible={selected} />
           </div>
         </TooltipTrigger>
@@ -394,14 +365,11 @@ function FolderColumnRow({
   folder,
   active,
   handlers,
-  showProfile,
   onOpen,
 }: {
   folder: FolderDTO;
   active: boolean;
   handlers: VaultHandlers;
-  /** True when no divider above this row names the profile (see `ProfileChip`). */
-  showProfile: boolean;
   onOpen: () => void;
 }) {
   const { over, dropProps } = useFolderDrop(folder.id, handlers, folder.system);
@@ -429,13 +397,6 @@ function FolderColumnRow({
           >
             <FolderGlyph folder={folder} className="size-4" />
             <span className="min-w-0 flex-1 truncate font-medium">{folder.name}</span>
-            {showProfile ? (
-              <ProfileChip
-                profileId={folder.profileId}
-                handlers={handlers}
-                className="max-w-20 px-1"
-              />
-            ) : null}
             <RowMenu target={{ kind: "folder", folder }} handlers={handlers} visible={active} />
           </div>
         </TooltipTrigger>
@@ -474,12 +435,13 @@ function FileDetail({ file, handlers }: { file: FileDTO; handlers: VaultHandlers
         </div>
         <VaultItemMenu target={{ kind: "file", file }} handlers={handlers} />
       </div>
+      {file.description ? (
+        <p className="text-sm break-words whitespace-pre-line">{file.description}</p>
+      ) : null}
       <dl className="space-y-1 text-xs text-muted-foreground">
         <div>Added {formatVaultDate(file.createdAt, handlers.locale)}</div>
         {file.uploaderName ? <div>By {file.uploaderName}</div> : null}
-        {file.category ? <div>{FILE_CATEGORY_LABELS[file.category]}</div> : null}
       </dl>
-      <TagChips tagIds={file.tagIds} handlers={handlers} max={5} />
       <div className="flex gap-2">
         <Button size="sm" onClick={() => handlers.previewFile(file)}>
           <Eye className="size-4" /> Preview

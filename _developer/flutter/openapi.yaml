@@ -136,17 +136,24 @@ info:
     ## Files vault
     A Drive-like document store (board resolutions, land papers, certificates …)
     scoped per profile: nested **folders** (with a hex color accent), **files**
-    (≤ 5 MB each, permissive types, optional preset category + thumbnail),
-    per-profile **tags** (created entities referenced by id), and public
-    **share links**. `GET /files` returns the whole working set in one call —
-    folders, files, the transaction attachments surfaced in the vault, and
-    tags; CRUD is per-resource under `/folders`, `/files`, `/file-tags`, and
-    `/file-shares`. File bytes are fetched like attachments: mint a presigned
-    URL with `GET /files/{id}/url` and GET it without the Authorization header.
-    Every profile has a predefined **"Transaction attachments"** folder
-    (`system: true`) mirroring that profile's transaction files — it can be
-    recolored/tagged but never renamed, moved, deleted, shared, or uploaded
-    into. Viewing needs viewer; every write needs editor. Same
+    (≤ 5 MB each, permissive types, optional thumbnail), an optional
+    **description** on each file and folder (≤ 250 characters, every plan —
+    6.12.0), and public **share links**. `GET /files` returns the whole working
+    set in one call — folders, files, the transaction attachments surfaced in
+    the vault, and (deprecated) tags; CRUD is per-resource under `/folders`,
+    `/files`, `/file-tags` (deprecated), and `/file-shares`. File bytes are
+    fetched like attachments: mint a presigned URL with `GET /files/{id}/url`
+    and GET it without the Authorization header. Every profile has a
+    predefined **"Transaction attachments"** folder (`system: true`) mirroring
+    that profile's transaction files — it can be recolored (and tagged) but
+    never renamed, described, moved, deleted, shared, or uploaded into.
+
+    **Deprecated (6.12.0): vault tags and the preset file category.** The web
+    app no longer shows or edits them — descriptions replaced them. The
+    `/file-tags` endpoints, `tags` in `GET /files`, and the `tagIds` /
+    `category` fields keep working unchanged and existing values are kept,
+    but clients should stop showing or offering them. They may be removed in
+    a future major version. Viewing needs viewer; every write needs editor. Same
     `503 storage_unavailable` / `413 payload_too_large` semantics as
     attachments.
 
@@ -820,7 +827,7 @@ paths:
   /api/v1/files:
     get:
       tags: [Files]
-      summary: The vault working set (folders + files + transaction files + tags)
+      summary: The vault working set (folders + files + transaction files + deprecated tags)
       description: |
         Everything the caller can view in the current workspace, in one call —
         mirrors the web vault's page load. `?profile=<uuid>` scopes to one
@@ -864,6 +871,10 @@ paths:
                         items: { $ref: "#/components/schemas/TransactionFile" }
                       tags:
                         type: array
+                        deprecated: true
+                        description: >-
+                          Deprecated (6.12.0) — the web app no longer shows
+                          vault tags. Still sent; stop displaying it.
                         items: { $ref: "#/components/schemas/FileTag" }
                     required: [folders, files, transactionFiles, tags]
                   meta:
@@ -893,7 +904,9 @@ paths:
       description: |
         Multipart form data: `profileId` (required — the profile to upload
         into), `folderId` (optional; omit for the profile's root — the
-        predefined folder is never a valid destination, 400), files under
+        predefined folder is never a valid destination, 400), `description`
+        (optional, 6.12.0; ≤ 250 characters after trimming, blank = none,
+        given to **every** file in the request — 422 when longer), files under
         `files` (repeatable; `file` also accepted), and an optional
         client-generated preview per file under `thumb_<index>` (webp
         recommended) — it becomes the tile thumbnail (`hasThumbnail`).
@@ -933,6 +946,10 @@ paths:
               properties:
                 profileId: { type: string, format: uuid }
                 folderId: { type: string, format: uuid }
+                description:
+                  type: string
+                  maxLength: 250
+                  description: Optional (6.12.0). Given to every file in the request.
                 files:
                   type: array
                   items: { type: string, format: binary }
@@ -964,7 +981,11 @@ paths:
       - $ref: "#/components/parameters/workspaceHeader"
     patch:
       tags: [Files]
-      summary: Rename / re-categorize / re-tag / move a vault file (editor only)
+      summary: Rename / describe / move a vault file (editor only)
+      description: |
+        Any subset of `{ name, description, folderId }` (plus the deprecated
+        `category` and `tagIds`). `description: null` — or a blank string —
+        clears it; omitting it leaves it alone.
       requestBody:
         required: true
         content:
@@ -1083,7 +1104,8 @@ paths:
         Folders nest (`parentId`) but never span profiles. Sibling names are
         unique case-insensitively (409). The predefined "Transaction
         attachments" folder can't be a parent (400). The folder list itself
-        ships with `GET /files`.
+        ships with `GET /files`. `description` (6.12.0) is optional, ≤ 250
+        characters after trimming; blank means none.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1114,12 +1136,14 @@ paths:
       - $ref: "#/components/parameters/workspaceHeader"
     patch:
       tags: [Files]
-      summary: Rename / recolor / re-tag / move a folder (editor only)
+      summary: Rename / recolor / describe / move a folder (editor only)
       description: |
-        Any subset of `{ name, color, tagIds, parentId }`; `parentId: null`
-        moves the folder to the root, `color: null` clears the accent. Moving
-        a folder into its own subtree is rejected (400), as is renaming/moving
-        the predefined folder (which accepts only color + tags).
+        Any subset of `{ name, color, description, parentId }` (plus the
+        deprecated `tagIds`); `parentId: null` moves the folder to the root,
+        `color: null` clears the accent, `description: null` (or blank) clears
+        the description. Moving a folder into its own subtree is rejected
+        (400), as is renaming, moving or describing the predefined folder
+        (which accepts only color + tags).
       requestBody:
         required: true
         content:
@@ -1169,12 +1193,16 @@ paths:
   /api/v1/file-tags:
     get:
       tags: [Files]
-      summary: List the vault tags of the accessible profiles
+      summary: List the vault tags of the accessible profiles (deprecated)
+      deprecated: true
       description: |
+        **Deprecated (6.12.0)** — the web app no longer shows or edits vault
+        tags; descriptions replaced them. Still served unchanged.
+
         Name-ascending. `?profile=<uuid>` scopes to one profile. Tags are
         per-profile entities — files and folders reference them by id
         (`tagIds`), so only a created tag can be applied. Also included in
-        `GET /files`; this standalone list is for tag pickers.
+        `GET /files`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/profile"
@@ -1196,8 +1224,11 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Files]
-      summary: Create a vault tag (editor only)
-      description: Names are unique per profile, case-insensitively (409).
+      summary: Create a vault tag (editor only; deprecated)
+      deprecated: true
+      description: >-
+        Deprecated (6.12.0) — still works. Names are unique per profile,
+        case-insensitively (409).
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1228,8 +1259,11 @@ paths:
       - $ref: "#/components/parameters/workspaceHeader"
     patch:
       tags: [Files]
-      summary: Rename / recolor a tag (editor only)
-      description: Every file and folder referencing the tag reflects the change at once.
+      summary: Rename / recolor a tag (editor only; deprecated)
+      deprecated: true
+      description: >-
+        Deprecated (6.12.0) — still works. Every file and folder referencing
+        the tag reflects the change at once.
       requestBody:
         required: true
         content:
@@ -1253,8 +1287,11 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Files]
-      summary: Delete a tag (editor only)
-      description: Detaches the tag from every file and folder of its profile, then removes it.
+      summary: Delete a tag (editor only; deprecated)
+      deprecated: true
+      description: >-
+        Deprecated (6.12.0) — still works. Detaches the tag from every file and
+        folder of its profile, then removes it.
       responses:
         "200":
           description: Deletion acknowledged.
@@ -5887,7 +5924,8 @@ components:
 
     FileCategory:
       type: string
-      description: Preset document categories for vault files.
+      deprecated: true
+      description: Deprecated (6.12.0). Preset document categories for vault files.
       enum: [board-resolution, company, personal, land, house, certificate, other]
 
     VaultColor:
@@ -5901,7 +5939,7 @@ components:
       description: >
         A vault folder. `system: true` marks the predefined per-profile
         "Transaction attachments" folder — recolor/tag only; never rename,
-        move, delete, share, upload into, or nest under it.
+        describe, move, delete, share, upload into, or nest under it.
       properties:
         id: { type: string, format: uuid }
         profileId: { type: string, format: uuid }
@@ -5910,6 +5948,10 @@ components:
           format: uuid
           description: null = a root folder.
         name: { type: string, maxLength: 40 }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: What the folder holds (6.12.0), or null. Searchable in the web app.
         color:
           oneOf:
             - type: "null"
@@ -5917,16 +5959,19 @@ components:
           description: Accent hex, or null for the neutral default.
         tagIds:
           type: array
+          deprecated: true
           items: { type: string, format: uuid }
-          description: Applied tags (resolve against the tags list).
+          description: >-
+            Deprecated (6.12.0) — applied tags (resolve against the tags list).
+            Still sent; stop displaying them.
         system: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         createdByName:
           type: [string, "null"]
           description: Creator attribution (display only).
-      required: [id, profileId, parentId, name, color, tagIds, system,
-                 createdAt, updatedAt, createdByName]
+      required: [id, profileId, parentId, name, description, color, tagIds,
+                 system, createdAt, updatedAt, createdByName]
 
     VaultFile:
       type: object
@@ -5942,6 +5987,10 @@ components:
           format: uuid
           description: null = the profile's root.
         name: { type: string, maxLength: 200, description: Sanitized display/file name. }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: What the file is (6.12.0), or null. Searchable in the web app.
         contentType:
           type: string
           description: >-
@@ -5950,11 +5999,17 @@ components:
             type even for files uploaded before that resolution existed.
         sizeBytes: { type: integer, maximum: 5242880 }
         category:
+          deprecated: true
+          description: >-
+            Deprecated (6.12.0) — the preset document category. Still sent;
+            stop displaying it.
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/FileCategory"
         tagIds:
           type: array
+          deprecated: true
+          description: Deprecated (6.12.0). Still sent; stop displaying it.
           items: { type: string, format: uuid }
         hasThumbnail:
           type: boolean
@@ -5963,9 +6018,9 @@ components:
         uploaderName: { type: [string, "null"], description: Uploader attribution (display only). }
         profileName: { type: [string, "null"] }
         profileIcon: { type: [string, "null"] }
-      required: [id, profileId, folderId, name, contentType, sizeBytes,
-                 category, tagIds, hasThumbnail, createdAt, uploaderName,
-                 profileName, profileIcon]
+      required: [id, profileId, folderId, name, description, contentType,
+                 sizeBytes, category, tagIds, hasThumbnail, createdAt,
+                 uploaderName, profileName, profileIcon]
 
     TransactionFile:
       type: object
@@ -5996,7 +6051,10 @@ components:
 
     FileTag:
       type: object
-      description: A per-profile tag entity. Files/folders reference it via tagIds.
+      deprecated: true
+      description: >-
+        Deprecated (6.12.0). A per-profile tag entity. Files/folders reference
+        it via tagIds.
       properties:
         id: { type: string, format: uuid }
         profileId: { type: string, format: uuid }
@@ -6037,12 +6095,17 @@ components:
         profileId: { type: string, format: uuid }
         parentId: { type: [string, "null"], format: uuid }
         name: { type: string, minLength: 1, maxLength: 40 }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: Optional (6.12.0); trimmed, blank = none.
         color:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/VaultColor"
         tagIds:
           type: array
+          deprecated: true
           maxItems: 10
           items: { type: string, format: uuid }
       required: [profileId, name]
@@ -6050,15 +6113,20 @@ components:
     FolderPatch:
       type: object
       minProperties: 1
-      description: "Any subset. `parentId: null` moves to the root; `color: null` clears the accent."
+      description: "Any subset. `parentId: null` moves to the root; `color: null` clears the accent; `description: null` (or blank) clears the description."
       properties:
         name: { type: string, minLength: 1, maxLength: 40 }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: 6.12.0. Trimmed; null or blank clears it.
         color:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/VaultColor"
         tagIds:
           type: array
+          deprecated: true
           maxItems: 10
           items: { type: string, format: uuid }
         parentId: { type: [string, "null"], format: uuid }
@@ -6066,21 +6134,28 @@ components:
     VaultFilePatch:
       type: object
       minProperties: 1
-      description: "Any subset. `folderId: null` moves the file to the root; `category: null` clears it."
+      description: "Any subset. `folderId: null` moves the file to the root; `description: null` (or blank) and `category: null` clear them."
       properties:
         name: { type: string, minLength: 1, maxLength: 200 }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: 6.12.0. Trimmed; null or blank clears it.
         category:
+          deprecated: true
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/FileCategory"
         tagIds:
           type: array
+          deprecated: true
           maxItems: 10
           items: { type: string, format: uuid }
         folderId: { type: [string, "null"], format: uuid }
 
     FileTagInput:
       type: object
+      deprecated: true
       properties:
         profileId: { type: string, format: uuid }
         name: { type: string, minLength: 1, maxLength: 20 }
@@ -6089,6 +6164,7 @@ components:
 
     FileTagPatch:
       type: object
+      deprecated: true
       minProperties: 1
       properties:
         name: { type: string, minLength: 1, maxLength: 20 }

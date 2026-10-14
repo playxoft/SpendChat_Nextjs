@@ -59,7 +59,9 @@ export function ChatFeed({
 
   // rows are oldest-first; group by month, then consecutively by date within it.
   // Each month section carries `data-month` so the scroll spy can tell which
-  // month is under the header and drive the summary bar's balance.
+  // month is under the header and drive the summary bar's balance; each day's
+  // group carries `data-day`, which a jump to a date scrolls to — and which is
+  // the box its sticky date pill stays within.
   type DayGroup = { date: string; items: TransactionRow[] };
   const months: { month: string; days: DayGroup[] }[] = [];
   for (const r of rows) {
@@ -80,8 +82,8 @@ export function ChatFeed({
         <section key={m.month} data-month={m.month}>
           <MonthDivider label={monthDividerLabel(m.month, today, locale)} />
           {m.days.map((g) => (
-            <div key={g.date}>
-              <DayDivider label={dayDividerLabel(g.date, today, locale)} />
+            <div key={g.date} data-day={g.date}>
+              <DayDivider label={dayDividerLabel(g.date, today, locale)} sticky />
               <div className="space-y-2">
                 {g.items.map((r) => (
                   <TransactionItem

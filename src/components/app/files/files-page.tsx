@@ -15,19 +15,15 @@ import {
   List,
   Loader2,
   Search,
-  Tag as TagIcon,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { usePermissions } from "@/components/app/permissions";
@@ -35,12 +31,12 @@ import { useAttachmentViewer } from "@/components/app/attachments/attachment-vie
 import { usePlan } from "@/components/app/upgrade-dialog";
 import { updateFile, updateFolder } from "@/actions/files";
 import {
-  FILE_CATEGORY_LABELS,
   SYSTEM_FOLDER_NOTICE,
   computeFolderSizes,
+  normalizeVaultQuery,
+  vaultTextMatches,
   type FileDTO,
   type FolderDTO,
-  type TagDTO,
   type TxnFileDTO,
   type VaultProfile,
 } from "@/lib/files";
@@ -60,7 +56,6 @@ import {
 } from "./files-views";
 import { FilesColumnView } from "./files-column-view";
 import { StorageRing } from "./storage-ring";
-import { TagChip } from "./vault-tags";
 import {
   DeleteVaultItemDialog,
   EditVaultItemDialog,
@@ -76,21 +71,18 @@ const VIEW_OPTIONS: { view: FilesView; label: string; icon: typeof LayoutGrid }[
   { view: "column", label: "Columns", icon: Columns3 },
 ];
 
-type VaultSortKey = "time" | "name" | "size" | "category" | "tags";
+type VaultSortKey = "time" | "name" | "size";
 
 const SORT_OPTIONS: { value: VaultSortKey; label: string }[] = [
   { value: "time", label: "Date added" },
   { value: "name", label: "Name" },
   { value: "size", label: "Size" },
-  { value: "category", label: "Category" },
-  { value: "tags", label: "Tags" },
 ];
 
 export function FilesPageClient({
   folders,
   files,
   txnFiles,
-  tags,
   profiles,
   activeProfileId,
   currency,
@@ -103,7 +95,6 @@ export function FilesPageClient({
   folders: FolderDTO[];
   files: FileDTO[];
   txnFiles: TxnFileDTO[];
-  tags: TagDTO[];
   profiles: VaultProfile[];
   /** null = "All profiles" (uploads/new folders then need a profile picked). */
   activeProfileId: string | null;
@@ -128,11 +119,9 @@ export function FilesPageClient({
   const [sortKey, setSortKey] = useState<VaultSortKey>("time");
   // Ascending = A→Z / oldest / smallest. Default: newest first.
   const [sortAsc, setSortAsc] = useState(false);
-  const [tagFilter, setTagFilter] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
-  const tagMap = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
   const profileNameById = useMemo(
     () => new Map(profiles.map((p) => [p.id, p.icon ? `${p.icon} ${p.name}` : p.name])),
     [profiles],
@@ -170,33 +159,19 @@ export function FilesPageClient({
 
   /* ------------------------- Sorting + filtering --------------------------- */
 
-  const tagSortKey = (tagIds: string[]) =>
-    tagIds
-      .map((id) => tagMap.get(id)?.name ?? "")
-      .filter(Boolean)
-      .sort()
-      .join(",");
-
   const dir = sortAsc ? 1 : -1;
 
   const sortedFiles = useMemo(() => {
-    const LAST = "￿";
     const base: Record<VaultSortKey, (a: FileDTO, b: FileDTO) => number> = {
       time: (a, b) => a.createdAt.localeCompare(b.createdAt),
       name: (a, b) => a.name.localeCompare(b.name),
       size: (a, b) => a.sizeBytes - b.sizeBytes,
-      category: (a, b) =>
-        (a.category ? FILE_CATEGORY_LABELS[a.category] : LAST).localeCompare(
-          b.category ? FILE_CATEGORY_LABELS[b.category] : LAST,
-        ),
-      tags: (a, b) => (tagSortKey(a.tagIds) || LAST).localeCompare(tagSortKey(b.tagIds) || LAST),
     };
     return [...files].sort((a, b) => dir * base[sortKey](a, b));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [files, sortKey, dir, tagMap]);
+  }, [files, sortKey, dir]);
 
   // Folder totals (descendants included) from the full working set — never the
-  // filtered arrays, so a search or tag filter doesn't shrink a folder's size.
+  // filtered arrays, so a search doesn't shrink a folder's size.
   const folderSizes = useMemo(
     () => computeFolderSizes(folders, files, txnFiles),
     [folders, files, txnFiles],
@@ -208,12 +183,9 @@ export function FilesPageClient({
         ? (a, b) => a.createdAt.localeCompare(b.createdAt)
         : sortKey === "size"
           ? (a, b) => (folderSizes.get(a.id) ?? 0) - (folderSizes.get(b.id) ?? 0)
-          : sortKey === "tags"
-            ? (a, b) => tagSortKey(a.tagIds).localeCompare(tagSortKey(b.tagIds))
-            : (a, b) => a.name.localeCompare(b.name);
+          : (a, b) => a.name.localeCompare(b.name);
     return [...folders].sort((a, b) => dir * base(a, b));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [folders, sortKey, dir, tagMap, folderSizes]);
+  }, [folders, sortKey, dir, folderSizes]);
 
   const sortedTxnFiles = useMemo(() => {
     const base: (a: TxnFileDTO, b: TxnFileDTO) => number =
@@ -225,55 +197,39 @@ export function FilesPageClient({
     return [...txnFiles].sort((a, b) => dir * base(a, b));
   }, [txnFiles, sortKey, dir]);
 
-  const query = q.trim().toLowerCase();
+  // A search flattens results across all folders. Folders and files match on
+  // their name or description; transaction files on their name or their
+  // transaction's title — one rule (`vaultTextMatches`) for all three.
+  const query = normalizeVaultQuery(q);
   const searching = query.length > 0;
-  /** Search OR an active tag filter flattens results across all folders. */
-  const filtering = searching || tagFilter.length > 0;
-  const has = (text: string | null | undefined) =>
-    (text ?? "").toLowerCase().includes(query);
-  const matchesQuery = (name: string, tagIds: string[], extra?: string | null) =>
-    !searching || has(name) || tagIds.some((id) => has(tagMap.get(id)?.name)) || has(extra);
-  const matchesTagFilter = (tagIds: string[]) =>
-    tagFilter.length === 0 || tagIds.some((id) => tagFilter.includes(id));
 
   const matchedFolders = useMemo(() => {
-    if (filtering) {
-      return sortedFolders.filter(
-        (f) => matchesQuery(f.name, f.tagIds) && matchesTagFilter(f.tagIds),
-      );
+    if (searching) {
+      return sortedFolders.filter((f) => vaultTextMatches(query, [f.name, f.description]));
     }
     const children = sortedFolders.filter((f) => f.parentId === currentFolderId);
     // Predefined folders pin first at the root.
     return [...children.filter((f) => f.system), ...children.filter((f) => !f.system)];
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedFolders, filtering, query, tagFilter, currentFolderId, tagMap]);
+  }, [sortedFolders, searching, query, currentFolderId]);
 
   const matchedFiles = useMemo(
     () =>
-      filtering
-        ? sortedFiles.filter(
-            (f) =>
-              matchesQuery(f.name, f.tagIds, f.category ? FILE_CATEGORY_LABELS[f.category] : null) &&
-              matchesTagFilter(f.tagIds),
-          )
+      searching
+        ? sortedFiles.filter((f) => vaultTextMatches(query, [f.name, f.description]))
         : sortedFiles.filter((f) => f.folderId === currentFolderId),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sortedFiles, filtering, query, tagFilter, currentFolderId, tagMap],
+    [sortedFiles, searching, query, currentFolderId],
   );
 
   // Transaction files live "inside" each profile's predefined folder; they
-  // surface in search too, but carry no tags, so a tag filter excludes them.
+  // surface in search too.
   const matchedTxnFiles = useMemo(
     () =>
-      filtering
-        ? tagFilter.length > 0
-          ? []
-          : sortedTxnFiles.filter((t) => has(t.name) || has(t.txnTitle))
+      searching
+        ? sortedTxnFiles.filter((t) => vaultTextMatches(query, [t.name, t.txnTitle]))
         : inSystemFolder
           ? sortedTxnFiles.filter((t) => t.profileId === currentFolder!.profileId)
           : [],
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sortedTxnFiles, filtering, query, tagFilter, inSystemFolder, currentFolder],
+    [sortedTxnFiles, searching, query, inSystemFolder, currentFolder],
   );
 
   /* ------------------------------ Uploads ---------------------------------- */
@@ -462,7 +418,6 @@ export function FilesPageClient({
     currency,
     locale,
     profileLabel: (id) => (activeProfileId === null ? (profileNameById.get(id) ?? null) : null),
-    tagById: (id) => tagMap.get(id),
     folderSize: (id) => folderSizes.get(id) ?? 0,
     openFolder: (id) => navigateToFolder(id),
     previewFile: (file) =>
@@ -496,16 +451,15 @@ export function FilesPageClient({
   const rootDrop = useFolderDrop(null, handlers);
 
   // The column browser shows hierarchy itself. Search results are flat, so
-  // searching falls back to the list rendering — but a tag filter keeps the
-  // columns: the tree is pruned instead (see `columnData`).
+  // searching falls back to the list rendering.
   const effectiveView: FilesView = searching && view === "column" ? "list" : view;
 
   // "All profiles" at the vault root: grid and list group the root items under
   // per-profile divider bars (sidebar order, empty profiles skipped). Opening a
-  // folder — or any search/tag filtering, whose results aren't root-scoped —
-  // returns to the flat rendering, where each item names its own profile again.
+  // folder — or searching, whose results aren't root-scoped — returns to the
+  // flat rendering, where each item names its own profile again.
   const profileSections = useMemo(() => {
-    if (activeProfileId !== null || filtering || currentFolderId !== null) return null;
+    if (activeProfileId !== null || searching || currentFolderId !== null) return null;
     return profiles
       .map((profile) => ({
         profile,
@@ -513,57 +467,7 @@ export function FilesPageClient({
         files: matchedFiles.filter((f) => f.profileId === profile.id),
       }))
       .filter((s) => s.folders.length > 0 || s.files.length > 0);
-  }, [activeProfileId, filtering, currentFolderId, profiles, matchedFolders, matchedFiles]);
-
-  // What the column view browses: everything, or — under a tag filter — a
-  // pruned tree of tagged folders (kept browsable with their whole subtree),
-  // tagged files, and the ancestor folders needed to reach them.
-  const columnData = useMemo(() => {
-    if (tagFilter.length === 0) {
-      return { folders: sortedFolders, files: sortedFiles, txns: sortedTxnFiles };
-    }
-    const childrenOf = new Map<string | null, FolderDTO[]>();
-    for (const f of sortedFolders) {
-      const list = childrenOf.get(f.parentId) ?? [];
-      list.push(f);
-      childrenOf.set(f.parentId, list);
-    }
-    const visible = new Set<string>();
-    const addWithAncestors = (id: string | null) => {
-      let cursor = id;
-      let guard = 0;
-      while (cursor && guard++ < 30 && !visible.has(cursor)) {
-        visible.add(cursor);
-        cursor = folderById.get(cursor)?.parentId ?? null;
-      }
-    };
-    // Folders inside a tagged folder inherit its visibility.
-    const inTaggedSubtree = new Set<string>();
-    for (const f of sortedFolders) {
-      if (!matchesTagFilter(f.tagIds)) continue;
-      addWithAncestors(f.id);
-      const stack = [f.id];
-      while (stack.length) {
-        const id = stack.pop()!;
-        if (inTaggedSubtree.has(id)) continue;
-        inTaggedSubtree.add(id);
-        visible.add(id);
-        for (const child of childrenOf.get(id) ?? []) stack.push(child.id);
-      }
-    }
-    const keptFiles = sortedFiles.filter(
-      (f) =>
-        matchesTagFilter(f.tagIds) || (f.folderId != null && inTaggedSubtree.has(f.folderId)),
-    );
-    for (const f of keptFiles) addWithAncestors(f.folderId);
-    return {
-      folders: sortedFolders.filter((f) => visible.has(f.id)),
-      files: keptFiles,
-      // Transaction files carry no tags, so a tag filter excludes them.
-      txns: [],
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortedFolders, sortedFiles, sortedTxnFiles, tagFilter, folderById]);
+  }, [activeProfileId, searching, currentFolderId, profiles, matchedFolders, matchedFiles]);
 
   return (
     <div className="space-y-4">
@@ -587,7 +491,7 @@ export function FilesPageClient({
               <Input
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
-                placeholder="Search files, tags…"
+                placeholder="Search files…"
                 className="w-44 pl-8 sm:w-56"
                 aria-label="Search files"
               />
@@ -669,15 +573,13 @@ export function FilesPageClient({
           Upload (items add their own entries first). It reaches the bottom of
           the window, so the empty space under a short list counts too. */}
       <VaultSpaceContextMenu handlers={handlers} className="min-h-[calc(100svh-7rem)] space-y-4">
-      {/* Second row: breadcrumbs / result count + tag filter + sort. The
-          column view keeps its breadcrumbs under a tag filter — the tree is
-          pruned in place, not flattened into results. */}
+      {/* Second row: breadcrumbs / result count + sort. */}
       <div className="flex flex-wrap items-center justify-between gap-2">
-        {filtering && effectiveView !== "column" ? (
+        {searching ? (
           <p className="text-sm text-muted-foreground">
             {matchedFolders.length + matchedFiles.length + matchedTxnFiles.length} result
-            {matchedFolders.length + matchedFiles.length + matchedTxnFiles.length === 1 ? "" : "s"}
-            {searching ? <> for “{q.trim()}”</> : null}
+            {matchedFolders.length + matchedFiles.length + matchedTxnFiles.length === 1 ? "" : "s"}{" "}
+            for “{q.trim()}”
           </p>
         ) : (
           <nav aria-label="Folder path" className="flex flex-wrap items-center gap-1 text-sm">
@@ -705,44 +607,6 @@ export function FilesPageClient({
           </nav>
         )}
         <div className="flex items-center gap-2">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="h-8 px-2.5 text-sm">
-                <TagIcon className="size-3.5" />
-                Tags{tagFilter.length > 0 ? ` (${tagFilter.length})` : ""}
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-56">
-              {tags.length === 0 ? (
-                <DropdownMenuItem disabled>No tags yet</DropdownMenuItem>
-              ) : (
-                tags.map((tag) => (
-                  <DropdownMenuCheckboxItem
-                    key={tag.id}
-                    checked={tagFilter.includes(tag.id)}
-                    onCheckedChange={(checked) =>
-                      setTagFilter((prev) =>
-                        checked ? [...prev, tag.id] : prev.filter((id) => id !== tag.id),
-                      )
-                    }
-                    // Keep the menu open while multi-selecting.
-                    onSelect={(e) => e.preventDefault()}
-                    className="py-1.5"
-                  >
-                    <TagChip tag={tag} className="max-w-40 text-xs" />
-                  </DropdownMenuCheckboxItem>
-                ))
-              )}
-              {tagFilter.length > 0 ? (
-                <>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => setTagFilter([])}>
-                    Clear filter
-                  </DropdownMenuItem>
-                </>
-              ) : null}
-            </DropdownMenuContent>
-          </DropdownMenu>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline" className="h-8 px-2.5 text-sm" aria-label="Sort by">
@@ -777,7 +641,7 @@ export function FilesPageClient({
       </div>
 
       {/* Predefined-folder notice */}
-      {!filtering && inSystemFolder && effectiveView !== "column" ? (
+      {!searching && inSystemFolder && effectiveView !== "column" ? (
         <p className="flex items-start gap-2 rounded-lg border bg-muted/40 p-2.5 text-xs text-muted-foreground">
           <Info className="mt-0.5 size-3.5 shrink-0" aria-hidden />
           {SYSTEM_FOLDER_NOTICE}
@@ -791,7 +655,7 @@ export function FilesPageClient({
           files={matchedFiles}
           txnFiles={matchedTxnFiles}
           handlers={handlers}
-          searching={filtering}
+          searching={searching}
           sections={profileSections}
         />
       ) : effectiveView === "list" ? (
@@ -800,19 +664,18 @@ export function FilesPageClient({
           files={matchedFiles}
           txnFiles={matchedTxnFiles}
           handlers={handlers}
-          searching={filtering}
+          searching={searching}
           sections={profileSections}
         />
       ) : (
         <FilesColumnView
-          folders={columnData.folders}
-          files={columnData.files}
-          txnFiles={columnData.txns}
+          folders={sortedFolders}
+          files={sortedFiles}
+          txnFiles={sortedTxnFiles}
           handlers={handlers}
           path={breadcrumbs}
           onNavigate={navigateToFolder}
-          filtering={tagFilter.length > 0}
-          rootProfiles={activeProfileId === null && tagFilter.length === 0 ? profiles : null}
+          rootProfiles={activeProfileId === null ? profiles : null}
         />
       )}
 
@@ -889,11 +752,9 @@ export function FilesPageClient({
         onOpenChange={setNewFolderOpen}
         profileId={uploadProfileId}
         parentId={inSystemFolder ? null : currentFolderId}
-        tags={tags}
       />
       <EditVaultItemDialog
         target={action?.type === "edit" ? action.target : null}
-        tags={tags}
         onOpenChange={closeAction}
       />
       <MoveVaultItemDialog

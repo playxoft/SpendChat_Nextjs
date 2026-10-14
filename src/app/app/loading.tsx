@@ -14,7 +14,8 @@ export default function Loading() {
                 <Skeleton className="h-4 w-32" />
                 <Skeleton className="h-3 w-24" />
               </div>
-              {/* Desktop-only actions */}
+              {/* Go to a date (every width), then the desktop-only actions */}
+              <Skeleton className="size-8 shrink-0 rounded-md" />
               <Skeleton className="hidden size-8 shrink-0 rounded-md md:block" />
               <Skeleton className="hidden h-8 w-[5.5rem] shrink-0 rounded-md md:block" />
               <AccountControls />
