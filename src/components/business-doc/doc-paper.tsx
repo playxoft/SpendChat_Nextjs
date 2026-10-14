@@ -6,7 +6,11 @@ import { toolPath } from "@/lib/tools";
 import { EMPTY, formatNumber } from "@/lib/tools/format";
 import type { BusinessDoc, DocEvaluation } from "@/lib/business-doc/invoice";
 import { buildDocView } from "@/lib/business-doc/doc-view";
+import type { DocPayment } from "@/lib/business-doc/invoice-pdf";
 import type { DocLabels } from "@/lib/business-doc/labels";
+import { qrPath } from "@/lib/business-doc/qr";
+import { DOC_THEMES, type DocTheme } from "@/lib/business-doc/templates";
+import { cn } from "@/lib/utils";
 
 /**
  * The document itself — what the preview shows and exactly what prints.
@@ -30,6 +34,9 @@ export function DocPaper({
   currency,
   locale,
   printable = true,
+  theme = DOC_THEMES.classic,
+  payment = null,
+  creditHref,
 }: {
   doc: BusinessDoc;
   labels: DocLabels;
@@ -43,6 +50,12 @@ export function DocPaper({
    * not also print, or the PDF would hold the document twice.
    */
   printable?: boolean;
+  /** The app's invoice template (the generator always draws the classic one). */
+  theme?: DocTheme;
+  /** The app's pay-by-UPI block for a rupee invoice. */
+  payment?: DocPayment | null;
+  /** Where "Made with SpendChat" links; the generator's own page by default. */
+  creditHref?: string;
 }) {
   const code = isSupportedCurrency(currency) ? currency : "USD";
   const money = (minor: number) => formatMoney(minor, code, locale);
@@ -54,7 +67,9 @@ export function DocPaper({
 
   // Dates, total rows and the amount in words come from the same view the
   // downloaded PDF is drawn from, so screen and file always agree.
-  const view = buildDocView({ doc, labels, evaluation, dates, currency, locale });
+  const view = buildDocView({ doc, labels, evaluation, dates, currency, locale, theme, payment });
+  const accent = { color: theme.accent };
+  const cell = theme.compact ? "py-[0.45em]" : "py-[0.7em]";
   const [, issueRow, dueRow] = view.meta;
 
   return (
@@ -63,7 +78,7 @@ export function DocPaper({
       className={`${printable ? "bd-paper " : ""}flex aspect-[210/297] flex-col rounded-[0.25em] bg-white p-[1.6em] leading-[1.45] text-neutral-900 shadow-sm ring-1 ring-black/10 @md:p-[3.2em]`}
       // 10pt on an A4-wide sheet is 1.68% of its width; a touch larger reads
       // better on screen, and the floor keeps a phone preview legible.
-      style={{ fontSize: "clamp(10px, 1.9cqi, 13.5px)" }}
+      style={{ fontSize: theme.compact ? "clamp(9px, 1.7cqi, 12px)" : "clamp(10px, 1.9cqi, 13.5px)" }}
     >
       {/* Container queries (`@md:`) give a phone-width preview tighter margins
           and a stacked header; the printed A4 page is always wider than that. */}
@@ -90,7 +105,9 @@ export function DocPaper({
         </div>
 
         <div className="shrink-0 @md:text-right">
-          <p className="text-[2em] font-semibold uppercase leading-none tracking-[0.06em]">{labels.title}</p>
+          <p className="text-[2em] font-semibold uppercase leading-none tracking-[0.06em]" style={accent}>
+            {labels.title}
+          </p>
           <dl className="mt-[1em] grid grid-cols-[auto_auto] justify-start gap-x-[1em] @md:justify-end gap-y-[0.15em] text-[0.9em]">
             <dt className="text-neutral-500">{labels.numberShort}</dt>
             <dd className="font-medium [overflow-wrap:anywhere]">
@@ -111,14 +128,27 @@ export function DocPaper({
         <div className="space-y-[0.1em] text-neutral-600">
           {doc.to.address && <p className="whitespace-pre-line">{doc.to.address}</p>}
           {doc.to.email && <p>{doc.to.email}</p>}
+          {doc.to.taxId?.trim() && <p>Tax ID: {doc.to.taxId.trim()}</p>}
         </div>
       </section>
 
       {/* Items */}
       <table className="mt-[2em] w-full border-collapse text-left">
         <thead>
-          <tr className="border-b border-neutral-300 text-[0.75em] uppercase tracking-[0.06em] text-neutral-500">
-            <th scope="col" className="py-[0.6em] pr-[1em] font-semibold">
+          <tr
+            className={cn(
+              "border-b text-[0.75em] uppercase tracking-[0.06em]",
+              theme.headerBand ? "text-white" : "border-neutral-300 text-neutral-500",
+            )}
+            style={
+              theme.headerBand
+                ? { backgroundColor: theme.accent, borderColor: theme.accent, printColorAdjust: "exact" }
+                : theme.id === "classic"
+                  ? undefined
+                  : { borderColor: theme.accent }
+            }
+          >
+            <th scope="col" className={cn("py-[0.6em] pr-[1em] font-semibold", theme.headerBand && "pl-[0.6em]")}>
               Description
             </th>
             <th scope="col" className="px-[0.8em] py-[0.6em] text-right font-semibold">
@@ -127,7 +157,7 @@ export function DocPaper({
             <th scope="col" className="px-[0.8em] py-[0.6em] text-right font-semibold">
               Unit price
             </th>
-            <th scope="col" className="py-[0.6em] pl-[0.8em] text-right font-semibold">
+            <th scope="col" className={cn("py-[0.6em] pl-[0.8em] text-right font-semibold", theme.headerBand && "pr-[0.6em]")}>
               Amount
             </th>
           </tr>
@@ -150,17 +180,17 @@ export function DocPaper({
             </tr>
           ) : (
             rows.map(({ item, result }) => (
-              <tr key={item.id} className="border-b border-neutral-200 align-top">
-                <td className="py-[0.7em] pr-[1em] whitespace-pre-line [overflow-wrap:anywhere]">
+              <tr key={item.id} className={cn("align-top", theme.rowRules && "border-b border-neutral-200")}>
+                <td className={cn(cell, "pr-[1em] whitespace-pre-line [overflow-wrap:anywhere]")}>
                   {item.description || <Placeholder>Item description</Placeholder>}
                 </td>
-                <td className="px-[0.8em] py-[0.7em] text-right whitespace-nowrap tabular-nums">
+                <td className={cn(cell, "px-[0.8em] text-right whitespace-nowrap tabular-nums")}>
                   {result.qty === null ? EMPTY : formatNumber(result.qty, locale, 4)}
                 </td>
-                <td className="px-[0.8em] py-[0.7em] text-right whitespace-nowrap tabular-nums">
+                <td className={cn(cell, "px-[0.8em] text-right whitespace-nowrap tabular-nums")}>
                   {result.unitMinor === null ? EMPTY : money(result.unitMinor)}
                 </td>
-                <td className="py-[0.7em] pl-[0.8em] text-right whitespace-nowrap tabular-nums">
+                <td className={cn(cell, "pl-[0.8em] text-right whitespace-nowrap tabular-nums")}>
                   {result.amountMinor === null ? EMPTY : money(result.amountMinor)}
                 </td>
               </tr>
@@ -194,6 +224,25 @@ export function DocPaper({
         </p>
       )}
 
+      {view.payment && view.payment.qr.length > 0 && (
+        <section className="bd-keep mt-[2em] flex items-start gap-[1em]">
+          <svg
+            viewBox={`0 0 ${view.payment.qr.length} ${view.payment.qr.length}`}
+            className="size-[7em] shrink-0"
+            role="img"
+            aria-label={`QR code to pay ${view.payment.upiId} by UPI`}
+            shapeRendering="crispEdges"
+          >
+            <path d={qrPath(view.payment.qr)} fill="#171717" />
+          </svg>
+          <div className="min-w-0 [overflow-wrap:anywhere]">
+            <p className="text-[0.75em] font-semibold uppercase tracking-[0.08em] text-neutral-500">{view.payment.label}</p>
+            <p className="mt-[0.3em] font-medium">{view.payment.upiId}</p>
+            <p className="text-[0.9em] text-neutral-500">Scan with any UPI app to pay.</p>
+          </div>
+        </section>
+      )}
+
       {doc.notes.trim() && (
         <section className="bd-keep mt-[2em] [overflow-wrap:anywhere]">
           <p className="text-[0.75em] font-semibold uppercase tracking-[0.08em] text-neutral-500">Notes</p>
@@ -210,7 +259,10 @@ export function DocPaper({
       {doc.credit && (
         <p className="mt-auto pt-[2.5em] text-center text-[0.75em] text-neutral-400">
           Made with{" "}
-          <a href={`${siteConfig.url}${toolPath(labels.slug)}`} className="text-neutral-500 underline-offset-2 hover:underline">
+          <a
+            href={creditHref ?? `${siteConfig.url}${toolPath(labels.slug)}`}
+            className="text-neutral-500 underline-offset-2 hover:underline"
+          >
             SpendChat
           </a>{" "}
           · {siteConfig.domain}

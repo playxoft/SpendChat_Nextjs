@@ -1,5 +1,6 @@
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, rgb, type PDFFont, type PDFImage, type PDFPage } from "pdf-lib";
+import { DOC_THEMES, hexToRgb01, type DocTheme } from "./templates";
 
 /**
  * The invoice and quotation generators' "Download": a real PDF file, drawn
@@ -42,7 +43,14 @@ export type DocView = {
   terms: string;
   /** The "Made with SpendChat" line, or null when the visitor turned it off. */
   credit: string | null;
+  /** The template's look (the app's invoices); the classic one when absent. */
+  theme?: DocTheme;
+  /** A pay-by-UPI block with its QR code (the app's rupee invoices), or null. */
+  payment?: DocPayment | null;
 };
+
+/** "Pay by UPI": a heading, the UPI id, and the QR code of the `upi://pay` link. */
+export type DocPayment = { label: string; upiId: string; qr: boolean[][] };
 
 export type PdfFonts = { regular: Uint8Array; bold: Uint8Array };
 export type PdfLogo = { bytes: Uint8Array; kind: "png" | "jpg" };
@@ -95,9 +103,8 @@ export function pdfText(text: string): string {
     .replace(/\u09f3/g, "BDT");
 }
 
-/** The document with every string passed through `pdfText` (the logo is data, not text). */
-export function pdfView(view: DocView): DocView {
-  const t = pdfText;
+/** The document with every string passed through `t` (the logo, theme and QR are data, not text). */
+export function mapViewText(view: DocView, t: (text: string) => string): DocView {
   const block = (b: { name: string; lines: string[] }) => ({ name: t(b.name), lines: b.lines.map(t) });
   const pairs = (rows: { label: string; value: string }[]) => rows.map((r) => ({ label: t(r.label), value: t(r.value) }));
   return {
@@ -120,7 +127,13 @@ export function pdfView(view: DocView): DocView {
     notes: t(view.notes),
     terms: t(view.terms),
     credit: view.credit === null ? null : t(view.credit),
+    payment: view.payment ? { ...view.payment, label: t(view.payment.label), upiId: t(view.payment.upiId) } : null,
   };
+}
+
+/** The document with every string passed through `pdfText`. */
+export function pdfView(view: DocView): DocView {
+  return mapViewText(view, pdfText);
 }
 
 /** Every string the PDF will draw, to check the font covers it. */
@@ -141,6 +154,7 @@ function allText(view: DocView): string {
     view.notes,
     view.terms,
     view.credit ?? "",
+    view.payment ? `${view.payment.label.toUpperCase()} ${view.payment.upiId}` : "",
   ].join("\n");
 }
 
@@ -209,6 +223,7 @@ class Writer {
     readonly regular: PDFFont,
     readonly bold: PDFFont,
     private onNewPage: (w: Writer) => void = () => {},
+    readonly bodySize: number = BODY,
   ) {
     this.addPage();
   }
@@ -230,14 +245,14 @@ class Writer {
     this.onNewPage = fn;
   }
 
-  text(str: string, x: number, y: number, { font = this.regular, size = BODY, color = INK } = {}) {
+  text(str: string, x: number, y: number, { font = this.regular, size = this.bodySize, color = INK } = {}) {
     if (!str) return;
     this.page.drawText(str, { x, y, size, font, color });
   }
 
   textRight(str: string, right: number, y: number, opts: { font?: PDFFont; size?: number; color?: ReturnType<typeof rgb> } = {}) {
     const font = opts.font ?? this.regular;
-    const size = opts.size ?? BODY;
+    const size = opts.size ?? this.bodySize;
     this.text(str, right - font.widthOfTextAtSize(str, size), y, { ...opts, font, size });
   }
 
@@ -261,7 +276,11 @@ export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo 
   pdf.setProducer("SpendChat");
   const regular = await pdf.embedFont(fonts.regular, { subset: true });
   const bold = await pdf.embedFont(fonts.bold, { subset: true });
-  const w = new Writer(pdf, regular, bold);
+  const theme = view.theme ?? DOC_THEMES.classic;
+  const accent = rgb(...hexToRgb01(theme.accent));
+  const BODY_SIZE = theme.compact ? 8.5 : BODY;
+  const LINE_H = theme.compact ? 12 : LINE;
+  const w = new Writer(pdf, regular, bold, () => {}, BODY_SIZE);
 
   // ---- Header: seller on the left, title and dates on the right ----
   const top = w.y;
@@ -284,13 +303,13 @@ export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo 
     }
     leftY -= 3;
   }
-  for (const line of view.seller.lines.flatMap((l) => wrapText(l, regular, BODY, leftW))) {
-    leftY -= LINE;
+  for (const line of view.seller.lines.flatMap((l) => wrapText(l, regular, BODY_SIZE, leftW))) {
+    leftY -= LINE_H;
     w.text(line, LEFT, leftY, { color: MUTED });
   }
 
   let rightY = top - 20;
-  w.textRight(view.title.toUpperCase(), RIGHT, rightY, { font: bold, size: 22 });
+  w.textRight(view.title.toUpperCase(), RIGHT, rightY, { font: bold, size: 22, color: accent });
   rightY -= 10;
   for (const m of view.meta) {
     rightY -= 13;
@@ -305,12 +324,12 @@ export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo 
     w.y -= 4;
     if (view.client.name) {
       for (const line of wrapText(view.client.name, bold, 10.5, CONTENT_W * 0.6)) {
-        w.y -= LINE;
+        w.y -= LINE_H;
         w.text(line, LEFT, w.y, { font: bold, size: 10.5 });
       }
     }
-    for (const line of view.client.lines.flatMap((l) => wrapText(l, regular, BODY, CONTENT_W * 0.6))) {
-      w.y -= LINE;
+    for (const line of view.client.lines.flatMap((l) => wrapText(l, regular, BODY_SIZE, CONTENT_W * 0.6))) {
+      w.y -= LINE_H;
       w.text(line, LEFT, w.y, { color: MUTED });
     }
     w.y -= 26;
@@ -319,25 +338,32 @@ export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo 
   // ---- Items, with the column header repeated on each new page ----
   const tableHeader = (writer: Writer) => {
     const y = writer.y - 8;
-    const h = { font: bold, size: 7.5, color: FAINT };
+    if (theme.headerBand) {
+      // A solid band of the accent behind white headings, inset by its padding.
+      writer.page.drawRectangle({ x: LEFT - 6, y: y - 6, width: CONTENT_W + 12, height: 18, color: accent });
+    }
+    const h = { font: bold, size: 7.5, color: theme.headerBand ? rgb(1, 1, 1) : FAINT };
     writer.text("DESCRIPTION", LEFT, y, h);
     writer.textRight("QTY", QTY_RIGHT, y, h);
     writer.textRight("UNIT PRICE", UNIT_RIGHT, y, h);
     writer.textRight("AMOUNT", AMOUNT_RIGHT, y, h);
     writer.y = y - 7;
-    writer.rule(writer.y, LEFT, RIGHT, 0.75);
+    if (!theme.headerBand) {
+      // The classic look keeps its grey rule; a coloured template rules in its accent.
+      writer.rule(writer.y, LEFT, RIGHT, 0.75, theme.id === "classic" ? RULE : accent);
+    }
   };
   if (view.items.length > 0) {
     w.ensure(60);
     tableHeader(w);
     w.setOnNewPage(tableHeader);
     for (const item of view.items) {
-      const lines = wrapText(item.description || "—", regular, BODY, DESC_MAX);
-      const height = lines.length * LINE + 10;
+      const lines = wrapText(item.description || "—", regular, BODY_SIZE, DESC_MAX);
+      const height = lines.length * LINE_H + 10;
       w.ensure(height);
       let y = w.y - 4;
       lines.forEach((line, i) => {
-        y -= LINE;
+        y -= LINE_H;
         w.text(line, LEFT, y);
         if (i === 0) {
           w.textRight(item.qty, QTY_RIGHT, y);
@@ -346,7 +372,7 @@ export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo 
         }
       });
       w.y = y - 6;
-      w.rule(w.y);
+      if (theme.rowRules) w.rule(w.y);
     }
     w.setOnNewPage(() => {});
   }
@@ -356,7 +382,7 @@ export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo 
   w.ensure(view.totalRows.length * 15 + 60);
   w.y -= 8;
   if (view.total === null) {
-    w.y -= LINE;
+    w.y -= LINE_H;
     w.textRight("These amounts are too large to total exactly.", RIGHT, w.y, { color: MUTED });
   } else {
     for (const row of view.totalRows) {
@@ -379,6 +405,33 @@ export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo 
     }
   }
 
+  // ---- Pay by UPI: the QR code, drawn as vector squares, with the UPI id beside it ----
+  if (view.payment && view.payment.qr.length > 0) {
+    const size = 84;
+    const modules = view.payment.qr.length;
+    const cell = size / modules;
+    w.y -= 26;
+    w.ensure(size + 24);
+    w.text(view.payment.label.toUpperCase(), LEFT, w.y, { font: bold, size: 7.5, color: FAINT });
+    const top = w.y - 8;
+    view.payment.qr.forEach((row, r) =>
+      row.forEach((dark, c) => {
+        if (!dark) return;
+        w.page.drawRectangle({
+          x: LEFT + c * cell,
+          y: top - (r + 1) * cell,
+          // A hair of overlap so neighbouring squares don't show seams when zoomed.
+          width: cell + 0.05,
+          height: cell + 0.05,
+          color: INK,
+        });
+      }),
+    );
+    w.text(view.payment.upiId, LEFT + size + 14, top - 14, { color: MUTED });
+    w.text("Scan with any UPI app to pay.", LEFT + size + 14, top - 14 - LINE_H, { size: 8.5, color: FAINT });
+    w.y = top - size;
+  }
+
   // ---- Notes and terms ----
   for (const [label, body] of [
     ["NOTES", view.notes],
@@ -389,9 +442,9 @@ export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo 
     w.ensure(30);
     w.text(label, LEFT, w.y, { font: bold, size: 7.5, color: FAINT });
     w.y -= 3;
-    for (const line of wrapText(body, regular, BODY, CONTENT_W)) {
-      w.ensure(LINE);
-      w.y -= LINE;
+    for (const line of wrapText(body, regular, BODY_SIZE, CONTENT_W)) {
+      w.ensure(LINE_H);
+      w.y -= LINE_H;
       w.text(line, LEFT, w.y, { color: MUTED });
     }
   }

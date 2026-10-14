@@ -1,6 +1,19 @@
 import { z } from "zod";
 import { BUDGET_DESCRIPTION_MAX, BUDGET_SCOPES, BUDGET_TITLE_MAX, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
+import {
+  DOC_FIELD_LIMITS,
+  INVOICE_DISCOUNT_TYPES,
+  INVOICE_ITEMS_MAX,
+  INVOICE_KINDS,
+  INVOICE_LOGO_MAX_BYTES,
+  INVOICE_LOGO_TYPES,
+  INVOICE_STATUSES,
+  QUOTE_TITLES,
+  UPI_ID_MAX,
+  isInvoiceTemplateId,
+  isValidUpiId,
+} from "./invoices";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
 import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX, SPLIT_IMPORT_KEY_PATTERN } from "./split-import";
 import {
@@ -1519,3 +1532,206 @@ export const renameAiChatSchema = z.object({
     ),
 });
 export type RenameAiChatInput = z.input<typeof renameAiChatSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Invoices and quotes                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A text field of an invoice, client or seller: trimmed, NULs and other control
+ * characters dropped except line breaks (addresses and notes keep theirs), and
+ * capped at the column width (`DOC_FIELD_LIMITS`).
+ */
+function invoiceText(max: number, label: string) {
+  return z
+    .string()
+    .transform((v) => v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ""))
+    .pipe(z.string().trim().max(max, `${label} is too long (max ${max} characters)`));
+}
+
+/** An optional text field — blank or missing reads as null. */
+function optionalInvoiceText(max: number, label: string) {
+  return invoiceText(max, label)
+    .nullish()
+    .transform((v) => (v ? v : null));
+}
+
+const invoiceEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(DOC_FIELD_LIMITS.email, `Email is too long (max ${DOC_FIELD_LIMITS.email} characters)`)
+  .refine((v) => v === "" || z.string().email().safeParse(v).success, "Enter a valid email address")
+  .nullish()
+  .transform((v) => (v ? v : null));
+
+const upiIdSchema = z
+  .string()
+  .trim()
+  .max(UPI_ID_MAX, `UPI ID is too long (max ${UPI_ID_MAX} characters)`)
+  .refine((v) => v === "" || isValidUpiId(v), "Enter a UPI ID like name@bank")
+  .nullish()
+  .transform((v) => (v ? v : null));
+
+const invoiceIdSchema = z.string().uuid("Not found");
+
+export const invoiceClientSchema = z.object({
+  profileId: z.string().uuid("Pick a profile"),
+  name: invoiceText(DOC_FIELD_LIMITS.name, "Name").pipe(z.string().min(1, "Give the client a name")),
+  email: invoiceEmailSchema,
+  address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Address"),
+  taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Tax ID"),
+});
+export type InvoiceClientInput = z.input<typeof invoiceClientSchema>;
+
+/** Change a client's details; it stays in its profile. */
+export const updateInvoiceClientSchema = invoiceClientSchema
+  .omit({ profileId: true })
+  .partial()
+  .refine((v) => Object.values(v).some((x) => x !== undefined), "Nothing to change");
+export type UpdateInvoiceClientInput = z.input<typeof updateInvoiceClientSchema>;
+
+export const invoiceSellerSchema = z.object({
+  profileId: z.string().uuid("Pick a profile"),
+  name: invoiceText(DOC_FIELD_LIMITS.name, "Business name").pipe(z.string().min(1, "Give your business a name")),
+  address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Address"),
+  contact: optionalInvoiceText(DOC_FIELD_LIMITS.contact, "Email or phone"),
+  taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Tax ID"),
+  upiId: upiIdSchema,
+});
+export type InvoiceSellerInput = z.input<typeof invoiceSellerSchema>;
+
+export const updateInvoiceSellerSchema = invoiceSellerSchema
+  .omit({ profileId: true })
+  .partial()
+  .refine((v) => Object.values(v).some((x) => x !== undefined), "Nothing to change");
+export type UpdateInvoiceSellerInput = z.input<typeof updateInvoiceSellerSchema>;
+
+/** Largest unit price or fixed discount, in major units — what a document can total exactly. */
+export const INVOICE_AMOUNT_MAX = 999_999_999_999;
+
+const invoiceItemSchema = z.object({
+  description: invoiceText(DOC_FIELD_LIMITS.description, "Description").default(""),
+  quantity: z.coerce
+    .number({ error: "Enter a quantity" })
+    .finite()
+    .min(0, "A quantity can't be negative")
+    .max(1_000_000_000, "That quantity is too large"),
+  unitPrice: z.coerce
+    .number({ error: "Enter a unit price" })
+    .finite()
+    .min(0, "A price can't be negative")
+    .max(INVOICE_AMOUNT_MAX, "That price is too large"),
+});
+
+/**
+ * What a draft holds — the whole of it, every save (the editor sends the
+ * document as it stands). Amounts are plain numbers: quantities, unit prices
+ * and a fixed discount in **major units of the document's currency**, a
+ * percent discount and the tax rate in percent. The server works out every
+ * line amount and total itself.
+ */
+export const invoiceContentSchema = z
+  .object({
+    clientId: invoiceIdSchema.nullish(),
+    client: z
+      .object({
+        name: invoiceText(DOC_FIELD_LIMITS.name, "Client name").default(""),
+        email: invoiceEmailSchema,
+        address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Client address"),
+        taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Client tax ID"),
+      })
+      .default({ name: "", email: null, address: null, taxId: null }),
+    sellerId: invoiceIdSchema.nullish(),
+    seller: z
+      .object({
+        name: invoiceText(DOC_FIELD_LIMITS.name, "Business name").default(""),
+        address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Address"),
+        contact: optionalInvoiceText(DOC_FIELD_LIMITS.contact, "Email or phone"),
+        taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Tax ID"),
+      })
+      .default({ name: "", address: null, contact: null, taxId: null }),
+    upiId: upiIdSchema,
+    quoteTitle: z.enum(QUOTE_TITLES).default("quotation"),
+    issueDate: dateSchema,
+    dueDate: dateSchema.nullish().transform((v) => v ?? null),
+    currency: z.enum(CURRENCY_CODES as [string, ...string[]], { error: "Pick a currency" }),
+    items: z.array(invoiceItemSchema).max(INVOICE_ITEMS_MAX, `At most ${INVOICE_ITEMS_MAX} lines`).default([]),
+    discountType: z.enum(INVOICE_DISCOUNT_TYPES).default("percent"),
+    discount: z.coerce.number().finite().min(0, "A discount can't be negative").max(INVOICE_AMOUNT_MAX).default(0),
+    taxLabel: optionalInvoiceText(DOC_FIELD_LIMITS.taxLabel, "Tax name"),
+    taxRate: z.coerce
+      .number()
+      .finite()
+      .min(0, "A tax rate can't be negative")
+      .max(100, "A tax rate can't be more than 100%")
+      .default(0),
+    notes: optionalInvoiceText(DOC_FIELD_LIMITS.notes, "Notes"),
+    terms: optionalInvoiceText(DOC_FIELD_LIMITS.terms, "Terms"),
+    template: z
+      .string()
+      .refine(isInvoiceTemplateId, "Pick one of the templates")
+      .optional(),
+  })
+  .refine((v) => v.discountType !== "percent" || v.discount <= 100, {
+    message: "A discount can't be more than 100%",
+    path: ["discount"],
+  })
+  .refine((v) => !v.dueDate || v.dueDate >= v.issueDate, {
+    message: "The due date is before the issue date",
+    path: ["dueDate"],
+  });
+export type InvoiceContent = z.output<typeof invoiceContentSchema>;
+
+/** A new draft: its kind and profile, then the content. */
+export const createInvoiceSchema = z.intersection(
+  z.object({ kind: z.enum(INVOICE_KINDS), profileId: z.string().uuid("Pick a profile") }),
+  invoiceContentSchema,
+);
+export type CreateInvoiceInput = z.input<typeof createInvoiceSchema>;
+
+/**
+ * "Mark as paid": the income entry is in the workspace's currency. `amount`
+ * (major units) is what was received — required when the invoice is in
+ * another currency, and the invoice total otherwise.
+ */
+export const markInvoicePaidSchema = z.object({
+  amount: amountSchema.optional(),
+  paidOn: dateSchema.optional(),
+  categoryId: z.string().uuid("Pick a category").nullish(),
+});
+export type MarkInvoicePaidInput = z.input<typeof markInvoicePaidSchema>;
+
+/** A share link; `expiresInDays` null or missing never expires. */
+export const createInvoiceShareSchema = z.object({
+  expiresInDays: z.number().int().min(1).max(365).nullish(),
+});
+export type CreateInvoiceShareInput = z.input<typeof createInvoiceShareSchema>;
+
+/** The list's filters (API query string and the web page alike). */
+export const invoiceListQuerySchema = z.object({
+  kind: z.enum(INVOICE_KINDS).optional(),
+  status: z.enum(INVOICE_STATUSES).optional(),
+  profileId: z.string().uuid("Invalid profile").optional(),
+  clientId: z.string().uuid("Invalid client").optional(),
+});
+export type InvoiceListQuery = z.output<typeof invoiceListQuerySchema>;
+
+/** A draft from the free generator, brought in after sign-up. */
+export const importInvoiceDraftSchema = z.intersection(
+  z.object({
+    kind: z.enum(INVOICE_KINDS),
+    profileId: z.string().uuid("Pick a profile"),
+    /** Also save the "from" details as this profile's business details (and logo), if there's room. */
+    saveSeller: z.boolean().default(true),
+    /** The logo, already redrawn as a PNG or JPEG by the browser, base64 (no `data:` prefix). */
+    logo: z
+      .object({
+        contentType: z.enum(INVOICE_LOGO_TYPES),
+        base64: z.string().max(Math.ceil(INVOICE_LOGO_MAX_BYTES / 3) * 4 + 4),
+      })
+      .nullish(),
+  }),
+  invoiceContentSchema,
+);
+export type ImportInvoiceDraftInput = z.input<typeof importInvoiceDraftSchema>;

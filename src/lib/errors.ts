@@ -64,6 +64,11 @@ export type PlanLimitKey =
   | "voice"
   | "profileLevelAccess"
   | "freeWorkspaces"
+  // Invoicing: the monthly allowance, saved clients, business details, templates.
+  | "invoices"
+  | "invoiceClients"
+  | "invoiceSellers"
+  | "invoiceTemplates"
   // Web only: the analytics page's Plus section. No `/api/v1` route returns it.
   | "advancedAnalytics";
 

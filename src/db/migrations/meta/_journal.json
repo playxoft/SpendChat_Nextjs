@@ -337,6 +337,13 @@
       "when": 1791962767822,
       "tag": "0047_billing_session_subscription_idx",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791993294550,
+      "tag": "0048_invoices",
+      "breakpoints": true
     }
   ]
 }

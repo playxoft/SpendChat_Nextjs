@@ -1,14 +1,15 @@
 import "server-only";
 import { eq, inArray } from "drizzle-orm";
 import type { Db } from "@/db";
-import { files, profiles, transactionAttachments, transactions } from "@/db/schema";
+import { files, invoiceSellers, invoices, profiles, transactionAttachments, transactions } from "@/db/schema";
 
 /** The transaction handle both callers pass in (matches `services/profiles.ts`). */
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 
 /**
  * Every R2 key belonging to a set of profiles — vault files and transaction
- * attachments, originals and thumbnails.
+ * attachments (originals and thumbnails), and invoicing's stored PDFs and
+ * seller logos.
  *
  * Shared by the two paths that destroy profiles wholesale (`deleteProfile` and
  * `deleteAccount`), because nothing cascades in object storage: the keys have to
@@ -53,7 +54,17 @@ export async function collectProfileObjectKeys(
     .innerJoin(transactions, eq(transactionAttachments.transactionId, transactions.id))
     .where(inArray(transactions.profileId, ids));
 
-  return [...doomedFiles, ...doomedAttachments].flatMap((r) => [r.r2Key, r.thumbnailKey]);
+  // Invoices and business details belong to the profile too (both cascade with it).
+  const doomedPdfs = await tx.select({ key: invoices.pdfKey }).from(invoices).where(inArray(invoices.profileId, ids));
+  const doomedLogos = await tx
+    .select({ key: invoiceSellers.logoKey })
+    .from(invoiceSellers)
+    .where(inArray(invoiceSellers.profileId, ids));
+
+  return [
+    ...[...doomedFiles, ...doomedAttachments].flatMap((r) => [r.r2Key, r.thumbnailKey]),
+    ...[...doomedPdfs, ...doomedLogos].map((r) => r.key),
+  ];
 }
 
 /**

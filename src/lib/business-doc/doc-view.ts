@@ -3,7 +3,8 @@ import { formatMoney } from "@/lib/money";
 import { formatDate } from "@/lib/tools/date-math";
 import { EMPTY, formatNumber } from "@/lib/tools/format";
 import { docFileName, type BusinessDoc, type DocEvaluation } from "@/lib/business-doc/invoice";
-import type { DocView } from "@/lib/business-doc/invoice-pdf";
+import type { DocPayment, DocView } from "@/lib/business-doc/invoice-pdf";
+import type { DocTheme } from "@/lib/business-doc/templates";
 import { applyLetterCase, defaultNumberingSystem, minorAmountInWords } from "@/lib/tools/number-words";
 import { siteConfig } from "@/lib/site";
 import type { DocLabels } from "./labels";
@@ -20,6 +21,8 @@ export function buildDocView({
   dates,
   currency,
   locale,
+  theme,
+  payment = null,
 }: {
   doc: BusinessDoc;
   labels: DocLabels;
@@ -27,6 +30,10 @@ export function buildDocView({
   dates: { issue: string | null; due: string | null };
   currency: string;
   locale: string;
+  /** The app's invoice template; the generator always draws the classic one. */
+  theme?: DocTheme;
+  /** The app's pay-by-UPI block, when the document has one. */
+  payment?: DocPayment | null;
 }): DocView {
   const code = isSupportedCurrency(currency) ? currency : "USD";
   const money = (minor: number) => formatMoney(minor, code, locale);
@@ -88,7 +95,11 @@ export function buildDocView({
     clientLabel: labels.to,
     client: {
       name: doc.to.name.trim(),
-      lines: [...lines(doc.to.address), ...(doc.to.email.trim() ? [doc.to.email.trim()] : [])],
+      lines: [
+        ...lines(doc.to.address),
+        ...(doc.to.email.trim() ? [doc.to.email.trim()] : []),
+        ...(doc.to.taxId?.trim() ? [`Tax ID: ${doc.to.taxId.trim()}`] : []),
+      ],
     },
     items: doc.items
       .map((item, i) => ({ item, result: evaluation.items[i]! }))
@@ -105,6 +116,8 @@ export function buildDocView({
     notes: doc.notes.trim(),
     terms: doc.kind === "quotation" ? doc.terms.trim() : "",
     credit: doc.credit ? `Made with SpendChat · ${siteConfig.domain}` : null,
+    ...(theme ? { theme } : {}),
+    payment,
   };
 }
 

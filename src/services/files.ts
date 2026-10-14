@@ -13,6 +13,7 @@ import { assertStorageQuota } from "@/lib/storage-quota";
 import { getWorkspaceEntitlements } from "@/lib/entitlements";
 import { logger } from "@/lib/logger";
 import { notTrashed } from "@/lib/trash-scope";
+import { isShareTokenShape, mintShareToken } from "@/lib/share-token";
 import { lockFolderAncestors, lockFolderSubtree, retryOnDeadlock, type Tx } from "./vault-tree";
 import {
   VAULT_FILES_LIMIT,
@@ -837,16 +838,6 @@ export async function deleteTag(
 /* Share links                                                                 */
 /* -------------------------------------------------------------------------- */
 
-/** 256 random bits, base64url — the token IS the capability, so it must be
- * unguessable and is never derived from an id. */
-function mintShareToken(): string {
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
 /** Create a public link for one file or folder. Requires editor on the
  * target's profile — a share link exposes content outside the workspace. */
 export async function createFileShare(
@@ -1042,7 +1033,7 @@ async function publicTags(tagIds: string[]): Promise<SharedTagPublic[]> {
  * in the trash (a link stops working while what it shares is in the trash, and
  * works again once it's restored — the share row itself is kept). */
 async function activeShareByToken(token: string) {
-  if (!token || token.length > 64 || !/^[A-Za-z0-9_-]+$/.test(token)) return null;
+  if (!isShareTokenShape(token)) return null;
   const db = getDb();
   const [found] = await db
     .select({ share: fileShares })

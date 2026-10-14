@@ -1,4 +1,5 @@
 import { getCurrency, isSupportedCurrency } from "@/lib/currencies";
+import { DOC_FIELD_LIMITS, INVOICE_ITEMS_MAX } from "@/lib/invoices";
 import { toMinorUnits } from "@/lib/money";
 import { addDays, daysBetween, parseDate } from "@/lib/tools/date-math";
 import { fromCanonicalNumber, parseNumber, toCanonicalNumber } from "@/lib/tools/format";
@@ -32,7 +33,13 @@ export type LineItem = {
 };
 
 export type Seller = { name: string; address: string; contact: string; taxId: string };
-export type Buyer = { name: string; address: string; email: string };
+export type Buyer = {
+  name: string;
+  address: string;
+  email: string;
+  /** The client's tax id — the app's saved clients carry one; the generator doesn't ask. */
+  taxId?: string;
+};
 
 export type BusinessDoc = {
   kind: DocKind;
@@ -72,22 +79,14 @@ export type BusinessDoc = {
 // Limits and defaults
 // ---------------------------------------------------------------------------
 
-/** Longest value each field keeps — enough for real documents, not for a payload. */
-export const LIMITS = {
-  number: 40,
-  name: 120,
-  address: 400,
-  contact: 160,
-  taxId: 60,
-  email: 160,
-  description: 300,
-  amount: 40,
-  taxLabel: 24,
-  notes: 2000,
-  terms: 2000,
-} as const;
+/**
+ * Longest value each field keeps — enough for real documents, not for a
+ * payload. Defined once in `lib/invoices.ts`, because the app's invoices store
+ * the same fields in columns of these widths.
+ */
+export const LIMITS = DOC_FIELD_LIMITS;
 
-export const MAX_ITEMS = 100;
+export const MAX_ITEMS = INVOICE_ITEMS_MAX;
 /** Ten years is already a strange payment term; anything past it is noise. */
 export const MAX_DUE_DAYS = 3650;
 export const MAX_LOGO_BYTES = 300 * 1024;

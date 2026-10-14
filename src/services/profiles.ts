@@ -16,6 +16,7 @@ import { ensureBootstrap } from "@/lib/auth";
 import { conflict, validationError } from "@/lib/errors";
 import { parseOrThrow, withId } from "@/lib/api-response";
 import { deleteObjects } from "@/lib/r2";
+import { reprofileInvoices } from "./invoices";
 import { logger } from "@/lib/logger";
 import { notTrashed } from "@/lib/trash-scope";
 import { assertCanAddProfilesToSpace, getWorkspaceEntitlements } from "@/lib/entitlements";
@@ -464,6 +465,8 @@ export async function deleteProfile(
         // The vault goes with them. Deleting a profile is not a decision to
         // discard its documents.
         await reprofileVault(tx, id, disposal.toProfileId!);
+        // So do its invoices, quotes, clients and business details.
+        await reprofileInvoices(tx, id, disposal.toProfileId!);
       } else if (disposal.transactions === "reject") {
         const [{ used }] = await tx
           .select({ used: count() })

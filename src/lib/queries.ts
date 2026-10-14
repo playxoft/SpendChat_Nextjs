@@ -22,6 +22,8 @@ import {
   files,
   fileTags,
   folders,
+  invoiceSellers,
+  invoices,
   profiles,
   tags,
   transactionAttachments,
@@ -1386,12 +1388,13 @@ export async function listVaultFiles(
 }
 
 /**
- * Total stored bytes for a workspace: vault files + transaction attachments,
- * the two tables whose rows own R2 objects. Deliberately scoped by
+ * Total stored bytes for a workspace: vault files, transaction attachments,
+ * and invoicing's hidden storage (finalised invoice and quote PDFs, seller
+ * logos) — every table whose rows own R2 objects. Deliberately scoped by
  * `workspace_id` — this is the quota/billing scope, not the caller's
  * visibility scope, so members with partial profile access still count (and
  * see) the whole pool. Thumbnails aren't in `size_bytes` (accepted
- * undercount). One round trip; both sums lead on the workspace indexes.
+ * undercount). One round trip; every sum leads on a workspace index.
  */
 export async function getWorkspaceStorageUsage(workspaceId: string): Promise<number> {
   const db = getDb();
@@ -1407,14 +1410,62 @@ export async function getWorkspaceStorageUsage(workspaceId: string): Promise<num
       .select({ bytes: sql<string>`coalesce(sum(${transactionAttachments.sizeBytes}), 0)` })
       .from(transactionAttachments)
       .where(eq(transactionAttachments.workspaceId, workspaceId)),
+    db
+      .select({ bytes: sql<string>`coalesce(sum(${invoices.pdfSizeBytes}), 0)` })
+      .from(invoices)
+      .where(eq(invoices.workspaceId, workspaceId)),
+    db
+      .select({ bytes: sql<string>`coalesce(sum(${invoiceSellers.logoSizeBytes}), 0)` })
+      .from(invoiceSellers)
+      .where(eq(invoiceSellers.workspaceId, workspaceId)),
   );
   // pg returns bigint sums as strings; 1 GB scale is far below 2^53.
   return rows.reduce((total, r) => total + Number(r.bytes), 0);
 }
 
+/** Where the workspace's storage goes, for the usage panel. */
+export type StorageBreakdown = {
+  /** Vault files, trash included. */
+  files: number;
+  /** Receipts and other files on transactions. */
+  attachments: number;
+  /** Finalised invoices' PDFs — the hidden "Invoices" folder. */
+  invoices: number;
+  /** Finalised quotes' PDFs — the hidden "Quotations" folder. */
+  quotations: number;
+  /** Logos on invoice business details. */
+  logos: number;
+};
+
+/** The parts of `getWorkspaceStorageUsage`, one scalar subquery each, in one round trip. */
+export async function getStorageBreakdown(workspaceId: string): Promise<StorageBreakdown> {
+  // trash: storage counts the trash until it's purged (abuse rule C6), so the
+  // files sum deliberately has no deleted_at filter.
+  const result = await getDb().execute<Record<keyof StorageBreakdown, string>>(sql`
+    select
+      (select coalesce(sum(${files.sizeBytes}), 0) from ${files} where ${files.workspaceId} = ${workspaceId})::text as files,
+      (select coalesce(sum(${transactionAttachments.sizeBytes}), 0) from ${transactionAttachments}
+        where ${transactionAttachments.workspaceId} = ${workspaceId})::text as attachments,
+      (select coalesce(sum(${invoices.pdfSizeBytes}), 0) from ${invoices}
+        where ${invoices.workspaceId} = ${workspaceId} and ${invoices.kind} = 'invoice')::text as invoices,
+      (select coalesce(sum(${invoices.pdfSizeBytes}), 0) from ${invoices}
+        where ${invoices.workspaceId} = ${workspaceId} and ${invoices.kind} = 'quote')::text as quotations,
+      (select coalesce(sum(${invoiceSellers.logoSizeBytes}), 0) from ${invoiceSellers}
+        where ${invoiceSellers.workspaceId} = ${workspaceId})::text as logos`);
+  const row = result.rows[0];
+  return {
+    files: Number(row?.files ?? 0),
+    attachments: Number(row?.attachments ?? 0),
+    invoices: Number(row?.invoices ?? 0),
+    quotations: Number(row?.quotations ?? 0),
+    logos: Number(row?.logos ?? 0),
+  };
+}
+
 /**
  * Bytes sitting in the workspace's trash — trashed files, receipts of trashed
- * transactions, and everything stored under a trashed profile. They count
+ * transactions, and everything stored under a trashed profile (its invoice
+ * PDFs and logos included). They count
  * toward storage until purged (abuse rule C6); the usage panel shows this so
  * the number is never a surprise.
  */
@@ -1431,6 +1482,14 @@ export async function getTrashBytes(workspaceId: string): Promise<number> {
          join ${profiles} p on p.id = t.profile_id
         where a.workspace_id = ${workspaceId}
           and (t.deleted_at is not null or p.deleted_at is not null))
+      +
+      (select coalesce(sum(i.pdf_size_bytes), 0) from ${invoices} i
+         join ${profiles} p on p.id = i.profile_id
+        where i.workspace_id = ${workspaceId} and p.deleted_at is not null)
+      +
+      (select coalesce(sum(s.logo_size_bytes), 0) from ${invoiceSellers} s
+         join ${profiles} p on p.id = s.profile_id
+        where s.workspace_id = ${workspaceId} and p.deleted_at is not null)
     )::text as bytes`);
   return Number(result.rows[0]?.bytes ?? 0);
 }
