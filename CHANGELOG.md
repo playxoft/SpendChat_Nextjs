@@ -18,6 +18,21 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.42.0] — 2026-10-14
+
+### Added
+- **Right-click anywhere in Files** to make a **New folder** or **Upload files** into
+  the folder you're in — on empty space, in every view (grid, list and columns),
+  and at the bottom of a file's or folder's own right-click menu. Where nothing can
+  be added (the transaction attachments folder, or "All profiles"), the entries
+  say why instead.
+
+### Fixed
+- The theme button and your account picture now sit in the **top-right corner of
+  the window on every page**, instead of wherever that page's content column
+  ended (which on most pages was well inside the screen). They also stay in
+  place while you scroll and when you move between pages.
+
 ## [0.41.0] — 2026-10-09
 
 ### Added

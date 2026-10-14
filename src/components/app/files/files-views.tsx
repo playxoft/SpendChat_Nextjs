@@ -16,6 +16,7 @@ import {
   Folder,
   FolderOpen,
   FolderInput,
+  FolderPlus,
   Link2,
   Lock,
   Palette,
@@ -109,6 +110,19 @@ export type VaultHandlers = {
   /** Signals "a folder tile is the hovered drop target right now", so the
    * page can swap its whole-page drop overlay for the folder's own highlight. */
   folderHover: (over: boolean) => void;
+  /** "New folder" and "Upload files" for every right-click menu — on an item
+   * and on empty space alike. Null when this person can't add anything. */
+  create: VaultCreate | null;
+};
+
+/** What the right-click "add" entries do, here: the toolbar's two buttons. */
+export type VaultCreate = {
+  /** Why nothing can be added here right now, or null when it can. */
+  blocked: string | null;
+  /** An upload is running — the picker waits until it's done. */
+  uploading: boolean;
+  newFolder: () => void;
+  upload: () => void;
 };
 
 export const formatVaultDate = (iso: string, locale: string): string =>
@@ -496,6 +510,26 @@ function VaultMenuEntries({
   );
 }
 
+/** "New folder" / "Upload files", in the folder on screen — what a right-click
+ * offers on empty space, and below an item's own entries. */
+function VaultCreateEntries({ create, M }: { create: VaultCreate; M: MenuParts }) {
+  return (
+    <>
+      <M.Item disabled={create.blocked !== null} onSelect={create.newFolder}>
+        <FolderPlus /> New folder
+      </M.Item>
+      <M.Item disabled={create.blocked !== null || create.uploading} onSelect={create.upload}>
+        <Upload /> Upload files
+      </M.Item>
+      {create.blocked ? (
+        <M.Item disabled className="max-w-60 text-xs whitespace-normal">
+          {create.blocked}
+        </M.Item>
+      ) : null}
+    </>
+  );
+}
+
 /** The per-item ⋮ button (kept alongside the right-click menu). */
 export function VaultItemMenu({
   target,
@@ -528,7 +562,8 @@ export function VaultItemMenu({
   );
 }
 
-/** Right-click wrapper: same entries as the ⋮ menu, on any view's item. */
+/** Right-click wrapper: the ⋮ menu's entries on any view's item, then the
+ * "add" entries — a right-click offers New folder and Upload wherever it lands. */
 export function VaultContextMenu({
   target,
   handlers,
@@ -538,15 +573,46 @@ export function VaultContextMenu({
   handlers: VaultHandlers;
   children: ReactNode;
 }) {
+  const M = { Item: ContextMenuItem, Separator: ContextMenuSeparator };
   return (
     <ContextMenu>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
-        <VaultMenuEntries
-          target={target}
-          handlers={handlers}
-          M={{ Item: ContextMenuItem, Separator: ContextMenuSeparator }}
-        />
+        <VaultMenuEntries target={target} handlers={handlers} M={M} />
+        {handlers.create ? (
+          <>
+            <ContextMenuSeparator />
+            <VaultCreateEntries create={handlers.create} M={M} />
+          </>
+        ) : null}
+      </ContextMenuContent>
+    </ContextMenu>
+  );
+}
+
+/**
+ * Right-click on empty space — between, around and below the items, in every
+ * view: New folder and Upload files. An item's own menu wins where there is one
+ * (it handles the event first). A plain wrapper for someone who can't add.
+ */
+export function VaultSpaceContextMenu({
+  handlers,
+  className,
+  children,
+}: {
+  handlers: VaultHandlers;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (!handlers.create) return <div className={className}>{children}</div>;
+  const M = { Item: ContextMenuItem, Separator: ContextMenuSeparator };
+  return (
+    <ContextMenu>
+      <ContextMenuTrigger asChild>
+        <div className={className}>{children}</div>
+      </ContextMenuTrigger>
+      <ContextMenuContent>
+        <VaultCreateEntries create={handlers.create} M={M} />
       </ContextMenuContent>
     </ContextMenu>
   );

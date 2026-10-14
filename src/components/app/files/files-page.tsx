@@ -51,6 +51,7 @@ import {
   FileGrid,
   FileListTable,
   VAULT_DRAG_MIME,
+  VaultSpaceContextMenu,
   useFolderDrop,
   type DragPayload,
   type VaultAction,
@@ -476,6 +477,19 @@ export function FilesPageClient({
       folderHoverCount.current = Math.max(0, folderHoverCount.current + (over ? 1 : -1));
       setFolderHovered(folderHoverCount.current > 0);
     },
+    // The toolbar's New folder and Upload, for right-click menus — same rules.
+    create: canWrite
+      ? {
+          blocked: inSystemFolder
+            ? "Files here come from transactions — nothing can be added to this folder."
+            : uploadProfileId === null
+              ? "Switch to a profile to add folders or files."
+              : null,
+          uploading: progress !== null,
+          newFolder: () => setNewFolderOpen(true),
+          upload: () => fileInputRef.current?.click(),
+        }
+      : null,
   };
 
   // "All files" / breadcrumb crumbs double as drop targets for dragged items.
@@ -651,6 +665,10 @@ export function FilesPageClient({
         <AccountControls />
       </div>
 
+      {/* Everything below the toolbar answers a right-click with New folder /
+          Upload (items add their own entries first). It reaches the bottom of
+          the window, so the empty space under a short list counts too. */}
+      <VaultSpaceContextMenu handlers={handlers} className="min-h-[calc(100svh-7rem)] space-y-4">
       {/* Second row: breadcrumbs / result count + tag filter + sort. The
           column view keeps its breadcrumbs under a tag filter — the tree is
           pruned in place, not flattened into results. */}
@@ -803,6 +821,7 @@ export function FilesPageClient({
           Showing the most recent files — narrow by profile or search to find older ones.
         </p>
       ) : null}
+      </VaultSpaceContextMenu>
 
       {/* Full-page OS-drag overlay (everything except the left nav). Hidden the
           moment a folder tile is the hovered target — the folder's own ring
