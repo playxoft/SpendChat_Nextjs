@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.11.0.** Every API change bumps this version and is logged
+**API spec version: 6.13.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -20,7 +20,9 @@ needs to update.
   every request so server logs attribute the platform. It never changes a
   response — omitting it just logs the platform as `api`.)
 - **Content type:** `application/json` (CSV export is `text/csv`; attachment
-  upload, vault file upload, and voice transcription send `multipart/form-data`)
+  upload, vault file upload, and voice transcription send `multipart/form-data`;
+  an invoice PDF is `application/pdf`; an invoice logo upload sends the image
+  bytes as `image/png` / `image/jpeg`)
 - Every JSON response sets `Cache-Control: no-store`.
 
 ---
@@ -115,6 +117,10 @@ action would go past one, the server answers **403** with
 | `voice` | Pro only | `POST /ai/transcribe` |
 | `profileLevelAccess` | Plus / Pro | `PUT /profiles/{id}/overrides` |
 | `freeWorkspaces` | one free workspace per person | `POST /workspaces`; writes into a view-only workspace — any endpoint that adds or edits data (below) |
+| `invoices` | 20 invoices + quotes a month per workspace, on **every** plan (`upgradeTo: null` — show the message) — since 6.13.0 | `POST /invoices`, `POST /invoices/{id}/convert` |
+| `invoiceClients` | 20 saved clients (live profiles), every plan — since 6.13.0 | `POST /invoice-clients` |
+| `invoiceSellers` | 1 set of business details, every plan — since 6.13.0 | `POST /invoice-sellers` |
+| `invoiceTemplates` | a template outside the five free ones — since 6.13.0 | (reserved; an unknown `template` is a 422 today) |
 
 Limits apply to every workspace from the day plans ship, and they gate
 **adding**, never existing data: a workspace over a cap (after a downgrade)
@@ -528,7 +534,10 @@ inside their space; `read` / `write` open it even in a space they're not in.
           "topUpExpiresAt": "2027-09-30T10:00:00.000Z",    // 6.11.0: soonest top-up expiry, or null
           "resetsAt": "2026-11-01T00:00:00.000Z" },   // first instant of next month, UTC
   "storage": { "usedBytes": 52428800, "limitBytes": 1073741824,
-               "trashBytes": 1048576 },  // 6.7.0: the part of usedBytes in the trash
+               "trashBytes": 1048576,  // 6.7.0: the part of usedBytes in the trash
+               "breakdown": {          // 6.13.0: where usedBytes goes (adds up to it)
+                 "files": 50000000, "attachments": 2000000,
+                 "invoices": 300000, "quotations": 100000, "logos": 28800 } },
   "members":    { "used": 1, "limit": 3 },   // people incl. pending invites
   "spaces":     { "used": 1, "limit": 2 },
   "categories": { "used": 10, "limit": 20 }, // the 10 seeded defaults count
@@ -536,7 +545,15 @@ inside their space; `read` / `write` open it even in a space they're not in.
   "budgets":    { "used": 1, "limit": 5, "unlimited": false }, // 6.8.0; Pro: unlimited → show "Unlimited"
   "profilesPerSpace": 3,       // compare with each Space.profileCount
   "voice": false,              // POST /ai/transcribe available
-  "profileLevelAccess": false  // per-profile overrides can be changed
+  "profileLevelAccess": false, // per-profile overrides can be changed
+  "invoicing": {               // 6.13.0 — the same on every plan
+    "tier": "free",
+    "perMonth": { "used": 3, "limit": 20, "resetsAt": "2026-11-01T00:00:00.000Z" },
+    "clients": { "used": 4, "limit": 20 },   // limit null = no cap
+    "sellers": { "used": 1, "limit": 1 },
+    "templates": 5,
+    "footer": true             // "Made with SpendChat" goes on the documents
+  }
 }
 ```
 `used` can exceed `limit` (a downgraded workspace keeps what it has) — it just
@@ -681,6 +698,77 @@ one it fired at — within a workspace pool of 30 alert emails a month. Nothing
 in the trash counts, and a budget on a profile in the trash is hidden (and
 doesn't count toward the plan) until the profile is restored.
 
+### Invoices (6.13.0, from `/invoices`, `/invoice-clients`, `/invoice-sellers`)
+```jsonc
+// Invoice — GET /invoices/{id} (the list's rows are InvoiceSummary: the same
+// top-level fields minus `items`, client/seller/notes, plus profileName/profileIcon)
+{
+  "id": "uuid",
+  "profileId": "uuid",
+  "kind": "invoice" | "quote",
+  "status": "draft" | "sent" | "paid" | "void",
+  "number": "INV-0007" | null,     // null on a draft; QUO-0001… for quotes
+  "quoteTitle": "quotation" | "estimate",
+  "clientId": "uuid" | null,       // link to a saved client (null once it's deleted)
+  "client": { "name": "Acme Ltd", "email": "a@acme.test" | null, "address": "…" | null, "taxId": "…" | null },
+  "sellerId": "uuid" | null,       // link to saved business details
+  "seller": { "name": "Asha Studio", "address": null, "contact": null, "taxId": null },
+  "upiId": "asha@okbank" | null,   // rupee invoices get a pay-by-UPI QR code
+  "hasLogo": true,                 // the seller has a logo (GET /invoice-sellers/{sellerId}/logo)
+  "issueDate": "2026-10-01",
+  "dueDate": "2026-10-31" | null,  // valid-until on a quote
+  "currency": "INR",               // the document's own currency — may differ from the workspace's
+  "discountType": "percent" | "fixed",
+  "discountRate": 10,              // percent, when discountType = percent
+  "discountFixedMinor": 0,
+  "taxLabel": "GST" | null,
+  "taxRate": 18,                   // percent, on the subtotal after the discount
+  "subtotalMinor": 250100, "discountMinor": 25010, "taxMinor": 40516, "totalMinor": 265606,
+  "notes": "…" | null,
+  "terms": "…" | null,             // quotes only
+  "template": "classic" | "modern" | "bold" | "minimal" | "compact",
+  "showCredit": true,              // "Made with SpendChat" on the document
+  "hasPdf": true,                  // a PDF snapshot is stored (finalised documents)
+  "sourceQuoteId": "uuid" | null,  // the quote this invoice was made from
+  "sentAt": "…" | null, "paidAt": "…" | null, "paidOn": "2026-10-05" | null,
+  "paidTransactionId": "uuid" | null,  // the income entry
+  "paidAmountMinor": 265606 | null,    // what was received, in the WORKSPACE's currency
+  "voidedAt": "…" | null,
+  "createdBy": "uuid", "createdAt": "…", "updatedAt": "…",
+  "items": [ { "id": "uuid", "position": 0, "description": "Design", "quantity": 2,
+               "unitPriceMinor": 125050, "amountMinor": 250100 } ]
+}
+// InvoiceClient
+{ "id": "uuid", "profileId": "uuid", "name": "Acme Ltd", "email": null, "address": null, "taxId": null,
+  "createdAt": "…", "updatedAt": "…" }
+// InvoiceSeller ("your details")
+{ "id": "uuid", "profileId": "uuid", "name": "Asha Studio", "address": null, "contact": null, "taxId": null,
+  "upiId": "asha@okbank" | null, "hasLogo": true, "logoVersion": "…" | null, "createdAt": "…", "updatedAt": "…" }
+// InvoiceShare
+{ "id": "uuid", "invoiceId": "uuid", "token": "…", "path": "/share/invoice/…",
+  "url": "https://spendchat.app/share/invoice/…", "expiresAt": null, "createdAt": "…" }
+```
+- **Belongs to a profile.** Viewers of the profile read it; editors change it. A
+  document in a profile the caller can't see — another workspace, or a trashed
+  profile — is a **404**; a viewer writing is a **403**.
+- **Drafts and numbers.** A draft has no `number`. Finalising gives it the next in
+  the workspace's series (`INV-0001`, `INV-0002`…; quotes `QUO-0001`…) — never
+  a gap, never a duplicate — and locks it. Only drafts change (`PATCH`) or are
+  deleted; a finalised document is **never deleted** (409): void it, and it stays
+  on record with its number.
+- **Money.** Send plain numbers in **major units** of the document's currency
+  (`unitPrice: 1250.5`); the server works out every line amount and total and
+  answers in minor units. "Mark as paid" writes one income transaction in the
+  **workspace's** currency: `amount` defaults to the total when the currencies
+  match, and is **required** (`422 amount_required`) when they don't.
+- **PDF.** `GET /invoices/{id}/pdf` returns the file itself. Finalised documents
+  are served from the copy stored at finalise (it counts toward the workspace's
+  storage — `GET /usage` → `storage.breakdown`); a draft is drawn on the spot.
+- **Allowances** (every plan): 20 invoices + quotes a month, 20 saved clients,
+  one set of business details, five templates, "Made with SpendChat" on the
+  documents — `403 plan_limit` with `upgradeTo: null` past them (show the
+  message). `GET /usage` → `invoicing` has the numbers.
+
 ### Settings
 User-level settings that follow the user across every workspace. **Currency and
 number format are NOT here — they're per-workspace** (see the `workspace` object).
@@ -820,7 +908,7 @@ the debug/about screen so a bug report names the exact deploy, and link
 ### Usage (6.5.0 — current workspace via `X-Workspace-Id`)
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /usage` | — | 200 `data: Usage` | The workspace's plan, every limit and how much is used (AI actions this month, storage, members, spaces, categories, tags, budgets), the per-space profile cap, and the `voice` / `profileLevelAccess` feature flags. `readOnly: true` → render the workspace view-only. Readable by anyone who can open the workspace. |
+| `GET /usage` | — | 200 `data: Usage` | The workspace's plan, every limit and how much is used (AI actions this month, storage — with its `breakdown` since 6.13.0 — members, spaces, categories, tags, budgets, and `invoicing` since 6.13.0), the per-space profile cap, and the `voice` / `profileLevelAccess` feature flags. `readOnly: true` → render the workspace view-only. Readable by anyone who can open the workspace. |
 
 ### Budgets (6.8.0 — current workspace via `X-Workspace-Id`)
 | Method & path | Body | Success | Notes / errors |
@@ -829,6 +917,33 @@ the debug/about screen so a bug report names the exact deploy, and link
 | `POST /budgets` | `BudgetInput` | 201 `data: Budget` | One per scope (one per space, profile, category) → **409**. **403 `plan_limit`** (`limit: "budgets"`) past the plan's cap; **403** without write access to every profile it covers; **403 `plan_limit` `freeWorkspaces`** in a view-only workspace. 422 income category, a space/profile/category not in this workspace (or one you can't see), bad amount, bad title/description. No `title` → the suggested one. Accepts `?month=` for the returned progress. |
 | `PATCH /budgets/{id}` | `{ amount?, emailAlerts?, title?, description? }` (≥1; `description: null` or `""` clears it) | 200 `data: Budget` | What it covers is fixed. 404 when the caller can't see it; 403 when they can see but not manage it. A threshold that already fired this month fires again only for an amount above the one it fired at. Accepts `?month=`. |
 | `DELETE /budgets/{id}` | — | 200 `data: { id, deleted: true }` | 404 / 403 as above. Not blocked by a view-only workspace (`canDelete`). |
+
+### Invoices (6.13.0 — current workspace via `X-Workspace-Id`)
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `GET /invoices?kind=&status=&profileId=&clientId=&limit=&offset=` | — | 200 `data: InvoiceSummary[]`, `meta: { limit, offset }` | Newest first, no lines; `limit` ≤ 200. 422 bad `kind` / `status`. |
+| `POST /invoices` | `{ kind, profileId, …InvoiceContent }` | 201 `data: Invoice` | A **draft**. 403 without edit access to the profile (404 if you can't see it); **403 `plan_limit` `invoices`** past 20 a month; 422 bad fields, a client/seller from another profile, an unknown template, a due date before the issue date. |
+| `GET /invoices/{id}` | — | 200 `data: Invoice` | 404 when the caller can't read it. |
+| `PATCH /invoices/{id}` | `InvoiceContent` (the whole document) | 200 `data: Invoice` | Drafts only — **409** once finalised. |
+| `DELETE /invoices/{id}` | — | 200 `data: { id, deleted: true }` | Drafts only — **409** for a finalised document (void it). |
+| `POST /invoices/{id}/finalise` | — | 200 `data: Invoice` | Numbers it, locks it, stores the PDF. 409 already finalised; 422 no client name / business name / lines; **413 `storage_quota_exceeded`** storage full. |
+| `POST /invoices/{id}/send` | — | 200 `data: { invoice, share: InvoiceShare }` | Finalises a draft first, then the newest live link (or a new one). Nothing is emailed. |
+| `POST /invoices/{id}/void` | — | 200 `data: Invoice` | Sent only — 409 for a draft, a paid invoice, or one already void. |
+| `POST /invoices/{id}/mark-paid` | `{ amount?, paidOn?, categoryId? }` | 200 `data: { invoice, transactionId, alreadyPaid }` | Sent invoices only (409 otherwise). One income transaction in the invoice's profile, workspace currency; **422 `amount_required`** when the currencies differ and no `amount`; a second call returns the same transaction (`alreadyPaid: true`). 422 a non-income category. |
+| `POST /invoices/{id}/convert` | — | 201 `data: Invoice` | A quote → a new draft invoice (lines, client, seller, tax; not terms), today, due in 30 days. 409 an invoice or a void quote; **403 `plan_limit` `invoices`**. |
+| `GET /invoices/{id}/pdf[?download=1]` | — | 200 `application/pdf` | The stored copy (finalised) or drawn now (draft). Errors are JSON. |
+| `GET /invoices/{id}/shares` | — | 200 `data: InvoiceShare[]` | Editors only; live links, newest first. |
+| `POST /invoices/{id}/shares` | `{ expiresInDays? }` (1–365) | 201 `data: InvoiceShare` | Finalised documents only (409 for a draft). Anyone with `url` can view it and download the PDF; it stops while the profile is in the trash. |
+| `DELETE /invoices/{id}/shares/{shareId}` | — | 200 `data: { id, deleted: true }` | Revoke; stops at once. |
+| `GET /invoice-clients?profileId=` | — | 200 `data: InvoiceClient[]` | By name. |
+| `POST /invoice-clients` | `{ profileId, name, email?, address?, taxId? }` | 201 `data: InvoiceClient` | **403 `plan_limit` `invoiceClients`** past 20. 422 bad email. |
+| `GET` / `PATCH` / `DELETE /invoice-clients/{id}` | PATCH: any field (null clears) | 200 | Documents keep their own copy of the client's details. |
+| `GET /invoice-sellers?profileId=` | — | 200 `data: InvoiceSeller[]` | "Your details". |
+| `POST /invoice-sellers` | `{ profileId, name, address?, contact?, taxId?, upiId? }` | 201 `data: InvoiceSeller` | **403 `plan_limit` `invoiceSellers`** past one per workspace. 422 a UPI ID that isn't `name@bank`. |
+| `GET` / `PATCH` / `DELETE /invoice-sellers/{id}` | PATCH: any field | 200 | DELETE takes the logo too. |
+| `GET /invoice-sellers/{id}/logo` | — | 200 `data: { url, expiresInSeconds, contentType }` | A 5-minute URL — fetch it **without** the Authorization header. 404 no logo; 503 storage not configured. |
+| `PUT /invoice-sellers/{id}/logo` | the image bytes (`image/png` or `image/jpeg`, ≤ 300 KB) | 200 `data: InvoiceSeller` | Resize on the device first. 422 not a PNG/JPEG or too big; **413 `storage_quota_exceeded`**. |
+| `DELETE /invoice-sellers/{id}/logo` | — | 200 `data: InvoiceSeller` | |
 
 ### Transactions
 | Method & path | Body | Success | Notes / errors |
@@ -1146,6 +1261,24 @@ memberId, percent (0–100, ≤ 2 decimals) }` for `percent`. Nobody twice.
 settledOn }`.
 `SplitShareToWorkspaceInput` — `{ profileId (uuid), categoryId? (uuid, nullable),
 title? (≤ 40), occurredOn? (YYYY-MM-DD), amount? (> 0, workspace currency) }`.
+
+Invoices (6.13.0):
+`InvoiceContent` — `{ clientId? (uuid, same profile), client { name (≤ 120),
+email? (≤ 160, valid), address? (≤ 400), taxId? (≤ 60) }, sellerId? (uuid, same
+profile), seller { name (≤ 120), address? (≤ 400), contact? (≤ 160), taxId? (≤
+60) }, upiId? (name@bank, ≤ 100), quoteTitle? (quotation|estimate), issueDate
+(YYYY-MM-DD), dueDate? (≥ issueDate, nullable), currency (a supported code),
+items (≤ 100 × { description (≤ 300), quantity (0–1,000,000,000, 4 decimals),
+unitPrice (≥ 0, major units) }), discountType? (percent|fixed), discount? (≥ 0;
+≤ 100 when percent), taxLabel? (≤ 24), taxRate? (0–100), notes? (≤ 2000), terms?
+(≤ 2000), template? (classic|modern|bold|minimal|compact) }`. Blank optional text
+is stored as null. Finalising also needs a client name, a business name and a line.
+`InvoiceClientInput` — `{ profileId, name (1–120), email?, address?, taxId? }`.
+`InvoiceSellerInput` — `{ profileId, name (1–120), address?, contact?, taxId?,
+upiId? }`.
+`InvoiceMarkPaidInput` — `{ amount? (> 0, ≤ 999,999,999.99, workspace currency),
+paidOn? (YYYY-MM-DD), categoryId? (an income category, nullable) }`.
+Logo — PNG or JPEG bytes (checked by content), ≤ 300 KB.
 
 ---
 

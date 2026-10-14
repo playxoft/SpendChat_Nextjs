@@ -14,9 +14,47 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.11.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.13.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.45.0] — 2026-10-14
+
+### Added
+- **Invoices and quotes, free on every plan.** A new **Invoices** section (press
+  **i**) makes invoices and quotes from the same editor as the free generator —
+  your saved clients, your business details with a logo, five templates, line
+  items, discount and tax — with the document beside the form exactly as it will
+  print.
+  - **Numbered for you.** A draft gets its number when you finalise it —
+    `INV-0001`, `INV-0002`…, quotes `QUO-0001`… — one series per workspace,
+    never skipping or repeating a number. A finalised document can't be changed
+    or deleted, only voided, so its number stays on record. Drafts can be
+    deleted any time.
+  - **Download the PDF, or send a link.** Finalising stores the PDF in your
+    workspace (it counts toward storage, and Settings shows how much your
+    invoices and quotations take). A share link lets your client view it and
+    download the PDF, without an account; revoke it whenever you like.
+  - **Pay by UPI.** Add your UPI ID and a rupee invoice carries a QR code for
+    its total.
+  - **Mark as paid** records the income in the invoice's profile, once, in your
+    workspace's currency — for an invoice in another currency you enter what
+    arrived. Budgets and analytics see it like any other entry.
+  - **Turn a quote into an invoice** in one step.
+  - Invoices belong to a profile: whoever can see the profile can see its
+    invoices, and editors can make and change them.
+  - Every workspace can make 20 invoices and quotes a month and keep 20 saved
+    clients and one set of business details; documents say "Made with
+    SpendChat" at the foot.
+- **Save to SpendChat** on the free invoice and quotation generators: sign up
+  (or sign in) and the draft you were working on comes into the app as a draft
+  invoice or quote, with your details and logo saved for next time.
+- The mobile API has the same invoices (`/api/v1/invoices`, `/invoice-clients`,
+  `/invoice-sellers`; spec 6.13.0).
+
+### Changed
+- Settings → plan & usage says where your storage goes (files, attachments,
+  invoices, quotations, logos) and how many invoices you've made this month.
 
 ## [0.42.0] — 2026-10-14
 

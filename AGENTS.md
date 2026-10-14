@@ -189,6 +189,26 @@ Authentication, secrets via Doppler.
   come from the workspace's own monthly pool (`budgetAlertEmailsLeft`, `email-quota.ts`), filled
   claim by claim, never the writer's. In-app alerts are computed live — there is no
   notifications table. Put any other post-response DB work through `afterResponse` too.
+- **Invoices and quotes** (`src/services/invoices.ts`, reads in `src/lib/invoice-queries.ts`, rules in
+  `src/lib/invoices.ts`). Every invoice row — `invoice_clients`, `invoice_sellers`, `invoices`,
+  `invoice_items`, `invoice_shares` — carries `workspace_id` + `profile_id`, so **access is the
+  profile's**: read through `accessibleProfileIds` (viewer reads; a trashed profile hides them), write
+  only with editor on the profile; an id outside that scope is a 404. A draft has **no number**;
+  finalising takes the next one from `invoice_counters` (per workspace × kind, `INV-0001` / `QUO-0001`)
+  **in the same DB transaction** as the status change — never number a draft, never mint numbers
+  elsewhere, or the series gets gaps/duplicates. Only drafts change or are deleted; **a finalised
+  document is never deleted** — void it (it keeps its number). The PDF is drawn **on the server**
+  with the free generator's own engine and renderer (`src/lib/business-doc/*`, shared with
+  `/tools/invoice-generator` — extend them, don't fork) and stored at finalise in R2 under
+  `invoices/` or `quotations/` — the hidden "Invoices"/"Quotations" storage: counted in
+  `getWorkspaceStorageUsage` and the usage breakdown, never in the Files browser, collected by
+  `collectProfileObjectKeys`; seller logos are stored once per seller. "Mark as paid" writes one income
+  transaction through `createTransactionId` (`withinInsert` claims the invoice in the same DB
+  transaction — exactly once) in the workspace's currency. Limits come from `INVOICE_LIMITS` for the
+  workspace's invoice tier (`invoiceTierOf` in `entitlements.ts` — the add-on's hook): 20 a month
+  (rows created this UTC month), 20 clients, 1 seller, 5 templates, the footer — `plan_limit` with
+  `upgradeTo: null`, gating adding only. Share links follow the file share-link pattern
+  (`mintShareToken`, `/share/invoice/<token>`).
 - **Trash: every read excludes trashed rows.** `transactions`, `files`, `folders` and `profiles`
   carry `deleted_at` (`timestamptz(3)`): deleting a transaction, a profile, or (Plus/Pro) a file or
   folder moves it to the trash for `TRASH_DAYS` (30), and a daily cron purges it (`lib/trash-purge.ts`).
