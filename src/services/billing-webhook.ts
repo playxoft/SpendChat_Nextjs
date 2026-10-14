@@ -526,19 +526,25 @@ async function applySubscription(ctx: Ctx, sub: DodoSubscription): Promise<void>
   const scheduled = sub.scheduled_change ? planOfProduct(config.products, sub.scheduled_change.product_id) : null;
   const createdAt = dateOrNull(sub.created_at) ?? eventAt;
   const trialDays = current?.trialDays ?? sub.trial_period_days;
+  // What the buyer is charged in is the currency we pinned at checkout. The
+  // provider can report a subscription in another one (a rupee plan shows up in
+  // dollars at the day's rate, while each charge is in rupees at our price), so
+  // its currency is only a fallback, and its recurring amount is kept only when
+  // it's in ours — otherwise the Billing page quotes our own price list.
+  const currency = current?.currency ?? placed.session?.currency ?? sub.currency.toUpperCase();
   const fields = {
     customerId: sub.customer.customer_id,
     productId: sub.product_id,
     plan,
     period,
-    currency: sub.currency.toUpperCase(),
+    currency,
     status,
     nextBillingDate: dateOrNull(sub.next_billing_date),
     cancelAtPeriodEnd: sub.cancel_at_next_billing_date,
     scheduledPlan: scheduled?.plan ?? null,
     scheduledPeriod: scheduled?.period ?? null,
     scheduledAt: scheduled && sub.scheduled_change ? dateOrNull(sub.scheduled_change.effective_at) : null,
-    recurringAmountMinor: sub.recurring_pre_tax_amount,
+    recurringAmountMinor: sub.currency.toUpperCase() === currency ? sub.recurring_pre_tax_amount : null,
     activatedAt: current?.activatedAt ?? (entitlesPlan(status) ? eventAt : null),
     paymentFailedAt: isFailingStatus(status) ? (current?.paymentFailedAt ?? eventAt) : null,
     endedAt: isLiveStatus(status) ? null : (current?.endedAt ?? eventAt),

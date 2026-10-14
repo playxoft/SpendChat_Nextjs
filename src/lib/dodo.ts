@@ -167,7 +167,7 @@ export async function createCheckoutSession(
 export type DodoChangePlanRequest = {
   product_id: string;
   quantity: 1;
-  proration_billing_mode: "prorated_immediately" | "do_not_bill";
+  proration_billing_mode: "prorated_immediately" | "full_immediately";
   effective_at: "immediately" | "next_billing_date";
   /** Replace a downgrade already waiting for the renewal. */
   cancel_scheduled_change_plan?: boolean;

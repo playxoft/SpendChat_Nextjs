@@ -84,18 +84,18 @@ export function planChangeKind(from: PlanPeriod, to: PlanPeriod): PlanChangeKind
  *    moves to today, and **a running trial ends** (it's charged at once);
  *  - a downgrade is scheduled for the next billing date and bills nothing now:
  *    the workspace keeps (and has paid for) the bigger plan until then, and
- *    usage carries over (C3). No refunds.
+ *    usage carries over (C3). No refunds. The provider accepts only
+ *    `full_immediately` with `effective_at: next_billing_date` (a 422
+ *    INVALID_PRORATION_MODE_WITH_NEXT_BILLING_DATE otherwise, seen in test
+ *    mode): "full" because the renewal then charges the new plan's whole price.
  */
 export function planChangeRequest(kind: Exclude<PlanChangeKind, "same">): {
-  proration_billing_mode: "prorated_immediately" | "do_not_bill";
+  proration_billing_mode: "prorated_immediately" | "full_immediately";
   effective_at: "immediately" | "next_billing_date";
 } {
   return kind === "upgrade"
     ? { proration_billing_mode: "prorated_immediately", effective_at: "immediately" }
-    : // verify in test mode: how `proration_billing_mode` applies to a change
-      // scheduled for the renewal isn't documented; `do_not_bill` is the one
-      // mode that can't charge anything now.
-      { proration_billing_mode: "do_not_bill", effective_at: "next_billing_date" };
+    : { proration_billing_mode: "full_immediately", effective_at: "next_billing_date" };
 }
 
 /**

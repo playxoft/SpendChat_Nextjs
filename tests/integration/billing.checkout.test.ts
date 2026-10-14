@@ -554,7 +554,7 @@ describe("plan changes on a paid workspace (C3)", () => {
     expect(dodo.changePlan).toHaveBeenCalledWith(expect.anything(), sub, {
       product_id: PRODUCTS.plus_yearly,
       quantity: 1,
-      proration_billing_mode: "do_not_bill",
+      proration_billing_mode: "full_immediately",
       effective_at: "next_billing_date",
     });
     const [row] = await getTestDb().select().from(workspaceSubscriptions).where(eq(workspaceSubscriptions.subscriptionId, sub));

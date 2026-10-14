@@ -69,7 +69,7 @@ describe("plan changes (C3)", () => {
     expect(planChangeKind({ plan: "pro", period: "monthly" }, { plan: "plus", period: "yearly" })).toBe("downgrade");
     expect(planChangeKind({ plan: "pro", period: "yearly" }, { plan: "pro", period: "monthly" })).toBe("downgrade");
     expect(planChangeRequest("downgrade")).toEqual({
-      proration_billing_mode: "do_not_bill",
+      proration_billing_mode: "full_immediately",
       effective_at: "next_billing_date",
     });
   });

@@ -494,6 +494,26 @@ describe("more out-of-order and retry cases", () => {
     expect((await workspaceRow(W)).billingHold).toBeNull();
   });
 
+  it("keeps the currency we charged in when the provider reports the subscription in another", async () => {
+    const W = await ownWorkspace();
+    await billing.startCheckout(uid("own"), W, { item: "plan", plan: "pro", period: "monthly", currency: "INR" }, { country: "IN" });
+    const session = await latestSession(W);
+    await deliver("payment.succeeded", paymentData({ subscription_id: "sub_fx", checkout_session_id: session.sessionId, total_amount: 0 }));
+    // Seen in test mode: an INR checkout's subscription reported as USD at the day's rate.
+    const res = await deliver(
+      "subscription.active",
+      subscriptionData({ subscription_id: "sub_fx", product_id: PRODUCTS.pro_monthly, currency: "USD", recurring_pre_tax_amount: 315, payment_frequency_interval: "Month" }),
+    );
+    expect(res.status).toBe(200);
+    expect(await subscriptionRow("sub_fx")).toMatchObject({ currency: "INR", recurringAmountMinor: null });
+    // A later event doesn't flip it either.
+    await deliver(
+      "subscription.updated",
+      subscriptionData({ subscription_id: "sub_fx", product_id: PRODUCTS.pro_monthly, currency: "USD", recurring_pre_tax_amount: 315, payment_frequency_interval: "Month" }),
+    );
+    expect(await subscriptionRow("sub_fx")).toMatchObject({ currency: "INR", recurringAmountMinor: null });
+  });
+
   it("a subscription we have that moves to an unknown product still applies its status, on the last plan", async () => {
     const W = await ownWorkspace();
     const sub = await activePlan(W);
