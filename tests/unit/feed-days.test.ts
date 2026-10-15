@@ -129,3 +129,18 @@ describe("jumpNotice", () => {
     ).toBe("No transactions on 9 Jun 2026 — showing 3 Jun 2026.");
   });
 });
+
+describe("a quarter as a jump target", () => {
+  const q3 = { kind: "quarter" as const, year: 2026, quarter: 3 as const };
+  it("asks for the quarter's last day", () => {
+    expect(jumpDate(q3)).toBe("2026-09-30");
+  });
+  it("counts a landing anywhere in the quarter as a hit", () => {
+    expect(jumpNotice(q3, { day: "2026-08-20", side: "before" })).toBeNull();
+    expect(jumpNotice(q3, { day: "2026-07-01", side: "before" })).toBeNull();
+  });
+  it("says so when the quarter had nothing", () => {
+    expect(jumpNotice(q3, { day: "2026-06-30", side: "before" })).toMatch(/No transactions in Q3 2026/);
+    expect(jumpNotice(q3, { day: "2026-10-02", side: "after" })).toMatch(/in or before Q3 2026/);
+  });
+});

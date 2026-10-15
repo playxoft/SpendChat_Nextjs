@@ -293,6 +293,24 @@ describe("a finalised document is never deleted", () => {
 });
 
 describe("editing a finalised document", () => {
+  it("keeps what finalising asked of it: a client, your name, a line", async () => {
+    const sent = await finaliseInvoice(A(), W, (await newDraft()).id);
+    await expectApiError(updateInvoice(A(), W, sent.id, content({ client: { name: "" } })), 422);
+    await expectApiError(updateInvoice(A(), W, sent.id, content({ seller: { name: "" } })), 422);
+    await expectApiError(updateInvoice(A(), W, sent.id, content({ items: [] })), 422);
+    expect((await getInvoice(A(), W, sent.id))!.editedAt).toBeNull();
+  });
+
+  it("marking it paid draws its PDF again, without the pay-by-UPI block", async () => {
+    const sent = await finaliseInvoice(A(), W, (await newDraft("invoice", { upiId: "asha@okbank", currency: "INR" })).id);
+    const before = [...bucket.keys()].filter((k) => k.includes(sent.id));
+    expect(before).toHaveLength(1);
+    await markInvoicePaid(A(), { id: W, currency: "INR", locale: "en-IN" }, sent.id, {});
+    const after = [...bucket.keys()].filter((k) => k.includes(sent.id));
+    expect(after).toHaveLength(1);
+    expect(after[0]).not.toBe(before[0]);
+  });
+
   it("keeps its number, records when, and draws its PDF again", async () => {
     const sent = await finaliseInvoice(A(), W, (await newDraft()).id);
     expect(sent.editedAt).toBeNull();
@@ -611,6 +629,13 @@ describe("the stored PDF — the hidden Invoices / Quotations storage", () => {
     expect(withLogo.hasLogo).toBe(true);
     expect((await getStorageBreakdown(W)).logos).toBe(png.byteLength);
     await expectApiError(setSellerLogo(A(), W, seller.id, new TextEncoder().encode("<svg/>")), 422);
+    // A few bytes can declare a huge image; decoding it for a PDF would run a Worker out of memory.
+    const huge = new Uint8Array(33);
+    huge.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+    new DataView(huge.buffer).setUint32(16, 30000);
+    new DataView(huge.buffer).setUint32(20, 30000);
+    const tooBig = await expectApiError(setSellerLogo(A(), W, seller.id, huge), 422);
+    expect(tooBig.message).toMatch(/pixels/);
 
     const sent = await finaliseInvoice(A(), W, (await newDraft("invoice", { sellerId: seller.id })).id);
     expect(sent.hasLogo).toBe(true);
@@ -744,8 +769,26 @@ describe("from the free generator", () => {
     expect(res.sellerSaved).toBe(true);
     const [saved] = await listSellers(A(), W);
     expect(saved).toMatchObject({ contact: null, phone: "+91 98765 43210" });
-    // The document keeps the line as it was typed.
-    expect(res.invoice.seller.contact).toBe("+91 98765 43210");
+    // So does the document: its Email line would refuse a phone number.
+    expect(res.invoice.seller).toMatchObject({ contact: null, phone: "+91 98765 43210" });
+  });
+
+  it("a client email that isn't one doesn't stop the draft coming in", async () => {
+    const phone = await importInvoiceDraft(A(), W, { ...draft(), client: { name: "Acme", email: "+44 20 7946 0958" } });
+    expect(phone.invoice.client).toMatchObject({ email: null, phone: "+44 20 7946 0958" });
+    const junk = await importInvoiceDraft(A(), W, { ...draft(), client: { name: "Beta", email: "beta at example" } });
+    expect(junk.invoice.client.email).toBeNull();
+  });
+
+  it("links saved details only when they're the same business", async () => {
+    const other = await createSeller(A(), W, { profileId: P, name: "Acme Design" });
+    const first = await importInvoiceDraft(A(), W, draft());
+    // Not Acme's (its logo would go on the document): Asha Studio's own, saved now.
+    expect(first.sellerSaved).toBe(true);
+    expect(first.invoice.sellerId).not.toBe(other.id);
+    const again = await importInvoiceDraft(A(), W, { ...draft(), notes: "Another one" });
+    expect(again).toMatchObject({ created: true, sellerSaved: false });
+    expect(again.invoice.sellerId).toBe(first.invoice.sellerId);
   });
 
   it("brings a draft in once, saving its business details when there's room", async () => {

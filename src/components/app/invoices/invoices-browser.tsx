@@ -1,10 +1,21 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { startTransition, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, FileText, Maximize2 } from "lucide-react";
 import { loadInvoiceEditorPanel, loadInvoicePanel } from "@/actions/invoices";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { InvoiceSummaryDTO } from "@/lib/invoice-queries";
 import type { InvoiceKind } from "@/lib/invoices";
@@ -40,7 +51,9 @@ function keyOf(p: PanelState): string | null {
 
 type Loaded =
   | { key: string; kind: "detail"; detail: InvoiceDetailData | null }
-  | { key: string; kind: "editor"; payload: InvoiceEditorPayload | null };
+  | { key: string; kind: "editor"; payload: InvoiceEditorPayload | null }
+  // It couldn't be read (the connection, a rate limit) — as opposed to not being there.
+  | { key: string; kind: "error"; message: string };
 
 /**
  * The invoices list with its panel beside it — the section's split view. A row
@@ -84,10 +97,17 @@ export function InvoicesBrowser({
   const panel = panelFrom(searchParams);
   const key = keyOf(panel);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
+  // The server's copy of the document at the moment a save went through: it's
+  // the old content, so it's passed over until a refresh brings a new one.
+  const [staleDetail, setStaleDetail] = useState<InvoiceDetailData | null>(null);
+  // Unsaved changes in the open editor (`InvoiceEditor` reports them), and a
+  // way out waiting for "Discard them?".
+  const editorDirty = useRef(false);
+  const [leaving, setLeaving] = useState<(() => void) | null>(null);
 
   const detail: InvoiceDetailData | null | undefined =
     panel.mode === "view"
-      ? initialDetail && initialDetail.invoice.id === panel.id
+      ? initialDetail && initialDetail !== staleDetail && initialDetail.invoice.id === panel.id
         ? initialDetail
         : loaded?.key === key && loaded.kind === "detail"
           ? loaded.detail
@@ -99,8 +119,9 @@ export function InvoicesBrowser({
         ? loaded.payload
         : undefined
       : undefined;
+  const failed = loaded?.key === key && loaded.kind === "error" ? loaded.message : null;
   // `undefined` = still to load; `null` = not there.
-  const needed = key !== null && detail === undefined && payload === undefined;
+  const needed = key !== null && detail === undefined && payload === undefined && failed === null;
 
   useEffect(() => {
     if (!needed || key === null) return;
@@ -111,14 +132,26 @@ export function InvoicesBrowser({
         : panel.mode === "new"
           ? { mode: "new", kind: panel.kind, profile: panel.profile }
           : null;
+    // Not there (404) reads as gone; anything else that went wrong offers Retry.
+    const failure = (res: { code?: string; error: string }): Loaded | null =>
+      res.code === "not_found" ? null : { key, kind: "error", message: res.error };
+    const unreachable = () => {
+      if (!cancelled) setLoaded({ key, kind: "error", message: "Couldn't reach SpendChat — check your connection." });
+    };
     if (target) {
-      void loadInvoiceEditorPanel(target).then((res) => {
-        if (!cancelled) setLoaded({ key, kind: "editor", payload: res.ok ? res.payload : null });
-      });
+      loadInvoiceEditorPanel(target)
+        .then((res) => {
+          if (cancelled) return;
+          setLoaded(res.ok ? { key, kind: "editor", payload: res.payload } : (failure(res) ?? { key, kind: "editor", payload: null }));
+        })
+        .catch(unreachable);
     } else if (panel.mode === "view") {
-      void loadInvoicePanel(panel.id).then((res) => {
-        if (!cancelled) setLoaded({ key, kind: "detail", detail: res.ok ? res.detail : null });
-      });
+      loadInvoicePanel(panel.id)
+        .then((res) => {
+          if (cancelled) return;
+          setLoaded(res.ok ? { key, kind: "detail", detail: res.detail } : (failure(res) ?? { key, kind: "detail", detail: null }));
+        })
+        .catch(unreachable);
     }
     return () => {
       cancelled = true;
@@ -128,8 +161,6 @@ export function InvoicesBrowser({
   }, [key, needed]);
 
   const go = (next: { view?: string; edit?: string; new?: InvoiceKind } = {}) => {
-    // A copy loaded earlier may be out of date by now (a save, a payment): read afresh.
-    setLoaded(null);
     const params = new URLSearchParams(searchParams.toString());
     params.delete("view");
     params.delete("edit");
@@ -138,7 +169,19 @@ export function InvoicesBrowser({
     if (next.edit) params.set("edit", next.edit);
     if (next.new) params.set("new", next.new);
     const q = params.toString();
-    window.history.pushState(null, "", q ? `/app/invoices?${q}` : "/app/invoices");
+    // One transition with the URL change Next makes of pushState, so the cache
+    // is dropped in the same render the new key arrives in — never with the old
+    // key still current, which would read the item being left all over again.
+    startTransition(() => {
+      // A copy loaded earlier may be out of date by now (a save, a payment): read afresh.
+      setLoaded(null);
+      window.history.pushState(null, "", q ? `/app/invoices?${q}` : "/app/invoices");
+    });
+  };
+  // Leave the editor — after "Discard them?" when it has unsaved changes.
+  const leaveEditor = (then: () => void) => {
+    if (!editorDirty.current) return then();
+    setLeaving(() => then);
   };
   const hrefFor = (id: string) => {
     const params = new URLSearchParams(searchParams.toString());
@@ -170,6 +213,8 @@ export function InvoicesBrowser({
         Pick an invoice or quote to see it here{canAdd ? ", or start a new one" : ""}.
       </PanelEmpty>
     );
+  } else if (failed !== null) {
+    content = <LoadFailed message={failed} onRetry={() => setLoaded(null)} onClose={() => go()} />;
   } else if (panel.mode === "view") {
     content =
       detail === undefined ? (
@@ -201,10 +246,12 @@ export function InvoicesBrowser({
     // The editor takes the whole area — the form on the left, the document on
     // the right, each scrolling on its own. Closing it goes back to the
     // document it was opened on (the list, for a new one).
-    const close = () => (panel.mode === "edit" ? go({ view: panel.id }) : go());
+    const close = () => leaveEditor(() => (panel.mode === "edit" ? go({ view: panel.id }) : go()));
     return (
       <div className="flex min-h-0 flex-1 flex-col gap-3">
-        {payload === undefined ? (
+        {failed !== null ? (
+          <LoadFailed message={failed} onRetry={() => setLoaded(null)} onClose={() => go()} />
+        ) : payload === undefined ? (
           <PanelSkeleton onClose={close} />
         ) : payload === null ? (
           <Gone onClose={() => go()} editing />
@@ -242,10 +289,48 @@ export function InvoicesBrowser({
                 {payload.blocked}
               </p>
             ) : (
-              <InvoiceEditor key={key} payload={payload} onSaved={(id) => go({ view: id })} fill />
+              <InvoiceEditor
+                key={key}
+                payload={payload}
+                fill
+                onCancel={close}
+                onDirtyChange={(dirty) => {
+                  editorDirty.current = dirty;
+                }}
+                onSaved={(id) => {
+                  editorDirty.current = false;
+                  // What the server last sent is from before this save.
+                  setStaleDetail(initialDetail);
+                  go({ view: id });
+                }}
+              />
             )}
           </>
         )}
+        <AlertDialog open={leaving !== null} onOpenChange={(o) => !o && setLeaving(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Discard your changes?</AlertDialogTitle>
+              <AlertDialogDescription>
+                What you&apos;ve changed here hasn&apos;t been saved, and it goes if you leave now.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Keep editing</AlertDialogCancel>
+              <AlertDialogAction
+                className={buttonVariants({ variant: "destructive" })}
+                onClick={() => {
+                  editorDirty.current = false;
+                  const then = leaving;
+                  setLeaving(null);
+                  then?.();
+                }}
+              >
+                Discard
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     );
   }
@@ -253,7 +338,23 @@ export function InvoicesBrowser({
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       <div className="shrink-0">{toolbar}</div>
-      <SplitView list={list} panel={content} open={panel.mode !== "none"} label="Invoice or quote" />
+      <SplitView list={list} panel={content} open={panel.mode !== "none"} label="Invoice or quote" onClose={() => go()} />
+    </div>
+  );
+}
+
+function LoadFailed({ message, onRetry, onClose }: { message: string; onRetry: () => void; onClose: () => void }) {
+  return (
+    <div className="flex flex-col items-center gap-3 py-12 text-center text-sm text-muted-foreground">
+      <p>{message}</p>
+      <div className="flex items-center gap-2">
+        <Button size="sm" variant="outline" onClick={onRetry}>
+          Try again
+        </Button>
+        <Button size="sm" variant="ghost" onClick={onClose}>
+          Back to the list
+        </Button>
+      </div>
     </div>
   );
 }

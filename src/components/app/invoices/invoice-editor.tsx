@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useMemo, useState, useTransition, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ChevronDown, Loader2, Save, UserPlus } from "lucide-react";
@@ -27,6 +27,7 @@ import { qrMatrix } from "@/lib/business-doc/qr";
 import { docTheme } from "@/lib/business-doc/templates";
 import { clientToDocTo, docToInvoiceInput, sellerLogoUrl, sellerToDocFrom } from "@/lib/invoice-doc";
 import { EmailField, PhoneField, contactProblem } from "./contact-inputs";
+import { emailProblem, phoneProblem } from "@/lib/contact-fields";
 import type { InvoiceSellerDTO } from "@/lib/invoice-queries";
 import type { InvoiceEditorPayload } from "@/services/invoice-editor";
 import {
@@ -58,6 +59,8 @@ const TYPED_SELLER = "";
 export function InvoiceEditor({
   payload,
   onSaved,
+  onCancel,
+  onDirtyChange,
   fill = false,
 }: {
   /** What it opens on (`loadInvoiceEditor`): the document, where it can go, what's saved there. */
@@ -73,11 +76,15 @@ export function InvoiceEditor({
    * and the preview stays in view beside the form.
    */
   fill?: boolean;
+  /** Cancel in place (the invoices list); without it Cancel goes to the document's page. */
+  onCancel?: () => void;
+  /** Whether there are changes not saved yet — so the list can ask before closing it. */
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const { invoiceId, kind, initialDoc, initial, profiles, clients, sellers, locale, today, footer } = payload;
   const router = useRouter();
   const { reportFailure } = usePlan();
-  const [doc, setDoc] = useState<BusinessDoc>({ ...initialDoc, credit: footer });
+  const [doc, setDoc] = useState<BusinessDoc>(() => withPhoneSorted({ ...initialDoc, credit: footer }));
   const [profileId, setProfileId] = useState(initial.profileId);
   const [clientId, setClientId] = useState<string | null>(initial.clientId);
   const [sellerId, setSellerId] = useState<string | null>(initial.sellerId);
@@ -85,6 +92,20 @@ export function InvoiceEditor({
   const [template, setTemplate] = useState<InvoiceTemplateId>(initial.template);
   const [currency, setCurrency] = useState(initial.currency);
   const [clientList, setClientList] = useState(clients);
+  // Changed since it opened? Compared against how it opened, so the list can ask
+  // before closing it, and leaving the page asks too.
+  const snapshot = JSON.stringify({ doc, profileId, clientId, sellerId, upiId, template, currency });
+  const [opened] = useState(snapshot);
+  const dirty = snapshot !== opened;
+  useEffect(() => {
+    onDirtyChange?.(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
   const [dueOpen, setDueOpen] = useState(false);
   const [saving, startSaving] = useTransition();
   // A finalised document being edited (it has its number): saving keeps it and records the edit.
@@ -235,10 +256,11 @@ export function InvoiceEditor({
   return (
     // Side by side when the editor has the room (its own page), stacked when it
     // doesn't (the invoices list's panel, a phone) — by its container, not the window.
-    <div className={cn("@container", fill && "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col")}>
+    // Side by side from `lg` — the same breakpoint `FitPaper` lays the sheet out by.
+    <div className={cn(fill && "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col")}>
     <div
       className={cn(
-        "grid items-start gap-6 @4xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]",
+        "grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]",
         fill && "lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:items-stretch",
       )}
     >
@@ -578,9 +600,15 @@ export function InvoiceEditor({
           <Button type="button" onClick={save} disabled={saving} className="h-9 rounded-lg px-3">
             {saving ? <Loader2 className="animate-spin" /> : <Save />} {finalised ? "Save changes" : "Save draft"}
           </Button>
-          <Button type="button" variant="ghost" className="h-9 rounded-lg" asChild>
-            <Link href={invoiceId ? `/app/invoices/${invoiceId}` : "/app/invoices"}>Cancel</Link>
-          </Button>
+          {onCancel ? (
+            <Button type="button" variant="ghost" className="h-9 rounded-lg" onClick={onCancel}>
+              Cancel
+            </Button>
+          ) : (
+            <Button type="button" variant="ghost" className="h-9 rounded-lg" asChild>
+              <Link href={invoiceId ? `/app/invoices/${invoiceId}` : "/app/invoices"}>Cancel</Link>
+            </Button>
+          )}
           <span className="ml-auto pr-2 text-sm text-muted-foreground tabular-nums">Total {summary}</span>
         </div>
       </div>
@@ -588,7 +616,7 @@ export function InvoiceEditor({
       <div
         className={cn(
           "flex min-w-0 flex-col gap-2",
-          fill ? "lg:h-full" : "@4xl:sticky @4xl:top-6 @4xl:h-[calc(100svh-3rem)]",
+          fill ? "lg:h-full" : "lg:sticky lg:top-6 lg:h-[calc(100svh-3rem)]",
         )}
       >
         <div className="flex min-h-0 flex-1 flex-col rounded-2xl border bg-muted/50 p-2 sm:p-3">
@@ -673,4 +701,15 @@ function Section({
       </div>
     </section>
   );
+}
+
+/**
+ * A document that opened with a phone number in the "Email" line — the free
+ * generator's one "Email or phone" field, brought in — gets it moved to Phone,
+ * where the field checks pass, instead of an error the person has to sort out.
+ */
+function withPhoneSorted(doc: BusinessDoc): BusinessDoc {
+  const line = doc.from.contact.trim();
+  if (!line || !emailProblem(line) || phoneProblem(line) || doc.from.phone?.trim()) return doc;
+  return { ...doc, from: { ...doc.from, contact: "", phone: line } };
 }

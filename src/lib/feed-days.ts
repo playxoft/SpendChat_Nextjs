@@ -22,20 +22,32 @@ export type FeedLanding = {
   side: "on" | "before" | "after";
 };
 
-/** A day, or a whole month ("YYYY-MM"), chosen in the tracker's date picker. */
-export type FeedJumpTarget = { kind: "day"; date: string } | { kind: "month"; month: string };
+/** A day, a whole month ("YYYY-MM") or a quarter, chosen in the tracker's date picker. */
+export type FeedJumpTarget =
+  | { kind: "day"; date: string }
+  | { kind: "month"; month: string }
+  | { kind: "quarter"; year: number; quarter: 1 | 2 | 3 | 4 };
+
+/** A quarter's first and last day. */
+function quarterDays(year: number, quarter: 1 | 2 | 3 | 4): { from: string; to: string } {
+  const first = `${year}-${String((quarter - 1) * 3 + 1).padStart(2, "0")}-01`;
+  const last = `${year}-${String(quarter * 3).padStart(2, "0")}-01`;
+  return { from: first, to: monthRange(last).end };
+}
 
 export function landingFor(day: string, asked: string): FeedLanding {
   return { day, side: day === asked ? "on" : day < asked ? "before" : "after" };
 }
 
 /**
- * The date a target asks the feed for. A month asks for its last day, so it
- * lands on the month's latest day with transactions — and, when the month has
+ * The date a target asks the feed for. A month (or a quarter) asks for its last
+ * day, so it lands on the latest day in it with transactions — and, when it has
  * none, on the nearest earlier day, exactly as a day with none would.
  */
 export function jumpDate(target: FeedJumpTarget): string {
-  return target.kind === "day" ? target.date : monthRange(`${target.month}-01`).end;
+  if (target.kind === "day") return target.date;
+  if (target.kind === "quarter") return quarterDays(target.year, target.quarter).to;
+  return monthRange(`${target.month}-01`).end;
 }
 
 /**
@@ -97,10 +109,18 @@ function longMonth(month: string, locale: string): string {
 
 /**
  * What to say when a jump didn't land where it was asked to — null when it
- * did. A month counts as hit when the landing day is in it.
+ * did. A month or a quarter counts as hit when the landing day is in it.
  */
 export function jumpNotice(target: FeedJumpTarget, landing: FeedLanding, locale = "en-US"): string | null {
   const shown = formatDateLabel(landing.day, locale);
+  if (target.kind === "quarter") {
+    const { from, to } = quarterDays(target.year, target.quarter);
+    if (landing.day >= from && landing.day <= to) return null;
+    const quarter = `Q${target.quarter} ${target.year}`;
+    return landing.side === "after"
+      ? `No transactions in or before ${quarter} — showing the first, ${shown}.`
+      : `No transactions in ${quarter} — showing ${shown}.`;
+  }
   if (target.kind === "month") {
     if (landing.day.startsWith(`${target.month}-`)) return null;
     const month = longMonth(target.month, locale);

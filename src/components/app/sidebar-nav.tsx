@@ -118,6 +118,11 @@ export function SidebarNav({
   const sprung = React.useRef(false);
   // Opened from the keyboard: focus goes into the panel.
   const focusPanel = React.useRef(false);
+  // Closed with Escape: focus goes back to More's button (the panel has no trigger to return to).
+  const refocusMore = React.useRef(false);
+  const moreRowRef = React.useRef<HTMLDivElement>(null);
+  const moreButtonRef = React.useRef<HTMLButtonElement>(null);
+  const panelRef = React.useRef<HTMLDivElement>(null);
   const timer = React.useRef<number | undefined>(undefined);
   React.useEffect(() => () => window.clearTimeout(timer.current), []);
 
@@ -153,6 +158,9 @@ export function SidebarNav({
       const id = String(c.id);
       return dragged === MORE_ID ? boxOf(id, l) === "main" : id !== MORE_ID;
     });
+    // A keyboard drag has no pointer: the nearest row anywhere — More's row and
+    // its panel included — so the keyboard can move a section in and out too.
+    if (!args.pointerCoordinates) return closestCenter({ ...args, droppableContainers: pool });
     const within = pointerWithin({ ...args, droppableContainers: pool });
     if (within.length > 0) return [within[0]];
     const home = boxOf(dragged, l);
@@ -202,8 +210,19 @@ export function SidebarNav({
     });
   }
 
-  function onDragEnd({ active, over }: DragEndEvent) {
+  function onDragEnd({ active, over, activatorEvent, delta }: DragEndEvent) {
     setDragging(null);
+    // A panel opened by hover or a click stays open through a drag; once the
+    // drop lands away from More's row and its panel, it closes.
+    if (open && !sprung.current && activatorEvent instanceof PointerEvent) {
+      const x = activatorEvent.clientX + delta.x;
+      const y = activatorEvent.clientY + delta.y;
+      const inside = (el: HTMLElement | null) => {
+        const r = el?.getBoundingClientRect();
+        return !!r && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+      };
+      if (!inside(moreRowRef.current) && !inside(panelRef.current)) setOpen(false);
+    }
     let next = latest.current;
     if (over) {
       const id = String(active.id);
@@ -263,8 +282,11 @@ export function SidebarNav({
                 <MoreRow
                   open={open}
                   holdsActive={holdsActive}
-                  // A section in the panel still says it wants attention.
-                  badge={layout.more.map((s) => badges[s]).find(Boolean)}
+                  // A section in the panel still says it wants attention — every
+                  // one of them (a badge with nothing to say renders nothing).
+                  badge={layout.more.map((s) => (badges[s] ? <React.Fragment key={s}>{badges[s]}</React.Fragment> : null))}
+                  rowRef={moreRowRef}
+                  buttonRef={moreButtonRef}
                   dropping={dragSection !== null && boxOf(dragSection, layout) === "main"}
                   onPointerEnter={openSoon}
                   onPointerLeave={closeSoon}
@@ -275,17 +297,29 @@ export function SidebarNav({
                   }}
                 />
                 <PopoverContent
+                  ref={panelRef}
                   side="right"
                   align="start"
                   sideOffset={10}
-                  className="w-60 gap-0.5 p-1.5"
+                  // Not clipped: a row dragged out of it must stay visible on its way to the list.
+                  className="w-60 gap-0.5 overflow-visible p-1.5"
                   aria-label="More sections"
                   onPointerEnter={keepOpen}
                   onPointerLeave={closeSoon}
-                  // A hover opens it without taking focus; the keyboard goes in.
+                  // A hover opens it without taking focus; the keyboard goes to
+                  // its first section (not the first drag handle).
                   onOpenAutoFocus={(e) => {
-                    if (!focusPanel.current) e.preventDefault();
+                    e.preventDefault();
+                    if (focusPanel.current) (e.currentTarget as HTMLElement).querySelector<HTMLElement>("a")?.focus();
                     focusPanel.current = false;
+                  }}
+                  onEscapeKeyDown={() => {
+                    refocusMore.current = true;
+                  }}
+                  onCloseAutoFocus={(e) => {
+                    e.preventDefault();
+                    if (refocusMore.current) moreButtonRef.current?.focus();
+                    refocusMore.current = false;
                   }}
                 >
                   <SortableContext items={layout.more} strategy={verticalListSortingStrategy}>
@@ -388,6 +422,8 @@ function MoreRow({
   onPointerEnter,
   onPointerLeave,
   onOpen,
+  rowRef,
+  buttonRef,
 }: {
   open: boolean;
   /** The page on view is one of its sections. */
@@ -398,12 +434,19 @@ function MoreRow({
   onPointerEnter: () => void;
   onPointerLeave: () => void;
   onOpen: (fromKeyboard: boolean) => void;
+  /** The row — where a drop counts as "at More" (see `onDragEnd`). */
+  rowRef: React.RefObject<HTMLDivElement | null>;
+  /** More's button, for focus to come back to when the panel closes. */
+  buttonRef: React.RefObject<HTMLButtonElement | null>;
 }) {
   const { setNodeRef, isDragging, style, handle } = useRowSortable(MORE_ID);
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: MORE_TARGET });
   return (
     <div
-      ref={setNodeRef}
+      ref={(el) => {
+        setNodeRef(el);
+        rowRef.current = el;
+      }}
       style={style}
       className={cn("group relative", isDragging && "z-20 rounded-lg bg-background shadow-sm")}
       onPointerEnter={onPointerEnter}
@@ -412,7 +455,10 @@ function MoreRow({
       <DragHandle label="Drag to move More" dragging={isDragging} className="-left-2.5" {...handle} />
       <PopoverAnchor asChild>
         <button
-          ref={setDropRef}
+          ref={(el) => {
+            setDropRef(el);
+            buttonRef.current = el;
+          }}
           type="button"
           aria-haspopup="true"
           aria-expanded={open}

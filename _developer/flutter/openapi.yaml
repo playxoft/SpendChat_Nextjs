@@ -5588,7 +5588,7 @@ components:
             email: { type: [string, "null"], maxLength: 160 }
             address: { type: [string, "null"], maxLength: 400 }
             taxId: { type: [string, "null"], maxLength: 60 }
-            phone: { type: [string, "null"], maxLength: 40 }
+            phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
             contactPerson: { type: [string, "null"], maxLength: 120 }
         sellerId: { type: [string, "null"], format: uuid }
         seller:
@@ -5596,9 +5596,9 @@ components:
           properties:
             name: { type: string, maxLength: 120 }
             address: { type: [string, "null"], maxLength: 400 }
-            contact: { type: [string, "null"], maxLength: 160 }
+            contact: { type: [string, "null"], maxLength: 160, description: "The document contact line: any text, as the free generator Email-or-phone line." }
             taxId: { type: [string, "null"], maxLength: 60 }
-            phone: { type: [string, "null"], maxLength: 40 }
+            phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
             website: { type: [string, "null"], maxLength: 200 }
             registrationNumber: { type: [string, "null"], maxLength: 60 }
             bankDetails: { type: [string, "null"], maxLength: 600 }
@@ -5677,7 +5677,7 @@ components:
         email: { type: [string, "null"], format: email, maxLength: 160 }
         address: { type: [string, "null"], maxLength: 400 }
         taxId: { type: [string, "null"], maxLength: 60 }
-        phone: { type: [string, "null"], maxLength: 40 }
+        phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
         contactPerson: { type: [string, "null"], maxLength: 120 }
         notes: { type: [string, "null"], maxLength: 1000 }
       required: [profileId, name]
@@ -5690,7 +5690,7 @@ components:
         email: { type: [string, "null"], format: email, maxLength: 160 }
         address: { type: [string, "null"], maxLength: 400 }
         taxId: { type: [string, "null"], maxLength: 60 }
-        phone: { type: [string, "null"], maxLength: 40 }
+        phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
         contactPerson: { type: [string, "null"], maxLength: 120 }
         notes: { type: [string, "null"], maxLength: 1000 }
 
@@ -5721,10 +5721,10 @@ components:
         profileId: { type: string, format: uuid }
         name: { type: string, minLength: 1, maxLength: 120 }
         address: { type: [string, "null"], maxLength: 400 }
-        contact: { type: [string, "null"], maxLength: 160 }
+        contact: { type: [string, "null"], format: email, maxLength: 160, description: "The email line — a valid address, else 422." }
         taxId: { type: [string, "null"], maxLength: 60 }
         upiId: { type: [string, "null"], maxLength: 100, description: "name@bank" }
-        phone: { type: [string, "null"], maxLength: 40 }
+        phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
         website: { type: [string, "null"], maxLength: 200 }
         registrationNumber: { type: [string, "null"], maxLength: 60 }
         bankDetails: { type: [string, "null"], maxLength: 600 }
@@ -5736,10 +5736,10 @@ components:
       properties:
         name: { type: string, minLength: 1, maxLength: 120 }
         address: { type: [string, "null"], maxLength: 400 }
-        contact: { type: [string, "null"], maxLength: 160 }
+        contact: { type: [string, "null"], format: email, maxLength: 160, description: "The email line — a valid address, else 422." }
         taxId: { type: [string, "null"], maxLength: 60 }
         upiId: { type: [string, "null"], maxLength: 100 }
-        phone: { type: [string, "null"], maxLength: 40 }
+        phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
         website: { type: [string, "null"], maxLength: 200 }
         registrationNumber: { type: [string, "null"], maxLength: 60 }
         bankDetails: { type: [string, "null"], maxLength: 600 }

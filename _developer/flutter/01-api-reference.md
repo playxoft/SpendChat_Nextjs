@@ -559,7 +559,7 @@ inside their space; `read` / `write` open it even in a space they're not in.
     "tier": "free",
     "perMonth": { "used": 3, "limit": 20, "resetsAt": "2026-11-01T00:00:00.000Z" },
     "clients": { "used": 4, "limit": 20 },   // limit null = no cap
-    "sellers": { "used": 1, "limit": 1 },
+    "sellers": { "used": 1, "limit": 3 },
     "templates": 5,
     "footer": true             // "Made with SpendChat" goes on the documents
   }
@@ -952,13 +952,13 @@ the debug/about screen so a bug report names the exact deploy, and link
 | `POST /invoices/{id}/convert` | — | 201 `data: Invoice` | A quote → a new draft invoice (lines, client, seller, tax; not terms), today, due in 30 days. 409 an invoice or a void quote; **403 `plan_limit` `invoices`**. |
 | `GET /invoices/{id}/pdf[?download=1]` | — | 200 `application/pdf` | The stored copy (finalised) or drawn now (draft). Errors are JSON. |
 | `GET /invoices/{id}/shares` | — | 200 `data: InvoiceShare[]` | Editors only; live links, newest first. |
-| `POST /invoices/{id}/shares` | `{ expiresInDays? }` (1–365) | 201 `data: InvoiceShare` | Finalised documents only (409 for a draft). Anyone with `url` can view it and download the PDF; it stops while the profile is in the trash. |
+| `POST /invoices/{id}/shares` | `{ expiresInDays? }` (1–365) | 201 `data: InvoiceShare` | Finalised documents only (409 for a draft). Anyone with `url` can view it and download the PDF — a void document's page says so and its PDF is 404; it stops while the profile is in the trash. |
 | `DELETE /invoices/{id}/shares/{shareId}` | — | 200 `data: { id, deleted: true }` | Revoke; stops at once. |
 | `GET /invoice-clients?profileId=` | — | 200 `data: InvoiceClient[]` | By name. |
-| `POST /invoice-clients` | `{ profileId, name, email?, address?, taxId?, phone?, contactPerson?, notes? }` | 201 `data: InvoiceClient` | **403 `plan_limit` `invoiceClients`** past 20. 422 bad email. |
+| `POST /invoice-clients` | `{ profileId, name, email?, address?, taxId?, phone?, contactPerson?, notes? }` | 201 `data: InvoiceClient` | **403 `plan_limit` `invoiceClients`** past 20. 422 bad email or phone (digits, spaces and `+ ( ) - .`, 6–15 digits). |
 | `GET` / `PATCH` / `DELETE /invoice-clients/{id}` | PATCH: any field (null clears) | 200 | Documents keep their own copy of the client's details. |
 | `GET /invoice-sellers?profileId=` | — | 200 `data: InvoiceSeller[]` | "Your details". |
-| `POST /invoice-sellers` | `{ profileId, name, address?, contact?, taxId?, upiId?, phone?, website?, registrationNumber?, bankDetails? }` | 201 `data: InvoiceSeller` | **403 `plan_limit` `invoiceSellers`** past three per workspace (a profile may hold several). 422 a UPI ID that isn't `name@bank`. |
+| `POST /invoice-sellers` | `{ profileId, name, address?, contact?, taxId?, upiId?, phone?, website?, registrationNumber?, bankDetails? }` | 201 `data: InvoiceSeller` | **403 `plan_limit` `invoiceSellers`** past three per workspace (a profile may hold several). 422 when `contact` isn't an email address or `phone` isn't a phone number (digits, spaces and `+ ( ) - .`, 6–15 digits). 422 a UPI ID that isn't `name@bank`. |
 | `GET` / `PATCH` / `DELETE /invoice-sellers/{id}` | PATCH: any field | 200 | DELETE takes the logo too. |
 | `GET /invoice-sellers/{id}/logo` | — | 200 `data: { url, expiresInSeconds, contentType }` | A 5-minute URL — fetch it **without** the Authorization header. 404 no logo; 503 storage not configured. |
 | `PUT /invoice-sellers/{id}/logo` | the image bytes (`image/png` or `image/jpeg`, ≤ 300 KB) | 200 `data: InvoiceSeller` | Resize on the device first. 422 not a PNG/JPEG or too big; **413 `storage_quota_exceeded`**. |

@@ -1831,6 +1831,17 @@ export const createInvoiceShareSchema = z.object({
 });
 export type CreateInvoiceShareInput = z.input<typeof createInvoiceShareSchema>;
 
+/** What the invoices list's panel opens the editor on: a new document, or one to edit. */
+export const invoiceEditorTargetSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("new"),
+    kind: z.enum(INVOICE_KINDS),
+    /** The sidebar's `?profile=` — used only when it names one the person can write in. */
+    profile: z.string().max(400).nullish(),
+  }),
+  z.object({ mode: z.literal("edit"), id: z.string().uuid("Not found") }),
+]);
+
 /** The list's filters (API query string and the web page alike). */
 export const invoiceListQuerySchema = z.object({
   kind: z.enum(INVOICE_KINDS).optional(),

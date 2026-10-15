@@ -314,6 +314,56 @@ export function sniffLogoType(bytes: Uint8Array): InvoiceLogoType | null {
   return null;
 }
 
+/** The most a logo may measure: the browser redraws to at most 1200×400 (`redrawLogo`), and a PDF decodes it whole. */
+const INVOICE_LOGO_MAX_SIDE = 2400;
+const INVOICE_LOGO_MAX_PIXELS = 4_000_000;
+
+/** A PNG's or JPEG's width and height, read from its header; null when they can't be found. */
+export function logoDimensions(bytes: Uint8Array, type: InvoiceLogoType): { width: number; height: number } | null {
+  const u16 = (o: number) => ((bytes[o] ?? 0) << 8) | (bytes[o + 1] ?? 0);
+  const u32 = (o: number) => ((u16(o) << 16) | u16(o + 2)) >>> 0;
+  if (type === "image/png") {
+    // After the 8-byte signature, IHDR comes first: length, "IHDR", width, height.
+    return bytes.length >= 24 ? { width: u32(16), height: u32(20) } : null;
+  }
+  // JPEG: walk the markers to the first start-of-frame (SOF0–SOF15, less DHT/JPG/DAC).
+  let o = 2;
+  while (o + 9 < bytes.length) {
+    if (bytes[o] !== 0xff) return null;
+    const marker = bytes[o + 1]!;
+    if (marker === 0xff) {
+      o += 1; // fill byte
+      continue;
+    }
+    if ((marker >= 0xd0 && marker <= 0xd8) || marker === 0x01) {
+      o += 2; // markers with no length
+      continue;
+    }
+    if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+      return { height: u16(o + 5), width: u16(o + 7) };
+    }
+    o += 2 + u16(o + 2);
+  }
+  return null;
+}
+
+/**
+ * Whether a logo is small enough to draw: a few hundred KB can still declare an
+ * image of tens of thousands of pixels a side, and decoding that for a PDF
+ * would take more memory than a Worker has.
+ */
+export function logoFitsPdf(bytes: Uint8Array, type: InvoiceLogoType): boolean {
+  const size = logoDimensions(bytes, type);
+  return (
+    size !== null &&
+    size.width > 0 &&
+    size.height > 0 &&
+    size.width <= INVOICE_LOGO_MAX_SIDE &&
+    size.height <= INVOICE_LOGO_MAX_SIDE &&
+    size.width * size.height <= INVOICE_LOGO_MAX_PIXELS
+  );
+}
+
 /**
  * Store a seller's logo — once, here; every document from this seller draws
  * it from this one object. PNG or JPEG (checked by content, not by the name
@@ -338,6 +388,9 @@ async function storeSellerLogo(row: InvoiceSellerRow, workspaceId: string, bytes
   if (bytes.byteLength > INVOICE_LOGO_MAX_BYTES) throw validationError("A logo can be at most 300 KB");
   const type = sniffLogoType(bytes);
   if (!type) throw validationError("A logo has to be a PNG or JPEG image");
+  if (!logoFitsPdf(bytes, type)) {
+    throw validationError(`A logo can be at most ${INVOICE_LOGO_MAX_SIDE} × ${INVOICE_LOGO_MAX_SIDE} pixels`);
+  }
   if (!isR2Configured()) throw new ApiError(503, "storage_unavailable", "File storage isn't configured on this server.");
   // The old logo leaves when this one arrives, so only the difference is new.
   await assertStorageQuota(workspaceId, Math.max(0, bytes.byteLength - (row.logoSizeBytes ?? 0)));
@@ -612,9 +665,28 @@ export async function updateInvoice(
   const finalised = row.status !== "draft";
   const ent = await getWorkspaceEntitlements(workspaceId);
   const { columns, lines } = await draftColumns(data, row.profileId, ent);
+  // A numbered document keeps what finalising asked of it.
+  if (finalised) {
+    assertFinalisable(row.kind, {
+      clientName: columns.clientName ?? "",
+      sellerName: columns.sellerName ?? "",
+      lines: lines.length,
+    });
+  }
   const now = new Date();
+  // The stored PDF this edit replaces — read under the row lock, so two edits
+  // at once each delete the copy they actually took out, and none is stranded.
+  let replacedPdf: string | null = null;
   await getDb().transaction(async (tx) => {
-    const [updated] = await tx
+    const [locked] = await tx
+      .select({ status: invoices.status, pdfKey: invoices.pdfKey })
+      .from(invoices)
+      .where(eq(invoices.id, row.id))
+      .for("update");
+    // Still in the state it was read in: one paid or voided meanwhile stays as it is.
+    if (!locked || locked.status !== row.status) throw conflict(lockedMessage({ kind: row.kind, status: locked?.status ?? row.status }));
+    replacedPdf = locked.pdfKey;
+    await tx
       .update(invoices)
       .set(
         finalised
@@ -622,26 +694,39 @@ export async function updateInvoice(
             { ...columns, editedAt: now, updatedAt: now, pdfKey: null, pdfSizeBytes: null }
           : { ...columns, updatedAt: now },
       )
-      // Still in the state it was read in: one paid or voided meanwhile stays as it is.
-      .where(and(eq(invoices.id, row.id), eq(invoices.status, row.status)))
-      .returning({ id: invoices.id });
-    if (!updated) throw conflict(lockedMessage(row));
+      .where(eq(invoices.id, row.id));
     await tx.delete(invoiceItems).where(eq(invoiceItems.invoiceId, row.id));
     await insertLines(tx, row, lines);
   });
   if (!finalised) return (await getInvoiceDTO(userId, workspaceId, row.id))!;
 
   logger.info(`Finalised ${row.kind} ${row.number ?? row.id} edited`, { event: "invoice.edited", invoiceId: row.id });
-  await storeSnapshot((await getInvoiceDTO(userId, workspaceId, row.id))!, workspaceId);
-  if (row.pdfKey && isR2Configured()) {
-    await deleteObject(row.pdfKey).catch((err: unknown) => {
-      logger.warn(`Old PDF of an edited ${row.kind} wasn't deleted: ${describeError(err)}`, {
-        event: "invoice.old_pdf_left",
-        invoiceId: row.id,
-      });
-    });
-  }
+  await replaceSnapshot((await getInvoiceDTO(userId, workspaceId, row.id))!, workspaceId, replacedPdf);
   return (await getInvoiceDTO(userId, workspaceId, row.id))!;
+}
+
+/** What finalising asks of a document — and what an edit of a finalised one keeps. */
+function assertFinalisable(kind: InvoiceKind, doc: { clientName: string; sellerName: string; lines: number }): void {
+  if (!doc.clientName.trim()) throw validationError(`Add who the ${kind} is for before finalising`);
+  if (!doc.sellerName.trim()) throw validationError("Add your business name before finalising");
+  if (doc.lines === 0) throw validationError(`Add at least one line before finalising`);
+}
+
+/**
+ * Swap a finalised document's stored PDF for one drawn from what it says now —
+ * after an edit, or once it's paid (the pay-by-UPI block goes). `replaced` is
+ * the key the caller cleared under the row lock; it's deleted once the new copy
+ * is in. If storing the new one fails, the next download draws it.
+ */
+async function replaceSnapshot(dto: InvoiceDTO, workspaceId: string, replaced: string | null): Promise<void> {
+  await storeSnapshot(dto, workspaceId);
+  if (!replaced || !isR2Configured()) return;
+  await deleteObject(replaced).catch((err: unknown) => {
+    logger.warn(`Replaced PDF of ${dto.kind} ${dto.number ?? dto.id} wasn't deleted: ${describeError(err)}`, {
+      event: "invoice.old_pdf_left",
+      invoiceId: dto.id,
+    });
+  });
 }
 
 function lockedMessage(row: Pick<InvoiceRow, "kind" | "status">): string {
@@ -685,26 +770,25 @@ export async function deleteInvoice(userId: string, workspaceId: string, id: unk
 export async function finaliseInvoice(userId: string, workspaceId: string, id: unknown): Promise<InvoiceDTO> {
   const row = await requireInvoiceForWrite(userId, workspaceId, id);
   if (row.status !== "draft") throw conflict(`This ${row.kind} is already finalised`);
-  if (!row.clientName.trim()) throw validationError(`Add who the ${row.kind} is for before finalising`);
-  if (!row.sellerName.trim()) throw validationError("Add your business name before finalising");
   const ent = await getWorkspaceEntitlements(workspaceId);
   assertInvoiceTemplateAllowed(ent, row.template);
-  const [lineCount] = await getDb()
-    .select({ n: sql<number>`count(*)::int` })
-    .from(invoiceItems)
-    .where(eq(invoiceItems.invoiceId, row.id));
-  if (!lineCount?.n) throw validationError(`Add at least one line before finalising`);
   // The PDF counts toward storage, so a full workspace can't finalise more.
   await assertStorageQuota(workspaceId, PDF_ESTIMATE_BYTES);
 
   const number = await getDb().transaction(async (tx) => {
     const [locked] = await tx
-      .select({ status: invoices.status })
+      .select({ status: invoices.status, clientName: invoices.clientName, sellerName: invoices.sellerName })
       .from(invoices)
       .where(eq(invoices.id, row.id))
       .for("update");
     if (!locked) throw notFound(INVOICE_NOT_FOUND);
     if (locked.status !== "draft") throw conflict(`This ${row.kind} is already finalised`);
+    // Checked here, under the lock: a draft save landing meanwhile can't empty what gets numbered.
+    const [lineCount] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(invoiceItems)
+      .where(eq(invoiceItems.invoiceId, row.id));
+    assertFinalisable(row.kind, { clientName: locked.clientName, sellerName: locked.sellerName, lines: lineCount?.n ?? 0 });
     const [counter] = await tx
       .insert(invoiceCounters)
       .values({ workspaceId: row.workspaceId, kind: row.kind, lastNumber: 1 })
@@ -816,6 +900,7 @@ export async function markInvoicePaid(
   }
   const paidOn = data.paidOn ?? new Date().toISOString().slice(0, 10);
   const paidAmountMinor = toMinorUnits(amount, workspace.currency);
+  let replacedPdf: string | null = null;
 
   try {
     const { id: transactionId } = await createTransactionId(
@@ -834,6 +919,11 @@ export async function markInvoicePaid(
       {
         strictProfile: true,
         withinInsert: async (tx, txnId) => {
+          const [locked] = await tx
+            .select({ pdfKey: invoices.pdfKey })
+            .from(invoices)
+            .where(eq(invoices.id, row.id))
+            .for("update");
           const [claimed] = await tx
             .update(invoices)
             .set({
@@ -843,10 +933,21 @@ export async function markInvoicePaid(
               paidTransactionId: txnId,
               paidAmountMinor,
               updatedAt: new Date(),
+              // Its stored PDF still offers to be paid by UPI: drawn again below, without.
+              pdfKey: null,
+              pdfSizeBytes: null,
             })
-            .where(and(eq(invoices.id, row.id), eq(invoices.status, "sent")))
+            .where(
+              and(
+                eq(invoices.id, row.id),
+                eq(invoices.status, "sent"),
+                // The invoice as it was read — an edit meanwhile may have changed what's owed.
+                row.editedAt ? eq(invoices.editedAt, row.editedAt) : isNull(invoices.editedAt),
+              ),
+            )
             .returning({ id: invoices.id });
           if (!claimed) throw new AlreadySettled();
+          replacedPdf = locked?.pdfKey ?? null;
         },
       },
     );
@@ -856,6 +957,8 @@ export async function markInvoicePaid(
       transactionId,
       sameCurrency,
     });
+    const paid = (await getInvoiceDTO(userId, workspace.id, row.id))!;
+    await replaceSnapshot(paid, workspace.id, replacedPdf);
     return { invoice: (await getInvoiceDTO(userId, workspace.id, row.id))!, transactionId, alreadyPaid: false };
   } catch (err) {
     if (!(err instanceof AlreadySettled)) throw err;
@@ -863,7 +966,8 @@ export async function markInvoicePaid(
     if (now?.status === "paid") {
       return { invoice: (await getInvoiceDTO(userId, workspace.id, row.id))!, transactionId: now.paidTransactionId, alreadyPaid: true };
     }
-    throw conflict("This invoice was voided a moment ago");
+    if (now?.status === "void") throw conflict("This invoice was voided a moment ago");
+    throw conflict("This invoice was edited a moment ago — check its total and mark it paid again");
   }
 }
 
@@ -966,7 +1070,9 @@ async function logoForPdf(sellerId: string | null): Promise<{ bytes: Uint8Array;
     const bytes = await readObject(seller.key);
     if (!bytes) return null;
     const type = sniffLogoType(bytes);
-    return type ? { bytes, kind: type === "image/png" ? "png" : "jpg" } : null;
+    // Checked again here: one stored before the size check existed is left off rather than decoded.
+    if (!type || !logoFitsPdf(bytes, type)) return null;
+    return { bytes, kind: type === "image/png" ? "png" : "jpg" };
   } catch (err) {
     logger.warn(`Invoice logo couldn't be read for a PDF: ${describeError(err)}`, { event: "invoice.logo_read_failed" });
     return null;
@@ -994,9 +1100,18 @@ async function storeSnapshot(dto: InvoiceDTO, workspaceId: string): Promise<Uint
     const [stored] = await getDb()
       .update(invoices)
       .set({ pdfKey: key, pdfSizeBytes: bytes.byteLength })
-      .where(and(eq(invoices.id, dto.id), isNull(invoices.pdfKey)))
+      .where(
+        and(
+          eq(invoices.id, dto.id),
+          isNull(invoices.pdfKey),
+          // Only if the row still says what this copy was drawn from — an edit
+          // (or a payment) landing meanwhile draws and stores its own.
+          eq(invoices.status, dto.status),
+          dto.editedAt ? eq(invoices.editedAt, new Date(dto.editedAt)) : isNull(invoices.editedAt),
+        ),
+      )
       .returning({ id: invoices.id });
-    // Someone else stored one first (or the row is gone): don't strand this copy.
+    // Someone else stored one first, the row moved on, or it's gone: don't strand this copy.
     if (!stored) await deleteObject(key);
     return bytes;
   } catch (err) {
@@ -1251,12 +1366,45 @@ async function contentKey(value: unknown): Promise<string> {
  * draft brought in twice — a double click, a reload — is the one invoice
  * (`import_key`, a hash of the content).
  */
+/**
+ * The free generator keeps one "Email or phone" line for the business and a
+ * free-text client email; the app keeps email and phone apart and checks both.
+ * Sort them before validating, so a draft comes in rather than failing on a
+ * phone number: a phone moves to the phone field, a client "email" that's
+ * neither is dropped (the seller's stays as typed — a document's contact line
+ * can be anything).
+ */
+function sortGeneratorContacts(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const draft = input as { client?: unknown; seller?: unknown };
+  const out: Record<string, unknown> = { ...(input as Record<string, unknown>) };
+  if (draft.seller && typeof draft.seller === "object") {
+    const seller = { ...(draft.seller as Record<string, unknown>) };
+    const line = typeof seller.contact === "string" ? seller.contact.trim() : "";
+    if (line && emailProblem(line) && !phoneProblem(line) && !seller.phone) {
+      seller.phone = line;
+      seller.contact = null;
+    }
+    out.seller = seller;
+  }
+  if (draft.client && typeof draft.client === "object") {
+    const client = { ...(draft.client as Record<string, unknown>) };
+    const email = typeof client.email === "string" ? client.email.trim() : "";
+    if (email && emailProblem(email)) {
+      if (!phoneProblem(email) && !client.phone) client.phone = email;
+      client.email = null;
+    }
+    out.client = client;
+  }
+  return out;
+}
+
 export async function importInvoiceDraft(
   userId: string,
   workspaceId: string,
   input: unknown,
 ): Promise<{ invoice: InvoiceDTO; created: boolean; sellerSaved: boolean }> {
-  const data = parseOrThrow(importInvoiceDraftSchema, input);
+  const data = parseOrThrow(importInvoiceDraftSchema, sortGeneratorContacts(input));
   await requireProfileIn(userId, workspaceId, data.profileId, "editor");
   const { logo, saveSeller, ...content } = data;
   const importKey = await contentKey(content);
@@ -1272,20 +1420,25 @@ export async function importInvoiceDraft(
   const ent = await getWorkspaceEntitlements(workspaceId);
   let sellerId: string | null = null;
   let sellerSaved = false;
-  const [own] = await db
-    .select()
-    .from(invoiceSellers)
-    .where(eq(invoiceSellers.profileId, data.profileId))
-    .limit(1);
+  // A profile can hold several sets of details: link the one this draft is
+  // from (same name), never just any — its logo would go on the document.
+  const sellerName = content.seller.name.trim().toLowerCase();
+  const own = sellerName
+    ? (
+        await db
+          .select({ id: invoiceSellers.id, name: invoiceSellers.name })
+          .from(invoiceSellers)
+          .where(eq(invoiceSellers.profileId, data.profileId))
+          .orderBy(invoiceSellers.createdAt)
+      ).find((s) => s.name.trim().toLowerCase() === sellerName)
+    : undefined;
   if (own) {
     sellerId = own.id;
   } else if (saveSeller && content.seller.name) {
-    // The generator has one "Email or phone" line; saved details keep them
-    // apart and check each, so it goes to whichever it is (neither: it stays
-    // on the document only).
+    // Saved details keep the email checked (`sortGeneratorContacts` already
+    // moved a phone number to the phone): anything else stays on the document only.
     const line = content.seller.contact ?? "";
     const lineEmail = line && !emailProblem(line) ? line : null;
-    const linePhone = line && !lineEmail && !phoneProblem(line) ? line : null;
     try {
       const seller = await createSeller(userId, workspaceId, {
         profileId: data.profileId,
@@ -1294,7 +1447,7 @@ export async function importInvoiceDraft(
         contact: lineEmail,
         taxId: content.seller.taxId,
         upiId: content.upiId,
-        phone: content.seller.phone ?? linePhone,
+        phone: content.seller.phone,
         website: content.seller.website,
         registrationNumber: content.seller.registrationNumber,
         bankDetails: content.seller.bankDetails,
@@ -1351,7 +1504,9 @@ export async function importInvoiceDraft(
  */
 export async function reprofileInvoices(tx: Tx, fromProfileId: string, toProfileId: string): Promise<void> {
   const to = { profileId: toProfileId };
-  await tx.update(invoices).set(to).where(eq(invoices.profileId, fromProfileId));
+  // The import key is unique per profile: the same generator draft brought into
+  // both would collide on the move, so moved documents forget theirs.
+  await tx.update(invoices).set({ ...to, importKey: null }).where(eq(invoices.profileId, fromProfileId));
   await tx.update(invoiceItems).set(to).where(eq(invoiceItems.profileId, fromProfileId));
   await tx.update(invoiceClients).set(to).where(eq(invoiceClients.profileId, fromProfileId));
   await tx.update(invoiceSellers).set(to).where(eq(invoiceSellers.profileId, fromProfileId));

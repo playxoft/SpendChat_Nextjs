@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -12,11 +12,19 @@ import { cn } from "@/lib/utils";
  * to its end. Below `lg` the list has the screen, and an open panel covers it
  * until it's closed. Place it in a flex column so it can take the height.
  */
+const NARROW = "(max-width: 1023.98px)";
+const subscribeNarrow = (onChange: () => void) => {
+  const query = window.matchMedia(NARROW);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+};
+
 export function SplitView({
   list,
   panel,
   open,
   label,
+  onClose,
 }: {
   list: ReactNode;
   panel: ReactNode;
@@ -24,14 +32,39 @@ export function SplitView({
   open: boolean;
   /** The panel's accessible name. */
   label: string;
+  /** Close it — Escape, on a phone, where it covers the list. */
+  onClose?: () => void;
 }) {
+  // Below `lg` an open panel covers the list: there it's a modal dialog —
+  // focus goes in (and back after), Escape closes it, the list is inert.
+  const narrow = useSyncExternalStore(subscribeNarrow, () => window.matchMedia(NARROW).matches, () => false);
+  const modal = narrow && open;
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!modal) return;
+    const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    panelRef.current?.focus();
+    return () => before?.focus();
+  }, [modal]);
   return (
     <div className="grid items-start gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)] lg:grid-rows-[minmax(0,1fr)] lg:items-stretch">
-      <div className="scrollbar-slim min-w-0 lg:h-full lg:overflow-y-auto lg:pr-1">{list}</div>
+      <div className="scrollbar-slim min-w-0 lg:h-full lg:overflow-y-auto lg:pr-1" inert={modal || undefined}>
+        {list}
+      </div>
       <section
+        ref={panelRef}
         aria-label={label}
+        role={modal ? "dialog" : undefined}
+        aria-modal={modal || undefined}
+        tabIndex={modal ? -1 : undefined}
+        onKeyDown={(e) => {
+          if (modal && onClose && e.key === "Escape" && !e.defaultPrevented) {
+            e.preventDefault();
+            onClose();
+          }
+        }}
         className={cn(
-          "scrollbar-slim overflow-y-auto bg-background",
+          "scrollbar-slim overflow-y-auto bg-background outline-none",
           // Phone: over the list while open, out of the way otherwise.
           open ? "fixed inset-0 z-40 p-4" : "hidden",
           // Desktop: always there, beside the list, as tall as it and scrolling on its own.

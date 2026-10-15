@@ -167,7 +167,7 @@ export function ClientManager({
       </PanelEmpty>
     );
 
-  return <SplitView list={list} panel={panel} open={open !== null} label="Client" />;
+  return <SplitView list={list} panel={panel} open={open !== null} label="Client" onClose={() => setOpen(null)} />;
 }
 
 /** A client's details, editable in the panel: a new one, or the one picked in the list. */

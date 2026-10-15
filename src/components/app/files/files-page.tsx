@@ -435,7 +435,7 @@ export function FilesPageClient({
       source: "file",
       details: (
         <FileDetails
-          key={file.id}
+          key={`${file.id}:${file.name}:${file.description ?? ""}`}
           file={file}
           canWrite={canWrite}
           locale={locale}
@@ -453,7 +453,7 @@ export function FilesPageClient({
       contentType: txn.contentType,
       details: (
         <TxnFileDetails
-          key={txn.id}
+          key={`${txn.id}:${txn.name}`}
           txn={txn}
           canWrite={canWrite}
           locale={locale}

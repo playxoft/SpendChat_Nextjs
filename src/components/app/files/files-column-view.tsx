@@ -434,7 +434,9 @@ function FileDetail({ file, handlers }: { file: FileDTO; handlers: VaultHandlers
       </div>
       {/* Name and description edit right here, as beside the full-screen preview. */}
       <FileDetails
-        key={file.id}
+        // Keyed on what it shows: a rename or a new description from elsewhere
+        // (the Edit dialog) starts it afresh, so a later save can't undo it.
+        key={`${file.id}:${file.name}:${file.description ?? ""}`}
         file={file}
         canWrite={handlers.canWrite}
         locale={handlers.locale}
@@ -471,7 +473,7 @@ function TxnDetail({ txn, handlers }: { txn: TxnFileDTO; handlers: VaultHandlers
       </div>
       {/* The same details as beside the full-screen preview. */}
       <TxnFileDetails
-        key={txn.id}
+        key={`${txn.id}:${txn.name}`}
         txn={txn}
         canWrite={handlers.canWrite}
         locale={handlers.locale}

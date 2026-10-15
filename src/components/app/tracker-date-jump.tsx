@@ -19,8 +19,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
  * filter: whole months and quarters of a year on the left, and a month
  * calendar whose days with transactions (in the profiles on view) carry a dot.
  * Picking a day opens the feed at that day; a month opens it at the month's
- * latest day with transactions, and a quarter at the quarter's (its last month
- * that has started). A day or month with nothing on it lands on the nearest
+ * latest day with transactions, and a quarter at the quarter's. A day or month with nothing on it lands on the nearest
  * earlier day that has something, and the feed says so.
  *
  * Opens on the month under the header (the one the balance is showing), which
@@ -87,10 +86,7 @@ export function TrackerDateJump({
   }
 
   function goToQuarter(y: number, q: Quarter) {
-    // The quarter's last month, or this month while the quarter is still running.
-    const last = `${y}-${pad(q * 3)}`;
-    const thisMonth = today.slice(0, 7);
-    void go({ kind: "month", month: last > thisMonth ? thisMonth : last });
+    void go({ kind: "quarter", year: y, quarter: q });
   }
 
   return (
@@ -144,6 +140,8 @@ export function TrackerDateJump({
             <Calendar
               defaultMonth={activeMonth}
               today={today}
+              // Nothing is dated after today — the grid beside disables future months too.
+              max={today}
               markedDays={marks.get(month) ?? new Set()}
               onMonthChange={(m) => void loadMonth(m)}
               onSelect={(iso) => void go({ kind: "day", date: iso })}

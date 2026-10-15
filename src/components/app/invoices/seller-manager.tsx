@@ -197,7 +197,7 @@ export function SellerManager({
 
   return (
     <>
-      <SplitView list={list} panel={panel} open={open !== null} label="Business details" />
+      <SplitView list={list} panel={panel} open={open !== null} label="Business details" onClose={() => setOpen(null)} />
       <AlertDialog open={deleting !== null} onOpenChange={(o) => !pending && !o && setDeleting(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

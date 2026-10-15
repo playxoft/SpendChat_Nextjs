@@ -84,7 +84,11 @@ function DescriptionField({
         placeholder={placeholder}
         rows={3}
         className="max-h-40 resize-none"
+        aria-describedby={`${id}-shared`}
       />
+      <p id={`${id}-shared`} className="text-xs text-muted-foreground">
+        Anyone with a share link to it sees this too.
+      </p>
     </div>
   );
 }

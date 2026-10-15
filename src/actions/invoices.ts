@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { getCurrentWorkspace, requireUser } from "@/lib/auth";
 import { runAction, type ActionResult } from "@/lib/action-result";
+import { parseOrThrow } from "@/lib/api-response";
+import { invoiceEditorTargetSchema } from "@/lib/validation";
 import { notFound } from "@/lib/errors";
 import type { InvoiceClientDTO, InvoiceSellerDTO } from "@/lib/invoice-queries";
 import type {
@@ -66,7 +68,7 @@ export async function loadInvoiceEditorPanel(
   return runAction(
     "loadInvoiceEditorPanel",
     async () => {
-      const payload = await loadInvoiceEditor(user.id, workspace, target);
+      const payload = await loadInvoiceEditor(user.id, workspace, parseOrThrow(invoiceEditorTargetSchema, target));
       if (!payload) throw notFound("That document can't be edited");
       return { payload };
     },

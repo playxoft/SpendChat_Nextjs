@@ -97,6 +97,25 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   scrollbar as the rest, instead of running off the top and bottom.
 - A file's hover card no longer covers its ⋮ menu: it closes when the menu (or
   the right-click menu) opens.
+- A finalised invoice can't be emptied by an edit — it keeps a client, your
+  name and at least one line — and two edits at once can't leave its PDF out of
+  step with what it says. Marking it paid redraws its PDF without the
+  pay-by-UPI code, and refuses (asking you to check) if it was edited a moment
+  before.
+- Bringing a draft in from the free generator no longer fails on a phone number
+  in the email field, and uses your saved details only when they're the same
+  business (another one's logo no longer lands on it).
+- A logo has to be at most 2400 × 2400 pixels, so an oddly huge image can't
+  break drawing a PDF.
+- Jumping the tracker to a quarter counts any day in it as found, and the
+  calendar there stops at today.
+- In the sidebar, sections can be moved into and out of More with the keyboard
+  too, focus comes back to More when its panel closes, and a section in More
+  that wants attention always shows on More's row.
+- The invoices editor asks before throwing away unsaved changes, a panel that
+  couldn't load offers to try again, and on a phone the panel behaves as a
+  dialog (Escape closes it).
+- File descriptions say they're shown to anyone with a share link.
 
 ## [0.45.0] — 2026-10-14
 

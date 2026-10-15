@@ -117,12 +117,16 @@ function EditableDetails({
               placeholder={canWrite ? "What is it? Who's it from?" : "No description"}
               onChange={(e) => setDescription(e.target.value)}
               onKeyDown={onKeyDown}
+              aria-describedby={canWrite ? `${id}-shared` : undefined}
               rows={3}
               className={`${FIELD} field-sizing-content min-h-20 resize-y py-2 leading-relaxed`}
             />
             {canWrite && (
-              <p className="text-right text-[11px] text-muted-foreground tabular-nums">
-                {description.length}/{VAULT_DESCRIPTION_MAX}
+              <p className="flex justify-between gap-2 text-[11px] text-muted-foreground">
+                <span id={`${id}-shared`}>Anyone with a share link sees this too.</span>
+                <span className="tabular-nums">
+                  {description.length}/{VAULT_DESCRIPTION_MAX}
+                </span>
               </p>
             )}
           </div>
