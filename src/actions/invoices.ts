@@ -15,6 +15,9 @@ import type {
   UpdateInvoiceSellerInput,
 } from "@/lib/validation";
 import * as invoiceService from "@/services/invoices";
+import { loadInvoiceDetail } from "@/services/invoice-detail";
+import { loadInvoiceEditor, type InvoiceEditorPayload, type InvoiceEditorTarget } from "@/services/invoice-editor";
+import type { InvoiceDetailData } from "@/components/app/invoices/invoice-detail";
 import type { InvoiceShareDTO } from "@/services/invoices";
 
 /**
@@ -33,6 +36,42 @@ async function context() {
   const user = await requireUser();
   const workspace = await getCurrentWorkspace(user.id);
   return { user, workspace };
+}
+
+/**
+ * One document's view for the invoices list's side panel, read as the caller
+ * (404 when they can't see it). A read, so it counts against the read bucket.
+ */
+export async function loadInvoicePanel(id: string): Promise<ActionResult<{ detail: InvoiceDetailData }>> {
+  const { user, workspace } = await context();
+  return runAction(
+    "loadInvoicePanel",
+    async () => {
+      const detail = await loadInvoiceDetail(user.id, workspace, id);
+      if (!detail) throw notFound("That document isn't here");
+      return { detail };
+    },
+    { userId: user.id, workspaceId: workspace.id, invoiceId: id, rateLimit: "read" },
+  );
+}
+
+/**
+ * The editor's opening state for the invoices list's side panel: a new
+ * invoice or quote, or one to edit (404 when it isn't there or can't change).
+ */
+export async function loadInvoiceEditorPanel(
+  target: InvoiceEditorTarget,
+): Promise<ActionResult<{ payload: InvoiceEditorPayload }>> {
+  const { user, workspace } = await context();
+  return runAction(
+    "loadInvoiceEditorPanel",
+    async () => {
+      const payload = await loadInvoiceEditor(user.id, workspace, target);
+      if (!payload) throw notFound("That document can't be edited");
+      return { payload };
+    },
+    { userId: user.id, workspaceId: workspace.id, rateLimit: "read" },
+  );
 }
 
 /** Save a draft: a new one (no `id`) or the whole content of an existing draft. */

@@ -71,7 +71,8 @@ export default async function AppLayout({
     ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
   const canManage = workspace.role === "admin";
-  const collapsedSpaces = normalizeUiPrefs(settings.uiPrefs).sidebar.collapsedSpaces;
+  const sidebarPrefs = normalizeUiPrefs(settings.uiPrefs).sidebar;
+  const collapsedSpaces = sidebarPrefs.collapsedSpaces;
 
   return (
     <LoadingOverlayProvider>
@@ -93,6 +94,7 @@ export default async function AppLayout({
         profiles={profiles}
         spaces={spaces}
         collapsedSpaces={collapsedSpaces}
+        navLayout={sidebarPrefs.nav}
         workspaces={workspaces}
         currentWorkspaceId={workspace.id}
         budgetAlerts={budgetAlerts}

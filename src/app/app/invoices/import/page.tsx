@@ -5,7 +5,7 @@ import { getAddLimits } from "@/lib/entitlements";
 import { getTimeZone } from "@/lib/timezone.server";
 import { AccountControls } from "@/components/app/account-controls";
 import { InvoiceImport } from "@/components/app/invoices/invoice-import";
-import { loadEditorData } from "../_lib/editor-data";
+import { loadEditorData } from "@/services/invoice-editor";
 
 export const dynamic = "force-dynamic";
 

@@ -7,8 +7,10 @@ import {
   calculateTotals,
   lineAmountMinor,
   type BusinessDoc,
+  type Buyer,
   type DocEvaluation,
   type ItemResult,
+  type Seller,
   type Totals,
 } from "@/lib/business-doc/invoice";
 import { buildDocView } from "@/lib/business-doc/doc-view";
@@ -46,9 +48,25 @@ export type InvoiceItemInput = { description: string; quantity: number; unitPric
 export type InvoiceContentInput = {
   profileId?: string;
   clientId?: string | null;
-  client: { name: string; email?: string | null; address?: string | null; taxId?: string | null };
+  client: {
+    name: string;
+    email?: string | null;
+    address?: string | null;
+    taxId?: string | null;
+    phone?: string | null;
+    contactPerson?: string | null;
+  };
   sellerId?: string | null;
-  seller: { name: string; address?: string | null; contact?: string | null; taxId?: string | null };
+  seller: {
+    name: string;
+    address?: string | null;
+    contact?: string | null;
+    taxId?: string | null;
+    phone?: string | null;
+    website?: string | null;
+    registrationNumber?: string | null;
+    bankDetails?: string | null;
+  };
   upiId?: string | null;
   quoteTitle?: QuoteTitleChoice;
   issueDate: string;
@@ -85,9 +103,25 @@ export type InvoiceDTO = {
   number: string | null;
   quoteTitle: QuoteTitleChoice;
   clientId: string | null;
-  client: { name: string; email: string | null; address: string | null; taxId: string | null };
+  client: {
+    name: string;
+    email: string | null;
+    address: string | null;
+    taxId: string | null;
+    phone: string | null;
+    contactPerson: string | null;
+  };
   sellerId: string | null;
-  seller: { name: string; address: string | null; contact: string | null; taxId: string | null };
+  seller: {
+    name: string;
+    address: string | null;
+    contact: string | null;
+    taxId: string | null;
+    phone: string | null;
+    website: string | null;
+    registrationNumber: string | null;
+    bankDetails: string | null;
+  };
   upiId: string | null;
   /** The seller has a logo (served from the seller). */
   hasLogo: boolean;
@@ -112,6 +146,8 @@ export type InvoiceDTO = {
   hasPdf: boolean;
   sourceQuoteId: string | null;
   sentAt: string | null;
+  /** The last edit after it was finalised (it kept its number), or null. */
+  editedAt: string | null;
   paidAt: string | null;
   paidOn: string | null;
   paidTransactionId: string | null;
@@ -234,12 +270,18 @@ export function docToInvoiceInput(
         email: doc.to.email.trim() || null,
         address: doc.to.address.trim() || null,
         taxId: doc.to.taxId?.trim() || null,
+        phone: doc.to.phone?.trim() || null,
+        contactPerson: doc.to.contactPerson?.trim() || null,
       },
       seller: {
         name: doc.from.name.trim(),
         address: doc.from.address.trim() || null,
         contact: doc.from.contact.trim() || null,
         taxId: doc.from.taxId.trim() || null,
+        phone: doc.from.phone?.trim() || null,
+        website: doc.from.website?.trim() || null,
+        registrationNumber: doc.from.registrationNumber?.trim() || null,
+        bankDetails: doc.from.bankDetails?.trim() || null,
       },
       quoteTitle: doc.quoteTitle,
       issueDate: dates.issue,
@@ -305,18 +347,8 @@ export function invoiceToDoc(
     issueDate: invoice.issueDate,
     dueDays: invoice.dueDate ? dueDays : null,
     dueDate: invoice.dueDate && dueDays === null ? invoice.dueDate : "",
-    from: {
-      name: invoice.seller.name,
-      address: invoice.seller.address ?? "",
-      contact: invoice.seller.contact ?? "",
-      taxId: invoice.seller.taxId ?? "",
-    },
-    to: {
-      name: invoice.client.name,
-      address: invoice.client.address ?? "",
-      email: invoice.client.email ?? "",
-      taxId: invoice.client.taxId ?? "",
-    },
+    from: sellerToDocFrom(invoice.seller),
+    to: clientToDocTo(invoice.client),
     items: invoice.items.map((item) => ({
       id: item.id,
       description: item.description,
@@ -410,6 +442,34 @@ export function invoicePayment(
   });
   if (!link) return null;
   return { label: "Pay by UPI", upiId: invoice.upiId, qr: qrMatrix(link) };
+}
+
+type NullableParty<T> = { [K in keyof T]-?: string | null };
+
+/** Saved business details as a document's "from" block — what picking them fills in. */
+export function sellerToDocFrom(seller: { name: string } & Partial<NullableParty<Omit<Seller, "name">>>): Seller {
+  return {
+    name: seller.name,
+    address: seller.address ?? "",
+    contact: seller.contact ?? "",
+    taxId: seller.taxId ?? "",
+    phone: seller.phone ?? "",
+    website: seller.website ?? "",
+    registrationNumber: seller.registrationNumber ?? "",
+    bankDetails: seller.bankDetails ?? "",
+  };
+}
+
+/** A saved client as a document's "bill to" block (its private notes stay behind). */
+export function clientToDocTo(client: { name: string } & Partial<NullableParty<Omit<Buyer, "name">>>): Buyer {
+  return {
+    name: client.name,
+    address: client.address ?? "",
+    email: client.email ?? "",
+    taxId: client.taxId ?? "",
+    phone: client.phone ?? "",
+    contactPerson: client.contactPerson ?? "",
+  };
 }
 
 /** The URL the app's paper draws a seller's logo from (its version keeps a changed logo from showing stale). */

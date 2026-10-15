@@ -221,23 +221,27 @@ describe("/api/v1/invoice-clients and /api/v1/invoice-sellers", () => {
     expect(bad.status).toBe(422);
   });
 
-  it("sellers: one on the free tier, a UPI id check, and the logo upload", async () => {
+  it("sellers: three on the free tier, a UPI id check, and the logo upload", async () => {
     const made = await json(
       await createSeller(apiReq("/api/v1/invoice-sellers", { method: "POST", body: jsonBody({ profileId: P, name: "Asha", upiId: "asha@okbank" }) })),
     );
     expect(made.body.data).toMatchObject({ name: "Asha", upiId: "asha@okbank", hasLogo: false });
     const id = made.body.data.id as string;
-    const second = await json(
-      await createSeller(apiReq("/api/v1/invoice-sellers", { method: "POST", body: jsonBody({ profileId: P, name: "Two" }) })),
+    for (const name of ["Two", "Three"]) {
+      const more = await createSeller(apiReq("/api/v1/invoice-sellers", { method: "POST", body: jsonBody({ profileId: P, name }) }));
+      expect(more.status).toBe(201);
+    }
+    const fourth = await json(
+      await createSeller(apiReq("/api/v1/invoice-sellers", { method: "POST", body: jsonBody({ profileId: P, name: "Four" }) })),
     );
-    expect(second.status).toBe(403);
-    expect(second.body.error).toMatchObject({ code: "plan_limit", details: { limit: "invoiceSellers" } });
+    expect(fourth.status).toBe(403);
+    expect(fourth.body.error).toMatchObject({ code: "plan_limit", details: { limit: "invoiceSellers", max: 3 } });
     const badUpi = await patchSeller(
       apiReq(`/api/v1/invoice-sellers/${id}`, { method: "PATCH", body: jsonBody({ upiId: "not a upi" }) }),
       ctx({ id }),
     );
     expect(badUpi.status).toBe(422);
-    expect((await json(await listSellers(apiReq("/api/v1/invoice-sellers")))).body.data).toHaveLength(1);
+    expect((await json(await listSellers(apiReq("/api/v1/invoice-sellers")))).body.data).toHaveLength(3);
 
     expect((await getLogo(apiReq(`/api/v1/invoice-sellers/${id}/logo`), ctx({ id }))).status).toBe(404);
     const png = Uint8Array.from(
@@ -275,7 +279,7 @@ describe("/api/v1/usage — invoicing and the storage breakdown (6.13.0)", () =>
       tier: "free",
       perMonth: { used: 1, limit: 20, resetsAt: expect.stringMatching(/Z$/) },
       clients: { used: 0, limit: 20 },
-      sellers: { used: 0, limit: 1 },
+      sellers: { used: 0, limit: 3 },
       templates: 5,
       footer: true,
     });

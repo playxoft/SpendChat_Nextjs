@@ -50,9 +50,25 @@ function dto(overrides: Partial<InvoiceDTO> = {}): InvoiceDTO {
     number: "INV-0007",
     quoteTitle: "quotation",
     clientId: null,
-    client: { name: "Priya & Co.", email: "priya@example.test", address: "4 Hill Road", taxId: "29ABCDE1234F1Z5" },
+    client: {
+      name: "Priya & Co.",
+      email: "priya@example.test",
+      address: "4 Hill Road",
+      taxId: "29ABCDE1234F1Z5",
+      phone: null,
+      contactPerson: "Ravi",
+    },
     sellerId: null,
-    seller: { name: "Asha Studio", address: "12 Park Street", contact: "asha@studio.test", taxId: null },
+    seller: {
+      name: "Asha Studio",
+      address: "12 Park Street",
+      contact: "asha@studio.test",
+      taxId: null,
+      phone: "+91 98765 43210",
+      website: null,
+      registrationNumber: "U74999KA2020PTC000001",
+      bankDetails: "Asha Studio\nHDFC Bank · 50100012345678\nIFSC HDFC0000001",
+    },
     upiId: "asha@okbank",
     hasLogo: false,
     issueDate: "2026-10-01",
@@ -242,9 +258,40 @@ describe("invoice-doc — stored invoice ⇄ the generator's document", () => {
         discountType: "percent",
         discount: 10,
         taxRate: 18,
-        client: { name: "Priya & Co.", email: "priya@example.test", address: "4 Hill Road", taxId: "29ABCDE1234F1Z5" },
+        client: {
+          name: "Priya & Co.",
+          email: "priya@example.test",
+          address: "4 Hill Road",
+          taxId: "29ABCDE1234F1Z5",
+          phone: null,
+          contactPerson: "Ravi",
+        },
+        seller: {
+          name: "Asha Studio",
+          address: "12 Park Street",
+          contact: "asha@studio.test",
+          taxId: null,
+          phone: "+91 98765 43210",
+          website: null,
+          registrationNumber: "U74999KA2020PTC000001",
+          bankDetails: "Asha Studio\nHDFC Bank · 50100012345678\nIFSC HDFC0000001",
+        },
       }),
     });
+  });
+
+  it("prints the new details: Attn and phone for the client, phone, reg. no. and bank details for the seller", () => {
+    const view = invoiceDocView(dto(), "en-IN");
+    expect(view.client.lines).toEqual(["Attn: Ravi", "4 Hill Road", "priya@example.test", "Tax ID: 29ABCDE1234F1Z5"]);
+    expect(view.seller.lines).toEqual([
+      "12 Park Street",
+      "asha@studio.test",
+      "+91 98765 43210",
+      "Reg. no.: U74999KA2020PTC000001",
+    ]);
+    expect(view.bankDetails).toBe("Asha Studio\nHDFC Bank · 50100012345678\nIFSC HDFC0000001");
+    // Bank details are for paying an invoice — a quote doesn't carry them.
+    expect(invoiceDocView(dto({ kind: "quote" }), "en-IN").bankDetails).toBe("");
   });
 
   it("a due date that isn't a term chip comes back as a picked date", () => {

@@ -4,12 +4,17 @@
  * to get their real local date; omit it to use the runtime's zone.
  */
 export function todayISO(timeZone?: string): string {
+  return dateISOIn(new Date(), timeZone);
+}
+
+/** The calendar date (YYYY-MM-DD) an instant falls on in `timeZone` — `todayISO` for any moment. */
+export function dateISOIn(instant: Date, timeZone?: string): string {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(instant);
   const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
   return `${get("year")}-${get("month")}-${get("day")}`;
 }

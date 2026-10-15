@@ -32,13 +32,27 @@ export type LineItem = {
   price: string;
 };
 
-export type Seller = { name: string; address: string; contact: string; taxId: string };
+export type Seller = {
+  name: string;
+  address: string;
+  contact: string;
+  taxId: string;
+  // The app's business details carry these too; the generator doesn't ask.
+  phone?: string;
+  website?: string;
+  registrationNumber?: string;
+  /** Printed under "Bank details" on an invoice. */
+  bankDetails?: string;
+};
 export type Buyer = {
   name: string;
   address: string;
   email: string;
-  /** The client's tax id — the app's saved clients carry one; the generator doesn't ask. */
+  // The app's saved clients carry these; the generator doesn't ask.
   taxId?: string;
+  phone?: string;
+  /** Printed as "Attn: …". */
+  contactPerson?: string;
 };
 
 export type BusinessDoc = {

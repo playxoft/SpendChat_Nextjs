@@ -1904,6 +1904,11 @@ export const invoiceClients = pgTable(
     email: varchar("email", { length: DOC_FIELD_LIMITS.email }),
     address: varchar("address", { length: DOC_FIELD_LIMITS.address }),
     taxId: varchar("tax_id", { length: DOC_FIELD_LIMITS.taxId }),
+    phone: varchar("phone", { length: DOC_FIELD_LIMITS.phone }),
+    // Printed as "Attn: …" under the client's name.
+    contactPerson: varchar("contact_person", { length: DOC_FIELD_LIMITS.contactPerson }),
+    // Private to the workspace: never printed, never copied onto a document.
+    notes: varchar("notes", { length: DOC_FIELD_LIMITS.clientNotes }),
     // Attribution, like `transactions.user_id` — access is the profile.
     createdBy: uuid("created_by").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -1940,6 +1945,12 @@ export const invoiceSellers = pgTable(
     contact: varchar("contact", { length: DOC_FIELD_LIMITS.contact }),
     taxId: varchar("tax_id", { length: DOC_FIELD_LIMITS.taxId }),
     upiId: varchar("upi_id", { length: UPI_ID_MAX }),
+    phone: varchar("phone", { length: DOC_FIELD_LIMITS.phone }),
+    website: varchar("website", { length: DOC_FIELD_LIMITS.website }),
+    // A company or business registration number (CIN, CRN, ABN…).
+    registrationNumber: varchar("registration_number", { length: DOC_FIELD_LIMITS.registration }),
+    // Free text — account name and number, bank, IFSC / SWIFT / IBAN — printed on invoices.
+    bankDetails: varchar("bank_details", { length: DOC_FIELD_LIMITS.bankDetails }),
     // The logo object (PNG or JPEG, ≤ 300 KB) — never a public URL; served
     // through the authenticated route and drawn into PDFs server-side.
     logoKey: text("logo_key"),
@@ -2022,11 +2033,17 @@ export const invoices = pgTable(
     clientEmail: varchar("client_email", { length: DOC_FIELD_LIMITS.email }),
     clientAddress: varchar("client_address", { length: DOC_FIELD_LIMITS.address }),
     clientTaxId: varchar("client_tax_id", { length: DOC_FIELD_LIMITS.taxId }),
+    clientPhone: varchar("client_phone", { length: DOC_FIELD_LIMITS.phone }),
+    clientContactPerson: varchar("client_contact_person", { length: DOC_FIELD_LIMITS.contactPerson }),
     sellerId: uuid("seller_id").references(() => invoiceSellers.id, { onDelete: "set null" }),
     sellerName: varchar("seller_name", { length: DOC_FIELD_LIMITS.name }).notNull().default(""),
     sellerAddress: varchar("seller_address", { length: DOC_FIELD_LIMITS.address }),
     sellerContact: varchar("seller_contact", { length: DOC_FIELD_LIMITS.contact }),
     sellerTaxId: varchar("seller_tax_id", { length: DOC_FIELD_LIMITS.taxId }),
+    sellerPhone: varchar("seller_phone", { length: DOC_FIELD_LIMITS.phone }),
+    sellerWebsite: varchar("seller_website", { length: DOC_FIELD_LIMITS.website }),
+    sellerRegistrationNumber: varchar("seller_registration_number", { length: DOC_FIELD_LIMITS.registration }),
+    sellerBankDetails: varchar("seller_bank_details", { length: DOC_FIELD_LIMITS.bankDetails }),
     upiId: varchar("upi_id", { length: UPI_ID_MAX }),
     issueDate: date("issue_date").notNull(),
     // Due date (invoice) or valid-until (quote); null = none given.
@@ -2058,6 +2075,8 @@ export const invoices = pgTable(
     // same draft imported twice (a double click, a reload) is one invoice.
     importKey: varchar("import_key", { length: 64 }),
     sentAt: timestamp("sent_at", { withTimezone: true }),
+    // The last time a finalised document was edited (it keeps its number); null if never.
+    editedAt: timestamp("edited_at", { withTimezone: true }),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     paidOn: date("paid_on"),
     paidTransactionId: uuid("paid_transaction_id").references(() => transactions.id, {

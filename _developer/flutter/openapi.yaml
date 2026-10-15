@@ -3707,11 +3707,13 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
     patch:
       tags: [Invoices]
-      summary: Replace a draft's content
+      summary: Replace a document's content
       description: |
         Send the whole document (`InvoiceContent`) — the lines are replaced.
-        Only drafts change: a finalised one is `409 conflict` (void it and
-        make a new one). It stays in its profile.
+        A draft changes freely. A finalised one that isn't paid or void
+        (`status: sent`) can be edited too: it keeps its `number`, `editedAt`
+        records when, and its stored PDF is drawn again. A paid or void
+        document is `409 conflict`. It stays in its profile.
       requestBody:
         required: true
         content:
@@ -4129,9 +4131,9 @@ paths:
       tags: [Invoices]
       summary: Save business details
       description: |
-        In a profile the caller can edit. One set per workspace on the free
-        tier (live profiles): past it, `403 plan_limit` with
-        `limit: "invoiceSellers"` and `upgradeTo: null`.
+        In a profile the caller can edit; a profile can hold several sets.
+        Three per workspace on the free tier (live profiles): past them,
+        `403 plan_limit` with `limit: "invoiceSellers"` and `upgradeTo: null`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -4558,7 +4560,7 @@ components:
         `upgradeTo: null` — show "Contact us"). Since 6.13.0, invoicing's
         allowances — the same on every plan, so always `upgradeTo: null`; show
         the message: `invoices` (20 invoices + quotes a month), `invoiceClients`
-        (20 saved clients), `invoiceSellers` (one set of business details),
+        (20 saved clients), `invoiceSellers` (three sets of business details),
         `invoiceTemplates` (a template outside the tier).
       enum: [members, spaces, profilesPerSpace, categories, tags, budgets, storage,
              aiActions, voice, profileLevelAccess, freeWorkspaces, invoices,
@@ -5481,7 +5483,9 @@ components:
             email: { type: [string, "null"] }
             address: { type: [string, "null"] }
             taxId: { type: [string, "null"] }
-          required: [name, email, address, taxId]
+            phone: { type: [string, "null"] }
+            contactPerson: { type: [string, "null"], description: 'Printed as "Attn: …".' }
+          required: [name, email, address, taxId, phone, contactPerson]
         sellerId: { type: [string, "null"], format: uuid }
         seller:
           type: object
@@ -5490,7 +5494,11 @@ components:
             address: { type: [string, "null"] }
             contact: { type: [string, "null"] }
             taxId: { type: [string, "null"] }
-          required: [name, address, contact, taxId]
+            phone: { type: [string, "null"] }
+            website: { type: [string, "null"] }
+            registrationNumber: { type: [string, "null"] }
+            bankDetails: { type: [string, "null"], description: Printed on invoices under "Bank details". }
+          required: [name, address, contact, taxId, phone, website, registrationNumber, bankDetails]
         upiId: { type: [string, "null"], description: "Rupee invoices with one carry a pay-by-UPI QR code (upi://pay)." }
         hasLogo: { type: boolean, description: "The linked seller has a logo (GET /invoice-sellers/{sellerId}/logo)." }
         issueDate: { type: string, format: date }
@@ -5512,6 +5520,7 @@ components:
         hasPdf: { type: boolean, description: A PDF snapshot is stored (finalised documents). }
         sourceQuoteId: { type: [string, "null"], format: uuid, description: The quote this invoice was made from. }
         sentAt: { type: [string, "null"], format: date-time }
+        editedAt: { type: [string, "null"], format: date-time, description: The last edit after it was finalised (it kept its number) — null if never. }
         paidAt: { type: [string, "null"], format: date-time }
         paidOn: { type: [string, "null"], format: date }
         paidTransactionId: { type: [string, "null"], format: uuid, description: The income entry; null once it's permanently deleted. }
@@ -5524,7 +5533,7 @@ components:
       required: [id, profileId, kind, status, number, quoteTitle, clientId, client, sellerId, seller, upiId,
                  hasLogo, issueDate, dueDate, currency, discountType, discountRate, discountFixedMinor,
                  taxLabel, taxRate, subtotalMinor, discountMinor, taxMinor, totalMinor, notes, terms,
-                 template, showCredit, hasPdf, sourceQuoteId, sentAt, paidAt, paidOn, paidTransactionId,
+                 template, showCredit, hasPdf, sourceQuoteId, sentAt, editedAt, paidAt, paidOn, paidTransactionId,
                  paidAmountMinor, voidedAt, createdBy, createdAt, updatedAt, items]
 
     InvoiceSummary:
@@ -5547,12 +5556,13 @@ components:
         paidAmountMinor: { type: [integer, "null"], format: int64 }
         sourceQuoteId: { type: [string, "null"], format: uuid }
         sentAt: { type: [string, "null"], format: date-time }
+        editedAt: { type: [string, "null"], format: date-time, description: The last edit after it was finalised (it kept its number) — null if never. }
         paidAt: { type: [string, "null"], format: date-time }
         voidedAt: { type: [string, "null"], format: date-time }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
       required: [id, profileId, profileName, profileIcon, kind, status, number, clientId, clientName,
-                 issueDate, dueDate, currency, totalMinor, paidAmountMinor, sourceQuoteId, sentAt, paidAt,
+                 issueDate, dueDate, currency, totalMinor, paidAmountMinor, sourceQuoteId, sentAt, editedAt, paidAt,
                  voidedAt, createdAt, updatedAt]
 
     InvoiceItemInput:
@@ -5578,6 +5588,8 @@ components:
             email: { type: [string, "null"], maxLength: 160 }
             address: { type: [string, "null"], maxLength: 400 }
             taxId: { type: [string, "null"], maxLength: 60 }
+            phone: { type: [string, "null"], maxLength: 40 }
+            contactPerson: { type: [string, "null"], maxLength: 120 }
         sellerId: { type: [string, "null"], format: uuid }
         seller:
           type: object
@@ -5586,6 +5598,10 @@ components:
             address: { type: [string, "null"], maxLength: 400 }
             contact: { type: [string, "null"], maxLength: 160 }
             taxId: { type: [string, "null"], maxLength: 60 }
+            phone: { type: [string, "null"], maxLength: 40 }
+            website: { type: [string, "null"], maxLength: 200 }
+            registrationNumber: { type: [string, "null"], maxLength: 60 }
+            bankDetails: { type: [string, "null"], maxLength: 600 }
         upiId: { type: [string, "null"], maxLength: 100, description: "name@bank" }
         quoteTitle: { type: string, enum: [quotation, estimate], default: quotation }
         issueDate: { type: string, format: date }
@@ -5646,9 +5662,12 @@ components:
         email: { type: [string, "null"] }
         address: { type: [string, "null"] }
         taxId: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        contactPerson: { type: [string, "null"], description: 'Printed as "Attn: …".' }
+        notes: { type: [string, "null"], description: Private to the workspace — never printed or copied onto a document. }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-      required: [id, profileId, name, email, address, taxId, createdAt, updatedAt]
+      required: [id, profileId, name, email, address, taxId, phone, contactPerson, notes, createdAt, updatedAt]
 
     InvoiceClientInput:
       type: object
@@ -5658,6 +5677,9 @@ components:
         email: { type: [string, "null"], format: email, maxLength: 160 }
         address: { type: [string, "null"], maxLength: 400 }
         taxId: { type: [string, "null"], maxLength: 60 }
+        phone: { type: [string, "null"], maxLength: 40 }
+        contactPerson: { type: [string, "null"], maxLength: 120 }
+        notes: { type: [string, "null"], maxLength: 1000 }
       required: [profileId, name]
 
     InvoiceClientUpdate:
@@ -5668,6 +5690,9 @@ components:
         email: { type: [string, "null"], format: email, maxLength: 160 }
         address: { type: [string, "null"], maxLength: 400 }
         taxId: { type: [string, "null"], maxLength: 60 }
+        phone: { type: [string, "null"], maxLength: 40 }
+        contactPerson: { type: [string, "null"], maxLength: 120 }
+        notes: { type: [string, "null"], maxLength: 1000 }
 
     InvoiceSeller:
       type: object
@@ -5677,14 +5702,18 @@ components:
         profileId: { type: string, format: uuid }
         name: { type: string }
         address: { type: [string, "null"] }
-        contact: { type: [string, "null"] }
+        contact: { type: [string, "null"], description: The email line (the app labels it Email). }
         taxId: { type: [string, "null"] }
         upiId: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        website: { type: [string, "null"] }
+        registrationNumber: { type: [string, "null"], description: "A company or business registration number (CIN, CRN, ABN…)." }
+        bankDetails: { type: [string, "null"], description: Free text, printed on invoices under "Bank details". }
         hasLogo: { type: boolean }
         logoVersion: { type: [string, "null"], description: Changes whenever the logo does — a cache key. }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
-      required: [id, profileId, name, address, contact, taxId, upiId, hasLogo, logoVersion, createdAt, updatedAt]
+      required: [id, profileId, name, address, contact, taxId, upiId, phone, website, registrationNumber, bankDetails, hasLogo, logoVersion, createdAt, updatedAt]
 
     InvoiceSellerInput:
       type: object
@@ -5695,6 +5724,10 @@ components:
         contact: { type: [string, "null"], maxLength: 160 }
         taxId: { type: [string, "null"], maxLength: 60 }
         upiId: { type: [string, "null"], maxLength: 100, description: "name@bank" }
+        phone: { type: [string, "null"], maxLength: 40 }
+        website: { type: [string, "null"], maxLength: 200 }
+        registrationNumber: { type: [string, "null"], maxLength: 60 }
+        bankDetails: { type: [string, "null"], maxLength: 600 }
       required: [profileId, name]
 
     InvoiceSellerUpdate:
@@ -5706,6 +5739,10 @@ components:
         contact: { type: [string, "null"], maxLength: 160 }
         taxId: { type: [string, "null"], maxLength: 60 }
         upiId: { type: [string, "null"], maxLength: 100 }
+        phone: { type: [string, "null"], maxLength: 40 }
+        website: { type: [string, "null"], maxLength: 200 }
+        registrationNumber: { type: [string, "null"], maxLength: 60 }
+        bankDetails: { type: [string, "null"], maxLength: 600 }
 
     Summary:
       type: object

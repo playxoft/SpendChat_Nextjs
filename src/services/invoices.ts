@@ -15,6 +15,7 @@ import {
   type InvoiceSellerRow,
 } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
+import { emailProblem, phoneProblem } from "@/lib/contact-fields";
 import { addDays } from "@/lib/tools/date-math";
 import {
   assertCanAddInvoice,
@@ -55,6 +56,7 @@ import {
   INVOICE_LOGO_MAX_BYTES,
   canConvert,
   canDelete,
+  canEdit,
   canMarkPaid,
   canShare,
   canVoid,
@@ -181,6 +183,9 @@ export async function createClient(userId: string, workspaceId: string, input: u
       email: data.email,
       address: data.address,
       taxId: data.taxId,
+      phone: data.phone,
+      contactPerson: data.contactPerson,
+      notes: data.notes,
       createdBy: userId,
     })
     .returning();
@@ -247,6 +252,10 @@ export async function createSeller(userId: string, workspaceId: string, input: u
       contact: data.contact,
       taxId: data.taxId,
       upiId: data.upiId,
+      phone: data.phone,
+      website: data.website,
+      registrationNumber: data.registrationNumber,
+      bankDetails: data.bankDetails,
       createdBy: userId,
     })
     .returning();
@@ -424,7 +433,17 @@ async function draftColumns(
       .where(and(eq(invoiceClients.id, data.clientId), eq(invoiceClients.profileId, profileId)))
       .limit(1);
     if (!row) throw validationError("Pick a client from this profile");
-    if (!client.name) client = { name: row.name, email: row.email, address: row.address, taxId: row.taxId };
+    // A saved client's printable details (its private notes stay with it).
+    if (!client.name) {
+      client = {
+        name: row.name,
+        email: row.email,
+        address: row.address,
+        taxId: row.taxId,
+        phone: row.phone,
+        contactPerson: row.contactPerson,
+      };
+    }
   }
 
   let seller = data.seller;
@@ -437,7 +456,16 @@ async function draftColumns(
       .limit(1);
     if (!row) throw validationError("Pick business details from this profile");
     if (!seller.name) {
-      seller = { name: row.name, address: row.address, contact: row.contact, taxId: row.taxId };
+      seller = {
+        name: row.name,
+        address: row.address,
+        contact: row.contact,
+        taxId: row.taxId,
+        phone: row.phone,
+        website: row.website,
+        registrationNumber: row.registrationNumber,
+        bankDetails: row.bankDetails,
+      };
       upiId ??= row.upiId;
     }
   }
@@ -476,11 +504,17 @@ async function draftColumns(
       clientEmail: client.email,
       clientAddress: client.address,
       clientTaxId: client.taxId,
+      clientPhone: client.phone,
+      clientContactPerson: client.contactPerson,
       sellerId: data.sellerId ?? null,
       sellerName: seller.name,
       sellerAddress: seller.address,
       sellerContact: seller.contact,
       sellerTaxId: seller.taxId,
+      sellerPhone: seller.phone,
+      sellerWebsite: seller.website,
+      sellerRegistrationNumber: seller.registrationNumber,
+      sellerBankDetails: seller.bankDetails,
       upiId: upiId ?? null,
       issueDate: data.issueDate,
       dueDate: data.dueDate,
@@ -559,7 +593,13 @@ export async function createInvoice(userId: string, workspaceId: string, input: 
   return (await getInvoiceDTO(userId, workspaceId, id))!;
 }
 
-/** Replace a draft's content (the whole document, every save). Finalised documents don't change. */
+/**
+ * Replace a document's content (the whole of it, every save). A draft changes
+ * freely. A finalised one that isn't paid or void (`canEdit`) can be edited
+ * too: it keeps its number, records when in `edited_at`, and its stored PDF is
+ * drawn again — the old copy is deleted once the new one is in. Paid and void
+ * documents don't change.
+ */
 export async function updateInvoice(
   userId: string,
   workspaceId: string,
@@ -568,24 +608,47 @@ export async function updateInvoice(
 ): Promise<InvoiceDTO> {
   const data = parseOrThrow(invoiceContentSchema, input);
   const row = await requireInvoiceForWrite(userId, workspaceId, id);
-  if (row.status !== "draft") throw conflict(lockedMessage(row));
+  if (!canEdit(row.status)) throw conflict(lockedMessage(row));
+  const finalised = row.status !== "draft";
   const ent = await getWorkspaceEntitlements(workspaceId);
   const { columns, lines } = await draftColumns(data, row.profileId, ent);
+  const now = new Date();
   await getDb().transaction(async (tx) => {
     const [updated] = await tx
       .update(invoices)
-      .set(columns)
-      .where(and(eq(invoices.id, row.id), eq(invoices.status, "draft")))
+      .set(
+        finalised
+          ? // The stored PDF shows the old content: cleared here, drawn again below.
+            { ...columns, editedAt: now, updatedAt: now, pdfKey: null, pdfSizeBytes: null }
+          : { ...columns, updatedAt: now },
+      )
+      // Still in the state it was read in: one paid or voided meanwhile stays as it is.
+      .where(and(eq(invoices.id, row.id), eq(invoices.status, row.status)))
       .returning({ id: invoices.id });
     if (!updated) throw conflict(lockedMessage(row));
     await tx.delete(invoiceItems).where(eq(invoiceItems.invoiceId, row.id));
     await insertLines(tx, row, lines);
   });
+  if (!finalised) return (await getInvoiceDTO(userId, workspaceId, row.id))!;
+
+  logger.info(`Finalised ${row.kind} ${row.number ?? row.id} edited`, { event: "invoice.edited", invoiceId: row.id });
+  await storeSnapshot((await getInvoiceDTO(userId, workspaceId, row.id))!, workspaceId);
+  if (row.pdfKey && isR2Configured()) {
+    await deleteObject(row.pdfKey).catch((err: unknown) => {
+      logger.warn(`Old PDF of an edited ${row.kind} wasn't deleted: ${describeError(err)}`, {
+        event: "invoice.old_pdf_left",
+        invoiceId: row.id,
+      });
+    });
+  }
   return (await getInvoiceDTO(userId, workspaceId, row.id))!;
 }
 
-function lockedMessage(row: Pick<InvoiceRow, "kind">): string {
-  return `This ${row.kind} is finalised, so it can't change — void it and make a new one`;
+function lockedMessage(row: Pick<InvoiceRow, "kind" | "status">): string {
+  if (row.status === "paid") return "This invoice is paid, so it can't change — its income is already in your tracker";
+  if (row.status === "void") return `This ${row.kind} is void, so it can't change — make a new one`;
+  // Read as editable, but paid or voided before the save landed.
+  return `This ${row.kind} changed a moment ago — reload it and try again`;
 }
 
 /**
@@ -831,11 +894,17 @@ export async function convertQuote(userId: string, workspaceId: string, id: unkn
     clientEmail: quote.clientEmail,
     clientAddress: quote.clientAddress,
     clientTaxId: quote.clientTaxId,
+    clientPhone: quote.clientPhone,
+    clientContactPerson: quote.clientContactPerson,
     sellerId: quote.sellerId,
     sellerName: quote.sellerName,
     sellerAddress: quote.sellerAddress,
     sellerContact: quote.sellerContact,
     sellerTaxId: quote.sellerTaxId,
+    sellerPhone: quote.sellerPhone,
+    sellerWebsite: quote.sellerWebsite,
+    sellerRegistrationNumber: quote.sellerRegistrationNumber,
+    sellerBankDetails: quote.sellerBankDetails,
     upiId: quote.upiId,
     issueDate,
     dueDate: addDays(issueDate, 30),
@@ -1129,6 +1198,7 @@ export async function resolveInvoiceShare(token: unknown): Promise<SharedInvoice
     showCredit: dto.showCredit,
     hasPdf: dto.hasPdf,
     sentAt: dto.sentAt,
+    editedAt: dto.editedAt,
     paidAt: dto.paidAt,
     paidOn: dto.paidOn,
     voidedAt: dto.voidedAt,
@@ -1210,14 +1280,24 @@ export async function importInvoiceDraft(
   if (own) {
     sellerId = own.id;
   } else if (saveSeller && content.seller.name) {
+    // The generator has one "Email or phone" line; saved details keep them
+    // apart and check each, so it goes to whichever it is (neither: it stays
+    // on the document only).
+    const line = content.seller.contact ?? "";
+    const lineEmail = line && !emailProblem(line) ? line : null;
+    const linePhone = line && !lineEmail && !phoneProblem(line) ? line : null;
     try {
       const seller = await createSeller(userId, workspaceId, {
         profileId: data.profileId,
         name: content.seller.name,
         address: content.seller.address,
-        contact: content.seller.contact,
+        contact: lineEmail,
         taxId: content.seller.taxId,
         upiId: content.upiId,
+        phone: content.seller.phone ?? linePhone,
+        website: content.seller.website,
+        registrationNumber: content.seller.registrationNumber,
+        bankDetails: content.seller.bankDetails,
       });
       sellerId = seller.id;
       sellerSaved = true;

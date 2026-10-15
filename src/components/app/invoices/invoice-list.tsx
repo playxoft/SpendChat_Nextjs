@@ -1,9 +1,14 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname, useSearchParams } from "next/navigation";
 import { FileText, Plus } from "lucide-react";
 import { formatMoney } from "@/lib/money";
 import { formatDate } from "@/lib/tools/date-math";
 import type { InvoiceSummaryDTO } from "@/lib/invoice-queries";
-import { InvoiceStatusBadge } from "./invoice-status";
+import { dateISOIn } from "@/lib/dates";
+import { cn } from "@/lib/utils";
+import { InvoiceKindBadge, InvoiceStatusBadge } from "./invoice-status";
 
 /**
  * The invoices list: number (or "Draft"), who it's for, dates, total and
@@ -15,6 +20,10 @@ export function InvoiceList({
   today,
   showProfile,
   emptyAction,
+  hrefFor = (row) => `/app/invoices/${row.id}`,
+  selectedId = null,
+  timeZone,
+  onOpen,
 }: {
   rows: InvoiceSummaryDTO[];
   locale: string;
@@ -23,6 +32,14 @@ export function InvoiceList({
   showProfile: boolean;
   /** What the empty state offers (the New buttons), when the person can add. */
   emptyAction?: React.ReactNode;
+  /** Where a row goes — the list opens it in its side panel. */
+  hrefFor?: (row: InvoiceSummaryDTO) => string;
+  /** The row open in the side panel. */
+  selectedId?: string | null;
+  /** The viewer's — what day an edit fell on. */
+  timeZone?: string;
+  /** Open a row in place (the side panel). A modified click still follows the link. */
+  onOpen?: (id: string) => void;
 }) {
   if (rows.length === 0) {
     return (
@@ -42,19 +59,32 @@ export function InvoiceList({
     );
   }
   return (
-    <ul className="divide-y rounded-xl border">
+    <ul className="divide-y overflow-hidden rounded-xl border">
       {rows.map((row) => (
         <li key={row.id}>
           <Link
-            href={`/app/invoices/${row.id}`}
-            className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none"
+            href={hrefFor(row)}
+            scroll={false}
+            onClick={(e) => {
+              if (!onOpen || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+              e.preventDefault();
+              onOpen(row.id);
+            }}
+            aria-current={row.id === selectedId ? "true" : undefined}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/50 focus-visible:bg-muted/50 focus-visible:outline-none",
+              row.id === selectedId && "bg-muted",
+            )}
           >
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">
+                <InvoiceKindBadge kind={row.kind} />
                 <span className="truncate font-medium">{row.number ?? (row.kind === "quote" ? "Draft quote" : "Draft invoice")}</span>
                 <InvoiceStatusBadge kind={row.kind} status={row.status} dueDate={row.dueDate} today={today} />
-                {row.kind === "quote" && row.number && (
-                  <span className="text-xs text-muted-foreground">Quote</span>
+                {row.editedAt && (
+                  <span className="hidden text-xs text-muted-foreground sm:inline" title={`Edited ${formatDate(dateISOIn(new Date(row.editedAt), timeZone), locale, "medium")}`}>
+                    Edited
+                  </span>
                 )}
               </div>
               <p className="mt-0.5 truncate text-sm text-muted-foreground">
@@ -75,7 +105,12 @@ export function InvoiceList({
   );
 }
 
-/** "New invoice" / "New quote", or the reason they're off. */
+/**
+ * "New invoice" / "New quote", or the reason they're off. On the invoices list
+ * they open the editor in its side panel (`?new=`, set with the browser's own
+ * history like the rest of the panel — `InvoicesBrowser`); a modified click
+ * still opens the editor's own page.
+ */
 export function NewDocumentButtons({
   canAdd,
   reason,
@@ -86,20 +121,33 @@ export function NewDocumentButtons({
   reason: string | null;
   profileParam: string | null;
 }) {
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   if (!canAdd) {
     return reason ? <p className="max-w-xs text-right text-sm text-muted-foreground">{reason}</p> : null;
   }
   const q = profileParam ? `&profile=${encodeURIComponent(profileParam)}` : "";
+  const openInPanel = (kind: "invoice" | "quote") => (e: React.MouseEvent) => {
+    if (pathname !== "/app/invoices" || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey || e.button !== 0) return;
+    e.preventDefault();
+    const params = new URLSearchParams(searchParams.toString());
+    params.delete("view");
+    params.delete("edit");
+    params.set("new", kind);
+    window.history.pushState(null, "", `/app/invoices?${params.toString()}`);
+  };
   return (
     <div className="flex shrink-0 items-center gap-2">
       <Link
         href={`/app/invoices/new?kind=quote${q}`}
+        onClick={openInPanel("quote")}
         className="inline-flex h-8 items-center gap-1.5 rounded-lg border bg-background px-2.5 text-sm font-medium transition-colors hover:bg-muted"
       >
         <Plus className="size-4" /> New quote
       </Link>
       <Link
         href={`/app/invoices/new?kind=invoice${q}`}
+        onClick={openInPanel("invoice")}
         className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-primary px-2.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/80"
       >
         <Plus className="size-4" /> New invoice

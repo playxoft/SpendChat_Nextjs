@@ -170,6 +170,22 @@ export async function dismissInviteNudge(): Promise<ActionResult> {
 }
 
 /**
+ * Save how the sidebar's sections are arranged. No revalidation, like the
+ * folded spaces: the sidebar already shows the new order.
+ */
+export async function setSidebarNav(layout: { main: string[]; more: string[] }): Promise<ActionResult> {
+  const user = await requireUser();
+  return runAction(
+    "setSidebarNav",
+    async () => {
+      await settingsService.updateSidebarNav(user.id, layout);
+      return {};
+    },
+    { userId: user.id, rateLimit: "read" },
+  );
+}
+
+/**
  * Save which sidebar spaces are folded shut (the whole list, newest first). No
  * revalidation: the sidebar already shows the new state, and the next render of
  * the layout reads it back from the row.

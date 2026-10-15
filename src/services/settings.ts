@@ -40,9 +40,11 @@ import {
   normalizeCollapsedSpaces,
   patchSettingsSchema,
   inputModeSchema,
+  sidebarNavInputSchema,
   updateAccountNameSchema,
   voiceLanguagesSchema,
 } from "@/lib/validation";
+import { normalizeSidebarNav, type SidebarNavLayout } from "@/lib/sidebar-nav";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
 import { heardFromOtherSchema, heardFromSchema } from "@/lib/attribution";
 import type { UserSettings } from "@/db/schema";
@@ -509,6 +511,33 @@ export async function dismissInviteNudge(userId: string): Promise<void> {
       updatedAt: new Date(),
     })
     .where(eq(userSettings.userId, userId));
+}
+
+/**
+ * Save how the sidebar's sections are arranged (`ui_prefs.sidebar.nav`): the
+ * list, and what's folded under More. Cleaned here (`normalizeSidebarNav`), so
+ * whatever is stored is a well-formed layout of known sections. Same nested
+ * `||` merge as `updateCollapsedSpaces`, so the folded spaces survive it.
+ */
+export async function updateSidebarNav(userId: string, layout: unknown): Promise<SidebarNavLayout> {
+  const parsed = sidebarNavInputSchema.safeParse(layout);
+  if (!parsed.success) throw validationError("Invalid sidebar layout");
+  const clean = normalizeSidebarNav(parsed.data);
+  await ensureBootstrap(userId);
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({
+      uiPrefs: sql`
+        ${userSettings.uiPrefs} || jsonb_build_object(
+          'sidebar',
+          coalesce(${userSettings.uiPrefs} -> 'sidebar', '{}'::jsonb)
+            || jsonb_build_object('nav', ${JSON.stringify(clean)}::jsonb)
+        )`,
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userId, userId));
+  return clean;
 }
 
 /**

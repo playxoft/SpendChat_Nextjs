@@ -617,9 +617,10 @@ export async function assertCanCreateFreeWorkspace(userId: string): Promise<void
 
 /**
  * The workspace's invoicing tier. Every personal plan includes the free tier
- * (20 invoices + quotes a month, 20 saved clients, 5 templates, one set of
+ * (20 invoices + quotes a month, 20 saved clients, 5 templates, three sets of
  * business details, the "Made with SpendChat" footer); the paid invoice add-on
- * is the only thing that lifts it. **The add-on's hook:** when it ships
+ * is the only thing that lifts it (200 a month — past that, a Business plan,
+ * coming soon). **The add-on's hook:** when it ships
  * (phase 13), this reads the workspace's add-on and returns `"addon"` — every
  * check below already takes its numbers from `INVOICE_LIMITS[tier]`.
  */
@@ -701,8 +702,8 @@ export async function assertCanAddInvoice(tx: Tx, ent: WorkspaceEntitlements): P
   const used = await countInvoicesThisMonth(ent.workspaceId, new Date(), tx);
   if (used + 1 <= limits.perMonth) return;
   throw planLimit(
-    limits.displayUnlimited
-      ? `This workspace has made ${quantity(limits.perMonth, "invoice")} and quotes this month — contact us if you need more.`
+    invoiceTierOf(ent) === "addon"
+      ? `The invoicing add-on includes ${limits.perMonth.toLocaleString("en-US")} invoices and quotes a month. You can make more from ${nextMonthLabel()} — a Business plan for more is coming soon.`
       : `This workspace's invoicing includes ${limits.perMonth.toLocaleString("en-US")} invoices and quotes a month. You can make more from ${nextMonthLabel()}.`,
     { limit: "invoices", plan: ent.plan, max: limits.perMonth, used, upgradeTo: null },
   );
@@ -728,9 +729,7 @@ export async function assertCanAddInvoiceSeller(ent: WorkspaceEntitlements): Pro
   const used = await countInvoiceSellers(ent.workspaceId);
   if (used + 1 <= max) return;
   throw planLimit(
-    max === 1
-      ? "This workspace's invoicing includes one set of business details — edit the one you have."
-      : `This workspace's invoicing includes ${max} sets of business details.`,
+    `This workspace's invoicing includes ${max} sets of business details. Delete one you don't need to add another.`,
     { limit: "invoiceSellers", plan: ent.plan, max, used, upgradeTo: null },
   );
 }

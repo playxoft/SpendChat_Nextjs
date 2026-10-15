@@ -196,18 +196,27 @@ Authentication, secrets via Doppler.
   only with editor on the profile; an id outside that scope is a 404. A draft has **no number**;
   finalising takes the next one from `invoice_counters` (per workspace × kind, `INV-0001` / `QUO-0001`)
   **in the same DB transaction** as the status change — never number a draft, never mint numbers
-  elsewhere, or the series gets gaps/duplicates. Only drafts change or are deleted; **a finalised
-  document is never deleted** — void it (it keeps its number). The PDF is drawn **on the server**
+  elsewhere, or the series gets gaps/duplicates. Only drafts are deleted; **a finalised
+  document is never deleted** — void it (it keeps its number). A finalised one that isn't paid or
+  void can still be edited (`canEdit`): it keeps its number, `edited_at` records when, and
+  `updateInvoice` clears and redraws its stored PDF (deleting the old copy after). Paid and void
+  documents never change — a paid invoice's income is booked. The PDF is drawn **on the server**
   with the free generator's own engine and renderer (`src/lib/business-doc/*`, shared with
   `/tools/invoice-generator` — extend them, don't fork) and stored at finalise in R2 under
   `invoices/` or `quotations/` — the hidden "Invoices"/"Quotations" storage: counted in
   `getWorkspaceStorageUsage` and the usage breakdown, never in the Files browser, collected by
-  `collectProfileObjectKeys`; seller logos are stored once per seller. "Mark as paid" writes one income
+  `collectProfileObjectKeys`; seller logos are stored once per seller. A saved client's `notes` are private to
+  the workspace — never copied onto a document, printed or shared; everything else on a client or a
+  seller is printable and is copied into the invoice's own columns when it's picked. "Mark as paid" writes one income
   transaction through `createTransactionId` (`withinInsert` claims the invoice in the same DB
   transaction — exactly once) in the workspace's currency. Limits come from `INVOICE_LIMITS` for the
   workspace's invoice tier (`invoiceTierOf` in `entitlements.ts` — the add-on's hook): 20 a month
-  (rows created this UTC month), 20 clients, 1 seller, 5 templates, the footer — `plan_limit` with
-  `upgradeTo: null`, gating adding only. Share links follow the file share-link pattern
+  (rows created this UTC month), 20 clients, 3 sellers (a profile may hold several), 5 templates, the
+  footer — on Free, Plus and Pro alike — `plan_limit` with `upgradeTo: null`, gating adding only. No
+  plan lifts them: the UI points to the **invoicing add-on** (`InvoiceLimitMeter` / `InvoiceAddonDialog`
+  in `components/app/invoices/invoice-limits.tsx` — 200 a month, no client cap, 10 sellers), and past
+  the add-on's 200 to a Business plan, coming soon. The add-on isn't sold yet (no billing SKU), so its
+  dialog's buy button says "Coming soon". Share links follow the file share-link pattern
   (`mintShareToken`, `/share/invoice/<token>`).
 - **Trash: every read excludes trashed rows.** `transactions`, `files`, `folders` and `profiles`
   carry `deleted_at` (`timestamptz(3)`): deleting a transaction, a profile, or (Plus/Pro) a file or

@@ -41,6 +41,8 @@ export type DocView = {
   amountInWords: string | null;
   notes: string;
   terms: string;
+  /** The seller's bank details, on an invoice (the app's business details); absent or "" for none. */
+  bankDetails?: string;
   /** The "Made with SpendChat" line, or null when the visitor turned it off. */
   credit: string | null;
   /** The template's look (the app's invoices); the classic one when absent. */
@@ -126,6 +128,7 @@ export function mapViewText(view: DocView, t: (text: string) => string): DocView
     amountInWords: view.amountInWords === null ? null : t(view.amountInWords),
     notes: t(view.notes),
     terms: t(view.terms),
+    bankDetails: t(view.bankDetails ?? ""),
     credit: view.credit === null ? null : t(view.credit),
     payment: view.payment ? { ...view.payment, label: t(view.payment.label), upiId: t(view.payment.upiId) } : null,
   };
@@ -146,11 +149,12 @@ function allText(view: DocView): string {
     view.clientLabel.toUpperCase(),
     view.client.name,
     ...view.client.lines,
-    "DESCRIPTION QTY UNIT PRICE AMOUNT Total Page of Amount in words: NOTES TERMS",
+    "DESCRIPTION QTY UNIT PRICE AMOUNT Total Page of Amount in words: BANK DETAILS NOTES TERMS",
     ...view.items.flatMap((i) => [i.description, i.qty, i.unitPrice, i.amount]),
     ...view.totalRows.flatMap((r) => [r.label, r.value]),
     view.total ?? "",
     view.amountInWords ?? "",
+    view.bankDetails ?? "",
     view.notes,
     view.terms,
     view.credit ?? "",
@@ -432,8 +436,9 @@ export async function renderDocPdf(raw: DocView, fonts: PdfFonts, logo: PdfLogo 
     w.y = top - size;
   }
 
-  // ---- Notes and terms ----
+  // ---- Bank details, notes and terms ----
   for (const [label, body] of [
+    ["BANK DETAILS", view.bankDetails ?? ""],
     ["NOTES", view.notes],
     ["TERMS", view.terms],
   ] as const) {

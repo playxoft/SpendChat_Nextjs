@@ -36,3 +36,23 @@ export function InvoiceStatusBadge({
     </span>
   );
 }
+
+/**
+ * Invoice or quote, told apart at a glance: each its own tint — blue and amber,
+ * clear of the income emerald, the overdue red and the AI gradient.
+ */
+export function InvoiceKindBadge({ kind, className }: { kind: InvoiceKind; className?: string }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex h-5 shrink-0 items-center rounded-md px-1.5 text-xs font-medium whitespace-nowrap",
+        kind === "invoice"
+          ? "bg-sky-500/12 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300"
+          : "bg-amber-500/15 text-amber-800 dark:bg-amber-400/15 dark:text-amber-300",
+        className,
+      )}
+    >
+      {kind === "invoice" ? "Invoice" : "Quote"}
+    </span>
+  );
+}

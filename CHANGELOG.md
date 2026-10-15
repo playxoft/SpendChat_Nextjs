@@ -18,6 +18,86 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.46.0] — 2026-10-15
+
+### Added
+- **Arrange the sidebar your way.** Hover a section to grab its handle and drag
+  it up or down. Sections you use less can be tucked under **More** — Invoices
+  and Split start there — whose sections open in a panel to its right when you
+  hover or click it, like a submenu. Drop a section on More to tuck it in, drag
+  one out of the panel onto the list to bring it back, and drag More itself
+  anywhere in the list. Your arrangement follows you to every device.
+- **Fuller business and client details.** "Your details" now takes a phone
+  number, website, registration number (CIN, CRN, ABN…) and bank details beside
+  your name, address, email, tax ID and UPI ID; a client takes a phone number, a
+  contact person (printed as "Attn:") and private notes that never go on a
+  document. They print on your invoices and quotes — bank details on invoices,
+  under their own heading — and the invoice editor has the same fields.
+- **Edit a file's details while you look at it.** The full-screen preview has a
+  details pane on the right, like Google Drive — rename the file, write its
+  description, and see its type, size, folder, who uploaded it and when. The
+  column view's detail pane edits the same way — and so does a transaction's
+  receipt listed in Files: its name, and the transaction it belongs to.
+- **Invoices work side by side.** Every Invoices tab is now a list with a
+  panel on the right. Click an invoice or quote and it opens there — the
+  document, its actions and how it stands; click another and the panel switches.
+  New invoice, New quote and Edit open the editor across the page — the form on
+  the left, the document on the right — and saving shows the document. Clients
+  and Your details work the same way: pick one to change it on the right, or
+  add a new one there. On a wide screen the section fits the window: the page
+  doesn't scroll, the list and the panel (or the form and the document) each
+  scroll on their own, all the way to their end. On a phone the panel opens
+  over the list. The heading is slimmer, with the tabs under the title.
+- **Edit an invoice or quote after you've finalised it.** Until it's paid, a
+  finalised document can be changed: it keeps its number, its PDF is drawn
+  again, and the list and its page show when it was edited. A paid invoice
+  stays as it is — its income is already in your tracker.
+- **More than one set of business details.** "Your details" lists every
+  business you invoice from, each with its own logo — save up to three, even in
+  the same profile, and pick between them when you make an invoice.
+- **Invoicing limits say what they are.** "3 of 20 saved" and "5 of 20 made this
+  month" carry an info button: hover it to see the limit and an **Upgrade**
+  button for the invoicing add-on (200 invoices and quotes a month, no limit on
+  clients, ten sets of business details). The add-on is coming soon, and so is a
+  Business plan for more than 200 a month.
+
+### Changed
+- **The tracker's "Go to a date" works like the transactions date filter:**
+  jump to a whole month or a quarter (Q1–Q4) of any year, or to one day on the
+  calendar.
+- **Invoices & quotes filters are two toggles** — All / Invoices / Quotes, and
+  Draft / Sent / Paid / Void (pick a state again to clear it).
+- Deleting a set of business details asks first, and **Save changes** only
+  lights up once something has changed.
+- A file's or folder's hover card waits a second before it shows, instead of
+  popping up the moment the pointer passes over.
+- With several profiles selected, "2 selected · Clear" sits on the Profiles
+  heading in place of the add buttons, so the list doesn't jump down.
+- **Email and phone fields check what you type.** A phone number takes digits,
+  spaces and + ( ) - only — letters are refused with a note under the field —
+  and an email that isn't one says so under the field, in your details, a
+  client and the invoice editor alike.
+- **The invoice editor's sections fold.** Click a heading — the document's
+  details, yours, the client's, items, discount and tax, notes — to fold it to
+  a one-line summary.
+- Editing a file or folder in Files offers Save only once you've changed
+  something.
+- **Invoices and quotes are told apart at a glance** — each carries its own
+  coloured label in the list and on its page.
+- **Finalise, Void and Mark as paid show their progress**: the button spins
+  until the page has caught up, says "Done", then the dialog closes — no more
+  wondering whether the click went through.
+
+### Fixed
+- Switching between the Invoices tabs no longer blanks the whole page — the
+  header and tabs stay put and only the list below loads.
+- "New invoice", an invoice, "Edit draft" and "Bring your invoice in" each show
+  a loading state shaped like their own page, instead of the invoices list's.
+- A dialog or pop-up taller than the screen scrolls inside, with the same slim
+  scrollbar as the rest, instead of running off the top and bottom.
+- A file's hover card no longer covers its ⋮ menu: it closes when the menu (or
+  the right-click menu) opens.
+
 ## [0.45.0] — 2026-10-14
 
 ### Added

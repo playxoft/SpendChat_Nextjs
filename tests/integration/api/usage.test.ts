@@ -68,7 +68,7 @@ describe("GET /api/v1/usage", () => {
         tier: "free",
         perMonth: { used: 0, limit: 20, resetsAt: data.ai.resetsAt },
         clients: { used: 0, limit: 20 },
-        sellers: { used: 0, limit: 1 },
+        sellers: { used: 0, limit: 3 },
         templates: 5,
         footer: true,
       },

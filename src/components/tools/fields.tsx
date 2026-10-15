@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type HTMLAttributes, type ReactNode } from "react";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -163,6 +163,10 @@ export function TextField({
   placeholder,
   className,
   maxLength = 200,
+  type = "text",
+  inputMode,
+  autoComplete,
+  onBlur,
 }: {
   label: ReactNode;
   value: string;
@@ -172,16 +176,24 @@ export function TextField({
   placeholder?: string;
   className?: string;
   maxLength?: number;
+  /** "email" / "tel" bring the matching phone keyboard; text otherwise. */
+  type?: "text" | "email" | "tel" | "url";
+  inputMode?: HTMLAttributes<HTMLInputElement>["inputMode"];
+  autoComplete?: string;
+  onBlur?: () => void;
 }) {
   const id = useId();
   return (
     <Field id={id} label={label} hint={hint} error={error} className={className}>
       <input
         id={id}
-        type="text"
+        type={type}
+        inputMode={inputMode}
+        autoComplete={autoComplete}
         value={value}
         placeholder={placeholder}
         maxLength={maxLength}
+        onBlur={onBlur}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={error ? true : undefined}
         aria-describedby={error || hint ? `${id}-msg` : undefined}
@@ -514,16 +526,18 @@ export function TextAreaField({
   onChange,
   placeholder,
   maxLength,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   maxLength: number;
+  hint?: ReactNode;
 }) {
   const id = useId();
   return (
-    <Field id={id} label={label}>
+    <Field id={id} label={label} hint={hint}>
       <textarea
         id={id}
         value={value}

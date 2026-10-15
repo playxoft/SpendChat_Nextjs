@@ -50,6 +50,7 @@ import {
   getInvoicePdf,
   getSharedInvoicePdf,
   importInvoiceDraft,
+  listSellers,
   listClients,
   listInvoices,
   listInvoiceShares,
@@ -281,12 +282,40 @@ describe("a finalised document is never deleted", () => {
     const sent = await finaliseInvoice(A(), W, (await newDraft()).id);
     const err = await expectApiError(deleteInvoice(A(), W, sent.id), 409);
     expect(err.message).toMatch(/void it instead/);
-    await expectApiError(updateInvoice(A(), W, sent.id, content()), 409);
 
     const voided = await voidInvoice(A(), W, sent.id);
     expect(voided).toMatchObject({ status: "void", number: sent.number });
     await expectApiError(voidInvoice(A(), W, sent.id), 409);
     await expectApiError(deleteInvoice(A(), W, sent.id), 409);
+    // A void document doesn't change any more.
+    await expectApiError(updateInvoice(A(), W, sent.id, content()), 409);
+  });
+});
+
+describe("editing a finalised document", () => {
+  it("keeps its number, records when, and draws its PDF again", async () => {
+    const sent = await finaliseInvoice(A(), W, (await newDraft()).id);
+    expect(sent.editedAt).toBeNull();
+    const oldPdfs = [...bucket.keys()].filter((k) => k.includes(sent.id));
+    expect(oldPdfs).toHaveLength(1);
+
+    const edited = await updateInvoice(A(), W, sent.id, content({ notes: "Updated terms", taxRate: 0 }));
+    expect(edited).toMatchObject({ status: "sent", number: sent.number, notes: "Updated terms", hasPdf: true });
+    expect(edited.editedAt).not.toBeNull();
+    expect(edited.totalMinor).not.toBe(sent.totalMinor);
+    // The stored PDF is a new copy; the old one is gone.
+    const pdfs = [...bucket.keys()].filter((k) => k.includes(sent.id));
+    expect(pdfs).toHaveLength(1);
+    expect(pdfs[0]).not.toBe(oldPdfs[0]);
+  });
+
+  it("a draft's edit isn't recorded as one, and a paid invoice doesn't change", async () => {
+    const draft = await newDraft();
+    expect((await updateInvoice(A(), W, draft.id, content({ notes: "x" }))).editedAt).toBeNull();
+    const sent = await finaliseInvoice(A(), W, (await newDraft()).id);
+    await markInvoicePaid(A(), { id: W, currency: "USD", locale: "en-US" }, sent.id, {});
+    const err = await expectApiError(updateInvoice(A(), W, sent.id, content()), 409);
+    expect(err.message).toMatch(/paid/);
   });
 
   it("a draft can't be voided, and a paid invoice can't either", async () => {
@@ -377,6 +406,61 @@ describe("quote → invoice", () => {
   });
 });
 
+describe("saved clients and business details — the fuller set of fields", () => {
+  it("a saved client's and seller's details come onto the document, the client's private notes don't", async () => {
+    const client = await createClient(A(), W, {
+      profileId: P,
+      name: "Priya & Co.",
+      phone: "+91 98765 00000",
+      contactPerson: "Ravi",
+      notes: "Pays late — chase on the 5th",
+    });
+    expect(client).toMatchObject({ phone: "+91 98765 00000", contactPerson: "Ravi", notes: "Pays late — chase on the 5th" });
+    const seller = await createSeller(A(), W, {
+      profileId: P,
+      name: "Asha Studio",
+      phone: "+91 90000 11111",
+      website: "asha.studio",
+      registrationNumber: "U74999KA2020PTC000001",
+      bankDetails: "HDFC Bank · 50100012345678\nIFSC HDFC0000001",
+    });
+    // Picked, not typed: the server copies the saved details in.
+    const inv = await newDraft("invoice", { clientId: client.id, client: { name: "" }, sellerId: seller.id, seller: { name: "" } });
+    expect(inv.client).toEqual({
+      name: "Priya & Co.",
+      email: null,
+      address: null,
+      taxId: null,
+      phone: "+91 98765 00000",
+      contactPerson: "Ravi",
+    });
+    expect(inv.seller).toMatchObject({
+      name: "Asha Studio",
+      phone: "+91 90000 11111",
+      website: "asha.studio",
+      registrationNumber: "U74999KA2020PTC000001",
+      bankDetails: "HDFC Bank · 50100012345678\nIFSC HDFC0000001",
+    });
+    expect(JSON.stringify(inv)).not.toContain("Pays late");
+
+    // A quote carries them over to the invoice made from it.
+    const quote = await finaliseInvoice(A(), W, (await newDraft("quote", { clientId: client.id, client: { name: "" }, sellerId: seller.id, seller: { name: "" } })).id);
+    const made = await convertQuote(A(), W, quote.id, "2026-10-10");
+    expect(made.client.contactPerson).toBe("Ravi");
+    expect(made.seller.bankDetails).toBe(seller.bankDetails);
+  });
+});
+
+describe("email and phone are checked", () => {
+  it("a phone with letters or a seller email that isn't one is refused", async () => {
+    await expectApiError(createClient(A(), W, { profileId: P, name: "Acme", phone: "98765 abc" }), 422);
+    await expectApiError(createSeller(A(), W, { profileId: P, name: "Asha Studio", contact: "+91 98765 43210" }), 422);
+    await expectApiError(newDraft("invoice", { client: { name: "Acme", phone: "ring ring" } }), 422);
+    const ok = await createSeller(A(), W, { profileId: P, name: "Asha Studio", contact: "Asha@Studio.in", phone: "+91 98765 43210" });
+    expect(ok).toMatchObject({ contact: "asha@studio.in", phone: "+91 98765 43210" });
+  });
+});
+
 describe("free tier limits — gate adding only", () => {
   it("20 invoices + quotes a month; the 21st is a plan_limit, and what exists stays", async () => {
     const max = INVOICE_LIMITS.free.perMonth;
@@ -444,10 +528,12 @@ describe("free tier limits — gate adding only", () => {
     expect(await getAddLimits(W, A())).toMatchObject({ invoiceClients: { used: max + 4, reached: true } });
   });
 
-  it("one set of business details on the free tier", async () => {
-    await createSeller(A(), W, { profileId: P, name: "Asha Studio" });
-    const err = await expectApiError(createSeller(A(), W, { profileId: P, name: "Second" }), 403, "plan_limit");
-    expect(err.details).toMatchObject({ limit: "invoiceSellers", max: 1 });
+  it("three sets of business details on the free tier, in one profile if wanted", async () => {
+    const max = INVOICE_LIMITS.free.sellerDetails;
+    expect(max).toBe(3);
+    for (let i = 0; i < max; i++) await createSeller(A(), W, { profileId: P, name: `Studio ${i + 1}` });
+    const err = await expectApiError(createSeller(A(), W, { profileId: P, name: "One more" }), 403, "plan_limit");
+    expect(err.details).toMatchObject({ limit: "invoiceSellers", max });
   });
 
   it("5 templates; an unknown one is refused", async () => {
@@ -653,6 +739,15 @@ describe("from the free generator", () => {
     logo: null,
   });
 
+  it("sorts the generator's one \"Email or phone\" line into the saved details' phone", async () => {
+    const res = await importInvoiceDraft(A(), W, { ...draft(), seller: { name: "Asha Studio", contact: "+91 98765 43210" } });
+    expect(res.sellerSaved).toBe(true);
+    const [saved] = await listSellers(A(), W);
+    expect(saved).toMatchObject({ contact: null, phone: "+91 98765 43210" });
+    // The document keeps the line as it was typed.
+    expect(res.invoice.seller.contact).toBe("+91 98765 43210");
+  });
+
   it("brings a draft in once, saving its business details when there's room", async () => {
     const first = await importInvoiceDraft(A(), W, draft());
     expect(first).toMatchObject({ created: true, sellerSaved: true });
@@ -667,7 +762,9 @@ describe("from the free generator", () => {
 
   it("still comes in when the business details limit is reached", async () => {
     const work = await seedProfile("adm", "Work");
-    await createSeller(A(), W, { profileId: work, name: "Elsewhere" });
+    for (let i = 0; i < INVOICE_LIMITS.free.sellerDetails; i++) {
+      await createSeller(A(), W, { profileId: work, name: `Elsewhere ${i + 1}` });
+    }
     const res = await importInvoiceDraft(A(), W, draft());
     expect(res).toMatchObject({ created: true, sellerSaved: false });
     expect(res.invoice.sellerId).toBeNull();

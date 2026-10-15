@@ -43,6 +43,12 @@ export const DOC_FIELD_LIMITS = {
   contact: 160,
   taxId: 60,
   email: 160,
+  phone: 40,
+  website: 200,
+  registration: 60,
+  bankDetails: 600,
+  contactPerson: 120,
+  clientNotes: 1000,
   description: 300,
   amount: 40,
   taxLabel: 24,
@@ -108,6 +114,16 @@ export function canDelete(status: InvoiceStatus): boolean {
 /** A sent document can be voided; a paid invoice can't (its income entry says it was paid). */
 export function canVoid(status: InvoiceStatus): boolean {
   return status === "sent";
+}
+
+/**
+ * A draft changes freely; a finalised document that isn't paid or void can be
+ * edited too — it keeps its number, records when (`edited_at`) and its stored
+ * PDF is drawn again. A paid invoice is locked (its income entry is booked),
+ * and so is a void one.
+ */
+export function canEdit(status: InvoiceStatus): boolean {
+  return status === "draft" || status === "sent";
 }
 
 export function canFinalise(status: InvoiceStatus): boolean {

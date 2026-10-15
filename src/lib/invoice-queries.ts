@@ -30,6 +30,11 @@ export type InvoiceClientDTO = {
   email: string | null;
   address: string | null;
   taxId: string | null;
+  phone: string | null;
+  /** Printed as "Attn: …". */
+  contactPerson: string | null;
+  /** Private — never printed. */
+  notes: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -39,9 +44,14 @@ export type InvoiceSellerDTO = {
   profileId: string;
   name: string;
   address: string | null;
+  /** The email line (any contact line, for details saved before there was a phone). */
   contact: string | null;
   taxId: string | null;
   upiId: string | null;
+  phone: string | null;
+  website: string | null;
+  registrationNumber: string | null;
+  bankDetails: string | null;
   hasLogo: boolean;
   /** Changes whenever the logo does — a cache key for its URL. */
   logoVersion: string | null;
@@ -67,6 +77,8 @@ export type InvoiceSummaryDTO = {
   paidAmountMinor: number | null;
   sourceQuoteId: string | null;
   sentAt: string | null;
+  /** The last edit after it was finalised, or null. */
+  editedAt: string | null;
   paidAt: string | null;
   voidedAt: string | null;
   createdAt: string;
@@ -84,6 +96,9 @@ export function serializeInvoiceClient(row: InvoiceClientRow): InvoiceClientDTO 
     email: row.email,
     address: row.address,
     taxId: row.taxId,
+    phone: row.phone,
+    contactPerson: row.contactPerson,
+    notes: row.notes,
     createdAt: isoReq(row.createdAt),
     updatedAt: isoReq(row.updatedAt),
   };
@@ -98,6 +113,10 @@ export function serializeInvoiceSeller(row: InvoiceSellerRow): InvoiceSellerDTO 
     contact: row.contact,
     taxId: row.taxId,
     upiId: row.upiId,
+    phone: row.phone,
+    website: row.website,
+    registrationNumber: row.registrationNumber,
+    bankDetails: row.bankDetails,
     hasLogo: row.logoKey !== null,
     logoVersion: row.logoKey ? (row.logoKey.split("/").pop() ?? null) : null,
     createdAt: isoReq(row.createdAt),
@@ -125,9 +144,25 @@ export function serializeInvoice(row: InvoiceRow, items: InvoiceItemRow[], hasLo
     number: row.number,
     quoteTitle: row.quoteTitle === "estimate" ? "estimate" : "quotation",
     clientId: row.clientId,
-    client: { name: row.clientName, email: row.clientEmail, address: row.clientAddress, taxId: row.clientTaxId },
+    client: {
+      name: row.clientName,
+      email: row.clientEmail,
+      address: row.clientAddress,
+      taxId: row.clientTaxId,
+      phone: row.clientPhone,
+      contactPerson: row.clientContactPerson,
+    },
     sellerId: row.sellerId,
-    seller: { name: row.sellerName, address: row.sellerAddress, contact: row.sellerContact, taxId: row.sellerTaxId },
+    seller: {
+      name: row.sellerName,
+      address: row.sellerAddress,
+      contact: row.sellerContact,
+      taxId: row.sellerTaxId,
+      phone: row.sellerPhone,
+      website: row.sellerWebsite,
+      registrationNumber: row.sellerRegistrationNumber,
+      bankDetails: row.sellerBankDetails,
+    },
     upiId: row.upiId,
     hasLogo,
     issueDate: row.issueDate,
@@ -149,6 +184,7 @@ export function serializeInvoice(row: InvoiceRow, items: InvoiceItemRow[], hasLo
     hasPdf: row.pdfKey !== null,
     sourceQuoteId: row.sourceQuoteId,
     sentAt: iso(row.sentAt),
+    editedAt: iso(row.editedAt),
     paidAt: iso(row.paidAt),
     paidOn: row.paidOn,
     paidTransactionId: row.paidTransactionId,
@@ -290,6 +326,7 @@ export async function listInvoiceSummaries(
     paidAmountMinor: r.paidAmountMinor,
     sourceQuoteId: r.sourceQuoteId,
     sentAt: iso(r.sentAt),
+    editedAt: iso(r.editedAt),
     paidAt: iso(r.paidAt),
     voidedAt: iso(r.voidedAt),
     createdAt: isoReq(r.createdAt),

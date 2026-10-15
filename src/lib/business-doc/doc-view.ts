@@ -84,7 +84,10 @@ export function buildDocView({
       lines: [
         ...lines(doc.from.address),
         ...(doc.from.contact.trim() ? [doc.from.contact.trim()] : []),
+        ...(doc.from.phone?.trim() ? [doc.from.phone.trim()] : []),
+        ...(doc.from.website?.trim() ? [doc.from.website.trim()] : []),
         ...(doc.from.taxId.trim() ? [`Tax ID: ${doc.from.taxId.trim()}`] : []),
+        ...(doc.from.registrationNumber?.trim() ? [`Reg. no.: ${doc.from.registrationNumber.trim()}`] : []),
       ],
     },
     meta: [
@@ -96,8 +99,10 @@ export function buildDocView({
     client: {
       name: doc.to.name.trim(),
       lines: [
+        ...(doc.to.contactPerson?.trim() ? [`Attn: ${doc.to.contactPerson.trim()}`] : []),
         ...lines(doc.to.address),
         ...(doc.to.email.trim() ? [doc.to.email.trim()] : []),
+        ...(doc.to.phone?.trim() ? [doc.to.phone.trim()] : []),
         ...(doc.to.taxId?.trim() ? [`Tax ID: ${doc.to.taxId.trim()}`] : []),
       ],
     },
@@ -115,6 +120,8 @@ export function buildDocView({
     amountInWords: totals ? amountWords(totals.total, code) : null,
     notes: doc.notes.trim(),
     terms: doc.kind === "quotation" ? doc.terms.trim() : "",
+    // Where to pay goes on what gets paid: invoices, not quotations.
+    bankDetails: doc.kind === "invoice" ? (doc.from.bankDetails?.trim() ?? "") : "",
     credit: doc.credit ? `Made with SpendChat · ${siteConfig.domain}` : null,
     ...(theme ? { theme } : {}),
     payment,

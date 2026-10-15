@@ -24,22 +24,25 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 Additive. **Invoices and quotes** — free on every plan:
 
 - **`/invoices`** — list (`kind`, `status`, `profileId`, `clientId`,
-  `limit`/`offset`), create a **draft**, read, replace a draft (`PATCH`, the
-  whole document), delete a draft. Plus `POST /invoices/{id}/finalise` (the next
+  `limit`/`offset`), create a **draft**, read, replace the content (`PATCH`, the
+  whole document — a draft, or a sent document, which keeps its number and gets
+  `editedAt`; 409 when paid or void), delete a draft. Plus `POST /invoices/{id}/finalise` (the next
   number in the workspace's series — `INV-0001`, quotes `QUO-0001` — locked, PDF
   stored), `/send` (finalise if needed + a public link), `/void`, `/mark-paid`
   (one income transaction in the workspace's currency; `422 amount_required` when
   the invoice is in another currency; idempotent), `/convert` (quote → draft
   invoice), `GET /pdf` (`application/pdf` bytes), and `/shares` (list, make,
   revoke public links).
-- **`/invoice-clients`** and **`/invoice-sellers`** ("your details") — CRUD, and
+- **`/invoice-clients`** (name, email, phone, contact person, address, tax ID,
+  private notes) and **`/invoice-sellers`** ("your details": name, address,
+  email, phone, website, tax ID, registration number, UPI ID, bank details) — CRUD, and
   `GET`/`PUT`/`DELETE /invoice-sellers/{id}/logo` (PNG/JPEG ≤ 300 KB as the
   request body; `GET` returns a short-lived URL).
 - Invoices belong to a **profile**: viewers read, editors write; a document the
   caller can't see is a 404. A finalised document is **never deleted** (409) —
   void it.
 - **`PlanLimitKey`** gains `invoices` (20 a month), `invoiceClients` (20),
-  `invoiceSellers` (1) and `invoiceTemplates` — all with `upgradeTo: null`
+  `invoiceSellers` (3) and `invoiceTemplates` — all with `upgradeTo: null`
   (no plan lifts them; show the message).
 - **`Usage`** gains `invoicing` (`tier`, `perMonth` with `resetsAt`, `clients`,
   `sellers`, `templates`, `footer`) and `storage.breakdown` (`files`,

@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Ban,
   BadgeCheck,
+  Check,
   Copy,
   Download,
   Link2,
@@ -53,6 +54,7 @@ import type { InvoiceShareDTO } from "@/lib/invoice-doc";
 import {
   canConvert,
   canDelete,
+  canEdit as canEditStatus,
   canFinalise,
   canMarkPaid,
   canShare,
@@ -85,6 +87,8 @@ export function InvoiceActions({
   locale,
   today,
   incomeCategories,
+  onEdit,
+  onDeleted,
 }: {
   doc: Doc;
   /** Edit access to the document's profile (viewers only download). */
@@ -93,26 +97,32 @@ export function InvoiceActions({
   locale: string;
   today: string;
   incomeCategories: { id: string; name: string; icon: string | null }[];
+  /**
+   * Open a document in the editor in place (the invoices list's panel) —
+   * Edit, and the draft a quote turns into. Without it they go to the edit page.
+   */
+  onEdit?: (id: string) => void;
+  /** After a draft is deleted (the panel closes); without it, back to the list. */
+  onDeleted?: () => void;
 }) {
   const router = useRouter();
   const { reportFailure } = usePlan();
-  const [pending, startTransition] = useTransition();
   const [confirm, setConfirm] = useState<"finalise" | "void" | "delete" | null>(null);
+  const { pending, done, startTransition, finish } = useDoneThenClose(() => setConfirm(null));
   const [paying, setPaying] = useState(false);
   const [sharing, setSharing] = useState(false);
   const noun = doc.kind === "quote" ? "quote" : "invoice";
   const pdfHref = `/api/invoices/${doc.id}/pdf`;
 
-  const run = (fn: () => Promise<{ ok: boolean; error?: string; code?: string; details?: unknown }>, done: string) =>
+  const run = (fn: () => Promise<{ ok: boolean; error?: string; code?: string; details?: unknown }>, doneMessage: string) =>
     startTransition(async () => {
       const res = await fn();
       if (!res.ok) {
         reportFailure(res);
         return;
       }
-      toast.success(done);
-      setConfirm(null);
-      router.refresh();
+      toast.success(doneMessage);
+      finish(() => router.refresh());
     });
 
   const convert = () =>
@@ -123,7 +133,13 @@ export function InvoiceActions({
         return;
       }
       toast.success("Made a draft invoice from this quote.");
-      router.push(`/app/invoices/${res.id}/edit`);
+      if (onEdit) {
+        onEdit(res.id);
+        startTransition(() => router.refresh());
+      } else {
+        // In the transition, so the button keeps spinning until the editor is up.
+        startTransition(() => router.push(`/app/invoices/${res.id}/edit`));
+      }
     });
 
   const remove = () =>
@@ -134,22 +150,33 @@ export function InvoiceActions({
         return;
       }
       toast.success("Draft deleted.");
-      router.push("/app/invoices");
+      if (onDeleted) {
+        setConfirm(null);
+        onDeleted();
+        startTransition(() => router.refresh());
+      } else {
+        startTransition(() => router.push("/app/invoices"));
+      }
     });
 
   return (
     <div className="flex flex-wrap items-center gap-2 print:hidden">
-      {canEdit && canFinalise(doc.status) && (
-        <>
+      {canEdit && canEditStatus(doc.status) &&
+        (onEdit ? (
+          <Button variant="outline" onClick={() => onEdit(doc.id)}>
+            <Pencil /> Edit
+          </Button>
+        ) : (
           <Button asChild variant="outline">
             <Link href={`/app/invoices/${doc.id}/edit`}>
               <Pencil /> Edit
             </Link>
           </Button>
-          <Button onClick={() => setConfirm("finalise")} disabled={pending}>
-            <Lock /> Finalise
-          </Button>
-        </>
+        ))}
+      {canEdit && canFinalise(doc.status) && (
+        <Button onClick={() => setConfirm("finalise")} disabled={pending}>
+          <Lock /> Finalise
+        </Button>
       )}
       {canEdit && canMarkPaid(doc.kind, doc.status) && (
         <Button onClick={() => setPaying(true)} disabled={pending}>
@@ -185,7 +212,7 @@ export function InvoiceActions({
         </Button>
       )}
 
-      <AlertDialog open={confirm !== null} onOpenChange={(o) => !pending && !o && setConfirm(null)}>
+      <AlertDialog open={confirm !== null} onOpenChange={(o) => !pending && !done && !o && setConfirm(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -197,17 +224,17 @@ export function InvoiceActions({
             </AlertDialogTitle>
             <AlertDialogDescription>
               {confirm === "finalise"
-                ? `It gets the next ${noun} number and can't be changed after — only voided. Its PDF is saved to your workspace's storage.`
+                ? `It gets the next ${noun} number, and its PDF is saved to your workspace's storage. You can still edit it until it's paid — it keeps its number, and the date of the edit is recorded.`
                 : confirm === "void"
                   ? `It stays on record with its number, marked void. Nothing is deleted.`
                   : "It has no number yet, so nothing is skipped in your series."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={pending}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={pending || done}>Cancel</AlertDialogCancel>
             <AlertDialogAction
               className={confirm === "finalise" ? undefined : buttonVariants({ variant: "destructive" })}
-              disabled={pending}
+              disabled={pending || done}
               onClick={(e) => {
                 e.preventDefault();
                 if (confirm === "finalise") run(() => finaliseInvoice(doc.id), `Finalised — it's ready to send.`);
@@ -215,8 +242,12 @@ export function InvoiceActions({
                 else remove();
               }}
             >
-              {pending && <Loader2 className="animate-spin" />}
-              {confirm === "finalise" ? "Finalise" : confirm === "void" ? "Void" : "Delete"}
+              <ProgressLabel
+                pending={pending}
+                done={done}
+                idle={confirm === "finalise" ? "Finalise" : confirm === "void" ? "Void" : "Delete"}
+                working={confirm === "finalise" ? "Finalising…" : confirm === "void" ? "Voiding…" : "Deleting…"}
+              />
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -266,7 +297,7 @@ function MarkPaidDialog({
   const [categoryId, setCategoryId] = useState(
     incomeCategories.find((c) => /freelanc|business|invoice|sales/i.test(c.name))?.id ?? "",
   );
-  const [pending, startTransition] = useTransition();
+  const { pending, done, startTransition, finish } = useDoneThenClose(onClose);
   const parsed = amount.trim() ? parseNumber(amount, locale) : null;
   const error = amount.trim() && (parsed === null || parsed <= 0) ? "Enter the amount you received." : null;
 
@@ -282,13 +313,12 @@ function MarkPaidDialog({
         return;
       }
       toast.success(res.alreadyPaid ? "It was already marked paid." : "Marked paid — the income is in your tracker.");
-      onClose();
-      router.refresh();
+      finish(() => router.refresh());
     });
   };
 
   return (
-    <Dialog open onOpenChange={(o) => !pending && !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !pending && !done && !o && onClose()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Mark {doc.number} as paid</DialogTitle>
@@ -321,11 +351,11 @@ function MarkPaidDialog({
           )}
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={onClose} disabled={pending}>
+          <Button variant="ghost" onClick={onClose} disabled={pending || done}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={pending}>
-            {pending && <Loader2 className="animate-spin" />} Mark as paid
+          <Button onClick={submit} disabled={pending || done}>
+            <ProgressLabel pending={pending} done={done} idle="Mark as paid" working="Marking as paid…" />
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -443,4 +473,62 @@ function ShareDialog({ doc, onClose }: { doc: Doc; onClose: () => void }) {
       </DialogContent>
     </Dialog>
   );
+}
+
+/**
+ * A confirm button's whole story: a spinner while the action — and the page
+ * refresh after it — run, then a check and "Done" once the refreshed page is
+ * in, then `close`. Before, the dialog shut the moment the server answered and
+ * the page sat on the old state until the refresh landed, which read as if
+ * nothing had happened. `finish(refresh)` marks the action done and runs the
+ * refresh inside the transition, so `pending` holds until it has rendered.
+ */
+function useDoneThenClose(close: () => void) {
+  const [pending, startTransition] = useTransition();
+  const [done, setDone] = useState(false);
+  const closeRef = useRef(close);
+  useLayoutEffect(() => {
+    closeRef.current = close;
+  });
+  useEffect(() => {
+    if (!done || pending) return;
+    const t = window.setTimeout(() => {
+      setDone(false);
+      closeRef.current();
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [done, pending]);
+  const finish = (refresh: () => void) => {
+    setDone(true);
+    startTransition(refresh);
+  };
+  return { pending, done, startTransition, finish };
+}
+
+function ProgressLabel({
+  pending,
+  done,
+  idle,
+  working,
+}: {
+  pending: boolean;
+  done: boolean;
+  idle: string;
+  working: string;
+}) {
+  if (pending) {
+    return (
+      <>
+        <Loader2 className="animate-spin" /> {working}
+      </>
+    );
+  }
+  if (done) {
+    return (
+      <>
+        <Check /> Done
+      </>
+    );
+  }
+  return <>{idle}</>;
 }

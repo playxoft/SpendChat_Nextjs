@@ -119,7 +119,7 @@ action would go past one, the server answers **403** with
 | `freeWorkspaces` | one free workspace per person | `POST /workspaces`; writes into a view-only workspace — any endpoint that adds or edits data (below) |
 | `invoices` | 20 invoices + quotes a month per workspace, on **every** plan (`upgradeTo: null` — show the message) — since 6.13.0 | `POST /invoices`, `POST /invoices/{id}/convert` |
 | `invoiceClients` | 20 saved clients (live profiles), every plan — since 6.13.0 | `POST /invoice-clients` |
-| `invoiceSellers` | 1 set of business details, every plan — since 6.13.0 | `POST /invoice-sellers` |
+| `invoiceSellers` | 3 sets of business details (a profile may hold several), every plan — since 6.13.0 | `POST /invoice-sellers` |
 | `invoiceTemplates` | a template outside the five free ones — since 6.13.0 | (reserved; an unknown `template` is a 422 today) |
 
 Limits apply to every workspace from the day plans ship, and they gate
@@ -719,9 +719,11 @@ doesn't count toward the plan) until the profile is restored.
   "number": "INV-0007" | null,     // null on a draft; QUO-0001… for quotes
   "quoteTitle": "quotation" | "estimate",
   "clientId": "uuid" | null,       // link to a saved client (null once it's deleted)
-  "client": { "name": "Acme Ltd", "email": "a@acme.test" | null, "address": "…" | null, "taxId": "…" | null },
+  "client": { "name": "Acme Ltd", "email": "a@acme.test" | null, "address": "…" | null, "taxId": "…" | null,
+              "phone": "…" | null, "contactPerson": "Priya" | null },   // contactPerson prints as "Attn: …"
   "sellerId": "uuid" | null,       // link to saved business details
-  "seller": { "name": "Asha Studio", "address": null, "contact": null, "taxId": null },
+  "seller": { "name": "Asha Studio", "address": null, "contact": null, "taxId": null, "phone": null,
+              "website": null, "registrationNumber": null, "bankDetails": "…" | null },  // bank details print on invoices
   "upiId": "asha@okbank" | null,   // rupee invoices get a pay-by-UPI QR code
   "hasLogo": true,                 // the seller has a logo (GET /invoice-sellers/{sellerId}/logo)
   "issueDate": "2026-10-01",
@@ -740,6 +742,7 @@ doesn't count toward the plan) until the profile is restored.
   "hasPdf": true,                  // a PDF snapshot is stored (finalised documents)
   "sourceQuoteId": "uuid" | null,  // the quote this invoice was made from
   "sentAt": "…" | null, "paidAt": "…" | null, "paidOn": "2026-10-05" | null,
+  "editedAt": "…" | null,          // last edit after it was finalised (it kept its number)
   "paidTransactionId": "uuid" | null,  // the income entry
   "paidAmountMinor": 265606 | null,    // what was received, in the WORKSPACE's currency
   "voidedAt": "…" | null,
@@ -749,10 +752,15 @@ doesn't count toward the plan) until the profile is restored.
 }
 // InvoiceClient
 { "id": "uuid", "profileId": "uuid", "name": "Acme Ltd", "email": null, "address": null, "taxId": null,
+  "phone": null, "contactPerson": null,
+  "notes": "…" | null,             // private to the workspace — never printed or copied onto a document
   "createdAt": "…", "updatedAt": "…" }
 // InvoiceSeller ("your details")
-{ "id": "uuid", "profileId": "uuid", "name": "Asha Studio", "address": null, "contact": null, "taxId": null,
-  "upiId": "asha@okbank" | null, "hasLogo": true, "logoVersion": "…" | null, "createdAt": "…", "updatedAt": "…" }
+{ "id": "uuid", "profileId": "uuid", "name": "Asha Studio", "address": null,
+  "contact": null,                 // the email line (the app labels it Email)
+  "taxId": null, "upiId": "asha@okbank" | null,
+  "phone": null, "website": null, "registrationNumber": null, "bankDetails": null,
+  "hasLogo": true, "logoVersion": "…" | null, "createdAt": "…", "updatedAt": "…" }
 // InvoiceShare
 { "id": "uuid", "invoiceId": "uuid", "token": "…", "path": "/share/invoice/…",
   "url": "https://spendchat.app/share/invoice/…", "expiresAt": null, "createdAt": "…" }
@@ -762,9 +770,11 @@ doesn't count toward the plan) until the profile is restored.
   profile — is a **404**; a viewer writing is a **403**.
 - **Drafts and numbers.** A draft has no `number`. Finalising gives it the next in
   the workspace's series (`INV-0001`, `INV-0002`…; quotes `QUO-0001`…) — never
-  a gap, never a duplicate — and locks it. Only drafts change (`PATCH`) or are
-  deleted; a finalised document is **never deleted** (409): void it, and it stays
-  on record with its number.
+  a gap, never a duplicate. Only drafts are deleted; a finalised document is
+  **never deleted** (409): void it, and it stays on record with its number. A
+  finalised document that isn't paid or void can still be edited (`PATCH`): it
+  keeps its number, `editedAt` records when, and its stored PDF is redrawn; a
+  paid or void one is **409**.
 - **Money.** Send plain numbers in **major units** of the document's currency
   (`unitPrice: 1250.5`); the server works out every line amount and total and
   answers in minor units. "Mark as paid" writes one income transaction in the
@@ -774,7 +784,7 @@ doesn't count toward the plan) until the profile is restored.
   are served from the copy stored at finalise (it counts toward the workspace's
   storage — `GET /usage` → `storage.breakdown`); a draft is drawn on the spot.
 - **Allowances** (every plan): 20 invoices + quotes a month, 20 saved clients,
-  one set of business details, five templates, "Made with SpendChat" on the
+  three sets of business details, five templates, "Made with SpendChat" on the
   documents — `403 plan_limit` with `upgradeTo: null` past them (show the
   message). `GET /usage` → `invoicing` has the numbers.
 
@@ -933,7 +943,7 @@ the debug/about screen so a bug report names the exact deploy, and link
 | `GET /invoices?kind=&status=&profileId=&clientId=&limit=&offset=` | — | 200 `data: InvoiceSummary[]`, `meta: { limit, offset }` | Newest first, no lines; `limit` ≤ 200. 422 bad `kind` / `status`. |
 | `POST /invoices` | `{ kind, profileId, …InvoiceContent }` | 201 `data: Invoice` | A **draft**. 403 without edit access to the profile (404 if you can't see it); **403 `plan_limit` `invoices`** past 20 a month; 422 bad fields, a client/seller from another profile, an unknown template, a due date before the issue date. |
 | `GET /invoices/{id}` | — | 200 `data: Invoice` | 404 when the caller can't read it. |
-| `PATCH /invoices/{id}` | `InvoiceContent` (the whole document) | 200 `data: Invoice` | Drafts only — **409** once finalised. |
+| `PATCH /invoices/{id}` | `InvoiceContent` (the whole document) | 200 `data: Invoice` | Drafts and sent documents (a sent one keeps its number; `editedAt` set) — **409** when paid or void. |
 | `DELETE /invoices/{id}` | — | 200 `data: { id, deleted: true }` | Drafts only — **409** for a finalised document (void it). |
 | `POST /invoices/{id}/finalise` | — | 200 `data: Invoice` | Numbers it, locks it, stores the PDF. 409 already finalised; 422 no client name / business name / lines; **413 `storage_quota_exceeded`** storage full. |
 | `POST /invoices/{id}/send` | — | 200 `data: { invoice, share: InvoiceShare }` | Finalises a draft first, then the newest live link (or a new one). Nothing is emailed. |
@@ -945,10 +955,10 @@ the debug/about screen so a bug report names the exact deploy, and link
 | `POST /invoices/{id}/shares` | `{ expiresInDays? }` (1–365) | 201 `data: InvoiceShare` | Finalised documents only (409 for a draft). Anyone with `url` can view it and download the PDF; it stops while the profile is in the trash. |
 | `DELETE /invoices/{id}/shares/{shareId}` | — | 200 `data: { id, deleted: true }` | Revoke; stops at once. |
 | `GET /invoice-clients?profileId=` | — | 200 `data: InvoiceClient[]` | By name. |
-| `POST /invoice-clients` | `{ profileId, name, email?, address?, taxId? }` | 201 `data: InvoiceClient` | **403 `plan_limit` `invoiceClients`** past 20. 422 bad email. |
+| `POST /invoice-clients` | `{ profileId, name, email?, address?, taxId?, phone?, contactPerson?, notes? }` | 201 `data: InvoiceClient` | **403 `plan_limit` `invoiceClients`** past 20. 422 bad email. |
 | `GET` / `PATCH` / `DELETE /invoice-clients/{id}` | PATCH: any field (null clears) | 200 | Documents keep their own copy of the client's details. |
 | `GET /invoice-sellers?profileId=` | — | 200 `data: InvoiceSeller[]` | "Your details". |
-| `POST /invoice-sellers` | `{ profileId, name, address?, contact?, taxId?, upiId? }` | 201 `data: InvoiceSeller` | **403 `plan_limit` `invoiceSellers`** past one per workspace. 422 a UPI ID that isn't `name@bank`. |
+| `POST /invoice-sellers` | `{ profileId, name, address?, contact?, taxId?, upiId?, phone?, website?, registrationNumber?, bankDetails? }` | 201 `data: InvoiceSeller` | **403 `plan_limit` `invoiceSellers`** past three per workspace (a profile may hold several). 422 a UPI ID that isn't `name@bank`. |
 | `GET` / `PATCH` / `DELETE /invoice-sellers/{id}` | PATCH: any field | 200 | DELETE takes the logo too. |
 | `GET /invoice-sellers/{id}/logo` | — | 200 `data: { url, expiresInSeconds, contentType }` | A 5-minute URL — fetch it **without** the Authorization header. 404 no logo; 503 storage not configured. |
 | `PUT /invoice-sellers/{id}/logo` | the image bytes (`image/png` or `image/jpeg`, ≤ 300 KB) | 200 `data: InvoiceSeller` | Resize on the device first. 422 not a PNG/JPEG or too big; **413 `storage_quota_exceeded`**. |

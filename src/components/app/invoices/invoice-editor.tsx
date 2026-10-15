@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState, useTransition, type ReactNode } from "react";
+import { useId, useMemo, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Loader2, Save, UserPlus } from "lucide-react";
+import { ChevronDown, Loader2, Save, UserPlus } from "lucide-react";
 import { toast } from "sonner";
 import { saveInvoiceClient, saveInvoiceDraft } from "@/actions/invoices";
 import { DocPaper } from "@/components/business-doc/doc-paper";
@@ -25,8 +25,10 @@ import {
 import { CUSTOM_TERMS, docLabels } from "@/lib/business-doc/labels";
 import { qrMatrix } from "@/lib/business-doc/qr";
 import { docTheme } from "@/lib/business-doc/templates";
-import { docToInvoiceInput, sellerLogoUrl } from "@/lib/invoice-doc";
-import type { InvoiceClientDTO, InvoiceSellerDTO } from "@/lib/invoice-queries";
+import { clientToDocTo, docToInvoiceInput, sellerLogoUrl, sellerToDocFrom } from "@/lib/invoice-doc";
+import { EmailField, PhoneField, contactProblem } from "./contact-inputs";
+import type { InvoiceSellerDTO } from "@/lib/invoice-queries";
+import type { InvoiceEditorPayload } from "@/services/invoice-editor";
 import {
   DOC_FIELD_LIMITS,
   UPI_ID_MAX,
@@ -37,6 +39,7 @@ import {
   type InvoiceTemplateId,
 } from "@/lib/invoices";
 import { formatMoney } from "@/lib/money";
+import { formatDate } from "@/lib/tools/date-math";
 import { currencySymbol } from "@/lib/tools/format";
 import { cn } from "@/lib/utils";
 
@@ -53,37 +56,25 @@ const TYPED_SELLER = "";
  * nothing typed it didn't check. A draft has no number until it's finalised.
  */
 export function InvoiceEditor({
-  invoiceId,
-  kind,
-  initialDoc,
-  initial,
-  profiles,
-  clients,
-  sellers,
-  locale,
-  today,
-  footer,
+  payload,
+  onSaved,
+  fill = false,
 }: {
-  invoiceId: string | null;
-  kind: InvoiceKind;
-  initialDoc: BusinessDoc;
-  initial: {
-    profileId: string;
-    clientId: string | null;
-    sellerId: string | null;
-    upiId: string;
-    template: InvoiceTemplateId;
-    currency: string;
-  };
-  /** Profiles the person can add invoices to (only offered for a new one). */
-  profiles: { id: string; name: string; icon: string | null }[];
-  clients: InvoiceClientDTO[];
-  sellers: InvoiceSellerDTO[];
-  locale: string;
-  today: string;
-  /** "Made with SpendChat" goes on this workspace's documents. */
-  footer: boolean;
+  /** What it opens on (`loadInvoiceEditor`): the document, where it can go, what's saved there. */
+  payload: InvoiceEditorPayload;
+  /**
+   * After a save. Without it the editor goes to the document's own page; the
+   * invoices list's panel passes one to show the document in the panel instead.
+   */
+  onSaved?: (id: string) => void;
+  /**
+   * Fill the height it's given (the invoices tab, which fits the screen): the
+   * form and the preview each scroll on their own. Without it the page scrolls
+   * and the preview stays in view beside the form.
+   */
+  fill?: boolean;
 }) {
+  const { invoiceId, kind, initialDoc, initial, profiles, clients, sellers, locale, today, footer } = payload;
   const router = useRouter();
   const { reportFailure } = usePlan();
   const [doc, setDoc] = useState<BusinessDoc>({ ...initialDoc, credit: footer });
@@ -96,6 +87,8 @@ export function InvoiceEditor({
   const [clientList, setClientList] = useState(clients);
   const [dueOpen, setDueOpen] = useState(false);
   const [saving, startSaving] = useTransition();
+  // A finalised document being edited (it has its number): saving keeps it and records the edit.
+  const finalised = Boolean(invoiceId && initialDoc.number);
   const [savingClient, startSavingClient] = useTransition();
 
   const labels = docLabels(doc.kind, doc.quoteTitle);
@@ -131,7 +124,7 @@ export function InvoiceEditor({
     const seller = profileSellers.find((s) => s.id === id);
     setSellerId(seller?.id ?? null);
     if (seller) {
-      setFrom({ name: seller.name, address: seller.address ?? "", contact: seller.contact ?? "", taxId: seller.taxId ?? "" });
+      setFrom(sellerToDocFrom(seller));
       setUpiId(seller.upiId ?? "");
       update({ logo: sellerLogoUrl(seller) });
     } else {
@@ -142,9 +135,7 @@ export function InvoiceEditor({
   const pickClient = (id: string) => {
     const client = profileClients.find((c) => c.id === id);
     setClientId(client?.id ?? null);
-    if (client) {
-      setTo({ name: client.name, address: client.address ?? "", email: client.email ?? "", taxId: client.taxId ?? "" });
-    }
+    if (client) setTo(clientToDocTo(client));
   };
 
   const pickProfile = (id: string) => {
@@ -164,7 +155,7 @@ export function InvoiceEditor({
   };
   const pickSellerFrom = (seller: InvoiceSellerDTO) => {
     setSellerId(seller.id);
-    setFrom({ name: seller.name, address: seller.address ?? "", contact: seller.contact ?? "", taxId: seller.taxId ?? "" });
+    setFrom(sellerToDocFrom(seller));
     setUpiId(seller.upiId ?? "");
     update({ logo: sellerLogoUrl(seller) });
   };
@@ -181,6 +172,8 @@ export function InvoiceEditor({
         email: doc.to.email || null,
         address: doc.to.address || null,
         taxId: doc.to.taxId || null,
+        phone: doc.to.phone || null,
+        contactPerson: doc.to.contactPerson || null,
       });
       if (!res.ok) {
         reportFailure(res);
@@ -195,6 +188,15 @@ export function InvoiceEditor({
   const save = () => {
     if (upiError) {
       toast.error(upiError);
+      return;
+    }
+    // The fields say what's wrong under themselves; this says why nothing saved.
+    const contactError = contactProblem({
+      email: [doc.from.contact, doc.to.email],
+      phone: [doc.from.phone ?? "", doc.to.phone ?? ""],
+    });
+    if (contactError) {
+      toast.error(`Check the highlighted email and phone fields — ${contactError.toLowerCase()}.`);
       return;
     }
     const built = docToInvoiceInput(doc, {
@@ -213,19 +215,39 @@ export function InvoiceEditor({
         reportFailure(res, "Couldn't save the draft");
         return;
       }
-      toast.success(invoiceId ? "Draft saved." : `Draft ${labels.noun} saved.`);
-      router.push(`/app/invoices/${res.id}`);
+      toast.success(
+        finalised ? `Saved — ${initialDoc.number} shows the change.` : invoiceId ? "Draft saved." : `Draft ${labels.noun} saved.`,
+      );
+      if (onSaved) {
+        onSaved(res.id);
+      } else {
+        router.push(`/app/invoices/${res.id}`);
+      }
       router.refresh();
     });
   };
 
   const dueError = dueBeforeIssue(dates.issue, dates.due) ? `This is before the ${labels.issue.toLowerCase()}.` : null;
   const summary = evaluation.totals ? money(evaluation.totals.total) : "—";
+  const filledLines = doc.items.filter((i) => i.description.trim() || i.price.trim()).length;
   const templates = templatesFor("free");
 
   return (
-    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-      <div className="space-y-8 [&_:is(input,select,textarea,button)]:scroll-mb-24">
+    // Side by side when the editor has the room (its own page), stacked when it
+    // doesn't (the invoices list's panel, a phone) — by its container, not the window.
+    <div className={cn("@container", fill && "lg:flex lg:min-h-0 lg:flex-1 lg:flex-col")}>
+    <div
+      className={cn(
+        "grid items-start gap-6 @4xl:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]",
+        fill && "lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)] lg:items-stretch",
+      )}
+    >
+      <div
+        className={cn(
+          "space-y-8 [&_:is(input,select,textarea,button)]:scroll-mb-24",
+          fill && "scrollbar-slim lg:h-full lg:overflow-y-auto lg:pr-2",
+        )}
+      >
         {!invoiceId && profiles.length > 1 && (
           <SelectField
             label="Profile"
@@ -236,7 +258,10 @@ export function InvoiceEditor({
           />
         )}
 
-        <Section title={`${labels.title} details`}>
+        <Section
+          title={`${labels.title} details`}
+          summary={[dates.issue ? formatDate(dates.issue, locale, "medium") : null, currency].filter(Boolean).join(" · ")}
+        >
           {kind === "quote" && (
             <Segmented
               label="Document title"
@@ -295,6 +320,7 @@ export function InvoiceEditor({
 
         <Section
           title="Your details"
+          summary={doc.from.name.trim() || "Not filled in yet"}
           aside={
             <Link href="/app/invoices/details" className="text-sm text-muted-foreground underline-offset-2 hover:underline">
               {profileSellers.length > 0 ? "Edit saved details" : "Save them for next time"}
@@ -326,12 +352,20 @@ export function InvoiceEditor({
             onChange={(v) => setFrom({ address: v })}
           />
           <div className="grid gap-3 sm:grid-cols-2">
-            <TextField
-              label="Email or phone"
+            <EmailField
+              label="Email (optional)"
               value={doc.from.contact}
               maxLength={DOC_FIELD_LIMITS.contact}
               onChange={(v) => setFrom({ contact: v })}
             />
+            <PhoneField
+              label="Phone (optional)"
+              value={doc.from.phone ?? ""}
+              maxLength={DOC_FIELD_LIMITS.phone}
+              onChange={(v) => setFrom({ phone: v })}
+            />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2">
             <TextField
               label="Tax ID (optional)"
               placeholder="VAT, GST or EIN number"
@@ -339,7 +373,21 @@ export function InvoiceEditor({
               maxLength={DOC_FIELD_LIMITS.taxId}
               onChange={(v) => setFrom({ taxId: v })}
             />
+            <TextField
+              label="Registration no. (optional)"
+              placeholder="CIN, CRN or ABN"
+              value={doc.from.registrationNumber ?? ""}
+              maxLength={DOC_FIELD_LIMITS.registration}
+              onChange={(v) => setFrom({ registrationNumber: v })}
+            />
           </div>
+          <TextField
+            label="Website (optional)"
+            placeholder="yourstudio.com"
+            value={doc.from.website ?? ""}
+            maxLength={DOC_FIELD_LIMITS.website}
+            onChange={(v) => setFrom({ website: v })}
+          />
           {kind === "invoice" && (
             <TextField
               label="UPI ID (optional)"
@@ -355,10 +403,20 @@ export function InvoiceEditor({
               }
             />
           )}
+          {kind === "invoice" && (
+            <TextAreaField
+              label="Bank details (optional)"
+              placeholder="Account name, account number, bank, IFSC / SWIFT / IBAN"
+              value={doc.from.bankDetails ?? ""}
+              maxLength={DOC_FIELD_LIMITS.bankDetails}
+              onChange={(v) => setFrom({ bankDetails: v })}
+            />
+          )}
         </Section>
 
         <Section
           title={labels.to}
+          summary={doc.to.name.trim() || "Not filled in yet"}
           aside={
             !clientId && doc.to.name.trim() ? (
               <Button type="button" variant="ghost" size="sm" onClick={saveClient} disabled={savingClient}>
@@ -378,12 +436,21 @@ export function InvoiceEditor({
               ]}
             />
           )}
-          <TextField
-            label="Client name"
-            value={doc.to.name}
-            maxLength={DOC_FIELD_LIMITS.name}
-            onChange={(v) => setTo({ name: v })}
-          />
+          <div className="grid gap-3 sm:grid-cols-2">
+            <TextField
+              label="Client name"
+              value={doc.to.name}
+              maxLength={DOC_FIELD_LIMITS.name}
+              onChange={(v) => setTo({ name: v })}
+            />
+            <TextField
+              label="Contact person (optional)"
+              hint="Printed as “Attn:”"
+              value={doc.to.contactPerson ?? ""}
+              maxLength={DOC_FIELD_LIMITS.contactPerson}
+              onChange={(v) => setTo({ contactPerson: v })}
+            />
+          </div>
           <TextAreaField
             label="Client address"
             value={doc.to.address}
@@ -391,22 +458,31 @@ export function InvoiceEditor({
             onChange={(v) => setTo({ address: v })}
           />
           <div className="grid gap-3 sm:grid-cols-2">
-            <TextField
+            <EmailField
               label="Client email (optional)"
               value={doc.to.email}
               maxLength={DOC_FIELD_LIMITS.email}
               onChange={(v) => setTo({ email: v })}
             />
-            <TextField
-              label="Client tax ID (optional)"
-              value={doc.to.taxId ?? ""}
-              maxLength={DOC_FIELD_LIMITS.taxId}
-              onChange={(v) => setTo({ taxId: v })}
+            <PhoneField
+              label="Client phone (optional)"
+              value={doc.to.phone ?? ""}
+              maxLength={DOC_FIELD_LIMITS.phone}
+              onChange={(v) => setTo({ phone: v })}
             />
           </div>
+          <TextField
+            label="Client tax ID (optional)"
+            value={doc.to.taxId ?? ""}
+            maxLength={DOC_FIELD_LIMITS.taxId}
+            onChange={(v) => setTo({ taxId: v })}
+          />
         </Section>
 
-        <Section title="Items">
+        <Section
+          title="Items"
+          summary={`${filledLines === 1 ? "1 line" : `${filledLines} lines`} · ${summary}`}
+        >
           <LineItems
             items={doc.items}
             results={evaluation.items}
@@ -416,7 +492,19 @@ export function InvoiceEditor({
           />
         </Section>
 
-        <Section title="Discount and tax">
+        <Section
+          title="Discount and tax"
+          summary={
+            [
+              doc.discount.trim() && doc.discount.trim() !== "0"
+                ? `${doc.discount.trim()}${doc.discountType === "percent" ? "%" : ` ${symbol}`} off`
+                : null,
+              doc.taxRate.trim() && doc.taxRate.trim() !== "0" ? `${doc.taxLabel.trim() || "Tax"} ${doc.taxRate.trim()}%` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || "None"
+          }
+        >
           <div className="grid grid-cols-2 items-start gap-3">
             <NumberField
               label="Discount"
@@ -459,7 +547,10 @@ export function InvoiceEditor({
           </p>
         </Section>
 
-        <Section title={kind === "invoice" ? "Notes" : "Notes and terms"}>
+        <Section
+          title={kind === "invoice" ? "Notes" : "Notes and terms"}
+          summary={doc.notes.trim() ? doc.notes.trim().split("\n")[0] : "None"}
+        >
           <TextAreaField
             label={labels.notes}
             placeholder={labels.notesPlaceholder}
@@ -485,7 +576,7 @@ export function InvoiceEditor({
 
         <div className="sticky bottom-20 z-20 flex items-center gap-2 rounded-2xl border bg-background/90 p-1.5 shadow-lg backdrop-blur-md md:bottom-3">
           <Button type="button" onClick={save} disabled={saving} className="h-9 rounded-lg px-3">
-            {saving ? <Loader2 className="animate-spin" /> : <Save />} Save draft
+            {saving ? <Loader2 className="animate-spin" /> : <Save />} {finalised ? "Save changes" : "Save draft"}
           </Button>
           <Button type="button" variant="ghost" className="h-9 rounded-lg" asChild>
             <Link href={invoiceId ? `/app/invoices/${invoiceId}` : "/app/invoices"}>Cancel</Link>
@@ -494,7 +585,12 @@ export function InvoiceEditor({
         </div>
       </div>
 
-      <div className="flex min-w-0 flex-col gap-2 lg:sticky lg:top-6 lg:h-[calc(100svh-3rem)]">
+      <div
+        className={cn(
+          "flex min-w-0 flex-col gap-2",
+          fill ? "lg:h-full" : "@4xl:sticky @4xl:top-6 @4xl:h-[calc(100svh-3rem)]",
+        )}
+      >
         <div className="flex min-h-0 flex-1 flex-col rounded-2xl border bg-muted/50 p-2 sm:p-3">
           <FitPaper>
             <DocPaper
@@ -513,17 +609,68 @@ export function InvoiceEditor({
         </div>
       </div>
     </div>
+    </div>
   );
 }
 
-function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
+/** Said above the editor when a finalised document is open in it. */
+export function FinalisedEditNote({ kind, number }: { kind: InvoiceKind; number: string }) {
+  return (
+    <p role="note" className="rounded-xl border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+      This {kind} is finalised. Saving keeps {number}, redraws its PDF and records today as the date it was edited —
+      if it&apos;s already gone out, let your client know it changed.
+    </p>
+  );
+}
+
+/**
+ * One part of the form, foldable from its heading. Folded, the heading carries
+ * a one-line `summary` of what's inside; the fields stay mounted (only
+ * hidden), so nothing typed is lost and the paper beside keeps showing them.
+ */
+function Section({
+  title,
+  aside,
+  summary,
+  children,
+}: {
+  title: string;
+  aside?: ReactNode;
+  /** What the section holds, shown while it's folded. */
+  summary?: string;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(true);
+  const bodyId = useId();
   return (
     <section className="space-y-4">
-      <div className={cn("flex items-center justify-between gap-3")}>
-        <h2 className="text-base font-semibold">{title}</h2>
-        {aside}
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="min-w-0 text-base font-semibold">
+          <button
+            type="button"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => setOpen(!open)}
+            className="group flex w-full min-w-0 items-center gap-1.5 rounded-md text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          >
+            <ChevronDown
+              aria-hidden
+              className={cn(
+                "size-4 shrink-0 text-muted-foreground transition-transform group-hover:text-foreground",
+                !open && "-rotate-90",
+              )}
+            />
+            <span className="shrink-0">{title}</span>
+            {!open && summary ? (
+              <span className="truncate text-sm font-normal text-muted-foreground">· {summary}</span>
+            ) : null}
+          </button>
+        </h2>
+        {open ? aside : null}
       </div>
-      {children}
+      <div id={bodyId} hidden={!open} className="space-y-4">
+        {children}
+      </div>
     </section>
   );
 }

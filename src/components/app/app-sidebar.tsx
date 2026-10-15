@@ -1,20 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useSearchParams } from "next/navigation";
-import { cn } from "@/lib/utils";
+import { useSearchParams } from "next/navigation";
 import { Logo } from "@/components/logo";
 import { Separator } from "@/components/ui/separator";
-import { Kbd } from "@/components/ui/kbd";
+import type { SidebarNavLayout } from "@/lib/sidebar-nav";
 import { ProfileList, type SidebarProfile, type SidebarSpace } from "./profile-list";
 import { WorkspaceSwitcher, type WorkspaceOption } from "./workspace-switcher";
-import { hrefWithProfile, invitationBadge, isActive, navItems, splitNavItem } from "./nav-items";
+import { hrefWithProfile, invitationBadge } from "./nav-items";
+import { SidebarNav } from "./sidebar-nav";
 import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badge";
 
 export function AppSidebar({
   profiles,
   spaces,
   collapsedSpaces,
+  navLayout,
   workspaces,
   currentWorkspaceId,
   budgetAlerts,
@@ -23,6 +24,8 @@ export function AppSidebar({
   profiles: SidebarProfile[];
   spaces: SidebarSpace[];
   collapsedSpaces: string[];
+  /** `ui_prefs.sidebar.nav` — how the sections are arranged. */
+  navLayout: SidebarNavLayout;
   workspaces: WorkspaceOption[];
   currentWorkspaceId: string;
   /** This month's budget alerts for the nav badge — streamed, never awaited. */
@@ -30,8 +33,6 @@ export function AppSidebar({
   /** Split invitations waiting for an answer — the badge on Split. */
   splitInvitations?: number;
 }) {
-  const pathname = usePathname();
-  const splitActive = isActive(pathname, splitNavItem.href, splitNavItem.exact);
   const profile = useSearchParams().get("profile");
 
   return (
@@ -59,57 +60,22 @@ export function AppSidebar({
       />
 
       <Separator className="my-1" />
-      <nav className="shrink-0 space-y-1 px-3 py-2">
-        {navItems.map((item) => {
-          const active = isActive(pathname, item.href, item.exact);
-          return (
-            <Link
-              key={item.href}
-              href={hrefWithProfile(item.href, profile)}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-                active
-                  ? "bg-accent font-medium text-accent-foreground"
-                  : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-              )}
-            >
-              <item.icon className="size-4" />
-              {item.label}
-              {item.href === "/app/budgets" && <BudgetNavBadge alerts={budgetAlerts} />}
-              <Kbd combo={item.shortcut} className="ml-auto opacity-70" />
-            </Link>
-          );
-        })}
-      </nav>
-
-      {/* Outside every workspace: split groups belong to the person. */}
-      <Separator />
-      <nav aria-label="Split" className="shrink-0 px-3 py-2">
-        <Link
-          href={splitNavItem.href}
-          aria-current={splitActive ? "page" : undefined}
-          className={cn(
-            "flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors",
-            splitActive
-              ? "bg-accent font-medium text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-        >
-          <splitNavItem.icon className="size-4" />
-          {splitNavItem.label}
-          {splitInvitations > 0 && (
-            <span className="rounded-full bg-primary px-1.5 text-[11px] font-medium leading-4 text-primary-foreground">
-              <span aria-hidden>{invitationBadge(splitInvitations)}</span>
-              <span className="sr-only">
-                , {invitationBadge(splitInvitations)} {splitInvitations === 1 ? "invitation" : "invitations"}
+      <SidebarNav
+        initial={navLayout}
+        profile={profile}
+        badges={{
+          budgets: <BudgetNavBadge alerts={budgetAlerts} />,
+          split:
+            splitInvitations > 0 ? (
+              <span className="rounded-full bg-primary px-1.5 text-[11px] font-medium leading-4 text-primary-foreground">
+                <span aria-hidden>{invitationBadge(splitInvitations)}</span>
+                <span className="sr-only">
+                  , {invitationBadge(splitInvitations)} {splitInvitations === 1 ? "invitation" : "invitations"}
+                </span>
               </span>
-            </span>
-          )}
-          <Kbd combo={splitNavItem.shortcut} className="ml-auto opacity-70" />
-        </Link>
-      </nav>
-
+            ) : undefined,
+        }}
+      />
     </aside>
   );
 }

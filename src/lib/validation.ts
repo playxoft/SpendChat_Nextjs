@@ -16,6 +16,8 @@ import {
 } from "./invoices";
 import { isCalendarDay } from "./dates";
 import { SCOPE_MAX_PROFILE_IDS } from "./profile-scope";
+import { defaultSidebarNav, normalizeSidebarNav } from "./sidebar-nav";
+import { phoneProblem } from "./contact-fields";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
 import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX, SPLIT_IMPORT_KEY_PATTERN } from "./split-import";
 import {
@@ -802,9 +804,15 @@ export function normalizeCollapsedSpaces(ids: readonly unknown[]): string[] {
   return out;
 }
 
-/** Sidebar state that follows the user (`ui_prefs.sidebar`): which spaces are folded shut. */
+/**
+ * Sidebar state that follows the user (`ui_prefs.sidebar`): which spaces are
+ * folded shut, and how the sections are arranged (`lib/sidebar-nav.ts` — an
+ * older row without `nav` reads as the default arrangement).
+ */
 export const sidebarPrefsSchema = z.object({
   collapsedSpaces: z.array(z.unknown()).transform(normalizeCollapsedSpaces).catch([]),
+  // `.catch` as well as the transform: zod reads an absent key (every older row) as a failure otherwise.
+  nav: z.unknown().transform(normalizeSidebarNav).catch(() => defaultSidebarNav()),
 });
 export type SidebarPrefs = z.infer<typeof sidebarPrefsSchema>;
 
@@ -813,12 +821,18 @@ export const collapsedSpacesInputSchema = z
   .array(z.string().uuid())
   .max(SIDEBAR_COLLAPSED_MAX, `Too many spaces (max ${SIDEBAR_COLLAPSED_MAX})`);
 
-/** A fresh default bag each time — the sidebar list is mutable, so never share one. */
+/** What the client sends to save the sections' arrangement (cleaned on the server). */
+export const sidebarNavInputSchema = z.object({
+  main: z.array(z.string().max(32)).max(32),
+  more: z.array(z.string().max(32)).max(32),
+});
+
+/** A fresh default bag each time — the sidebar lists are mutable, so never share one. */
 function uiPrefsDefault() {
   return {
     composer: { density: "normal" as const },
     onboarding: { inviteNudgeDismissed: false },
-    sidebar: { collapsedSpaces: [] as string[] },
+    sidebar: { collapsedSpaces: [] as string[], nav: defaultSidebarNav() },
   };
 }
 
@@ -826,7 +840,7 @@ export const uiPrefsSchema = z
   .object({
     composer: composerPrefsSchema.catch({ density: "normal" }),
     onboarding: onboardingPrefsSchema.catch({ inviteNudgeDismissed: false }),
-    sidebar: sidebarPrefsSchema.catch(() => ({ collapsedSpaces: [] })),
+    sidebar: sidebarPrefsSchema.catch(() => ({ collapsedSpaces: [], nav: defaultSidebarNav() })),
   })
   .catch(() => uiPrefsDefault());
 export type UiPrefs = z.infer<typeof uiPrefsSchema>;
@@ -1640,6 +1654,14 @@ const invoiceEmailSchema = z
   .nullish()
   .transform((v) => (v ? v : null));
 
+/** An optional phone number: blank reads as null; otherwise digits and + ( ) - only (`phoneProblem`). */
+function optionalPhoneSchema(label: string) {
+  return optionalInvoiceText(DOC_FIELD_LIMITS.phone, label).superRefine((v, ctx) => {
+    const problem = v === null ? null : phoneProblem(v);
+    if (problem) ctx.addIssue({ code: "custom", message: `${label}: ${problem}` });
+  });
+}
+
 const upiIdSchema = z
   .string()
   .trim()
@@ -1656,6 +1678,10 @@ export const invoiceClientSchema = z.object({
   email: invoiceEmailSchema,
   address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Address"),
   taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Tax ID"),
+  phone: optionalPhoneSchema("Phone"),
+  contactPerson: optionalInvoiceText(DOC_FIELD_LIMITS.contactPerson, "Contact person"),
+  /** Private: kept with the client, never printed. */
+  notes: optionalInvoiceText(DOC_FIELD_LIMITS.clientNotes, "Notes"),
 });
 export type InvoiceClientInput = z.input<typeof invoiceClientSchema>;
 
@@ -1670,9 +1696,14 @@ export const invoiceSellerSchema = z.object({
   profileId: z.string().uuid("Pick a profile"),
   name: invoiceText(DOC_FIELD_LIMITS.name, "Business name").pipe(z.string().min(1, "Give your business a name")),
   address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Address"),
-  contact: optionalInvoiceText(DOC_FIELD_LIMITS.contact, "Email or phone"),
+  /** The email line (the column predates the separate phone). */
+  contact: invoiceEmailSchema,
   taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Tax ID"),
   upiId: upiIdSchema,
+  phone: optionalPhoneSchema("Phone"),
+  website: optionalInvoiceText(DOC_FIELD_LIMITS.website, "Website"),
+  registrationNumber: optionalInvoiceText(DOC_FIELD_LIMITS.registration, "Registration number"),
+  bankDetails: optionalInvoiceText(DOC_FIELD_LIMITS.bankDetails, "Bank details"),
 });
 export type InvoiceSellerInput = z.input<typeof invoiceSellerSchema>;
 
@@ -1715,17 +1746,34 @@ export const invoiceContentSchema = z
         email: invoiceEmailSchema,
         address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Client address"),
         taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Client tax ID"),
+        phone: optionalPhoneSchema("Client phone"),
+        contactPerson: optionalInvoiceText(DOC_FIELD_LIMITS.contactPerson, "Contact person"),
       })
-      .default({ name: "", email: null, address: null, taxId: null }),
+      .default({ name: "", email: null, address: null, taxId: null, phone: null, contactPerson: null }),
     sellerId: invoiceIdSchema.nullish(),
     seller: z
       .object({
         name: invoiceText(DOC_FIELD_LIMITS.name, "Business name").default(""),
         address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Address"),
+        // Not checked as an email here: a document's contact line can hold
+        // anything — the free generator's "Email or phone" comes in this way.
         contact: optionalInvoiceText(DOC_FIELD_LIMITS.contact, "Email or phone"),
         taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Tax ID"),
+        phone: optionalPhoneSchema("Phone"),
+        website: optionalInvoiceText(DOC_FIELD_LIMITS.website, "Website"),
+        registrationNumber: optionalInvoiceText(DOC_FIELD_LIMITS.registration, "Registration number"),
+        bankDetails: optionalInvoiceText(DOC_FIELD_LIMITS.bankDetails, "Bank details"),
       })
-      .default({ name: "", address: null, contact: null, taxId: null }),
+      .default({
+        name: "",
+        address: null,
+        contact: null,
+        taxId: null,
+        phone: null,
+        website: null,
+        registrationNumber: null,
+        bankDetails: null,
+      }),
     upiId: upiIdSchema,
     quoteTitle: z.enum(QUOTE_TITLES).default("quotation"),
     issueDate: dateSchema,

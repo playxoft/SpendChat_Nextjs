@@ -1,21 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { CalendarRange, ChevronLeft, ChevronRight } from "lucide-react";
+import { CalendarRange } from "lucide-react";
 import { subDays, subMonths, subYears } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { formatDateLabel, formatDateShort, parseISODate, toISODate } from "@/lib/dates";
-import {
-  matchMonth,
-  matchQuarter,
-  monthPeriod,
-  quarterPeriod,
-  startsAfter,
-  type Period,
-} from "@/lib/period-ranges";
+import { matchMonth, matchQuarter, monthPeriod, quarterPeriod, type Period } from "@/lib/period-ranges";
 import { cn } from "@/lib/utils";
+import { PeriodGrid, periodItemClass } from "./period-grid";
 
 /**
  * Named presets, each computed as "N units back from today … today". `occurredOn`
@@ -31,21 +25,11 @@ const PRESETS: { label: string; from: (today: Date) => Date }[] = [
   { label: "Last 1 year", from: (t) => subYears(t, 1) },
 ];
 
-const QUARTERS = [1, 2, 3, 4] as const;
-
 /** The year the month grid opens on: the selected range's, or this one. A
  *  `from` that isn't a date (a hand-edited URL — the server ignores it) falls
  *  back to today, rather than a NaN year that disables every month. */
 function gridYear(from: string, today: string): number {
   return Number((/^\d{4}-\d{2}-\d{2}$/.test(from) ? from : today).slice(0, 4));
-}
-
-/** Shared look for every pickable item in the popover — month, quarter, preset. */
-function itemClass(active: boolean) {
-  return cn(
-    "rounded-md px-2 py-1.5 text-sm whitespace-nowrap transition-colors disabled:pointer-events-none disabled:opacity-35",
-    active ? "bg-foreground font-medium text-background" : "hover:bg-muted",
-  );
 }
 
 /**
@@ -96,11 +80,6 @@ export function DateRangeFilter({
 
   // The year the month/quarter grid shows: the selected range's, or this one.
   const [year, setYear] = React.useState(() => gridYear(from, today));
-  const thisYear = Number(today.slice(0, 4));
-  const monthNames = React.useMemo(() => {
-    const fmt = new Intl.DateTimeFormat(locale, { month: "short", timeZone: "UTC" });
-    return Array.from({ length: 12 }, (_, m) => fmt.format(new Date(Date.UTC(2000, m, 1))));
-  }, [locale]);
 
   const label = React.useMemo(() => {
     if (activePreset) return activePreset.label;
@@ -164,65 +143,16 @@ export function DateRangeFilter({
         <div className="flex flex-col md:flex-row">
           {/* Left: whole months and quarters of one year. */}
           <div className="flex flex-col gap-2 border-b p-3 md:w-52 md:border-r md:border-b-0">
-            <div className="flex items-center justify-between">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Previous year"
-                onClick={() => setYear((y) => y - 1)}
-              >
-                <ChevronLeft className="size-4" />
-              </Button>
-              <span className="text-sm font-medium tabular-nums">{year}</span>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Next year"
-                disabled={year >= thisYear}
-                onClick={() => setYear((y) => y + 1)}
-              >
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-            <div className="grid grid-cols-3 gap-1" role="group" aria-label={`Months of ${year}`}>
-              {monthNames.map((name, m) => {
-                const period = monthPeriod(year, m);
-                return (
-                  <button
-                    key={name}
-                    type="button"
-                    // A month that hasn't started can't hold a transaction yet.
-                    disabled={startsAfter(period, today)}
-                    onClick={() => applyPeriod(period)}
-                    aria-pressed={activeMonth?.year === year && activeMonth.month === m}
-                    className={itemClass(activeMonth?.year === year && activeMonth.month === m)}
-                  >
-                    {name}
-                  </button>
-                );
-              })}
-            </div>
-            <div className="grid grid-cols-4 gap-1 border-t pt-2" role="group" aria-label={`Quarters of ${year}`}>
-              {QUARTERS.map((q) => {
-                const period = quarterPeriod(year, q);
-                const active = activeQuarter?.year === year && activeQuarter.quarter === q;
-                return (
-                  <button
-                    key={q}
-                    type="button"
-                    disabled={startsAfter(period, today)}
-                    onClick={() => applyPeriod(period)}
-                    aria-pressed={active}
-                    aria-label={`Quarter ${q} of ${year}`}
-                    className={itemClass(active)}
-                  >
-                    Q{q}
-                  </button>
-                );
-              })}
-            </div>
+            <PeriodGrid
+              year={year}
+              onYearChange={setYear}
+              today={today}
+              locale={locale}
+              activeMonth={activeMonth}
+              activeQuarter={activeQuarter}
+              onPickMonth={(y, m) => applyPeriod(monthPeriod(y, m))}
+              onPickQuarter={(y, q) => applyPeriod(quarterPeriod(y, q))}
+            />
           </div>
 
           {/* Centre: any range, day by day. */}
@@ -245,7 +175,7 @@ export function DateRangeFilter({
                 key={p.label}
                 type="button"
                 onClick={() => applyPreset(p)}
-                className={cn("text-left", itemClass(activePreset?.label === p.label), "px-3")}
+                className={cn("text-left", periodItemClass(activePreset?.label === p.label), "px-3")}
               >
                 {p.label}
               </button>

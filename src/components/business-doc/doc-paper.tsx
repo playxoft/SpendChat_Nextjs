@@ -243,6 +243,12 @@ export function DocPaper({
         </section>
       )}
 
+      {view.bankDetails && (
+        <section className="bd-keep mt-[2em] [overflow-wrap:anywhere]">
+          <p className="text-[0.75em] font-semibold uppercase tracking-[0.08em] text-neutral-500">Bank details</p>
+          <p className="mt-[0.3em] whitespace-pre-line text-neutral-700">{view.bankDetails}</p>
+        </section>
+      )}
       {doc.notes.trim() && (
         <section className="bd-keep mt-[2em] [overflow-wrap:anywhere]">
           <p className="text-[0.75em] font-semibold uppercase tracking-[0.08em] text-neutral-500">Notes</p>

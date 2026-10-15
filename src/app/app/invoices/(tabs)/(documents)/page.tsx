@@ -10,9 +10,10 @@ import { getTimeZone } from "@/lib/timezone.server";
 import { canWriteInWorkspace } from "@/lib/workspaces";
 import { cn } from "@/lib/utils";
 import { listInvoices } from "@/services/invoices";
-import { AccountControls } from "@/components/app/account-controls";
-import { InvoiceList, NewDocumentButtons } from "@/components/app/invoices/invoice-list";
-import { InvoicesTabs } from "@/components/app/invoices/invoices-tabs";
+import { NewDocumentButtons } from "@/components/app/invoices/invoice-list";
+import { InvoicesBrowser } from "@/components/app/invoices/invoices-browser";
+import { InvoiceLimitMeter } from "@/components/app/invoices/invoice-limits";
+import { loadInvoiceDetail } from "@/services/invoice-detail";
 
 export const dynamic = "force-dynamic";
 
@@ -40,13 +41,16 @@ export default async function InvoicesPage({
     ? (statusParam as InvoiceStatus)
     : undefined;
   const profileParam = one(sp.profile) ?? null;
+  // The document open in the side panel.
+  const viewParam = one(sp.view) ?? null;
 
-  const [rows, profiles, limits, canWrite, timeZone] = await Promise.all([
+  const [rows, profiles, limits, canWrite, timeZone, detail] = await Promise.all([
     listInvoices(user.id, workspace.id, { kind, status }),
     getProfiles(user.id, workspace.id),
     getAddLimits(workspace.id, user.id),
     canWriteInWorkspace(user.id, workspace.id),
     getTimeZone(),
+    viewParam ? loadInvoiceDetail(user.id, workspace, viewParam) : null,
   ]);
   const scope = profileParam ? resolveProfileScope(parseProfileScope(profileParam), profiles) : null;
   const inView = scope ? new Set(scope.profileIds) : null;
@@ -61,6 +65,7 @@ export default async function InvoicesPage({
       : null;
   const canAdd = canWrite && !limits.readOnly && !reached;
 
+  // A filter shows a new list, so it closes the side panel (`view`).
   const filterHref = (next: { kind?: string | null; status?: string | null }) => {
     const params = new URLSearchParams();
     const k = next.kind === undefined ? kind : next.kind;
@@ -72,63 +77,76 @@ export default async function InvoicesPage({
     return q ? `/app/invoices?${q}` : "/app/invoices";
   };
 
-  return (
-    <div className="mx-auto max-w-3xl space-y-5 px-4 py-6">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Invoices</h1>
-          <p className="text-sm text-muted-foreground">
-            Invoices and quotes, numbered for you. {limits.invoices.used} of {limits.invoices.limit} made this month.
-          </p>
-        </div>
-        <AccountControls />
-      </div>
-      <InvoicesTabs active="documents" />
-
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter">
-          <FilterChip href={filterHref({ kind: null })} active={!kind}>
+  // Above the list; the browser sets it aside while the editor is open.
+  const toolbar = (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <Segmented label="Type">
+          <SegmentLink href={filterHref({ kind: null })} active={!kind}>
             All
-          </FilterChip>
-          <FilterChip href={filterHref({ kind: "invoice" })} active={kind === "invoice"}>
+          </SegmentLink>
+          <SegmentLink href={filterHref({ kind: "invoice" })} active={kind === "invoice"}>
             Invoices
-          </FilterChip>
-          <FilterChip href={filterHref({ kind: "quote" })} active={kind === "quote"}>
+          </SegmentLink>
+          <SegmentLink href={filterHref({ kind: "quote" })} active={kind === "quote"}>
             Quotes
-          </FilterChip>
-          <span aria-hidden className="mx-1 h-5 w-px bg-border" />
+          </SegmentLink>
+        </Segmented>
+        {/* Picking the state on view again clears it — any state. */}
+        <Segmented label="State">
           {INVOICE_STATUSES.map((s) => (
-            <FilterChip key={s} href={filterHref({ status: status === s ? null : s })} active={status === s}>
+            <SegmentLink key={s} href={filterHref({ status: status === s ? null : s })} active={status === s}>
               {STATUS_LABEL[s]}
-            </FilterChip>
+            </SegmentLink>
           ))}
-        </div>
+        </Segmented>
+      </div>
+      <div className="flex flex-wrap items-center gap-3">
+        <InvoiceLimitMeter
+          kind="invoices"
+          used={limits.invoices.used}
+          max={limits.invoices.limit}
+          className="text-sm text-muted-foreground"
+        />
         {canWrite && <NewDocumentButtons canAdd={canAdd} reason={reason} profileParam={scope?.single ?? null} />}
       </div>
+    </div>
+  );
 
-      <InvoiceList
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <InvoicesBrowser
+        toolbar={toolbar}
         rows={shown}
         locale={workspace.locale}
         today={today}
+        timeZone={timeZone}
         showProfile={profiles.length > 1}
-        emptyAction={
-          canAdd && !kind && !status ? (
-            <NewDocumentButtons canAdd reason={null} profileParam={scope?.single ?? null} />
-          ) : undefined
-        }
+        canAdd={canAdd}
+        profileParam={scope?.single ?? null}
+        initialDetail={detail}
       />
     </div>
   );
 }
 
-function FilterChip({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
+/** One "bubble" toggle: its options share a pill, the picked one raised inside it. */
+function Segmented({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div role="group" aria-label={label} className="inline-flex items-center rounded-full border bg-muted/50 p-0.5">
+      {children}
+    </div>
+  );
+}
+
+function SegmentLink({ href, active, children }: { href: string; active: boolean; children: React.ReactNode }) {
   return (
     <Link
       href={href}
       aria-current={active ? "true" : undefined}
       className={cn(
-        "inline-flex h-7 items-center rounded-full border px-2.5 text-sm transition-colors",
-        active ? "border-foreground bg-foreground text-background" : "text-muted-foreground hover:bg-muted hover:text-foreground",
+        "inline-flex h-7 items-center rounded-full px-3 text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+        active ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
       )}
     >
       {children}
