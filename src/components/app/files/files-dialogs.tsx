@@ -232,9 +232,16 @@ function EditForm({
     isFile ? VAULT_DEFAULT_FOLDER_COLOR : folderColor(target.folder),
   );
   const [pending, startTransition] = useTransition();
+  // Save is offered once something differs from what's saved.
+  const savedName = isFile ? target.file.name : target.folder.name;
+  const savedDescription = (isFile ? target.file.description : target.folder.description) ?? "";
+  const changed =
+    name.trim() !== savedName ||
+    description.trim() !== savedDescription ||
+    (!isFile && color !== folderColor(target.folder));
 
   const submit = () => {
-    if (!system && !name.trim()) return;
+    if (!changed || (!system && !name.trim())) return;
     startTransition(async () => {
       const res = isFile
         ? await updateFile({ id: target.file.id, name: name.trim(), description })
@@ -310,7 +317,7 @@ function EditForm({
           </div>
         ) : null}
         <DialogFooter>
-          <Button type="submit" disabled={pending || (!system && !name.trim())}>
+          <Button type="submit" disabled={pending || !changed || (!system && !name.trim())}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : null}
             Save
           </Button>

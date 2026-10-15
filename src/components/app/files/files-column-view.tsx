@@ -3,11 +3,10 @@
 import { Fragment, useState } from "react";
 import { Download, Eye, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { attachmentDownloadUrl, formatFileSize } from "@/lib/attachments";
+import { attachmentDownloadUrl } from "@/lib/attachments";
 import {
   SYSTEM_FOLDER_NOTICE,
   fileDownloadUrl,
-  fileTypeLabel,
   type FileDTO,
   type FolderDTO,
   type TxnFileDTO,
@@ -21,17 +20,17 @@ import {
   FolderGlyph,
   FolderMetaTooltip,
   ProfileDivider,
-  TxnAmount,
   VaultContextMenu,
   VaultEmptyState,
   VaultItemMenu,
   dragSourceProps,
-  formatVaultDate,
   useFolderDrop,
+  useMetaTooltip,
   type ProfileSection,
   type VaultHandlers,
   type VaultTarget,
 } from "./files-views";
+import { FileDetails, TxnFileDetails } from "./file-details";
 
 type Selected =
   | { kind: "file"; id: string }
@@ -170,10 +169,12 @@ function RowMenu({
   target,
   handlers,
   visible,
+  onOpenChange,
 }: {
   target: VaultTarget;
   handlers: VaultHandlers;
   visible: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
     <span
@@ -183,7 +184,7 @@ function RowMenu({
       )}
       onClick={(e) => e.stopPropagation()}
     >
-      <VaultItemMenu target={target} handlers={handlers} />
+      <VaultItemMenu target={target} handlers={handlers} onOpenChange={onOpenChange} />
     </span>
   );
 }
@@ -325,13 +326,14 @@ function FileColumnRow({
   handlers: VaultHandlers;
   onSelect: () => void;
 }) {
+  const tip = useMetaTooltip();
   return (
     // Same composition as the grid tiles: Tooltip root outside, trigger
     // innermost, so the context menu and the tooltip share the row div.
     // Sideways (left, flipping right when the viewport edge is too close)
     // so the tooltip never covers the neighboring rows.
-    <Tooltip delayDuration={0}>
-      <VaultContextMenu target={{ kind: "file", file }} handlers={handlers}>
+    <Tooltip {...tip.tooltip}>
+      <VaultContextMenu target={{ kind: "file", file }} handlers={handlers} onOpenChange={tip.onMenuOpenChange}>
         <TooltipTrigger asChild>
           <div
             role="button"
@@ -352,7 +354,7 @@ function FileColumnRow({
               />
             </span>
             <span className="min-w-0 flex-1 truncate">{file.name}</span>
-            <RowMenu target={{ kind: "file", file }} handlers={handlers} visible={selected} />
+            <RowMenu target={{ kind: "file", file }} handlers={handlers} visible={selected} onOpenChange={tip.onMenuOpenChange} />
           </div>
         </TooltipTrigger>
       </VaultContextMenu>
@@ -373,11 +375,12 @@ function FolderColumnRow({
   onOpen: () => void;
 }) {
   const { over, dropProps } = useFolderDrop(folder.id, handlers, folder.system);
+  const tip = useMetaTooltip();
   return (
     // Tooltip root outside, trigger innermost (same pattern as the grid tiles);
     // sideways so it never covers the rows above/below.
-    <Tooltip delayDuration={0}>
-      <VaultContextMenu target={{ kind: "folder", folder }} handlers={handlers}>
+    <Tooltip {...tip.tooltip}>
+      <VaultContextMenu target={{ kind: "folder", folder }} handlers={handlers} onOpenChange={tip.onMenuOpenChange}>
         <TooltipTrigger asChild>
           <div
             role="button"
@@ -397,7 +400,7 @@ function FolderColumnRow({
           >
             <FolderGlyph folder={folder} className="size-4" />
             <span className="min-w-0 flex-1 truncate font-medium">{folder.name}</span>
-            <RowMenu target={{ kind: "folder", folder }} handlers={handlers} visible={active} />
+            <RowMenu target={{ kind: "folder", folder }} handlers={handlers} visible={active} onOpenChange={tip.onMenuOpenChange} />
           </div>
         </TooltipTrigger>
       </VaultContextMenu>
@@ -426,22 +429,17 @@ function FileDetail({ file, handlers }: { file: FileDTO; handlers: VaultHandlers
           glyphClass="size-10"
         />
       </div>
-      <div className="flex items-start justify-between gap-1">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{file.name}</p>
-          <p className="text-xs text-muted-foreground">
-            {fileTypeLabel(file.contentType)} · {formatFileSize(file.sizeBytes)}
-          </p>
-        </div>
+      <div className="flex justify-end">
         <VaultItemMenu target={{ kind: "file", file }} handlers={handlers} />
       </div>
-      {file.description ? (
-        <p className="text-sm break-words whitespace-pre-line">{file.description}</p>
-      ) : null}
-      <dl className="space-y-1 text-xs text-muted-foreground">
-        <div>Added {formatVaultDate(file.createdAt, handlers.locale)}</div>
-        {file.uploaderName ? <div>By {file.uploaderName}</div> : null}
-      </dl>
+      {/* Name and description edit right here, as beside the full-screen preview. */}
+      <FileDetails
+        key={file.id}
+        file={file}
+        canWrite={handlers.canWrite}
+        locale={handlers.locale}
+        location={handlers.fileLocation(file)}
+      />
       <div className="flex gap-2">
         <Button size="sm" onClick={() => handlers.previewFile(file)}>
           <Eye className="size-4" /> Preview
@@ -468,21 +466,17 @@ function TxnDetail({ txn, handlers }: { txn: TxnFileDTO; handlers: VaultHandlers
           glyphClass="size-10"
         />
       </div>
-      <div className="flex items-start justify-between gap-1">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{txn.name}</p>
-          <p className="text-xs text-muted-foreground">
-            {fileTypeLabel(txn.contentType)} · {formatFileSize(txn.sizeBytes)}
-          </p>
-        </div>
+      <div className="flex justify-end">
         <VaultItemMenu target={{ kind: "txn", txn }} handlers={handlers} />
       </div>
-      <dl className="space-y-1 text-xs text-muted-foreground">
-        <div>
-          {txn.txnTitle || "Transaction"} · <TxnAmount txn={txn} handlers={handlers} />
-        </div>
-        <div>{formatVaultDate(txn.txnOccurredOn, handlers.locale)}</div>
-      </dl>
+      {/* The same details as beside the full-screen preview. */}
+      <TxnFileDetails
+        key={txn.id}
+        txn={txn}
+        canWrite={handlers.canWrite}
+        locale={handlers.locale}
+        currency={handlers.currency}
+      />
       <div className="flex gap-2">
         <Button size="sm" onClick={() => handlers.previewTxn(txn)}>
           <Eye className="size-4" /> Preview

@@ -2,6 +2,7 @@
 
 import {
   Fragment,
+  useCallback,
   useRef,
   useState,
   type CSSProperties,
@@ -93,6 +94,8 @@ export type VaultHandlers = {
   folderSize: (folderId: string) => number;
   openFolder: (folderId: string) => void;
   previewFile: (file: FileDTO) => void;
+  /** Where a file lives, for its details: "Profile / Folder / Sub-folder". */
+  fileLocation: (file: FileDTO) => string;
   previewTxn: (txn: TxnFileDTO) => void;
   onAction: (action: VaultAction, target: VaultTarget) => void;
   /** Drop/keyboard move: relocate a dragged item into a folder (null = root). */
@@ -495,12 +498,15 @@ function VaultCreateEntries({ create, M }: { create: VaultCreate; M: MenuParts }
 export function VaultItemMenu({
   target,
   handlers,
+  onOpenChange,
 }: {
   target: VaultTarget;
   handlers: VaultHandlers;
+  /** The item's hover card listens, to keep out of the menu's way (`useMetaTooltip`). */
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
@@ -529,14 +535,17 @@ export function VaultContextMenu({
   target,
   handlers,
   children,
+  onOpenChange,
 }: {
   target: VaultTarget;
   handlers: VaultHandlers;
   children: ReactNode;
+  /** The item's hover card listens, to keep out of the menu's way (`useMetaTooltip`). */
+  onOpenChange?: (open: boolean) => void;
 }) {
   const M = { Item: ContextMenuItem, Separator: ContextMenuSeparator };
   return (
-    <ContextMenu>
+    <ContextMenu onOpenChange={onOpenChange}>
       <ContextMenuTrigger asChild>{children}</ContextMenuTrigger>
       <ContextMenuContent>
         <VaultMenuEntries target={target} handlers={handlers} M={M} />
@@ -716,8 +725,34 @@ function TooltipDescription({ text }: { text: string | null }) {
   return <p className="max-w-56 text-xs break-words whitespace-pre-line">{text}</p>;
 }
 
-/** Full folder metadata, shown instantly when a grid tile or column row is
- * hovered. Column rows pass `side="right"` so the tooltip doesn't cover the
+/** How long the pointer rests on an item before its hover card shows. */
+export const META_TOOLTIP_DELAY_MS = 1000;
+
+/**
+ * An item's hover card, kept out of the way of the item's own menus: it waits
+ * a second before showing, closes when the ⋮ or right-click menu opens, stays
+ * shut while one is open, and doesn't reopen on the focus that comes back into
+ * the item as the menu closes. Spread `tooltip` on the `Tooltip` root and pass
+ * `onMenuOpenChange` to the item's `VaultItemMenu` and `VaultContextMenu`.
+ */
+export function useMetaTooltip() {
+  const [open, setOpen] = useState(false);
+  const menuOpen = useRef(false);
+  const menuClosedAt = useRef(0);
+  const onOpenChange = useCallback((next: boolean) => {
+    if (next && (menuOpen.current || Date.now() - menuClosedAt.current < 500)) return;
+    setOpen(next);
+  }, []);
+  const onMenuOpenChange = useCallback((next: boolean) => {
+    menuOpen.current = next;
+    if (next) setOpen(false);
+    else menuClosedAt.current = Date.now();
+  }, []);
+  return { tooltip: { open, onOpenChange, delayDuration: META_TOOLTIP_DELAY_MS }, onMenuOpenChange };
+}
+
+/** Full folder metadata, shown when a grid tile or column row is hovered for a
+ * moment (`useMetaTooltip`). Column rows pass `side="right"` so the tooltip doesn't cover the
  * rows above/below.
  *
  * `variant="surface"` because this is a card, not a hint: it carries a heading,
@@ -764,11 +799,12 @@ function FolderCard({
   showProfile: boolean;
 }) {
   const { over, dropProps } = useFolderDrop(folder.id, handlers, folder.system);
+  const tip = useMetaTooltip();
   return (
     // Tooltip root outside, trigger innermost: both the context-menu trigger
     // and the tooltip trigger compose onto the same card div via asChild.
-    <Tooltip delayDuration={0}>
-      <VaultContextMenu target={{ kind: "folder", folder }} handlers={handlers}>
+    <Tooltip {...tip.tooltip}>
+      <VaultContextMenu target={{ kind: "folder", folder }} handlers={handlers} onOpenChange={tip.onMenuOpenChange}>
         <TooltipTrigger asChild>
           <div
             role="button"
@@ -814,7 +850,7 @@ function FolderCard({
                   </div>
                 ) : null}
               </div>
-              <VaultItemMenu target={{ kind: "folder", folder }} handlers={handlers} />
+              <VaultItemMenu target={{ kind: "folder", folder }} handlers={handlers} onOpenChange={tip.onMenuOpenChange} />
             </div>
           </div>
         </TooltipTrigger>
@@ -824,8 +860,8 @@ function FolderCard({
   );
 }
 
-/** Full file metadata, shown instantly when a grid tile or column row is
- * hovered — a card on the app's own panel surface, for the same reason as
+/** Full file metadata, shown when a grid tile or column row is hovered for a
+ * moment — a card on the app's own panel surface, for the same reason as
  * `FolderMetaTooltip` above. */
 export function FileMetaTooltip({
   file,
@@ -867,9 +903,10 @@ function FileCard({
   /** True when no divider above this tile names the profile (see `ProfileChip`). */
   showProfile: boolean;
 }) {
+  const tip = useMetaTooltip();
   return (
-    <Tooltip delayDuration={0}>
-      <VaultContextMenu target={{ kind: "file", file }} handlers={handlers}>
+    <Tooltip {...tip.tooltip}>
+      <VaultContextMenu target={{ kind: "file", file }} handlers={handlers} onOpenChange={tip.onMenuOpenChange}>
         <TooltipTrigger asChild>
           <div
             role="button"
@@ -902,7 +939,7 @@ function FileCard({
                   </div>
                 ) : null}
               </div>
-              <VaultItemMenu target={{ kind: "file", file }} handlers={handlers} />
+              <VaultItemMenu target={{ kind: "file", file }} handlers={handlers} onOpenChange={tip.onMenuOpenChange} />
             </div>
           </div>
         </TooltipTrigger>

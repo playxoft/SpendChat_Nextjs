@@ -54,6 +54,7 @@ import {
   type VaultHandlers,
   type VaultTarget,
 } from "./files-views";
+import { FileDetails, TxnFileDetails } from "./file-details";
 import { FilesColumnView } from "./files-column-view";
 import { StorageRing } from "./storage-ring";
 import {
@@ -412,6 +413,57 @@ export function FilesPageClient({
     router.refresh();
   };
 
+  const fileLocation = (file: FileDTO): string => {
+    const path: string[] = [];
+    let cursor = file.folderId ? (folderById.get(file.folderId) ?? null) : null;
+    let guard = 0;
+    while (cursor && guard++ < 30) {
+      path.unshift(cursor.name);
+      cursor = cursor.parentId ? (folderById.get(cursor.parentId) ?? null) : null;
+    }
+    const profile = profileNameById.get(file.profileId) ?? file.profileName ?? "";
+    return [profile, ...path].filter(Boolean).join(" / ") || "—";
+  };
+
+  // The preview carries the file's details pane; a save there re-opens it with
+  // the saved file, so the title above follows a rename.
+  function previewFile(file: FileDTO) {
+    openViewer({
+      id: file.id,
+      fileName: file.name,
+      contentType: file.contentType,
+      source: "file",
+      details: (
+        <FileDetails
+          key={file.id}
+          file={file}
+          canWrite={canWrite}
+          locale={locale}
+          location={fileLocation(file)}
+          onSaved={previewFile}
+        />
+      ),
+    });
+  }
+
+  function previewTxn(txn: TxnFileDTO) {
+    openViewer({
+      id: txn.id,
+      fileName: txn.name,
+      contentType: txn.contentType,
+      details: (
+        <TxnFileDetails
+          key={txn.id}
+          txn={txn}
+          canWrite={canWrite}
+          locale={locale}
+          currency={currency}
+          onSaved={previewTxn}
+        />
+      ),
+    });
+  }
+
   const handlers: VaultHandlers = {
     canWrite,
     allProfiles: activeProfileId === null,
@@ -420,10 +472,9 @@ export function FilesPageClient({
     profileLabel: (id) => (activeProfileId === null ? (profileNameById.get(id) ?? null) : null),
     folderSize: (id) => folderSizes.get(id) ?? 0,
     openFolder: (id) => navigateToFolder(id),
-    previewFile: (file) =>
-      openViewer({ id: file.id, fileName: file.name, contentType: file.contentType, source: "file" }),
-    previewTxn: (txn) =>
-      openViewer({ id: txn.id, fileName: txn.name, contentType: txn.contentType }),
+    previewFile,
+    fileLocation,
+    previewTxn,
     onAction: (type, target) => setAction({ type, target }),
     moveItem: (payload, folderId) => void moveItem(payload, folderId),
     uploadInto: (folderId, picked) => void uploadTo(folderId, picked),
