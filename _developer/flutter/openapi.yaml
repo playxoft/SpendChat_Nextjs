@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.11.0"
+  version: "6.13.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -136,17 +136,24 @@ info:
     ## Files vault
     A Drive-like document store (board resolutions, land papers, certificates …)
     scoped per profile: nested **folders** (with a hex color accent), **files**
-    (≤ 5 MB each, permissive types, optional preset category + thumbnail),
-    per-profile **tags** (created entities referenced by id), and public
-    **share links**. `GET /files` returns the whole working set in one call —
-    folders, files, the transaction attachments surfaced in the vault, and
-    tags; CRUD is per-resource under `/folders`, `/files`, `/file-tags`, and
-    `/file-shares`. File bytes are fetched like attachments: mint a presigned
-    URL with `GET /files/{id}/url` and GET it without the Authorization header.
-    Every profile has a predefined **"Transaction attachments"** folder
-    (`system: true`) mirroring that profile's transaction files — it can be
-    recolored/tagged but never renamed, moved, deleted, shared, or uploaded
-    into. Viewing needs viewer; every write needs editor. Same
+    (≤ 5 MB each, permissive types, optional thumbnail), an optional
+    **description** on each file and folder (≤ 250 characters, every plan —
+    6.12.0), and public **share links**. `GET /files` returns the whole working
+    set in one call — folders, files, the transaction attachments surfaced in
+    the vault, and (deprecated) tags; CRUD is per-resource under `/folders`,
+    `/files`, `/file-tags` (deprecated), and `/file-shares`. File bytes are
+    fetched like attachments: mint a presigned URL with `GET /files/{id}/url`
+    and GET it without the Authorization header. Every profile has a
+    predefined **"Transaction attachments"** folder (`system: true`) mirroring
+    that profile's transaction files — it can be recolored (and tagged) but
+    never renamed, described, moved, deleted, shared, or uploaded into.
+
+    **Deprecated (6.12.0): vault tags and the preset file category.** The web
+    app no longer shows or edits them — descriptions replaced them. The
+    `/file-tags` endpoints, `tags` in `GET /files`, and the `tagIds` /
+    `category` fields keep working unchanged and existing values are kept,
+    but clients should stop showing or offering them. They may be removed in
+    a future major version. Viewing needs viewer; every write needs editor. Same
     `503 storage_unavailable` / `413 payload_too_large` semantics as
     attachments.
 
@@ -225,6 +232,7 @@ tags:
   - name: Analytics
   - name: AI
   - name: Split
+  - name: Invoices
     description: >
       Groups for sharing costs between people (6.9.0). User-scoped — outside
       every workspace, so X-Workspace-Id is ignored.
@@ -819,7 +827,7 @@ paths:
   /api/v1/files:
     get:
       tags: [Files]
-      summary: The vault working set (folders + files + transaction files + tags)
+      summary: The vault working set (folders + files + transaction files + deprecated tags)
       description: |
         Everything the caller can view in the current workspace, in one call —
         mirrors the web vault's page load. `?profile=<uuid>` scopes to one
@@ -863,6 +871,10 @@ paths:
                         items: { $ref: "#/components/schemas/TransactionFile" }
                       tags:
                         type: array
+                        deprecated: true
+                        description: >-
+                          Deprecated (6.12.0) — the web app no longer shows
+                          vault tags. Still sent; stop displaying it.
                         items: { $ref: "#/components/schemas/FileTag" }
                     required: [folders, files, transactionFiles, tags]
                   meta:
@@ -892,7 +904,9 @@ paths:
       description: |
         Multipart form data: `profileId` (required — the profile to upload
         into), `folderId` (optional; omit for the profile's root — the
-        predefined folder is never a valid destination, 400), files under
+        predefined folder is never a valid destination, 400), `description`
+        (optional, 6.12.0; ≤ 250 characters after trimming, blank = none,
+        given to **every** file in the request — 422 when longer), files under
         `files` (repeatable; `file` also accepted), and an optional
         client-generated preview per file under `thumb_<index>` (webp
         recommended) — it becomes the tile thumbnail (`hasThumbnail`).
@@ -932,6 +946,10 @@ paths:
               properties:
                 profileId: { type: string, format: uuid }
                 folderId: { type: string, format: uuid }
+                description:
+                  type: string
+                  maxLength: 250
+                  description: Optional (6.12.0). Given to every file in the request.
                 files:
                   type: array
                   items: { type: string, format: binary }
@@ -963,7 +981,11 @@ paths:
       - $ref: "#/components/parameters/workspaceHeader"
     patch:
       tags: [Files]
-      summary: Rename / re-categorize / re-tag / move a vault file (editor only)
+      summary: Rename / describe / move a vault file (editor only)
+      description: |
+        Any subset of `{ name, description, folderId }` (plus the deprecated
+        `category` and `tagIds`). `description: null` — or a blank string —
+        clears it; omitting it leaves it alone.
       requestBody:
         required: true
         content:
@@ -1082,7 +1104,8 @@ paths:
         Folders nest (`parentId`) but never span profiles. Sibling names are
         unique case-insensitively (409). The predefined "Transaction
         attachments" folder can't be a parent (400). The folder list itself
-        ships with `GET /files`.
+        ships with `GET /files`. `description` (6.12.0) is optional, ≤ 250
+        characters after trimming; blank means none.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1113,12 +1136,14 @@ paths:
       - $ref: "#/components/parameters/workspaceHeader"
     patch:
       tags: [Files]
-      summary: Rename / recolor / re-tag / move a folder (editor only)
+      summary: Rename / recolor / describe / move a folder (editor only)
       description: |
-        Any subset of `{ name, color, tagIds, parentId }`; `parentId: null`
-        moves the folder to the root, `color: null` clears the accent. Moving
-        a folder into its own subtree is rejected (400), as is renaming/moving
-        the predefined folder (which accepts only color + tags).
+        Any subset of `{ name, color, description, parentId }` (plus the
+        deprecated `tagIds`); `parentId: null` moves the folder to the root,
+        `color: null` clears the accent, `description: null` (or blank) clears
+        the description. Moving a folder into its own subtree is rejected
+        (400), as is renaming, moving or describing the predefined folder
+        (which accepts only color + tags).
       requestBody:
         required: true
         content:
@@ -1168,12 +1193,16 @@ paths:
   /api/v1/file-tags:
     get:
       tags: [Files]
-      summary: List the vault tags of the accessible profiles
+      summary: List the vault tags of the accessible profiles (deprecated)
+      deprecated: true
       description: |
+        **Deprecated (6.12.0)** — the web app no longer shows or edits vault
+        tags; descriptions replaced them. Still served unchanged.
+
         Name-ascending. `?profile=<uuid>` scopes to one profile. Tags are
         per-profile entities — files and folders reference them by id
         (`tagIds`), so only a created tag can be applied. Also included in
-        `GET /files`; this standalone list is for tag pickers.
+        `GET /files`.
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
         - $ref: "#/components/parameters/profile"
@@ -1195,8 +1224,11 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
     post:
       tags: [Files]
-      summary: Create a vault tag (editor only)
-      description: Names are unique per profile, case-insensitively (409).
+      summary: Create a vault tag (editor only; deprecated)
+      deprecated: true
+      description: >-
+        Deprecated (6.12.0) — still works. Names are unique per profile,
+        case-insensitively (409).
       parameters:
         - $ref: "#/components/parameters/workspaceHeader"
       requestBody:
@@ -1227,8 +1259,11 @@ paths:
       - $ref: "#/components/parameters/workspaceHeader"
     patch:
       tags: [Files]
-      summary: Rename / recolor a tag (editor only)
-      description: Every file and folder referencing the tag reflects the change at once.
+      summary: Rename / recolor a tag (editor only; deprecated)
+      deprecated: true
+      description: >-
+        Deprecated (6.12.0) — still works. Every file and folder referencing
+        the tag reflects the change at once.
       requestBody:
         required: true
         content:
@@ -1252,8 +1287,11 @@ paths:
         "429": { $ref: "#/components/responses/RateLimited" }
     delete:
       tags: [Files]
-      summary: Delete a tag (editor only)
-      description: Detaches the tag from every file and folder of its profile, then removes it.
+      summary: Delete a tag (editor only; deprecated)
+      deprecated: true
+      description: >-
+        Deprecated (6.12.0) — still works. Detaches the tag from every file and
+        folder of its profile, then removes it.
       responses:
         "200":
           description: Deletion acknowledged.
@@ -3580,6 +3618,671 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "404": { $ref: "#/components/responses/NotFound" }
 
+  /api/v1/invoices:
+    get:
+      tags: [Invoices]
+      summary: List invoices and quotes
+      description: |
+        Since 6.13.0. The invoices and quotes the caller can read in the
+        current workspace (viewer on their profile — a trashed profile hides
+        its documents), newest first, **without** their lines. Every amount is
+        minor units of each document's own `currency`. `limit` is capped at 200.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - { name: kind, in: query, required: false, schema: { type: string, enum: [invoice, quote] } }
+        - { name: status, in: query, required: false, schema: { type: string, enum: [draft, sent, paid, void] } }
+        - { name: profileId, in: query, required: false, schema: { type: string, format: uuid } }
+        - { name: clientId, in: query, required: false, schema: { type: string, format: uuid } }
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+      responses:
+        "200":
+          description: The documents.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/InvoiceSummary" } }
+                  meta:
+                    type: object
+                    properties: { limit: { type: integer }, offset: { type: integer } }
+                required: [data, meta]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    post:
+      tags: [Invoices]
+      summary: Make a draft invoice or quote
+      description: |
+        A new **draft** in a profile the caller can edit (403 otherwise; 404
+        for a profile they can't see). The server works out every line amount
+        and total with the same engine as the web; amounts you send are plain
+        numbers in **major units** of the document's `currency`. A draft has no
+        number until it's finalised. Past the month's allowance (20 invoices +
+        quotes a month per workspace, on every plan) this is `403 plan_limit`
+        with `limit: "invoices"` and `upgradeTo: null`. An unknown `template`
+        is a 422.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvoiceCreate" }
+      responses:
+        "201":
+          description: The draft.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Invoice" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/invoices/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    get:
+      tags: [Invoices]
+      summary: One invoice or quote, with its lines
+      responses:
+        "200":
+          description: The document.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Invoice" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Invoices]
+      summary: Replace a document's content
+      description: |
+        Send the whole document (`InvoiceContent`) — the lines are replaced.
+        A draft changes freely. A finalised one that isn't paid or void
+        (`status: sent`) can be edited too: it keeps its `number`, `editedAt`
+        records when, and its stored PDF is drawn again. A paid or void
+        document is `409 conflict`. It stays in its profile.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvoiceContent" }
+      responses:
+        "200":
+          description: The draft.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Invoice" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Invoices]
+      summary: Delete a draft
+      description: |
+        Only drafts are deleted. A finalised invoice or quote is a record with
+        a number and is **never deleted** — `409 conflict`; void it instead.
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/invoices/{id}/finalise:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    post:
+      tags: [Invoices]
+      summary: Finalise a draft
+      description: |
+        Gives the draft the next number in the workspace's series —
+        `INV-0001`, `INV-0002`… for invoices, `QUO-0001`… for quotes; no gaps,
+        no duplicates — sets `status: sent`, locks it, and stores its PDF
+        (counted in the workspace's storage; `413 storage_quota_exceeded` when
+        storage is full). It needs a client name, your business name and at
+        least one line (422). `409` when it's already finalised.
+      responses:
+        "200":
+          description: The finalised document.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Invoice" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/invoices/{id}/send:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    post:
+      tags: [Invoices]
+      summary: Send as a link (finalising a draft first)
+      description: |
+        Finalises a draft (as `/finalise`), then returns a public link to send
+        — the newest live one, or a new one that never expires. Nothing is
+        emailed.
+      responses:
+        "200":
+          description: The document and its link.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      invoice: { $ref: "#/components/schemas/Invoice" }
+                      share: { $ref: "#/components/schemas/InvoiceShare" }
+                    required: [invoice, share]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/invoices/{id}/void:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    post:
+      tags: [Invoices]
+      summary: Void a sent invoice or quote
+      description: |
+        It stays on record with its number, `status: void`. `409` for a draft
+        (delete it instead), a paid invoice, or one that's already void.
+      responses:
+        "200":
+          description: The voided document.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Invoice" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/invoices/{id}/mark-paid:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    post:
+      tags: [Invoices]
+      summary: Mark a sent invoice as paid
+      description: |
+        Writes **one income transaction** in the invoice's profile, in the
+        **workspace's** currency, and sets `status: paid`. When the invoice is
+        in the workspace's currency `amount` defaults to the total (send it for
+        a part payment or a fee); in another currency it's required —
+        `422 amount_required` otherwise. Calling it again (or twice at once)
+        returns the same transaction with `alreadyPaid: true`. `409` for a
+        draft, a quote or a void invoice; 422 for a category that isn't an
+        income category of this workspace.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvoiceMarkPaidInput" }
+      responses:
+        "200":
+          description: The paid invoice and its income entry.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceMarkPaidResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/invoices/{id}/convert:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    post:
+      tags: [Invoices]
+      summary: Turn a quote into a draft invoice
+      description: |
+        A new **draft invoice** in the quote's profile with its client,
+        seller, lines, discount, tax, notes and template (not its terms),
+        dated today and due in 30 days, `sourceQuoteId` pointing back. Counts
+        toward the month's allowance (`403 plan_limit`, `limit: "invoices"`).
+        `409` for an invoice or a void quote.
+      responses:
+        "201":
+          description: The new draft invoice.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/Invoice" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /api/v1/invoices/{id}/pdf:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+      - { name: download, in: query, required: false, description: '"1" sends it as an attachment.', schema: { type: string, enum: ["1"] } }
+    get:
+      tags: [Invoices]
+      summary: The document as a PDF
+      description: |
+        `application/pdf` bytes — **not** the JSON envelope (errors still are).
+        A finalised document's stored copy; a draft drawn on the spot, with
+        "Draft" where its number will go. The file name is the number
+        (`INV-0007.pdf`).
+      responses:
+        "200":
+          description: The PDF.
+          content:
+            application/pdf:
+              schema: { type: string, format: binary }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/invoices/{id}/shares:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    get:
+      tags: [Invoices]
+      summary: The document's live share links
+      description: Editors only (a token is access). Expired links aren't listed.
+      responses:
+        "200":
+          description: Live links, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { type: array, items: { $ref: "#/components/schemas/InvoiceShare" } } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    post:
+      tags: [Invoices]
+      summary: Make a public link
+      description: |
+        A link anyone can open to view the document and download its PDF
+        (`url`). Only for a finalised document — `409` for a draft. A link
+        stops working while its profile is in the trash, and when revoked or
+        expired.
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                expiresInDays: { type: [integer, "null"], minimum: 1, maximum: 365, description: Omitted or null never expires. }
+      responses:
+        "201":
+          description: The link.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceShare" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/invoices/{id}/shares/{shareId}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - { name: shareId, in: path, required: true, schema: { type: string, format: uuid } }
+      - $ref: "#/components/parameters/workspaceHeader"
+    delete:
+      tags: [Invoices]
+      summary: Revoke a link
+      responses:
+        "200":
+          description: Revoked — it stops working at once.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/invoice-clients:
+    get:
+      tags: [Invoices]
+      summary: List saved clients
+      description: Since 6.13.0. Clients the caller can read, by name; `profileId` narrows to one profile.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - { name: profileId, in: query, required: false, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: The clients.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { type: array, items: { $ref: "#/components/schemas/InvoiceClient" } } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    post:
+      tags: [Invoices]
+      summary: Save a client
+      description: |
+        In a profile the caller can edit. Past the workspace's saved clients
+        (20, live profiles) this is `403 plan_limit` with
+        `limit: "invoiceClients"` and `upgradeTo: null` — deleting one frees a
+        place.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvoiceClientInput" }
+      responses:
+        "201":
+          description: The client.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceClient" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/invoice-clients/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    get:
+      tags: [Invoices]
+      summary: One saved client
+      responses:
+        "200":
+          description: The client.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceClient" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Invoices]
+      summary: Change a client
+      description: Any of the fields (null clears an optional one). Documents already written keep their copy.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvoiceClientUpdate" }
+      responses:
+        "200":
+          description: The client.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceClient" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Invoices]
+      summary: Delete a client
+      description: Documents keep their copy of the client's details; only their `clientId` link is cleared.
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/invoice-sellers:
+    get:
+      tags: [Invoices]
+      summary: List saved business details
+      description: Since 6.13.0. "Your details" (who documents are from) the caller can read; `profileId` narrows.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+        - { name: profileId, in: query, required: false, schema: { type: string, format: uuid } }
+      responses:
+        "200":
+          description: The business details.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { type: array, items: { $ref: "#/components/schemas/InvoiceSeller" } } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    post:
+      tags: [Invoices]
+      summary: Save business details
+      description: |
+        In a profile the caller can edit; a profile can hold several sets.
+        Three per workspace on the free tier (live profiles): past them,
+        `403 plan_limit` with `limit: "invoiceSellers"` and `upgradeTo: null`.
+      parameters:
+        - $ref: "#/components/parameters/workspaceHeader"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvoiceSellerInput" }
+      responses:
+        "201":
+          description: The business details.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceSeller" } }
+                required: [data]
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrPlanLimit" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /api/v1/invoice-sellers/{id}:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    get:
+      tags: [Invoices]
+      summary: One set of business details
+      responses:
+        "200":
+          description: The business details.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceSeller" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      tags: [Invoices]
+      summary: Change business details
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/InvoiceSellerUpdate" }
+      responses:
+        "200":
+          description: The business details.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceSeller" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+    delete:
+      tags: [Invoices]
+      summary: Delete business details (and the logo)
+      responses:
+        "200":
+          description: Deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/DeletedResult" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /api/v1/invoice-sellers/{id}/logo:
+    parameters:
+      - $ref: "#/components/parameters/id"
+      - $ref: "#/components/parameters/workspaceHeader"
+    get:
+      tags: [Invoices]
+      summary: A short-lived URL for the logo
+      description: Fetch `url` without the Authorization header. 404 when there's no logo.
+      responses:
+        "200":
+          description: The URL.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      url: { type: string, format: uri }
+                      expiresInSeconds: { type: integer }
+                      contentType: { type: string, enum: [image/png, image/jpeg] }
+                    required: [url, expiresInSeconds, contentType]
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "503": { $ref: "#/components/responses/StorageUnavailable" }
+    put:
+      tags: [Invoices]
+      summary: Upload the logo
+      description: |
+        The image itself as the body — a **PNG or JPEG** (checked by its
+        bytes), at most 300 KB; resize it on the device first. Replaces any
+        logo it had. Stored once and drawn on every document from these
+        details; it counts toward the workspace's storage
+        (`413 storage_quota_exceeded`).
+      requestBody:
+        required: true
+        content:
+          image/png: { schema: { type: string, format: binary } }
+          image/jpeg: { schema: { type: string, format: binary } }
+      responses:
+        "200":
+          description: "The business details, `hasLogo: true`."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceSeller" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "413": { $ref: "#/components/responses/PayloadTooLarge" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+        "503": { $ref: "#/components/responses/StorageUnavailable" }
+    delete:
+      tags: [Invoices]
+      summary: Remove the logo
+      responses:
+        "200":
+          description: "The business details, `hasLogo: false`."
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: { data: { $ref: "#/components/schemas/InvoiceSeller" } }
+                required: [data]
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -3854,9 +4557,14 @@ components:
         `freeWorkspaces`: one free workspace per person — creating another, or
         writing into an extra one that is view-only. `budgets` (6.8.0): the
         workspace's budget cap (5 / 20; Pro's 200 is a safety cap with
-        `upgradeTo: null` — show "Contact us").
+        `upgradeTo: null` — show "Contact us"). Since 6.13.0, invoicing's
+        allowances — the same on every plan, so always `upgradeTo: null`; show
+        the message: `invoices` (20 invoices + quotes a month), `invoiceClients`
+        (20 saved clients), `invoiceSellers` (three sets of business details),
+        `invoiceTemplates` (a template outside the tier).
       enum: [members, spaces, profilesPerSpace, categories, tags, budgets, storage,
-             aiActions, voice, profileLevelAccess, freeWorkspaces]
+             aiActions, voice, profileLevelAccess, freeWorkspaces, invoices,
+             invoiceClients, invoiceSellers, invoiceTemplates]
 
     RateLimitedDetails:
       type: object
@@ -4573,8 +5281,9 @@ components:
         storage:
           type: object
           description: >
-            Vault files + transaction attachments, workspace-wide (same as `GET
-            /files` → `meta.storage`). The trash counts until purged.
+            Vault files, transaction attachments and (since 6.13.0) invoicing's
+            stored PDFs and logos, workspace-wide (same as `GET /files` →
+            `meta.storage`). The trash counts until purged.
           properties:
             usedBytes: { type: integer, format: int64 }
             limitBytes: { type: integer, format: int64 }
@@ -4585,7 +5294,21 @@ components:
                 6.7.0. The part of `usedBytes` in the trash (trashed files, the
                 receipts of trashed transactions, everything in a trashed
                 profile) — freed by emptying the trash or the 30-day purge.
-          required: [usedBytes, limitBytes, trashBytes]
+            breakdown:
+              type: object
+              description: >
+                Since 6.13.0. Where `usedBytes` goes: vault `files`, transaction
+                `attachments`, finalised `invoices`' and `quotations`' PDFs (kept
+                out of the files list — this is where they show), and business
+                details' `logos`. The parts add up to `usedBytes`.
+              properties:
+                files: { type: integer, format: int64 }
+                attachments: { type: integer, format: int64 }
+                invoices: { type: integer, format: int64 }
+                quotations: { type: integer, format: int64 }
+                logos: { type: integer, format: int64 }
+              required: [files, attachments, invoices, quotations, logos]
+          required: [usedBytes, limitBytes, trashBytes, breakdown]
         members:
           description: People with access, the owner and pending invites included.
           allOf: [{ $ref: "#/components/schemas/Meter" }]
@@ -4611,8 +5334,33 @@ components:
           description: The per-space profile cap (compare with each `Space.profileCount`).
         voice: { type: boolean, description: Whether voice entry (`POST /ai/transcribe`) is available. }
         profileLevelAccess: { type: boolean, description: Whether per-profile overrides can be changed (Plus/Pro). }
+        invoicing:
+          type: object
+          description: >
+            Since 6.13.0. Invoicing's free tier — the same on every plan.
+            Limits gate adding only.
+          properties:
+            tier: { type: string, enum: [free, addon] }
+            perMonth:
+              type: object
+              description: Invoices + quotes made this calendar month (UTC), drafts included; deleting a draft frees its place.
+              properties:
+                used: { type: integer }
+                limit: { type: integer }
+                resetsAt: { type: string, format: date-time }
+              required: [used, limit, resetsAt]
+            clients:
+              type: object
+              properties:
+                used: { type: integer }
+                limit: { type: [integer, "null"], description: null = no cap. }
+              required: [used, limit]
+            sellers: { $ref: "#/components/schemas/Meter" }
+            templates: { type: integer, description: How many templates the tier offers. }
+            footer: { type: boolean, description: '"Made with SpendChat" goes on the documents.' }
+          required: [tier, perMonth, clients, sellers, templates, footer]
       required: [plan, readOnly, readOnlyReason, ai, storage, members, spaces,
-                 categories, tags, budgets, profilesPerSpace, voice, profileLevelAccess]
+                 categories, tags, budgets, profilesPerSpace, voice, profileLevelAccess, invoicing]
 
     Budget:
       type: object
@@ -4684,6 +5432,317 @@ components:
         emailAlerts: { type: boolean }
         title: { type: string, minLength: 1, maxLength: 60 }
         description: { type: [string, "null"], maxLength: 140, description: null or blank clears it. }
+
+    InvoiceKind:
+      type: string
+      enum: [invoice, quote]
+    InvoiceStatus:
+      type: string
+      description: >
+        `draft` (no number, editable, deletable) → `sent` (finalised: numbered,
+        locked, PDF stored) → `paid` (invoices only) or `void` (kept, with its
+        number). A finalised document is never deleted.
+      enum: [draft, sent, paid, void]
+    InvoiceTemplate:
+      type: string
+      description: The visual template — five on the free tier.
+      enum: [classic, modern, bold, minimal, compact]
+
+    InvoiceItem:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        position: { type: integer, description: 0-based order. }
+        description: { type: string, maxLength: 300 }
+        quantity: { type: number, description: Up to 4 decimals. }
+        unitPriceMinor: { type: integer, format: int64, description: Minor units of the document's currency. }
+        amountMinor: { type: integer, format: int64, description: "quantity × unit price, rounded once." }
+      required: [id, position, description, quantity, unitPriceMinor, amountMinor]
+
+    Invoice:
+      type: object
+      description: >
+        Since 6.13.0. An invoice or quote. It belongs to a profile — viewers
+        read it, editors change it — and every amount is minor units of its own
+        `currency` except `paidAmountMinor` (the workspace's currency).
+        `client` and `seller` are copies taken when it was written, so a sent
+        document never changes; `clientId` / `sellerId` only link to the saved
+        ones (null once those are deleted).
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        kind: { $ref: "#/components/schemas/InvoiceKind" }
+        status: { $ref: "#/components/schemas/InvoiceStatus" }
+        number: { type: [string, "null"], description: '"INV-0001" / "QUO-0001"; null on a draft.' }
+        quoteTitle: { type: string, enum: [quotation, estimate], description: What a quote calls itself. }
+        clientId: { type: [string, "null"], format: uuid }
+        client:
+          type: object
+          properties:
+            name: { type: string }
+            email: { type: [string, "null"] }
+            address: { type: [string, "null"] }
+            taxId: { type: [string, "null"] }
+            phone: { type: [string, "null"] }
+            contactPerson: { type: [string, "null"], description: 'Printed as "Attn: …".' }
+          required: [name, email, address, taxId, phone, contactPerson]
+        sellerId: { type: [string, "null"], format: uuid }
+        seller:
+          type: object
+          properties:
+            name: { type: string }
+            address: { type: [string, "null"] }
+            contact: { type: [string, "null"] }
+            taxId: { type: [string, "null"] }
+            phone: { type: [string, "null"] }
+            website: { type: [string, "null"] }
+            registrationNumber: { type: [string, "null"] }
+            bankDetails: { type: [string, "null"], description: Printed on invoices under "Bank details". }
+          required: [name, address, contact, taxId, phone, website, registrationNumber, bankDetails]
+        upiId: { type: [string, "null"], description: "Rupee invoices with one carry a pay-by-UPI QR code (upi://pay)." }
+        hasLogo: { type: boolean, description: "The linked seller has a logo (GET /invoice-sellers/{sellerId}/logo)." }
+        issueDate: { type: string, format: date }
+        dueDate: { type: [string, "null"], format: date, description: Due (invoice) or valid until (quote). }
+        currency: { $ref: "#/components/schemas/CurrencyCode" }
+        discountType: { type: string, enum: [percent, fixed] }
+        discountRate: { type: number, description: Percent, when `discountType` is percent. }
+        discountFixedMinor: { type: integer, format: int64 }
+        taxLabel: { type: [string, "null"] }
+        taxRate: { type: number, description: Percent, charged on the subtotal after the discount. }
+        subtotalMinor: { type: integer, format: int64 }
+        discountMinor: { type: integer, format: int64 }
+        taxMinor: { type: integer, format: int64 }
+        totalMinor: { type: integer, format: int64 }
+        notes: { type: [string, "null"] }
+        terms: { type: [string, "null"], description: Quotes only. }
+        template: { $ref: "#/components/schemas/InvoiceTemplate" }
+        showCredit: { type: boolean, description: '"Made with SpendChat" is on the document.' }
+        hasPdf: { type: boolean, description: A PDF snapshot is stored (finalised documents). }
+        sourceQuoteId: { type: [string, "null"], format: uuid, description: The quote this invoice was made from. }
+        sentAt: { type: [string, "null"], format: date-time }
+        editedAt: { type: [string, "null"], format: date-time, description: The last edit after it was finalised (it kept its number) — null if never. }
+        paidAt: { type: [string, "null"], format: date-time }
+        paidOn: { type: [string, "null"], format: date }
+        paidTransactionId: { type: [string, "null"], format: uuid, description: The income entry; null once it's permanently deleted. }
+        paidAmountMinor: { type: [integer, "null"], format: int64, description: What was received, in the **workspace's** currency. }
+        voidedAt: { type: [string, "null"], format: date-time }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        items: { type: array, items: { $ref: "#/components/schemas/InvoiceItem" } }
+      required: [id, profileId, kind, status, number, quoteTitle, clientId, client, sellerId, seller, upiId,
+                 hasLogo, issueDate, dueDate, currency, discountType, discountRate, discountFixedMinor,
+                 taxLabel, taxRate, subtotalMinor, discountMinor, taxMinor, totalMinor, notes, terms,
+                 template, showCredit, hasPdf, sourceQuoteId, sentAt, editedAt, paidAt, paidOn, paidTransactionId,
+                 paidAmountMinor, voidedAt, createdBy, createdAt, updatedAt, items]
+
+    InvoiceSummary:
+      type: object
+      description: A row of the list — no lines.
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        profileName: { type: [string, "null"] }
+        profileIcon: { type: [string, "null"] }
+        kind: { $ref: "#/components/schemas/InvoiceKind" }
+        status: { $ref: "#/components/schemas/InvoiceStatus" }
+        number: { type: [string, "null"] }
+        clientId: { type: [string, "null"], format: uuid }
+        clientName: { type: string }
+        issueDate: { type: string, format: date }
+        dueDate: { type: [string, "null"], format: date }
+        currency: { $ref: "#/components/schemas/CurrencyCode" }
+        totalMinor: { type: integer, format: int64 }
+        paidAmountMinor: { type: [integer, "null"], format: int64 }
+        sourceQuoteId: { type: [string, "null"], format: uuid }
+        sentAt: { type: [string, "null"], format: date-time }
+        editedAt: { type: [string, "null"], format: date-time, description: The last edit after it was finalised (it kept its number) — null if never. }
+        paidAt: { type: [string, "null"], format: date-time }
+        voidedAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, profileId, profileName, profileIcon, kind, status, number, clientId, clientName,
+                 issueDate, dueDate, currency, totalMinor, paidAmountMinor, sourceQuoteId, sentAt, editedAt, paidAt,
+                 voidedAt, createdAt, updatedAt]
+
+    InvoiceItemInput:
+      type: object
+      properties:
+        description: { type: string, maxLength: 300, default: "" }
+        quantity: { type: number, minimum: 0, maximum: 1000000000, description: Rounded to 4 decimals. }
+        unitPrice: { type: number, minimum: 0, description: Major units of the document's currency (rounded to its minor unit). }
+      required: [quantity, unitPrice]
+
+    InvoiceContent:
+      type: object
+      description: >
+        A draft's whole content. `clientId` / `sellerId` must be in the
+        document's own profile; with one given and the matching `client` /
+        `seller` name left blank, the saved details are copied in.
+      properties:
+        clientId: { type: [string, "null"], format: uuid }
+        client:
+          type: object
+          properties:
+            name: { type: string, maxLength: 120 }
+            email: { type: [string, "null"], maxLength: 160 }
+            address: { type: [string, "null"], maxLength: 400 }
+            taxId: { type: [string, "null"], maxLength: 60 }
+            phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
+            contactPerson: { type: [string, "null"], maxLength: 120 }
+        sellerId: { type: [string, "null"], format: uuid }
+        seller:
+          type: object
+          properties:
+            name: { type: string, maxLength: 120 }
+            address: { type: [string, "null"], maxLength: 400 }
+            contact: { type: [string, "null"], maxLength: 160, description: "The document contact line: any text, as the free generator Email-or-phone line." }
+            taxId: { type: [string, "null"], maxLength: 60 }
+            phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
+            website: { type: [string, "null"], maxLength: 200 }
+            registrationNumber: { type: [string, "null"], maxLength: 60 }
+            bankDetails: { type: [string, "null"], maxLength: 600 }
+        upiId: { type: [string, "null"], maxLength: 100, description: "name@bank" }
+        quoteTitle: { type: string, enum: [quotation, estimate], default: quotation }
+        issueDate: { type: string, format: date }
+        dueDate: { type: [string, "null"], format: date, description: Not before `issueDate`. }
+        currency: { $ref: "#/components/schemas/CurrencyCode" }
+        items: { type: array, maxItems: 100, items: { $ref: "#/components/schemas/InvoiceItemInput" } }
+        discountType: { type: string, enum: [percent, fixed], default: percent }
+        discount: { type: number, minimum: 0, default: 0, description: Percent (≤ 100), or a fixed amount in major units. }
+        taxLabel: { type: [string, "null"], maxLength: 24 }
+        taxRate: { type: number, minimum: 0, maximum: 100, default: 0 }
+        notes: { type: [string, "null"], maxLength: 2000 }
+        terms: { type: [string, "null"], maxLength: 2000 }
+        template: { $ref: "#/components/schemas/InvoiceTemplate" }
+      required: [issueDate, currency]
+
+    InvoiceCreate:
+      allOf:
+        - type: object
+          properties:
+            kind: { $ref: "#/components/schemas/InvoiceKind" }
+            profileId: { type: string, format: uuid }
+          required: [kind, profileId]
+        - $ref: "#/components/schemas/InvoiceContent"
+
+    InvoiceMarkPaidInput:
+      type: object
+      properties:
+        amount: { type: number, exclusiveMinimum: 0, maximum: 999999999.99, description: What was received, major units of the **workspace's** currency. }
+        paidOn: { type: string, format: date, description: Defaults to today (UTC). }
+        categoryId: { type: [string, "null"], format: uuid, description: An income category of this workspace. }
+
+    InvoiceMarkPaidResult:
+      type: object
+      properties:
+        invoice: { $ref: "#/components/schemas/Invoice" }
+        transactionId: { type: [string, "null"], format: uuid }
+        alreadyPaid: { type: boolean, description: It was paid before this call — nothing new was written. }
+      required: [invoice, transactionId, alreadyPaid]
+
+    InvoiceShare:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        invoiceId: { type: string, format: uuid }
+        token: { type: string, description: 256 random bits, base64url — the link is the access. }
+        path: { type: string, example: /share/invoice/AbC… }
+        url: { type: string, format: uri, description: The public page to send. }
+        expiresAt: { type: [string, "null"], format: date-time }
+        createdAt: { type: string, format: date-time }
+      required: [id, invoiceId, token, path, url, expiresAt, createdAt]
+
+    InvoiceClient:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        name: { type: string }
+        email: { type: [string, "null"] }
+        address: { type: [string, "null"] }
+        taxId: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        contactPerson: { type: [string, "null"], description: 'Printed as "Attn: …".' }
+        notes: { type: [string, "null"], description: Private to the workspace — never printed or copied onto a document. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, profileId, name, email, address, taxId, phone, contactPerson, notes, createdAt, updatedAt]
+
+    InvoiceClientInput:
+      type: object
+      properties:
+        profileId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        email: { type: [string, "null"], format: email, maxLength: 160 }
+        address: { type: [string, "null"], maxLength: 400 }
+        taxId: { type: [string, "null"], maxLength: 60 }
+        phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
+        contactPerson: { type: [string, "null"], maxLength: 120 }
+        notes: { type: [string, "null"], maxLength: 1000 }
+      required: [profileId, name]
+
+    InvoiceClientUpdate:
+      type: object
+      description: At least one field.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        email: { type: [string, "null"], format: email, maxLength: 160 }
+        address: { type: [string, "null"], maxLength: 400 }
+        taxId: { type: [string, "null"], maxLength: 60 }
+        phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
+        contactPerson: { type: [string, "null"], maxLength: 120 }
+        notes: { type: [string, "null"], maxLength: 1000 }
+
+    InvoiceSeller:
+      type: object
+      description: '"Your details" — who documents are from, with a logo stored once.'
+      properties:
+        id: { type: string, format: uuid }
+        profileId: { type: string, format: uuid }
+        name: { type: string }
+        address: { type: [string, "null"] }
+        contact: { type: [string, "null"], description: The email line (the app labels it Email). }
+        taxId: { type: [string, "null"] }
+        upiId: { type: [string, "null"] }
+        phone: { type: [string, "null"] }
+        website: { type: [string, "null"] }
+        registrationNumber: { type: [string, "null"], description: "A company or business registration number (CIN, CRN, ABN…)." }
+        bankDetails: { type: [string, "null"], description: Free text, printed on invoices under "Bank details". }
+        hasLogo: { type: boolean }
+        logoVersion: { type: [string, "null"], description: Changes whenever the logo does — a cache key. }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+      required: [id, profileId, name, address, contact, taxId, upiId, phone, website, registrationNumber, bankDetails, hasLogo, logoVersion, createdAt, updatedAt]
+
+    InvoiceSellerInput:
+      type: object
+      properties:
+        profileId: { type: string, format: uuid }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        address: { type: [string, "null"], maxLength: 400 }
+        contact: { type: [string, "null"], format: email, maxLength: 160, description: "The email line — a valid address, else 422." }
+        taxId: { type: [string, "null"], maxLength: 60 }
+        upiId: { type: [string, "null"], maxLength: 100, description: "name@bank" }
+        phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
+        website: { type: [string, "null"], maxLength: 200 }
+        registrationNumber: { type: [string, "null"], maxLength: 60 }
+        bankDetails: { type: [string, "null"], maxLength: 600 }
+      required: [profileId, name]
+
+    InvoiceSellerUpdate:
+      type: object
+      description: At least one field.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        address: { type: [string, "null"], maxLength: 400 }
+        contact: { type: [string, "null"], format: email, maxLength: 160, description: "The email line — a valid address, else 422." }
+        taxId: { type: [string, "null"], maxLength: 60 }
+        upiId: { type: [string, "null"], maxLength: 100 }
+        phone: { type: [string, "null"], maxLength: 40, description: "Digits, spaces and + ( ) - . only (a + only at the start), 6–15 digits — else 422." }
+        website: { type: [string, "null"], maxLength: 200 }
+        registrationNumber: { type: [string, "null"], maxLength: 60 }
+        bankDetails: { type: [string, "null"], maxLength: 600 }
 
     Summary:
       type: object
@@ -4902,7 +5961,8 @@ components:
 
     FileCategory:
       type: string
-      description: Preset document categories for vault files.
+      deprecated: true
+      description: Deprecated (6.12.0). Preset document categories for vault files.
       enum: [board-resolution, company, personal, land, house, certificate, other]
 
     VaultColor:
@@ -4916,7 +5976,7 @@ components:
       description: >
         A vault folder. `system: true` marks the predefined per-profile
         "Transaction attachments" folder — recolor/tag only; never rename,
-        move, delete, share, upload into, or nest under it.
+        describe, move, delete, share, upload into, or nest under it.
       properties:
         id: { type: string, format: uuid }
         profileId: { type: string, format: uuid }
@@ -4925,6 +5985,10 @@ components:
           format: uuid
           description: null = a root folder.
         name: { type: string, maxLength: 40 }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: What the folder holds (6.12.0), or null. Searchable in the web app.
         color:
           oneOf:
             - type: "null"
@@ -4932,16 +5996,19 @@ components:
           description: Accent hex, or null for the neutral default.
         tagIds:
           type: array
+          deprecated: true
           items: { type: string, format: uuid }
-          description: Applied tags (resolve against the tags list).
+          description: >-
+            Deprecated (6.12.0) — applied tags (resolve against the tags list).
+            Still sent; stop displaying them.
         system: { type: boolean }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         createdByName:
           type: [string, "null"]
           description: Creator attribution (display only).
-      required: [id, profileId, parentId, name, color, tagIds, system,
-                 createdAt, updatedAt, createdByName]
+      required: [id, profileId, parentId, name, description, color, tagIds,
+                 system, createdAt, updatedAt, createdByName]
 
     VaultFile:
       type: object
@@ -4957,6 +6024,10 @@ components:
           format: uuid
           description: null = the profile's root.
         name: { type: string, maxLength: 200, description: Sanitized display/file name. }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: What the file is (6.12.0), or null. Searchable in the web app.
         contentType:
           type: string
           description: >-
@@ -4965,11 +6036,17 @@ components:
             type even for files uploaded before that resolution existed.
         sizeBytes: { type: integer, maximum: 5242880 }
         category:
+          deprecated: true
+          description: >-
+            Deprecated (6.12.0) — the preset document category. Still sent;
+            stop displaying it.
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/FileCategory"
         tagIds:
           type: array
+          deprecated: true
+          description: Deprecated (6.12.0). Still sent; stop displaying it.
           items: { type: string, format: uuid }
         hasThumbnail:
           type: boolean
@@ -4978,9 +6055,9 @@ components:
         uploaderName: { type: [string, "null"], description: Uploader attribution (display only). }
         profileName: { type: [string, "null"] }
         profileIcon: { type: [string, "null"] }
-      required: [id, profileId, folderId, name, contentType, sizeBytes,
-                 category, tagIds, hasThumbnail, createdAt, uploaderName,
-                 profileName, profileIcon]
+      required: [id, profileId, folderId, name, description, contentType,
+                 sizeBytes, category, tagIds, hasThumbnail, createdAt,
+                 uploaderName, profileName, profileIcon]
 
     TransactionFile:
       type: object
@@ -5011,7 +6088,10 @@ components:
 
     FileTag:
       type: object
-      description: A per-profile tag entity. Files/folders reference it via tagIds.
+      deprecated: true
+      description: >-
+        Deprecated (6.12.0). A per-profile tag entity. Files/folders reference
+        it via tagIds.
       properties:
         id: { type: string, format: uuid }
         profileId: { type: string, format: uuid }
@@ -5052,12 +6132,17 @@ components:
         profileId: { type: string, format: uuid }
         parentId: { type: [string, "null"], format: uuid }
         name: { type: string, minLength: 1, maxLength: 40 }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: Optional (6.12.0); trimmed, blank = none.
         color:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/VaultColor"
         tagIds:
           type: array
+          deprecated: true
           maxItems: 10
           items: { type: string, format: uuid }
       required: [profileId, name]
@@ -5065,15 +6150,20 @@ components:
     FolderPatch:
       type: object
       minProperties: 1
-      description: "Any subset. `parentId: null` moves to the root; `color: null` clears the accent."
+      description: "Any subset. `parentId: null` moves to the root; `color: null` clears the accent; `description: null` (or blank) clears the description."
       properties:
         name: { type: string, minLength: 1, maxLength: 40 }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: 6.12.0. Trimmed; null or blank clears it.
         color:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/VaultColor"
         tagIds:
           type: array
+          deprecated: true
           maxItems: 10
           items: { type: string, format: uuid }
         parentId: { type: [string, "null"], format: uuid }
@@ -5081,21 +6171,28 @@ components:
     VaultFilePatch:
       type: object
       minProperties: 1
-      description: "Any subset. `folderId: null` moves the file to the root; `category: null` clears it."
+      description: "Any subset. `folderId: null` moves the file to the root; `description: null` (or blank) and `category: null` clear them."
       properties:
         name: { type: string, minLength: 1, maxLength: 200 }
+        description:
+          type: [string, "null"]
+          maxLength: 250
+          description: 6.12.0. Trimmed; null or blank clears it.
         category:
+          deprecated: true
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/FileCategory"
         tagIds:
           type: array
+          deprecated: true
           maxItems: 10
           items: { type: string, format: uuid }
         folderId: { type: [string, "null"], format: uuid }
 
     FileTagInput:
       type: object
+      deprecated: true
       properties:
         profileId: { type: string, format: uuid }
         name: { type: string, minLength: 1, maxLength: 20 }
@@ -5104,6 +6201,7 @@ components:
 
     FileTagPatch:
       type: object
+      deprecated: true
       minProperties: 1
       properties:
         name: { type: string, minLength: 1, maxLength: 20 }

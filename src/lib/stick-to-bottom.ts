@@ -1,6 +1,6 @@
 /**
  * The tracker's "stay on the newest message" rule, as arithmetic and a small
- * state machine with no DOM in it — `useStickToBottom` feeds it the window's
+ * state machine with no DOM in it — `useFeedScroll` feeds it the window's
  * scroll events, layout changes and the reader's input, and does the
  * scrolling it asks for.
  *
@@ -78,7 +78,15 @@ export type StickEvent =
   /** A touch began (`down`) or the last finger lifted — input too, on the way down. */
   | { type: "touch"; down: boolean }
   /** The opening window closed without them doing so. */
-  | { type: "settled" };
+  | { type: "settled" }
+  /**
+   * The feed is being moved somewhere else on purpose — a jump to a date — so
+   * stop holding the newest message, and stop guarding the opening: the
+   * scroll that follows is the feed's own.
+   */
+  | { type: "release" }
+  /** "Back to the latest": go to the newest message and hold it again. */
+  | { type: "pin" };
 
 export type StickStep = {
   state: StickState;
@@ -115,5 +123,15 @@ export function stepStick(state: StickState, event: StickEvent): StickStep {
     case "input":
     case "settled":
       return { state: state.settling ? { ...state, settling: false } : state, stick: false };
+    case "release":
+      return {
+        state: state.pinned || state.settling ? { ...state, pinned: false, settling: false } : state,
+        stick: false,
+      };
+    case "pin":
+      return {
+        state: state.pinned && !state.settling ? state : { ...state, pinned: true, settling: false },
+        stick: true,
+      };
   }
 }

@@ -153,10 +153,11 @@ export type InvoiceTier = "free" | "addon";
 export const INVOICE_LIMITS: Record<
   InvoiceTier,
   {
-    /** Invoices + quotes created per calendar month, per workspace. */
+    /**
+     * Invoices + quotes created per calendar month, per workspace. Past the
+     * add-on's, the next step is a Business plan (coming soon).
+     */
     perMonth: number;
-    /** `perMonth` is a safety cap the UI shows as "Unlimited". */
-    displayUnlimited: boolean;
     clients: number | null;
     templates: number;
     footer: boolean;
@@ -169,7 +170,6 @@ export const INVOICE_LIMITS: Record<
 > = {
   free: {
     perMonth: 20,
-    displayUnlimited: false,
     clients: 20,
     templates: 5,
     footer: true,
@@ -177,11 +177,10 @@ export const INVOICE_LIMITS: Record<
     reminders: false,
     recurring: false,
     gstFields: false,
-    sellerDetails: 1,
+    sellerDetails: 3,
   },
   addon: {
-    perMonth: 500,
-    displayUnlimited: true,
+    perMonth: 200,
     clients: null,
     templates: 10,
     footer: false,
@@ -189,11 +188,14 @@ export const INVOICE_LIMITS: Record<
     reminders: true,
     recurring: true,
     gstFields: true,
-    sellerDetails: 3,
+    sellerDetails: 10,
   },
 };
 
-/** The invoice add-on, per workspace, in rupee minor units (paise). */
+/**
+ * The invoice add-on, per workspace, in rupee minor units (paise) — the same
+ * on Free, Plus and Pro: plans don't change invoicing, the add-on does.
+ */
 export const INVOICE_ADDON_PRICE = { monthly: 19900, yearly: 99900 } as const;
 
 // ── Rate limits ────────────────────────────────────────────────────────────

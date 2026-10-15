@@ -7,7 +7,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * POST /api/v1/folders — create a vault folder (editor only). Body
- * `{ profileId, name, parentId?, color?, tagIds? }`. Folders never span
+ * `{ profileId, name, parentId?, color?, description?, tagIds? }` (`tagIds` is
+ * deprecated). Folders never span
  * profiles, sibling names are unique case-insensitively (409), and the
  * predefined "Transaction attachments" folder can't be a parent. The folder
  * list itself ships with `GET /files`.

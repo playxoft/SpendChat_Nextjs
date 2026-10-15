@@ -17,7 +17,7 @@ import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badg
  * Five slots on a phone, so every label fits on one line at 320px: the
  * everyday places (Tracker, SpendChat AI — "AI" on the bar — and
  * Transactions), Split, and "More" for the
- * rest (Analytics, Budgets, Files). Settings and Trash live in the account
+ * rest (Analytics, Budgets, Files, Invoices). Settings and Trash live in the account
  * menu, top right. The desktop sidebar still lists everything.
  */
 const PRIMARY = new Set(["/app", "/app/ask", "/app/transactions"]);

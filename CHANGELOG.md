@@ -14,9 +14,210 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.11.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.13.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.46.0] — 2026-10-15
+
+### Added
+- **Arrange the sidebar your way.** Hover a section to grab its handle and drag
+  it up or down. Sections you use less can be tucked under **More** — Invoices
+  and Split start there — whose sections open in a panel to its right when you
+  hover or click it, like a submenu. Drop a section on More to tuck it in, drag
+  one out of the panel onto the list to bring it back, and drag More itself
+  anywhere in the list. Your arrangement follows you to every device.
+- **Fuller business and client details.** "Your details" now takes a phone
+  number, website, registration number (CIN, CRN, ABN…) and bank details beside
+  your name, address, email, tax ID and UPI ID; a client takes a phone number, a
+  contact person (printed as "Attn:") and private notes that never go on a
+  document. They print on your invoices and quotes — bank details on invoices,
+  under their own heading — and the invoice editor has the same fields.
+- **Edit a file's details while you look at it.** The full-screen preview has a
+  details pane on the right, like Google Drive — rename the file, write its
+  description, and see its type, size, folder, who uploaded it and when. The
+  column view's detail pane edits the same way — and so does a transaction's
+  receipt listed in Files: its name, and the transaction it belongs to.
+- **Invoices work side by side.** Every Invoices tab is now a list with a
+  panel on the right. Click an invoice or quote and it opens there — the
+  document, its actions and how it stands; click another and the panel switches.
+  New invoice, New quote and Edit open the editor across the page — the form on
+  the left, the document on the right — and saving shows the document. Clients
+  and Your details work the same way: pick one to change it on the right, or
+  add a new one there. On a wide screen the section fits the window: the page
+  doesn't scroll, the list and the panel (or the form and the document) each
+  scroll on their own, all the way to their end. On a phone the panel opens
+  over the list. The heading is slimmer, with the tabs under the title.
+- **Edit an invoice or quote after you've finalised it.** Until it's paid, a
+  finalised document can be changed: it keeps its number, its PDF is drawn
+  again, and the list and its page show when it was edited. A paid invoice
+  stays as it is — its income is already in your tracker.
+- **More than one set of business details.** "Your details" lists every
+  business you invoice from, each with its own logo — save up to three, even in
+  the same profile, and pick between them when you make an invoice.
+- **Invoicing limits say what they are.** "3 of 20 saved" and "5 of 20 made this
+  month" carry an info button: hover it to see the limit and an **Upgrade**
+  button for the invoicing add-on (200 invoices and quotes a month, no limit on
+  clients, ten sets of business details). The add-on is coming soon, and so is a
+  Business plan for more than 200 a month.
+
+### Changed
+- **The tracker's "Go to a date" works like the transactions date filter:**
+  jump to a whole month or a quarter (Q1–Q4) of any year, or to one day on the
+  calendar.
+- **Invoices & quotes filters are two toggles** — All / Invoices / Quotes, and
+  Draft / Sent / Paid / Void (pick a state again to clear it).
+- Deleting a set of business details asks first, and **Save changes** only
+  lights up once something has changed.
+- A file's or folder's hover card waits a second before it shows, instead of
+  popping up the moment the pointer passes over.
+- With several profiles selected, "2 selected · Clear" sits on the Profiles
+  heading in place of the add buttons, so the list doesn't jump down.
+- **Email and phone fields check what you type.** A phone number takes digits,
+  spaces and + ( ) - only — letters are refused with a note under the field —
+  and an email that isn't one says so under the field, in your details, a
+  client and the invoice editor alike.
+- **The invoice editor's sections fold.** Click a heading — the document's
+  details, yours, the client's, items, discount and tax, notes — to fold it to
+  a one-line summary.
+- Editing a file or folder in Files offers Save only once you've changed
+  something.
+- **Invoices and quotes are told apart at a glance** — each carries its own
+  coloured label in the list and on its page.
+- **Finalise, Void and Mark as paid show their progress**: the button spins
+  until the page has caught up, says "Done", then the dialog closes — no more
+  wondering whether the click went through.
+
+### Fixed
+- Switching between the Invoices tabs no longer blanks the whole page — the
+  header and tabs stay put and only the list below loads.
+- "New invoice", an invoice, "Edit draft" and "Bring your invoice in" each show
+  a loading state shaped like their own page, instead of the invoices list's.
+- A dialog or pop-up taller than the screen scrolls inside, with the same slim
+  scrollbar as the rest, instead of running off the top and bottom.
+- A file's hover card no longer covers its ⋮ menu: it closes when the menu (or
+  the right-click menu) opens.
+- A finalised invoice can't be emptied by an edit — it keeps a client, your
+  name and at least one line — and two edits at once can't leave its PDF out of
+  step with what it says. Marking it paid redraws its PDF without the
+  pay-by-UPI code, and refuses (asking you to check) if it was edited a moment
+  before.
+- Bringing a draft in from the free generator no longer fails on a phone number
+  in the email field, and uses your saved details only when they're the same
+  business (another one's logo no longer lands on it).
+- A logo has to be at most 2400 × 2400 pixels, so an oddly huge image can't
+  break drawing a PDF.
+- Jumping the tracker to a quarter counts any day in it as found, and the
+  calendar there stops at today.
+- In the sidebar, sections can be moved into and out of More with the keyboard
+  too, focus comes back to More when its panel closes, and a section in More
+  that wants attention always shows on More's row.
+- The invoices editor asks before throwing away unsaved changes, a panel that
+  couldn't load offers to try again, and on a phone the panel behaves as a
+  dialog (Escape closes it).
+- File descriptions say they're shown to anyone with a share link.
+
+## [0.45.0] — 2026-10-14
+
+### Added
+- **Invoices and quotes, free on every plan.** A new **Invoices** section (press
+  **i**) makes invoices and quotes from the same editor as the free generator —
+  your saved clients, your business details with a logo, five templates, line
+  items, discount and tax — with the document beside the form exactly as it will
+  print.
+  - **Numbered for you.** A draft gets its number when you finalise it —
+    `INV-0001`, `INV-0002`…, quotes `QUO-0001`… — one series per workspace,
+    never skipping or repeating a number. A finalised document can't be changed
+    or deleted, only voided, so its number stays on record. Drafts can be
+    deleted any time.
+  - **Download the PDF, or send a link.** Finalising stores the PDF in your
+    workspace (it counts toward storage, and Settings shows how much your
+    invoices and quotations take). A share link lets your client view it and
+    download the PDF, without an account; revoke it whenever you like.
+  - **Pay by UPI.** Add your UPI ID and a rupee invoice carries a QR code for
+    its total.
+  - **Mark as paid** records the income in the invoice's profile, once, in your
+    workspace's currency — for an invoice in another currency you enter what
+    arrived. Budgets and analytics see it like any other entry.
+  - **Turn a quote into an invoice** in one step.
+  - Invoices belong to a profile: whoever can see the profile can see its
+    invoices, and editors can make and change them.
+  - Every workspace can make 20 invoices and quotes a month and keep 20 saved
+    clients and one set of business details; documents say "Made with
+    SpendChat" at the foot.
+- **Save to SpendChat** on the free invoice and quotation generators: sign up
+  (or sign in) and the draft you were working on comes into the app as a draft
+  invoice or quote, with your details and logo saved for next time.
+- The mobile API has the same invoices (`/api/v1/invoices`, `/invoice-clients`,
+  `/invoice-sellers`; spec 6.13.0).
+
+### Changed
+- Settings → plan & usage says where your storage goes (files, attachments,
+  invoices, quotations, logos) and how many invoices you've made this month.
+
+## [0.44.0] — 2026-10-14
+
+### Added
+- **Go to a date on the tracker.** A calendar button in the tracker header (on
+  phones too) opens a month calendar with a dot on every day that has
+  transactions in the profiles you're looking at. Pick a day and the feed opens
+  at the start of that day; pick **Go to <month>** and it opens at that month's
+  latest day with transactions. A day or month with nothing on it opens at the
+  nearest earlier day that has something, and a short note says so. From there
+  you can scroll both ways — older above, newer below until you're back at
+  today — and a **Jump to latest** button (also shown whenever you've scrolled a
+  long way up) takes you straight back to the newest messages. Sending a new
+  transaction from an older date goes back to the newest messages first.
+- **The date stays in view while you scroll.** Each day's date pill now sticks,
+  centred, just under the tracker header while you scroll through that day, and
+  the next day's pill pushes it up and takes over — like a chat app. It's the
+  same date line as before, so a screen reader still reads each date once.
+
+### Fixed
+- Scrolling up the tracker no longer jumps when older transactions load in: the
+  message you're looking at stays exactly where it is on screen — even if you
+  keep scrolling while they load, on a phone or a computer. The same now holds
+  when anything else above you changes height (the balance loading into the
+  header, a card above the feed being closed, a transaction further up being
+  deleted).
+
+## [0.43.0] — 2026-10-14
+
+### Added
+- **Descriptions on files and folders.** Say what something is in up to 250
+  characters — "Sale deed for plot 42, registered 2019" — when you make a folder,
+  or from **Edit** on any file or folder. On every plan. It shows under the name
+  in the grid, as a column in the list (the full text on hover), in the column
+  view's details, and on a share link's page.
+- **Search finds descriptions too.** The Files search now matches a file's or
+  folder's description as well as its name, with the same rules.
+
+### Changed
+- **Tags and the preset category are gone from Files.** Files and folders no
+  longer show tags or a category, and the tag filter, the tag picker, the
+  category picker and the Tags and Category sorts are removed — a description
+  does that job now. Nothing was deleted: tags and categories you had are kept,
+  and the mobile app's API still serves them. The predefined Transaction
+  attachments folder's menu entry is now just **Color**.
+- Shared file and folder pages show descriptions instead of tags.
+
+## [0.42.0] — 2026-10-14
+
+### Added
+- **Right-click anywhere in Files** to make a **New folder** or **Upload files** into
+  the folder you're in — on empty space, in every view (grid, list and columns),
+  and at the bottom of a file's or folder's own right-click menu. Where nothing can
+  be added (the transaction attachments folder, or "All profiles"), the entries
+  say why instead.
+
+### Fixed
+- The theme button and your account picture now sit in the **top-right corner of
+  the window on every page**, instead of wherever that page's content column
+  ended (which on most pages was well inside the screen). They also stay in
+  place while you scroll and when you move between pages.
+- A page's own top-right buttons (Bulk add, Print, the Files toolbar…) line up
+  with the right edge of that page's content again, with no gap — they only
+  step aside on a window narrow enough to reach the corner.
 
 ## [0.41.0] — 2026-10-09
 

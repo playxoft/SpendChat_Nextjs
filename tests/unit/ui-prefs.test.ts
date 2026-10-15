@@ -5,6 +5,7 @@ import {
   normalizeCollapsedSpaces,
   normalizeUiPrefs,
 } from "@/lib/validation";
+import { defaultSidebarNav } from "@/lib/sidebar-nav";
 
 /**
  * `user_settings.ui_prefs` is a jsonb bag whose whole point is that a new
@@ -18,7 +19,7 @@ import {
 const DEFAULTS = {
   composer: { density: "normal" },
   onboarding: { inviteNudgeDismissed: false },
-  sidebar: { collapsedSpaces: [] },
+  sidebar: { collapsedSpaces: [], nav: defaultSidebarNav() },
 };
 
 describe("normalizeUiPrefs", () => {
@@ -70,6 +71,7 @@ describe("normalizeUiPrefs — sidebar namespace (folded spaces)", () => {
   it("keeps a stored list of space ids", () => {
     expect(normalizeUiPrefs({ sidebar: { collapsedSpaces: [A, B] } }).sidebar).toEqual({
       collapsedSpaces: [A, B],
+      nav: defaultSidebarNav(),
     });
   });
 
@@ -77,14 +79,14 @@ describe("normalizeUiPrefs — sidebar namespace (folded spaces)", () => {
     expect(
       normalizeUiPrefs({ sidebar: { collapsedSpaces: [B, 42, "nope", A, B.toUpperCase(), null] } })
         .sidebar,
-    ).toEqual({ collapsedSpaces: [B, A] });
+    ).toEqual({ collapsedSpaces: [B, A], nav: defaultSidebarNav() });
   });
 
   it("degrades a non-list to empty without touching the other namespaces", () => {
     expect(
       normalizeUiPrefs({ composer: { density: "compact" }, sidebar: { collapsedSpaces: "x" } }),
     ).toEqual({ ...DEFAULTS, composer: { density: "compact" } });
-    expect(normalizeUiPrefs({ sidebar: "x" }).sidebar).toEqual({ collapsedSpaces: [] });
+    expect(normalizeUiPrefs({ sidebar: "x" }).sidebar).toEqual({ collapsedSpaces: [], nav: defaultSidebarNav() });
   });
 
   it("hands out a fresh default list each time, never a shared one", () => {
@@ -113,5 +115,24 @@ describe("normalizeUiPrefs — sidebar namespace (folded spaces)", () => {
       collapsedSpacesInputSchema.safeParse(Array.from({ length: SIDEBAR_COLLAPSED_MAX + 1 }, () => A))
         .success,
     ).toBe(false);
+  });
+});
+
+describe("normalizeUiPrefs — sidebar namespace (sections)", () => {
+  it("reads a stored arrangement, and the default when there's none", () => {
+    const nav = {
+      main: ["files", "more", "tracker", "ask", "transactions", "analytics", "budgets", "invoices"],
+      more: ["split"],
+    };
+    expect(normalizeUiPrefs({ sidebar: { nav } }).sidebar.nav).toEqual(nav);
+    expect(normalizeUiPrefs({ sidebar: { collapsedSpaces: [] } }).sidebar.nav).toEqual(defaultSidebarNav());
+  });
+
+  it("a broken arrangement leaves the folded spaces alone", () => {
+    const A = "0198f6a2-0000-7000-8000-00000000000a";
+    expect(normalizeUiPrefs({ sidebar: { collapsedSpaces: [A], nav: "x" } }).sidebar).toEqual({
+      collapsedSpaces: [A],
+      nav: defaultSidebarNav(),
+    });
   });
 });

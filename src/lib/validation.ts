@@ -1,6 +1,23 @@
 import { z } from "zod";
 import { BUDGET_DESCRIPTION_MAX, BUDGET_SCOPES, BUDGET_TITLE_MAX, isMonthKey } from "./budgets";
 import { CURRENCY_CODES } from "./currencies";
+import {
+  DOC_FIELD_LIMITS,
+  INVOICE_DISCOUNT_TYPES,
+  INVOICE_ITEMS_MAX,
+  INVOICE_KINDS,
+  INVOICE_LOGO_MAX_BYTES,
+  INVOICE_LOGO_TYPES,
+  INVOICE_STATUSES,
+  QUOTE_TITLES,
+  UPI_ID_MAX,
+  isInvoiceTemplateId,
+  isValidUpiId,
+} from "./invoices";
+import { isCalendarDay } from "./dates";
+import { SCOPE_MAX_PROFILE_IDS } from "./profile-scope";
+import { defaultSidebarNav, normalizeSidebarNav } from "./sidebar-nav";
+import { phoneProblem } from "./contact-fields";
 import { SPLIT_GROUP_MAX_PEOPLE } from "./plans";
 import { SPLIT_DRAFT_REF_PATTERN, SPLIT_IMPORT_EXPENSES_MAX, SPLIT_IMPORT_KEY_PATTERN } from "./split-import";
 import {
@@ -361,6 +378,14 @@ export const FILE_MAX_BYTES = ATTACHMENT_MAX_BYTES;
 export const FILE_NAME_MAX = 200;
 /** Folder + tag names are deliberately short — they're labels, not documents. */
 export const FOLDER_NAME_MAX = 40;
+/**
+ * A file's or folder's description: what the thing is, in a sentence or two
+ * ("Sale deed for plot 42, registered 2019"). Every plan, no gate. The column
+ * is `varchar(250)` on both tables, which counts characters — JavaScript's
+ * `length` counts UTF-16 units, never fewer, so a value this cap accepts
+ * always fits the column.
+ */
+export const VAULT_DESCRIPTION_MAX = 250;
 /** DB cap for the free-text category column (presets are far shorter). */
 export const FILE_CATEGORY_MAX = 40;
 export const FILE_TAG_MAX = 20;
@@ -420,6 +445,21 @@ export const updateTagSchema = z.object({
 });
 export type UpdateTagInput = z.input<typeof updateTagSchema>;
 
+/**
+ * A vault description: trimmed, at most `VAULT_DESCRIPTION_MAX` characters,
+ * and blank means none (null). PATCH semantics come from the `nullish()`:
+ * absent leaves it alone, `null` or `""` clears it.
+ */
+export const vaultDescriptionSchema = z
+  .string()
+  .trim()
+  .max(
+    VAULT_DESCRIPTION_MAX,
+    `Description is too long (max ${VAULT_DESCRIPTION_MAX} characters)`,
+  )
+  .transform((v) => (v === "" ? null : v))
+  .nullish();
+
 const folderNameSchema = z
   .string()
   .trim()
@@ -437,27 +477,37 @@ export const createFolderSchema = z.object({
   parentId: z.string().uuid().nullish(),
   name: folderNameSchema,
   color: vaultColorSchema.nullish(),
+  description: vaultDescriptionSchema,
+  /** Deprecated: tags are no longer shown in the app. Still accepted for API clients. */
   tagIds: tagIdsSchema.optional().default([]),
 });
 export type CreateFolderInput = z.input<typeof createFolderSchema>;
 
 /** PATCH semantics: `undefined` leaves a field untouched; `parentId: null`
- * moves the folder to the root; `color: null` clears the accent. */
+ * moves the folder to the root; `color: null` clears the accent;
+ * `description: null` (or blank) clears the description. */
 export const updateFolderSchema = z.object({
   id: z.string().uuid(),
   name: folderNameSchema.optional(),
   color: vaultColorSchema.nullish(),
+  description: vaultDescriptionSchema,
+  /** Deprecated: tags are no longer shown in the app. Still accepted for API clients. */
   tagIds: tagIdsSchema.optional(),
   parentId: z.string().uuid().nullish(),
 });
 export type UpdateFolderInput = z.input<typeof updateFolderSchema>;
 
 /** PATCH semantics: `folderId: null` moves the file to the root, `category:
- * null` clears the category. */
+ * null` clears the category, `description: null` (or blank) clears the
+ * description. */
 export const updateFileSchema = z.object({
   id: z.string().uuid(),
   name: fileNameSchema.optional(),
+  description: vaultDescriptionSchema,
+  /** Deprecated: the preset category is no longer shown in the app. Still
+   * accepted for API clients. */
   category: fileCategorySchema.nullish(),
+  /** Deprecated: tags are no longer shown in the app. Still accepted for API clients. */
   tagIds: tagIdsSchema.optional(),
   folderId: z.string().uuid().nullish(),
 });
@@ -754,9 +804,15 @@ export function normalizeCollapsedSpaces(ids: readonly unknown[]): string[] {
   return out;
 }
 
-/** Sidebar state that follows the user (`ui_prefs.sidebar`): which spaces are folded shut. */
+/**
+ * Sidebar state that follows the user (`ui_prefs.sidebar`): which spaces are
+ * folded shut, and how the sections are arranged (`lib/sidebar-nav.ts` — an
+ * older row without `nav` reads as the default arrangement).
+ */
 export const sidebarPrefsSchema = z.object({
   collapsedSpaces: z.array(z.unknown()).transform(normalizeCollapsedSpaces).catch([]),
+  // `.catch` as well as the transform: zod reads an absent key (every older row) as a failure otherwise.
+  nav: z.unknown().transform(normalizeSidebarNav).catch(() => defaultSidebarNav()),
 });
 export type SidebarPrefs = z.infer<typeof sidebarPrefsSchema>;
 
@@ -765,12 +821,18 @@ export const collapsedSpacesInputSchema = z
   .array(z.string().uuid())
   .max(SIDEBAR_COLLAPSED_MAX, `Too many spaces (max ${SIDEBAR_COLLAPSED_MAX})`);
 
-/** A fresh default bag each time — the sidebar list is mutable, so never share one. */
+/** What the client sends to save the sections' arrangement (cleaned on the server). */
+export const sidebarNavInputSchema = z.object({
+  main: z.array(z.string().max(32)).max(32),
+  more: z.array(z.string().max(32)).max(32),
+});
+
+/** A fresh default bag each time — the sidebar lists are mutable, so never share one. */
 function uiPrefsDefault() {
   return {
     composer: { density: "normal" as const },
     onboarding: { inviteNudgeDismissed: false },
-    sidebar: { collapsedSpaces: [] as string[] },
+    sidebar: { collapsedSpaces: [] as string[], nav: defaultSidebarNav() },
   };
 }
 
@@ -778,7 +840,7 @@ export const uiPrefsSchema = z
   .object({
     composer: composerPrefsSchema.catch({ density: "normal" }),
     onboarding: onboardingPrefsSchema.catch({ inviteNudgeDismissed: false }),
-    sidebar: sidebarPrefsSchema.catch(() => ({ collapsedSpaces: [] })),
+    sidebar: sidebarPrefsSchema.catch(() => ({ collapsedSpaces: [], nav: defaultSidebarNav() })),
   })
   .catch(() => uiPrefsDefault());
 export type UiPrefs = z.infer<typeof uiPrefsSchema>;
@@ -1384,6 +1446,46 @@ export const splitImportSchema = z
     "Two people in the draft share a key — open the calculator and try again",
   );
 
+// ── Tracker feed: paging forward and "go to a date" ──────────────────────────
+
+/**
+ * The profiles in view (one, or the sidebar's selection); absent = all. It can
+ * only narrow: every feed read intersects it with the caller's own profiles,
+ * so a tampered id simply reads as nothing. Bounded so it can't become an
+ * unbounded `IN` list.
+ */
+const feedProfileIdsSchema = z.array(z.string().uuid()).max(SCOPE_MAX_PROFILE_IDS).optional();
+
+/** A real day, "2026-10-14" — Postgres refuses "2026-02-31" rather than reading nothing. */
+export const calendarDaySchema = z
+  .string()
+  .refine(isCalendarDay, "Date must be a real day, YYYY-MM-DD, between 1970 and 2999");
+
+/** A row of the feed, as its keyset cursor: (occurredOn, createdAt, id). */
+export const feedCursorSchema = z.object({
+  occurredOn: calendarDaySchema,
+  createdAt: z.coerce.date(),
+  id: z.string().uuid(),
+});
+
+/** The page just newer than a row — the feed scrolling back towards the present after a jump. */
+export const loadNewerFeedSchema = z.object({
+  profileIds: feedProfileIdsSchema,
+  after: feedCursorSchema,
+});
+
+/** The feed opened at a day (or the nearest earlier day with transactions). */
+export const feedAroundSchema = z.object({
+  profileIds: feedProfileIdsSchema,
+  date: calendarDaySchema,
+});
+
+/** The days of a month that have transactions — the date picker's dots. */
+export const feedDaysSchema = z.object({
+  profileIds: feedProfileIdsSchema,
+  month: z.string().refine(isMonthKey, "Month must be YYYY-MM, between 1970 and 2999"),
+});
+
 // ── Budgets ────────────────────────────────────────────────────────────────
 
 export const budgetScopeSchema = z.enum(BUDGET_SCOPES);
@@ -1519,3 +1621,251 @@ export const renameAiChatSchema = z.object({
     ),
 });
 export type RenameAiChatInput = z.input<typeof renameAiChatSchema>;
+
+/* -------------------------------------------------------------------------- */
+/* Invoices and quotes                                                         */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * A text field of an invoice, client or seller: trimmed, NULs and other control
+ * characters dropped except line breaks (addresses and notes keep theirs), and
+ * capped at the column width (`DOC_FIELD_LIMITS`).
+ */
+function invoiceText(max: number, label: string) {
+  return z
+    .string()
+    .transform((v) => v.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, ""))
+    .pipe(z.string().trim().max(max, `${label} is too long (max ${max} characters)`));
+}
+
+/** An optional text field — blank or missing reads as null. */
+function optionalInvoiceText(max: number, label: string) {
+  return invoiceText(max, label)
+    .nullish()
+    .transform((v) => (v ? v : null));
+}
+
+const invoiceEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(DOC_FIELD_LIMITS.email, `Email is too long (max ${DOC_FIELD_LIMITS.email} characters)`)
+  .refine((v) => v === "" || z.string().email().safeParse(v).success, "Enter a valid email address")
+  .nullish()
+  .transform((v) => (v ? v : null));
+
+/** An optional phone number: blank reads as null; otherwise digits and + ( ) - only (`phoneProblem`). */
+function optionalPhoneSchema(label: string) {
+  return optionalInvoiceText(DOC_FIELD_LIMITS.phone, label).superRefine((v, ctx) => {
+    const problem = v === null ? null : phoneProblem(v);
+    if (problem) ctx.addIssue({ code: "custom", message: `${label}: ${problem}` });
+  });
+}
+
+const upiIdSchema = z
+  .string()
+  .trim()
+  .max(UPI_ID_MAX, `UPI ID is too long (max ${UPI_ID_MAX} characters)`)
+  .refine((v) => v === "" || isValidUpiId(v), "Enter a UPI ID like name@bank")
+  .nullish()
+  .transform((v) => (v ? v : null));
+
+const invoiceIdSchema = z.string().uuid("Not found");
+
+export const invoiceClientSchema = z.object({
+  profileId: z.string().uuid("Pick a profile"),
+  name: invoiceText(DOC_FIELD_LIMITS.name, "Name").pipe(z.string().min(1, "Give the client a name")),
+  email: invoiceEmailSchema,
+  address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Address"),
+  taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Tax ID"),
+  phone: optionalPhoneSchema("Phone"),
+  contactPerson: optionalInvoiceText(DOC_FIELD_LIMITS.contactPerson, "Contact person"),
+  /** Private: kept with the client, never printed. */
+  notes: optionalInvoiceText(DOC_FIELD_LIMITS.clientNotes, "Notes"),
+});
+export type InvoiceClientInput = z.input<typeof invoiceClientSchema>;
+
+/** Change a client's details; it stays in its profile. */
+export const updateInvoiceClientSchema = invoiceClientSchema
+  .omit({ profileId: true })
+  .partial()
+  .refine((v) => Object.values(v).some((x) => x !== undefined), "Nothing to change");
+export type UpdateInvoiceClientInput = z.input<typeof updateInvoiceClientSchema>;
+
+export const invoiceSellerSchema = z.object({
+  profileId: z.string().uuid("Pick a profile"),
+  name: invoiceText(DOC_FIELD_LIMITS.name, "Business name").pipe(z.string().min(1, "Give your business a name")),
+  address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Address"),
+  /** The email line (the column predates the separate phone). */
+  contact: invoiceEmailSchema,
+  taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Tax ID"),
+  upiId: upiIdSchema,
+  phone: optionalPhoneSchema("Phone"),
+  website: optionalInvoiceText(DOC_FIELD_LIMITS.website, "Website"),
+  registrationNumber: optionalInvoiceText(DOC_FIELD_LIMITS.registration, "Registration number"),
+  bankDetails: optionalInvoiceText(DOC_FIELD_LIMITS.bankDetails, "Bank details"),
+});
+export type InvoiceSellerInput = z.input<typeof invoiceSellerSchema>;
+
+export const updateInvoiceSellerSchema = invoiceSellerSchema
+  .omit({ profileId: true })
+  .partial()
+  .refine((v) => Object.values(v).some((x) => x !== undefined), "Nothing to change");
+export type UpdateInvoiceSellerInput = z.input<typeof updateInvoiceSellerSchema>;
+
+/** Largest unit price or fixed discount, in major units — what a document can total exactly. */
+export const INVOICE_AMOUNT_MAX = 999_999_999_999;
+
+const invoiceItemSchema = z.object({
+  description: invoiceText(DOC_FIELD_LIMITS.description, "Description").default(""),
+  quantity: z.coerce
+    .number({ error: "Enter a quantity" })
+    .finite()
+    .min(0, "A quantity can't be negative")
+    .max(1_000_000_000, "That quantity is too large"),
+  unitPrice: z.coerce
+    .number({ error: "Enter a unit price" })
+    .finite()
+    .min(0, "A price can't be negative")
+    .max(INVOICE_AMOUNT_MAX, "That price is too large"),
+});
+
+/**
+ * What a draft holds — the whole of it, every save (the editor sends the
+ * document as it stands). Amounts are plain numbers: quantities, unit prices
+ * and a fixed discount in **major units of the document's currency**, a
+ * percent discount and the tax rate in percent. The server works out every
+ * line amount and total itself.
+ */
+export const invoiceContentSchema = z
+  .object({
+    clientId: invoiceIdSchema.nullish(),
+    client: z
+      .object({
+        name: invoiceText(DOC_FIELD_LIMITS.name, "Client name").default(""),
+        email: invoiceEmailSchema,
+        address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Client address"),
+        taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Client tax ID"),
+        phone: optionalPhoneSchema("Client phone"),
+        contactPerson: optionalInvoiceText(DOC_FIELD_LIMITS.contactPerson, "Contact person"),
+      })
+      .default({ name: "", email: null, address: null, taxId: null, phone: null, contactPerson: null }),
+    sellerId: invoiceIdSchema.nullish(),
+    seller: z
+      .object({
+        name: invoiceText(DOC_FIELD_LIMITS.name, "Business name").default(""),
+        address: optionalInvoiceText(DOC_FIELD_LIMITS.address, "Address"),
+        // Not checked as an email here: a document's contact line can hold
+        // anything — the free generator's "Email or phone" comes in this way.
+        contact: optionalInvoiceText(DOC_FIELD_LIMITS.contact, "Email or phone"),
+        taxId: optionalInvoiceText(DOC_FIELD_LIMITS.taxId, "Tax ID"),
+        phone: optionalPhoneSchema("Phone"),
+        website: optionalInvoiceText(DOC_FIELD_LIMITS.website, "Website"),
+        registrationNumber: optionalInvoiceText(DOC_FIELD_LIMITS.registration, "Registration number"),
+        bankDetails: optionalInvoiceText(DOC_FIELD_LIMITS.bankDetails, "Bank details"),
+      })
+      .default({
+        name: "",
+        address: null,
+        contact: null,
+        taxId: null,
+        phone: null,
+        website: null,
+        registrationNumber: null,
+        bankDetails: null,
+      }),
+    upiId: upiIdSchema,
+    quoteTitle: z.enum(QUOTE_TITLES).default("quotation"),
+    issueDate: dateSchema,
+    dueDate: dateSchema.nullish().transform((v) => v ?? null),
+    currency: z.enum(CURRENCY_CODES as [string, ...string[]], { error: "Pick a currency" }),
+    items: z.array(invoiceItemSchema).max(INVOICE_ITEMS_MAX, `At most ${INVOICE_ITEMS_MAX} lines`).default([]),
+    discountType: z.enum(INVOICE_DISCOUNT_TYPES).default("percent"),
+    discount: z.coerce.number().finite().min(0, "A discount can't be negative").max(INVOICE_AMOUNT_MAX).default(0),
+    taxLabel: optionalInvoiceText(DOC_FIELD_LIMITS.taxLabel, "Tax name"),
+    taxRate: z.coerce
+      .number()
+      .finite()
+      .min(0, "A tax rate can't be negative")
+      .max(100, "A tax rate can't be more than 100%")
+      .default(0),
+    notes: optionalInvoiceText(DOC_FIELD_LIMITS.notes, "Notes"),
+    terms: optionalInvoiceText(DOC_FIELD_LIMITS.terms, "Terms"),
+    template: z
+      .string()
+      .refine(isInvoiceTemplateId, "Pick one of the templates")
+      .optional(),
+  })
+  .refine((v) => v.discountType !== "percent" || v.discount <= 100, {
+    message: "A discount can't be more than 100%",
+    path: ["discount"],
+  })
+  .refine((v) => !v.dueDate || v.dueDate >= v.issueDate, {
+    message: "The due date is before the issue date",
+    path: ["dueDate"],
+  });
+export type InvoiceContent = z.output<typeof invoiceContentSchema>;
+
+/** A new draft: its kind and profile, then the content. */
+export const createInvoiceSchema = z.intersection(
+  z.object({ kind: z.enum(INVOICE_KINDS), profileId: z.string().uuid("Pick a profile") }),
+  invoiceContentSchema,
+);
+export type CreateInvoiceInput = z.input<typeof createInvoiceSchema>;
+
+/**
+ * "Mark as paid": the income entry is in the workspace's currency. `amount`
+ * (major units) is what was received — required when the invoice is in
+ * another currency, and the invoice total otherwise.
+ */
+export const markInvoicePaidSchema = z.object({
+  amount: amountSchema.optional(),
+  paidOn: dateSchema.optional(),
+  categoryId: z.string().uuid("Pick a category").nullish(),
+});
+export type MarkInvoicePaidInput = z.input<typeof markInvoicePaidSchema>;
+
+/** A share link; `expiresInDays` null or missing never expires. */
+export const createInvoiceShareSchema = z.object({
+  expiresInDays: z.number().int().min(1).max(365).nullish(),
+});
+export type CreateInvoiceShareInput = z.input<typeof createInvoiceShareSchema>;
+
+/** What the invoices list's panel opens the editor on: a new document, or one to edit. */
+export const invoiceEditorTargetSchema = z.discriminatedUnion("mode", [
+  z.object({
+    mode: z.literal("new"),
+    kind: z.enum(INVOICE_KINDS),
+    /** The sidebar's `?profile=` — used only when it names one the person can write in. */
+    profile: z.string().max(400).nullish(),
+  }),
+  z.object({ mode: z.literal("edit"), id: z.string().uuid("Not found") }),
+]);
+
+/** The list's filters (API query string and the web page alike). */
+export const invoiceListQuerySchema = z.object({
+  kind: z.enum(INVOICE_KINDS).optional(),
+  status: z.enum(INVOICE_STATUSES).optional(),
+  profileId: z.string().uuid("Invalid profile").optional(),
+  clientId: z.string().uuid("Invalid client").optional(),
+});
+export type InvoiceListQuery = z.output<typeof invoiceListQuerySchema>;
+
+/** A draft from the free generator, brought in after sign-up. */
+export const importInvoiceDraftSchema = z.intersection(
+  z.object({
+    kind: z.enum(INVOICE_KINDS),
+    profileId: z.string().uuid("Pick a profile"),
+    /** Also save the "from" details as this profile's business details (and logo), if there's room. */
+    saveSeller: z.boolean().default(true),
+    /** The logo, already redrawn as a PNG or JPEG by the browser, base64 (no `data:` prefix). */
+    logo: z
+      .object({
+        contentType: z.enum(INVOICE_LOGO_TYPES),
+        base64: z.string().max(Math.ceil(INVOICE_LOGO_MAX_BYTES / 3) * 4 + 4),
+      })
+      .nullish(),
+  }),
+  invoiceContentSchema,
+);
+export type ImportInvoiceDraftInput = z.input<typeof importInvoiceDraftSchema>;

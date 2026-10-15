@@ -181,8 +181,8 @@ export const FEATURES: Feature[] = [
     title: "Receipt Storage for Bills and Invoices",
     h1: "Keep the receipt with the expense",
     description:
-      "Attach receipts, bills and invoices to any transaction, or keep them in a Drive-style vault with folders, colour tags and share links. 1 GB free per workspace.",
-    blurb: "Attach receipts to transactions; keep the rest in a tagged vault.",
+      "Attach receipts, bills and invoices to any transaction, or keep them in a vault with folders, searchable descriptions and share links. 1 GB free per workspace.",
+    blurb: "Attach receipts to transactions; keep the rest in a searchable vault.",
     icon: "Paperclip",
     group: "understand",
     related: ["transactions", "workspaces", "trash", "privacy-and-security"],

@@ -1,0 +1,1 @@
+ALTER TABLE "invoices" ADD COLUMN "edited_at" timestamp with time zone;

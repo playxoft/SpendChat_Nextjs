@@ -91,16 +91,27 @@ export function mergeRestored<T extends Row>(
 }
 
 /**
- * The feed holds the newest stretch of history, oldest first; older rows load
- * as you scroll up. So the boundary is at the *start*: a restored row older
- * than the oldest loaded one is left for that scroll, unless the feed has
- * reached the beginning (`complete`).
+ * The feed holds a stretch of history, oldest first; older rows load as you
+ * scroll up. So the boundary is at the *start*: a restored row older than the
+ * oldest loaded one is left for that scroll, unless the feed has reached the
+ * beginning (`complete`). After a jump into the past the stretch can stop short
+ * of the present too (`newerComplete` false), and then the same goes for a row
+ * newer than the newest loaded one.
  */
-export function mergeRestoredIntoFeed<T extends Row>(rows: T[], restored: T[], complete: boolean): T[] {
+export function mergeRestoredIntoFeed<T extends Row>(
+  rows: T[],
+  restored: T[],
+  complete: boolean,
+  newerComplete = true,
+): T[] {
   const have = new Set(rows.map((r) => r.id));
   const first = rows[0];
+  const last = rows.at(-1);
   const fits = restored.filter(
-    (r) => !have.has(r.id) && (complete || !first || feedCompare(r, first) >= 0),
+    (r) =>
+      !have.has(r.id) &&
+      (complete || !first || feedCompare(r, first) >= 0) &&
+      (newerComplete || !last || feedCompare(r, last) <= 0),
   );
   if (fits.length === 0) return rows;
   return [...rows, ...fits].sort(feedCompare);

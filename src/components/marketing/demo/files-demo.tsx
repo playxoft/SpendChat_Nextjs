@@ -9,29 +9,29 @@ import { StorageRing } from "@/components/app/files/storage-ring";
 import { DemoFrame } from "./demo-frame";
 import {
   DEMO_FILES,
-  DEMO_FILE_TAGS,
   DEMO_FOLDERS,
   DEMO_STORAGE_LIMIT_BYTES,
   DEMO_STORAGE_USED_BYTES,
-  demoTagColor,
 } from "./demo-data";
 import { formatFileSize } from "@/lib/attachments";
+import { normalizeVaultQuery, vaultTextMatches } from "@/lib/files";
 import { cn } from "@/lib/utils";
 
 /**
- * The files vault: folders, colour tags, two view modes and the storage gauge.
+ * The files vault: folders, descriptions, two view modes and the storage gauge.
  *
- * The contents — the quota, the tags, the folders and the files — come from
- * `demo-data.ts`, because the homepage band (`files-preview.tsx`) shows the
- * same vault at a smaller size. The two components are separate for good
- * reasons (see that file's header); their *data* being separate was just a
+ * The contents — the quota, the folders and the files with their descriptions —
+ * come from `demo-data.ts`, because the homepage band (`files-preview.tsx`)
+ * shows the same vault at a smaller size. The two components are separate for
+ * good reasons (see that file's header); their *data* being separate was just a
  * copy, and the way that fails is a quota raised in one file and not the other.
  *
  * `StorageRing` and `attachmentGlyph` are the app's own — the ring in
  * particular is worth reusing rather than redrawing, because its arc, its
  * colour tone thresholds and its compact "0.1/1 GB" label are all logic that
- * would rot in a copy. Filtering by tag and switching views run on the seed
- * array; nothing is uploaded, stored or fetched.
+ * would rot in a copy. So is the search rule (`vaultTextMatches`): a name or a
+ * description, the same as the app. Opening a folder, searching and switching
+ * views run on the seed array; nothing is uploaded, stored or fetched.
  *
  * The toolbar follows the app's own rule for the same row of controls
  * (`components/app/files/files-page.tsx`): the search field has a fixed width
@@ -40,56 +40,23 @@ import { cn } from "@/lib/utils";
  * must not be allowed to collapse.
  */
 
-/**
- * A tag as the vault draws it: the swatch, and the name beside it.
- *
- * The swatch on its own used to be the whole chip, in both this demo and the
- * homepage band — which meant a screen reader read "Client invoice 0042.pdf,
- * 186 KB" with no tags at all, and a reader who can't separate green from amber
- * couldn't tell two tags apart either. The row is the only place a file's tags
- * are stated (the filter chips above carry their own `aria-pressed`), so the
- * name has to be in it: colour can decorate the fact, it can't be the fact
- * (WCAG 1.4.1).
- *
- * Shaped after the app's own `TagChip` (`components/app/files/vault-tags.tsx`)
- * rather than imported from it — that module brings the tag dialogs, a dropdown
- * menu, `sonner` and three server actions with it, none of which belong in a
- * marketing bundle. Two deliberate differences: the label is `text-xs`, because
- * these rows are denser than the app's table, and it keeps the inherited
- * foreground colour rather than the swatch's, because several of the vault's
- * swatches (amber above all) are nowhere near 4.5:1 as text on their own tint —
- * the dot and the tint carry the colour, the text carries the contrast.
- */
-function DemoTagChip({ tag }: { tag: string }) {
-  const color = demoTagColor(tag);
-  return (
-    <span
-      className="inline-flex max-w-full shrink-0 items-center gap-1 rounded-full border px-1.5 py-px text-xs"
-      style={{ borderColor: `${color}55`, background: `${color}1a` }}
-    >
-      <span
-        aria-hidden
-        className="size-1.5 shrink-0 rounded-full"
-        style={{ background: color }}
-      />
-      <span className="truncate">{tag}</span>
-    </span>
-  );
-}
-
 export function FilesDemo() {
   const [view, setView] = useState<"grid" | "list">("grid");
-  const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [openFolder, setOpenFolder] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const needle = normalizeVaultQuery(query);
 
-  const files = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    return DEMO_FILES.filter((file) => {
-      if (activeTag && !file.tags.includes(activeTag)) return false;
-      if (needle && !file.name.toLowerCase().includes(needle)) return false;
-      return true;
-    });
-  }, [activeTag, query]);
+  // A search runs across every folder, like the app's; otherwise an open
+  // folder narrows the list to what's in it.
+  const files = useMemo(
+    () =>
+      DEMO_FILES.filter((file) =>
+        needle
+          ? vaultTextMatches(needle, [file.name, file.description])
+          : !openFolder || file.folder === openFolder,
+      ),
+    [needle, openFolder],
+  );
 
   return (
     <DemoFrame
@@ -113,7 +80,7 @@ export function FilesDemo() {
               <Input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search files"
+                placeholder="Search names, descriptions"
                 aria-label="Search files"
                 className="h-8 w-44 pl-8 sm:w-56"
               />
@@ -162,32 +129,6 @@ export function FilesDemo() {
             />
           </div>
 
-          <div className="no-scrollbar -mx-1 flex items-center gap-1.5 overflow-x-auto px-1 pb-0.5">
-            {DEMO_FILE_TAGS.map((tag) => {
-              const active = activeTag === tag.name;
-              return (
-                <button
-                  key={tag.name}
-                  type="button"
-                  onClick={() => setActiveTag(active ? null : tag.name)}
-                  aria-pressed={active}
-                  className={cn(
-                    "inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-sm transition-colors",
-                    active
-                      ? "border-foreground bg-foreground text-background"
-                      : "hover:bg-muted",
-                  )}
-                >
-                  <span
-                    aria-hidden
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ background: tag.color }}
-                  />
-                  {tag.name}
-                </button>
-              );
-            })}
-          </div>
         </div>
       }
       bodyClassName="overflow-hidden"
@@ -195,7 +136,7 @@ export function FilesDemo() {
         <div className="flex shrink-0 items-center justify-between gap-3 border-t bg-muted/20 px-4 py-2.5 text-sm text-muted-foreground">
           <span>
             {files.length} file{files.length === 1 ? "" : "s"}
-            {activeTag && ` tagged ${activeTag}`}
+            {needle ? ` matching “${query.trim()}”` : openFolder ? ` in ${openFolder}` : ""}
           </span>
           <span className="inline-flex items-center gap-1.5">
             <Share2 className="size-3.5" /> Share links available per file
@@ -209,23 +150,33 @@ export function FilesDemo() {
         aria-label="Files and folders"
         className="h-full space-y-3 overflow-y-auto px-4 py-3"
       >
-        {/* Folders first, tinted with their own colour — the vault's shape. */}
-        {!activeTag && !query && (
+        {/* Folders first, tinted with their own colour — the vault's shape.
+            Pressing one opens it: the files below narrow to what's inside. */}
+        {!needle && (
           <div className="grid gap-2 sm:grid-cols-3">
-            {DEMO_FOLDERS.map((folder) => (
-              <div
-                key={folder.name}
-                className="flex items-center gap-2 rounded-xl border p-2.5"
-                style={{ background: `${folder.color}14` }}
-              >
-                <Folder
-                  className="size-4 shrink-0"
-                  style={{ color: folder.color }}
-                  aria-hidden
-                />
-                <span className="min-w-0 truncate text-sm">{folder.name}</span>
-              </div>
-            ))}
+            {DEMO_FOLDERS.map((folder) => {
+              const open = openFolder === folder.name;
+              return (
+                <button
+                  key={folder.name}
+                  type="button"
+                  onClick={() => setOpenFolder(open ? null : folder.name)}
+                  aria-pressed={open}
+                  className={cn(
+                    "flex items-center gap-2 rounded-xl border p-2.5 text-left transition-shadow hover:shadow-sm",
+                    open && "ring-2 ring-ring",
+                  )}
+                  style={{ background: `${folder.color}14` }}
+                >
+                  <Folder
+                    className="size-4 shrink-0"
+                    style={{ color: folder.color }}
+                    aria-hidden
+                  />
+                  <span className="min-w-0 truncate text-sm">{folder.name}</span>
+                </button>
+              );
+            })}
           </div>
         )}
 
@@ -234,7 +185,7 @@ export function FilesDemo() {
             <Folder className="size-8 text-muted-foreground/60" aria-hidden />
             <p className="text-sm font-medium">No matches</p>
             <p className="max-w-xs text-xs text-muted-foreground">
-              Try another tag, or clear the search.
+              Try another word from a name or a description.
             </p>
           </div>
         ) : view === "grid" ? (
@@ -247,39 +198,33 @@ export function FilesDemo() {
                 <span className="text-muted-foreground">
                   {attachmentGlyph(file.contentType, "size-5")}
                 </span>
-                <p className="line-clamp-2 text-sm leading-snug break-words">{file.name}</p>
-                <div className="mt-auto flex flex-wrap items-center gap-1.5">
-                  {file.tags.map((tag) => (
-                    <DemoTagChip key={tag} tag={tag} />
-                  ))}
-                  <span className="ml-auto text-xs tabular-nums text-muted-foreground">
-                    {formatFileSize(file.bytes)}
-                  </span>
+                <div className="space-y-0.5">
+                  <p className="line-clamp-2 text-sm leading-snug break-words">{file.name}</p>
+                  <p className="line-clamp-2 text-xs break-words text-muted-foreground">
+                    {file.description}
+                  </p>
                 </div>
+                <span className="mt-auto text-right text-xs tabular-nums text-muted-foreground">
+                  {formatFileSize(file.bytes)}
+                </span>
               </div>
             ))}
           </div>
         ) : (
           <ul className="divide-y rounded-xl border">
             {files.map((file) => (
-              // Named tags need real width, so the row wraps rather than
-              // squeezing the filename out of it: on a phone the chips and the
-              // size drop to a second line under the name. `min-w-32` on the
-              // name is what forces that break — a `flex-1` item's hypothetical
-              // size is its basis (0), so without a floor the line always
-              // "fits" and the name is the thing that shrinks to nothing.
-              <li
-                key={file.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm"
-              >
+              // The name and its description share one column that takes the
+              // spare width; `min-w-0` lets both truncate instead of pushing
+              // the size off the row on a phone.
+              <li key={file.id} className="flex items-center gap-x-3 px-3 py-2 text-sm">
                 <span className="shrink-0 text-muted-foreground">
                   {attachmentGlyph(file.contentType, "size-4")}
                 </span>
-                <span className="min-w-32 flex-1 truncate">{file.name}</span>
-                <span className="flex shrink-0 items-center gap-1">
-                  {file.tags.map((tag) => (
-                    <DemoTagChip key={tag} tag={tag} />
-                  ))}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate">{file.name}</span>
+                  <span className="block truncate text-xs text-muted-foreground">
+                    {file.description}
+                  </span>
                 </span>
                 <span className="ml-auto w-16 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
                   {formatFileSize(file.bytes)}

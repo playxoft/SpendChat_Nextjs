@@ -114,7 +114,7 @@ export default function DemoGalleryPage() {
       <section>
         <h2 className="mb-4 text-xl font-medium">FilesDemo — /features/receipts-and-files</h2>
         <FilesDemo />
-        <TryItCaption action="filter by a tag, search, or switch between grid and list" />
+        <TryItCaption action="open a folder, search names and descriptions, or switch between grid and list" />
       </section>
 
       <section>
@@ -166,7 +166,7 @@ export default function DemoGalleryPage() {
         <div className="max-w-xl">
           <FilesPreview />
         </div>
-        <TryItCaption action="tap a tag to filter the vault" />
+        <TryItCaption action="tap a folder to open it" />
       </section>
 
       <section>

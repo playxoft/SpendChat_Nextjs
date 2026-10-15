@@ -19,6 +19,71 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.13.0 — 2026-10-14
+
+Additive. **Invoices and quotes** — free on every plan:
+
+- **`/invoices`** — list (`kind`, `status`, `profileId`, `clientId`,
+  `limit`/`offset`), create a **draft**, read, replace the content (`PATCH`, the
+  whole document — a draft, or a sent document, which keeps its number and gets
+  `editedAt`; 409 when paid or void), delete a draft. Plus `POST /invoices/{id}/finalise` (the next
+  number in the workspace's series — `INV-0001`, quotes `QUO-0001` — locked, PDF
+  stored), `/send` (finalise if needed + a public link), `/void`, `/mark-paid`
+  (one income transaction in the workspace's currency; `422 amount_required` when
+  the invoice is in another currency; idempotent), `/convert` (quote → draft
+  invoice), `GET /pdf` (`application/pdf` bytes), and `/shares` (list, make,
+  revoke public links).
+- **`/invoice-clients`** (name, email, phone, contact person, address, tax ID,
+  private notes) and **`/invoice-sellers`** ("your details": name, address,
+  email, phone, website, tax ID, registration number, UPI ID, bank details) — CRUD, and
+  `GET`/`PUT`/`DELETE /invoice-sellers/{id}/logo` (PNG/JPEG ≤ 300 KB as the
+  request body; `GET` returns a short-lived URL).
+- Invoices belong to a **profile**: viewers read, editors write; a document the
+  caller can't see is a 404. A finalised document is **never deleted** (409) —
+  void it.
+- **`PlanLimitKey`** gains `invoices` (20 a month), `invoiceClients` (20),
+  `invoiceSellers` (3) and `invoiceTemplates` — all with `upgradeTo: null`
+  (no plan lifts them; show the message).
+- **`Usage`** gains `invoicing` (`tier`, `perMonth` with `resetsAt`, `clients`,
+  `sellers`, `templates`, `footer`) and `storage.breakdown` (`files`,
+  `attachments`, `invoices`, `quotations`, `logos` — they add up to
+  `usedBytes`). Finalised invoices' PDFs and seller logos now count toward
+  `storage.usedBytes`.
+
+**Flutter impact:** optional — nothing existing changes. To offer invoices,
+add the screens over the new endpoints; decode `Usage.invoicing` and
+`Usage.storage.breakdown` if you show them, and treat the new `PlanLimitKey`
+values as "show the message" (no upgrade).
+
+---
+
+## 6.12.0 — 2026-10-14
+
+Additive, plus deprecations. Files and folders can say what they are, and the
+vault's tags and preset category are on their way out:
+
+- **`description`** (new, `string | null`, ≤ 250 characters, every plan) on
+  `Folder` and `VaultFile`. Set it with `POST /folders`, `PATCH /folders/{id}`
+  and `PATCH /files/{id}` (JSON), or the new optional `description` form field
+  on `POST /files`, which gives it to every file in that upload. Trimmed; blank
+  or `null` clears it; over 250 → 422. The predefined "Transaction
+  attachments" folder takes none (400).
+- **Deprecated:** vault tags — `/file-tags` (all four endpoints), `tags` in
+  `GET /files`, and `tagIds` on `Folder`, `VaultFile` and their create/update
+  bodies — and the preset file **`category`** (`VaultFile.category`,
+  `PATCH /files/{id}` `category`). The web app no longer shows or edits them;
+  descriptions replaced them. Nothing about them changes: they are still sent,
+  still accepted, and existing values are kept. They may go in a future major
+  version.
+
+**Flutter impact:** optional, recommended. Decode `description` (nullable) on
+folders and files, show it under the name, let people set it in the create and
+edit sheets (with a 250-character counter), and match it in vault search along
+with the name. Stop showing tag chips, the tag filter/picker and the category,
+and stop sending `tagIds` / `category` — nothing breaks if you don't yet.
+
+---
+
 ## 6.11.0 — 2026-10-09
 
 Additive. Paid plans and AI top-ups can now be bought (on the web — there is

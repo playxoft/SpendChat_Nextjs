@@ -213,7 +213,7 @@ const groups = [
       {
         icon: Paperclip,
         title: "Receipts & files",
-        body: `Attach a receipt, bill or invoice to any transaction, and keep everything else in a Drive-style vault with folders, colour tags, drag-and-drop and share links. ${formatPlanStorage(PLAN_LIMITS.free.storageBytes)} per workspace on Free, more on Plus and Pro.`,
+        body: `Attach a receipt, bill or invoice to any transaction, and keep everything else in a Drive-style vault with folders, searchable descriptions, drag-and-drop and share links. ${formatPlanStorage(PLAN_LIMITS.free.storageBytes)} per workspace on Free, more on Plus and Pro.`,
       },
       {
         icon: PiggyBank,

@@ -1,13 +1,14 @@
-import { ChartColumn, FolderOpen, MessageSquare, PiggyBank, Sparkles, Split, Table2 } from "lucide-react";
+import { ChartColumn, FolderOpen, MessageSquare, PiggyBank, ReceiptText, Sparkles, Split, Table2 } from "lucide-react";
 import { comboFor } from "@/lib/shortcuts";
 import { canonicalProfileParam } from "@/lib/profile-scope";
 
 export const navItems = [
-  { href: "/app", label: "Tracker", icon: MessageSquare, exact: true, shortcut: comboFor("nav.tracker") },
+  { id: "tracker", href: "/app", label: "Tracker", icon: MessageSquare, exact: true, shortcut: comboFor("nav.tracker") },
   // SpendChat AI sits under the tracker: the same chat, asked instead of told.
   // `shortLabel` is what the phone's bottom bar prints — five slots at 320px
   // leave no room for the full name, which stays its accessible name there.
   {
+    id: "ask",
     href: "/app/ask",
     label: "SpendChat AI",
     shortLabel: "AI",
@@ -15,20 +16,22 @@ export const navItems = [
     exact: false,
     shortcut: comboFor("nav.ask"),
   },
-  { href: "/app/transactions", label: "Transactions", icon: Table2, exact: false, shortcut: comboFor("nav.transactions") },
-  { href: "/app/analytics", label: "Analytics", icon: ChartColumn, exact: false, shortcut: comboFor("nav.analytics") },
-  { href: "/app/budgets", label: "Budgets", icon: PiggyBank, exact: false, shortcut: comboFor("nav.budgets") },
-  { href: "/app/files", label: "Files", icon: FolderOpen, exact: false, shortcut: comboFor("nav.files") },
+  { id: "transactions", href: "/app/transactions", label: "Transactions", icon: Table2, exact: false, shortcut: comboFor("nav.transactions") },
+  { id: "analytics", href: "/app/analytics", label: "Analytics", icon: ChartColumn, exact: false, shortcut: comboFor("nav.analytics") },
+  { id: "budgets", href: "/app/budgets", label: "Budgets", icon: PiggyBank, exact: false, shortcut: comboFor("nav.budgets") },
+  { id: "files", href: "/app/files", label: "Files", icon: FolderOpen, exact: false, shortcut: comboFor("nav.files") },
+  { id: "invoices", href: "/app/invoices", label: "Invoices", icon: ReceiptText, exact: false, shortcut: comboFor("nav.invoices") },
 ] as const;
 
 /**
- * Split sits apart from the list above on purpose: those sections all show the
- * *current workspace*, while split groups belong to the person and live
- * outside every workspace. The sidebar renders it in its own block below the
- * workspace nav; the mobile bar appends it as a fifth item. No `?profile=` is
- * carried there — there is no profile in a split group.
+ * Split sits apart from the list above: those sections all show the *current
+ * workspace*, while split groups belong to the person and live outside every
+ * workspace. The sidebar lets it be arranged with the rest (`sidebar-nav.tsx`,
+ * under More by default); the mobile bar appends it as a fifth item. No
+ * `?profile=` is carried there — there is no profile in a split group.
  */
 export const splitNavItem = {
+  id: "split",
   href: "/app/split",
   label: "Split",
   icon: Split,

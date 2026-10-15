@@ -6,7 +6,7 @@ machine-readable spec is **[openapi.yaml](./openapi.yaml)** (OpenAPI 3.1) — yo
 can generate Dart models from it. **Where they differ, this doc reflects the
 actual server code.**
 
-**API spec version: 6.11.0.** Every API change bumps this version and is logged
+**API spec version: 6.13.0.** Every API change bumps this version and is logged
 in **[_changelog.md](./_changelog.md)** — check it to see what the Flutter app
 needs to update.
 
@@ -20,7 +20,9 @@ needs to update.
   every request so server logs attribute the platform. It never changes a
   response — omitting it just logs the platform as `api`.)
 - **Content type:** `application/json` (CSV export is `text/csv`; attachment
-  upload, vault file upload, and voice transcription send `multipart/form-data`)
+  upload, vault file upload, and voice transcription send `multipart/form-data`;
+  an invoice PDF is `application/pdf`; an invoice logo upload sends the image
+  bytes as `image/png` / `image/jpeg`)
 - Every JSON response sets `Cache-Control: no-store`.
 
 ---
@@ -115,6 +117,10 @@ action would go past one, the server answers **403** with
 | `voice` | Pro only | `POST /ai/transcribe` |
 | `profileLevelAccess` | Plus / Pro | `PUT /profiles/{id}/overrides` |
 | `freeWorkspaces` | one free workspace per person | `POST /workspaces`; writes into a view-only workspace — any endpoint that adds or edits data (below) |
+| `invoices` | 20 invoices + quotes a month per workspace, on **every** plan (`upgradeTo: null` — show the message) — since 6.13.0 | `POST /invoices`, `POST /invoices/{id}/convert` |
+| `invoiceClients` | 20 saved clients (live profiles), every plan — since 6.13.0 | `POST /invoice-clients` |
+| `invoiceSellers` | 3 sets of business details (a profile may hold several), every plan — since 6.13.0 | `POST /invoice-sellers` |
+| `invoiceTemplates` | a template outside the five free ones — since 6.13.0 | (reserved; an unknown `template` is a 422 today) |
 
 Limits apply to every workspace from the day plans ship, and they gate
 **adding**, never existing data: a workspace over a cap (after a downgrade)
@@ -338,8 +344,8 @@ A workspace-scoped label. Any number of transactions can carry a tag, and a
 transaction can carry up to 10 — `tags` above is the resolved list, and
 `tagIds` on create/update is how you set it. Shared by every member of the
 workspace, like categories, and managed through **`/tags`** (6.2.0). Distinct
-from the vault's per-profile file tags (`/file-tags`), which are a different
-entity in a different table.
+from the vault's per-profile file tags (`/file-tags`, deprecated since 6.12.0),
+which are a different entity in a different table.
 ```jsonc
 {
   "id": "uuid",
@@ -370,17 +376,25 @@ Metadata only — the bytes live in object storage; fetch them via
 ### Files vault models
 The vault (a Drive-like document store, per profile) has five shapes —
 `GET /files` returns the first four in one call; share links are managed
-separately. Resolve `tagIds` against the `tags` list client-side.
+separately.
+
+**Since 6.12.0** files and folders carry an optional **`description`** (≤ 250
+characters, every plan) — show it under the name and search it along with the
+name, as the web app does. **Vault tags (`tagIds`, `FileTag`, `/file-tags`) and
+the preset file `category` are deprecated**: the web app no longer shows or
+edits them. They are still sent and still accepted, and existing values are
+kept — stop displaying and offering them.
 
 ```jsonc
 // Folder — system: true = the predefined "Transaction attachments" folder
-// (recolor/tag only; never rename/move/delete/share/upload-into/nest-under)
+// (recolor/tag only; never rename/describe/move/delete/share/upload-into/nest-under)
 {
   "id": "uuid", "profileId": "uuid",
   "parentId": "uuid" | null,          // null = a root folder
   "name": "Land documents",           // ≤ 40 chars
+  "description": "Deeds for plot 42" | null,   // ≤ 250 chars (6.12.0)
   "color": "#3b82f6" | null,          // accent hex; null = neutral default
-  "tagIds": ["uuid"],
+  "tagIds": ["uuid"],                 // deprecated (6.12.0)
   "system": false,
   "createdAt": "…", "updatedAt": "…",
   "createdByName": "Ada" | null       // display attribution
@@ -391,10 +405,11 @@ separately. Resolve `tagIds` against the `tags` list client-side.
   "id": "uuid", "profileId": "uuid",
   "folderId": "uuid" | null,          // null = the profile's root
   "name": "deed.pdf",                 // ≤ 200 chars
+  "description": "Sale deed, 2019" | null,   // ≤ 250 chars (6.12.0)
   "contentType": "application/pdf",   // NO allowlist; unknown → application/octet-stream
   "sizeBytes": 83211,                 // ≤ 5 MB
-  "category": "land" | null,          // board-resolution|company|personal|land|house|certificate|other
-  "tagIds": ["uuid"],
+  "category": "land" | null,          // deprecated (6.12.0): board-resolution|company|personal|land|house|certificate|other
+  "tagIds": ["uuid"],                 // deprecated (6.12.0)
   "hasThumbnail": true,               // small webp preview exists (?variant=thumb)
   "createdAt": "…",
   "uploaderName": "Ada" | null,
@@ -412,7 +427,7 @@ separately. Resolve `tagIds` against the `tags` list client-side.
   "profileId": "uuid", "profileName": "…" | null, "profileIcon": "…" | null
 }
 
-// FileTag — per-profile entity; only a created tag can be applied
+// FileTag — deprecated (6.12.0); per-profile entity; only a created tag can be applied
 {
   "id": "uuid", "profileId": "uuid",
   "name": "legal",                    // ≤ 20 chars, unique per profile (case-insensitive)
@@ -528,7 +543,10 @@ inside their space; `read` / `write` open it even in a space they're not in.
           "topUpExpiresAt": "2027-09-30T10:00:00.000Z",    // 6.11.0: soonest top-up expiry, or null
           "resetsAt": "2026-11-01T00:00:00.000Z" },   // first instant of next month, UTC
   "storage": { "usedBytes": 52428800, "limitBytes": 1073741824,
-               "trashBytes": 1048576 },  // 6.7.0: the part of usedBytes in the trash
+               "trashBytes": 1048576,  // 6.7.0: the part of usedBytes in the trash
+               "breakdown": {          // 6.13.0: where usedBytes goes (adds up to it)
+                 "files": 50000000, "attachments": 2000000,
+                 "invoices": 300000, "quotations": 100000, "logos": 28800 } },
   "members":    { "used": 1, "limit": 3 },   // people incl. pending invites
   "spaces":     { "used": 1, "limit": 2 },
   "categories": { "used": 10, "limit": 20 }, // the 10 seeded defaults count
@@ -536,7 +554,15 @@ inside their space; `read` / `write` open it even in a space they're not in.
   "budgets":    { "used": 1, "limit": 5, "unlimited": false }, // 6.8.0; Pro: unlimited → show "Unlimited"
   "profilesPerSpace": 3,       // compare with each Space.profileCount
   "voice": false,              // POST /ai/transcribe available
-  "profileLevelAccess": false  // per-profile overrides can be changed
+  "profileLevelAccess": false, // per-profile overrides can be changed
+  "invoicing": {               // 6.13.0 — the same on every plan
+    "tier": "free",
+    "perMonth": { "used": 3, "limit": 20, "resetsAt": "2026-11-01T00:00:00.000Z" },
+    "clients": { "used": 4, "limit": 20 },   // limit null = no cap
+    "sellers": { "used": 1, "limit": 3 },
+    "templates": 5,
+    "footer": true             // "Made with SpendChat" goes on the documents
+  }
 }
 ```
 `used` can exceed `limit` (a downgraded workspace keeps what it has) — it just
@@ -681,6 +707,87 @@ one it fired at — within a workspace pool of 30 alert emails a month. Nothing
 in the trash counts, and a budget on a profile in the trash is hidden (and
 doesn't count toward the plan) until the profile is restored.
 
+### Invoices (6.13.0, from `/invoices`, `/invoice-clients`, `/invoice-sellers`)
+```jsonc
+// Invoice — GET /invoices/{id} (the list's rows are InvoiceSummary: the same
+// top-level fields minus `items`, client/seller/notes, plus profileName/profileIcon)
+{
+  "id": "uuid",
+  "profileId": "uuid",
+  "kind": "invoice" | "quote",
+  "status": "draft" | "sent" | "paid" | "void",
+  "number": "INV-0007" | null,     // null on a draft; QUO-0001… for quotes
+  "quoteTitle": "quotation" | "estimate",
+  "clientId": "uuid" | null,       // link to a saved client (null once it's deleted)
+  "client": { "name": "Acme Ltd", "email": "a@acme.test" | null, "address": "…" | null, "taxId": "…" | null,
+              "phone": "…" | null, "contactPerson": "Priya" | null },   // contactPerson prints as "Attn: …"
+  "sellerId": "uuid" | null,       // link to saved business details
+  "seller": { "name": "Asha Studio", "address": null, "contact": null, "taxId": null, "phone": null,
+              "website": null, "registrationNumber": null, "bankDetails": "…" | null },  // bank details print on invoices
+  "upiId": "asha@okbank" | null,   // rupee invoices get a pay-by-UPI QR code
+  "hasLogo": true,                 // the seller has a logo (GET /invoice-sellers/{sellerId}/logo)
+  "issueDate": "2026-10-01",
+  "dueDate": "2026-10-31" | null,  // valid-until on a quote
+  "currency": "INR",               // the document's own currency — may differ from the workspace's
+  "discountType": "percent" | "fixed",
+  "discountRate": 10,              // percent, when discountType = percent
+  "discountFixedMinor": 0,
+  "taxLabel": "GST" | null,
+  "taxRate": 18,                   // percent, on the subtotal after the discount
+  "subtotalMinor": 250100, "discountMinor": 25010, "taxMinor": 40516, "totalMinor": 265606,
+  "notes": "…" | null,
+  "terms": "…" | null,             // quotes only
+  "template": "classic" | "modern" | "bold" | "minimal" | "compact",
+  "showCredit": true,              // "Made with SpendChat" on the document
+  "hasPdf": true,                  // a PDF snapshot is stored (finalised documents)
+  "sourceQuoteId": "uuid" | null,  // the quote this invoice was made from
+  "sentAt": "…" | null, "paidAt": "…" | null, "paidOn": "2026-10-05" | null,
+  "editedAt": "…" | null,          // last edit after it was finalised (it kept its number)
+  "paidTransactionId": "uuid" | null,  // the income entry
+  "paidAmountMinor": 265606 | null,    // what was received, in the WORKSPACE's currency
+  "voidedAt": "…" | null,
+  "createdBy": "uuid", "createdAt": "…", "updatedAt": "…",
+  "items": [ { "id": "uuid", "position": 0, "description": "Design", "quantity": 2,
+               "unitPriceMinor": 125050, "amountMinor": 250100 } ]
+}
+// InvoiceClient
+{ "id": "uuid", "profileId": "uuid", "name": "Acme Ltd", "email": null, "address": null, "taxId": null,
+  "phone": null, "contactPerson": null,
+  "notes": "…" | null,             // private to the workspace — never printed or copied onto a document
+  "createdAt": "…", "updatedAt": "…" }
+// InvoiceSeller ("your details")
+{ "id": "uuid", "profileId": "uuid", "name": "Asha Studio", "address": null,
+  "contact": null,                 // the email line (the app labels it Email)
+  "taxId": null, "upiId": "asha@okbank" | null,
+  "phone": null, "website": null, "registrationNumber": null, "bankDetails": null,
+  "hasLogo": true, "logoVersion": "…" | null, "createdAt": "…", "updatedAt": "…" }
+// InvoiceShare
+{ "id": "uuid", "invoiceId": "uuid", "token": "…", "path": "/share/invoice/…",
+  "url": "https://spendchat.app/share/invoice/…", "expiresAt": null, "createdAt": "…" }
+```
+- **Belongs to a profile.** Viewers of the profile read it; editors change it. A
+  document in a profile the caller can't see — another workspace, or a trashed
+  profile — is a **404**; a viewer writing is a **403**.
+- **Drafts and numbers.** A draft has no `number`. Finalising gives it the next in
+  the workspace's series (`INV-0001`, `INV-0002`…; quotes `QUO-0001`…) — never
+  a gap, never a duplicate. Only drafts are deleted; a finalised document is
+  **never deleted** (409): void it, and it stays on record with its number. A
+  finalised document that isn't paid or void can still be edited (`PATCH`): it
+  keeps its number, `editedAt` records when, and its stored PDF is redrawn; a
+  paid or void one is **409**.
+- **Money.** Send plain numbers in **major units** of the document's currency
+  (`unitPrice: 1250.5`); the server works out every line amount and total and
+  answers in minor units. "Mark as paid" writes one income transaction in the
+  **workspace's** currency: `amount` defaults to the total when the currencies
+  match, and is **required** (`422 amount_required`) when they don't.
+- **PDF.** `GET /invoices/{id}/pdf` returns the file itself. Finalised documents
+  are served from the copy stored at finalise (it counts toward the workspace's
+  storage — `GET /usage` → `storage.breakdown`); a draft is drawn on the spot.
+- **Allowances** (every plan): 20 invoices + quotes a month, 20 saved clients,
+  three sets of business details, five templates, "Made with SpendChat" on the
+  documents — `403 plan_limit` with `upgradeTo: null` past them (show the
+  message). `GET /usage` → `invoicing` has the numbers.
+
 ### Settings
 User-level settings that follow the user across every workspace. **Currency and
 number format are NOT here — they're per-workspace** (see the `workspace` object).
@@ -820,7 +927,7 @@ the debug/about screen so a bug report names the exact deploy, and link
 ### Usage (6.5.0 — current workspace via `X-Workspace-Id`)
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /usage` | — | 200 `data: Usage` | The workspace's plan, every limit and how much is used (AI actions this month, storage, members, spaces, categories, tags, budgets), the per-space profile cap, and the `voice` / `profileLevelAccess` feature flags. `readOnly: true` → render the workspace view-only. Readable by anyone who can open the workspace. |
+| `GET /usage` | — | 200 `data: Usage` | The workspace's plan, every limit and how much is used (AI actions this month, storage — with its `breakdown` since 6.13.0 — members, spaces, categories, tags, budgets, and `invoicing` since 6.13.0), the per-space profile cap, and the `voice` / `profileLevelAccess` feature flags. `readOnly: true` → render the workspace view-only. Readable by anyone who can open the workspace. |
 
 ### Budgets (6.8.0 — current workspace via `X-Workspace-Id`)
 | Method & path | Body | Success | Notes / errors |
@@ -829,6 +936,33 @@ the debug/about screen so a bug report names the exact deploy, and link
 | `POST /budgets` | `BudgetInput` | 201 `data: Budget` | One per scope (one per space, profile, category) → **409**. **403 `plan_limit`** (`limit: "budgets"`) past the plan's cap; **403** without write access to every profile it covers; **403 `plan_limit` `freeWorkspaces`** in a view-only workspace. 422 income category, a space/profile/category not in this workspace (or one you can't see), bad amount, bad title/description. No `title` → the suggested one. Accepts `?month=` for the returned progress. |
 | `PATCH /budgets/{id}` | `{ amount?, emailAlerts?, title?, description? }` (≥1; `description: null` or `""` clears it) | 200 `data: Budget` | What it covers is fixed. 404 when the caller can't see it; 403 when they can see but not manage it. A threshold that already fired this month fires again only for an amount above the one it fired at. Accepts `?month=`. |
 | `DELETE /budgets/{id}` | — | 200 `data: { id, deleted: true }` | 404 / 403 as above. Not blocked by a view-only workspace (`canDelete`). |
+
+### Invoices (6.13.0 — current workspace via `X-Workspace-Id`)
+| Method & path | Body | Success | Notes / errors |
+|---|---|---|---|
+| `GET /invoices?kind=&status=&profileId=&clientId=&limit=&offset=` | — | 200 `data: InvoiceSummary[]`, `meta: { limit, offset }` | Newest first, no lines; `limit` ≤ 200. 422 bad `kind` / `status`. |
+| `POST /invoices` | `{ kind, profileId, …InvoiceContent }` | 201 `data: Invoice` | A **draft**. 403 without edit access to the profile (404 if you can't see it); **403 `plan_limit` `invoices`** past 20 a month; 422 bad fields, a client/seller from another profile, an unknown template, a due date before the issue date. |
+| `GET /invoices/{id}` | — | 200 `data: Invoice` | 404 when the caller can't read it. |
+| `PATCH /invoices/{id}` | `InvoiceContent` (the whole document) | 200 `data: Invoice` | Drafts and sent documents (a sent one keeps its number; `editedAt` set) — **409** when paid or void. |
+| `DELETE /invoices/{id}` | — | 200 `data: { id, deleted: true }` | Drafts only — **409** for a finalised document (void it). |
+| `POST /invoices/{id}/finalise` | — | 200 `data: Invoice` | Numbers it, locks it, stores the PDF. 409 already finalised; 422 no client name / business name / lines; **413 `storage_quota_exceeded`** storage full. |
+| `POST /invoices/{id}/send` | — | 200 `data: { invoice, share: InvoiceShare }` | Finalises a draft first, then the newest live link (or a new one). Nothing is emailed. |
+| `POST /invoices/{id}/void` | — | 200 `data: Invoice` | Sent only — 409 for a draft, a paid invoice, or one already void. |
+| `POST /invoices/{id}/mark-paid` | `{ amount?, paidOn?, categoryId? }` | 200 `data: { invoice, transactionId, alreadyPaid }` | Sent invoices only (409 otherwise). One income transaction in the invoice's profile, workspace currency; **422 `amount_required`** when the currencies differ and no `amount`; a second call returns the same transaction (`alreadyPaid: true`). 422 a non-income category. |
+| `POST /invoices/{id}/convert` | — | 201 `data: Invoice` | A quote → a new draft invoice (lines, client, seller, tax; not terms), today, due in 30 days. 409 an invoice or a void quote; **403 `plan_limit` `invoices`**. |
+| `GET /invoices/{id}/pdf[?download=1]` | — | 200 `application/pdf` | The stored copy (finalised) or drawn now (draft). Errors are JSON. |
+| `GET /invoices/{id}/shares` | — | 200 `data: InvoiceShare[]` | Editors only; live links, newest first. |
+| `POST /invoices/{id}/shares` | `{ expiresInDays? }` (1–365) | 201 `data: InvoiceShare` | Finalised documents only (409 for a draft). Anyone with `url` can view it and download the PDF — a void document's page says so and its PDF is 404; it stops while the profile is in the trash. |
+| `DELETE /invoices/{id}/shares/{shareId}` | — | 200 `data: { id, deleted: true }` | Revoke; stops at once. |
+| `GET /invoice-clients?profileId=` | — | 200 `data: InvoiceClient[]` | By name. |
+| `POST /invoice-clients` | `{ profileId, name, email?, address?, taxId?, phone?, contactPerson?, notes? }` | 201 `data: InvoiceClient` | **403 `plan_limit` `invoiceClients`** past 20. 422 bad email or phone (digits, spaces and `+ ( ) - .`, 6–15 digits). |
+| `GET` / `PATCH` / `DELETE /invoice-clients/{id}` | PATCH: any field (null clears) | 200 | Documents keep their own copy of the client's details. |
+| `GET /invoice-sellers?profileId=` | — | 200 `data: InvoiceSeller[]` | "Your details". |
+| `POST /invoice-sellers` | `{ profileId, name, address?, contact?, taxId?, upiId?, phone?, website?, registrationNumber?, bankDetails? }` | 201 `data: InvoiceSeller` | **403 `plan_limit` `invoiceSellers`** past three per workspace (a profile may hold several). 422 when `contact` isn't an email address or `phone` isn't a phone number (digits, spaces and `+ ( ) - .`, 6–15 digits). 422 a UPI ID that isn't `name@bank`. |
+| `GET` / `PATCH` / `DELETE /invoice-sellers/{id}` | PATCH: any field | 200 | DELETE takes the logo too. |
+| `GET /invoice-sellers/{id}/logo` | — | 200 `data: { url, expiresInSeconds, contentType }` | A 5-minute URL — fetch it **without** the Authorization header. 404 no logo; 503 storage not configured. |
+| `PUT /invoice-sellers/{id}/logo` | the image bytes (`image/png` or `image/jpeg`, ≤ 300 KB) | 200 `data: InvoiceSeller` | Resize on the device first. 422 not a PNG/JPEG or too big; **413 `storage_quota_exceeded`**. |
+| `DELETE /invoice-sellers/{id}/logo` | — | 200 `data: InvoiceSeller` | |
 
 ### Transactions
 | Method & path | Body | Success | Notes / errors |
@@ -877,22 +1011,24 @@ workspace's **storage quota** — its plan's storage, 1 / 5 / 20 GB (vault files
 + transaction attachments together; 413 `storage_quota_exceeded` when the batch
 doesn't fit — `GET /files` reports usage in `meta.storage`). The predefined
 **"Transaction attachments"** folder (`system: true`, one per profile) accepts
-only color + tags — rename/move/delete/share/upload-into are 400s.
+only color + tags — rename/describe/move/delete/share/upload-into are 400s.
+A **`description`** (6.12.0) is optional everywhere: trimmed, at most 250
+characters (422 past that), and blank or `null` means none.
 `503 storage_unavailable` on upload/url when file storage isn't configured.
 | Method & path | Body | Success | Notes / errors |
 |---|---|---|---|
-| `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit, storage }` | The whole working set in one call (mirrors the web page load). Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. `storage` = workspace usage vs the plan's storage (see § meta). Also lazily creates the predefined folder for each profile the caller can **write** to — a viewer's read never creates rows, so a view-only user may not see it until an editor opens the vault (their transaction files are still returned in `transactionFiles`). |
-| `POST /files` | **multipart** — `profileId` (required), `folderId?`, files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. `<index>` counts file parts in send order (`files` before `file`) and is **not** renumbered around non-file parts. 400 no files / > 10 / predefined-folder destination; **413** file **or preview** > 5 MB (`payload_too_large`) or workspace quota exceeded (`storage_quota_exceeded`); 404 profile/folder not reachable |
-| `PATCH /files/{id}` | `{ name?, category?, tagIds?, folderId? }` (≥1; `category: null` clears, `folderId: null` → root) | 200 `data: VaultFile` | Editor. 400 "Nothing to update"; 422; 404 |
+| `GET /files` | — | 200 `data: { folders, files, transactionFiles, tags }`, `meta: { filesCapped, filesLimit, storage }` | The whole working set in one call (mirrors the web page load). `tags` is deprecated (6.12.0) — still sent. Files newest first, capped at `filesLimit` (500) — `filesCapped: true` → narrow by profile. `storage` = workspace usage vs the plan's storage (see § meta). Also lazily creates the predefined folder for each profile the caller can **write** to — a viewer's read never creates rows, so a view-only user may not see it until an editor opens the vault (their transaction files are still returned in `transactionFiles`). |
+| `POST /files` | **multipart** — `profileId` (required), `folderId?`, `description?` (6.12.0; given to every file in the request), files under `files` (repeatable; `file` works too), optional `thumb_<index>` webp preview per file | 201 `data: VaultFile[]` | Editor. 422 `description` over 250 characters. `<index>` counts file parts in send order (`files` before `file`) and is **not** renumbered around non-file parts. 400 no files / > 10 / predefined-folder destination; **413** file **or preview** > 5 MB (`payload_too_large`) or workspace quota exceeded (`storage_quota_exceeded`); 404 profile/folder not reachable |
+| `PATCH /files/{id}` | `{ name?, description?, folderId? }` + deprecated `category?`, `tagIds?` (≥1; `description: null`/blank and `category: null` clear, `folderId: null` → root) | 200 `data: VaultFile` | Editor. 400 "Nothing to update"; 422; 404 |
 | `DELETE /files/{id}` | — | 200 `data: { id, deleted: true, trashed }` | Editor. **Plus/Pro** (6.7.0): `trashed: true` — the file goes to the trash for 30 days (bytes kept, still counted toward storage; its share links stop working until it's restored). **Free**: `trashed: false` — removed for good with its stored object, preview and share links. 422 non-UUID; 404 |
 | `GET /files/{id}/url` | — | 200 `data: { url, expiresInSeconds, fileName, contentType }` | Viewer. Same contract as `GET /attachments/{id}/url` (`?variant=thumb`, `?download=1`; ~5 min TTL; GET without the Authorization header). **Inline only for previewable types** — images, PDF, text/CSV/Markdown, and **every `video/*` or `audio/*` type the server recognizes** (don't hard-code the list: it's whatever `contentType` comes back as for a media file, currently 23 types incl. `video/x-m4v`→`video/mp4`, `video/3gpp2` and `audio/webm`). Anything else is served `attachment` even without `?download=1`, since the vault takes any MIME type and a stored HTML/SVG must never render in a WebView. Media is inline across the board because media bytes go to the decoder, never to a document parser. Whether a given container actually plays is the **player's** call — expect a decode failure on some formats and fall back to a download. The URL also carries a `Content-Type` matching the `contentType` in the response, so a file stored before its container could be named still arrives typed. `?variant=thumb` is always inline. 404 |
-| `POST /folders` | `{ profileId, name, parentId?, color?, tagIds? }` | 201 `data: Folder` | Editor. 409 duplicate sibling name (case-insensitive); 400 predefined-folder parent; 422; 404 |
-| `PATCH /folders/{id}` | `{ name?, color?, tagIds?, parentId? }` (≥1; `parentId: null` → root, `color: null` clears) | 200 `data: Folder` | Editor. Predefined folder: color+tags only (400 otherwise). 400 move-into-own-subtree / "Nothing to update"; 409 duplicate name; 422; 404 |
+| `POST /folders` | `{ profileId, name, parentId?, color?, description? }` + deprecated `tagIds?` | 201 `data: Folder` | Editor. 409 duplicate sibling name (case-insensitive); 400 predefined-folder parent; 422; 404 |
+| `PATCH /folders/{id}` | `{ name?, color?, description?, parentId? }` + deprecated `tagIds?` (≥1; `parentId: null` → root, `color: null` and `description: null`/blank clear) | 200 `data: Folder` | Editor. Predefined folder: color+tags only (400 otherwise, a description included). 400 move-into-own-subtree / "Nothing to update"; 409 duplicate name; 422; 404 |
 | `DELETE /folders/{id}` | — | 200 `data: { id, deleted: true, trashed }` | Editor. The whole subtree goes: on **Plus/Pro** (6.7.0) to the trash as one item (`trashed: true`, restorable together); on **Free** for good (`trashed: false` — nested folders, files, stored objects, share links). 400 predefined folder; 422; 404 |
-| `GET /file-tags` | — | 200 `data: FileTag[]` | Viewer. Name-ascending; `?profile=` scopes. (Also included in `GET /files` — this is for pickers.) |
-| `POST /file-tags` | `{ profileId, name, color }` | 201 `data: FileTag` | Editor. 409 duplicate name per profile (case-insensitive); 422 |
-| `PATCH /file-tags/{id}` | `{ name?, color? }` (≥1) | 200 `data: FileTag` | Editor. Every referencing item updates at once. 409; 422; 404 |
-| `DELETE /file-tags/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Detaches from every file/folder first. 422; 404 |
+| `GET /file-tags` | — | 200 `data: FileTag[]` | **Deprecated (6.12.0)**, still served. Viewer. Name-ascending; `?profile=` scopes. (Also included in `GET /files`.) |
+| `POST /file-tags` | `{ profileId, name, color }` | 201 `data: FileTag` | **Deprecated (6.12.0)**, still works. Editor. 409 duplicate name per profile (case-insensitive); 422 |
+| `PATCH /file-tags/{id}` | `{ name?, color? }` (≥1) | 200 `data: FileTag` | **Deprecated (6.12.0)**, still works. Editor. Every referencing item updates at once. 409; 422; 404 |
+| `DELETE /file-tags/{id}` | — | 200 `data: { id, deleted: true }` | **Deprecated (6.12.0)**, still works. Editor. Detaches from every file/folder first. 422; 404 |
 | `GET /file-shares` | — (query `fileId` **or** `folderId`, exactly one) | 200 `data: FileShare[]` | **Editor** (tokens grant public access). Newest first, **active links only** — an expired one is omitted, since its token no longer opens the share page. 422 neither/both; 404 |
 | `POST /file-shares` | `{ fileId? \| folderId?, allowDownload?, expiresInDays? }` | 201 `data: FileShare` | Editor. Exactly one target (422). Folder link shares the whole subtree; 400 predefined folder. Build the link as `<web-origin>` + `sharePath`. `allowDownload: false` is enforced as *no bytes leave except as a preview the browser renders* — the share page serves playable media and previewable documents inline, and 403s anything else (a `.avi`/`.wmv` "preview" would just be a download). |
 | `DELETE /file-shares/{id}` | — | 200 `data: { id, deleted: true }` | Editor. Token stops working immediately. 422; 404 |
@@ -1146,6 +1282,24 @@ memberId, percent (0–100, ≤ 2 decimals) }` for `percent`. Nobody twice.
 settledOn }`.
 `SplitShareToWorkspaceInput` — `{ profileId (uuid), categoryId? (uuid, nullable),
 title? (≤ 40), occurredOn? (YYYY-MM-DD), amount? (> 0, workspace currency) }`.
+
+Invoices (6.13.0):
+`InvoiceContent` — `{ clientId? (uuid, same profile), client { name (≤ 120),
+email? (≤ 160, valid), address? (≤ 400), taxId? (≤ 60) }, sellerId? (uuid, same
+profile), seller { name (≤ 120), address? (≤ 400), contact? (≤ 160), taxId? (≤
+60) }, upiId? (name@bank, ≤ 100), quoteTitle? (quotation|estimate), issueDate
+(YYYY-MM-DD), dueDate? (≥ issueDate, nullable), currency (a supported code),
+items (≤ 100 × { description (≤ 300), quantity (0–1,000,000,000, 4 decimals),
+unitPrice (≥ 0, major units) }), discountType? (percent|fixed), discount? (≥ 0;
+≤ 100 when percent), taxLabel? (≤ 24), taxRate? (0–100), notes? (≤ 2000), terms?
+(≤ 2000), template? (classic|modern|bold|minimal|compact) }`. Blank optional text
+is stored as null. Finalising also needs a client name, a business name and a line.
+`InvoiceClientInput` — `{ profileId, name (1–120), email?, address?, taxId? }`.
+`InvoiceSellerInput` — `{ profileId, name (1–120), address?, contact?, taxId?,
+upiId? }`.
+`InvoiceMarkPaidInput` — `{ amount? (> 0, ≤ 999,999,999.99, workspace currency),
+paidOn? (YYYY-MM-DD), categoryId? (an income category, nullable) }`.
+Logo — PNG or JPEG bytes (checked by content), ≤ 300 KB.
 
 ---
 

@@ -412,11 +412,12 @@ export function ProfileList({
             <ProfileShortcutBinding key={p.id} combo={profileShortcut(i)} onFire={() => go(p.id)} />
           ))}
 
-      <div className="flex items-center justify-between px-3 pt-2 pb-1">
-        <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+      {/* One height whatever sits on the right (add buttons, the selection, nothing), so the list never shifts. */}
+      <div className="flex min-h-9 items-center justify-between gap-2 px-3 pt-2 pb-1">
+        <span className="shrink-0 text-xs font-medium tracking-wide text-muted-foreground uppercase">
           Profiles
         </span>
-        <div className="flex items-center gap-0.5">
+        <div className="flex min-w-0 items-center gap-0.5">
           {/* Touch has no Shift: "Select" turns taps into toggles instead. */}
           <Button
             variant="ghost"
@@ -429,74 +430,69 @@ export function ProfileList({
           >
             {selectMode ? "Done" : "Select"}
           </Button>
-          {/* Only workspace admins can create spaces and profiles. */}
-          {canManage && (
-            <>
-              <LimitTooltip lock={spaceLock}>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={
-                    spaceLock ? `New space (${spaceLock.title.toLowerCase()})` : "New space"
-                  }
-                  title={spaceLock ? undefined : "New space"}
-                  className="relative"
-                  onClick={() => setNewSpaceOpen(true)}
-                >
-                  <FolderPlus className="size-3.5" />
-                  {spaceLock && <LockBadge />}
-                </Button>
-              </LimitTooltip>
-              <LimitTooltip lock={profileLock}>
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  aria-label={
-                    profileLock ? `Add profile (${profileLock.title.toLowerCase()})` : "Add profile"
-                  }
-                  title={profileLock ? undefined : "Add profile"}
-                  className="relative"
-                  onClick={() => setAdding({})}
-                >
-                  <Plus className="size-3.5" />
-                  {profileLock && <LockBadge />}
-                </Button>
-              </LimitTooltip>
-            </>
+          {/* The selection and the way out of it take the add buttons' place on
+              this line, so nothing below moves when a second item is picked.
+              Shown for a space or several items — a single profile is just the
+              highlighted row. */}
+          {multi ? (
+            <div className="flex min-w-0 items-center rounded-md bg-muted/70 pl-2 text-xs text-muted-foreground">
+              <span aria-hidden className="truncate">
+                <span className="font-medium text-foreground tabular-nums">{view.profileIds?.length ?? 0}</span>{" "}
+                selected
+              </span>
+              <Button
+                variant="ghost"
+                size="xs"
+                className="shrink-0 px-1.5"
+                onClick={clearSelection}
+                aria-label="Clear selection"
+              >
+                Clear
+                <X aria-hidden className="size-3" />
+              </Button>
+            </div>
+          ) : selectMode ? (
+            <span className="truncate text-xs text-muted-foreground">Tap to select</span>
+          ) : (
+            // Only workspace admins can create spaces and profiles.
+            canManage && (
+              <>
+                <LimitTooltip lock={spaceLock}>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={
+                      spaceLock ? `New space (${spaceLock.title.toLowerCase()})` : "New space"
+                    }
+                    title={spaceLock ? undefined : "New space"}
+                    className="relative"
+                    onClick={() => setNewSpaceOpen(true)}
+                  >
+                    <FolderPlus className="size-3.5" />
+                    {spaceLock && <LockBadge />}
+                  </Button>
+                </LimitTooltip>
+                <LimitTooltip lock={profileLock}>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    aria-label={
+                      profileLock ? `Add profile (${profileLock.title.toLowerCase()})` : "Add profile"
+                    }
+                    title={profileLock ? undefined : "Add profile"}
+                    className="relative"
+                    onClick={() => setAdding({})}
+                  >
+                    <Plus className="size-3.5" />
+                    {profileLock && <LockBadge />}
+                  </Button>
+                </LimitTooltip>
+              </>
+            )
           )}
         </div>
       </div>
 
-      {/* The selection, and the way out of it. Shown for a space or several
-          items — a single profile is just the highlighted row. */}
-      {(multi || selectMode) && (
-        <div className="mx-2 mb-1 flex min-h-7 items-center gap-2 rounded-md bg-muted/70 py-0.5 pr-0.5 pl-2.5 text-xs text-muted-foreground">
-          <span aria-hidden className="min-w-0 flex-1 truncate">
-            {multi ? (
-              <>
-                <span className="font-medium text-foreground tabular-nums">
-                  {view.profileIds?.length ?? 0}
-                </span>{" "}
-                selected
-              </>
-            ) : (
-              "Tap profiles or spaces to select"
-            )}
-          </span>
-          {multi && (
-            <Button
-              variant="ghost"
-              size="xs"
-              className="px-1.5"
-              onClick={clearSelection}
-              aria-label="Clear selection"
-            >
-              Clear
-              <X aria-hidden className="size-3" />
-            </Button>
-          )}
-        </div>
-      )}
       {/* Always mounted, so a change is announced (a live region that mounts
           with its text often isn't): a keyboard toggle is heard as well as seen. */}
       <span role="status" className="sr-only">

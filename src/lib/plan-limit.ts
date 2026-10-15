@@ -17,7 +17,12 @@ import {
  * its button links to checkout for the plan that lifts it (`lib/checkout.ts`).
  */
 
-/** Mirrors `PlanLimitKey` in `lib/errors.ts` (kept here so this file stays client-safe). */
+/**
+ * Mirrors `PlanLimitKey` in `lib/errors.ts` (kept here so this file stays
+ * client-safe) — except invoicing's keys (`invoices`, `invoiceClients`,
+ * `invoiceSellers`, `invoiceTemplates`): no plan lifts those, so their refusal
+ * is shown as its own message, never as the upgrade dialog.
+ */
 export const PLAN_LIMIT_KEYS = [
   "members",
   "spaces",

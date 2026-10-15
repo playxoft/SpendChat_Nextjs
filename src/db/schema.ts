@@ -8,6 +8,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -40,10 +41,19 @@ import {
   TAG_NAME_MAX,
   TRANSACTION_DESCRIPTION_MAX,
   TRANSACTION_TITLE_MAX,
+  VAULT_DESCRIPTION_MAX,
 } from "../lib/validation";
 import type { UiPrefs } from "../lib/validation";
 import type { Acquisition } from "../lib/attribution";
 import { PERSONAL_PLANS } from "../lib/plans";
+import {
+  DOC_FIELD_LIMITS,
+  INVOICE_DISCOUNT_TYPES,
+  INVOICE_KINDS,
+  INVOICE_STATUSES,
+  INVOICE_TEMPLATE_MAX,
+  UPI_ID_MAX,
+} from "../lib/invoices";
 import {
   BUDGET_DESCRIPTION_MAX,
   BUDGET_PERIODS,
@@ -1079,8 +1089,11 @@ export const transactionAttachments = pgTable(
  * A vault tag: a per-profile named + colored label. Files and folders
  * reference tags by id (`tag_ids` uuid[]) — free-text tags don't exist, so a
  * tag rename/recolor updates every tagged item at once. `color` is hex text
- * (`#rrggbb`); today's UI picks from a fixed palette but the column accepts
- * any hex so custom colors need no migration.
+ * (`#rrggbb`); the column accepts any hex so custom colors need no migration.
+ *
+ * Deprecated: since app 0.43.0 the web app neither shows nor edits vault tags
+ * (descriptions replaced them). The table, its rows and the `/api/v1/file-tags`
+ * endpoints stay for API clients; nothing is deleted.
  */
 export const fileTags = pgTable(
   "file_tags",
@@ -1133,6 +1146,8 @@ export const folders = pgTable(
     // Creator attribution — access is the profile role, never this column.
     userId: uuid("user_id").notNull(),
     name: varchar("name", { length: FOLDER_NAME_MAX }).notNull(),
+    // What the folder holds, in a sentence; null = none. Searchable in the app.
+    description: varchar("description", { length: VAULT_DESCRIPTION_MAX }),
     // Optional accent (hex, like `file_tags.color`); null = the neutral default.
     color: varchar("color", { length: 16 }),
     /**
@@ -1143,6 +1158,8 @@ export const folders = pgTable(
      * user folder.
      */
     systemKey: text("system_key"),
+    // No longer shown or edited in the app (2026-10, app 0.43.0); kept, with its
+    // data, for API clients — see `file_tags`.
     tagIds: uuid("tag_ids")
       .array()
       .notNull()
@@ -1197,6 +1214,10 @@ export const files = pgTable(
     name: varchar("name", { length: FILE_NAME_MAX }).notNull(),
     contentType: text("content_type").notNull(),
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
+    // What the file is, in a sentence; null = none. Searchable in the app.
+    description: varchar("description", { length: VAULT_DESCRIPTION_MAX }),
+    // `category` and `tag_ids` are no longer shown or edited in the app (2026-10,
+    // app 0.43.0); kept, with their data, for API clients.
     category: varchar("category", { length: FILE_CATEGORY_MAX }),
     tagIds: uuid("tag_ids")
       .array()
@@ -1853,6 +1874,327 @@ export const aiTopups = pgTable(
   ],
 );
 
+/* -------------------------------------------------------------------------- */
+/* Invoices and quotes                                                         */
+/* -------------------------------------------------------------------------- */
+
+export const invoiceKindEnum = pgEnum("invoice_kind", INVOICE_KINDS);
+export const invoiceStatusEnum = pgEnum("invoice_status", INVOICE_STATUSES);
+export const invoiceDiscountTypeEnum = pgEnum("invoice_discount_type", INVOICE_DISCOUNT_TYPES);
+
+/**
+ * A saved client — who an invoice is billed to. Belongs to a profile like
+ * everything else there, so the profile's readers see it and its editors
+ * change it. An invoice copies the client's details when it's written (see
+ * `invoices.client_*`), so editing or deleting a client never changes a
+ * document that already went out. How many a workspace may keep is its invoice
+ * tier's `clients` (`INVOICE_LIMITS`).
+ */
+export const invoiceClients = pgTable(
+  "invoice_clients",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: DOC_FIELD_LIMITS.name }).notNull(),
+    email: varchar("email", { length: DOC_FIELD_LIMITS.email }),
+    address: varchar("address", { length: DOC_FIELD_LIMITS.address }),
+    taxId: varchar("tax_id", { length: DOC_FIELD_LIMITS.taxId }),
+    phone: varchar("phone", { length: DOC_FIELD_LIMITS.phone }),
+    // Printed as "Attn: …" under the client's name.
+    contactPerson: varchar("contact_person", { length: DOC_FIELD_LIMITS.contactPerson }),
+    // Private to the workspace: never printed, never copied onto a document.
+    notes: varchar("notes", { length: DOC_FIELD_LIMITS.clientNotes }),
+    // Attribution, like `transactions.user_id` — access is the profile.
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The client picker (per profile, by name); also the profile FK cascade.
+    index("invoice_clients_profile_name_idx").on(t.profileId, t.name),
+    // The plan count and the workspace FK cascade.
+    index("invoice_clients_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/**
+ * "Your details" — the business an invoice is from: name, address, contact,
+ * tax id, a UPI id for the pay-by-UPI code, and a logo. Per profile, like
+ * clients; a workspace keeps as many as its invoice tier's `sellerDetails`
+ * (one on the free tier). The logo is stored **once**, here (`logo_key` in R2,
+ * counted in the workspace's storage), and every document from this seller
+ * draws it from there. Invoices copy the text fields when written.
+ */
+export const invoiceSellers = pgTable(
+  "invoice_sellers",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: DOC_FIELD_LIMITS.name }).notNull(),
+    address: varchar("address", { length: DOC_FIELD_LIMITS.address }),
+    contact: varchar("contact", { length: DOC_FIELD_LIMITS.contact }),
+    taxId: varchar("tax_id", { length: DOC_FIELD_LIMITS.taxId }),
+    upiId: varchar("upi_id", { length: UPI_ID_MAX }),
+    phone: varchar("phone", { length: DOC_FIELD_LIMITS.phone }),
+    website: varchar("website", { length: DOC_FIELD_LIMITS.website }),
+    // A company or business registration number (CIN, CRN, ABN…).
+    registrationNumber: varchar("registration_number", { length: DOC_FIELD_LIMITS.registration }),
+    // Free text — account name and number, bank, IFSC / SWIFT / IBAN — printed on invoices.
+    bankDetails: varchar("bank_details", { length: DOC_FIELD_LIMITS.bankDetails }),
+    // The logo object (PNG or JPEG, ≤ 300 KB) — never a public URL; served
+    // through the authenticated route and drawn into PDFs server-side.
+    logoKey: text("logo_key"),
+    logoContentType: text("logo_content_type"),
+    logoSizeBytes: bigint("logo_size_bytes", { mode: "number" }),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("invoice_sellers_profile_idx").on(t.profileId),
+    // The plan count, the storage sum and the workspace FK cascade.
+    index("invoice_sellers_workspace_idx").on(t.workspaceId),
+  ],
+);
+
+/**
+ * The number series: one row per workspace and kind, holding the last number
+ * given out. Finalising a document bumps it with an upsert in the same
+ * database transaction that marks the document sent, so the row lock
+ * serialises concurrent finalises (no duplicates) and a rollback un-bumps it
+ * (no gaps). Drafts take no number, so deleting one leaves no hole either.
+ */
+export const invoiceCounters = pgTable(
+  "invoice_counters",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    kind: invoiceKindEnum("kind").notNull(),
+    lastNumber: integer("last_number").notNull().default(0),
+  },
+  (t) => [
+    primaryKey({ columns: [t.workspaceId, t.kind] }),
+    check("invoice_counters_last_number_ck", sql`${t.lastNumber} >= 0`),
+  ],
+);
+
+/**
+ * An invoice or a quote (`kind`). Belongs to a profile, so the normal profile
+ * rules decide who sees and changes it, and a trashed profile hides it.
+ *
+ * - **Status.** `draft` → `sent` (finalised: numbered, locked, PDF stored) →
+ *   `paid` (invoices only) or `void`. A finalised document is never deleted —
+ *   voiding keeps the record and its number. Drafts are deleted outright.
+ * - **Number.** Null on a draft; `INV-0001` / `QUO-0001` from
+ *   `invoice_counters` when finalised (`number_seq` is the integer behind it,
+ *   unique per workspace and kind).
+ * - **Snapshots.** The client's and the seller's details are copied in, so a
+ *   sent document reads the same forever whatever happens to the client or
+ *   seller rows (`client_id` / `seller_id` are only links, nulled when those
+ *   go). The logo is drawn from the seller (stored once there).
+ * - **Money.** Integer minor units of `currency`, which may differ from the
+ *   workspace's. Totals are worked out on the server by the generator's engine
+ *   (`lib/business-doc/invoice.ts`) from the items, discount and tax.
+ * - **PDF.** Finalising stores a PDF in R2 (`pdf_key`, `pdf_size_bytes`),
+ *   counted in the workspace's storage under "Invoices" or "Quotations". It's
+ *   reached only through the invoice, so it follows the invoice's profile.
+ * - **Paid.** "Mark as paid" writes one income transaction in the workspace's
+ *   currency (`paid_amount_minor`) and links it (`paid_transaction_id`, set in
+ *   the same database transaction as the insert, so it can happen once).
+ */
+export const invoices = pgTable(
+  "invoices",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    kind: invoiceKindEnum("kind").notNull(),
+    status: invoiceStatusEnum("status").notNull().default("draft"),
+    number: varchar("number", { length: DOC_FIELD_LIMITS.number }),
+    numberSeq: integer("number_seq"),
+    quoteTitle: varchar("quote_title", { length: 16 }).notNull().default("quotation"),
+    clientId: uuid("client_id").references(() => invoiceClients.id, { onDelete: "set null" }),
+    clientName: varchar("client_name", { length: DOC_FIELD_LIMITS.name }).notNull().default(""),
+    clientEmail: varchar("client_email", { length: DOC_FIELD_LIMITS.email }),
+    clientAddress: varchar("client_address", { length: DOC_FIELD_LIMITS.address }),
+    clientTaxId: varchar("client_tax_id", { length: DOC_FIELD_LIMITS.taxId }),
+    clientPhone: varchar("client_phone", { length: DOC_FIELD_LIMITS.phone }),
+    clientContactPerson: varchar("client_contact_person", { length: DOC_FIELD_LIMITS.contactPerson }),
+    sellerId: uuid("seller_id").references(() => invoiceSellers.id, { onDelete: "set null" }),
+    sellerName: varchar("seller_name", { length: DOC_FIELD_LIMITS.name }).notNull().default(""),
+    sellerAddress: varchar("seller_address", { length: DOC_FIELD_LIMITS.address }),
+    sellerContact: varchar("seller_contact", { length: DOC_FIELD_LIMITS.contact }),
+    sellerTaxId: varchar("seller_tax_id", { length: DOC_FIELD_LIMITS.taxId }),
+    sellerPhone: varchar("seller_phone", { length: DOC_FIELD_LIMITS.phone }),
+    sellerWebsite: varchar("seller_website", { length: DOC_FIELD_LIMITS.website }),
+    sellerRegistrationNumber: varchar("seller_registration_number", { length: DOC_FIELD_LIMITS.registration }),
+    sellerBankDetails: varchar("seller_bank_details", { length: DOC_FIELD_LIMITS.bankDetails }),
+    upiId: varchar("upi_id", { length: UPI_ID_MAX }),
+    issueDate: date("issue_date").notNull(),
+    // Due date (invoice) or valid-until (quote); null = none given.
+    dueDate: date("due_date"),
+    currency: text("currency").notNull(),
+    discountType: invoiceDiscountTypeEnum("discount_type").notNull().default("percent"),
+    // Percent (up to 4 decimals) when `discount_type` is percent; the fixed
+    // amount in minor units otherwise. Exact `numeric`, never a float.
+    discountRate: numeric("discount_rate", { precision: 7, scale: 4 }).notNull().default("0"),
+    discountFixedMinor: bigint("discount_fixed_minor", { mode: "number" }).notNull().default(0),
+    taxLabel: varchar("tax_label", { length: DOC_FIELD_LIMITS.taxLabel }),
+    taxRate: numeric("tax_rate", { precision: 7, scale: 4 }).notNull().default("0"),
+    subtotalMinor: bigint("subtotal_minor", { mode: "number" }).notNull().default(0),
+    discountMinor: bigint("discount_minor", { mode: "number" }).notNull().default(0),
+    taxMinor: bigint("tax_minor", { mode: "number" }).notNull().default(0),
+    totalMinor: bigint("total_minor", { mode: "number" }).notNull().default(0),
+    notes: varchar("notes", { length: DOC_FIELD_LIMITS.notes }),
+    terms: varchar("terms", { length: DOC_FIELD_LIMITS.terms }),
+    template: varchar("template", { length: INVOICE_TEMPLATE_MAX }).notNull().default("classic"),
+    // The "Made with SpendChat" line — fixed from the tier when finalised.
+    showCredit: boolean("show_credit").notNull().default(true),
+    pdfKey: text("pdf_key"),
+    pdfSizeBytes: bigint("pdf_size_bytes", { mode: "number" }),
+    // The quote this invoice was made from (quote → invoice).
+    sourceQuoteId: uuid("source_quote_id").references((): AnyPgColumn => invoices.id, {
+      onDelete: "set null",
+    }),
+    // A draft brought over from the free generator: its content hash, so the
+    // same draft imported twice (a double click, a reload) is one invoice.
+    importKey: varchar("import_key", { length: 64 }),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    // The last time a finalised document was edited (it keeps its number); null if never.
+    editedAt: timestamp("edited_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    paidOn: date("paid_on"),
+    paidTransactionId: uuid("paid_transaction_id").references(() => transactions.id, {
+      onDelete: "set null",
+    }),
+    // What was received, in the *workspace's* currency (the income entry's amount).
+    paidAmountMinor: bigint("paid_amount_minor", { mode: "number" }),
+    voidedAt: timestamp("voided_at", { withTimezone: true }),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, precision: 3 }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // The list, per profile, newest first — merged across the caller's
+    // profiles. `nullsFirst()` so it matches `ORDER BY … DESC` (see
+    // `transactions_profile_date_idx`). Also the profile FK cascade.
+    index("invoices_profile_created_idx").on(
+      t.profileId,
+      t.createdAt.desc().nullsFirst(),
+      t.id.desc().nullsFirst(),
+    ),
+    // The monthly allowance count and the workspace FK cascade.
+    index("invoices_workspace_created_idx").on(t.workspaceId, t.createdAt),
+    // One number per workspace and kind, ever.
+    uniqueIndex("invoices_number_uq")
+      .on(t.workspaceId, t.kind, t.numberSeq)
+      .where(sql`${t.numberSeq} is not null`),
+    uniqueIndex("invoices_import_key_uq")
+      .on(t.profileId, t.importKey)
+      .where(sql`${t.importKey} is not null`),
+    // FK maintenance for the set-null links.
+    index("invoices_client_idx").on(t.clientId),
+    index("invoices_seller_idx").on(t.sellerId),
+    index("invoices_source_quote_idx").on(t.sourceQuoteId),
+    index("invoices_paid_transaction_idx").on(t.paidTransactionId),
+    // A draft has no number; anything finalised has one.
+    check(
+      "invoices_number_ck",
+      sql`(${t.status} = 'draft') = (${t.numberSeq} is null) and (${t.numberSeq} is null) = (${t.number} is null)`,
+    ),
+    check("invoices_quote_not_paid_ck", sql`not (${t.kind} = 'quote' and ${t.status} = 'paid')`),
+    check(
+      "invoices_amounts_ck",
+      sql`${t.subtotalMinor} >= 0 and ${t.discountMinor} >= 0 and ${t.taxMinor} >= 0 and ${t.totalMinor} >= 0 and ${t.discountFixedMinor} >= 0`,
+    ),
+    check("invoices_quote_title_ck", sql`${t.quoteTitle} in ('quotation', 'estimate')`),
+  ],
+);
+
+/**
+ * One line of an invoice or quote, in order (`position`). Read only through
+ * its invoice — `profile_id` / `workspace_id` are the invoice's, kept here so
+ * the profile and workspace cascades reach it directly, and moved with it.
+ */
+export const invoiceItems = pgTable(
+  "invoice_items",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    position: smallint("position").notNull(),
+    description: varchar("description", { length: DOC_FIELD_LIMITS.description }).notNull().default(""),
+    // Up to four decimals (7.5 hours, 0.125 kg) — exact `numeric`.
+    quantity: numeric("quantity", { precision: 14, scale: 4 }).notNull(),
+    unitPriceMinor: bigint("unit_price_minor", { mode: "number" }).notNull(),
+    amountMinor: bigint("amount_minor", { mode: "number" }).notNull(),
+  },
+  (t) => [
+    uniqueIndex("invoice_items_invoice_position_uq").on(t.invoiceId, t.position),
+    index("invoice_items_profile_idx").on(t.profileId),
+    index("invoice_items_workspace_idx").on(t.workspaceId),
+    check(
+      "invoice_items_amounts_ck",
+      sql`${t.quantity} >= 0 and ${t.unitPriceMinor} >= 0 and ${t.amountMinor} >= 0`,
+    ),
+  ],
+);
+
+/**
+ * A public link to one finalised invoice or quote — the file share-link
+ * pattern (`file_shares`): the token is the capability (256 random bits),
+ * revoking deletes the row, `expires_at` null never expires. Making one needs
+ * edit access to the invoice's profile; a trashed profile's links stop
+ * resolving until it's restored.
+ */
+export const invoiceShares = pgTable(
+  "invoice_shares",
+  {
+    id: uuid("id").primaryKey().default(uuidV7),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => invoices.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull(),
+    token: varchar("token", { length: 64 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("invoice_shares_token_uq").on(t.token),
+    index("invoice_shares_invoice_idx").on(t.invoiceId),
+    index("invoice_shares_profile_idx").on(t.profileId),
+    index("invoice_shares_workspace_idx").on(t.workspaceId),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type UserSettings = typeof userSettings.$inferSelect;
@@ -1907,3 +2249,8 @@ export type BillingCheckoutSession = typeof billingCheckoutSessions.$inferSelect
 export type BillingPayment = typeof billingPayments.$inferSelect;
 export type AiTopup = typeof aiTopups.$inferSelect;
 export type BillingHold = (typeof billingHoldEnum.enumValues)[number];
+export type InvoiceRow = typeof invoices.$inferSelect;
+export type InvoiceItemRow = typeof invoiceItems.$inferSelect;
+export type InvoiceClientRow = typeof invoiceClients.$inferSelect;
+export type InvoiceSellerRow = typeof invoiceSellers.$inferSelect;
+export type InvoiceShareRow = typeof invoiceShares.$inferSelect;

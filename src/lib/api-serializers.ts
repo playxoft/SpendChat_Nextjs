@@ -1,3 +1,4 @@
+import type { InvoiceShareDTO } from "@/lib/invoice-doc";
 import { fromMinorUnits } from "@/lib/money";
 import { getCurrency } from "@/lib/currencies";
 import { normalizeVoiceLanguages } from "@/lib/voice-languages";
@@ -374,7 +375,13 @@ export type ApiUsage = {
     /** ISO 8601 — the first instant of next month (UTC). */
     resetsAt: string;
   };
-  storage: { usedBytes: number; limitBytes: number; trashBytes: number };
+  storage: {
+    usedBytes: number;
+    limitBytes: number;
+    trashBytes: number;
+    /** Where `usedBytes` goes. Since 6.13.0. */
+    breakdown: { files: number; attachments: number; invoices: number; quotations: number; logos: number };
+  };
   members: ApiMeter;
   spaces: ApiMeter;
   categories: ApiMeter;
@@ -384,6 +391,15 @@ export type ApiUsage = {
   profilesPerSpace: number;
   voice: boolean;
   profileLevelAccess: boolean;
+  /** Invoicing's allowances (the same on every personal plan). Since 6.13.0. */
+  invoicing: {
+    tier: "free" | "addon";
+    perMonth: ApiMeter & { resetsAt: string };
+    clients: { used: number; limit: number | null };
+    sellers: ApiMeter;
+    templates: number;
+    footer: boolean;
+  };
 };
 
 export function serializeUsage(u: WorkspaceUsage): ApiUsage {
@@ -404,6 +420,7 @@ export function serializeUsage(u: WorkspaceUsage): ApiUsage {
       usedBytes: u.storage.usedBytes,
       limitBytes: u.storage.limitBytes,
       trashBytes: u.storage.trashBytes,
+      breakdown: { ...u.storage.breakdown },
     },
     members: meter(u.members),
     spaces: meter(u.spaces),
@@ -413,6 +430,14 @@ export function serializeUsage(u: WorkspaceUsage): ApiUsage {
     profilesPerSpace: u.profilesPerSpace,
     voice: u.voice,
     profileLevelAccess: u.profileLevelAccess,
+    invoicing: {
+      tier: u.invoicing.tier,
+      perMonth: { ...meter(u.invoicing.perMonth), resetsAt: u.invoicing.perMonth.resetsAt },
+      clients: { used: u.invoicing.clients.used, limit: u.invoicing.clients.limit },
+      sellers: meter(u.invoicing.sellers),
+      templates: u.invoicing.templates,
+      footer: u.invoicing.footer,
+    },
   };
 }
 
@@ -709,4 +734,18 @@ export function serializeApiBudget(b: BudgetView): ApiBudget {
     createdAt: b.createdAt.toISOString(),
     updatedAt: b.updatedAt.toISOString(),
   };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Invoices (6.13.0) — the services' DTOs are already the wire shape            */
+/* -------------------------------------------------------------------------- */
+
+export type ApiInvoiceShare = InvoiceShareDTO & {
+  /** The public page, absolute — what to send. */
+  url: string;
+};
+
+/** A share link with its absolute URL, built from the request's own origin. */
+export function serializeApiInvoiceShare(share: InvoiceShareDTO, request: Request): ApiInvoiceShare {
+  return { ...share, url: new URL(share.path, request.url).toString() };
 }

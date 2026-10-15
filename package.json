@@ -1,6 +1,6 @@
 {
   "name": "spendchat",
-  "version": "0.41.0",
+  "version": "0.46.0",
   "private": true,
   "description": "A minimal, chat-style money tracker — add, view, filter, download, and print your income and expenses.",
   "license": "AGPL-3.0-only",
@@ -87,6 +87,7 @@
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "^6.4.299",
     "pg": "^8.23.1",
+    "qrcode-generator": "^2.0.4",
     "radix-ui": "^1.7.0",
     "react": "19.3.0",
     "react-dom": "19.3.0",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState, type ReactNode } from "react";
+import { useId, useState, type HTMLAttributes, type ReactNode } from "react";
 import { CalendarDays, ChevronDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -163,6 +163,10 @@ export function TextField({
   placeholder,
   className,
   maxLength = 200,
+  type = "text",
+  inputMode,
+  autoComplete,
+  onBlur,
 }: {
   label: ReactNode;
   value: string;
@@ -172,16 +176,24 @@ export function TextField({
   placeholder?: string;
   className?: string;
   maxLength?: number;
+  /** "email" / "tel" bring the matching phone keyboard; text otherwise. */
+  type?: "text" | "email" | "tel" | "url";
+  inputMode?: HTMLAttributes<HTMLInputElement>["inputMode"];
+  autoComplete?: string;
+  onBlur?: () => void;
 }) {
   const id = useId();
   return (
     <Field id={id} label={label} hint={hint} error={error} className={className}>
       <input
         id={id}
-        type="text"
+        type={type}
+        inputMode={inputMode}
+        autoComplete={autoComplete}
         value={value}
         placeholder={placeholder}
         maxLength={maxLength}
+        onBlur={onBlur}
         onChange={(e) => onChange(e.target.value)}
         aria-invalid={error ? true : undefined}
         aria-describedby={error || hint ? `${id}-msg` : undefined}
@@ -504,5 +516,37 @@ export function ChoiceChips({
         ))}
       </div>
     </fieldset>
+  );
+}
+
+/** A multi-line field with the same shape as the shared text fields. */
+export function TextAreaField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  maxLength,
+  hint,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  maxLength: number;
+  hint?: ReactNode;
+}) {
+  const id = useId();
+  return (
+    <Field id={id} label={label} hint={hint}>
+      <textarea
+        id={id}
+        value={value}
+        rows={3}
+        maxLength={maxLength}
+        placeholder={placeholder}
+        onChange={(e) => onChange(e.target.value)}
+        className="field-sizing-content min-h-24 w-full min-w-0 resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-base leading-relaxed outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 dark:bg-input/30"
+      />
+    </Field>
   );
 }

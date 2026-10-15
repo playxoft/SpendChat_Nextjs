@@ -18,11 +18,7 @@ import {
   shareFileThumbUrl,
   shareFileUrl,
 } from "@/lib/files";
-import type {
-  SharedFilePublic,
-  SharedFolderPublic,
-  SharedTagPublic,
-} from "@/services/files";
+import type { SharedFilePublic, SharedFolderPublic } from "@/services/files";
 import { cn } from "@/lib/utils";
 
 /**
@@ -37,7 +33,6 @@ export function SharedFolderBrowser({
   rootName,
   folders,
   files,
-  tags,
   allowDownload,
 }: {
   token: string;
@@ -45,13 +40,11 @@ export function SharedFolderBrowser({
   rootName: string;
   folders: SharedFolderPublic[];
   files: SharedFilePublic[];
-  tags: SharedTagPublic[];
   allowDownload: boolean;
 }) {
   const [view, setView] = useState<"grid" | "list" | "chat">("grid");
   const [currentId, setCurrentId] = useState(rootId);
   const folderById = useMemo(() => new Map(folders.map((f) => [f.id, f])), [folders]);
-  const tagById = useMemo(() => new Map(tags.map((t) => [t.id, t])), [tags]);
 
   const current = folderById.get(currentId) ?? { id: rootId, parentId: null, name: rootName };
   const subFolders = folders.filter((f) => f.parentId === current.id);
@@ -68,30 +61,17 @@ export function SharedFolderBrowser({
     return chain;
   }, [currentId, folderById]);
 
-  const chips = (tagIds: string[]) => {
-    const resolved = tagIds
-      .map((id) => tagById.get(id))
-      .filter((t): t is SharedTagPublic => t != null)
-      .slice(0, 3);
-    if (resolved.length === 0) return null;
-    return (
-      <span className="flex flex-wrap gap-1">
-        {resolved.map((t) => (
-          <span
-            key={t.id}
-            className="inline-flex max-w-28 items-center gap-1 truncate rounded-full border px-1.5 py-px text-sm font-medium"
-            style={{
-              color: t.color,
-              borderColor: `${t.color}55`,
-              backgroundColor: `${t.color}1a`,
-            }}
-          >
-            {t.name}
-          </span>
-        ))}
+  // A description under a tile's name: muted, two lines at most, the full text
+  // on hover.
+  const descriptionLine = (text: string | null) =>
+    text ? (
+      <span
+        className="line-clamp-2 text-xs break-words text-muted-foreground"
+        title={text}
+      >
+        {text}
       </span>
-    );
-  };
+    ) : null;
 
   // Opening a file is a top-level navigation, so the test is "will the browser
   // *render* this", not "is it on the inline allowlist": a `.avi` or `.wmv` no
@@ -230,7 +210,7 @@ export function SharedFolderBrowser({
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">{folder.name}</span>
-                {chips(folder.tagIds)}
+                {descriptionLine(folder.description)}
               </span>
             </button>
           ))}
@@ -249,10 +229,10 @@ export function SharedFolderBrowser({
               <span className="flex items-start justify-between gap-1">
                 <span className="min-w-0">
                   <span className="block truncate text-sm font-medium">{file.name}</span>
+                  {descriptionLine(file.description)}
                   <span className="block truncate text-xs text-muted-foreground">
                     {fileTypeLabel(file.contentType)} · {formatFileSize(file.sizeBytes)}
                   </span>
-                  {chips(file.tagIds)}
                 </span>
                 {downloadBtn(file)}
               </span>
@@ -265,7 +245,7 @@ export function SharedFolderBrowser({
             <thead>
               <tr className="border-b text-left text-xs text-muted-foreground">
                 <th className="px-3 py-2 font-medium">Name</th>
-                <th className="px-3 py-2 font-medium">Tags</th>
+                <th className="px-3 py-2 font-medium">Description</th>
                 <th className="px-3 py-2 text-right font-medium">Size</th>
                 <th className="w-10 px-3 py-2" />
               </tr>
@@ -288,7 +268,7 @@ export function SharedFolderBrowser({
                       <span className="truncate font-medium">{folder.name}</span>
                     </span>
                   </td>
-                  <td className="px-3 py-2">{chips(folder.tagIds)}</td>
+                  <DescriptionCell text={folder.description} />
                   <td className="px-3 py-2 text-right text-muted-foreground">—</td>
                   <td className="px-3 py-2" />
                 </tr>
@@ -310,7 +290,7 @@ export function SharedFolderBrowser({
                       ) : null}
                     </span>
                   </td>
-                  <td className="px-3 py-2">{chips(file.tagIds)}</td>
+                  <DescriptionCell text={file.description} />
                   <td className="px-3 py-2 text-right text-muted-foreground tabular-nums">
                     {formatFileSize(file.sizeBytes)}
                   </td>
@@ -322,6 +302,15 @@ export function SharedFolderBrowser({
         </div>
       )}
     </div>
+  );
+}
+
+/** The list's Description column: one truncated line, the full text on hover. */
+function DescriptionCell({ text }: { text: string | null }) {
+  return (
+    <td className="max-w-56 truncate px-3 py-2 text-muted-foreground" title={text ?? undefined}>
+      {text ?? "—"}
+    </td>
   );
 }
 
@@ -400,6 +389,14 @@ function ShareChatFeed({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-medium">{file.name}</span>
+                {file.description ? (
+                  <span
+                    className="block truncate text-xs text-muted-foreground"
+                    title={file.description}
+                  >
+                    {file.description}
+                  </span>
+                ) : null}
                 <span className="block truncate text-xs text-muted-foreground">
                   {fileTypeLabel(file.contentType)} · {formatFileSize(file.sizeBytes)} ·{" "}
                   {folderLabel(file)}

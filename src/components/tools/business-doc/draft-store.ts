@@ -2,7 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { toast } from "sonner";
-import { MAX_DOC_FILE_CHARS, defaultDoc, sanitizeDoc, type BusinessDoc, type DocKind } from "@/lib/tools/invoice";
+import { MAX_DOC_FILE_CHARS, defaultDoc, sanitizeDoc, type BusinessDoc, type DocKind } from "@/lib/business-doc/invoice";
 
 /**
  * The invoice and quotation drafts, auto-saved to `localStorage` — one key

@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -40,25 +41,57 @@ import {
   updateFolder,
 } from "@/actions/files";
 import {
-  FILE_CATEGORY_LABELS,
   SYSTEM_FOLDER_NOTICE,
   VAULT_DEFAULT_FOLDER_COLOR,
   folderColor,
   type FolderDTO,
-  type TagDTO,
 } from "@/lib/files";
-import {
-  FILE_CATEGORIES,
-  FOLDER_NAME_MAX,
-  FILE_NAME_MAX,
-  type FileCategory,
-} from "@/lib/validation";
+import { FOLDER_NAME_MAX, FILE_NAME_MAX, VAULT_DESCRIPTION_MAX } from "@/lib/validation";
 import type { VaultTarget } from "./files-views";
 import { usePlan } from "../upgrade-dialog";
 import { toastMovedToTrash } from "../trash/trash-toast";
 import { PLAN_LIMITS, PLAN_NAMES, lowestPlanWith } from "@/lib/plans";
 import { TRASH_DAYS } from "@/lib/trash";
-import { ColorSwatch, TagPicker } from "./vault-tags";
+import { ColorSwatch } from "../tags/color-swatch";
+
+/** The optional description, with a live `n/250` count like the name's. */
+function DescriptionField({
+  id,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between">
+        <Label htmlFor={id}>
+          Description <span className="font-normal text-muted-foreground">(optional)</span>
+        </Label>
+        <span className="text-sm text-muted-foreground tabular-nums">
+          {value.length}/{VAULT_DESCRIPTION_MAX}
+        </span>
+      </div>
+      <Textarea
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        maxLength={VAULT_DESCRIPTION_MAX}
+        placeholder={placeholder}
+        rows={3}
+        className="max-h-40 resize-none"
+        aria-describedby={`${id}-shared`}
+      />
+      <p id={`${id}-shared`} className="text-xs text-muted-foreground">
+        Anyone with a share link to it sees this too.
+      </p>
+    </div>
+  );
+}
 
 /* ----------------------------- New folder --------------------------------- */
 
@@ -67,7 +100,6 @@ export function NewFolderDialog({
   onOpenChange,
   profileId,
   parentId,
-  tags,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -75,12 +107,11 @@ export function NewFolderDialog({
   profileId: string | null;
   /** Current folder → the new folder nests inside it; null = root. */
   parentId: string | null;
-  tags: TagDTO[];
 }) {
   const router = useRouter();
   const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
   const [color, setColor] = useState<string>(VAULT_DEFAULT_FOLDER_COLOR);
-  const [tagIds, setTagIds] = useState<string[]>([]);
   const [pending, startTransition] = useTransition();
 
   const submit = () => {
@@ -90,8 +121,8 @@ export function NewFolderDialog({
         profileId,
         parentId,
         name: name.trim(),
+        description,
         color,
-        tagIds,
       });
       if (!res.ok) {
         toast.error(res.error);
@@ -99,8 +130,8 @@ export function NewFolderDialog({
       }
       toast.success("Folder created");
       setName("");
+      setDescription("");
       setColor(VAULT_DEFAULT_FOLDER_COLOR);
-      setTagIds([]);
       onOpenChange(false);
       router.refresh();
     });
@@ -138,16 +169,16 @@ export function NewFolderDialog({
               autoFocus
             />
           </div>
+          <DescriptionField
+            id="new-folder-description"
+            value={description}
+            onChange={setDescription}
+            placeholder="What goes in here"
+          />
           <div className="space-y-1.5">
             <Label>Color</Label>
             <ColorSwatch value={color} onChange={setColor} />
           </div>
-          {profileId ? (
-            <div className="space-y-1.5">
-              <Label>Tags</Label>
-              <TagPicker profileId={profileId} tags={tags} value={tagIds} onChange={setTagIds} />
-            </div>
-          ) : null}
           <DialogFooter>
             <Button type="submit" disabled={pending || !name.trim() || !profileId}>
               {pending ? <Loader2 className="size-4 animate-spin" /> : null}
@@ -164,11 +195,9 @@ export function NewFolderDialog({
 
 export function EditVaultItemDialog({
   target,
-  tags,
   onOpenChange,
 }: {
   target: VaultTarget | null;
-  tags: TagDTO[];
   onOpenChange: (open: boolean) => void;
 }) {
   const editable = target && target.kind !== "txn" ? target : null;
@@ -179,7 +208,6 @@ export function EditVaultItemDialog({
           <EditForm
             key={editable.kind === "file" ? editable.file.id : editable.folder.id}
             target={editable}
-            tags={tags}
             close={() => onOpenChange(false)}
           />
         ) : null}
@@ -190,42 +218,40 @@ export function EditVaultItemDialog({
 
 function EditForm({
   target,
-  tags,
   close,
 }: {
   target: Exclude<VaultTarget, { kind: "txn" }>;
-  tags: TagDTO[];
   close: () => void;
 }) {
   const router = useRouter();
   const isFile = target.kind === "file";
+  // The predefined folder takes a color and nothing else: its name and what
+  // it holds are the app's (see SYSTEM_FOLDER_NOTICE).
   const system = !isFile && target.folder.system;
-  const profileId = isFile ? target.file.profileId : target.folder.profileId;
   const [name, setName] = useState(isFile ? target.file.name : target.folder.name);
+  const [description, setDescription] = useState(
+    (isFile ? target.file.description : target.folder.description) ?? "",
+  );
   const [color, setColor] = useState<string>(
     isFile ? VAULT_DEFAULT_FOLDER_COLOR : folderColor(target.folder),
   );
-  const [tagIds, setTagIds] = useState<string[]>(
-    isFile ? target.file.tagIds : target.folder.tagIds,
-  );
-  const [category, setCategory] = useState<string>(
-    isFile ? (target.file.category ?? "none") : "none",
-  );
   const [pending, startTransition] = useTransition();
+  // Save is offered once something differs from what's saved.
+  const savedName = isFile ? target.file.name : target.folder.name;
+  const savedDescription = (isFile ? target.file.description : target.folder.description) ?? "";
+  const changed =
+    name.trim() !== savedName ||
+    description.trim() !== savedDescription ||
+    (!isFile && color !== folderColor(target.folder));
 
   const submit = () => {
-    if (!system && !name.trim()) return;
+    if (!changed || (!system && !name.trim())) return;
     startTransition(async () => {
       const res = isFile
-        ? await updateFile({
-            id: target.file.id,
-            name: name.trim(),
-            tagIds,
-            category: category === "none" ? null : (category as FileCategory),
-          })
+        ? await updateFile({ id: target.file.id, name: name.trim(), description })
         : system
-          ? await updateFolder({ id: target.folder.id, color, tagIds })
-          : await updateFolder({ id: target.folder.id, name: name.trim(), color, tagIds });
+          ? await updateFolder({ id: target.folder.id, color })
+          : await updateFolder({ id: target.folder.id, name: name.trim(), description, color });
       if (!res.ok) {
         toast.error(res.error);
         return;
@@ -239,11 +265,13 @@ function EditForm({
   return (
     <>
       <DialogHeader>
-        <DialogTitle>
-          {isFile ? "Edit file" : system ? "Folder color & tags" : "Edit folder"}
-        </DialogTitle>
+        <DialogTitle>{isFile ? "Edit file" : system ? "Folder color" : "Edit folder"}</DialogTitle>
         <DialogDescription>
-          {isFile ? "Rename, categorize, and tag." : system ? target.folder.name : "Rename, color, and tag."}
+          {isFile
+            ? "Rename it, or say what it is."
+            : system
+              ? target.folder.name
+              : "Rename, describe, and color."}
         </DialogDescription>
       </DialogHeader>
       {system ? (
@@ -260,23 +288,31 @@ function EditForm({
         }}
       >
         {!system ? (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="edit-item-name">Name</Label>
-              {!isFile ? (
-                <span className="text-sm text-muted-foreground tabular-nums">
-                  {name.length}/{FOLDER_NAME_MAX}
-                </span>
-              ) : null}
+          <>
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label htmlFor="edit-item-name">Name</Label>
+                {!isFile ? (
+                  <span className="text-sm text-muted-foreground tabular-nums">
+                    {name.length}/{FOLDER_NAME_MAX}
+                  </span>
+                ) : null}
+              </div>
+              <Input
+                id="edit-item-name"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                maxLength={isFile ? FILE_NAME_MAX : FOLDER_NAME_MAX}
+                autoFocus
+              />
             </div>
-            <Input
-              id="edit-item-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              maxLength={isFile ? FILE_NAME_MAX : FOLDER_NAME_MAX}
-              autoFocus
+            <DescriptionField
+              id="edit-item-description"
+              value={description}
+              onChange={setDescription}
+              placeholder={isFile ? "What this file is" : "What goes in here"}
             />
-          </div>
+          </>
         ) : null}
         {!isFile ? (
           <div className="space-y-1.5">
@@ -284,30 +320,8 @@ function EditForm({
             <ColorSwatch value={color} onChange={setColor} />
           </div>
         ) : null}
-        {isFile ? (
-          <div className="space-y-1.5">
-            <Label>Category</Label>
-            <Select value={category} onValueChange={setCategory}>
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="None" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="none">None</SelectItem>
-                {FILE_CATEGORIES.map((c) => (
-                  <SelectItem key={c} value={c}>
-                    {FILE_CATEGORY_LABELS[c]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        ) : null}
-        <div className="space-y-1.5">
-          <Label>Tags</Label>
-          <TagPicker profileId={profileId} tags={tags} value={tagIds} onChange={setTagIds} />
-        </div>
         <DialogFooter>
-          <Button type="submit" disabled={pending || (!system && !name.trim())}>
+          <Button type="submit" disabled={pending || !changed || (!system && !name.trim())}>
             {pending ? <Loader2 className="size-4 animate-spin" /> : null}
             Save
           </Button>

@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * The 20-swatch palette picker, shared by the transaction-tag form and the
- * vault's (which re-exports it under its old name).
+ * vault's folder dialogs.
  *
  * Exactly twenty cells in a 10×2 grid, and no "no color" cell — a tag always
  * has a color. Callers seed the value with `defaultTagColor(name)` so the form

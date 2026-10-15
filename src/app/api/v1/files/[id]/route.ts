@@ -9,10 +9,11 @@ export const dynamic = "force-dynamic";
 type Ctx = { params: Promise<{ id: string }> };
 
 /**
- * PATCH /api/v1/files/:id — rename / re-categorize / re-tag / move a vault
- * file. Any subset of `{ name, category, tagIds, folderId }`; `category: null`
- * clears it, `folderId: null` moves the file to the profile's root. Requires
- * the editor role on the file's profile.
+ * PATCH /api/v1/files/:id — rename / describe / move a vault file. Any subset
+ * of `{ name, description, folderId }`, plus the deprecated `category` and
+ * `tagIds`; `description: null` (or blank) and `category: null` clear them,
+ * `folderId: null` moves the file to the profile's root. Requires the editor
+ * role on the file's profile.
  */
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   return handle(async () => {

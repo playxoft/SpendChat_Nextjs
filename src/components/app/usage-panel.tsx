@@ -51,7 +51,12 @@ export type UsageData = {
     topUpRemaining?: number;
     topUpExpiresAt?: string | null;
   };
-  storage: { usedBytes: number; limitBytes: number };
+  storage: {
+    usedBytes: number;
+    limitBytes: number;
+    /** Where it goes; optional so older callers fit. */
+    breakdown?: { files: number; attachments: number; invoices: number; quotations: number; logos: number };
+  };
   members: Meter;
   spaces: Meter;
   categories: Meter;
@@ -60,6 +65,11 @@ export type UsageData = {
   budgets?: Meter & { unlimited: boolean };
   profilesPerSpace: number;
   voice: boolean;
+  /** Invoicing's allowances (the same on every plan); optional so older callers fit. */
+  invoicing?: {
+    perMonth: Meter & { resetsAt: string };
+    clients: { used: number; limit: number | null };
+  };
 };
 
 const BAR_CLASS = {
@@ -67,6 +77,25 @@ const BAR_CLASS = {
   warn: "bg-amber-500",
   full: "bg-destructive",
 } as const;
+
+/**
+ * "Files 1.2 MB · Attachments 300 KB · Invoices 64 KB · Quotations 12 KB" —
+ * where the storage goes, invoicing's hidden folders included (they aren't in
+ * the Files browser, so this is where they show). Only the parts in use.
+ */
+function storageNote(b: NonNullable<UsageData["storage"]["breakdown"]> | undefined): string {
+  if (!b) return "Files and receipts";
+  const parts = [
+    ["Files", b.files],
+    ["Attachments", b.attachments],
+    ["Invoices", b.invoices],
+    ["Quotations", b.quotations],
+    ["Logos", b.logos],
+  ] as const;
+  const used = parts.filter(([, bytes]) => bytes > 0);
+  if (used.length === 0) return "Files, receipts, and your invoices and quotes";
+  return used.map(([label, bytes]) => `${label} ${formatFileSize(bytes)}`).join(" · ");
+}
 
 export function UsagePanel({ usage }: { usage: UsageData }) {
   const { showUpgrade } = usePlan();
@@ -128,7 +157,7 @@ export function UsagePanel({ usage }: { usage: UsageData }) {
           used={usage.storage.usedBytes}
           limit={usage.storage.limitBytes}
           display={`${formatFileSize(usage.storage.usedBytes)} of ${formatPlanStorage(usage.storage.limitBytes)}`}
-          note="Files and receipts"
+          note={storageNote(usage.storage.breakdown)}
           onUpgrade={() =>
             showUpgrade({
               limit: "storage",
@@ -192,6 +221,16 @@ export function UsagePanel({ usage }: { usage: UsageData }) {
             />
           )}
         </div>
+
+        {usage.invoicing && (
+          <p className="text-sm text-muted-foreground">
+            Invoicing: {usage.invoicing.perMonth.used.toLocaleString("en-US")} of{" "}
+            {usage.invoicing.perMonth.limit.toLocaleString("en-US")} invoices and quotes this month (more from{" "}
+            {formatResetDate(usage.invoicing.perMonth.resetsAt)})
+            {usage.invoicing.clients.limit !== null &&
+              ` · ${usage.invoicing.clients.used.toLocaleString("en-US")} of ${usage.invoicing.clients.limit.toLocaleString("en-US")} saved clients`}
+          </p>
+        )}
 
         <div className="flex items-center justify-between gap-3 border-t pt-4 text-sm">
           <span className="flex items-center gap-2">

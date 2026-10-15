@@ -2,7 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
-import { Download, ExternalLink, Loader2, X } from "lucide-react";
+import { Download, ExternalLink, Info, Loader2, X } from "lucide-react";
 import { attachmentGlyph } from "./attachment-icon";
 import {
   attachmentDisplayName,
@@ -30,6 +30,9 @@ export type ViewerAttachment = {
   /** Where the bytes live: a transaction attachment (default) or a vault file.
    * Picks which authenticated API route the preview fetches from. */
   source?: "attachment" | "file";
+  /** A details pane beside the preview (a vault file's `FileDetails`), with a
+   * toggle in the top bar — like Google Drive's. */
+  details?: ReactNode;
 };
 
 /** The authenticated view/download URLs for either source. */
@@ -95,6 +98,10 @@ function AttachmentPreview({
     setSeenId(item?.id ?? null);
     setLoading(true);
   }
+  // The details pane: null = as the screen suits (open on wide ones, shut on
+  // phones, where it would cover the file); a toggle makes it explicit.
+  const [detailsOpen, setDetailsOpen] = useState<boolean | null>(null);
+  const details = item?.details ?? null;
 
   return (
     <DialogPrimitive.Root open={item !== null} onOpenChange={(o) => !o && onClose()}>
@@ -105,6 +112,13 @@ function AttachmentPreview({
         <DialogPrimitive.Content
           aria-describedby={undefined}
           className="fixed inset-0 z-50 flex flex-col outline-none duration-100 data-open:animate-in data-open:fade-in-0 data-closed:animate-out data-closed:fade-out-0"
+          // Escape in a details field with unsaved typing undoes the typing, not the preview.
+          onEscapeKeyDown={(e) => {
+            const target = e.target as HTMLElement | null;
+            if (target?.matches("input, textarea") && target.closest("[data-viewer-details] [data-dirty]")) {
+              e.preventDefault();
+            }
+          }}
         >
           {item ? (
             <>
@@ -118,6 +132,21 @@ function AttachmentPreview({
                   </div>
                 </div>
                 <div className="flex shrink-0 items-center gap-0.5">
+                  {details ? (
+                    <button
+                      type="button"
+                      aria-label="Details"
+                      title="Details"
+                      aria-pressed={detailsOpen ?? undefined}
+                      // From "as the screen suits", the first click flips what the screen showed.
+                      onClick={() =>
+                        setDetailsOpen((open) => !(open ?? window.matchMedia("(min-width: 768px)").matches))
+                      }
+                      className={cn(ICON_BTN, detailsOpen && "bg-white/15 text-white")}
+                    >
+                      <Info className="size-5" aria-hidden />
+                    </button>
+                  ) : null}
                   <a
                     href={viewUrlFor(item)}
                     target="_blank"
@@ -142,7 +171,8 @@ function AttachmentPreview({
                 </div>
               </div>
 
-              <div className="relative min-h-0 flex-1">
+              <div className="relative flex min-h-0 flex-1">
+              <div className="relative min-w-0 flex-1">
                 {embeds && loading ? (
                   <div className="absolute inset-0 flex items-center justify-center">
                     <Loader2 className="size-9 animate-spin text-white/70" aria-label="Loading" />
@@ -172,6 +202,32 @@ function AttachmentPreview({
                 ) : (
                   <DataFilePreview key={item.id} item={item} />
                 )}
+              </div>
+              {details ? (
+                <aside
+                  data-viewer-details
+                  aria-label="Details"
+                  className={cn(
+                    // A light pane over the dark backdrop, as in Google Drive;
+                    // over the file on a phone, beside it from md up.
+                    "absolute inset-y-0 right-0 z-10 w-full max-w-sm flex-col overflow-y-auto border-l bg-background p-4 text-foreground md:static md:w-80 md:max-w-none md:shrink-0",
+                    detailsOpen === null ? "hidden md:flex" : detailsOpen ? "flex" : "hidden",
+                  )}
+                >
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h2 className="text-sm font-semibold">Details</h2>
+                    <button
+                      type="button"
+                      aria-label="Hide details"
+                      onClick={() => setDetailsOpen(false)}
+                      className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+                    >
+                      <X className="size-4" aria-hidden />
+                    </button>
+                  </div>
+                  {details}
+                </aside>
+              ) : null}
               </div>
             </>
           ) : null}

@@ -1,8 +1,23 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowRight, Download, Expand, FileJson, FilePlus2, ImagePlus, Loader2, Printer, RotateCcw, Share2, Upload, X } from "lucide-react";
+import {
+  ArrowRight,
+  CloudUpload,
+  Download,
+  Expand,
+  FileJson,
+  FilePlus2,
+  ImagePlus,
+  Loader2,
+  Printer,
+  RotateCcw,
+  Share2,
+  Upload,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
@@ -10,9 +25,9 @@ import {
   ChoiceChips,
   CurrencyField,
   DateField,
-  Field,
   NumberField,
   Segmented,
+  TextAreaField,
   TextField,
 } from "@/components/tools/fields";
 import { ResultRows, ToolPanel, type ResultRow } from "@/components/tools/result";
@@ -44,14 +59,16 @@ import {
   type Buyer,
   type DocKind,
   type Seller,
-} from "@/lib/tools/invoice";
+} from "@/lib/business-doc/invoice";
+import { invoiceSaveHref } from "@/lib/invoice-import";
 import { cn } from "@/lib/utils";
+import { redrawLogo } from "@/components/business-doc/logo-image";
 import { clearDraft, getDraft, setDraft, useDraft } from "./draft-store";
-import { DocPaper } from "./doc-paper";
-import { buildDocView } from "./doc-view";
-import { FitPaper } from "./fit-paper";
-import { CUSTOM_TERMS, docLabels } from "./labels";
-import { LineItems } from "./line-items";
+import { DocPaper } from "@/components/business-doc/doc-paper";
+import { buildDocView } from "@/lib/business-doc/doc-view";
+import { FitPaper } from "@/components/business-doc/fit-paper";
+import { CUSTOM_TERMS, docLabels } from "@/lib/business-doc/labels";
+import { LineItems } from "@/components/business-doc/line-items";
 
 /**
  * Print only the document. Everything else on the page is hidden twice over:
@@ -184,35 +201,6 @@ async function fetchBytes(url: string): Promise<Uint8Array> {
 }
 
 /**
- * The logo as bytes a PDF can embed, always redrawn through a canvas at up to
- * 2× the size it's shown at. Passing the upload straight through went wrong
- * in too many ways: a JPEG saved as .png gets a PNG data URL and breaks
- * pdf-lib, an animated PNG is refused, a phone photo's EXIF rotation is
- * ignored, and a small file can still be an 8000-pixel image. The canvas
- * decodes whatever the browser can show, upright, at a sensible size. Photos
- * (JPEG by their first bytes) stay JPEG; everything else becomes a PNG, which
- * keeps transparency.
- */
-async function logoForPdf(dataUrl: string): Promise<{ bytes: Uint8Array; kind: "png" | "jpg" } | null> {
-  const toBytes = (url: string) => Uint8Array.from(atob(url.slice(url.indexOf(",") + 1)), (c) => c.charCodeAt(0));
-  const image = new Image();
-  image.src = dataUrl;
-  await image.decode();
-  const scale = Math.min(1, 600 / (image.naturalWidth || 600), 200 / (image.naturalHeight || 200)) * 2;
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.max(1, Math.round((image.naturalWidth || 300) * scale));
-  canvas.height = Math.max(1, Math.round((image.naturalHeight || 100) * scale));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-  const head = dataUrl.startsWith("data:") && dataUrl.includes(";base64,") ? toBytes(dataUrl.slice(0, dataUrl.indexOf(",") + 8)) : null;
-  const jpeg = head !== null && head[0] === 0xff && head[1] === 0xd8 && head[2] === 0xff;
-  return jpeg
-    ? { bytes: toBytes(canvas.toDataURL("image/jpeg", 0.92)), kind: "jpg" }
-    : { bytes: toBytes(canvas.toDataURL("image/png")), kind: "png" };
-}
-
-/**
  * Swap in a whole document (and, from a file or link, its currency), with an
  * Undo that puts both back. Always offered: "is there anything worth undoing"
  * is harder to judge than it looks (seller details, logo and bank notes all
@@ -341,7 +329,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
     try {
       const view = buildDocView({ doc: getDraft(kind), labels, evaluation, dates, currency, locale });
       const [pdf, regular, bold] = await Promise.all([
-        import("@/lib/tools/invoice-pdf"),
+        import("@/lib/business-doc/invoice-pdf"),
         fetchBytes("/fonts/pdf/NotoSans-Regular.ttf"),
         fetchBytes("/fonts/pdf/NotoSans-Bold.ttf"),
       ]);
@@ -354,7 +342,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
         print();
         return;
       }
-      const logo = view.logo ? await logoForPdf(view.logo) : null;
+      const logo = view.logo ? await redrawLogo(view.logo) : null;
       const bytes = await pdf.renderDocPdf(view, { regular, bold }, logo);
       saveFile(new Blob([bytes as BlobPart], { type: "application/pdf" }), view.fileName);
       setPdfStatus(`Downloaded ${view.fileName}.`);
@@ -530,6 +518,21 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
       title="See the whole page full screen"
     >
       <Expand /> <span className="max-sm:sr-only">Preview</span>
+    </Button>
+  );
+  // "Save to SpendChat": sign up and bring this draft into the app's invoices.
+  // The draft is written to storage first — signing up can leave the page.
+  const saveToAppButton = (
+    <Button asChild variant="outline" size="sm" className="h-8 shrink-0 rounded-lg px-2">
+      <Link
+        href={invoiceSaveHref(kind === "quotation" ? "quote" : "invoice")}
+        onClick={() => setDraft(kind, getDraft(kind), { immediate: true })}
+        title={`Keep this ${labels.noun} in SpendChat: numbered for you, with your clients and a pay link — free`}
+        data-track-event="cta_click"
+        data-track-params={JSON.stringify({ location: `${labels.slug}_toolbar`, label: "save_to_spendchat" })}
+      >
+        <CloudUpload /> <span className="max-sm:sr-only">Save to SpendChat</span>
+      </Link>
     </Button>
   );
   // The five less-frequent actions as one quiet chip of icons, on the right.
@@ -853,6 +856,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
           <div className="sticky bottom-3 z-20 flex items-center gap-1 rounded-2xl border bg-background/90 p-1.5 shadow-lg backdrop-blur-md">
             {downloadButton}
             {previewButton}
+            {saveToAppButton}
             {actionChip}
           </div>
         </ToolPanel>
@@ -873,6 +877,7 @@ export function BusinessDocTool({ kind }: { kind: DocKind }) {
           <div className="flex h-9 shrink-0 flex-nowrap items-center gap-1 overflow-x-auto">
             {downloadButton}
             {previewButton}
+            {saveToAppButton}
             <Button
               type="button"
               variant="outline"
@@ -1015,35 +1020,5 @@ function EditorSection({ title, children }: { title: string; children: ReactNode
       <h2 className="text-base font-semibold">{title}</h2>
       {children}
     </section>
-  );
-}
-
-/** A multi-line field with the same shape as the shared text fields. */
-function TextAreaField({
-  label,
-  value,
-  onChange,
-  placeholder,
-  maxLength,
-}: {
-  label: string;
-  value: string;
-  onChange: (value: string) => void;
-  placeholder?: string;
-  maxLength: number;
-}) {
-  const id = useId();
-  return (
-    <Field id={id} label={label}>
-      <textarea
-        id={id}
-        value={value}
-        rows={3}
-        maxLength={maxLength}
-        placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
-        className="field-sizing-content min-h-24 w-full min-w-0 resize-y rounded-xl border border-input bg-background px-3 py-2.5 text-base leading-relaxed outline-none transition-colors placeholder:text-muted-foreground/70 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/40 dark:bg-input/30"
-      />
-    </Field>
   );
 }

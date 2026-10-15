@@ -167,6 +167,8 @@ const REGISTRY = {
   getTransactionsByIds: "transactions",
   listTransactionsAsc: "transactions",
   listFeedPage: "transactions",
+  listFeedAround: "transactions",
+  listFeedDays: "transactions",
   countTransactions: "transactions",
   listTransactionIds: "transactions",
   getSummary: "transactions",
@@ -187,6 +189,7 @@ const REGISTRY = {
   listTrashedTransactions: "trash",
   getWorkspaceStorageUsage: "storage",
   getWorkspaceStorageUsageCached: "storage",
+  getStorageBreakdown: "storage",
   getTrashBytes: "storage",
   // Not reads of trashable rows.
   getCategories: "n/a",
@@ -244,6 +247,22 @@ describe("every transaction read excludes the trash", () => {
       before: { occurredOn: first.occurredOn, createdAt: first.createdAt, id: first.id },
     });
     for (const id of TRASHED_TXNS()) expect(ids(older)).not.toContain(id);
+    const newer = await queries.listFeedPage(U, W, {
+      limit: 40,
+      after: { occurredOn: "2026-01-01", createdAt: new Date(0), id: live.txn },
+    });
+    expect(ids(newer).sort()).toEqual([live.txn, live.txnWork].sort());
+  });
+
+  it("date jump: a day holding only trash lands on a live day, and gets no dot", async () => {
+    // 2 June holds the trashed row and the trashed profile's row — nothing live.
+    const around = await queries.listFeedAround(U, W, { date: "2026-06-02", limit: 40 });
+    expect(around.landed).toEqual({ day: "2026-06-01", side: "before" });
+    expect(ids(around.rows).sort()).toEqual([live.txn, live.txnWork].sort());
+    expect(await queries.listFeedDays(U, W, { month: "2026-06" })).toEqual(["2026-06-01", "2026-06-03"]);
+    // The trashed profile, asked for by id, is nothing at all.
+    expect((await queries.listFeedAround(U, W, { profileIds: [old], date: "2026-06-02", limit: 40 })).landed).toBeNull();
+    expect(await queries.listFeedDays(U, W, { profileIds: [old], month: "2026-06" })).toEqual([]);
   });
 
   it("counts, ids and every total are live-only", async () => {
@@ -325,6 +344,7 @@ describe("receipts, vault and share links exclude the trash", () => {
   it("storage still counts all of it (C6) — the one deliberate exception", async () => {
     // 4 files + 3 receipts, 10 bytes each: nothing in the trash is free.
     expect(await queries.getWorkspaceStorageUsage(W)).toBe(70);
+    expect(await queries.getStorageBreakdown(W)).toEqual({ files: 40, attachments: 30, invoices: 0, quotations: 0, logos: 0 });
     // trashed file, file in the trashed folder, file in the trashed profile,
     // the trashed transaction's receipt, and the trashed profile's receipt.
     expect(await queries.getTrashBytes(W)).toBe(50);

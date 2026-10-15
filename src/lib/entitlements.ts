@@ -6,6 +6,9 @@ import {
   aiUsageLog,
   budgets,
   categories,
+  invoiceClients,
+  invoiceSellers,
+  invoices,
   profileAccess,
   profiles,
   spaces,
@@ -17,15 +20,22 @@ import {
 import { formatFileSize } from "@/lib/attachments";
 import { notFound, planLimit, type ApiError, type PlanLimitKey } from "@/lib/errors";
 import {
+  INVOICE_LIMITS,
   PERSONAL_PLANS,
   PLAN_LIMITS,
   PLAN_NAMES,
   planAtLeast,
+  type InvoiceTier,
   type PersonalPlan,
   type PlanLimits,
 } from "@/lib/plans";
+import { invoiceMonthStart, templatesFor } from "@/lib/invoices";
 import { budgetsAllowance, nextPlanForBudgets } from "@/lib/plan-limit";
-import { getTrashBytes, getWorkspaceStorageUsage } from "@/lib/queries";
+import {
+  getStorageBreakdown,
+  getTrashBytes,
+  type StorageBreakdown,
+} from "@/lib/queries";
 import { forgetForRequest, memoizeForRequest } from "@/lib/request-cache";
 import {
   activeBillingHold,
@@ -603,6 +613,137 @@ export async function assertCanCreateFreeWorkspace(userId: string): Promise<void
   );
 }
 
+// ── Invoices ───────────────────────────────────────────────────────────────
+
+/**
+ * The workspace's invoicing tier. Every personal plan includes the free tier
+ * (20 invoices + quotes a month, 20 saved clients, 5 templates, three sets of
+ * business details, the "Made with SpendChat" footer); the paid invoice add-on
+ * is the only thing that lifts it (200 a month — past that, a Business plan,
+ * coming soon). **The add-on's hook:** when it ships
+ * (phase 13), this reads the workspace's add-on and returns `"addon"` — every
+ * check below already takes its numbers from `INVOICE_LIMITS[tier]`.
+ */
+export function invoiceTierOf(ent: Pick<WorkspaceEntitlements, "workspaceId" | "plan">): InvoiceTier {
+  void ent; // the add-on is read from the workspace here once it exists
+  return "free";
+}
+
+/** The workspace's invoice limits (`INVOICE_LIMITS` for its tier). */
+export function invoiceLimitsOf(ent: Pick<WorkspaceEntitlements, "workspaceId" | "plan">) {
+  return INVOICE_LIMITS[invoiceTierOf(ent)];
+}
+
+type Select = Pick<ReturnType<typeof getDb>, "select">;
+
+/**
+ * Invoices and quotes **created** in the workspace this calendar month (UTC) —
+ * drafts, finalised and void alike, in every profile including trashed ones
+ * (trashing a profile mustn't refill the month). Deleting a draft frees its
+ * place: a draft that never went out wasn't an invoice.
+ */
+export async function countInvoicesThisMonth(
+  workspaceId: string,
+  now: Date = new Date(),
+  db: Select = getDb(),
+): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(invoices)
+    .where(and(eq(invoices.workspaceId, workspaceId), gte(invoices.createdAt, invoiceMonthStart(now))));
+  return row?.n ?? 0;
+}
+
+/** Saved clients on live profiles (a trashed profile's come back counted when it's restored). */
+export async function countInvoiceClients(workspaceId: string, db: Select = getDb()): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(invoiceClients)
+    // Live profiles only, like budgets: a trashed profile's clients don't count.
+    .innerJoin(profiles, and(eq(profiles.id, invoiceClients.profileId), notTrashed(profiles)))
+    .where(eq(invoiceClients.workspaceId, workspaceId));
+  return row?.n ?? 0;
+}
+
+/** Saved business details (sellers) on live profiles. */
+export async function countInvoiceSellers(workspaceId: string, db: Select = getDb()): Promise<number> {
+  const [row] = await db
+    .select({ n: count() })
+    .from(invoiceSellers)
+    .innerJoin(profiles, and(eq(profiles.id, invoiceSellers.profileId), notTrashed(profiles)))
+    .where(eq(invoiceSellers.workspaceId, workspaceId));
+  return row?.n ?? 0;
+}
+
+/**
+ * Advisory-lock namespace for adding an invoice or quote — distinct from every
+ * other one (1 AI rate, 2 email rate, 3 invites, 4 AI allowance, 80 budgets,
+ * 81 budget alerts, 90 billing, 91 buyers).
+ */
+const INVOICE_ADD_LOCK_NAMESPACE = 82;
+
+/** "1 November" — when the monthly allowance refills. */
+function nextMonthLabel(now: Date = new Date()): string {
+  return nextMonthStartUtc(now).toLocaleDateString("en-US", { month: "long", day: "numeric", timeZone: "UTC" });
+}
+
+/**
+ * Room for one more invoice or quote this month, inside the caller's
+ * transaction and under a per-workspace lock — so two creates racing for the
+ * last place can't both take it. `ent` is read before the transaction opens.
+ * A view-only workspace adds nothing.
+ */
+export async function assertCanAddInvoice(tx: Tx, ent: WorkspaceEntitlements): Promise<void> {
+  assertWritable(ent);
+  await tx.execute(
+    sql`select pg_advisory_xact_lock(${INVOICE_ADD_LOCK_NAMESPACE}, hashtext(${ent.workspaceId}))`,
+  );
+  const limits = invoiceLimitsOf(ent);
+  const used = await countInvoicesThisMonth(ent.workspaceId, new Date(), tx);
+  if (used + 1 <= limits.perMonth) return;
+  throw planLimit(
+    invoiceTierOf(ent) === "addon"
+      ? `The invoicing add-on includes ${limits.perMonth.toLocaleString("en-US")} invoices and quotes a month. You can make more from ${nextMonthLabel()} — a Business plan for more is coming soon.`
+      : `This workspace's invoicing includes ${limits.perMonth.toLocaleString("en-US")} invoices and quotes a month. You can make more from ${nextMonthLabel()}.`,
+    { limit: "invoices", plan: ent.plan, max: limits.perMonth, used, upgradeTo: null },
+  );
+}
+
+/** Room for one more saved client (count-then-insert, like the other product caps). */
+export async function assertCanAddInvoiceClient(ent: WorkspaceEntitlements): Promise<void> {
+  assertWritable(ent);
+  const max = invoiceLimitsOf(ent).clients;
+  if (max === null) return;
+  const used = await countInvoiceClients(ent.workspaceId);
+  if (used + 1 <= max) return;
+  throw planLimit(
+    `This workspace's invoicing includes ${quantity(max, "saved client")}. Delete one you don't need to add another.`,
+    { limit: "invoiceClients", plan: ent.plan, max, used, upgradeTo: null },
+  );
+}
+
+/** Room for one more set of business details (a seller). */
+export async function assertCanAddInvoiceSeller(ent: WorkspaceEntitlements): Promise<void> {
+  assertWritable(ent);
+  const max = invoiceLimitsOf(ent).sellerDetails;
+  const used = await countInvoiceSellers(ent.workspaceId);
+  if (used + 1 <= max) return;
+  throw planLimit(
+    `This workspace's invoicing includes ${max} sets of business details. Delete one you don't need to add another.`,
+    { limit: "invoiceSellers", plan: ent.plan, max, used, upgradeTo: null },
+  );
+}
+
+/** The template must be one the workspace's tier offers. */
+export function assertInvoiceTemplateAllowed(ent: WorkspaceEntitlements, template: string): void {
+  if (templatesFor(invoiceTierOf(ent)).some((t) => t.id === template)) return;
+  throw planLimit("That template isn't included in this workspace's invoicing.", {
+    limit: "invoiceTemplates",
+    plan: ent.plan,
+    upgradeTo: null,
+  });
+}
+
 // ── Storage ────────────────────────────────────────────────────────────────
 
 /** The workspace's storage limit in bytes (vault files + transaction attachments). */
@@ -789,6 +930,12 @@ export type AddLimits = {
   freeOwned: number;
   profileLevelAccess: boolean;
   voice: boolean;
+  /** Invoices + quotes made this month, against the invoice tier's monthly allowance. */
+  invoices: AddMeter;
+  /** Saved invoice clients (live profiles). */
+  invoiceClients: AddMeter;
+  /** Saved business details (live profiles). */
+  invoiceSellers: AddMeter;
 };
 
 export async function getAddLimits(workspaceId: string, userId: string): Promise<AddLimits> {
@@ -801,6 +948,9 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
       members: string;
       budgets: string;
       free_owned: string;
+      invoices: string;
+      invoice_clients: string;
+      invoice_sellers: string;
     }>(sql`
       select
         (select count(*) from ${spaces} where ${spaces.workspaceId} = ${workspaceId})::text as spaces,
@@ -812,11 +962,22 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
             select 1 from ${profiles} where ${profiles.id} = ${budgets.profileId} and ${profiles.deletedAt} is null
           )))::text as budgets,
         (select count(*) from ${workspaces}
-          where ${workspaces.ownerId} = ${userId} and ${workspaces.plan} = 'free')::text as free_owned
+          where ${workspaces.ownerId} = ${userId} and ${workspaces.plan} = 'free')::text as free_owned,
+        (select count(*) from ${invoices} where ${invoices.workspaceId} = ${workspaceId}
+          and ${invoices.createdAt} >= ${invoiceMonthStart().toISOString()})::text as invoices,
+        (select count(*) from ${invoiceClients} where ${invoiceClients.workspaceId} = ${workspaceId}
+          and exists (
+            select 1 from ${profiles} where ${profiles.id} = ${invoiceClients.profileId} and ${profiles.deletedAt} is null
+          ))::text as invoice_clients,
+        (select count(*) from ${invoiceSellers} where ${invoiceSellers.workspaceId} = ${workspaceId}
+          and exists (
+            select 1 from ${profiles} where ${profiles.id} = ${invoiceSellers.profileId} and ${profiles.deletedAt} is null
+          ))::text as invoice_sellers
     `),
   ]);
   const row = result.rows[0];
   const freeOwned = Number(row?.free_owned ?? 0);
+  const invoiceLimits = invoiceLimitsOf(ent);
   const meter = (used: number, limit: number): AddMeter => ({
     used,
     limit,
@@ -840,6 +1001,9 @@ export async function getAddLimits(workspaceId: string, userId: string): Promise
     freeOwned,
     profileLevelAccess: ent.limits.profileLevelAccess,
     voice: voiceAllowed(ent),
+    invoices: meter(Number(row?.invoices ?? 0), invoiceLimits.perMonth),
+    invoiceClients: meter(Number(row?.invoice_clients ?? 0), invoiceLimits.clients ?? Number.MAX_SAFE_INTEGER),
+    invoiceSellers: meter(Number(row?.invoice_sellers ?? 0), invoiceLimits.sellerDetails),
   };
 }
 
@@ -853,8 +1017,12 @@ export type WorkspaceUsage = {
   /** Why it's view-only, or null. */
   readOnlyReason: ReadOnlyReason | null;
   ai: AiAllowance;
-  /** `trashBytes` is the part of `usedBytes` sitting in the trash (C6). */
-  storage: { usedBytes: number; limitBytes: number; trashBytes: number };
+  /**
+   * `trashBytes` is the part of `usedBytes` sitting in the trash (C6);
+   * `breakdown` splits `usedBytes` into files, attachments and invoicing's
+   * hidden Invoices / Quotations storage (and logos).
+   */
+  storage: { usedBytes: number; limitBytes: number; trashBytes: number; breakdown: StorageBreakdown };
   members: Meter;
   spaces: Meter;
   categories: Meter;
@@ -865,28 +1033,60 @@ export type WorkspaceUsage = {
   profilesPerSpace: number;
   voice: boolean;
   profileLevelAccess: boolean;
+  /** Invoicing's tier and its allowances (the same on every personal plan). */
+  invoicing: {
+    tier: InvoiceTier;
+    /** Invoices + quotes made this month; refills at `resetsAt`. */
+    perMonth: Meter & { resetsAt: string };
+    /** `limit` null = no cap. */
+    clients: { used: number; limit: number | null };
+    sellers: Meter;
+    templates: number;
+    /** "Made with SpendChat" goes on the documents. */
+    footer: boolean;
+  };
 };
 
 /** Everything the usage panel shows, in one call. */
 export async function getUsage(workspaceId: string): Promise<WorkspaceUsage> {
   const ent = await getWorkspaceEntitlements(workspaceId);
-  const [ai, storageUsed, trashBytes, members, spaceCount, categoryCount, tagCount, budgetCount] =
-    await Promise.all([
+  const [
+    ai,
+    breakdown,
+    trashBytes,
+    members,
+    spaceCount,
+    categoryCount,
+    tagCount,
+    budgetCount,
+    invoiceCount,
+    clientCount,
+    sellerCount,
+  ] = await Promise.all([
       getAiAllowance(workspaceId),
-      getWorkspaceStorageUsage(workspaceId),
+      getStorageBreakdown(workspaceId),
       getTrashBytes(workspaceId),
       countMembers(workspaceId),
       countSpaces(workspaceId),
       countCategories(workspaceId),
       countTags(workspaceId),
       countBudgets(workspaceId),
+      countInvoicesThisMonth(workspaceId),
+      countInvoiceClients(workspaceId),
+      countInvoiceSellers(workspaceId),
     ]);
+  const invoiceLimits = invoiceLimitsOf(ent);
   return {
     plan: ent.plan,
     readOnly: ent.readOnly,
     readOnlyReason: ent.readOnlyReason,
     ai,
-    storage: { usedBytes: storageUsed, limitBytes: ent.limits.storageBytes, trashBytes },
+    storage: {
+      usedBytes: Object.values(breakdown).reduce((a, b) => a + b, 0),
+      limitBytes: ent.limits.storageBytes,
+      trashBytes,
+      breakdown,
+    },
     members: { used: members, limit: ent.limits.members },
     spaces: { used: spaceCount, limit: ent.limits.spaces },
     categories: { used: categoryCount, limit: ent.limits.categories },
@@ -899,5 +1099,13 @@ export async function getUsage(workspaceId: string): Promise<WorkspaceUsage> {
     profilesPerSpace: ent.limits.profilesPerSpace,
     voice: voiceAllowed(ent),
     profileLevelAccess: ent.limits.profileLevelAccess,
+    invoicing: {
+      tier: invoiceTierOf(ent),
+      perMonth: { used: invoiceCount, limit: invoiceLimits.perMonth, resetsAt: nextMonthStartUtc().toISOString() },
+      clients: { used: clientCount, limit: invoiceLimits.clients },
+      sellers: { used: sellerCount, limit: invoiceLimits.sellerDetails },
+      templates: invoiceLimits.templates,
+      footer: invoiceLimits.footer,
+    },
   };
 }

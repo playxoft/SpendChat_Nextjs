@@ -14,7 +14,7 @@ import { requestCountry } from "@/lib/geo.server";
 import { workspacePriceCurrency } from "@/lib/plan-copy";
 import { AppSidebar } from "@/components/app/app-sidebar";
 import { AppTopbar } from "@/components/app/app-topbar";
-import { AccountProvider } from "@/components/app/account-controls";
+import { AccountCorner, AccountProvider } from "@/components/app/account-controls";
 import { BottomNav } from "@/components/app/bottom-nav";
 import { GlobalShortcuts } from "@/components/app/global-shortcuts";
 import { WorkspaceSwitchDialog } from "@/components/app/workspace-switch-dialog";
@@ -71,7 +71,8 @@ export default async function AppLayout({
     ]);
   // Admins manage profiles/workspace; editors+ (canWrite) can add/edit transactions.
   const canManage = workspace.role === "admin";
-  const collapsedSpaces = normalizeUiPrefs(settings.uiPrefs).sidebar.collapsedSpaces;
+  const sidebarPrefs = normalizeUiPrefs(settings.uiPrefs).sidebar;
+  const collapsedSpaces = sidebarPrefs.collapsedSpaces;
 
   return (
     <LoadingOverlayProvider>
@@ -93,12 +94,14 @@ export default async function AppLayout({
         profiles={profiles}
         spaces={spaces}
         collapsedSpaces={collapsedSpaces}
+        navLayout={sidebarPrefs.nav}
         workspaces={workspaces}
         currentWorkspaceId={workspace.id}
         budgetAlerts={budgetAlerts}
         splitInvitations={splitInvitations}
       />
       <div className="flex min-w-0 flex-1 flex-col">
+        <AccountCorner />
         <AppTopbar
           profiles={profiles}
           spaces={spaces}

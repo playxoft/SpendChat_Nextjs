@@ -116,6 +116,19 @@ export async function uploadObject(
   }
 }
 
+/**
+ * Read an object's bytes (signed GET) — for the few objects the server itself
+ * draws with, like an invoice logo going into a PDF. Null when it's gone;
+ * throws on any other failure.
+ */
+export async function readObject(key: string): Promise<Uint8Array | null> {
+  const cfg = requireConfig();
+  const res = await getClient(cfg).fetch(objectUrl(cfg, key), { method: "GET" });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`R2 GET ${key} failed with status ${res.status}`);
+  return new Uint8Array(await res.arrayBuffer());
+}
+
 /** One signed DELETE through a given signer. Never throws. */
 async function deleteOne(cfg: R2Config, key: string, signer: AwsClient): Promise<void> {
   try {
