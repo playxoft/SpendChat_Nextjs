@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 import {
   AI_CHAT_AUTO_TITLE_MAX,
   CHAT_CATEGORY_ROWS,
@@ -540,6 +541,45 @@ describe("askChatModel — one call per provider, shapes on the wire", () => {
     const body = calls[0]!.body as { system: string; messages: unknown[] };
     expect(body.system).toContain("<DATA>");
     expect(body.messages).toEqual([{ role: "user", content: "q" }]);
+    // The API requires a bound, so the largest every current model takes; and
+    // no temperature, which current Claude models reject.
+    expect(calls[0]!.body).toMatchObject({ max_tokens: 32_000 });
+    expect(calls[0]!.body).not.toHaveProperty("temperature");
+  });
+
+  it("a provider that never answers fails at 90 s as ai_failed, logged as a timeout", async () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(logger, "error").mockImplementation(() => {});
+    try {
+      setChatModel({ model_id: "gemini-chat", api_key: "k" });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, init: { signal: AbortSignal }) =>
+            new Promise((_resolve, reject) =>
+              init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
+            ),
+        ),
+      );
+      let settled = false;
+      const asked = askChatModel({ cfg: resolveChatModel(), data: data(), history: [], question: "q" }).finally(
+        () => {
+          settled = true;
+        },
+      );
+      const failed = expect(asked).rejects.toMatchObject({ status: 502, code: "ai_failed" });
+      await vi.advanceTimersByTimeAsync(89_000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await failed;
+      expect(error).toHaveBeenCalledWith(
+        expect.stringMatching(/^AI chat request timed out after \d+ms$/),
+        expect.objectContaining({ event: "ai.chat.timeout", provider: "gemini", timeoutMs: 90_000 }),
+      );
+    } finally {
+      error.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("an empty or failed reply is ai_failed — the caller's charge refunds it", async () => {

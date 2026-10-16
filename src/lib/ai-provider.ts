@@ -50,7 +50,11 @@ export type ModelConfig = {
  */
 const MAX_OUTPUT_TOKENS = 8192;
 
-/** Every adapter pins this: the same note must split the same way twice. */
+/**
+ * Every adapter but Anthropic's pins this: the same note must split the same
+ * way twice. Current Claude models reject any `temperature` but their default
+ * (a 400), so the Anthropic adapters send none.
+ */
 const TEMPERATURE = 0;
 
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -254,6 +258,7 @@ async function post(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const multipart = body instanceof FormData;
+  const startedAt = Date.now();
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -276,6 +281,16 @@ async function post(
       throw aiFailed();
     }
     return await res.json();
+  } catch (err) {
+    if (!controller.signal.aborted) throw err;
+    // Our own timeout, said as one: otherwise it reads as a bare AbortError.
+    // The provider may still bill what it generated before the cut.
+    logger.error(`AI ${feature} request timed out after ${Date.now() - startedAt}ms`, {
+      event: `ai.${feature}.timeout`,
+      provider,
+      timeoutMs,
+    });
+    throw aiFailed();
   } finally {
     clearTimeout(timer);
   }
@@ -398,7 +413,6 @@ async function callAnthropic(cfg: ModelConfig, system: string, userText: string)
     {
       model: cfg.model,
       max_tokens: MAX_OUTPUT_TOKENS,
-      temperature: TEMPERATURE,
       system,
       messages: [{ role: "user", content: userText }],
     },
@@ -657,11 +671,19 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
  */
 const ANTHROPIC_CHAT_MAX_TOKENS = 32_000;
 
-/** A little freedom in the wording; the numbers come from the data either way. */
+/**
+ * A little freedom in the wording; the numbers come from the data either way.
+ * Gemini and OpenAI-shaped hosts only — see `TEMPERATURE` for Anthropic.
+ */
 const CHAT_TEMPERATURE = 0.2;
 
-/** More input than a parse and prose out, so a longer ceiling — still bounded. */
-const CHAT_TIMEOUT_MS = 45_000;
+/**
+ * More input than a parse, prose out and no output ceiling, so the longest
+ * wait in the app: a thinking model on a hard question can reason for a while
+ * before it answers. Past this the question fails uncharged (the action is
+ * refunded) and `ai.chat.timeout` is logged.
+ */
+const CHAT_TIMEOUT_MS = 90_000;
 
 async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): Promise<ProviderReply> {
   const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
@@ -729,7 +751,6 @@ async function chatAnthropic(cfg: ModelConfig, system: string, turns: ChatTurn[]
     {
       model: cfg.model,
       max_tokens: ANTHROPIC_CHAT_MAX_TOKENS,
-      temperature: CHAT_TEMPERATURE,
       system,
       messages: turns,
     },

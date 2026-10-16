@@ -235,6 +235,7 @@ Derived from what the code actually reads:
 | `AI_PARSE_MODEL_CURRENT` | composer AI mode answers "not available" |
 | `AI_TRANSCRIBE_MODEL_CURRENT` | hold-to-talk mic dies |
 | `AI_CHAT_MODEL_CURRENT` | every SpendChat AI question answers "Couldn't answer right now" (beta: sample answers instead) |
+| `DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`, `DODO_PAYMENTS_LIVE_MODE`, `DODO_PRODUCTS` (and `DODO_BRAND_ID`, optional) | checkout says "Payments aren't available on this server yet", and `/api/webhooks/dodo` answers 503 — **a payment made before the fix never upgrades its workspace until the provider's retries reach a fixed Worker** (8 tries over ~1.5 days; replay from Dodo → Webhooks after that) |
 
 Each `*_MODEL_CURRENT` must name an entry that exists in that Worker's
 `AI_MODEL_LIST` — a name that isn't there is the same "not available", logged as
@@ -243,7 +244,6 @@ Each `*_MODEL_CURRENT` must name an entry that exists in that Worker's
 `doppler secrets get AI_PARSE_MODEL_CURRENT AI_TRANSCRIBE_MODEL_CURRENT AI_CHAT_MODEL_CURRENT --config prd --plain`.
 `AI_PARSE_MODEL`, `AI_TRANSCRIBE_MODEL` and `AI_CHAT_MODEL` (the old per-feature
 lists) are read by nothing — delete them from the Worker if they're still bound.
-| `DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`, `DODO_PAYMENTS_LIVE_MODE`, `DODO_PRODUCTS` (and `DODO_BRAND_ID`, optional) | checkout says "Payments aren't available on this server yet", and `/api/webhooks/dodo` answers 503 — **a payment made before the fix never upgrades its workspace until the provider's retries reach a fixed Worker** (8 tries over ~1.5 days; replay from Dodo → Webhooks after that) |
 
 **The AI and mail ones fail *quietly*** — no error, just a feature that stopped
 existing. That is why they are enumerated instead of "it deployed fine".

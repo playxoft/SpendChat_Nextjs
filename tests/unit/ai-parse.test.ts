@@ -482,6 +482,9 @@ describe("parseTransactionsText — provider wiring", () => {
     const drafts = await parseTransactionsText({ ...OPTS, text: "200 fruits" });
     expect(drafts).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("api.anthropic.com/v1/messages"), expect.anything());
+    // Current Claude models reject any temperature but their default.
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body)).not.toHaveProperty("temperature");
   });
 
   it("routes an OpenAI-compatible provider through a custom base_url", async () => {
