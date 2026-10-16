@@ -50,7 +50,11 @@ export type ModelConfig = {
  */
 const MAX_OUTPUT_TOKENS = 8192;
 
-/** Every adapter pins this: the same note must split the same way twice. */
+/**
+ * Every adapter but Anthropic's pins this: the same note must split the same
+ * way twice. Current Claude models reject any `temperature` but their default
+ * (a 400), so the Anthropic adapters send none.
+ */
 const TEMPERATURE = 0;
 
 const REQUEST_TIMEOUT_MS = 20_000;
@@ -254,6 +258,7 @@ async function post(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const multipart = body instanceof FormData;
+  const startedAt = Date.now();
   try {
     const res = await fetch(url, {
       method: "POST",
@@ -276,6 +281,16 @@ async function post(
       throw aiFailed();
     }
     return await res.json();
+  } catch (err) {
+    if (!controller.signal.aborted) throw err;
+    // Our own timeout, said as one: otherwise it reads as a bare AbortError.
+    // The provider may still bill what it generated before the cut.
+    logger.error(`AI ${feature} request timed out after ${Date.now() - startedAt}ms`, {
+      event: `ai.${feature}.timeout`,
+      provider,
+      timeoutMs,
+    });
+    throw aiFailed();
   } finally {
     clearTimeout(timer);
   }
@@ -398,7 +413,6 @@ async function callAnthropic(cfg: ModelConfig, system: string, userText: string)
     {
       model: cfg.model,
       max_tokens: MAX_OUTPUT_TOKENS,
-      temperature: TEMPERATURE,
       system,
       messages: [{ role: "user", content: userText }],
     },
@@ -641,20 +655,35 @@ export async function transcribeProviderWithUsage(
 /** One turn of an Ask conversation, as the adapters send it. */
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
-/**
- * Output budget for one answer. A short answer with a ranked table is a few
- * hundred tokens; the headroom is for thinking models, whose reasoning draws
- * from this same budget when no thinking config is sent (none is — Gemini 3.x
- * rejects the 2.5-era `thinkingBudget`, see `transcribeGemini`). A ceiling,
- * not a spend: unused tokens aren't billed.
+/*
+ * No output ceiling for an answer: a ceiling cuts the reply off mid-sentence,
+ * and on thinking models (Gemini 3.x — no thinking config is sent, since 3.x
+ * rejects the 2.5-era `thinkingBudget`) the reasoning draws from that same
+ * budget, so a hard question could spend it before the answer starts. Length is
+ * the system prompt's job instead ("keep it short", `buildChatSystemPrompt`).
+ * Gemini and OpenAI-shaped hosts then use the model's own maximum.
  */
-const CHAT_MAX_OUTPUT_TOKENS = 4096;
 
-/** A little freedom in the wording; the numbers come from the data either way. */
+/**
+ * Anthropic alone requires `max_tokens`, so it gets the largest value every
+ * current Claude model accepts — a bound no short answer comes near, not a
+ * length. Unused tokens aren't billed.
+ */
+const ANTHROPIC_CHAT_MAX_TOKENS = 32_000;
+
+/**
+ * A little freedom in the wording; the numbers come from the data either way.
+ * Gemini and OpenAI-shaped hosts only — see `TEMPERATURE` for Anthropic.
+ */
 const CHAT_TEMPERATURE = 0.2;
 
-/** More input than a parse and prose out, so a longer ceiling — still bounded. */
-const CHAT_TIMEOUT_MS = 45_000;
+/**
+ * More input than a parse, prose out and no output ceiling, so the longest
+ * wait in the app: a thinking model on a hard question can reason for a while
+ * before it answers. Past this the question fails uncharged (the action is
+ * refunded) and `ai.chat.timeout` is logged.
+ */
+const CHAT_TIMEOUT_MS = 90_000;
 
 async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): Promise<ProviderReply> {
   const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
@@ -670,7 +699,6 @@ async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): 
       generationConfig: {
         responseMimeType: "text/plain",
         temperature: CHAT_TEMPERATURE,
-        maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
       },
     },
     "gemini",
@@ -698,8 +726,6 @@ async function chatOpenAI(cfg: ModelConfig, system: string, turns: ChatTurn[]): 
       model: cfg.model,
       messages: [{ role: "system", content: system }, ...turns],
       temperature: CHAT_TEMPERATURE,
-      // `max_tokens` for the same portability reason as `callOpenAI`.
-      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
     },
     "openai",
     "chat",
@@ -724,8 +750,7 @@ async function chatAnthropic(cfg: ModelConfig, system: string, turns: ChatTurn[]
     { "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" },
     {
       model: cfg.model,
-      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
-      temperature: CHAT_TEMPERATURE,
+      max_tokens: ANTHROPIC_CHAT_MAX_TOKENS,
       system,
       messages: turns,
     },

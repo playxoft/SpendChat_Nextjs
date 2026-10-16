@@ -16,8 +16,9 @@ import { VOICE } from "@/lib/plans";
  * the user to read and fix before they press send, so a misheard merchant is
  * caught by a human rather than silently becoming a row. It also keeps the two
  * models independent: transcription needs a model that accepts audio, parsing
- * doesn't, and each has its own registry pair
- * (`AI_TRANSCRIBE_MODEL` / `AI_PARSE_MODEL` — see `ai-model-registry.ts`).
+ * doesn't, and each names its own entry in `AI_MODEL_LIST`
+ * (`AI_TRANSCRIBE_MODEL_CURRENT` / `AI_PARSE_MODEL_CURRENT` — see
+ * `ai-model-registry.ts`).
  *
  * ── Why the prompt carries the language list ──
  * Whisper-family APIs take a single `language` code, so they cannot be told
@@ -40,7 +41,7 @@ const ALLOWED_MIME = new Set([
   "audio/x-m4a",
 ]);
 
-/** The model behind speech→text (`AI_TRANSCRIBE_MODEL` registry pair). */
+/** The model behind speech→text (the `AI_TRANSCRIBE_MODEL_CURRENT` entry). */
 export function resolveTranscribeModel(): ModelConfig {
   return resolveModelFromEnv("transcribe");
 }

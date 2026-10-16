@@ -18,6 +18,37 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.47.0] — 2026-10-16
+
+### Added
+- **SpendChat AI is ready to type into.** Opening it — with `c`, from the
+  sidebar, by reloading the page or by picking a chat — puts the cursor in the
+  question box. On phones and tablets it doesn't, so the keyboard doesn't
+  cover the answers.
+
+### Changed
+- **One list of AI models for every AI feature.** All the models the app may
+  call now live in a single `AI_MODEL_LIST` setting, and AI notes, voice entry
+  and SpendChat AI each pick theirs from it by name (`AI_PARSE_MODEL_CURRENT`,
+  `AI_TRANSCRIBE_MODEL_CURRENT`, `AI_CHAT_MODEL_CURRENT`). Adding a model or
+  rotating a key is one edit instead of one per feature, and switching a
+  feature to another model is just a new name. **If you run your own copy:**
+  merge your `AI_PARSE_MODEL`, `AI_TRANSCRIBE_MODEL` and `AI_CHAT_MODEL` lists
+  into `AI_MODEL_LIST` and point each `_CURRENT` at an entry in it — the old
+  per-feature lists are no longer read, so until then AI notes and voice entry
+  answer "not available" and SpendChat AI can't answer (in local dev and on beta
+  it gives sample answers instead).
+- **SpendChat AI answers are short, plain English, and never cut off.** The
+  assistant now answers in a sentence or two of simple everyday words, with a
+  short list or table only when it helps. Long answers are no longer stopped
+  mid-sentence or trimmed when saved, and a slow answer gets up to 90 seconds
+  instead of 45.
+
+### Fixed
+- **AI notes and SpendChat AI work on the newest Claude models.** Those models
+  refuse a custom `temperature`, so an entry pointing at one failed every
+  request; the app no longer sends one to Anthropic.
+
 ## [0.46.0] — 2026-10-15
 
 ### Added

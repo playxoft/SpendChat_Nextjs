@@ -231,10 +231,19 @@ Derived from what the code actually reads:
 | `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE_URL` | vault + attachments 503 |
 | `ZEPTOMAIL_TOKEN`, `ZEPTOMAIL_API_URL`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | member invites silently never arrive |
 | `BETTERSTACK_SOURCE_TOKEN`, `BETTERSTACK_INGESTING_HOST`, `LOG_LEVEL` | you are flying blind in prod |
-| `AI_PARSE_MODEL`, `AI_PARSE_MODEL_CURRENT` | composer AI mode answers "not available" |
-| `AI_TRANSCRIBE_MODEL`, `AI_TRANSCRIBE_MODEL_CURRENT` | hold-to-talk mic dies |
-| `AI_CHAT_MODEL`, `AI_CHAT_MODEL_CURRENT` | every SpendChat AI question answers "Couldn't answer right now" (beta: sample answers instead) |
+| `AI_MODEL_LIST` | every AI feature below is off at once |
+| `AI_PARSE_MODEL_CURRENT` | composer AI mode answers "not available" |
+| `AI_TRANSCRIBE_MODEL_CURRENT` | hold-to-talk mic dies |
+| `AI_CHAT_MODEL_CURRENT` | every SpendChat AI question answers "Couldn't answer right now" (beta: sample answers instead) |
 | `DODO_PAYMENTS_API_KEY`, `DODO_PAYMENTS_WEBHOOK_KEY`, `DODO_PAYMENTS_LIVE_MODE`, `DODO_PRODUCTS` (and `DODO_BRAND_ID`, optional) | checkout says "Payments aren't available on this server yet", and `/api/webhooks/dodo` answers 503 — **a payment made before the fix never upgrades its workspace until the provider's retries reach a fixed Worker** (8 tries over ~1.5 days; replay from Dodo → Webhooks after that) |
+
+Each `*_MODEL_CURRENT` must name an entry that exists in that Worker's
+`AI_MODEL_LIST` — a name that isn't there is the same "not available", logged as
+`ai.<feature>.bad_config`. Check it against Doppler without printing a key:
+`doppler secrets get AI_MODEL_LIST --config prd --plain | jq -c keys` beside
+`doppler secrets get AI_PARSE_MODEL_CURRENT AI_TRANSCRIBE_MODEL_CURRENT AI_CHAT_MODEL_CURRENT --config prd --plain`.
+`AI_PARSE_MODEL`, `AI_TRANSCRIBE_MODEL` and `AI_CHAT_MODEL` (the old per-feature
+lists) are read by nothing — delete them from the Worker if they're still bound.
 
 **The AI and mail ones fail *quietly*** — no error, just a feature that stopped
 existing. That is why they are enumerated instead of "it deployed fine".

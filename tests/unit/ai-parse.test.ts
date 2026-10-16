@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/errors";
 import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 import { MAX_INPUT_CHARS } from "@/lib/ai-limits";
+import { resolveModelFromEnv } from "@/lib/ai-model-registry";
 import {
   draftsFromRawJson,
   parseTransactionsText,
@@ -29,9 +30,9 @@ function caught(fn: () => unknown): ApiError {
   throw new Error("expected the call to throw");
 }
 
-/** Configure the registry with a single named entry + select it. */
+/** Configure the model list with a single named entry + select it for parsing. */
 function setModel(entry: Record<string, unknown>, name = "current") {
-  vi.stubEnv("AI_PARSE_MODEL", JSON.stringify({ [name]: entry }));
+  vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ [name]: entry }));
   vi.stubEnv("AI_PARSE_MODEL_CURRENT", name);
 }
 
@@ -316,32 +317,47 @@ describe("draftsFromRawJson — the untrusted-output validator", () => {
   });
 });
 
-describe("resolveModel — env registry + current selector, no models in code", () => {
+describe("resolveModel — the shared model list + parse's current entry, no models in code", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
   it("throws 503 when either env var is unset", () => {
-    vi.stubEnv("AI_PARSE_MODEL", "");
-    vi.stubEnv("AI_PARSE_MODEL_CURRENT", "");
+    vi.stubEnv("AI_MODEL_LIST", "");
+    vi.stubEnv("AI_PARSE_MODEL_CURRENT", "x");
     expect(caught(() => resolveModel()).status).toBe(503);
 
-    vi.stubEnv("AI_PARSE_MODEL", JSON.stringify({ x: { model_id: "gemini-x", api_key: "k" } }));
+    vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ x: { model_id: "gemini-x", api_key: "k" } }));
     vi.stubEnv("AI_PARSE_MODEL_CURRENT", "");
     expect(caught(() => resolveModel()).status).toBe(503);
   });
 
-  it("throws 503 when the registry isn't a JSON object", () => {
-    vi.stubEnv("AI_PARSE_MODEL", "not json");
+  it("ignores the old per-feature list — AI_MODEL_LIST is the only one read", () => {
+    vi.stubEnv("AI_MODEL_LIST", "");
+    vi.stubEnv("AI_PARSE_MODEL", JSON.stringify({ x: { model_id: "gemini-x", api_key: "k" } }));
+    vi.stubEnv("AI_PARSE_MODEL_CURRENT", "x");
+    expect(caught(() => resolveModel()).status).toBe(503);
+  });
+
+  it("lets several features name the same entry", () => {
+    vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ shared: { model_id: "gemini-x", api_key: "k" } }));
+    vi.stubEnv("AI_PARSE_MODEL_CURRENT", "shared");
+    vi.stubEnv("AI_CHAT_MODEL_CURRENT", "shared");
+    expect(resolveModel()).toMatchObject({ provider: "gemini", model: "gemini-x" });
+    expect(resolveModelFromEnv("chat")).toMatchObject({ provider: "gemini", model: "gemini-x" });
+  });
+
+  it("throws 503 when the list isn't a JSON object", () => {
+    vi.stubEnv("AI_MODEL_LIST", "not json");
     vi.stubEnv("AI_PARSE_MODEL_CURRENT", "x");
     expect(caught(() => resolveModel()).status).toBe(503);
 
-    vi.stubEnv("AI_PARSE_MODEL", JSON.stringify(["gemini-x"]));
+    vi.stubEnv("AI_MODEL_LIST", JSON.stringify(["gemini-x"]));
     expect(caught(() => resolveModel()).status).toBe(503);
   });
 
   it("throws 503 when the current name names no entry", () => {
-    vi.stubEnv("AI_PARSE_MODEL", JSON.stringify({ a: { model_id: "gemini-x", api_key: "k" } }));
+    vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ a: { model_id: "gemini-x", api_key: "k" } }));
     vi.stubEnv("AI_PARSE_MODEL_CURRENT", "b");
     expect(caught(() => resolveModel()).status).toBe(503);
   });
@@ -430,7 +446,6 @@ describe("parseTransactionsText — provider wiring", () => {
   });
 
   it("returns 503 when nothing is configured", async () => {
-    vi.stubEnv("AI_PARSE_MODEL", "");
     vi.stubEnv("AI_PARSE_MODEL_CURRENT", "");
     vi.stubGlobal("fetch", vi.fn());
     await expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({ status: 503 });
@@ -467,6 +482,9 @@ describe("parseTransactionsText — provider wiring", () => {
     const drafts = await parseTransactionsText({ ...OPTS, text: "200 fruits" });
     expect(drafts).toHaveLength(1);
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("api.anthropic.com/v1/messages"), expect.anything());
+    // Current Claude models reject any temperature but their default.
+    const [, init] = fetchMock.mock.calls[0] as unknown as [string, { body: string }];
+    expect(JSON.parse(init.body)).not.toHaveProperty("temperature");
   });
 
   it("routes an OpenAI-compatible provider through a custom base_url", async () => {

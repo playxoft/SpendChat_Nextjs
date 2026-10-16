@@ -7,6 +7,19 @@
  */
 export const ASK_PATH = "/app/ask";
 
+/** The window event a mounted Ask page answers by focusing its question box. */
+export const ASK_FOCUS_EVENT = "spendchat:ask-focus";
+
+/**
+ * Put the cursor in Ask's question box. For `c` or a nav click that lands on
+ * the Ask page already open — nothing remounts there, so the page's own
+ * focus-on-arrival never runs, and the click itself took the focus away. Off
+ * the Ask page nobody listens, and the page focuses itself when it mounts.
+ */
+export function requestAskFocus(): void {
+  window.dispatchEvent(new Event(ASK_FOCUS_EVENT));
+}
+
 /**
  * A chat's address (none = a new chat). `profile` rides along like it does on
  * every section link (`hrefWithProfile`): Ask reads every profile you can see,

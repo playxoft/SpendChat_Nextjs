@@ -28,6 +28,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { setSidebarNav } from "@/actions/settings";
+import { requestAskFocus } from "./ask/ask-paths";
 import { Kbd } from "@/components/ui/kbd";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
 import { MORE_ID, type SidebarNavEntry, type SidebarNavId, type SidebarNavLayout } from "@/lib/sidebar-nav";
@@ -400,7 +401,12 @@ function NavRow({
     >
       {/* In the gutter left of the row, so showing it moves nothing. */}
       <DragHandle label={`Drag to move ${section.label}`} dragging={isDragging} className="-left-2.5" {...handle} />
-      <Link href={href} aria-current={active ? "page" : undefined} className={rowClass(active)}>
+      <Link
+        href={href}
+        aria-current={active ? "page" : undefined}
+        onClick={id === "ask" ? requestAskFocus : undefined}
+        className={rowClass(active)}
+      >
         <section.icon className="size-4" />
         {section.label}
         {badge}
@@ -515,7 +521,10 @@ function PanelRow({
       <Link
         href={href}
         aria-current={active ? "page" : undefined}
-        onClick={onPick}
+        onClick={() => {
+          onPick();
+          if (id === "ask") requestAskFocus();
+        }}
         className={cn(rowClass(active), "pl-6")}
       >
         <section.icon className="size-4" />

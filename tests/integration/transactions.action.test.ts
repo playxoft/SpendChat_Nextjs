@@ -770,9 +770,8 @@ describe("parseTransactionsWithAI — gates before the model is ever called", ()
   });
 
   it("passes the gates and fails at the unconfigured model, not before", async () => {
-    // With no AI_PARSE_MODEL the call gets all the way to `resolveModel` and
+    // With no parse model the call gets all the way to `resolveModel` and
     // reports "not available" — proof the gates above aren't over-blocking.
-    vi.stubEnv("AI_PARSE_MODEL", "");
     vi.stubEnv("AI_PARSE_MODEL_CURRENT", "");
     forbidNetwork();
     signInAs("a");

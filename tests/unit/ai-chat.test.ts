@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/errors";
+import { logger } from "@/lib/logger";
 import {
   AI_CHAT_AUTO_TITLE_MAX,
-  CHAT_ANSWER_MAX_CHARS,
   CHAT_CATEGORY_ROWS,
   CHAT_HISTORY_MESSAGES,
   CHAT_HISTORY_MESSAGE_CHARS,
@@ -84,7 +84,7 @@ function data(over: Partial<ChatData> = {}): ChatData {
 }
 
 function setChatModel(entry: Record<string, unknown>, name = "current") {
-  vi.stubEnv("AI_CHAT_MODEL", JSON.stringify({ [name]: entry }));
+  vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ [name]: entry }));
   vi.stubEnv("AI_CHAT_MODEL_CURRENT", name);
 }
 
@@ -238,6 +238,8 @@ describe("buildChatSystemPrompt", () => {
     expect(prompt).toContain("today is day 7 of 31");
     expect(prompt).toContain('Call this month\'s figures "so far"');
     expect(prompt).toContain("Transactions dated after today are listed on their own and are in no total");
+    expect(prompt).toContain("Keep it short.");
+    expect(prompt).toContain("simple, everyday English that anyone can understand");
     expect(prompt).toContain("GitHub-flavored Markdown");
     expect(prompt).toContain("No HTML, no images.");
     expect(prompt).toContain("No links. The one exception: a URL that appears word for word in the user's own question");
@@ -313,26 +315,24 @@ describe("cleanAnswer", () => {
     expect(cleanAnswer("a\u0000b\u0007c\r\n| x |\tY\u007f")).toBe("abc\n| x |\tY");
   });
 
-  it("trims, and caps a runaway answer", () => {
+  it("trims, and never cuts a long answer short", () => {
     expect(cleanAnswer("  hi \n")).toBe("hi");
-    const long = cleanAnswer("y".repeat(CHAT_ANSWER_MAX_CHARS + 50));
-    expect(long).toHaveLength(CHAT_ANSWER_MAX_CHARS + 1);
-    expect(long.endsWith("…")).toBe(true);
+    const long = "y".repeat(50_000);
+    expect(cleanAnswer(long)).toBe(long);
   });
 });
 
-describe("the model — its own env pair, never the parse model's", () => {
-  it("resolves AI_CHAT_MODEL", () => {
+describe("the model — its own entry, never the parse model's", () => {
+  it("resolves the entry AI_CHAT_MODEL_CURRENT names", () => {
     setChatModel({ model_id: "gemini-chat", api_key: "k" });
     expect(resolveChatModel()).toMatchObject({ provider: "gemini", model: "gemini-chat", apiKey: "k" });
     vi.stubEnv("APP_ENV", "production");
     expect(chatAnswerMode()).toBe("model");
   });
 
-  it("never borrows the parse model — unset means no model, in plain words", () => {
-    vi.stubEnv("AI_PARSE_MODEL", JSON.stringify({ p: { model_id: "gemini-parse", api_key: "k" } }));
+  it("never borrows the parse entry — unset means no model, in plain words", () => {
+    vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ p: { model_id: "gemini-parse", api_key: "k" } }));
     vi.stubEnv("AI_PARSE_MODEL_CURRENT", "p");
-    vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
     let err: unknown;
     try {
@@ -346,14 +346,13 @@ describe("the model — its own env pair, never the parse model's", () => {
   });
 
   it("answers with samples locally and in tests when there's no model — unset or misconfigured", () => {
-    vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("APP_ENV", undefined);
     expect(chatAnswerMode()).toBe("sample");
     vi.stubEnv("NODE_ENV", "test");
     expect(chatAnswerMode()).toBe("sample");
-    vi.stubEnv("AI_CHAT_MODEL", "not json");
+    vi.stubEnv("AI_MODEL_LIST", "not json");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "x");
     expect(chatAnswerMode()).toBe("sample");
   });
@@ -361,7 +360,6 @@ describe("the model — its own env pair, never the parse model's", () => {
   // Every deployed build is NODE_ENV=production; only APP_ENV tells them apart.
   describe("on a deployed Worker (NODE_ENV=production) with no model", () => {
     function deployed(appEnv: string | undefined) {
-      vi.stubEnv("AI_CHAT_MODEL", "");
       vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("APP_ENV", appEnv);
@@ -511,6 +509,8 @@ describe("askChatModel — one call per provider, shapes on the wire", () => {
     expect(body.contents.map((c) => c.role)).toEqual(["user", "model", "user"]);
     expect(body.contents.at(-1)!.parts[0]!.text).toBe("And last month?");
     expect(body.generationConfig).not.toHaveProperty("responseSchema");
+    // No ceiling to cut the answer off — length is the prompt's job.
+    expect(body.generationConfig).not.toHaveProperty("maxOutputTokens");
     expect(onUsage).toHaveBeenCalledWith({ inputTokens: 900, outputTokens: 50, audioMs: null });
   });
 
@@ -526,6 +526,7 @@ describe("askChatModel — one call per provider, shapes on the wire", () => {
     const body = calls[0]!.body as { messages: { role: string }[] };
     expect(body.messages.map((m) => m.role)).toEqual(["system", "user", "assistant", "user"]);
     expect(body).not.toHaveProperty("response_format");
+    expect(body).not.toHaveProperty("max_tokens");
   });
 
   it("Anthropic: system as its own field, turns as messages", async () => {
@@ -540,6 +541,45 @@ describe("askChatModel — one call per provider, shapes on the wire", () => {
     const body = calls[0]!.body as { system: string; messages: unknown[] };
     expect(body.system).toContain("<DATA>");
     expect(body.messages).toEqual([{ role: "user", content: "q" }]);
+    // The API requires a bound, so the largest every current model takes; and
+    // no temperature, which current Claude models reject.
+    expect(calls[0]!.body).toMatchObject({ max_tokens: 32_000 });
+    expect(calls[0]!.body).not.toHaveProperty("temperature");
+  });
+
+  it("a provider that never answers fails at 90 s as ai_failed, logged as a timeout", async () => {
+    vi.useFakeTimers();
+    const error = vi.spyOn(logger, "error").mockImplementation(() => {});
+    try {
+      setChatModel({ model_id: "gemini-chat", api_key: "k" });
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, init: { signal: AbortSignal }) =>
+            new Promise((_resolve, reject) =>
+              init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
+            ),
+        ),
+      );
+      let settled = false;
+      const asked = askChatModel({ cfg: resolveChatModel(), data: data(), history: [], question: "q" }).finally(
+        () => {
+          settled = true;
+        },
+      );
+      const failed = expect(asked).rejects.toMatchObject({ status: 502, code: "ai_failed" });
+      await vi.advanceTimersByTimeAsync(89_000);
+      expect(settled).toBe(false);
+      await vi.advanceTimersByTimeAsync(1_000);
+      await failed;
+      expect(error).toHaveBeenCalledWith(
+        expect.stringMatching(/^AI chat request timed out after \d+ms$/),
+        expect.objectContaining({ event: "ai.chat.timeout", provider: "gemini", timeoutMs: 90_000 }),
+      );
+    } finally {
+      error.mockRestore();
+      vi.useRealTimers();
+    }
   });
 
   it("an empty or failed reply is ai_failed — the caller's charge refunds it", async () => {

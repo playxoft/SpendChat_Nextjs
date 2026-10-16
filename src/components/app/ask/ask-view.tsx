@@ -29,6 +29,8 @@ import { ASK_NEEDS_EDIT_MESSAGE, aiActionsSpent, type AiActionsLeft } from "@/li
 import { planLimitOf } from "@/lib/plan-limit";
 import { AI_CHAT_QUESTION_MAX } from "@/lib/validation";
 import { cn } from "@/lib/utils";
+import { isTypingTarget } from "@/lib/shortcuts";
+import { hasOpenOverlay } from "@/hooks/use-shortcut";
 import type { ChatMessageDTO, ChatSummary } from "@/services/ai-chat";
 import { AI_BTN } from "../ai-accent";
 import { AiActionsLeftLine } from "../ai-actions-left";
@@ -36,7 +38,7 @@ import { LimitPanel, LockedButton } from "../limit-lock";
 import { usePermissions } from "../permissions";
 import { usePlan } from "../upgrade-dialog";
 import { AnswerMarkdown } from "./answer-markdown";
-import { askHref } from "./ask-paths";
+import { ASK_FOCUS_EVENT, askHref } from "./ask-paths";
 import { ChatList } from "./chat-list";
 import { AccountControls } from "@/components/app/account-controls";
 
@@ -56,6 +58,22 @@ const SUGGESTIONS = [
   "Top 5 expenses this month",
   "Compare this month to last month",
 ];
+
+/**
+ * Focus the question box without scrolling (the thread keeps its place) — on a
+ * mouse-and-keyboard screen only: on a touch screen focus pulls the keyboard up
+ * over the answers you came to read. A frame later, so a navigation's own focus
+ * handling has settled first — and then never over an open dialog or menu, or
+ * out of another field being typed in (a chat's rename box).
+ */
+function focusQuestionBox(node: HTMLTextAreaElement | null) {
+  if (!node || !window.matchMedia("(pointer: fine)").matches) return;
+  requestAnimationFrame(() => {
+    const active = document.activeElement;
+    if (hasOpenOverlay() || (active !== node && isTypingTarget(active))) return;
+    node.focus({ preventScroll: true });
+  });
+}
 
 /**
  * Ask's conversation: the messages as chat bubbles, and a composer docked at
@@ -119,6 +137,9 @@ export function AskView({
   // The last question that got no answer, shown in the thread with its error.
   const [failed, setFailed] = useState<{ question: string; error: string } | null>(null);
   const [text, setText] = useState("");
+  // Bumped on each real arrival at a chat (not the URL catching up with one
+  // this view created), so focus follows navigation and nothing else.
+  const [arrivals, setArrivals] = useState(0);
   const [aiLeft, setAiLeft] = useState<AiActionsLeft | null>(null);
   const [asking, startAsking] = useTransition();
   const taRef = useRef<HTMLTextAreaElement>(null);
@@ -135,8 +156,22 @@ export function AskView({
       setPendingQuestion(null);
       setFailed(null);
       setText("");
+      setArrivals((n) => n + 1);
     }
   }
+
+  // Ready to type on arrival — by `c`, a nav click or a reload — and on opening
+  // another chat; `requestAskFocus` covers a `c` or a click on the page already
+  // open. Not when a first answer gives the chat its id: the person may be
+  // typing somewhere else by then.
+  useEffect(() => {
+    focusQuestionBox(taRef.current);
+  }, [arrivals]);
+  useEffect(() => {
+    const onFocusRequest = () => focusQuestionBox(taRef.current);
+    window.addEventListener(ASK_FOCUS_EVENT, onFocusRequest);
+    return () => window.removeEventListener(ASK_FOCUS_EVENT, onFocusRequest);
+  }, []);
 
   // What an answer that arrives late checks before touching anything: is this
   // view still mounted, and still on the chat the question was asked in?

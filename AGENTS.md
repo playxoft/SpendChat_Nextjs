@@ -278,16 +278,18 @@ Authentication, secrets via Doppler.
   `--caching-disabled`) so a just-written balance is never served stale. `[placement] mode = "smart"`
   co-locates the Worker with Neon's region to cut round-trip latency.
 - **AI models are configured, never hard-coded.** No model id appears anywhere in
-  `src/`. Each AI feature owns a pair of env vars — a JSON registry of named
-  entries (`{model_id, api_key, provider?, base_url?}`) plus the name of the
-  active one — resolved by `resolveModelFromEnv()` in `src/lib/ai-model-registry.ts`:
-  `AI_PARSE_MODEL(_CURRENT)` for text→drafts, `AI_TRANSCRIBE_MODEL(_CURRENT)` for
-  voice→text, `AI_CHAT_MODEL(_CURRENT)` for SpendChat AI (questions answered in Markdown
-  from a data summary, `src/lib/ai-chat.ts`). The pairs are **independent on
-  purpose** and never fall back to one another: parsing runs on any chat model,
-  transcription needs one that accepts audio (Anthropic has no speech model at all). Adding a feature means adding a
-  pair, an adapter in `ai-provider.ts` if the protocol is new, and the secret to
-  the `wrangler.toml` list — unset simply disables that feature.
+  `src/`. Every model lives in **one** env var, `AI_MODEL_LIST` — a JSON object of
+  named entries (`{model_id, api_key, provider?, base_url?}`) — and each AI feature
+  names the entry it uses in its own `_CURRENT` var, resolved by
+  `resolveModelFromEnv()` in `src/lib/ai-model-registry.ts`:
+  `AI_PARSE_MODEL_CURRENT` for text→drafts, `AI_TRANSCRIBE_MODEL_CURRENT` for
+  voice→text, `AI_CHAT_MODEL_CURRENT` for SpendChat AI (questions answered in Markdown
+  from a data summary, `src/lib/ai-chat.ts`). Several may name the same entry, but
+  they're **independent on purpose** and never fall back to one another: parsing runs
+  on any chat model, transcription needs one that accepts audio (Anthropic has no
+  speech model at all). Don't add a second list. Adding a feature means adding a
+  `_CURRENT` var, an adapter in `ai-provider.ts` if the protocol is new, and the
+  secret to the `wrangler.toml` list — unset simply disables that feature.
 - **Voice entry** (`m`, held) records in the browser, transcribes server-side, and
   drops the text into the AI note for the user to check — it never creates
   transactions directly, so the existing parse→review→confirm path is unchanged

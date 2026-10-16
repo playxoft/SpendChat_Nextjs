@@ -11,6 +11,7 @@ import { TransactionDialog } from "./transaction-dialog";
 import { BulkAddDialog } from "./bulk-add-dialog";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 import { hrefWithProfile } from "./nav-items";
+import { requestAskFocus } from "./ask/ask-paths";
 import type { Category, Profile } from "@/db/schema";
 import type { TxnTagDTO } from "@/lib/tags";
 
@@ -64,7 +65,14 @@ export function GlobalShortcuts({
 
   // Section jumps carry the active profile so switching pages never resets it.
   useShortcut(comboFor("nav.tracker"), () => router.push(hrefWithProfile("/app", profileParam)), nav);
-  useShortcut(comboFor("nav.ask"), () => router.push(hrefWithProfile("/app/ask", profileParam)), nav);
+  useShortcut(
+    comboFor("nav.ask"),
+    () => {
+      router.push(hrefWithProfile("/app/ask", profileParam));
+      requestAskFocus();
+    },
+    nav,
+  );
   useShortcut(comboFor("nav.transactions"), () => router.push(hrefWithProfile("/app/transactions", profileParam)), nav);
   useShortcut(comboFor("nav.analytics"), () => router.push(hrefWithProfile("/app/analytics", profileParam)), nav);
   useShortcut(comboFor("nav.budgets"), () => router.push(hrefWithProfile("/app/budgets", profileParam)), nav);
