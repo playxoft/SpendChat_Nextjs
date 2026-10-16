@@ -4,26 +4,26 @@ import { logger } from "@/lib/logger";
 
 /**
  * The shared "which model runs" resolver. **No model ids live in this repo** —
- * each AI feature is configured by a pair of env vars holding a JSON registry
- * and the name of the active entry:
+ * every model the app may call sits in ONE env var, and each AI feature names
+ * the entry it uses:
  *
- *   <FEATURE>_MODEL          A JSON object of named entries, each:
+ *   AI_MODEL_LIST            A JSON object of named entries, each:
  *                              { "model_id": "...", "api_key": "...",
  *                                "provider"?: "...", "base_url"?: "..." }
  *                            The API key lives inside the entry — there are no
  *                            separate per-provider key vars.
- *   <FEATURE>_MODEL_CURRENT  The name of the entry to use right now.
+ *   <FEATURE>_MODEL_CURRENT  The name of the entry that feature uses right now.
  *
- * Three features use it today, each with its own independent pair so they can
- * run on different providers (text parsing on any chat model, transcription on a
- * model that actually accepts audio, Ask on whatever answers questions well):
+ * Three features pick from the list, each on its own so they can run on
+ * different models (text parsing on any chat model, transcription on a model
+ * that actually accepts audio, Ask on whatever answers questions well):
  *
- *   AI_PARSE_MODEL      / AI_PARSE_MODEL_CURRENT       → `ai-parse.ts`
- *   AI_TRANSCRIBE_MODEL / AI_TRANSCRIBE_MODEL_CURRENT  → `ai-transcribe.ts`
- *   AI_CHAT_MODEL       / AI_CHAT_MODEL_CURRENT        → `ai-chat.ts`
+ *   AI_PARSE_MODEL_CURRENT       → `ai-parse.ts`
+ *   AI_TRANSCRIBE_MODEL_CURRENT  → `ai-transcribe.ts`
+ *   AI_CHAT_MODEL_CURRENT        → `ai-chat.ts`
  *
- * The pairs never fall back to one another: an unset pair turns its feature off
- * even when another pair is configured.
+ * They never fall back to one another: an unset `_CURRENT` turns its feature
+ * off even when another feature's names a working entry.
  *
  * Unset (or misconfigured) → that feature reports "not available" and nothing
  * else breaks. Kept out of `ai-provider.ts` (which is excluded from the coverage
@@ -51,29 +51,30 @@ export function inferProvider(modelId: string): Provider | null {
   return null;
 }
 
-/** Each feature's env-var prefix (the registry; `_CURRENT` names its entry). */
+/** Each feature's env var naming its entry in `AI_MODEL_LIST`. */
 const FEATURE_ENV = {
-  parse: "AI_PARSE_MODEL",
-  transcribe: "AI_TRANSCRIBE_MODEL",
-  chat: "AI_CHAT_MODEL",
+  parse: "AI_PARSE_MODEL_CURRENT",
+  transcribe: "AI_TRANSCRIBE_MODEL_CURRENT",
+  chat: "AI_CHAT_MODEL_CURRENT",
 } as const;
 
 export type AiFeature = keyof typeof FEATURE_ENV;
 
 /**
- * Resolve a feature's active model from its env pair. Throws `aiUnavailable`
- * (503) when either var is unset, the JSON is bad, the entry is missing, or it
- * lacks model_id/api_key — the feature is simply off until an operator
- * configures it. No model or key default lives in code by design.
+ * Resolve a feature's active model: the `AI_MODEL_LIST` entry its `_CURRENT`
+ * names. Throws `aiUnavailable` (503) when either var is unset, the JSON is
+ * bad, the entry is missing, or it lacks model_id/api_key — the feature is
+ * simply off until an operator configures it. No model or key default lives in
+ * code by design.
  *
- * `feature` names the log event and the env vars in operator-facing log lines
- * ("parse" → `ai.parse.bad_config`, `AI_PARSE_MODEL`).
+ * `feature` names the log event and the env var in operator-facing log lines
+ * ("parse" → `ai.parse.bad_config`, `AI_PARSE_MODEL_CURRENT`).
  */
 export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
-  const prefix = FEATURE_ENV[feature];
+  const currentVar = FEATURE_ENV[feature];
 
   /**
-   * Log a misconfiguration (never the registry or key) and fail as unavailable.
+   * Log a misconfiguration (never the list or a key) and fail as unavailable.
    * A nested *declaration*, not an arrow const: TypeScript only propagates a
    * `never` return through control-flow analysis for the former, and the calls
    * below rely on that to narrow the values they guard.
@@ -87,31 +88,31 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
     throw aiUnavailable();
   }
 
-  const current = (process.env[`${prefix}_CURRENT`] || "").trim();
-  const rawRegistry = (process.env[prefix] || "").trim();
-  if (!current || !rawRegistry) {
+  const current = (process.env[currentVar] || "").trim();
+  const rawList = (process.env.AI_MODEL_LIST || "").trim();
+  if (!current || !rawList) {
     // `debug`, not `warn`: "the operator hasn't turned this on" is a steady
     // state, not an incident, and it would otherwise emit a line per click.
-    logger.debug(`AI ${feature} skipped — ${prefix} / ${prefix}_CURRENT not configured`, {
+    logger.debug(`AI ${feature} skipped — AI_MODEL_LIST / ${currentVar} not configured`, {
       event: `ai.${feature}.unconfigured`,
-      reason: !current ? `${prefix}_CURRENT not set` : `${prefix} not set`,
+      reason: !current ? `${currentVar} not set` : "AI_MODEL_LIST not set",
     });
     throw aiUnavailable();
   }
 
-  let registry: unknown;
+  let list: unknown;
   try {
-    registry = JSON.parse(rawRegistry);
+    list = JSON.parse(rawList);
   } catch {
-    misconfigured(`${prefix} is not valid JSON`);
+    misconfigured("AI_MODEL_LIST is not valid JSON");
   }
-  if (!registry || typeof registry !== "object" || Array.isArray(registry)) {
-    misconfigured(`${prefix} must be a JSON object of named entries`);
+  if (!list || typeof list !== "object" || Array.isArray(list)) {
+    misconfigured("AI_MODEL_LIST must be a JSON object of named entries");
   }
 
-  const entry = (registry as Record<string, unknown>)[current];
+  const entry = (list as Record<string, unknown>)[current];
   if (!entry || typeof entry !== "object") {
-    misconfigured(`${prefix}_CURRENT names no entry in ${prefix}`, { current });
+    misconfigured(`${currentVar} names no entry in AI_MODEL_LIST`, { current });
   }
   const e = entry as Record<string, unknown>;
 

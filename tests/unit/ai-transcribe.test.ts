@@ -23,9 +23,9 @@ const OPTS = {
   categoryNames: ["Groceries", "Electricity"],
 };
 
-/** Configure the transcribe registry with a single named entry + select it. */
+/** Configure the model list with a single named entry + select it for transcription. */
 function setModel(entry: Record<string, unknown>, name = "current") {
-  vi.stubEnv("AI_TRANSCRIBE_MODEL", JSON.stringify({ [name]: entry }));
+  vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ [name]: entry }));
   vi.stubEnv("AI_TRANSCRIBE_MODEL_CURRENT", name);
 }
 
@@ -175,19 +175,17 @@ describe("cleanTranscript — models wrap a transcript even when told not to", (
   });
 });
 
-describe("resolveTranscribeModel — its own registry, independent of parsing", () => {
+describe("resolveTranscribeModel — its own entry, independent of parsing", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   it("is unavailable until an operator configures it", () => {
-    vi.stubEnv("AI_TRANSCRIBE_MODEL", "");
     vi.stubEnv("AI_TRANSCRIBE_MODEL_CURRENT", "");
     expect(caught(() => resolveTranscribeModel()).status).toBe(503);
   });
 
   it("does not fall back to the parse model, which may not accept audio", () => {
-    vi.stubEnv("AI_PARSE_MODEL", JSON.stringify({ p: { model_id: "claude-x", api_key: "k" } }));
+    vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ p: { model_id: "claude-x", api_key: "k" } }));
     vi.stubEnv("AI_PARSE_MODEL_CURRENT", "p");
-    vi.stubEnv("AI_TRANSCRIBE_MODEL", "");
     vi.stubEnv("AI_TRANSCRIBE_MODEL_CURRENT", "");
     expect(caught(() => resolveTranscribeModel()).status).toBe(503);
   });
@@ -262,7 +260,6 @@ describe("transcribeVoiceNote — provider wiring", () => {
   });
 
   it("is unavailable, not failed, when no model is configured", async () => {
-    vi.stubEnv("AI_TRANSCRIBE_MODEL", "");
     vi.stubEnv("AI_TRANSCRIBE_MODEL_CURRENT", "");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);

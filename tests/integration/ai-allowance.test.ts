@@ -76,10 +76,8 @@ function stubGemini({ fail = false }: { fail?: boolean } = {}) {
 }
 
 function configureModels() {
-  const entry = JSON.stringify({ current: { model_id: "gemini-test", api_key: "k" } });
-  vi.stubEnv("AI_PARSE_MODEL", entry);
+  vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ current: { model_id: "gemini-test", api_key: "k" } }));
   vi.stubEnv("AI_PARSE_MODEL_CURRENT", "current");
-  vi.stubEnv("AI_TRANSCRIBE_MODEL", entry);
   vi.stubEnv("AI_TRANSCRIBE_MODEL_CURRENT", "current");
 }
 

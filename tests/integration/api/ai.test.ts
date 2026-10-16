@@ -158,7 +158,6 @@ describe("/api/v1/ai — gating before the provider", () => {
 
   it("503s an editor when no model is configured — after the gates, not before", async () => {
     const fetchSpy = noProviderCalls();
-    vi.stubEnv("AI_TRANSCRIBE_MODEL", "");
     vi.stubEnv("AI_TRANSCRIBE_MODEL_CURRENT", "");
     signInAs("a");
     await bootstrapUser("a");

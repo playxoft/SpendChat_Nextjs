@@ -86,11 +86,16 @@ function stubGemini({ fail = false, answer = "**Food** — $12.50 this month." }
   return { spy, requests };
 }
 
-/** Ask's own model, plus a parse model that must never be used for it. */
+/** Ask's own model, plus a parse model in the same list that must never be used for it. */
 function configureChat() {
-  vi.stubEnv("AI_CHAT_MODEL", JSON.stringify({ chat: { model_id: "gemini-chat", api_key: "k" } }));
+  vi.stubEnv(
+    "AI_MODEL_LIST",
+    JSON.stringify({
+      chat: { model_id: "gemini-chat", api_key: "k" },
+      parse: { model_id: "gemini-parse", api_key: "k" },
+    }),
+  );
   vi.stubEnv("AI_CHAT_MODEL_CURRENT", "chat");
-  vi.stubEnv("AI_PARSE_MODEL", JSON.stringify({ parse: { model_id: "gemini-parse", api_key: "k" } }));
   vi.stubEnv("AI_PARSE_MODEL_CURRENT", "parse");
 }
 
@@ -297,7 +302,6 @@ describe("askAi — what a question costs", () => {
 
   it("in production with no model of its own — even with a parse model — fails that question plainly, uncharged", async () => {
     const { spy } = stubGemini();
-    vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("APP_ENV", "production");
@@ -313,7 +317,6 @@ describe("askAi — what a question costs", () => {
 
   it("in dev with no model, answers with a sample from the data — no provider, no charge, stored like any answer", async () => {
     const { spy } = stubGemini();
-    vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
     vi.stubEnv("APP_ENV", "development");
     signInAs("own");
@@ -361,7 +364,6 @@ describe("askAi — what a question costs", () => {
 
   it("on a deployed Worker with APP_ENV unset, fails plainly instead of handing out samples", async () => {
     const { spy } = stubGemini();
-    vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("APP_ENV", undefined);
@@ -376,7 +378,6 @@ describe("askAi — what a question costs", () => {
   });
 
   it("keeps edit access required for samples too", async () => {
-    vi.stubEnv("AI_CHAT_MODEL", "");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "");
     vi.stubEnv("APP_ENV", "development");
     await bootstrapUser("own");

@@ -641,14 +641,21 @@ export async function transcribeProviderWithUsage(
 /** One turn of an Ask conversation, as the adapters send it. */
 export type ChatTurn = { role: "user" | "assistant"; content: string };
 
-/**
- * Output budget for one answer. A short answer with a ranked table is a few
- * hundred tokens; the headroom is for thinking models, whose reasoning draws
- * from this same budget when no thinking config is sent (none is — Gemini 3.x
- * rejects the 2.5-era `thinkingBudget`, see `transcribeGemini`). A ceiling,
- * not a spend: unused tokens aren't billed.
+/*
+ * No output ceiling for an answer: a ceiling cuts the reply off mid-sentence,
+ * and on thinking models (Gemini 3.x — no thinking config is sent, since 3.x
+ * rejects the 2.5-era `thinkingBudget`) the reasoning draws from that same
+ * budget, so a hard question could spend it before the answer starts. Length is
+ * the system prompt's job instead ("keep it short", `buildChatSystemPrompt`).
+ * Gemini and OpenAI-shaped hosts then use the model's own maximum.
  */
-const CHAT_MAX_OUTPUT_TOKENS = 4096;
+
+/**
+ * Anthropic alone requires `max_tokens`, so it gets the largest value every
+ * current Claude model accepts — a bound no short answer comes near, not a
+ * length. Unused tokens aren't billed.
+ */
+const ANTHROPIC_CHAT_MAX_TOKENS = 32_000;
 
 /** A little freedom in the wording; the numbers come from the data either way. */
 const CHAT_TEMPERATURE = 0.2;
@@ -670,7 +677,6 @@ async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): 
       generationConfig: {
         responseMimeType: "text/plain",
         temperature: CHAT_TEMPERATURE,
-        maxOutputTokens: CHAT_MAX_OUTPUT_TOKENS,
       },
     },
     "gemini",
@@ -698,8 +704,6 @@ async function chatOpenAI(cfg: ModelConfig, system: string, turns: ChatTurn[]): 
       model: cfg.model,
       messages: [{ role: "system", content: system }, ...turns],
       temperature: CHAT_TEMPERATURE,
-      // `max_tokens` for the same portability reason as `callOpenAI`.
-      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
     },
     "openai",
     "chat",
@@ -724,7 +728,7 @@ async function chatAnthropic(cfg: ModelConfig, system: string, turns: ChatTurn[]
     { "x-api-key": cfg.apiKey, "anthropic-version": "2023-06-01" },
     {
       model: cfg.model,
-      max_tokens: CHAT_MAX_OUTPUT_TOKENS,
+      max_tokens: ANTHROPIC_CHAT_MAX_TOKENS,
       temperature: CHAT_TEMPERATURE,
       system,
       messages: turns,

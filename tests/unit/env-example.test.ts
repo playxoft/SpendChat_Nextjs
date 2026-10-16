@@ -18,14 +18,11 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dirname, "../..");
 
-/** Read by the AI registry helper, which builds the names at runtime from a
- *  feature prefix, so no literal `process.env.X` exists for a grep to find. */
+/** Read by the AI registry helper, which looks the name up from the feature
+ *  at runtime, so no literal `process.env.X` exists for a grep to find. */
 const RESOLVED_DYNAMICALLY = new Set([
-  "AI_PARSE_MODEL",
   "AI_PARSE_MODEL_CURRENT",
-  "AI_TRANSCRIBE_MODEL",
   "AI_TRANSCRIBE_MODEL_CURRENT",
-  "AI_CHAT_MODEL",
   "AI_CHAT_MODEL_CURRENT",
 ]);
 

@@ -36,7 +36,7 @@ import { LimitPanel, LockedButton } from "../limit-lock";
 import { usePermissions } from "../permissions";
 import { usePlan } from "../upgrade-dialog";
 import { AnswerMarkdown } from "./answer-markdown";
-import { askHref } from "./ask-paths";
+import { ASK_FOCUS_EVENT, askHref } from "./ask-paths";
 import { ChatList } from "./chat-list";
 import { AccountControls } from "@/components/app/account-controls";
 
@@ -56,6 +56,17 @@ const SUGGESTIONS = [
   "Top 5 expenses this month",
   "Compare this month to last month",
 ];
+
+/**
+ * Focus the question box without scrolling (the thread keeps its place) — on a
+ * mouse-and-keyboard screen only: on a touch screen focus pulls the keyboard up
+ * over the answers you came to read. A frame later, so a navigation's own focus
+ * handling has settled first.
+ */
+function focusQuestionBox(node: HTMLTextAreaElement | null) {
+  if (!node || !window.matchMedia("(pointer: fine)").matches) return;
+  requestAnimationFrame(() => node.focus({ preventScroll: true }));
+}
 
 /**
  * Ask's conversation: the messages as chat bubbles, and a composer docked at
@@ -137,6 +148,18 @@ export function AskView({
       setText("");
     }
   }
+
+  // Ready to type on arrival — by `c`, a nav click or a reload — and on opening
+  // another chat; `requestAskFocus` covers a `c` or a click on the page already
+  // open.
+  useEffect(() => {
+    focusQuestionBox(taRef.current);
+  }, [shownUrlChatId]);
+  useEffect(() => {
+    const onFocusRequest = () => focusQuestionBox(taRef.current);
+    window.addEventListener(ASK_FOCUS_EVENT, onFocusRequest);
+    return () => window.removeEventListener(ASK_FOCUS_EVENT, onFocusRequest);
+  }, []);
 
   // What an answer that arrives late checks before touching anything: is this
   // view still mounted, and still on the chat the question was asked in?

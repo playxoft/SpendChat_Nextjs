@@ -20,8 +20,8 @@ import {
  *
  * ── Model choice lives entirely in the environment, never in this repo ──
  * This file contains NO model IDs and NO curated list of models. Which model
- * runs comes from the `AI_PARSE_MODEL` / `AI_PARSE_MODEL_CURRENT` registry pair
- * — see `ai-model-registry.ts` for the entry format. The generic provider
+ * runs is the `AI_MODEL_LIST` entry `AI_PARSE_MODEL_CURRENT` names — see
+ * `ai-model-registry.ts` for the entry format. The generic provider
  * *adapters* (the request/response shape of each API protocol) live in
  * `ai-provider.ts`. Unset (or misconfigured) → AI mode stays visible but
  * returns a friendly "not available" error; nothing else breaks.
@@ -65,7 +65,7 @@ export type AiParsedDraft = {
 // Re-exported so server callers have one import for the whole AI vocabulary.
 export { MAX_DRAFTS, MAX_INPUT_CHARS };
 
-/** The model behind text→drafts parsing (`AI_PARSE_MODEL` registry pair). */
+/** The model behind text→drafts parsing (the `AI_PARSE_MODEL_CURRENT` entry). */
 export function resolveModel(): ModelConfig {
   return resolveModelFromEnv("parse");
 }
