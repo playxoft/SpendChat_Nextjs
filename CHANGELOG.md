@@ -18,6 +18,29 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.48.0] — 2026-10-18
+
+### Changed
+- **Gemini runs on Vertex AI.** AI notes, voice entry and SpendChat AI reach
+  Gemini models through Google Cloud's Vertex AI instead of the Gemini API (AI
+  Studio). The Gemini API turns requests away from some regions, Hong Kong among
+  them, and the app can be served from there, so AI sometimes answered
+  "Couldn't reach the AI" for no reason you could see. A `gemini*` entry in
+  `AI_MODEL_LIST` now means Vertex. Its `api_key` is a Google Cloud API key
+  bound to a service account. Optional `project_id` and `location` pick the
+  Vertex endpoint, for example `us` or `eu` to keep processing in that
+  jurisdiction. **If you run your own copy:** swap each Gemini entry's AI Studio
+  key for a Vertex one (the steps are in `.env.example`), or add
+  `"provider": "gemini"` to keep it on the Gemini API.
+
+### Fixed
+- **Fewer failed AI requests on Gemini 3.** Notes are no longer parsed with a
+  thinking setting that Gemini 3 has retired and sometimes rejects. An entry
+  can now set `thinking_level` (`minimal`, `low`, `medium` or `high`) instead.
+- **A busy moment at Google no longer fails the request.** When Vertex AI is
+  briefly at capacity, the request is retried twice, a second and then two
+  seconds later, within the usual time limit.
+
 ## [0.47.0] — 2026-10-16
 
 ### Added

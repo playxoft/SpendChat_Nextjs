@@ -325,7 +325,7 @@ describe("cleanAnswer", () => {
 describe("the model — its own entry, never the parse model's", () => {
   it("resolves the entry AI_CHAT_MODEL_CURRENT names", () => {
     setChatModel({ model_id: "gemini-chat", api_key: "k" });
-    expect(resolveChatModel()).toMatchObject({ provider: "gemini", model: "gemini-chat", apiKey: "k" });
+    expect(resolveChatModel()).toMatchObject({ provider: "vertex", model: "gemini-chat", apiKey: "k" });
     vi.stubEnv("APP_ENV", "production");
     expect(chatAnswerMode()).toBe("model");
   });
@@ -574,7 +574,7 @@ describe("askChatModel — one call per provider, shapes on the wire", () => {
       await failed;
       expect(error).toHaveBeenCalledWith(
         expect.stringMatching(/^AI chat request timed out after \d+ms$/),
-        expect.objectContaining({ event: "ai.chat.timeout", provider: "gemini", timeoutMs: 90_000 }),
+        expect.objectContaining({ event: "ai.chat.timeout", provider: "vertex", timeoutMs: 90_000 }),
       );
     } finally {
       error.mockRestore();

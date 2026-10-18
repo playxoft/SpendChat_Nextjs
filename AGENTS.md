@@ -279,7 +279,8 @@ Authentication, secrets via Doppler.
   co-locates the Worker with Neon's region to cut round-trip latency.
 - **AI models are configured, never hard-coded.** No model id appears anywhere in
   `src/`. Every model lives in **one** env var, `AI_MODEL_LIST` — a JSON object of
-  named entries (`{model_id, api_key, provider?, base_url?}`) — and each AI feature
+  named entries (`{model_id, api_key, provider?, base_url?}`, plus Google's
+  `project_id?`, `location?`, `thinking_level?`) — and each AI feature
   names the entry it uses in its own `_CURRENT` var, resolved by
   `resolveModelFromEnv()` in `src/lib/ai-model-registry.ts`:
   `AI_PARSE_MODEL_CURRENT` for text→drafts, `AI_TRANSCRIBE_MODEL_CURRENT` for
@@ -290,6 +291,13 @@ Authentication, secrets via Doppler.
   speech model at all). Don't add a second list. Adding a feature means adding a
   `_CURRENT` var, an adapter in `ai-provider.ts` if the protocol is new, and the
   secret to the `wrangler.toml` list — unset simply disables that feature.
+  **Gemini goes through Vertex AI** (`provider: "vertex"`, what a `gemini*` id
+  infers), never the Gemini API by default: the Gemini API rejects callers by
+  location (400 FAILED_PRECONDITION) and the Worker can run in Cloudflare's Hong
+  Kong colo. Both share one adapter — `geminiUrl` is the only difference; the key
+  is a Google Cloud API key bound to a service account. Gemini 3+ never gets
+  `thinkingBudget` (Google: intermittent 400s), and Vertex 429/503s are retried
+  inside the feature's timeout.
 - **Voice entry** (`m`, held) records in the browser, transcribes server-side, and
   drops the text into the AI note for the user to check — it never creates
   transactions directly, so the existing parse→review→confirm path is unchanged

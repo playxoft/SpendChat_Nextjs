@@ -1,5 +1,12 @@
 import "server-only";
-import { aiUnavailable, PROVIDERS, type ModelConfig, type Provider } from "@/lib/ai-provider";
+import {
+  aiUnavailable,
+  PROVIDERS,
+  THINKING_LEVELS,
+  type ModelConfig,
+  type Provider,
+  type ThinkingLevel,
+} from "@/lib/ai-provider";
 import { logger } from "@/lib/logger";
 
 /**
@@ -9,9 +16,13 @@ import { logger } from "@/lib/logger";
  *
  *   AI_MODEL_LIST            A JSON object of named entries, each:
  *                              { "model_id": "...", "api_key": "...",
- *                                "provider"?: "...", "base_url"?: "..." }
+ *                                "provider"?: "...", "base_url"?: "...",
+ *                                "project_id"?: "...", "location"?: "...",
+ *                                "thinking_level"?: "..." }
  *                            The API key lives inside the entry — there are no
- *                            separate per-provider key vars.
+ *                            separate per-provider key vars. The last three are
+ *                            Google's: `project_id`/`location` pick the Vertex
+ *                            endpoint, `thinking_level` a Gemini 3+ model's tier.
  *   <FEATURE>_MODEL_CURRENT  The name of the entry that feature uses right now.
  *
  * Three features pick from the list, each on its own so they can run on
@@ -40,10 +51,14 @@ function str(v: unknown): string | undefined {
  * Covers the first-party families plus Whisper, whose `/audio/transcriptions`
  * endpoint is the OpenAI shape on every host that serves it (OpenAI, Groq, and
  * the OpenAI-compatible crowd). Anything else must set `provider` explicitly.
+ *
+ * Gemini means Vertex AI: the Gemini API (AI Studio keys) turns callers away by
+ * location, and a Worker can run in one of those places (see `geminiUrl` in
+ * `ai-provider.ts`). An entry still reaches it with `"provider": "gemini"`.
  */
 export function inferProvider(modelId: string): Provider | null {
   const m = modelId.toLowerCase();
-  if (m.includes("gemini")) return "gemini";
+  if (m.includes("gemini")) return "vertex";
   if (m.includes("claude")) return "anthropic";
   if (m.includes("gpt") || m.includes("chatgpt") || m.includes("whisper") || /^o[0-9]/.test(m)) {
     return "openai";
@@ -59,6 +74,12 @@ const FEATURE_ENV = {
 } as const;
 
 export type AiFeature = keyof typeof FEATURE_ENV;
+
+/** Google's project id rule: 6–30 of a–z, 0–9 and "-", starting with a letter, not ending in "-". */
+const GCP_PROJECT_ID = /^[a-z][a-z0-9-]{4,28}[a-z0-9]$/;
+
+/** `global`, `us`, `eu`, `us-central1`, `asia-south1` … */
+const GCP_LOCATION = /^[a-z][a-z0-9-]*$/;
 
 /**
  * Resolve a feature's active model: the `AI_MODEL_LIST` entry its `_CURRENT`
@@ -130,5 +151,48 @@ export function resolveModelFromEnv(feature: AiFeature): ModelConfig {
     });
   }
 
-  return { provider, model, apiKey, baseUrl: str(e.base_url) ?? str(e.baseUrl) };
+  // Google's fields. Each goes into a URL or a request body, so a value that
+  // isn't plainly shaped is refused rather than sent.
+  const projectId = str(e.project_id) ?? str(e.projectId);
+  const location = str(e.location)?.toLowerCase();
+  const rawLevel = str(e.thinking_level) ?? str(e.thinkingLevel);
+  if ((projectId || location) && provider !== "vertex") {
+    misconfigured(`entry "${current}" sets project_id/location, which only a Vertex entry takes`, {
+      current,
+    });
+  }
+  if (projectId && !GCP_PROJECT_ID.test(projectId)) {
+    misconfigured(`entry "${current}" has a project_id that isn't a Google Cloud project id`, { current });
+  }
+  if (location && !GCP_LOCATION.test(location)) {
+    misconfigured(`entry "${current}" has a location that isn't a Google Cloud location`, { current });
+  }
+  if (location && location !== "global" && !projectId) {
+    // Without a project the key's own project is used, which is served only
+    // from the global endpoint.
+    misconfigured(`entry "${current}" sets location "${location}" without project_id`, { current });
+  }
+  let thinkingLevel: ThinkingLevel | undefined;
+  if (rawLevel) {
+    const level = rawLevel.toUpperCase() as ThinkingLevel;
+    if (provider !== "vertex" && provider !== "gemini") {
+      misconfigured(`entry "${current}" sets thinking_level, which only a Gemini model takes`, { current });
+    }
+    if (!THINKING_LEVELS.has(level)) {
+      misconfigured(`entry "${current}" has thinking_level "${rawLevel}" — use minimal, low, medium or high`, {
+        current,
+      });
+    }
+    thinkingLevel = level;
+  }
+
+  return {
+    provider,
+    model,
+    apiKey,
+    baseUrl: str(e.base_url) ?? str(e.baseUrl),
+    projectId,
+    location,
+    thinkingLevel,
+  };
 }

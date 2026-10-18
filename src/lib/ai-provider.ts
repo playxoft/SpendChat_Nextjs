@@ -16,15 +16,31 @@ import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
  * modules (`logger.ts`, `email.ts`) — see vitest.config.ts.
  */
 
-export type Provider = "gemini" | "openai" | "anthropic";
+/**
+ * `vertex` and `gemini` are one protocol (Gemini's `generateContent`) at two
+ * front doors: Vertex AI on Google Cloud, and the Gemini API that AI Studio
+ * keys open. They differ only in URL — see `geminiUrl`.
+ */
+export type Provider = "vertex" | "gemini" | "openai" | "anthropic";
 
-export const PROVIDERS = new Set<Provider>(["gemini", "openai", "anthropic"]);
+export const PROVIDERS = new Set<Provider>(["vertex", "gemini", "openai", "anthropic"]);
+
+/** Gemini 3+'s reasoning tiers, spelled as the REST API takes them. */
+export type ThinkingLevel = "MINIMAL" | "LOW" | "MEDIUM" | "HIGH";
+
+export const THINKING_LEVELS = new Set<ThinkingLevel>(["MINIMAL", "LOW", "MEDIUM", "HIGH"]);
 
 export type ModelConfig = {
   provider: Provider;
   model: string;
   apiKey: string;
   baseUrl?: string;
+  /** Vertex only. Absent → the API key's own project, on the global endpoint. */
+  projectId?: string;
+  /** Vertex only: `global` (the default), a multi-region (`us`, `eu`) or a region. */
+  location?: string;
+  /** Vertex/Gemini only: overrides the model's default tier on every call. */
+  thinkingLevel?: ThinkingLevel;
 };
 
 /**
@@ -239,10 +255,47 @@ function openAiTranscriptionUsage(json: OpenAiTranscriptionResponse): AiUsage | 
 type Feature = "parse" | "transcribe" | "chat";
 
 /**
- * POST and read the body, with one timeout covering **both**. Aborting only
- * around `fetch` would leave the body read unbounded — `fetch` resolves as soon
- * as the headers land, so a provider that stalls mid-body would hang the request
- * until the platform killed it.
+ * Vertex's pay-as-you-go capacity is a pool shared with every other customer,
+ * so a 429 there is momentary contention, not a spent quota — Google's guidance
+ * is to retry with exponential backoff, and a 503 is the same story. A Vertex
+ * call therefore gets up to two more tries, these far apart (plus jitter),
+ * inside the same timeout. Other providers aren't retried: a 429 from them is a
+ * real limit, which waiting a second won't lift.
+ */
+const RETRY_STATUSES = new Set([429, 503]);
+const RETRY_DELAYS_MS = [1_000, 2_000];
+
+/** A retry isn't started unless this much of the timeout is left after its wait. */
+const RETRY_MIN_WINDOW_MS = 5_000;
+
+/** The wait before retrying a failed attempt, or null when it shouldn't be retried. */
+function retryDelay(provider: Provider, status: number, attempt: number, deadline: number): number | null {
+  const base = RETRY_DELAYS_MS[attempt];
+  if (provider !== "vertex" || !RETRY_STATUSES.has(status) || base === undefined) return null;
+  const delay = base + Math.floor(Math.random() * 250);
+  return deadline - Date.now() - delay >= RETRY_MIN_WINDOW_MS ? delay : null;
+}
+
+/** `setTimeout` as a promise that rejects as soon as `signal` aborts. */
+function sleep(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(signal.reason);
+      },
+      { once: true },
+    );
+  });
+}
+
+/**
+ * POST and read the body, with one timeout covering **both** — and, on Vertex,
+ * any retries (`retryDelay`). Aborting only around `fetch` would leave the body
+ * read unbounded — `fetch` resolves as soon as the headers land, so a provider
+ * that stalls mid-body would hang the request until the platform killed it.
  *
  * `body` is either a JSON-serializable value (sent as `application/json`) or a
  * `FormData` (sent as multipart, letting `fetch` set the boundary itself).
@@ -259,20 +312,39 @@ async function post(
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const multipart = body instanceof FormData;
   const startedAt = Date.now();
+  // Serialized once: a retry sends the same bytes.
+  const payload = multipart ? body : JSON.stringify(body);
   try {
-    const res = await fetch(url, {
-      method: "POST",
-      // Never set Content-Type for FormData — `fetch` appends the multipart
-      // boundary, and an explicit header would clobber it and break the parse.
-      headers: multipart ? headers : { "Content-Type": "application/json", ...headers },
-      body: multipart ? body : JSON.stringify(body),
-      signal: controller.signal,
-    });
-    if (!res.ok) {
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(url, {
+        method: "POST",
+        // Never set Content-Type for FormData — `fetch` appends the multipart
+        // boundary, and an explicit header would clobber it and break the parse.
+        headers: multipart ? headers : { "Content-Type": "application/json", ...headers },
+        body: payload,
+        signal: controller.signal,
+      });
+      if (res.ok) return await res.json();
+
+      const delay = retryDelay(provider, res.status, attempt, startedAt + timeoutMs);
+      if (delay !== null) {
+        logger.warn(`AI ${feature} request got status ${res.status}, retrying in ${delay}ms`, {
+          event: `ai.${feature}.retry`,
+          provider,
+          status: res.status,
+          attempt: attempt + 1,
+          // Reading the code also drains the body, which frees the connection.
+          ...(await errorCode(res)),
+        });
+        await sleep(delay, controller.signal);
+        continue;
+      }
+
       logger.error(`AI ${feature} request failed with status ${res.status}`, {
         event: `ai.${feature}.http_error`,
         provider,
         status: res.status,
+        attempts: attempt + 1,
         // Only the provider's machine-readable error code. Their free-text
         // `message` is off-limits: it echoes request fragments (the user's note)
         // and, on an auth failure, a partial API key.
@@ -280,7 +352,6 @@ async function post(
       });
       throw aiFailed();
     }
-    return await res.json();
   } catch (err) {
     if (!controller.signal.aborted) throw err;
     // Our own timeout, said as one: otherwise it reads as a bare AbortError.
@@ -331,10 +402,68 @@ function noContent(
   throw aiFailed();
 }
 
+// ── Google: Vertex AI and the Gemini API ────────────────────────────────────
+// One protocol, two front doors. Vertex is the one to use: the Gemini API
+// refuses callers from places it doesn't serve with 400 FAILED_PRECONDITION
+// ("User location is not supported"), and a Worker runs wherever Cloudflare
+// places it — Hong Kong included — so the same AI Studio key works or fails by
+// colo. Vertex is a Google Cloud service without that list. Both take an API key
+// in `x-goog-api-key` (on Vertex, a Google Cloud key bound to a service account,
+// or an express-mode key), and every request and response body below serves both.
+
+/** Vertex's multi-region locations, served from their own `.rep.` hosts. */
+const VERTEX_MULTI_REGIONS = new Set(["us", "eu"]);
+
+/**
+ * The `generateContent` URL for this entry.
+ *
+ * Vertex, without a project: `aiplatform.googleapis.com/v1/publishers/google/
+ * models/M` — the key's own project, on the global endpoint. With one:
+ * `…/v1/projects/P/locations/L/publishers/google/models/M`, on the host that
+ * serves L — `global` (the default, and the only home of preview models like
+ * Gemini 3 Flash) → aiplatform.googleapis.com, a multi-region → aiplatform.L.rep
+ * .googleapis.com, a region → L-aiplatform.googleapis.com. `base_url` replaces
+ * everything up to and including `/v1` on Vertex, `/v1beta` on the Gemini API.
+ */
+function geminiUrl(cfg: ModelConfig): string {
+  if (cfg.provider === "gemini") {
+    const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
+    return `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`;
+  }
+  const location = cfg.location || "global";
+  const host =
+    location === "global"
+      ? "aiplatform.googleapis.com"
+      : VERTEX_MULTI_REGIONS.has(location)
+        ? `aiplatform.${location}.rep.googleapis.com`
+        : `${location}-aiplatform.googleapis.com`;
+  const base = (cfg.baseUrl || `https://${host}/v1`).replace(/\/$/, "");
+  const scope = cfg.projectId ? `projects/${cfg.projectId}/locations/${location}/` : "";
+  return `${base}/${scope}publishers/google/models/${cfg.model}:generateContent`;
+}
+
+/**
+ * The `thinkingConfig` for a call, or undefined to send none (and let the
+ * model's own default apply).
+ *
+ * An entry's `thinking_level` wins everywhere. Otherwise only parse asks for
+ * anything, and only of a 1.x/2.x model: there reasoning tokens are drawn from
+ * maxOutputTokens, so a short note could burn the whole budget and come back
+ * with zero content parts — and this is extraction, not reasoning, so
+ * `thinkingBudget: 0` spends the budget on the answer. Gemini 3 replaced the
+ * budget with `thinkingLevel`, and Google documents the old field as an
+ * intermittent 400 INVALID_ARGUMENT on 3.x (a certain one on 4.x), so 3+ gets
+ * nothing: its default is already MINIMAL on the Flash-Lite models parse runs on.
+ */
+function geminiThinking(cfg: ModelConfig, feature: Feature) {
+  if (cfg.thinkingLevel) return { thinkingLevel: cfg.thinkingLevel };
+  if (feature === "parse" && /^gemini-[12][.-]/i.test(cfg.model)) return { thinkingBudget: 0 };
+  return undefined;
+}
+
 async function callGemini(cfg: ModelConfig, system: string, userText: string): Promise<ProviderReply> {
-  const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
   const json = (await post(
-    `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`,
+    geminiUrl(cfg),
     { "x-goog-api-key": cfg.apiKey },
     {
       systemInstruction: { parts: [{ text: system }] },
@@ -344,14 +473,10 @@ async function callGemini(cfg: ModelConfig, system: string, userText: string): P
         responseSchema: GEMINI_SCHEMA,
         temperature: TEMPERATURE,
         maxOutputTokens: MAX_OUTPUT_TOKENS,
-        // On the 2.5 thinking models, reasoning tokens are drawn from
-        // maxOutputTokens — leaving it on means a short note can burn the whole
-        // budget and come back with zero content parts. This is extraction, not
-        // reasoning, so spend the budget on the answer.
-        thinkingConfig: { thinkingBudget: 0 },
+        thinkingConfig: geminiThinking(cfg, "parse"),
       },
     },
-    "gemini",
+    cfg.provider,
   )) as GeminiResponse;
 
   const candidate = json.candidates?.[0];
@@ -359,7 +484,7 @@ async function callGemini(cfg: ModelConfig, system: string, userText: string): P
   if (typeof text !== "string" || !text.trim()) {
     // `finishReason` separates "hit the token ceiling" from "was blocked" — the
     // two need different fixes and both otherwise look like a generic failure.
-    noContent("gemini", "parse", {
+    noContent(cfg.provider, "parse", {
       finishReason: candidate?.finishReason ?? null,
       blockReason: json.promptFeedback?.blockReason ?? null,
     });
@@ -451,6 +576,7 @@ export async function callProviderWithUsage(
         return await callOpenAI(cfg, system, userText);
       case "anthropic":
         return await callAnthropic(cfg, system, userText);
+      case "vertex":
       case "gemini":
         return await callGemini(cfg, system, userText);
     }
@@ -485,14 +611,12 @@ export type AudioInput = { bytes: Uint8Array; mimeType: string };
  * code, the instruction can name several languages at once and describe the
  * domain, and the model honours both.
  *
- * No `thinkingConfig` here (unlike `callGemini`): the 3.x models replaced
- * `thinkingBudget` with `thinkingLevel` and reject the old field outright, and
- * transcription has no reasoning worth suppressing anyway.
+ * No `thinkingConfig` unless the entry sets a level (see `geminiThinking`):
+ * transcription has no reasoning worth suppressing.
  */
 async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioInput): Promise<ProviderReply> {
-  const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
   const json = (await post(
-    `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`,
+    geminiUrl(cfg),
     { "x-goog-api-key": cfg.apiKey },
     {
       contents: [
@@ -503,7 +627,7 @@ async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioIn
             // `inlineData` is base64-only, so this is the one place the audio is
             // encoded — inside the request body, never in a variable a log or an
             // error report could pick up.
-            { inlineData: { mimeType: audio.mimeType, data: toBase64(audio.bytes) } },
+            { inlineData: { mimeType: geminiAudioMime(audio.mimeType), data: toBase64(audio.bytes) } },
           ],
         },
       ],
@@ -511,9 +635,10 @@ async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioIn
         responseMimeType: "text/plain",
         temperature: TEMPERATURE,
         maxOutputTokens: MAX_OUTPUT_TOKENS,
+        thinkingConfig: geminiThinking(cfg, "transcribe"),
       },
     },
-    "gemini",
+    cfg.provider,
     "transcribe",
     TRANSCRIBE_TIMEOUT_MS,
   )) as GeminiResponse;
@@ -525,7 +650,7 @@ async function transcribeGemini(cfg: ModelConfig, prompt: string, audio: AudioIn
   // Blocked or truncated responses land here too (candidate, no parts), which
   // is what `finishReason`/`blockReason` are for.
   if (!Array.isArray(parts)) {
-    noContent("gemini", "transcribe", {
+    noContent(cfg.provider, "transcribe", {
       finishReason: candidate?.finishReason ?? null,
       blockReason: json.promptFeedback?.blockReason ?? null,
     });
@@ -568,6 +693,17 @@ async function transcribeOpenAI(cfg: ModelConfig, prompt: string, audio: AudioIn
   // As with Gemini: an empty transcript means "no speech", not "call failed".
   if (typeof json.text !== "string") noContent("openai", "transcribe");
   return { text: json.text, usage: openAiTranscriptionUsage(json) };
+}
+
+/**
+ * The recording's MIME type as Google documents it. We accept the `x-`
+ * spellings some recorders produce; Vertex's supported list has only
+ * `audio/wav` and `audio/m4a`. It took `audio/x-wav` anyway when tried
+ * (2026-10-18), but the list is the contract. Everything else we accept is on
+ * it as-is.
+ */
+function geminiAudioMime(mimeType: string): string {
+  return mimeType === "audio/x-wav" ? "audio/wav" : mimeType === "audio/x-m4a" ? "audio/m4a" : mimeType;
 }
 
 /**
@@ -632,9 +768,9 @@ export async function transcribeProviderWithUsage(
     throw aiUnavailable();
   }
   try {
-    return cfg.provider === "gemini"
-      ? await transcribeGemini(cfg, prompt, audio)
-      : await transcribeOpenAI(cfg, prompt, audio);
+    return cfg.provider === "openai"
+      ? await transcribeOpenAI(cfg, prompt, audio)
+      : await transcribeGemini(cfg, prompt, audio);
   } catch (err) {
     if (err instanceof ApiError) throw err;
     logger.error(`AI transcribe request errored: ${describeError(err)}`, {
@@ -657,9 +793,9 @@ export type ChatTurn = { role: "user" | "assistant"; content: string };
 
 /*
  * No output ceiling for an answer: a ceiling cuts the reply off mid-sentence,
- * and on thinking models (Gemini 3.x — no thinking config is sent, since 3.x
- * rejects the 2.5-era `thinkingBudget`) the reasoning draws from that same
- * budget, so a hard question could spend it before the answer starts. Length is
+ * and on thinking models (Gemini 3.x, at their default level unless the entry
+ * sets one) the reasoning draws from that same budget, so a hard question
+ * could spend it before the answer starts. Length is
  * the system prompt's job instead ("keep it short", `buildChatSystemPrompt`).
  * Gemini and OpenAI-shaped hosts then use the model's own maximum.
  */
@@ -685,10 +821,15 @@ const CHAT_TEMPERATURE = 0.2;
  */
 const CHAT_TIMEOUT_MS = 90_000;
 
+/**
+ * Earlier answers go back as plain text parts, without the thought signatures
+ * Gemini 3 attached to them — we store the answer, not the raw reply. Google
+ * enforces signatures only on function calls; on text it's a quality hint, and
+ * a missing one is never a 400.
+ */
 async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): Promise<ProviderReply> {
-  const base = cfg.baseUrl || "https://generativelanguage.googleapis.com/v1beta";
   const json = (await post(
-    `${base.replace(/\/$/, "")}/models/${cfg.model}:generateContent`,
+    geminiUrl(cfg),
     { "x-goog-api-key": cfg.apiKey },
     {
       systemInstruction: { parts: [{ text: system }] },
@@ -699,9 +840,10 @@ async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): 
       generationConfig: {
         responseMimeType: "text/plain",
         temperature: CHAT_TEMPERATURE,
+        thinkingConfig: geminiThinking(cfg, "chat"),
       },
     },
-    "gemini",
+    cfg.provider,
     "chat",
     CHAT_TIMEOUT_MS,
   )) as GeminiResponse;
@@ -709,7 +851,7 @@ async function chatGemini(cfg: ModelConfig, system: string, turns: ChatTurn[]): 
   const candidate = json.candidates?.[0];
   const text = (candidate?.content?.parts ?? []).map((p) => p.text ?? "").join("");
   if (!text.trim()) {
-    noContent("gemini", "chat", {
+    noContent(cfg.provider, "chat", {
       finishReason: candidate?.finishReason ?? null,
       blockReason: json.promptFeedback?.blockReason ?? null,
     });
@@ -783,6 +925,7 @@ export async function chatProviderWithUsage(
         return await chatOpenAI(cfg, system, turns);
       case "anthropic":
         return await chatAnthropic(cfg, system, turns);
+      case "vertex":
       case "gemini":
         return await chatGemini(cfg, system, turns);
     }
