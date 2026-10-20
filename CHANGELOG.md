@@ -18,6 +18,19 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ## [Unreleased]
 
+## [0.48.1] — 2026-10-19
+
+### Changed
+- **Chat names use the whole row in SpendChat AI.** The chat list no longer
+  keeps an empty gap on the right of every name for the ⋯ menu. With a mouse,
+  the ⋯ button appears when you hover a chat and the end of the name fades
+  under it. On a touch screen it stays visible, as before.
+- **Tags and description are easier to edit on AI drafts.** On each reviewed
+  draft, tags are now a dropdown field. It shows as many tag names as fit, then
+  "+1", "+2" for the rest, and replaces the separate "#" button. The description
+  is a full-width input that's always there, in a lighter style since it's
+  optional, so you no longer click a line of text first to edit it.
+
 ## [0.48.0] — 2026-10-18
 
 ### Changed

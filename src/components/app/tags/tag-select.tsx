@@ -14,6 +14,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 import type { TxnTagDTO } from "@/lib/tags";
 import { cn } from "@/lib/utils";
+import { FittedTagList } from "./fitted-tag-list";
 import { TagChip } from "./tag-chip";
 import { TagFormDialog } from "./tag-form-dialog";
 import { useCreatedTags } from "./use-created-tags";
@@ -46,6 +47,7 @@ export function TagSelect({
   align = "start",
   max = TAGS_PER_TRANSACTION_MAX,
   compact = false,
+  field = false,
   showCount = true,
   open,
   onOpenChange,
@@ -78,6 +80,10 @@ export function TagSelect({
   /** Icon-only trigger with a count — for the composer's control strip, where
    *  a full-width control would crowd out the date and profile beside it. */
   compact?: boolean;
+  /** A trigger shaped like the Select beside it — "#", then as many chips as
+   *  its width holds and a "+N" for the rest — for the AI review rows, where
+   *  the tags share a narrow corner and a fixed two chips would overflow it. */
+  field?: boolean;
   /** Controlled open state, so something else on screen can open this menu —
    *  the composer's "+N" tag overflow does. */
   open?: boolean;
@@ -122,6 +128,31 @@ export function TagSelect({
                 </span>
               ) : null}
             </Button>
+          ) : field ? (
+            // The SelectTrigger's own look, so it reads as one more field in
+            // the row rather than a button. `FittedTagList` measures, so the
+            // count takes over exactly when the next chip wouldn't fit.
+            <button
+              type="button"
+              // The names, not a count: chips the field folds into "+N" are
+              // otherwise unreadable without a mouse to hover them.
+              aria-label={selected.length ? `Tags: ${selected.map((t) => t.name).join(", ")}` : "Tags"}
+              className={cn(
+                "flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-input bg-transparent pr-2 pl-2 text-sm whitespace-nowrap transition-colors outline-none select-none",
+                "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:border-ring dark:bg-input/30 dark:hover:bg-input/50",
+                className,
+              )}
+            >
+              <Hash className="size-3.5 shrink-0 text-muted-foreground" />
+              {selected.length === 0 ? (
+                <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
+                  {placeholder}
+                </span>
+              ) : (
+                <FittedTagList tags={selected} chipClassName="text-xs" className="flex-1" />
+              )}
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+            </button>
           ) : (
           <Button
             type="button"

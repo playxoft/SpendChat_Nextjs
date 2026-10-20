@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import {
   ArrowUp,
-  CornerDownRight,
   Loader2,
   Pencil,
   Plus,
@@ -69,7 +68,6 @@ import {
   type TxnTagDTO,
 } from "@/lib/tags";
 import { TagChip } from "./tags/tag-chip";
-import { TagsInField } from "./tags/tags-in-field";
 import { TagSelect } from "./tags/tag-select";
 import { TagFormDialog } from "./tags/tag-form-dialog";
 import { TagEditorDialog } from "./tags/tag-editor-dialog";
@@ -99,88 +97,6 @@ type Row = {
   tagIds: string[];
   occurredOn: string;
 };
-
-/**
- * The review row's description, on its own 2nd line under the title column. Reads
- * as plain muted text (or a faint prompt when empty) and turns into an input on
- * click — so a description is editable without adding a permanent field that
- * would crowd the fixed columns. Enter/Escape or blur commits.
- */
-function DescriptionCell({
-  value,
-  onChange,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const ref = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    if (editing) ref.current?.focus();
-  }, [editing]);
-
-  // The ↵-style corner arrow marks this line as the title's description (it
-  // points down-and-into the text on its right).
-  const marker = (
-    <CornerDownRight
-      className="size-3.5 shrink-0 text-muted-foreground"
-      aria-hidden
-    />
-  );
-
-  if (editing) {
-    return (
-      <div className="col-span-3 col-start-3 flex min-w-0 items-center gap-1.5">
-        {marker}
-        <Input
-          ref={ref}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onBlur={() => setEditing(false)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === "Escape") {
-              e.preventDefault();
-              setEditing(false);
-            }
-          }}
-          placeholder="Add a description"
-          aria-label="Description"
-          maxLength={DESCRIPTION_MAX}
-          className="h-7 flex-1 text-sm"
-        />
-      </div>
-    );
-  }
-  return (
-    <div className="col-span-3 col-start-3 flex min-w-0 items-center gap-1.5">
-      {marker}
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        title="Click to edit the description"
-        // No flex-1: the text sizes to its content (truncating only when it runs
-        // out of room), so the pencil sits right after the last letter rather
-        // than pinned to the cell's far edge.
-        className="min-w-0 truncate text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
-      >
-        {value.trim() || (
-          <span className="italic opacity-70">Add a description</span>
-        )}
-      </button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="icon-sm"
-        aria-label="Edit description"
-        title="Edit description"
-        onClick={() => setEditing(true)}
-        className="size-6 shrink-0"
-      >
-        <Pencil className="size-3.5" />
-      </Button>
-    </div>
-  );
-}
 
 /**
  * The pane's switch lock, stated once for both of the branches below.
@@ -377,17 +293,14 @@ export function AiTransactionInput({
   // while the review list is open, where a name would quietly stop matching and
   // the row would save without the tag it is showing. Names are crossed to ids
   // exactly once, in `handleParse`, against the list the server resolved with.
-  // This resolves ids the other way only to *render* them.
+  // Each row's tag field resolves ids the other way (against `knownTags`) only
+  // to *render* them.
   //
   // Which sets an invariant: what is saved and what is on screen are now two
   // lookups, not one. An id `knownTags` can't resolve draws no chip but is
   // still written, so nothing may drop entries from the known set while `rows`
   // is non-null — in practice, don't call `createdTags.reset()` here (nothing
   // does).
-  const tagsOf = (ids: string[]) =>
-    ids.map((id) => knownTags.find((t) => t.id === id)).filter((t): t is TxnTagDTO => !!t);
-  // Which row's "#" menu is open, so a row's "+N" overflow can open its own.
-  const [openTagRow, setOpenTagRow] = useState<number | null>(null);
   const {
     results: tagResults,
     creatable: tagCreatable,
@@ -1381,42 +1294,31 @@ export function AiTransactionInput({
                     Editable, not read-only: the model infers tags as well as
                     reading "#" markers, so the review is where a wrong guess
                     gets dropped — and re-parsing to fix one tag costs a model
-                    call and re-does every other edit on the list. */}
-                <div className="col-span-2 col-start-1 flex min-w-0 items-center gap-1">
-                  <TagSelect
-                    compact
-                    // The type toggle's height, so the "#" sits under it as one
-                    // more control in the row's left column. The count badge is
-                    // off because the chips beside it already say it.
-                    className="size-7"
-                    showCount={false}
-                    tags={knownTags}
-                    value={r.tagIds}
-                    onChange={(ids) => patch(r.key, { tagIds: ids })}
-                    onCreated={createdTags.add}
-                    canCreate
-                    align="start"
-                    open={openTagRow === r.key}
-                    onOpenChange={(o) => setOpenTagRow(o ? r.key : null)}
-                  />
-                  <TagsInField
-                    visible={1}
-                    tags={tagsOf(r.tagIds)}
-                    onRemove={(id) =>
-                      patch(r.key, { tagIds: r.tagIds.filter((t) => t !== id) })
-                    }
-                    onOverflowClick={() => setOpenTagRow(r.key)}
-                    // The "#" button's height (size-7), so the chips line up
-                    // with it instead of floating as small pills beside it.
-                    chipClassName="h-7"
-                    className="min-w-0"
-                  />
-                </div>
-                {/* Description on its own line, aligned under the title column —
-                    click-to-edit so it can be added or fixed after the parse. */}
-                <DescriptionCell
+                    call and re-does every other edit on the list. A field, not
+                    a "#" button and chips: the whole corner is the trigger, and
+                    it shows as many tag names as fit before counting. */}
+                <TagSelect
+                  field
+                  placeholder="Tags"
+                  className="col-span-2 col-start-1 h-7 w-full"
+                  tags={knownTags}
+                  value={r.tagIds}
+                  onChange={(ids) => patch(r.key, { tagIds: ids })}
+                  onCreated={createdTags.add}
+                  canCreate
+                  align="start"
+                />
+                {/* Description on its own line under the title, to the row's
+                    end. Always an input, so adding one is a click like any
+                    other field; quieter than the fields above, since it's
+                    optional and the model usually leaves it empty. */}
+                <Input
                   value={r.description}
-                  onChange={(v) => patch(r.key, { description: v })}
+                  onChange={(e) => patch(r.key, { description: e.target.value })}
+                  placeholder="Add a description"
+                  aria-label="Description"
+                  maxLength={DESCRIPTION_MAX}
+                  className="col-span-4 col-start-3 h-7 w-full border-input/50 text-muted-foreground placeholder:text-muted-foreground/60 focus-visible:text-foreground dark:bg-input/15"
                 />
               </div>
             );
