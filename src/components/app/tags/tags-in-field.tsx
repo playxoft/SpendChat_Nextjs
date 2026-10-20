@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 import { TagChip } from "./tag-chip";
 
 /**
- * Chips that fit beside real text before the count takes over. Two is what the
- * composer's full-width title field holds; a narrower field passes its own.
+ * Chips that fit beside real text before the count takes over — what the
+ * composer's full-width title field holds.
  */
-export const TAGS_IN_FIELD = 2;
+const TAGS_IN_FIELD = 2;
 
 /**
  * The tags on a transaction, rendered at the end of the field they belong to.
@@ -32,7 +32,6 @@ export function TagsInField({
   tags,
   onRemove,
   onOverflowClick,
-  visible = TAGS_IN_FIELD,
   chipClassName,
   className,
 }: {
@@ -42,9 +41,6 @@ export function TagsInField({
   onRemove?: (id: string) => void;
   /** Omit and the overflow count renders as plain text instead of a button. */
   onOverflowClick?: () => void;
-  /** How many chips to show before folding the rest into "+N" — for a field
-   *  narrower than the composer's. */
-  visible?: number;
   /** Merged into each chip; the "+N" stays plain text. The composer passes a
    *  height — the 28px of the paperclip beside the chips — so the chips read
    *  as controls, not small labels. */
@@ -52,12 +48,12 @@ export function TagsInField({
   className?: string;
 }) {
   if (tags.length === 0) return null;
-  const hidden = tags.slice(visible);
+  const hidden = tags.slice(TAGS_IN_FIELD);
   const hiddenNames = hidden.map((t) => t.name).join(", ");
 
   return (
     <span className={cn("flex shrink-0 items-center gap-1", className)}>
-      {tags.slice(0, visible).map((t) => (
+      {tags.slice(0, TAGS_IN_FIELD).map((t) => (
         <TagChip
           key={t.id}
           tag={t}
