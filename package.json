@@ -103,7 +103,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.8",
+    "@electric-sql/pglite": "^0.5.10",
     "@neondatabase/serverless": "^1.2.0",
     "@tailwindcss/cli": "4.3.3",
     "@tailwindcss/postcss": "^4",
@@ -115,7 +115,7 @@
     "drizzle-kit": "^0.31.11",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
-    "shadcn": "^4.21.4",
+    "shadcn": "^4.22.0",
     "tailwindcss": "^4",
     "typescript": "^5",
     "vitest": "^5",
