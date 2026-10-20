@@ -14,14 +14,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { TAGS_PER_TRANSACTION_MAX } from "@/lib/validation";
 import type { TxnTagDTO } from "@/lib/tags";
 import { cn } from "@/lib/utils";
+import { FittedTagList } from "./fitted-tag-list";
 import { TagChip } from "./tag-chip";
 import { TagFormDialog } from "./tag-form-dialog";
 import { useCreatedTags } from "./use-created-tags";
 import { LimitTooltip, LockGlyph, useAddLock } from "../limit-lock";
 
 /**
- * Pick several tags from the workspace's list — the transactions page's filter
- * and the edit dialog's tag field are the same control with different labels.
+ * Pick several tags from the workspace's list — the transactions page's filter,
+ * the edit dialog's tag field, the composer's "#" and the AI review rows' tag
+ * field are the same control with different triggers.
  *
  * A `DropdownMenu` rather than a `Popover`, for the reason the vault's picker
  * already documents: it dismisses on any outside click, including while nested
@@ -46,6 +48,7 @@ export function TagSelect({
   align = "start",
   max = TAGS_PER_TRANSACTION_MAX,
   compact = false,
+  field = false,
   showCount = true,
   open,
   onOpenChange,
@@ -78,6 +81,10 @@ export function TagSelect({
   /** Icon-only trigger with a count — for the composer's control strip, where
    *  a full-width control would crowd out the date and profile beside it. */
   compact?: boolean;
+  /** A trigger shaped like the Select beside it — "#", then as many chips as
+   *  its width holds and a "+N" for the rest — for the AI review rows, where
+   *  the tags share a narrow corner and a fixed two chips would overflow it. */
+  field?: boolean;
   /** Controlled open state, so something else on screen can open this menu —
    *  the composer's "+N" tag overflow does. */
   open?: boolean;
@@ -122,6 +129,40 @@ export function TagSelect({
                 </span>
               ) : null}
             </Button>
+          ) : field ? (
+            // The SelectTrigger's own look, so it reads as one more field in
+            // the row rather than a button. `FittedTagList` measures, so the
+            // count takes over exactly when the next chip wouldn't fit.
+            //
+            // `contain-inline-size`: the field takes its width from where it
+            // is placed, never from its chips. In the AI rows it spans an
+            // `auto` grid column, which shown chips would otherwise widen —
+            // shifting that row's columns off the rows around it, and breaking
+            // the rule `FittedTagList` measures by.
+            <button
+              type="button"
+              // The names, not a count: chips the field folds into "+N" are
+              // otherwise unreadable without a mouse to hover them.
+              aria-label={selected.length ? `Tags: ${selected.map((t) => t.name).join(", ")}` : "Tags"}
+              className={cn(
+                "flex h-8 min-w-0 items-center gap-1.5 rounded-lg border border-input bg-transparent pr-2 pl-2 text-sm whitespace-nowrap transition-colors outline-none select-none contain-inline-size",
+                "focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 data-[state=open]:border-ring dark:bg-input/30 dark:hover:bg-input/50",
+                className,
+              )}
+            >
+              <Hash className="size-3.5 shrink-0 text-muted-foreground" />
+              {selected.length === 0 ? (
+                <span className="min-w-0 flex-1 truncate text-left text-muted-foreground">
+                  {placeholder}
+                </span>
+              ) : (
+                // `max-w-20`: a chip narrower than the room beside the "+N",
+                // so a long first name truncates instead of the field showing
+                // only a count.
+                <FittedTagList tags={selected} chipClassName="max-w-20 text-xs" className="flex-1" />
+              )}
+              <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
+            </button>
           ) : (
           <Button
             type="button"

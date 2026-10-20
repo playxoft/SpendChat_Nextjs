@@ -831,8 +831,8 @@ export function TransactionComposer({
       // Opens the same picker the "#" button does, so the overflow is a way in
       // rather than a dead label.
       onOverflowClick={() => setTagMenuOpen(true)}
-      // The paperclip's height (size-7), the same as the AI review rows, so a
-      // picked tag reads as a control in the field rather than a small label.
+      // The paperclip's height (size-7), so a picked tag reads as a control in
+      // the field rather than a small label.
       chipClassName="h-7"
     />
   );

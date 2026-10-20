@@ -190,10 +190,10 @@ describe("resolveTranscribeModel — its own entry, independent of parsing", () 
     expect(caught(() => resolveTranscribeModel()).status).toBe(503);
   });
 
-  it("infers gemini from the model id", () => {
+  it("infers Vertex from a Gemini model id", () => {
     setModel({ model_id: "gemini-3.5-flash-lite", api_key: "k" });
     expect(resolveTranscribeModel()).toMatchObject({
-      provider: "gemini",
+      provider: "vertex",
       model: "gemini-3.5-flash-lite",
       apiKey: "k",
     });
@@ -283,6 +283,22 @@ describe("transcribeVoiceNote — provider wiring", () => {
     expect(parts[0].text).toContain("Tamil and English");
     // 3.x rejects the old thinking field outright — it must not be sent.
     expect(body.generationConfig.thinkingConfig).toBeUndefined();
+  });
+
+  it("names a recording's type the way Google lists it", async () => {
+    setModel({ model_id: "gemini-3.1-flash-lite", api_key: "k" });
+    const typeSent = async (mimeType: string) => {
+      const fetchMock = geminiOk("200 fruits");
+      vi.stubGlobal("fetch", fetchMock);
+      await transcribeVoiceNote({ ...OPTS, audio: { bytes: AUDIO, mimeType } });
+      const [url, init] = fetchMock.mock.calls[0]!;
+      expect(url).toContain("aiplatform.googleapis.com");
+      return JSON.parse((init as { body: string }).body).contents[0].parts[1].inlineData.mimeType;
+    };
+    // Vertex lists audio/wav and audio/m4a, not the x- spellings recorders use.
+    expect(await typeSent("audio/x-wav")).toBe("audio/wav");
+    expect(await typeSent("audio/x-m4a")).toBe("audio/m4a");
+    expect(await typeSent("audio/ogg;codecs=opus")).toBe("audio/ogg");
   });
 
   it("uploads multipart to an OpenAI-shaped host and reads back .text", async () => {

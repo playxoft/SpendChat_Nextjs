@@ -40,6 +40,24 @@ import type { ChatSummary } from "@/services/ai-chat";
 import { ASK_PATH, askHref } from "./ask-paths";
 
 /**
+ * While a row's menu button shows (hover, keyboard focus, or its menu open), the
+ * title's last letters fade out under it instead of the row keeping a permanent
+ * gap on the right for a button that's usually hidden. A mask, not a background
+ * on the button: the row's hover fill is translucent, so no solid color would
+ * match it. Spelled out in full three times because Tailwind only generates
+ * classes it finds whole in the source.
+ *
+ * Keyboard focus (`:focus-visible`), not any focus: a clicked link keeps focus
+ * after the chat opens, and `focus-within` would leave that row faded with its
+ * button up until you clicked somewhere else.
+ */
+const TITLE_FADE = cn(
+  "mouse:group-hover/chat:[mask-image:linear-gradient(to_right,black_calc(100%-3.5rem),transparent_calc(100%-2.25rem))]",
+  "mouse:group-has-[:focus-visible]/chat:[mask-image:linear-gradient(to_right,black_calc(100%-3.5rem),transparent_calc(100%-2.25rem))]",
+  "mouse:group-has-[[data-state=open]]/chat:[mask-image:linear-gradient(to_right,black_calc(100%-3.5rem),transparent_calc(100%-2.25rem))]",
+);
+
+/**
  * The person's SpendChat AI chats in this workspace, newest first, with "New
  * chat" on top — the desktop panel beside the sidebar and the phone's sheet
  * both render this. Each row's menu renames or deletes; a deleted open chat leaves you on a
@@ -121,14 +139,19 @@ export function ChatList({
                       aria-current={active ? "page" : undefined}
                       title={chat.title}
                       className={cn(
-                        "flex h-9 items-center rounded-lg pr-10 pl-3 text-sm outline-none transition-colors",
+                        // The title runs the row's full width with a mouse; the
+                        // gap for the menu button is kept wherever there's a
+                        // touchscreen, where the button is always showing.
+                        "flex h-9 items-center rounded-lg pr-10 pl-3 text-sm outline-none transition-colors mouse:pr-3",
                         "focus-visible:ring-2 focus-visible:ring-ring/50",
                         active
                           ? "bg-accent font-medium text-accent-foreground"
                           : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
                       )}
                     >
-                      <span className="min-w-0 truncate">{chat.title}</span>
+                      {/* `flex-1` so the fade is measured from the row's edge, not
+                          the end of a short title. */}
+                      <span className={cn("min-w-0 flex-1 truncate", TITLE_FADE)}>{chat.title}</span>
                     </Link>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -138,10 +161,12 @@ export function ChatList({
                           aria-label={`Options for “${chat.title}”`}
                           className={cn(
                             "absolute top-1/2 right-1 -translate-y-1/2 text-muted-foreground hover:bg-background/70 hover:text-foreground data-[state=open]:bg-background/70 data-[state=open]:text-foreground",
-                            // Always there on touch screens and on the open
-                            // chat; elsewhere with a mouse, on hover or focus.
-                            !active &&
-                              "md:opacity-0 md:group-focus-within/chat:opacity-100 md:group-hover/chat:opacity-100 md:data-[state=open]:opacity-100",
+                            // Always there with a touchscreen (a tap can't
+                            // hover, and an invisible button would catch taps
+                            // meant for the chat); with only a mouse, on hover
+                            // or keyboard focus — the open chat included, so
+                            // its title isn't cut short either.
+                            "mouse:opacity-0 mouse:group-has-[:focus-visible]/chat:opacity-100 mouse:group-hover/chat:opacity-100 mouse:data-[state=open]:opacity-100",
                           )}
                         >
                           <MoreHorizontal className="size-4" />

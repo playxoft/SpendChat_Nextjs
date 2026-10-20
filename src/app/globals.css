@@ -4,6 +4,17 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* A mouse or trackpad and no touchscreen at all — where a control may wait for
+   hover. `pointer-fine` alone isn't that: a touchscreen laptop reports its
+   trackpad as the primary pointer, and a tap can't hover. */
+@custom-variant mouse {
+  @media (pointer: fine) {
+    @media not all and (any-pointer: coarse) {
+      @slot;
+    }
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

@@ -6,10 +6,10 @@ import { cn } from "@/lib/utils";
 import { TagChip } from "./tag-chip";
 
 /**
- * Chips that fit beside real text before the count takes over. Two is what the
- * composer's full-width title field holds; a narrower field passes its own.
+ * Chips that fit beside real text before the count takes over — what the
+ * composer's full-width title field holds.
  */
-export const TAGS_IN_FIELD = 2;
+const TAGS_IN_FIELD = 2;
 
 /**
  * The tags on a transaction, rendered at the end of the field they belong to.
@@ -24,15 +24,14 @@ export const TAGS_IN_FIELD = 2;
  * tags it hides are still reachable — it opens the same picker the "#" button
  * does, which is what `onOverflowClick` is for.
  *
- * Shared by the manual composer (inside its title field) and the AI review
- * rows (in the corner under each row's type toggle, beside the "#" button) —
- * the second caller is where this stopped being worth writing twice.
+ * Used by the manual composer, inside its title field. The AI review rows used
+ * it too until 0.48.1, when their tags became a field of their own (`TagSelect`
+ * with `field`), which fits chips to its width instead of a fixed count.
  */
 export function TagsInField({
   tags,
   onRemove,
   onOverflowClick,
-  visible = TAGS_IN_FIELD,
   chipClassName,
   className,
 }: {
@@ -42,23 +41,19 @@ export function TagsInField({
   onRemove?: (id: string) => void;
   /** Omit and the overflow count renders as plain text instead of a button. */
   onOverflowClick?: () => void;
-  /** How many chips to show before folding the rest into "+N". The AI review
-   *  rows pass 1: their tag corner is only as wide as the type toggle and the
-   *  amount above it, and a second chip would run under the description. */
-  visible?: number;
-  /** Merged into each chip; the "+N" stays plain text. Both callers pass a
-   *  height — the 28px of the button beside the chips (the AI rows' "#", the
-   *  composer's paperclip) — so the chips read as controls, not small labels. */
+  /** Merged into each chip; the "+N" stays plain text. The composer passes a
+   *  height — the 28px of the paperclip beside the chips — so the chips read
+   *  as controls, not small labels. */
   chipClassName?: string;
   className?: string;
 }) {
   if (tags.length === 0) return null;
-  const hidden = tags.slice(visible);
+  const hidden = tags.slice(TAGS_IN_FIELD);
   const hiddenNames = hidden.map((t) => t.name).join(", ");
 
   return (
     <span className={cn("flex shrink-0 items-center gap-1", className)}>
-      {tags.slice(0, visible).map((t) => (
+      {tags.slice(0, TAGS_IN_FIELD).map((t) => (
         <TagChip
           key={t.id}
           tag={t}

@@ -14,8 +14,9 @@ const COUNTER =
 /**
  * One line of tag chips that shows as many as fit and folds the rest into a
  * "+N" counter; hovering the chips lists every tag. Used by the feed bubble's
- * footer, where the tags share a row with the category, and by the
- * transactions table's Tags column, whose width the user sets by dragging.
+ * footer, where the tags share a row with the category, by the transactions
+ * table's Tags column, whose width the user sets by dragging, and inside the AI
+ * review rows' tag field (`TagSelect` with `field`).
  *
  * Neither surface has a fixed number of chips' worth of room — a bubble's
  * depends on its category name, its time label and the screen, and a table
@@ -38,7 +39,9 @@ export function FittedTagList({
   tags: (ChipTag & { id?: string })[];
   className?: string;
   /** Applied to every chip, including the ones in the tooltip and the hidden
-   *  measuring copy — they must match, or the measurement is of other chips. */
+   *  measuring copy — they must match, or the measurement is of other chips.
+   *  The tooltip's drop any max width, so a name clipped in the row reads in
+   *  full there. */
   chipClassName?: string;
 }) {
   const boxRef = useRef<HTMLSpanElement>(null);
@@ -124,7 +127,7 @@ export function FittedTagList({
         <TooltipContent side="top" sideOffset={6}>
           <span className="flex max-w-64 flex-wrap gap-1 py-0.5">
             {tags.map((t) => (
-              <TagChip key={t.id ?? t.name} tag={t} className={chipClassName} />
+              <TagChip key={t.id ?? t.name} tag={t} className={cn(chipClassName, "max-w-none")} />
             ))}
           </span>
         </TooltipContent>

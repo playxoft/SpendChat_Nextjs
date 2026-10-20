@@ -343,8 +343,8 @@ describe("resolveModel — the shared model list + parse's current entry, no mod
     vi.stubEnv("AI_MODEL_LIST", JSON.stringify({ shared: { model_id: "gemini-x", api_key: "k" } }));
     vi.stubEnv("AI_PARSE_MODEL_CURRENT", "shared");
     vi.stubEnv("AI_CHAT_MODEL_CURRENT", "shared");
-    expect(resolveModel()).toMatchObject({ provider: "gemini", model: "gemini-x" });
-    expect(resolveModelFromEnv("chat")).toMatchObject({ provider: "gemini", model: "gemini-x" });
+    expect(resolveModel()).toMatchObject({ provider: "vertex", model: "gemini-x" });
+    expect(resolveModelFromEnv("chat")).toMatchObject({ provider: "vertex", model: "gemini-x" });
   });
 
   it("throws 503 when the list isn't a JSON object", () => {
@@ -369,9 +369,9 @@ describe("resolveModel — the shared model list + parse's current entry, no mod
     expect(caught(() => resolveModel()).status).toBe(503);
   });
 
-  it("infers the provider from the model id", () => {
+  it("infers the provider from the model id — Gemini through Vertex", () => {
     setModel({ model_id: "gemini-2.5-flash", api_key: "k" });
-    expect(resolveModel()).toMatchObject({ provider: "gemini", model: "gemini-2.5-flash", apiKey: "k" });
+    expect(resolveModel()).toMatchObject({ provider: "vertex", model: "gemini-2.5-flash", apiKey: "k" });
     setModel({ model_id: "claude-haiku-4-5", api_key: "k" });
     expect(resolveModel().provider).toBe("anthropic");
     setModel({ model_id: "gpt-5.4-nano", api_key: "k" });
@@ -395,9 +395,59 @@ describe("resolveModel — the shared model list + parse's current entry, no mod
     expect(caught(() => resolveModel()).status).toBe(503);
   });
 
+  it("still reaches the Gemini API when an entry names it", () => {
+    setModel({ model_id: "gemini-x", api_key: "k", provider: "gemini" });
+    expect(resolveModel().provider).toBe("gemini");
+  });
+
+  it("carries Vertex's project, location and a Gemini thinking level", () => {
+    setModel({
+      model_id: "gemini-x",
+      api_key: "k",
+      project_id: "spendchat-prod",
+      location: "US-Central1",
+      thinking_level: "low",
+    });
+    expect(resolveModel()).toMatchObject({
+      provider: "vertex",
+      projectId: "spendchat-prod",
+      location: "us-central1",
+      thinkingLevel: "LOW",
+    });
+    setModel({ model_id: "gemini-x", api_key: "k", projectId: "spendchat-prod", thinkingLevel: "MINIMAL" });
+    expect(resolveModel()).toMatchObject({ projectId: "spendchat-prod", thinkingLevel: "MINIMAL" });
+    // The global endpoint needs no project: the key's own is used.
+    setModel({ model_id: "gemini-x", api_key: "k", location: "global" });
+    expect(resolveModel()).toMatchObject({ location: "global", projectId: undefined });
+    // A thinking level on the Gemini API is fine too.
+    setModel({ model_id: "gemini-x", api_key: "k", provider: "gemini", thinking_level: "high" });
+    expect(resolveModel()).toMatchObject({ provider: "gemini", thinkingLevel: "HIGH" });
+  });
+
+  it("throws 503 for Google fields it can't use as given", () => {
+    // Vertex-only fields on another provider.
+    setModel({ model_id: "gpt-x", api_key: "k", project_id: "spendchat-prod" });
+    expect(caught(() => resolveModel()).status).toBe(503);
+    setModel({ model_id: "gemini-x", api_key: "k", provider: "gemini", location: "global" });
+    expect(caught(() => resolveModel()).status).toBe(503);
+    // Shapes that would end up in the URL.
+    setModel({ model_id: "gemini-x", api_key: "k", project_id: "Spend/Chat" });
+    expect(caught(() => resolveModel()).status).toBe(503);
+    setModel({ model_id: "gemini-x", api_key: "k", project_id: "spendchat-prod", location: "us/../x" });
+    expect(caught(() => resolveModel()).status).toBe(503);
+    // A region needs a project — without one only the global endpoint serves.
+    setModel({ model_id: "gemini-x", api_key: "k", location: "us-central1" });
+    expect(caught(() => resolveModel()).status).toBe(503);
+    // A thinking level only a Gemini model takes, and only a real one.
+    setModel({ model_id: "claude-x", api_key: "k", thinking_level: "low" });
+    expect(caught(() => resolveModel()).status).toBe(503);
+    setModel({ model_id: "gemini-x", api_key: "k", thinking_level: "extreme" });
+    expect(caught(() => resolveModel()).status).toBe(503);
+  });
+
   it("accepts camelCase field aliases (model / apiKey / baseUrl)", () => {
     setModel({ model: "gemini-x", apiKey: "k", baseUrl: "https://example.test" });
-    expect(resolveModel()).toMatchObject({ provider: "gemini", model: "gemini-x", apiKey: "k", baseUrl: "https://example.test" });
+    expect(resolveModel()).toMatchObject({ provider: "vertex", model: "gemini-x", apiKey: "k", baseUrl: "https://example.test" });
   });
 });
 
@@ -451,17 +501,159 @@ describe("parseTransactionsText — provider wiring", () => {
     await expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({ status: 503 });
   });
 
-  it("calls Gemini and returns validated drafts", async () => {
+  /** The URL, headers and parsed body of the nth request a fetch mock saw. */
+  const sent = (fetchMock: ReturnType<typeof vi.fn>, n = 0) => {
+    const [url, init] = fetchMock.mock.calls[n] as unknown as [string, { headers: Record<string, string>; body: string }];
+    return { url, headers: init.headers, body: JSON.parse(init.body) };
+  };
+
+  it("calls Gemini through Vertex AI and returns validated drafts", async () => {
     setModel({ model_id: "gemini-x", api_key: "k" });
     const fetchMock = geminiOk();
     vi.stubGlobal("fetch", fetchMock);
 
     const drafts = await parseTransactionsText({ ...OPTS, text: "200 fruits" });
     expect(drafts[0]).toMatchObject({ amount: 200, title: "Fruits", categoryName: "Groceries" });
-    expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("generativelanguage.googleapis.com"),
-      expect.anything(),
+    const { url, headers } = sent(fetchMock);
+    // No project: the key's own, on the global endpoint.
+    expect(url).toBe("https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-x:generateContent");
+    expect(headers["x-goog-api-key"]).toBe("k");
+  });
+
+  it("puts a Vertex project and location in the path, on the host that serves it", async () => {
+    const urlFor = async (entry: Record<string, unknown>) => {
+      setModel({ model_id: "gemini-x", api_key: "k", ...entry });
+      const fetchMock = geminiOk();
+      vi.stubGlobal("fetch", fetchMock);
+      await parseTransactionsText({ ...OPTS, text: "200 fruits" });
+      return sent(fetchMock).url;
+    };
+    const model = "publishers/google/models/gemini-x:generateContent";
+    expect(await urlFor({ project_id: "spendchat-prod" })).toBe(
+      `https://aiplatform.googleapis.com/v1/projects/spendchat-prod/locations/global/${model}`,
     );
+    expect(await urlFor({ project_id: "spendchat-prod", location: "us" })).toBe(
+      `https://aiplatform.us.rep.googleapis.com/v1/projects/spendchat-prod/locations/us/${model}`,
+    );
+    expect(await urlFor({ project_id: "spendchat-prod", location: "asia-south1" })).toBe(
+      `https://asia-south1-aiplatform.googleapis.com/v1/projects/spendchat-prod/locations/asia-south1/${model}`,
+    );
+    expect(await urlFor({ base_url: "https://proxy.example/v1/" })).toBe(`https://proxy.example/v1/${model}`);
+  });
+
+  it("calls the Gemini API when an entry names it", async () => {
+    setModel({ model_id: "gemini-x", api_key: "k", provider: "gemini" });
+    const fetchMock = geminiOk();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await parseTransactionsText({ ...OPTS, text: "200 fruits" });
+    const { url, headers } = sent(fetchMock);
+    expect(url).toBe("https://generativelanguage.googleapis.com/v1beta/models/gemini-x:generateContent");
+    expect(headers["x-goog-api-key"]).toBe("k");
+  });
+
+  it("turns thinking off only where the old budget still works, and sends a configured level", async () => {
+    const thinkingFor = async (entry: Record<string, unknown>) => {
+      setModel({ api_key: "k", ...entry });
+      const fetchMock = geminiOk();
+      vi.stubGlobal("fetch", fetchMock);
+      await parseTransactionsText({ ...OPTS, text: "200 fruits" });
+      return sent(fetchMock).body.generationConfig.thinkingConfig;
+    };
+    expect(await thinkingFor({ model_id: "gemini-2.5-flash" })).toEqual({ thinkingBudget: 0 });
+    // Gemini 3 takes a level, not a budget, and 400s on the budget now and then.
+    expect(await thinkingFor({ model_id: "gemini-3.1-flash-lite" })).toBeUndefined();
+    expect(await thinkingFor({ model_id: "gemini-3-flash-preview", thinking_level: "minimal" })).toEqual({
+      thinkingLevel: "MINIMAL",
+    });
+  });
+
+  describe("retries on Vertex's shared capacity", () => {
+    const busy = { ok: false, status: 429, json: async () => ({}), text: async () => '{"error":{"code":429,"status":"RESOURCE_EXHAUSTED"}}' };
+    const ok = { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: okBody }] } }] }), text: async () => "" };
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("retries a 429 after a backoff and returns the answer", async () => {
+      vi.useFakeTimers();
+      setModel({ model_id: "gemini-x", api_key: "k" });
+      const fetchMock = vi.fn().mockResolvedValueOnce(busy).mockResolvedValueOnce(ok);
+      vi.stubGlobal("fetch", fetchMock);
+
+      const parsed = parseTransactionsText({ ...OPTS, text: "200 fruits" });
+      await vi.advanceTimersByTimeAsync(999);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(300);
+      await expect(parsed).resolves.toHaveLength(1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      // The same request, byte for byte.
+      expect(sent(fetchMock, 1).body).toEqual(sent(fetchMock, 0).body);
+    });
+
+    it("gives up after three attempts", async () => {
+      vi.useFakeTimers();
+      setModel({ model_id: "gemini-x", api_key: "k" });
+      const fetchMock = vi.fn().mockResolvedValue({ ...busy, status: 503 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const failed = expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({
+        status: 502,
+      });
+      await vi.advanceTimersByTimeAsync(5_000);
+      await failed;
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("doesn't start a retry the timeout couldn't fit", async () => {
+      vi.useFakeTimers();
+      setModel({ model_id: "gemini-x", api_key: "k" });
+      // The first answer lands 15 s into the 20 s budget: no room for a retry.
+      const fetchMock = vi.fn(() => new Promise((resolve) => setTimeout(() => resolve(busy), 15_000)));
+      vi.stubGlobal("fetch", fetchMock);
+
+      const failed = expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({
+        status: 502,
+      });
+      await vi.advanceTimersByTimeAsync(15_000);
+      await failed;
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps the one timeout across a retry", async () => {
+      vi.useFakeTimers();
+      setModel({ model_id: "gemini-x", api_key: "k" });
+      // A 429 at 13.5 s still leaves room for a retry; the retry then stalls,
+      // and the 20 s timeout counted from the first attempt cuts it off.
+      const fetchMock = vi
+        .fn()
+        .mockImplementationOnce(() => new Promise((resolve) => setTimeout(() => resolve(busy), 13_500)))
+        .mockImplementationOnce(
+          (_url: string, init: { signal: AbortSignal }) =>
+            new Promise((_resolve, reject) =>
+              init.signal.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))),
+            ),
+        );
+      vi.stubGlobal("fetch", fetchMock);
+
+      const failed = expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({
+        status: 502,
+      });
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await failed;
+    });
+
+    it("doesn't retry the Gemini API, whose 429 is a real limit", async () => {
+      setModel({ model_id: "gemini-x", api_key: "k", provider: "gemini" });
+      const fetchMock = vi.fn().mockResolvedValue(busy);
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(parseTransactionsText({ ...OPTS, text: "200 fruits" })).rejects.toMatchObject({ status: 502 });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("calls OpenAI when that provider is selected", async () => {
