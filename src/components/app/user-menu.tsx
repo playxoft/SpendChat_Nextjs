@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
-import { LogOut, Settings as SettingsIcon, Trash2 } from "lucide-react";
+import { Compass, LogOut, Settings as SettingsIcon, Trash2 } from "lucide-react";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -23,6 +23,7 @@ import { PLAN_LIMITS, PLAN_NAMES, type PersonalPlan } from "@/lib/plans";
 import { comboFor } from "@/lib/shortcuts";
 import { hrefWithProfile } from "./nav-items";
 import { PlanBadge } from "./plan-badge";
+import { requestProductTour } from "./product-tour-store";
 import { usePlan } from "./upgrade-dialog";
 
 /** "50 AI actions a month · 1 GB" — what this workspace's plan gives, on one line. */
@@ -34,9 +35,9 @@ function planLine(plan: PersonalPlan): string {
 /**
  * The account menu, top right on every app page: the person's picture (or
  * initial), and under it who's signed in, the current workspace's plan with a
- * way up, then Settings, Trash and Sign out. The plan shown is the
- * *workspace's* — plans are per workspace — read from the layout's
- * `PlanProvider`.
+ * way up, then Settings, Trash, a replay of the product tour and Sign out. The
+ * plan shown is the *workspace's* — plans are per workspace — read from the
+ * layout's `PlanProvider`.
  */
 export function UserMenu({
   email,
@@ -48,6 +49,7 @@ export function UserMenu({
   image: string | null;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const profile = useSearchParams().get("profile");
   const { plan } = usePlan();
   const [pending, startTransition] = useTransition();
@@ -61,6 +63,13 @@ export function UserMenu({
       router.push("/sign-in");
       router.refresh();
     });
+  }
+
+  // The tour lives on the tracker: from anywhere else, go there and it starts
+  // when the page mounts (the request waits for it — see the store).
+  function takeTour() {
+    requestProductTour();
+    if (pathname !== "/app") router.push(hrefWithProfile("/app", profile));
   }
 
   return (
@@ -116,6 +125,9 @@ export function UserMenu({
           <Link href={hrefWithProfile("/app/trash", profile)} className="cursor-pointer">
             <Trash2 className="size-4" /> Trash
           </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem className="cursor-pointer px-2 py-2" onSelect={takeTour}>
+          <Compass className="size-4" /> Take the tour
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem

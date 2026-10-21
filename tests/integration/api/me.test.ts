@@ -23,7 +23,8 @@ describe("GET /api/v1/me", () => {
       name: "user-1",
     });
     // User settings no longer carry currency/locale — only theme + input mode.
-    expect(data.settings.inputMode).toBe("amount_title");
+    // A new account starts on the one-field composer.
+    expect(data.settings.inputMode).toBe("combined");
     expect(data.settings.currency).toBeUndefined();
     // Currency + number format now live on the workspace.
     expect(data.workspace.currency).toBe("USD");

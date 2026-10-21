@@ -9,7 +9,7 @@ export type PersonDraft = { name: string; email: string };
 
 export const EMPTY_PERSON: PersonDraft = { name: "", email: "" };
 
-/** Rows that have something typed in them, trimmed, emails lowercased. */
+/** Rows that have something typed in them, trimmed, emails lowercased ("" = no email). */
 export function filledPeople(rows: PersonDraft[]): PersonDraft[] {
   return rows
     .map((r) => ({ name: r.name.trim(), email: r.email.trim().toLowerCase() }))
@@ -17,8 +17,9 @@ export function filledPeople(rows: PersonDraft[]): PersonDraft[] {
 }
 
 /**
- * Name + email rows for adding people to a split group. The name is what the
- * group sees; the email only the creator sees — it's how the person is invited.
+ * Name + optional email rows for adding people to a split group. The name is
+ * what the group sees; the email only the creator sees — it's how the person
+ * is invited. Without one they're added by name only.
  */
 export function PeopleFields({
   rows,
@@ -46,8 +47,8 @@ export function PeopleFields({
             className="w-2/5"
           />
           <Input
-            aria-label={`Person ${i + 1} email`}
-            placeholder="Email"
+            aria-label={`Person ${i + 1} email (optional)`}
+            placeholder="Email (optional)"
             type="email"
             inputMode="email"
             autoComplete="off"
@@ -66,6 +67,9 @@ export function PeopleFields({
           </Button>
         </div>
       ))}
+      <p className="text-xs text-muted-foreground">
+        An email invites them to see the group. Leave it blank to add them by name only.
+      </p>
       <Button
         type="button"
         variant="outline"

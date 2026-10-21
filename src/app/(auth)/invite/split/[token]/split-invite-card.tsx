@@ -107,7 +107,7 @@ export function SplitInviteCard(props: Props) {
           </Button>
           <p className="text-center text-xs text-muted-foreground">
             Signed in as {currentEmail}. Split groups sit outside your workspaces — find them under
-            Split.
+            Split bills.
           </p>
         </div>
       )}
@@ -144,11 +144,11 @@ export function SplitInviteGone({ signedIn }: { signedIn: boolean }) {
         <h1 className="text-2xl font-semibold tracking-tight">This invite is no longer active</h1>
         <p className="text-sm text-muted-foreground">
           It has already been used, or the person was removed from the group. If you joined, the
-          group is under Split in {siteConfig.name}.
+          group is under Split bills in {siteConfig.name}.
         </p>
       </div>
       <Link href={signedIn ? "/app/split" : "/sign-in"} className={cn(buttonVariants(), "h-10 w-full")}>
-        {signedIn ? "Open Split" : "Sign in"}
+        {signedIn ? "Open Split bills" : "Sign in"}
       </Link>
     </div>
   );

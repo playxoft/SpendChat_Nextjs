@@ -13,7 +13,8 @@ describe("/api/v1/settings", () => {
     const got = await getSettings(apiReq("/api/v1/settings"));
     const settings = (await got.json()).data;
     expect(settings.theme).toBe("system");
-    expect(settings.inputMode).toBe("amount_title");
+    // A new account starts on the one-field composer.
+    expect(settings.inputMode).toBe("combined");
     // Currency/locale are per-workspace now — not in user settings.
     expect(settings.currency).toBeUndefined();
 

@@ -25,7 +25,8 @@ export async function GET(request: NextRequest) {
 
 /**
  * POST /api/v1/split/groups — create a group; the caller becomes its creator.
- * Body: { name, icon?, currency, members?: [{ email, name }] } (≤ 49 people).
+ * Body: { name, icon?, currency, members?: [{ name, email? }] } (≤ 49 people;
+ * no email = added by name only, never invited).
  * 201 → { group: SplitGroupDetail, added: SplitAddedPerson[] }.
  */
 export async function POST(request: NextRequest) {

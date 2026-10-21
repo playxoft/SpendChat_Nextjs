@@ -514,6 +514,28 @@ export async function dismissInviteNudge(userId: string): Promise<void> {
 }
 
 /**
+ * The first-visit product tour is done — finished or skipped, it's owed no
+ * longer (`ui_prefs.onboarding.tourPending`). Same nested `||` merge as
+ * `dismissInviteNudge`, so the nudge's own flag beside it survives the write.
+ */
+export async function finishProductTour(userId: string): Promise<void> {
+  await ensureBootstrap(userId);
+  const db = getDb();
+  await db
+    .update(userSettings)
+    .set({
+      uiPrefs: sql`
+        ${userSettings.uiPrefs} || jsonb_build_object(
+          'onboarding',
+          coalesce(${userSettings.uiPrefs} -> 'onboarding', '{}'::jsonb)
+            || jsonb_build_object('tourPending', false)
+        )`,
+      updatedAt: new Date(),
+    })
+    .where(eq(userSettings.userId, userId));
+}
+
+/**
  * Save how the sidebar's sections are arranged (`ui_prefs.sidebar.nav`): the
  * list, and what's folded under More. Cleaned here (`normalizeSidebarNav`), so
  * whatever is stored is a well-formed layout of known sections. Same nested

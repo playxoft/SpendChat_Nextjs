@@ -26,7 +26,7 @@ const MAX = SPLIT_GROUP_MAX_PEOPLE;
 
 const faqs = [
   {
-    q: "Is Split free?",
+    q: "Is Split bills free?",
     a: "Yes, on every plan, with nothing to unlock. A split group doesn't belong to a workspace, so it doesn't use any of your plan's limits, and the people you add don't need a paid plan either.",
   },
   {
@@ -35,7 +35,7 @@ const faqs = [
   },
   {
     q: "Do the people I add need an account?",
-    a: "To see the group, yes — a free one, with the email address you added them by. Someone who already has an account sees an invitation in the app; anyone else gets one email with a link to join. You can add expenses that include them before they join, so nobody waits on anybody.",
+    a: "Only to see the group themselves — a free one, with the email address you added them by. Someone who already has an account sees an invitation in the app; anyone else gets one email with a link to join. You can add expenses that include them before they join, so nobody waits on anybody. The email is optional: add someone by name only and you keep track of their share for them — they're on every expense and balance, but never invited.",
   },
   {
     q: "Can I split a bill unequally?",
@@ -95,7 +95,7 @@ export default function SplitPage() {
         steps={[
           {
             title: "Start a group",
-            body: `Name it, pick its currency, and add people by name and email — up to ${MAX}, you included. Each gets an invite to join.`,
+            body: `Name it, pick its currency, and add people by name — up to ${MAX}, you included. Give an email and they get an invite to join; leave it out and you track their share for them.`,
           },
           {
             title: "Add what was spent",
@@ -164,7 +164,9 @@ export default function SplitPage() {
           Add people by name and email. Someone who already has a SpendChat
           account sees an invitation in the app; anyone else gets one email with
           a link to join, and joining is tied to the address you invited. Until
-          they join, you can still add expenses that include them.
+          they join, you can still add expenses that include them. Someone who
+          won&apos;t use the app? Add them by name only — they&apos;re on every
+          expense and balance, and nobody is invited.
         </p>
         <p>
           The person who starts the group runs it: they rename it, add and

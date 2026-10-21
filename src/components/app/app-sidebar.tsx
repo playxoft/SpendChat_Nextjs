@@ -51,13 +51,17 @@ export function AppSidebar({
         />
       </div>
 
-      {/* Spaces and their profiles are the primary content — they fill the sidebar. */}
-      <ProfileList
-        profiles={profiles}
-        spaces={spaces}
-        collapsedSpaces={collapsedSpaces}
-        enableShortcuts
-      />
+      {/* Spaces and their profiles are the primary content — they fill the
+          sidebar. The wrapper is the product tour's anchor for them, and
+          passes the fill on (flex-1, min-h-0) so the list still scrolls. */}
+      <div data-tour="spaces" className="flex min-h-0 flex-1 flex-col">
+        <ProfileList
+          profiles={profiles}
+          spaces={spaces}
+          collapsedSpaces={collapsedSpaces}
+          enableShortcuts
+        />
+      </div>
 
       <Separator className="my-1" />
       <SidebarNav

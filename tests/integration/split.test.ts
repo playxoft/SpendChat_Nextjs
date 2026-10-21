@@ -2,12 +2,14 @@ import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { eq, sql } from "drizzle-orm";
-import { splitExpensePayers, splitGroups, splitMembers, splitShares } from "@/db/schema";
+import { splitExpensePayers, splitGroups, splitMembers, splitRateLog, splitShares } from "@/db/schema";
 import { sendEmail } from "@/lib/email";
 import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
 import { feedCursor } from "@/lib/split-display";
+import { bindSplitInvitesOnSignup } from "@/lib/split-signup";
 import * as actions from "@/actions/split";
 import * as split from "@/services/split";
+import * as invites from "@/services/split-invites";
 import * as ledger from "@/services/split-ledger";
 import { deleteAccount } from "@/services/settings";
 import { signInAs, uid } from "./helpers/session";
@@ -1010,5 +1012,173 @@ describe("split review fixes", () => {
       toName: "ASHA",
       toIsYou: false,
     });
+  });
+});
+
+describe("people added by name only (no email)", () => {
+  it("adds them next to emailed people — two may share a name — and invites only the emailed ones", async () => {
+    await bootstrapUser("o");
+    await bootstrapUser("asha");
+    vi.mocked(sendEmail).mockClear();
+    signInAs("o");
+    const { id, added } = ok(
+      await actions.createSplitGroup({
+        name: "Goa trip",
+        currency: "INR",
+        members: [
+          { email: "", name: "Ravi" },
+          { email: "zoe@example.com", name: "Zoe" },
+          { name: "Ravi" },
+          { email: "asha@example.com", name: "Asha" },
+        ],
+      }),
+    );
+    // In the order sent; name-only people come back `added`, with no email.
+    expect(added).toEqual([
+      { memberId: expect.any(String), email: null, status: "added" },
+      { memberId: expect.any(String), email: "zoe@example.com", status: "invited" },
+      { memberId: expect.any(String), email: null, status: "added" },
+      { memberId: expect.any(String), email: "asha@example.com", status: "invited" },
+    ]);
+    expect(added[0]!.memberId).not.toBe(added[2]!.memberId);
+
+    // No address, no account, no join link, never emailed.
+    for (const memberId of [added[0]!.memberId, added[2]!.memberId]) {
+      const [row] = await db().select().from(splitMembers).where(eq(splitMembers.id, memberId));
+      expect(row).toMatchObject({
+        displayName: "Ravi",
+        status: "invited",
+        email: null,
+        emailKey: null,
+        userId: null,
+        inviteToken: null,
+        inviteEmailedAt: null,
+        invitedBy: uid("o"),
+      });
+    }
+    // Only Zoe (no account) got an email; Asha got an in-app invitation.
+    expect(vi.mocked(sendEmail).mock.calls.map((c) => c[0].to)).toEqual(["zoe@example.com"]);
+    expect(await split.countInvitations(me("asha"))).toBe(1);
+
+    const detail = await split.getGroupDetail(uid("o"), id);
+    expect(detail.peopleCount).toBe(5);
+    const ravis = detail.members.filter((m) => m.name === "Ravi");
+    expect(ravis).toHaveLength(2);
+    for (const r of ravis) expect(r).toMatchObject({ status: "invited", nameOnly: true, email: null, inviteToken: null });
+    expect(detail.members.find((m) => m.name === "Zoe")).toMatchObject({ nameOnly: false, email: "zoe@example.com" });
+    expect(detail.members.find((m) => m.name === "Zoe")!.inviteToken).toMatch(/.{32}/);
+
+    // Adding more name-only people later works the same, and each is a new person.
+    const more = ok(await actions.addSplitMembers(id, { members: [{ name: "Ravi", email: null }] }));
+    expect(more.added).toEqual([{ memberId: expect.any(String), email: null, status: "added" }]);
+    expect((await split.getGroupDetail(uid("o"), id)).members.filter((m) => m.name === "Ravi")).toHaveLength(3);
+  });
+
+  it("are on expenses, payments and balances exactly like anyone, and removable once settled", async () => {
+    const id = await newGroup();
+    const ashaId = await joinAs(id, "asha");
+    signInAs("o");
+    const { added } = ok(await actions.addSplitMembers(id, { members: [{ name: "Ravi" }] }));
+    const raviId = added[0]!.memberId;
+    const ownerId = (await split.getGroupDetail(uid("o"), id)).me.memberId;
+
+    // Ravi pays for dinner, split three ways; a member (not the creator) can put him on one too.
+    ok(
+      await actions.createSplitExpense(id, {
+        title: "Dinner",
+        amount: 90,
+        paidBy: raviId,
+        occurredOn: today,
+        splitType: "equal",
+        memberIds: [ownerId, ashaId, raviId],
+      }),
+    );
+    signInAs("asha");
+    ok(
+      await actions.createSplitExpense(id, {
+        title: "Taxi",
+        amount: 30,
+        paidBy: ashaId,
+        occurredOn: today,
+        splitType: "exact",
+        shares: [
+          { memberId: raviId, amount: 20 },
+          { memberId: ashaId, amount: 10 },
+        ],
+      }),
+    );
+    let detail = await split.getGroupDetail(uid("asha"), id);
+    const net = () => Object.fromEntries(detail.members.map((m) => [m.id, m.netMinor]));
+    expect(net()).toEqual({ [ownerId]: -3000, [ashaId]: -1000, [raviId]: 4000 });
+    // Everyone sees he's not invited; nobody but the creator sees an email.
+    expect(detail.members.find((m) => m.id === raviId)).toMatchObject({ nameOnly: true, email: null, status: "invited" });
+    expect(detail.suggestions.every((s) => s.toMemberId === raviId)).toBe(true);
+
+    // He can't be removed while he's owed…
+    signInAs("o");
+    expect(await actions.removeSplitMember(id, raviId)).toMatchObject({ ok: false, code: "settle_first" });
+    // …the creator records what each paid him…
+    ok(await actions.recordSplitSettlement(id, { fromMemberId: ownerId, toMemberId: raviId, amount: 30, settledOn: today }));
+    ok(await actions.recordSplitSettlement(id, { fromMemberId: ashaId, toMemberId: raviId, amount: 10, settledOn: today }));
+    detail = await split.getGroupDetail(uid("o"), id);
+    expect(net()).toEqual({ [ownerId]: 0, [ashaId]: 0, [raviId]: 0 });
+    // …and then he can go, his history kept.
+    ok(await actions.removeSplitMember(id, raviId));
+    const [row] = await db().select().from(splitMembers).where(eq(splitMembers.id, raviId));
+    expect(row).toMatchObject({ status: "left", email: null });
+    expect((await split.getGroupDetail(uid("o"), id)).peopleCount).toBe(2);
+  });
+
+  it("nothing that invites can find them: invitations, sign-up binding, join links", async () => {
+    const id = await newGroup();
+    signInAs("o");
+    const { added } = ok(await actions.addSplitMembers(id, { members: [{ name: "Ravi" }, { name: "Eve" }] }));
+    const raviId = added[0]!.memberId;
+
+    // Not anyone's invitation — not even an account with no verified email.
+    await registerUser("eve");
+    expect(await split.countInvitations(me("eve"))).toBe(0);
+    expect(await split.countInvitations({ id: uid("eve"), email: null })).toBe(0);
+    expect((await split.listInvitations({ id: uid("eve"), email: null })).total).toBe(0);
+    await expect(split.acceptInvitation({ id: uid("eve"), email: null }, raviId)).rejects.toMatchObject({ status: 404 });
+    await expect(split.declineInvitation(me("eve"), raviId)).rejects.toMatchObject({ status: 404 });
+    expect(await bindSplitInvitesOnSignup(uid("eve"), "eve@example.com")).toBe(0);
+
+    // And never emailed, even if asked to.
+    expect(await invites.emailNewInvitees(uid("o"), id, [raviId])).toEqual(new Set());
+    const [row] = await db().select().from(splitMembers).where(eq(splitMembers.id, raviId));
+    expect(row).toMatchObject({ userId: null, inviteEmailedAt: null, inviteToken: null });
+  });
+
+  it("count toward the 50-person cap and the daily adds like anyone", async () => {
+    const id = await newGroup();
+    signInAs("o");
+    const many = Array.from({ length: SPLIT_GROUP_MAX_PEOPLE - 1 }, (_, i) => ({ name: `P${i % 3}` }));
+    ok(await actions.addSplitMembers(id, { members: many }));
+    expect((await split.getGroupDetail(uid("o"), id)).peopleCount).toBe(SPLIT_GROUP_MAX_PEOPLE);
+    expect(await actions.addSplitMembers(id, { members: [{ name: "One more" }] })).toMatchObject({
+      ok: false,
+      code: "split_group_full",
+    });
+    const adds = await db()
+      .select()
+      .from(splitRateLog)
+      .where(sql`${splitRateLog.actorId} = ${uid("o")} and ${splitRateLog.event} = 'member_added'`);
+    expect(adds).toHaveLength(SPLIT_GROUP_MAX_PEOPLE - 1);
+  });
+
+  it("address checks skip them: your own address and duplicate inboxes are still refused", async () => {
+    const id = await newGroup();
+    signInAs("o");
+    expect(
+      await actions.addSplitMembers(id, { members: [{ name: "Ravi" }, { email: "o@example.com", name: "Me" }] }),
+    ).toMatchObject({ ok: false, code: "bad_request" });
+    expect(
+      await actions.addSplitMembers(id, {
+        members: [{ name: "Ravi" }, { email: "zoe+a@gmail.com", name: "Z1" }, { email: "zoe@gmail.com", name: "Z2" }],
+      }),
+    ).toMatchObject({ ok: false, code: "validation_error" });
+    // Nothing was written by either refusal.
+    expect((await split.getGroupDetail(uid("o"), id)).peopleCount).toBe(1);
   });
 });

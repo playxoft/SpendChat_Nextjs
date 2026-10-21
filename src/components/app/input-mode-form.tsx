@@ -76,10 +76,12 @@ export function InputModeForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* One option per row at every width: each card carries a full-size
+          composer preview, which three abreast squeezed until it broke. */}
       <div
         role="radiogroup"
         aria-label="Transaction input layout"
-        className="grid gap-3 lg:grid-cols-3"
+        className="grid gap-3"
       >
         {OPTIONS.map((opt) => {
           const active = selected === opt.value;

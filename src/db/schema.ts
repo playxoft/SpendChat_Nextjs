@@ -1370,9 +1370,11 @@ export const splitGroups = pgTable(
  * - `user_id` is the bound account: set at add time when the email already
  *   has one, at sign-up otherwise (`lib/split-signup.ts`), and nulled when the
  *   account is deleted. No foreign key, by house convention.
- * - `email` is stored lowercased. Null only after the account behind it was
- *   deleted. Shown to the group's creator and to the member themself — never
- *   to the other members (`lib/split-access.ts`).
+ * - `email` is stored lowercased. Null after the account behind it was
+ *   deleted, and for someone added by name only — an `invited` row with no
+ *   email, account or `invite_token`, which nothing that invites can find
+ *   (`services/split.ts`). Shown to the group's creator and to the member
+ *   themself — never to the other members (`lib/split-access.ts`).
  * - `display_name` is the creator's label; null falls back to the account's
  *   name once joined, else the email's local part.
  * - `invite_token` is the secret in the join link (`/invite/split/<token>`),

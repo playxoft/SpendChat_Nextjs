@@ -770,9 +770,18 @@ export type ComposerPrefs = z.infer<typeof composerPrefsSchema>;
  * localStorage on purpose — this column is only for preferences that should
  * follow the user to another browser.
  */
-/** One-time tracker cards the user has waved away (`ui_prefs.onboarding`). */
+/**
+ * One-time tracker onboarding (`ui_prefs.onboarding`): cards the user has waved
+ * away, and whether the first-visit product tour is still owed.
+ *
+ * `tourPending` defaults to **false**, which is what makes the tour new-users
+ * only: every row written before the key existed reads false, and only a fresh
+ * account's bootstrap writes `true`. Finishing or skipping writes it back to
+ * false; replaying from the account menu writes nothing.
+ */
 export const onboardingPrefsSchema = z.object({
   inviteNudgeDismissed: z.boolean().catch(false),
+  tourPending: z.boolean().catch(false),
 });
 export type OnboardingPrefs = z.infer<typeof onboardingPrefsSchema>;
 
@@ -831,7 +840,7 @@ export const sidebarNavInputSchema = z.object({
 function uiPrefsDefault() {
   return {
     composer: { density: "normal" as const },
-    onboarding: { inviteNudgeDismissed: false },
+    onboarding: { inviteNudgeDismissed: false, tourPending: false },
     sidebar: { collapsedSpaces: [] as string[], nav: defaultSidebarNav() },
   };
 }
@@ -839,11 +848,26 @@ function uiPrefsDefault() {
 export const uiPrefsSchema = z
   .object({
     composer: composerPrefsSchema.catch({ density: "normal" }),
-    onboarding: onboardingPrefsSchema.catch({ inviteNudgeDismissed: false }),
+    onboarding: onboardingPrefsSchema.catch({ inviteNudgeDismissed: false, tourPending: false }),
     sidebar: sidebarPrefsSchema.catch(() => ({ collapsedSpaces: [], nav: defaultSidebarNav() })),
   })
   .catch(() => uiPrefsDefault());
 export type UiPrefs = z.infer<typeof uiPrefsSchema>;
+
+/**
+ * What a brand-new account starts with, written once by its first bootstrap: the
+ * one-field composer, compact, and the product tour still to see. Not the
+ * defaults above, on purpose — an account
+ * that never touched these reads those defaults, and changing them would move
+ * every existing user's composer under them. The prefs are partial so whatever
+ * they leave out keeps following `uiPrefsSchema`'s defaults.
+ */
+export const NEW_USER_INPUT_MODE: InputMode = "combined";
+export const NEW_USER_UI_PREFS = {
+  composer: { density: "compact" },
+  // Owed the product tour on their first visit to the tracker (`product-tour.tsx`).
+  onboarding: { inviteNudgeDismissed: false, tourPending: true },
+} satisfies Partial<UiPrefs>;
 
 /** Read-side guard for `user_settings.ui_prefs` — see `uiPrefsSchema`. */
 export function normalizeUiPrefs(value: unknown): UiPrefs {
@@ -1143,6 +1167,13 @@ export const addMemberSchema = z.object({
 });
 export type AddMemberInput = z.input<typeof addMemberSchema>;
 
+/** "Invite someone" in a space's Members & access dialog: one email, into that space. */
+export const inviteToSpaceSchema = z.object({
+  email: inviteEmailSchema,
+  role: spaceRoleSchema,
+});
+export type InviteToSpaceInput = z.input<typeof inviteToSpaceSchema>;
+
 /** Re-scope a registered member's access. */
 export const setMemberAccessSchema = z.object({
   userId: z.string().uuid(),
@@ -1219,12 +1250,39 @@ const splitCurrencySchema = z.enum(CURRENCY_CODES as [string, ...string[]], {
 const splitIdSchema = z.string().uuid();
 
 /**
- * Someone to add to a group: the name everyone in the group sees, and the email
- * only the creator sees (it's how they're invited and how joining is bound).
- * The name is required so a label never has to be derived from the address.
+ * A split person's email, which is optional: blank, null or absent all mean
+ * "no email" (`null`) — a name-only person, tracked in the group but never
+ * invited. Anything else is held to `inviteEmailSchema`'s rules and message.
+ */
+const splitPersonEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .superRefine((v, ctx) => {
+    if (v === "") return;
+    const parsed = inviteEmailSchema.safeParse(v);
+    if (!parsed.success) {
+      ctx.addIssue({ code: "custom", message: parsed.error.issues[0]?.message ?? "Enter a valid email address" });
+    }
+  })
+  .nullish()
+  .transform((v) => v || null);
+
+/** No two people in one add share an address; blank ones (name-only people) never clash. */
+function distinctEmails(people: { email: string | null }[]): boolean {
+  const emails = people.map((p) => p.email).filter((e): e is string => e !== null);
+  return new Set(emails).size === emails.length;
+}
+
+/**
+ * Someone to add to a group: the name everyone in the group sees, and —
+ * optionally — the email only the creator sees (it's how they're invited and
+ * how joining is bound). Without one they're in the group by name only: on
+ * expenses and balances like anyone, but never invited or emailed. The name
+ * is required so a label never has to be derived from the address.
  */
 export const splitPersonSchema = z.object({
-  email: inviteEmailSchema,
+  email: splitPersonEmailSchema,
   name: z
     .string()
     .trim()
@@ -1235,10 +1293,7 @@ export const splitPersonSchema = z.object({
 const splitPeopleSchema = z
   .array(splitPersonSchema)
   .max(SPLIT_ADD_PEOPLE_MAX, `A group holds up to ${SPLIT_GROUP_MAX_PEOPLE} people`)
-  .refine(
-    (people) => new Set(people.map((p) => p.email)).size === people.length,
-    "That email is in the list twice",
-  );
+  .refine(distinctEmails, "That email is in the list twice");
 
 export const createSplitGroupSchema = z.object({
   name: splitGroupNameSchema,
@@ -1433,10 +1488,7 @@ export const splitImportSchema = z
     people: z
       .array(splitPersonSchema.extend({ ref: splitDraftRefSchema }))
       .max(SPLIT_ADD_PEOPLE_MAX, `A group holds up to ${SPLIT_GROUP_MAX_PEOPLE} people`)
-      .refine(
-        (people) => new Set(people.map((p) => p.email)).size === people.length,
-        "That email is in the list twice",
-      ),
+      .refine(distinctEmails, "That email is in the list twice"),
     expenses: z
       .array(splitImportExpenseSchema)
       .max(SPLIT_IMPORT_EXPENSES_MAX, `A group can bring in up to ${SPLIT_IMPORT_EXPENSES_MAX} expenses at once`),

@@ -483,6 +483,11 @@ export type ApiSplitMember = {
   /** Only for the group's creator, and on the caller's own row; null otherwise. */
   email: string | null;
   status: "invited" | "joined" | "left";
+  /**
+   * Added by name only (no email): `invited`, but never invited — no email,
+   * no in-app invitation, no `inviteLink`. The same for every viewer.
+   */
+  nameOnly: boolean;
   isCreator: boolean;
   isYou: boolean;
   balanceMinor: number;
@@ -501,6 +506,7 @@ export function serializeSplitMember(m: SplitMemberView, currency: string): ApiS
     name: m.name,
     email: m.email,
     status: m.status,
+    nameOnly: m.nameOnly,
     isCreator: m.isCreator,
     isYou: m.isYou,
     balanceMinor: m.netMinor,
@@ -560,7 +566,10 @@ export function serializeSplitGroupDetail(d: SplitGroupDetail): ApiSplitGroupDet
 
 export type ApiSplitAddedPerson = AddedPerson;
 
-/** What happened to each person an add named (returned to the creator only). */
+/**
+ * What happened to each person an add named (returned to the creator only):
+ * `email` is null and `status` is `added` for someone added by name only.
+ */
 export function serializeSplitAdded(added: AddedPerson[]): ApiSplitAddedPerson[] {
   return added.map((a) => ({ memberId: a.memberId, email: a.email, status: a.status }));
 }

@@ -86,10 +86,12 @@ export function ComposerDensityForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* One per row, like the input layouts above: side by side, the Normal
+          preview's control strip was cut off. */}
       <div
         role="radiogroup"
         aria-label="Transaction composer density"
-        className="grid gap-3 lg:grid-cols-2"
+        className="grid gap-3"
       >
         {OPTIONS.map((opt) => {
           const active = selected === opt.value;

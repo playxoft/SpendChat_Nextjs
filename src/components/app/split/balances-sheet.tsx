@@ -66,7 +66,9 @@ export function BalancesSheet({
                   <span className="min-w-0 flex-1 truncate">
                     {m.name}
                     {m.isYou && <span className="text-muted-foreground"> (you)</span>}
-                    {m.status === "invited" && <span className="text-muted-foreground"> · invited</span>}
+                    {m.status === "invited" && (
+                      <span className="text-muted-foreground">{m.nameOnly ? " · not invited" : " · invited"}</span>
+                    )}
                     {m.status === "left" && <span className="text-muted-foreground"> · left</span>}
                   </span>
                   <BalanceText netMinor={m.netMinor} currency={currency} locale={locale} you={m.isYou} className="shrink-0" />

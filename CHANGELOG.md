@@ -14,9 +14,41 @@ full rule is in [AGENTS.md](./AGENTS.md) § Versioning.
 
 The mobile REST API under `/api/v1` carries **its own** version, tracked
 separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changelog.md)
-(currently spec **6.13.0**) and reported as `apiVersion` by the same endpoint.
+(currently spec **6.14.0**) and reported as `apiVersion` by the same endpoint.
 
 ## [Unreleased]
+
+## [0.49.0] — 2026-10-21
+
+### Added
+- **A short tour for new accounts.** On their first visit to the tracker, new
+  accounts get a guided tour: adding a transaction, describing spending to AI,
+  voice entry (on plans that have it), spaces and profiles, and SpendChat AI.
+  Each step highlights the real control, and you can skip at any time. Anyone
+  can replay it from the account menu with "Take the tour".
+- **Invite people from a space's Members & access.** The dialog now has an
+  email field on every plan, up to the plan's member limit. The person joins
+  the workspace with access to that space. Someone who's already in the
+  workspace just gets this space added; their other spaces and their role stay
+  as they are.
+- **People in Split bills no longer need an email.** Add someone by name only
+  and keep track of their share yourself. They're on every expense and balance
+  like anyone else, but nobody gets an invite. To invite them later, add them
+  again with their email.
+
+### Changed
+- **Split is now called Split bills**, in the app and on the website, so the
+  name says what it does. Links and keyboard shortcuts haven't changed.
+- **New accounts start with the one-field composer, in compact mode.** Existing
+  accounts keep the layout they have.
+- **Simpler plan cards.** Each plan lists five short ticked points instead of
+  long sentences.
+- **The sidebar section is called Spaces.** It lists your spaces with their
+  profiles inside, and spaces are what plans count. Profiles are unchanged.
+
+### Fixed
+- **Input settings no longer squeeze.** The input layout and density choices
+  are one per row, so each composer preview shows in full.
 
 ## [0.48.1] — 2026-10-20
 

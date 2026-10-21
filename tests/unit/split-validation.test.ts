@@ -36,6 +36,40 @@ describe("split group schemas", () => {
     expect(addSplitMembersSchema.safeParse({ members: [] }).success).toBe(false);
   });
 
+  it("takes the email as optional: blank, null or absent all add someone by name only", () => {
+    const parsed = addSplitMembersSchema.parse({
+      members: [
+        { name: "Ravi" },
+        { email: null, name: "Asha" },
+        { email: "  ", name: "Zoe" },
+        { email: "", name: "Zoe" }, // two name-only people may share a name
+        { email: " Ben@Example.com ", name: "Ben" },
+      ],
+    });
+    expect(parsed.members.map((m) => m.email)).toEqual([null, null, null, null, "ben@example.com"]);
+    // A typed email is still held to the invite rules, with their message.
+    const bad = addSplitMembersSchema.safeParse({ members: [{ email: "not-an-email", name: "X" }] });
+    expect(bad.success).toBe(false);
+    expect(bad.error?.issues[0]?.message).toBe("Enter a valid email address");
+    const long = addSplitMembersSchema.safeParse({ members: [{ email: `${"a".repeat(95)}@x.com`, name: "X" }] });
+    expect(long.error?.issues[0]?.message).toBe("Email is too long (max 100 characters)");
+    // A name is still required, email or not.
+    expect(addSplitMembersSchema.safeParse({ members: [{ email: "", name: "" }] }).success).toBe(false);
+  });
+
+  it("refuses the same email twice, but never counts blanks as duplicates", () => {
+    expect(
+      addSplitMembersSchema.safeParse({
+        members: [
+          { email: "", name: "A" },
+          { name: "B" },
+          { email: null, name: "C" },
+          { email: "a@example.com", name: "D" },
+        ],
+      }).success,
+    ).toBe(true);
+  });
+
   it("refuses the same email twice", () => {
     const res = addSplitMembersSchema.safeParse({
       members: [

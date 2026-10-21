@@ -7,6 +7,7 @@ import {
   profiles,
   spaceMembers,
   spaces,
+  workspaceInvites,
   workspaceMembers,
   workspaces,
   type ProfileAccessLevel,
@@ -14,7 +15,7 @@ import {
   type WorkspaceRole,
 } from "@/db/schema";
 import { parseOrThrow } from "@/lib/api-response";
-import { findUsersByIds } from "@/lib/directory";
+import { findUserByEmail, findUsersByIds } from "@/lib/directory";
 import {
   assertCanAddProfilesToSpace,
   assertCanAddSpace,
@@ -32,9 +33,11 @@ import {
   requireWorkspaceRole,
 } from "@/lib/workspaces";
 import { notTrashed, trashedOnly } from "@/lib/trash-scope";
+import { addMember } from "./workspaces";
 import {
   createSpaceSchema,
   deleteSpaceSchema,
+  inviteToSpaceSchema,
   moveProfileToSpaceSchema,
   reorderSpacesSchema,
   setProfileOverrideSchema,
@@ -474,6 +477,73 @@ export async function setSpaceMember(userId: string, spaceId: string, input: unk
     memberId: data.userId,
     role: data.role,
   });
+}
+
+/**
+ * What `inviteToSpace` did: `space` put an existing member in the space (or
+ * raised them), `unchanged` found them already there at that role or higher,
+ * `added` / `invited` are `addMember`'s — a new workspace member with an
+ * account, or an emailed invite for an address without one.
+ */
+export type InviteToSpaceStatus = "space" | "unchanged" | "added" | "invited";
+
+/**
+ * "Invite someone" in a space's Members & access dialog (workspace admin):
+ * give one email this space, and never narrow anything it already has.
+ *
+ * Not simply `addMember`, which *re-scopes* an address that already has access —
+ * from here that would drop a member's other spaces, or lower their workspace
+ * role, to grant one space. So someone already in the workspace is put in this
+ * space (or raised to `role`) and keeps everything else; a pending invite is
+ * refused, because its scope is edited in Workspace settings; and only a new
+ * address goes through `addMember` (plan cap, email quota, the invite email),
+ * with this space as its whole grant.
+ */
+export async function inviteToSpace(
+  userId: string,
+  spaceId: string,
+  input: unknown,
+): Promise<{ status: InviteToSpaceStatus }> {
+  const data = parseOrThrow(inviteToSpaceSchema, input);
+  const space = await requireSpaceAdmin(userId, spaceId);
+  const db = getDb();
+
+  const account = await findUserByEmail(data.email);
+  if (account) {
+    const [member] = await db
+      .select({ role: workspaceMembers.role })
+      .from(workspaceMembers)
+      .where(and(eq(workspaceMembers.workspaceId, space.workspaceId), eq(workspaceMembers.userId, account.id)))
+      .limit(1);
+    if (member?.role === "admin") throw badRequest("They're an admin, and admins already see every space");
+    if (member) {
+      const [current] = await db
+        .select({ role: spaceMembers.role })
+        .from(spaceMembers)
+        .where(and(eq(spaceMembers.spaceId, space.id), eq(spaceMembers.userId, account.id)))
+        .limit(1);
+      if (current && (current.role === "editor" || current.role === data.role)) {
+        return { status: "unchanged" };
+      }
+      await setSpaceMember(userId, spaceId, { userId: account.id, role: data.role });
+      return { status: "space" };
+    }
+  }
+
+  const [pending] = await db
+    .select({ id: workspaceInvites.id })
+    .from(workspaceInvites)
+    .where(and(eq(workspaceInvites.workspaceId, space.workspaceId), eq(workspaceInvites.email, data.email)))
+    .limit(1);
+  if (pending) {
+    throw conflict("They're already invited to this workspace. Change what the invite opens in Workspace settings.");
+  }
+
+  const result = await addMember(userId, space.workspaceId, {
+    email: data.email,
+    access: { mode: "all", role: data.role, spaceIds: [space.id] },
+  });
+  return { status: result.status };
 }
 
 /**

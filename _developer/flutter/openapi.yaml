@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: SpendChat Mobile API
-  version: "6.13.0"
+  version: "6.14.0"
   description: |
     REST API for the SpendChat mobile (Flutter) client, versioned under `/api/v1`
     and served by the same Next.js app as the web UI.
@@ -2986,10 +2986,12 @@ paths:
       summary: Create a split group
       description: |
         You become its creator (the only person who can rename it, add and
-        remove people, or delete it). `members` invites up to 49 people (the
+        remove people, or delete it). `members` adds up to 49 people (the
         group holds 50, you included). Someone whose email has an account gets
         an in-app invitation; someone without one gets one email — the answer
         is `invited` either way, and every pending person has an `inviteLink`.
+        Someone with no email (6.14.0) is added by name only — `added`, never
+        invited (see `SplitPersonInput`).
         429 `rate_limited` past 20 new groups (or 100 people added) per 24 h.
       requestBody:
         required: true
@@ -3095,13 +3097,15 @@ paths:
       - $ref: "#/components/parameters/id"
     post:
       tags: [Split]
-      summary: Add people by email (creator only)
+      summary: Add people — by email, or by name only (creator only)
       description: |
-        Every new person comes back `status: invited` — whether or not the
-        address has an account (nothing in the response or the group tells the
-        two apart). Someone already in the group (the same inbox: `+tags` and
-        Gmail dots don't count) comes back `already`; someone you removed is
-        invited again on the same member id. Refused as a whole, before
+        Every new person with an email comes back `status: invited` — whether
+        or not the address has an account (nothing in the response or the
+        group tells the two apart). Someone already in the group (the same
+        inbox: `+tags` and Gmail dots don't count) comes back `already`;
+        someone you removed is invited again on the same member id. Someone
+        with no email (6.14.0) comes back `added`: in the group by name only,
+        never invited, and a new person every time. Refused as a whole, before
         anything is written:
         - 400 your own address (any spelling);
         - 422 two spellings of one inbox in the list;
@@ -3110,9 +3114,9 @@ paths:
         - 409 `conflict` — you already have 3 open invitations out to one of
           them (`details: { emails }`);
         - 429 `rate_limited` — more than 100 people added in 24 h, across all
-          your groups;
-        - 409 `split_group_full` past 50 people, you included
-          (`details: { max, used }`) — no plan lifts it.
+          your groups (name-only people count);
+        - 409 `split_group_full` past 50 people, you included, name-only
+          people too (`details: { max, used }`) — no plan lifts it.
       requestBody:
         required: true
         content:
@@ -6338,6 +6342,14 @@ components:
           type: string
           enum: [invited, joined, left]
           description: '`left` rows only appear while that person still has a balance.'
+        nameOnly:
+          type: boolean
+          description: |
+            6.14.0. Added without an email: `status` is `invited` — on expenses,
+            payments and balances like any invitee who hasn't joined — but
+            they're never invited (no email, no in-app invitation, and
+            `inviteLink` is null). The same for every viewer. Show them as "Not
+            invited — no email" rather than "Invited".
         isCreator: { type: boolean }
         isYou: { type: boolean }
         balanceMinor: { type: integer, description: Positive = is owed; negative = owes. }
@@ -6350,7 +6362,7 @@ components:
             same for both: their join link (`/invite/split/<token>`). It only
             works for the invited email, so it's safe to share in a chat. Null
             otherwise.
-      required: [id, name, email, status, isCreator, isYou, balanceMinor, balance, inviteLink]
+      required: [id, name, email, status, nameOnly, isCreator, isYou, balanceMinor, balance, inviteLink]
 
     SplitSuggestion:
       type: object
@@ -6390,10 +6402,18 @@ components:
 
     SplitPersonInput:
       type: object
+      description: |
+        Someone to add. The email is optional since 6.14.0: absent, `null` or
+        `""` adds them **by name only** — in the group for expenses, payments
+        and balances, never invited or emailed. Two name-only people may share
+        a name; "no email twice" ignores blank ones.
       properties:
-        email: { type: string, format: email, maxLength: 100 }
+        email:
+          type: [string, "null"]
+          maxLength: 100
+          description: Lowercased. A valid address, or empty/null/absent for a name-only person.
         name: { type: string, minLength: 1, maxLength: 40, description: What the group calls them. }
-      required: [email, name]
+      required: [name]
 
     SplitGroupInput:
       type: object
@@ -6420,15 +6440,17 @@ components:
       description: What happened to one person an add named (returned to the creator only).
       properties:
         memberId: { type: string, format: uuid }
-        email: { type: string }
+        email: { type: [string, "null"], description: Null for someone added by name only. }
         status:
           type: string
-          enum: [invited, already]
+          enum: [invited, already, added]
           description: |
             `invited` — they're in the group as invited. Deliberately the same
             whether or not the address has an account (an account holder sees
             an in-app invitation; anyone else gets one email): the response
             never says which. `already` — they were already in the group.
+            `added` (6.14.0) — added by name only (no email), so nobody was
+            invited.
       required: [memberId, email, status]
 
     SplitExpenseInput:

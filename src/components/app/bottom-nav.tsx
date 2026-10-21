@@ -48,6 +48,8 @@ export function BottomNav({
               href={hrefWithProfile(item.href, profile)}
               aria-current={active ? "page" : undefined}
               aria-label={short ? item.label : undefined}
+              // The product tour's SpendChat AI stop on a phone (the sidebar row on a desktop).
+              data-tour={item.id === "ask" ? "nav-ask" : undefined}
               className={cn(slot, active ? "text-foreground" : "text-muted-foreground")}
             >
               <item.icon className={cn("size-5", active && "scale-105")} />

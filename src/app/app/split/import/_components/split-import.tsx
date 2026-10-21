@@ -52,7 +52,9 @@ import { AccountControls } from "@/components/app/account-controls";
  * Without an intent — a "Save" click, an old draft, a link opened later — it
  * never sends on its own: a draft with everything gets one confirm screen that
  * lists who will be invited, anything else gets the form (emails prefilled,
- * problems on their rows, nothing left out without saying so). A reload while
+ * problems on their rows, nothing left out without saying so). On the form an
+ * email may be left blank: that person comes in by name only, never invited.
+ * A reload while
  * a request was out lands on the form with a "check your groups" note, and the
  * server refuses the same draft twice either way (its idempotency key).
  */
@@ -116,6 +118,8 @@ function ImportFlow({
   const others = draft.people.filter((p) => p.id !== meId);
   const ledger = computeLedger(draft, meId ? importOrder(draft, meId) : undefined);
   const leftOut = draft.expenses.filter((e) => ledger.invalid.includes(e.id));
+  /** Everyone else who'll be invited — the ones with an email; the rest come in by name only. */
+  const inviting = others.filter((p) => normalizeEmail(emails[p.id] ?? p.email)).length;
 
   /**
    * Send it, and say how it went — no state is touched here, so the arrival
@@ -205,14 +209,10 @@ function ImportFlow({
     begin();
   }, []);
 
-  /** The form's problems: missing, malformed, duplicate or your own address. */
+  /** The form's problems: malformed, duplicate or your own address. A blank one is fine (name only). */
   function validate(me: string): Record<string, string> {
     const people = draft.people.map((p) => ({ ...p, email: emails[p.id] ?? "" }));
-    const found = emailProblems(people, { skip: me, mine: myEmail });
-    for (const p of people) {
-      if (p.id !== me && !normalizeEmail(p.email) && !found[p.id]) found[p.id] = "Add their email";
-    }
-    return found;
+    return emailProblems(people, { skip: me, mine: myEmail });
   }
 
   function submit(e: FormEvent) {
@@ -259,12 +259,12 @@ function ImportFlow({
         <StatusTopRow />
         <div className="rounded-xl border p-8 text-center" role="status">
           <Check className="mx-auto mb-3 size-6 text-muted-foreground" aria-hidden />
-          <h1 className="font-medium">This group is already in Split</h1>
+          <h1 className="font-medium">This group is already in Split bills</h1>
           <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
             It was created a moment ago — from another tab, or before a reload. Nothing was made twice.
           </p>
           <Button asChild className="mt-4">
-            <Link href="/app/split">Go to Split</Link>
+            <Link href="/app/split">Go to Split bills</Link>
           </Button>
         </div>
       </div>
@@ -320,7 +320,6 @@ function ImportFlow({
 
   if (phase.kind === "creating" || phase.kind === "done") {
     const done = phase.kind === "done";
-    const inviting = draft.people.length - 1;
     const expenses = `${draft.expenses.length} ${draft.expenses.length === 1 ? "expense" : "expenses"}`;
     return (
       <div className="mx-auto max-w-3xl px-4 py-10 md:pt-6">
@@ -389,7 +388,8 @@ function ImportFlow({
           <p className="text-sm text-muted-foreground">
             From the free split calculator: {draft.people.length} {draft.people.length === 1 ? "person" : "people"},{" "}
             {draft.expenses.length} {draft.expenses.length === 1 ? "expense" : "expenses"}, {fmt(ledger.totalMinor)}{" "}
-            in all. Add everyone&apos;s email and it becomes a group you can all see.
+            in all. Add an email for anyone who should see the group too — leave it blank to keep them on it by
+            name only.
           </p>
         </div>
         <AccountControls />
@@ -445,8 +445,9 @@ function ImportFlow({
             Everyone else&apos;s email
           </h2>
           <p className="text-xs text-muted-foreground">
-            Each person gets an invitation to join — by email, or in the app if they already use SpendChat. Only you
-            see these addresses. Until someone joins they&apos;re still in the group and on every expense.
+            An email gets them an invitation to join — by email, or in the app if they already use SpendChat. Leave
+            it blank to bring them in by name only: they&apos;re on every expense and balance, but never invited.
+            Only you see these addresses.
           </p>
           <ul className="space-y-3">
             {others.map((p) => {
@@ -463,7 +464,7 @@ function ImportFlow({
                       type="email"
                       inputMode="email"
                       autoComplete="off"
-                      placeholder="name@example.com"
+                      placeholder="Email (optional)"
                       maxLength={DRAFT_EMAIL_MAX}
                       value={emails[p.id] ?? ""}
                       aria-invalid={error ? true : undefined}
@@ -526,7 +527,7 @@ function ImportFlow({
         <Button type="button" variant="ghost" className="text-muted-foreground" onClick={discard}>
           Discard this group
         </Button>
-        <Button type="submit">Create group and invite</Button>
+        <Button type="submit">{inviting > 0 ? "Create group and invite" : "Create group"}</Button>
       </div>
     </form>
   );
@@ -566,7 +567,7 @@ function NothingToImport() {
         </p>
         <div className="mt-4 flex flex-wrap justify-center gap-2">
           <Button asChild>
-            <Link href="/app/split">Go to Split</Link>
+            <Link href="/app/split">Go to Split bills</Link>
           </Button>
           <Button asChild variant="outline">
             <Link href={toolPath("split-bill-calculator")}>Open the calculator</Link>

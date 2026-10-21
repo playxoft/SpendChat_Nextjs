@@ -405,6 +405,8 @@ function NavRow({
         href={href}
         aria-current={active ? "page" : undefined}
         onClick={id === "ask" ? requestAskFocus : undefined}
+        // The product tour's last stop (the bottom bar's slot on a phone).
+        data-tour={id === "ask" ? "nav-ask" : undefined}
         className={rowClass(active)}
       >
         <section.icon className="size-4" />

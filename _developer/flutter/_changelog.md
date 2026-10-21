@@ -19,6 +19,37 @@ The **Flutter impact** line tells the app team what, if anything, to change.
 
 ---
 
+## 6.14.0 — 2026-10-21
+
+Additive. **Split: a person's email is optional.**
+
+- `SplitPersonInput.email` (in `POST /split/groups` `members` and
+  `POST /split/groups/{id}/members`) may be absent, `null` or `""`: the person
+  is added **by name only**. They're in the group for expenses (payer or
+  share), payments and balances exactly like an invitee who hasn't joined —
+  but they're never invited: no email, no in-app invitation, no join link.
+  They count toward the 50-person cap and the 100-people-a-day adds. Two
+  name-only people may share a name; "no email twice" ignores blank ones.
+- `SplitAddedPerson.email` is now nullable, and `status` gains **`added`** — a
+  name-only person (nobody was invited).
+- `SplitMember` gains **`nameOnly: boolean`**: `true` for a name-only person,
+  whose `status` stays `invited` with `email: null` and `inviteLink: null` —
+  for every viewer.
+
+**Flutter impact:** none required — an old client keeps working: it always
+sends an email, so it never gets `added`, and a name-only member (added on the
+web) reads as an `invited` member with no email and no invite link. To support it: make the email field optional in "add
+people" (send no email, or `null`), accept `email: null` and `status: "added"`
+in `SplitAddedPerson`, and show a member with `nameOnly: true` as "Not invited —
+no email" instead of "Invited" (no "Copy invite link").
+
+Also in this release, with no contract change: a **new account** now starts with
+`Settings.inputMode: "combined"` (it was `amount_title`). Existing accounts keep
+theirs. **Flutter impact:** none, as long as the app already renders `combined`.
+The web app calls the feature "Split bills"; the API paths keep `split`.
+
+---
+
 ## 6.13.0 — 2026-10-14
 
 Additive. **Invoices and quotes** — free on every plan:

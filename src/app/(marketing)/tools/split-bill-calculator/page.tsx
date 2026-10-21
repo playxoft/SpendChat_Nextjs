@@ -155,7 +155,7 @@ export default function SplitBillCalculatorPage() {
         </p>
         <p>
           <Link href={featureLink("split")} className={link}>
-            Split in SpendChat
+            Split bills in SpendChat
           </Link>{" "}
           keeps the group going. Everyone gets an invite — by email, or in the app if they already use SpendChat — and joins with a free account. Anyone can add
           what they paid for, and the balances update for the whole group — so nobody keeps the

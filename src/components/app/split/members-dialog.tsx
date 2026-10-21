@@ -22,7 +22,9 @@ import { cn } from "@/lib/utils";
 
 /**
  * Who's in the group. Everyone sees names and balances; the creator also sees
- * emails, adds people and removes anyone who's settled up.
+ * emails, adds people and removes anyone who's settled up. Someone added
+ * without an email shows as not invited — to everyone, since it says nothing
+ * about an address.
  */
 export function MembersDialog({
   open,
@@ -54,8 +56,8 @@ export function MembersDialog({
     e.preventDefault();
     const list = filledPeople(people);
     if (list.length === 0) return;
-    if (list.some((p) => !p.name || !p.email)) {
-      toast.error("Add a name and an email for everyone");
+    if (list.some((p) => !p.name)) {
+      toast.error("Add a name for everyone — the email is optional");
       return;
     }
     setPending(true);
@@ -64,7 +66,7 @@ export function MembersDialog({
       toast.error(res.error);
       return;
     }
-    toastAdded(res.added, new Map(list.map((p) => [p.email, p.name])));
+    toastAdded(res.added, list.map((p) => p.name));
     setPeople([EMPTY_PERSON]);
     router.refresh();
   }
@@ -110,10 +112,11 @@ export function MembersDialog({
                   {m.name}
                   {m.isYou && <span className="text-xs font-normal text-muted-foreground">(you)</span>}
                   {m.isCreator && <Badge variant="secondary">Created it</Badge>}
-                  {m.status === "invited" && <Badge variant="outline">Invited</Badge>}
+                  {m.status === "invited" && !m.nameOnly && <Badge variant="outline">Invited</Badge>}
                   {m.status === "left" && <Badge variant="outline">Left</Badge>}
                 </p>
                 {m.email && <p className="truncate text-xs text-muted-foreground">{m.email}</p>}
+                {m.nameOnly && <p className="truncate text-xs text-muted-foreground">No email — not invited</p>}
                 {isCreator && m.status === "invited" && m.inviteToken && (
                   <button
                     type="button"

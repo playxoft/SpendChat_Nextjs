@@ -487,7 +487,9 @@ export function resolveMe(draft: SplitDraft, myEmail: string | null | undefined)
 /**
  * Whether the group can be brought in with no form at all: "you" is known,
  * everyone else has a valid email that's unique and isn't yours, and every
- * expense adds up (so nothing would be left out).
+ * expense adds up (so nothing would be left out). A blank email still means
+ * the form: the screens without one promise to invite everyone, while on the
+ * form a blank can be left on purpose — that person comes in by name only.
  */
 export function readyToImport(
   draft: SplitDraft,
@@ -577,8 +579,9 @@ export const UNTITLED_EXPENSE = "Expense";
 /**
  * The draft as the import action takes it: `meId` becomes the group's creator,
  * everyone else is invited at the email typed for them (trimmed, lowercased),
- * in draft order. Expenses that don't add up are left out (`computeLedger`
- * reports the same ones as `invalid`).
+ * in draft order — or, with none, comes in by name only (`email: null`).
+ * Expenses that don't add up are left out (`computeLedger` reports the same
+ * ones as `invalid`).
  */
 export function buildImportInput({
   draft,
@@ -606,7 +609,7 @@ export function buildImportInput({
       .map((p) => ({
         ref: p.id,
         name: personLabel(draft.people, p.id),
-        email: normalizeEmail(emails?.[p.id] ?? p.email),
+        email: normalizeEmail(emails?.[p.id] ?? p.email) || null,
       })),
     expenses: draft.expenses
       .filter((e) => !invalid.has(e.id))

@@ -47,7 +47,7 @@ function alreadyImported(): ApiError {
   return new ApiError(
     409,
     "already_imported",
-    "This group was already brought in — you'll find it in Split",
+    "This group was already brought in — you'll find it in Split bills",
   );
 }
 

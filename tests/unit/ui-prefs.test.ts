@@ -18,7 +18,7 @@ import { defaultSidebarNav } from "@/lib/sidebar-nav";
 /** Every namespace's default — what an empty or unreadable bag reads as. */
 const DEFAULTS = {
   composer: { density: "normal" },
-  onboarding: { inviteNudgeDismissed: false },
+  onboarding: { inviteNudgeDismissed: false, tourPending: false },
   sidebar: { collapsedSpaces: [], nav: defaultSidebarNav() },
 };
 
@@ -49,18 +49,33 @@ describe("normalizeUiPrefs", () => {
 });
 
 describe("normalizeUiPrefs — onboarding namespace", () => {
-  it("defaults to not dismissed", () => {
+  it("defaults to not dismissed, and to no tour owed", () => {
     expect(normalizeUiPrefs({ composer: { density: "compact" } }).onboarding).toEqual({
       inviteNudgeDismissed: false,
+      tourPending: false,
     });
   });
   it("keeps a dismissal and degrades a non-boolean", () => {
     expect(normalizeUiPrefs({ onboarding: { inviteNudgeDismissed: true } }).onboarding).toEqual({
       inviteNudgeDismissed: true,
+      tourPending: false,
     });
     expect(normalizeUiPrefs({ onboarding: { inviteNudgeDismissed: "yes" } }).onboarding).toEqual({
       inviteNudgeDismissed: false,
+      tourPending: false,
     });
+  });
+  // The tour is new-users only because of this default: every row written
+  // before the key existed has no `tourPending`, and must read as "not owed".
+  it("owes the tour only where it was written as owed", () => {
+    expect(normalizeUiPrefs({ onboarding: { inviteNudgeDismissed: true } }).onboarding.tourPending).toBe(
+      false,
+    );
+    expect(normalizeUiPrefs({ onboarding: { tourPending: true } }).onboarding).toEqual({
+      inviteNudgeDismissed: false,
+      tourPending: true,
+    });
+    expect(normalizeUiPrefs({ onboarding: { tourPending: "true" } }).onboarding.tourPending).toBe(false);
   });
 });
 

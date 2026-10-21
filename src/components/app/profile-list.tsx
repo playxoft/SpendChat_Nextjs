@@ -414,8 +414,10 @@ export function ProfileList({
 
       {/* One height whatever sits on the right (add buttons, the selection, nothing), so the list never shifts. */}
       <div className="flex min-h-9 items-center justify-between gap-2 px-3 pt-2 pb-1">
+        {/* "Spaces", not "Profiles": the tree's top level is the spaces (with
+            their profiles inside), and spaces are what the plans count. */}
         <span className="shrink-0 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          Profiles
+          Spaces
         </span>
         <div className="flex min-w-0 items-center gap-0.5">
           {/* Touch has no Shift: "Select" turns taps into toggles instead. */}

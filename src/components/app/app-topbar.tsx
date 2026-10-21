@@ -62,14 +62,15 @@ export function AppTopbar({
       <div className="flex items-center gap-1">
         {/* Workspace + profile switcher, to the left of the bulk-add button. */}
         <Sheet open={open} onOpenChange={setOpen}>
+          {/* `data-tour`: the phone's stand-in for the sidebar's list on the product tour. */}
           <SheetTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Workspaces and profiles">
+            <Button variant="ghost" size="icon" aria-label="Workspaces and profiles" data-tour="spaces">
               <Users className="size-5" />
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="w-72 p-0">
             <SheetHeader className="sr-only">
-              <SheetTitle>Profiles</SheetTitle>
+              <SheetTitle>Spaces</SheetTitle>
               <SheetDescription>Switch between your spaces and transaction profiles.</SheetDescription>
             </SheetHeader>
             <div className="flex h-full flex-col pt-10">

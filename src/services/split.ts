@@ -77,6 +77,15 @@ import {
  * pending row has a copyable link — so adding people is no way to learn
  * whether an address has an account (review of PR #96, S1).
  *
+ * The email is optional. Someone added **by name only** is an `invited` row
+ * with no email, no account and no join link: on expenses, payments and
+ * balances exactly like an invitee who hasn't joined yet (`invited` is the
+ * status the ledger, the cap and removal already treat that way), but nothing
+ * that invites — the email, the in-app invitation, the join link, the sign-up
+ * binding — can ever find them, since every one of those keys on an address,
+ * an account or a token. They count toward the cap and the daily adds like
+ * anyone else.
+ *
  * The 50-person cap (`SPLIT_GROUP_MAX_PEOPLE`, the creator included, the same
  * on every plan) counts `invited` + `joined` rows, and every add takes the
  * group row `FOR UPDATE` first, so two concurrent adds can't both squeeze in.
@@ -480,6 +489,12 @@ export type SplitMemberView = {
   /** Only for the creator, and for the member's own row. */
   email: string | null;
   status: SplitMemberStatus;
+  /**
+   * Added by name only (no email): still `invited`, but never invited — no
+   * email, no in-app invitation, no join link. The same for every viewer: it
+   * says nothing about an address or an account, only that none was given.
+   */
+  nameOnly: boolean;
   isCreator: boolean;
   isYou: boolean;
   netMinor: number;
@@ -510,6 +525,15 @@ export type SplitGroupDetail = {
   hasActivity: boolean;
 };
 
+/**
+ * Someone in the group by name only: still to join, with neither an address
+ * nor an account to join with. (A deleted account's row has neither too, but
+ * it's `left`.)
+ */
+export function isNameOnly(m: Pick<SplitMember, "status" | "email" | "userId">): boolean {
+  return m.status === "invited" && m.email === null && m.userId === null;
+}
+
 /** Project member rows into what this viewer may see. */
 export function viewMembers(
   rows: SplitMember[],
@@ -525,6 +549,7 @@ export function viewMembers(
         name: memberLabel(m),
         email: canSeeEmail(ctx.viewer, m) ? m.email : null,
         status: m.status,
+        nameOnly: isNameOnly(m),
         isCreator: m.userId !== null && m.userId === ctx.group.createdBy,
         isYou: m.id === ctx.me.id,
         netMinor: net.get(m.id) ?? 0,
@@ -579,18 +604,20 @@ export async function getGroupDetail(userId: string, rawGroupId: unknown): Promi
 
 export type AddedPerson = {
   memberId: string;
-  /** Lowercased. Only ever returned to the creator who typed it. */
-  email: string;
+  /** Lowercased. Only ever returned to the creator who typed it; null for a name-only person. */
+  email: string | null;
   /**
    * `invited` — they're in the group as invited, whatever happened next (an
    * in-app invitation for an account holder; one email for anyone else). The
    * same answer either way, so it reveals nothing about the address.
    * `already` — they were already in the group; nothing changed.
+   * `added` — added by name only (no email given), so nobody was invited.
    */
-  status: "invited" | "already";
+  status: "invited" | "already" | "added";
 };
 
-type Person = { email: string; name: string };
+/** Someone to add; `email: null` adds them by name only. */
+type Person = { email: string | null; name: string };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -598,13 +625,17 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * Add people inside the caller's transaction, with the group row already
  * locked. Re-adding someone who left reactivates their row — same id, so their
  * history reconnects, and the same `invite_emailed_at`, so no second email.
+ * Someone with no email is a new name-only row every time (there's no address
+ * to find an old row by), and two of them may share a name. Answers come back
+ * in the order people were given.
  *
  * Refused, before anything is written (so a refusal spends no quota):
  * - two addresses that are one inbox (`emailKey`), or the creator's own;
  * - someone who declined or left this group in the last 30 days;
  * - an inbox the creator already has 3 open invitations out to;
- * - more than `SPLIT_ADDS_PER_DAY` new people from this creator in 24 hours;
- * - a group past 50 people.
+ * - more than `SPLIT_ADDS_PER_DAY` new people from this creator in 24 hours
+ *   (name-only people included);
+ * - a group past 50 people (name-only people included).
  * None of these depend on whether an address has an account.
  */
 export async function insertPeople(
@@ -615,27 +646,39 @@ export async function insertPeople(
   invitedBy: string,
 ): Promise<{ added: AddedPerson[]; pendingIds: string[] }> {
   if (people.length === 0) return { added: [], pendingIds: [] };
-  const keyed = people.map((p) => ({ ...p, key: emailKey(p.email) }));
-  if (creatorEmail && keyed.some((p) => p.key === emailKey(creatorEmail))) {
+  type Addressed = { name: string; email: string; key: string };
+  type Keyed = Addressed | { name: string; email: null; key: null };
+  const keyed = people.map(
+    (p): Keyed =>
+      p.email ? { name: p.name, email: p.email, key: emailKey(p.email) } : { name: p.name, email: null, key: null },
+  );
+  // Only people with an address take part in the address checks below.
+  const hasAddress = (p: Keyed): p is Addressed => p.key !== null;
+  const addressed = keyed.filter(hasAddress);
+  if (creatorEmail && addressed.some((p) => p.key === emailKey(creatorEmail))) {
     throw badRequest("You're already in the group");
   }
-  if (new Set(keyed.map((p) => p.key)).size !== keyed.length) {
+  if (new Set(addressed.map((p) => p.key)).size !== addressed.length) {
     throw validationError("Two of these addresses go to the same inbox", {
       members: "Two of these addresses go to the same inbox",
     });
   }
-  const keys = keyed.map((p) => p.key);
-  const emails = keyed.map((p) => p.email);
+  const keys = addressed.map((p) => p.key);
+  const emails = addressed.map((p) => p.email);
   await lockActor(tx, invitedBy);
   const [existing, accounts, [active], addsToday] = await Promise.all([
-    tx
-      .select()
-      .from(splitMembers)
-      .where(and(eq(splitMembers.groupId, group.id), inArray(splitMembers.emailKey, keys))),
-    tx
-      .select({ id: users.id, email: users.email })
-      .from(users)
-      .where(inArray(sql`lower(${users.email})`, emails)),
+    keys.length
+      ? tx
+          .select()
+          .from(splitMembers)
+          .where(and(eq(splitMembers.groupId, group.id), inArray(splitMembers.emailKey, keys)))
+      : [],
+    emails.length
+      ? tx
+          .select({ id: users.id, email: users.email })
+          .from(users)
+          .where(inArray(sql`lower(${users.email})`, emails))
+      : [],
     tx
       .select({ n: count() })
       .from(splitMembers)
@@ -644,14 +687,17 @@ export async function insertPeople(
   ]);
   const byKey = new Map(existing.map((m) => [m.emailKey, m]));
   const accountByEmail = new Map(accounts.map((a) => [a.email?.toLowerCase(), a.id]));
+  const rowOf = (p: { key: string | null }) => (p.key === null ? undefined : byKey.get(p.key));
+  // Everyone who'll take a place: name-only people always do.
   const joining = keyed.filter((p) => {
-    const row = byKey.get(p.key);
+    const row = rowOf(p);
     return !row || row.status === "left";
   });
+  const joiningAddressed = joining.filter(hasAddress);
 
   const now = Date.now();
-  const cooling = joining.filter((p) => {
-    const until = byKey.get(p.key)?.inviteCooldownUntil;
+  const cooling = joiningAddressed.filter((p) => {
+    const until = rowOf(p)?.inviteCooldownUntil;
     return until != null && until.getTime() > now;
   });
   if (cooling.length) {
@@ -661,12 +707,12 @@ export async function insertPeople(
       "Someone in the list recently left or turned down this group, so they can't be invited back yet",
       {
         emails: cooling.map((p) => p.email),
-        until: new Date(Math.max(...cooling.map((p) => byKey.get(p.key)!.inviteCooldownUntil!.getTime()))).toISOString(),
+        until: new Date(Math.max(...cooling.map((p) => rowOf(p)!.inviteCooldownUntil!.getTime()))).toISOString(),
       },
     );
   }
 
-  if (joining.length) {
+  if (joiningAddressed.length) {
     const open = await tx
       .select({ key: splitMembers.emailKey, n: count() })
       .from(splitMembers)
@@ -676,14 +722,14 @@ export async function insertPeople(
           eq(splitMembers.status, "invited"),
           inArray(
             splitMembers.emailKey,
-            joining.map((p) => p.key),
+            joiningAddressed.map((p) => p.key),
           ),
           ne(splitMembers.groupId, group.id),
         ),
       )
       .groupBy(splitMembers.emailKey);
     const busy = new Set(open.filter((o) => o.n >= SPLIT_PENDING_PER_INVITEE).map((o) => o.key));
-    const swamped = joining.filter((p) => busy.has(p.key));
+    const swamped = joiningAddressed.filter((p) => busy.has(p.key));
     if (swamped.length) {
       throw new ApiError(
         409,
@@ -705,6 +751,24 @@ export async function insertPeople(
   const added: AddedPerson[] = [];
   const pendingIds: string[] = [];
   for (const person of keyed) {
+    if (person.key === null) {
+      // By name only: no address, no account, no join link — nothing can invite them.
+      const [saved] = await tx
+        .insert(splitMembers)
+        .values({
+          groupId: group.id,
+          email: null,
+          emailKey: null,
+          displayName: person.name,
+          status: "invited",
+          invitedBy,
+          inviteToken: null,
+          userId: null,
+        })
+        .returning({ id: splitMembers.id });
+      added.push({ memberId: saved!.id, email: null, status: "added" });
+      continue;
+    }
     const row = byKey.get(person.key);
     if (row && row.status !== "left") {
       added.push({ memberId: row.id, email: person.email, status: "already" });

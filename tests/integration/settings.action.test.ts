@@ -4,6 +4,7 @@ import { emailSendLog, users, userSettings, workspaceMembers, workspaces } from 
 import {
   deleteAllTransactions,
   dismissInviteNudge,
+  finishProductTour,
   notifyPasswordChanged,
   recordHeardFrom,
   updateAccountName,
@@ -227,7 +228,33 @@ describe("onboarding cards", () => {
       .where(eq(userSettings.userId, uid("d")));
     expect(row.uiPrefs).toEqual({
       composer: { density: "compact" },
-      onboarding: { inviteNudgeDismissed: true },
+      // A new account is owed the tour; dismissing the nudge leaves that alone.
+      onboarding: { inviteNudgeDismissed: true, tourPending: true },
+    });
+  });
+
+  it("finishProductTour clears the owed tour and leaves the rest of the bag alone", async () => {
+    signInAs("t");
+    await bootstrapUser("t");
+    // What a new account's bootstrap writes, set by hand so this doesn't
+    // depend on the bootstrap's exact defaults.
+    await getTestDb()
+      .update(userSettings)
+      .set({
+        uiPrefs: { composer: { density: "compact" }, onboarding: { inviteNudgeDismissed: true, tourPending: true } },
+      })
+      .where(eq(userSettings.userId, uid("t")));
+
+    expect((await finishProductTour()).ok).toBe(true);
+    // Twice is harmless — a second tab finishing the same first-visit tour.
+    expect((await finishProductTour()).ok).toBe(true);
+    const [row] = await getTestDb()
+      .select({ uiPrefs: userSettings.uiPrefs })
+      .from(userSettings)
+      .where(eq(userSettings.userId, uid("t")));
+    expect(row.uiPrefs).toEqual({
+      composer: { density: "compact" },
+      onboarding: { inviteNudgeDismissed: true, tourPending: false },
     });
   });
 });
