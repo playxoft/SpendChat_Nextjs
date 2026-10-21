@@ -22,15 +22,24 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
 
 ### Added
 - **A short tour for new accounts.** On their first visit to the tracker, new
-  accounts get a guided tour: adding a transaction, describing spending to AI,
-  voice entry (on plans that have it), spaces and profiles, and SpendChat AI.
-  Each step highlights the real control, and you can skip at any time. Anyone
-  can replay it from the account menu with "Take the tour".
+  accounts get a guided tour. It switches the composer to Manual and then to AI,
+  so each mode is shown working, and puts your own mode back at the end. It also
+  covers voice entry (on plans that have it), spaces and profiles, SpendChat AI,
+  and the other pages (Transactions, Analytics, Budgets and Files). It ends on
+  the account menu, where Settings, your workspaces and "Take the tour" live.
+  Each step highlights the real control, works on phones, and can be skipped at
+  any time.
 - **Invite people from a space's Members & access.** The dialog now has an
   email field on every plan, up to the plan's member limit. The person joins
   the workspace with access to that space. Someone who's already in the
   workspace just gets this space added; their other spaces and their role stay
   as they are.
+- **"Who pays whom" in Split bills.** Right under the group's header, every
+  payment that settles the group, phrased from your side: "You pay Ravi ₹500",
+  "Asha pays you ₹200", "Ravi pays Asha ₹100". Your own payments come first.
+  Everyone in the group sees the same full list, so anyone can check it.
+  "Mark as paid" on a line records it at that amount, and the strip says "All
+  settled up" once everyone is square.
 - **People in Split bills no longer need an email.** Add someone by name only
   and keep track of their share yourself. They're on every expense and balance
   like anyone else, but nobody gets an invite. An email can't be added to them
@@ -42,8 +51,16 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   name says what it does. Links and keyboard shortcuts haven't changed.
 - **New accounts start with the one-field composer, in compact mode.** Existing
   accounts keep the layout they have.
-- **Simpler plan cards.** Each plan lists five short ticked points instead of
-  long sentences.
+- **Clearer plan cards.** Each plan lists what it includes as short ticked
+  points instead of long sentences: AI actions, spaces and profiles, budgets,
+  storage, insights, invoices, Split bills and more. All of it is drawn from
+  the plan limits, so the cards can't promise more than the app gives.
+- **Switch workspace from the account menu.** Your workspaces are listed in the
+  menu behind your picture, top right, with Workspace settings and New
+  workspace. The sidebar starts with your spaces. `G` still opens the
+  workspace picker.
+- **Keyboard shortcuts show as one chip**, "⇧1" rather than "⇧" and "1" side by
+  side, so they take half the room.
 - **The sidebar section is called Spaces.** It lists your spaces with their
   profiles inside, and spaces are what plans count. Profiles are unchanged.
 

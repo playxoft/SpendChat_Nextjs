@@ -87,7 +87,13 @@ export default async function AppLayout({
     >
     <AttachmentViewerProvider>
     <AccountProvider
-      account={{ email, name: account?.name ?? user.name ?? null, image: account?.image ?? null }}
+      account={{
+        email,
+        name: account?.name ?? user.name ?? null,
+        image: account?.image ?? null,
+        workspaces,
+        currentWorkspaceId: workspace.id,
+      }}
     >
     <div className="flex min-h-svh">
       <AppSidebar
@@ -95,8 +101,6 @@ export default async function AppLayout({
         spaces={spaces}
         collapsedSpaces={collapsedSpaces}
         navLayout={sidebarPrefs.nav}
-        workspaces={workspaces}
-        currentWorkspaceId={workspace.id}
         budgetAlerts={budgetAlerts}
         splitInvitations={splitInvitations}
       />
@@ -106,8 +110,6 @@ export default async function AppLayout({
           profiles={profiles}
           spaces={spaces}
           collapsedSpaces={collapsedSpaces}
-          workspaces={workspaces}
-          currentWorkspaceId={workspace.id}
           categories={categories}
           currency={workspace.currency}
           locale={workspace.locale}

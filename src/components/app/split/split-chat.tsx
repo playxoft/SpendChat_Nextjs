@@ -50,6 +50,7 @@ import { SettleDialog, type SettleTarget } from "./settle-dialog";
 import { SplitComposer } from "./split-composer";
 import { SplitFeed } from "./split-feed";
 import { UpdateEntryDialog, type UpdateEntryTarget } from "./update-entry-dialog";
+import { WhoPaysWhom } from "./who-pays-whom";
 import { AccountControls } from "@/components/app/account-controls";
 
 type Confirm =
@@ -61,9 +62,10 @@ type Confirm =
 /**
  * One split group as a chat — the tracker's layout: a sticky header (the
  * group, its people and where you stand), the feed of expenses and payments
- * with the newest at the bottom, and the composer pinned under it. Balances
- * and settling up open in a sheet from the header; an expense's details and
- * its "add to my workspace" actions open from its bubble.
+ * with the newest at the bottom, and the composer pinned under it. Under the
+ * header, "Who pays whom" lists the payments that settle the group; balances
+ * open in a sheet from the header; an expense's details and its "add to my
+ * workspace" actions open from its bubble.
  */
 export function SplitChat({
   detail,
@@ -345,6 +347,7 @@ export function SplitChat({
           </DropdownMenu>
           <AccountControls />
         </div>
+        <WhoPaysWhom detail={detail} viewer={viewer} locale={locale} onSettle={setSettle} />
       </header>
 
       <div className="mx-auto w-full max-w-3xl flex-1 px-4 py-4">

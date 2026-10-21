@@ -158,3 +158,36 @@ export function mergeFeed<T extends FeedPlaced>(previous: readonly T[], page: re
 export function keepThroughRefresh<T extends FeedPlaced>(older: readonly T[], previousPage: readonly T[]): T[] {
   return previousPage.length > 0 ? mergeFeed(older, previousPage) : [...older];
 }
+
+/** One payment of a group's settle-up plan (`suggestSettlements`), as the server sends it. */
+type Transfer = { fromMemberId: string; toMemberId: string; amountMinor: number };
+
+/** The viewer's part in a payment: they pay it, they get it, or it's between others. */
+export type TransferRole = "pay" | "receive" | "other";
+
+export function transferRole(t: Transfer, viewerMemberId: string): TransferRole {
+  return t.fromMemberId === viewerMemberId ? "pay" : t.toMemberId === viewerMemberId ? "receive" : "other";
+}
+
+/**
+ * The settle-up plan as one viewer reads it: their own payments first, then
+ * everyone else's, each part keeping the plan's order — which is the same for
+ * every member, so two people comparing their screens see the same lines.
+ */
+export function transfersForViewer<T extends Transfer>(
+  transfers: readonly T[],
+  viewerMemberId: string,
+): (T & { role: TransferRole })[] {
+  const withRole = transfers.map((t) => ({ ...t, role: transferRole(t, viewerMemberId) }));
+  return [...withRole.filter((t) => t.role !== "other"), ...withRole.filter((t) => t.role === "other")];
+}
+
+/**
+ * A payment in words from the viewer's side, before the amount: "You pay
+ * Ravi", "Asha pays you", "Ravi pays Asha".
+ */
+export function transferSentence(role: TransferRole, fromName: string, toName: string): string {
+  if (role === "pay") return `You pay ${toName}`;
+  if (role === "receive") return `${fromName} pays you`;
+  return `${fromName} pays ${toName}`;
+}

@@ -13,6 +13,9 @@ import {
   myPartText,
   payersLabel,
   SETTLED_UP,
+  transferRole,
+  transferSentence,
+  transfersForViewer,
 } from "@/lib/split-display";
 import { parseAmountInput } from "@/lib/parse-amount";
 
@@ -167,5 +170,48 @@ describe("feed paging", () => {
     expect(mergeFeed(kept, [c, e])).toEqual([a, b, c, e]); // the re-read failed: b stays
     expect(mergeFeed(mergeFeed(kept, [a, b]), [c, e])).toEqual([a, b, c, e]); // it landed
     expect(keepThroughRefresh([a], [])).toEqual([a]);
+  });
+});
+
+describe("who pays whom, as the viewer reads it", () => {
+  // The server's plan, the same for every member.
+  const plan = [
+    { fromMemberId: "ravi", toMemberId: "asha", amountMinor: 10_000 },
+    { fromMemberId: "me", toMemberId: "ravi", amountMinor: 50_000 },
+    { fromMemberId: "ben", toMemberId: "asha", amountMinor: 2_000 },
+    { fromMemberId: "me", toMemberId: "asha", amountMinor: 300 },
+  ];
+
+  it("names the viewer's part in each payment", () => {
+    expect(transferRole(plan[1]!, "me")).toBe("pay");
+    expect(transferRole(plan[0]!, "asha")).toBe("receive");
+    expect(transferRole(plan[2]!, "me")).toBe("other");
+  });
+
+  it("puts the viewer's own payments first, keeping the plan's order in each part", () => {
+    expect(transfersForViewer(plan, "me").map((t) => [t.fromMemberId, t.toMemberId, t.role])).toEqual([
+      ["me", "ravi", "pay"],
+      ["me", "asha", "pay"],
+      ["ravi", "asha", "other"],
+      ["ben", "asha", "other"],
+    ]);
+    expect(transfersForViewer(plan, "asha").map((t) => t.role)).toEqual(["receive", "receive", "receive", "other"]);
+  });
+
+  it("leaves the plan alone for someone with no part in it, and an empty plan empty", () => {
+    expect(transfersForViewer(plan, "zoe").map(({ role, ...t }) => (role === "other" ? t : null))).toEqual(plan);
+    expect(transfersForViewer([], "me")).toEqual([]);
+  });
+
+  it("keeps every payment and its amount — nothing added, dropped or changed", () => {
+    const seen = transfersForViewer(plan, "me");
+    expect(seen).toHaveLength(plan.length);
+    expect(seen.reduce((a, t) => a + t.amountMinor, 0)).toBe(plan.reduce((a, t) => a + t.amountMinor, 0));
+  });
+
+  it("phrases each line from the viewer's side", () => {
+    expect(transferSentence("pay", "You", "Ravi")).toBe("You pay Ravi");
+    expect(transferSentence("receive", "Asha", "You")).toBe("Asha pays you");
+    expect(transferSentence("other", "Ravi", "Asha")).toBe("Ravi pays Asha");
   });
 });

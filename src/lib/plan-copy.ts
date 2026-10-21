@@ -1,5 +1,6 @@
 import { formatFileSize } from "@/lib/attachments";
 import {
+  budgetsAllowance,
   budgetsLimitLabel,
   formatPlanStorage,
   formatResetDate,
@@ -8,6 +9,7 @@ import {
   type UpgradeLimit,
 } from "@/lib/plan-limit";
 import {
+  INVOICE_LIMITS,
   PERSONAL_PLANS,
   PLAN_LIMITS,
   PLAN_NAMES,
@@ -110,14 +112,16 @@ export type PlanPitch = {
   people: string;
   /** What the outcome list builds on: "Everything in Free, and". */
   lead: string;
-  /** Three to five ticks under the price: short, scannable, one fact each —
-   *  the story and the audience line carry the why. Numbers come from
-   *  `PLAN_LIMITS`. */
+  /** Up to eight ticks under the price: short, scannable, one true fact each,
+   *  and enough of them that the plan's worth is visible at a glance — the
+   *  story and the audience line carry the why. Numbers come from
+   *  `PLAN_LIMITS` (and `INVOICE_LIMITS`), never typed in. */
   outcomes: string[];
 };
 
 const L = PLAN_LIMITS;
 const people = (plan: PersonalPlan) => `Up to ${count(L[plan].members)} people`;
+const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
   free: {
@@ -128,10 +132,13 @@ export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
     people: people("free"),
     lead: "Includes",
     outcomes: [
-      "Unlimited transactions",
-      `${count(L.free.aiActionsPerMonth)} AI actions a month`,
+      "Unlimited transactions, with a running balance",
+      `${count(L.free.aiActionsPerMonth)} AI actions a month: notes to rows, or ask SpendChat AI`,
       `${count(L.free.spaces)} spaces, ${count(L.free.profilesPerSpace)} profiles in each`,
-      `${formatPlanStorage(L.free.storageBytes)} for receipts`,
+      `${capitalize(budgetsAllowance("free"))} with alerts`,
+      `${formatPlanStorage(L.free.storageBytes)} for receipts and files`,
+      `Invoices and quotes, ${count(INVOICE_LIMITS.free.perMonth)} a month`,
+      "Split bills with anyone",
       `CSV and PDF export, ${TRASH_DAYS}-day undo`,
     ],
   },
@@ -143,10 +150,13 @@ export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
     people: people("plus"),
     lead: "Everything in Free, and",
     outcomes: [
+      `${count(L.plus.aiActionsPerMonth)} AI actions a month, plus top-ups`,
       `${count(L.plus.spaces)} spaces, ${count(L.plus.profilesPerSpace)} profiles in each`,
       "Private and read-only profiles",
-      `${count(L.plus.aiActionsPerMonth)} AI actions a month, plus top-ups`,
+      "Insights: month-end projection, cash flow, recurring payments",
+      `${capitalize(budgetsAllowance("plus"))} with alerts`,
       `${formatPlanStorage(L.plus.storageBytes)} for receipts and bills`,
+      `${count(L.plus.categories)} categories and ${count(L.plus.tags)} tags`,
       `${TRASH_DAYS}-day undo for deleted files`,
     ],
   },
@@ -158,9 +168,10 @@ export const PLAN_PITCH: Record<PersonalPlan, PlanPitch> = {
     people: people("pro"),
     lead: "Everything in Plus, and",
     outcomes: [
-      "Voice entry, in any mix of languages",
+      `Voice entry in any mix of languages, up to ${minutes(voiceClipMinutes)} a clip`,
       `${count(L.pro.aiActionsPerMonth)} AI actions a month, plus top-ups`,
       `${count(L.pro.spaces)} spaces, ${count(L.pro.profilesPerSpace)} profiles in each`,
+      `${capitalize(budgetsAllowance("pro"))} with alerts`,
       `${formatPlanStorage(L.pro.storageBytes)} for receipts and invoices`,
       `${count(L.pro.categories)} categories and ${count(L.pro.tags)} tags`,
     ],

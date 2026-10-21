@@ -35,7 +35,7 @@ function allStrings(value: unknown): string[] {
 }
 
 describe("PLAN_PITCH", () => {
-  it("has a who-it's-for line, a headline, a story and 3–5 outcomes for every plan", () => {
+  it("has a who-it's-for line, a headline, a story and 3–8 outcomes for every plan", () => {
     for (const plan of PERSONAL_PLANS) {
       const p = PLAN_PITCH[plan];
       expect(p.audience.trim()).toBeTruthy();
@@ -43,7 +43,7 @@ describe("PLAN_PITCH", () => {
       expect(p.story.trim()).toBeTruthy();
       expect(p.lead.trim()).toBeTruthy();
       expect(p.outcomes.length).toBeGreaterThanOrEqual(3);
-      expect(p.outcomes.length).toBeLessThanOrEqual(5);
+      expect(p.outcomes.length).toBeLessThanOrEqual(8);
       expect(new Set(p.outcomes).size).toBe(p.outcomes.length);
     }
   });
@@ -59,7 +59,8 @@ describe("PLAN_PITCH", () => {
 
   it("only sells voice on a plan that has it", () => {
     for (const plan of PERSONAL_PLANS) {
-      const mentionsVoice = /voice/i.test(PLAN_PITCH[plan].outcomes.join(" "));
+      // A whole word: "Invoices and quotes" isn't selling voice entry.
+      const mentionsVoice = /\bvoice\b/i.test(PLAN_PITCH[plan].outcomes.join(" "));
       if (mentionsVoice) expect(PLAN_LIMITS[plan].voice).toBe(true);
     }
   });

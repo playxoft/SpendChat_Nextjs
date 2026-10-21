@@ -13,12 +13,34 @@ import { comboFor } from "@/lib/shortcuts";
  */
 
 /** A `data-tour` anchor on the tracker. Several elements may carry one (see `TourStep.targets`). */
-export type TourTarget = "composer" | "entry-mode" | "voice" | "spaces" | "nav-ask";
+export type TourTarget =
+  | "composer"
+  | "entry-mode"
+  | "voice"
+  | "spaces"
+  | "nav"
+  | "nav-ask"
+  | "nav-transactions"
+  | "nav-analytics"
+  | "nav-budgets"
+  | "nav-files"
+  | "account-menu";
+
+/** The composer's two modes (`EntryMode` in `entry-mode-toggle.tsx`). */
+export type TourMode = "manual" | "ai";
 
 export type TourSide = "top" | "bottom" | "left" | "right";
 
 export type TourBox = { top: number; left: number; width: number; height: number };
 export type TourSize = { width: number; height: number };
+
+/** One line of a step that introduces several pages at once. */
+export type TourPage = {
+  /** The page's own row in the nav, when it has one there (see `pagesNote`). */
+  target: TourTarget;
+  label: string;
+  text: string;
+};
 
 export type TourStep = {
   id: string;
@@ -26,10 +48,9 @@ export type TourStep = {
   body: string;
   /**
    * Anchors, best first; the first one that's on screen wins. One anchor can sit
-   * on several elements — the Manual and AI panes each render the mode toggle
-   * (one hidden, on the same pixel), and SpendChat AI is both a sidebar row and
-   * a bottom-bar slot — and the visible one is used. That's what lets one step
-   * list work on a desktop and a phone.
+   * on several elements — SpendChat AI is both a sidebar row and a bottom-bar
+   * slot, the nav is the sidebar's list or the bottom bar — and the visible one
+   * is used. That's what lets one step list work on a desktop and a phone.
    */
   targets: readonly TourTarget[];
   /** Sides for the card, best first. A side the card doesn't fit on is passed over. */
@@ -40,37 +61,48 @@ export type TourStep = {
   hint?: { text: string; combo: string };
   /** Shown only when the feature is on for this person (voice entry is a plan feature). */
   requires?: "voice";
+  /**
+   * The composer is switched to this mode for the step — for real, through its
+   * own store, so the switch shows it checked — and stays in it until a later
+   * step names another (see `tourModeFor`). Shown, never saved: the tour's end
+   * puts back whatever the person had.
+   */
+  mode?: TourMode;
+  /** Pages introduced together, one line each, under the body. */
+  pages?: readonly TourPage[];
 };
 
 export const TOUR_STEPS: readonly TourStep[] = [
   {
-    id: "composer",
+    id: "manual",
     title: "Add a transaction",
     // Layout-neutral: a replay can come from any input layout (amount first,
     // title first, or one field).
-    body: "Type how much and what it was for, then send it. It lands in the feed above.",
+    body: "Type how much and what it was for, then send it — it lands in the feed above. The buttons set expense or income, the date, a category and tags (or type / and # as you write).",
     targets: ["composer"],
     sides: ["top", "bottom"],
     hint: { text: "Send with", combo: "enter" },
+    mode: "manual",
   },
   {
     id: "ai",
     title: "Or just describe it",
-    body: "Switch to AI and write it the way you'd say it — “200 fruits, 1000 electricity”. AI turns it into rows you check before anything is saved.",
-    targets: ["entry-mode"],
-    sides: ["top", "bottom", "right"],
-    hint: { text: "Switch with", combo: comboFor("tracker.toggle-mode") },
+    body: "In AI mode, write it the way you'd say it — “200 fruits, 1000 electricity”. AI turns it into rows you check and fix before anything is saved.",
+    targets: ["composer"],
+    sides: ["top", "bottom"],
+    hint: { text: "Switch modes with", combo: comboFor("tracker.toggle-mode") },
+    mode: "ai",
   },
   {
-    // Points at the mic when AI mode is showing; from Manual, the mic is in the
-    // hidden pane, so the toggle that gets you there stands in for it.
     id: "voice",
     title: "Say it instead",
-    body: "In AI mode, press and hold the mic and speak. You see the words before they become rows.",
-    targets: ["voice", "entry-mode"],
+    body: "Press and hold the mic and speak. The words land in the note for you to check before they become rows.",
+    targets: ["voice"],
     sides: ["top", "bottom", "left"],
     hint: { text: "Hold", combo: comboFor("tracker.voice") },
     requires: "voice",
+    // The mic is AI mode's; named here too so Back from a later step shows it.
+    mode: "ai",
   },
   {
     id: "spaces",
@@ -88,7 +120,52 @@ export const TOUR_STEPS: readonly TourStep[] = [
     sides: ["right", "top"],
     hint: { text: "Open it with", combo: comboFor("nav.ask") },
   },
+  {
+    // One card for four pages rather than four cards: each page is a sentence,
+    // and a stop per page would double the tour for things the reader can't
+    // try from here anyway. The spotlight is the whole list, so it shows where
+    // they all are; a page folded under More is said to be there.
+    id: "pages",
+    title: "Your other pages",
+    body: "Each one is a click away:",
+    targets: ["nav"],
+    sides: ["right", "top"],
+    pages: [
+      {
+        target: "nav-transactions",
+        label: "Transactions",
+        text: "every entry in a table you can search, filter and export",
+      },
+      { target: "nav-analytics", label: "Analytics", text: "charts of where your money goes and how it changes" },
+      { target: "nav-budgets", label: "Budgets", text: "monthly limits, with alerts as you near them" },
+      { target: "nav-files", label: "Files", text: "receipts, bills and other documents, in folders" },
+    ],
+  },
+  {
+    // Settings has no row in the nav — it's in this menu (`nav-items.ts`) — so
+    // it's introduced here rather than as a second stop on the same button.
+    id: "help",
+    title: "Help is here",
+    body: "Your workspaces live in this menu — switch between them or start a new one — and so do Settings: members, input layout, voice, categories and tags. Pick “Take the tour” there to see this again.",
+    targets: ["account-menu"],
+    sides: ["bottom", "left"],
+    hint: { text: "See every shortcut with", combo: comboFor("global.shortcuts") },
+  },
 ];
+
+/** The nav rows the tour points at, by section id (`nav-items.ts`); other rows carry no anchor. */
+const NAV_TARGETS: Partial<Record<string, TourTarget>> = {
+  ask: "nav-ask",
+  transactions: "nav-transactions",
+  analytics: "nav-analytics",
+  budgets: "nav-budgets",
+  files: "nav-files",
+};
+
+/** The `data-tour` value for a nav section's row — the sidebar's and the bottom bar's alike. */
+export function navTourTarget(sectionId: string): TourTarget | undefined {
+  return NAV_TARGETS[sectionId];
+}
 
 /**
  * The steps this person gets, now: the ones whose feature they have and whose
@@ -96,6 +173,9 @@ export const TOUR_STEPS: readonly TourStep[] = [
  * sidebar section folded under More has no row — a step pointing at nothing
  * would be a card about something the reader can't see, so it's dropped and
  * "Step n of N" counts only what's left.
+ *
+ * `hasTarget` judges an element in the composer's hidden pane as there: the
+ * step that needs it switches the composer to that pane first.
  */
 export function tourStepsFor({
   voice,
@@ -107,6 +187,39 @@ export function tourStepsFor({
   return TOUR_STEPS.filter(
     (step) => (step.requires !== "voice" || voice) && step.targets.some(hasTarget),
   );
+}
+
+/**
+ * The composer mode to show at step `index`: the nearest step at or before it
+ * that names one. A function of the step alone, so Back lands on the same
+ * picture Next did. Null before any such step (and for a tour without the
+ * composer), which means "whatever the person has".
+ */
+export function tourModeFor(steps: readonly TourStep[], index: number): TourMode | null {
+  for (let i = Math.min(index, steps.length - 1); i >= 0; i--) {
+    const mode = steps[i].mode;
+    if (mode) return mode;
+  }
+  return null;
+}
+
+/** "A", "A and B", "A, B and C". */
+function joinNames(names: readonly string[]): string {
+  if (names.length <= 1) return names.join("");
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/**
+ * Where to find a step's pages that have no row of their own on screen. The
+ * nav is arranged by the person on a desktop (`lib/sidebar-nav.ts`) and fixed
+ * on a phone (most pages under the bottom bar's More), so a page without a row
+ * is under More — the spotlit list includes it. Null when every page has a
+ * row, or the step introduces none.
+ */
+export function pagesNote(step: TourStep, hasTarget: (target: TourTarget) => boolean): string | null {
+  const tucked = (step.pages ?? []).filter((page) => !hasTarget(page.target)).map((page) => page.label);
+  if (tucked.length === 0) return null;
+  return `${joinNames(tucked)} ${tucked.length === 1 ? "is" : "are"} under More.`;
 }
 
 /** Space between the target and the card. */

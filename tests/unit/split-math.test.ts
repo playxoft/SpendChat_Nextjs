@@ -311,6 +311,89 @@ describe("suggestSettlements", () => {
       expect(after.every((n) => n.netMinor === 0)).toBe(true);
     }
   });
+
+  it("two people: the one who owes pays the other", () => {
+    expect(
+      suggestSettlements([
+        { memberId: "a", netMinor: 2500 },
+        { memberId: "b", netMinor: -2500 },
+      ]),
+    ).toEqual([{ fromMemberId: "b", toMemberId: "a", amountMinor: 2500 }]);
+  });
+
+  it("carries the leftover paisa of an uneven split through to the payment", () => {
+    // ₹100 three ways, paid by d who isn't in it: a takes the leftover paisa.
+    const shares = computeShares(10_000, "d", { type: "equal", memberIds: ["a", "b", "c"] });
+    const owed = Object.fromEntries(shares.map((s) => [s.memberId, s.amountMinor]));
+    const nets = netBalances(["a", "b", "c", "d"], { paid: { d: 10_000 }, owed, sent: {}, received: {} });
+    const plan = suggestSettlements(nets);
+    expect(plan).toEqual([
+      { fromMemberId: "a", toMemberId: "d", amountMinor: 3334 },
+      { fromMemberId: "b", toMemberId: "d", amountMinor: 3333 },
+      { fromMemberId: "c", toMemberId: "d", amountMinor: 3333 },
+    ]);
+    expect(sum(plan)).toBe(10_000);
+  });
+
+  it("many people: at most n − 1 payments, adding up to everything owed", () => {
+    const balances: MemberBalance[] = [
+      { memberId: "a", netMinor: 5000 },
+      { memberId: "b", netMinor: 2000 },
+      { memberId: "c", netMinor: -4000 },
+      { memberId: "d", netMinor: -2500 },
+      { memberId: "e", netMinor: -500 },
+    ];
+    const plan = suggestSettlements(balances);
+    expect(plan).toEqual([
+      { fromMemberId: "c", toMemberId: "a", amountMinor: 4000 },
+      { fromMemberId: "d", toMemberId: "a", amountMinor: 1000 },
+      { fromMemberId: "d", toMemberId: "b", amountMinor: 1500 },
+      { fromMemberId: "e", toMemberId: "b", amountMinor: 500 },
+    ]);
+    expect(plan.length).toBeLessThanOrEqual(balances.length - 1);
+    expect(sum(plan)).toBe(7000);
+  });
+
+  it("leaves out anyone already square", () => {
+    expect(
+      suggestSettlements([
+        { memberId: "a", netMinor: 0 },
+        { memberId: "b", netMinor: -100 },
+        { memberId: "c", netMinor: 0 },
+        { memberId: "d", netMinor: 100 },
+      ]),
+    ).toEqual([{ fromMemberId: "b", toMemberId: "d", amountMinor: 100 }]);
+    expect(
+      suggestSettlements([
+        { memberId: "a", netMinor: 0 },
+        { memberId: "b", netMinor: 0 },
+      ]),
+    ).toEqual([]);
+    expect(suggestSettlements([])).toEqual([]);
+  });
+
+  it("is the same list whatever order the balances come in — every member sees one plan", () => {
+    const balances: MemberBalance[] = [
+      { memberId: "m1", netMinor: 300 },
+      { memberId: "m2", netMinor: 300 },
+      { memberId: "m3", netMinor: -200 },
+      { memberId: "m4", netMinor: -200 },
+      { memberId: "m5", netMinor: -200 },
+    ];
+    const expected = suggestSettlements(balances);
+    const next = rng(7);
+    for (let round = 0; round < 50; round++) {
+      const shuffled = [...balances].sort(() => next() - 0.5);
+      expect(suggestSettlements(shuffled)).toEqual(expected);
+    }
+    // Equal amounts go by member id.
+    expect(expected).toEqual([
+      { fromMemberId: "m3", toMemberId: "m1", amountMinor: 200 },
+      { fromMemberId: "m4", toMemberId: "m1", amountMinor: 100 },
+      { fromMemberId: "m4", toMemberId: "m2", amountMinor: 100 },
+      { fromMemberId: "m5", toMemberId: "m2", amountMinor: 200 },
+    ]);
+  });
 });
 
 describe("percentToInputString", () => {

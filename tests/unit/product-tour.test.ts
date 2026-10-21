@@ -4,9 +4,13 @@ import {
   TOUR_MARGIN,
   TOUR_STEPS,
   isOnScreen,
+  navTourTarget,
+  pagesNote,
   placeCard,
   spotlightBox,
+  tourModeFor,
   tourStepsFor,
+  type TourStep,
   type TourTarget,
 } from "@/lib/product-tour";
 
@@ -23,34 +27,153 @@ describe("tourStepsFor", () => {
     expect(ids(tourStepsFor({ voice: true, hasTarget: everything }))).toEqual(ids([...TOUR_STEPS]));
   });
 
+  it("walks Manual, AI, voice, spaces, SpendChat AI, the other pages, then help", () => {
+    expect(ids([...TOUR_STEPS])).toEqual(["manual", "ai", "voice", "spaces", "ask", "pages", "help"]);
+  });
+
   it("drops the voice step for a plan without voice entry", () => {
     expect(ids(tourStepsFor({ voice: false, hasTarget: everything }))).toEqual([
-      "composer",
+      "manual",
       "ai",
       "spaces",
       "ask",
+      "pages",
+      "help",
     ]);
   });
 
   it("drops a step whose element isn't on the page (a viewer has no composer)", () => {
-    const present = new Set<TourTarget>(["spaces", "nav-ask"]);
+    const present = new Set<TourTarget>(["spaces", "nav", "nav-ask", "account-menu"]);
     expect(ids(tourStepsFor({ voice: true, hasTarget: (t) => present.has(t) }))).toEqual([
       "spaces",
       "ask",
+      "pages",
+      "help",
     ]);
   });
 
-  it("keeps the voice step on its fallback when the mic is in the hidden pane", () => {
-    const present = new Set<TourTarget>(["composer", "entry-mode"]);
-    expect(ids(tourStepsFor({ voice: true, hasTarget: (t) => present.has(t) }))).toEqual([
+  it("drops the voice step when there's no mic (AI mode holding a review list)", () => {
+    const hasTarget = (t: TourTarget) => t !== "voice";
+    expect(ids(tourStepsFor({ voice: true, hasTarget }))).not.toContain("voice");
+  });
+
+  it("drops SpendChat AI's stop when its row is folded under More, and keeps the pages", () => {
+    const hasTarget = (t: TourTarget) => t !== "nav-ask";
+    const steps = ids(tourStepsFor({ voice: true, hasTarget }));
+    expect(steps).not.toContain("ask");
+    expect(steps).toContain("pages");
+  });
+
+  it("keeps every step on a phone, whose bottom bar and top bar carry the anchors", () => {
+    // No sidebar rows past the bar's: Transactions and SpendChat AI have slots,
+    // the rest are under the bar's More.
+    const phone = new Set<TourTarget>([
       "composer",
-      "ai",
+      "entry-mode",
       "voice",
+      "spaces",
+      "nav",
+      "nav-ask",
+      "nav-transactions",
+      "account-menu",
     ]);
+    expect(tourStepsFor({ voice: true, hasTarget: (t) => phone.has(t) })).toHaveLength(TOUR_STEPS.length);
   });
 
   it("is empty when nothing is there to point at", () => {
     expect(tourStepsFor({ voice: true, hasTarget: () => false })).toEqual([]);
+  });
+});
+
+const step = (id: string) => TOUR_STEPS.find((s) => s.id === id)!;
+
+describe("the composer steps", () => {
+  it("show Manual, then AI, each spotlighting the whole composer", () => {
+    expect(step("manual")).toMatchObject({ mode: "manual", targets: ["composer"] });
+    expect(step("ai")).toMatchObject({ mode: "ai", targets: ["composer"] });
+  });
+
+  it("point voice at the mic, in AI mode where the mic is", () => {
+    expect(step("voice")).toMatchObject({ mode: "ai", targets: ["voice"] });
+  });
+
+  it("leave the mode alone everywhere else", () => {
+    const others = TOUR_STEPS.filter((s) => !["manual", "ai", "voice"].includes(s.id));
+    expect(others.every((s) => s.mode === undefined)).toBe(true);
+  });
+});
+
+describe("tourModeFor", () => {
+  const all = tourStepsFor({ voice: true, hasTarget: everything });
+
+  it("shows each composer step's own mode, and keeps the last one after them", () => {
+    expect(all.map((_, i) => tourModeFor(all, i))).toEqual([
+      "manual",
+      "ai",
+      "ai",
+      "ai",
+      "ai",
+      "ai",
+      "ai",
+    ]);
+  });
+
+  it("goes back to Manual on the way back to its step", () => {
+    expect(tourModeFor(all, 3)).toBe("ai");
+    expect(tourModeFor(all, 0)).toBe("manual");
+  });
+
+  it("is null for a tour without the composer — the person's own mode stays", () => {
+    const viewer = tourStepsFor({ voice: true, hasTarget: (t) => t !== "composer" && t !== "voice" });
+    expect(viewer.map((_, i) => tourModeFor(viewer, i)).every((m) => m === null)).toBe(true);
+  });
+
+  it("reads past the end as the last step", () => {
+    expect(tourModeFor(all, 99)).toBe("ai");
+    expect(tourModeFor([], 0)).toBeNull();
+  });
+});
+
+describe("the pages step", () => {
+  const pages = step("pages");
+
+  it("introduces Transactions, Analytics, Budgets and Files over the nav", () => {
+    expect(pages.targets).toEqual(["nav"]);
+    expect(pages.pages?.map((p) => p.label)).toEqual(["Transactions", "Analytics", "Budgets", "Files"]);
+  });
+
+  it("names each page by the anchor its nav row carries", () => {
+    for (const page of pages.pages ?? []) {
+      expect(navTourTarget(page.label.toLowerCase())).toBe(page.target);
+    }
+    expect(navTourTarget("ask")).toBe("nav-ask");
+    expect(navTourTarget("tracker")).toBeUndefined();
+    expect(navTourTarget("invoices")).toBeUndefined();
+  });
+
+  it("says nothing when every page has its own row", () => {
+    expect(pagesNote(pages, everything)).toBeNull();
+  });
+
+  it("says which pages are under More", () => {
+    const without = (...gone: TourTarget[]) => (t: TourTarget) => !gone.includes(t);
+    expect(pagesNote(pages, without("nav-files"))).toBe("Files is under More.");
+    expect(pagesNote(pages, without("nav-budgets", "nav-files"))).toBe("Budgets and Files are under More.");
+    // A phone: only Transactions has a slot on the bottom bar.
+    expect(pagesNote(pages, (t) => t === "nav-transactions")).toBe(
+      "Analytics, Budgets and Files are under More.",
+    );
+  });
+
+  it("has no note for a step without pages", () => {
+    const plain: TourStep = step("ask");
+    expect(pagesNote(plain, () => false)).toBeNull();
+  });
+});
+
+describe("the help step", () => {
+  it("ends the tour on the account menu", () => {
+    expect(TOUR_STEPS.at(-1)).toMatchObject({ id: "help", targets: ["account-menu"] });
   });
 });
 

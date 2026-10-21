@@ -9,6 +9,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { navTourTarget } from "@/lib/product-tour";
 import { cn } from "@/lib/utils";
 import { hrefWithProfile, invitationBadge, isActive, navItems, splitNavItem } from "./nav-items";
 import { BudgetNavBadge, type BudgetAlertCount } from "./budgets/budget-nav-badge";
@@ -36,7 +37,11 @@ export function BottomNav({
   const moreActive = MORE_ITEMS.some((item) => isActive(pathname, item.href, item.exact));
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 h-16 border-t bg-background md:hidden print:hidden">
+    // `data-tour`: the product tour's "other pages" stop on a phone (the sidebar's list on a desktop).
+    <nav
+      data-tour="nav"
+      className="fixed inset-x-0 bottom-0 z-30 h-16 border-t bg-background md:hidden print:hidden"
+    >
       <div className="mx-auto flex h-full max-w-md items-stretch justify-around">
         {BAR_ITEMS.map((item) => {
           const active = isActive(pathname, item.href, item.exact);
@@ -48,8 +53,9 @@ export function BottomNav({
               href={hrefWithProfile(item.href, profile)}
               aria-current={active ? "page" : undefined}
               aria-label={short ? item.label : undefined}
-              // The product tour's SpendChat AI stop on a phone (the sidebar row on a desktop).
-              data-tour={item.id === "ask" ? "nav-ask" : undefined}
+              // Product-tour anchors on a phone (the sidebar's rows on a desktop).
+              // The sections under More have none: the tour says they're there.
+              data-tour={navTourTarget(item.id)}
               className={cn(slot, active ? "text-foreground" : "text-muted-foreground")}
             >
               <item.icon className={cn("size-5", active && "scale-105")} />

@@ -4,6 +4,7 @@ import { createContext, useContext, useLayoutEffect, useRef, useState, type Reac
 import { ThemeToggle } from "@/components/theme-toggle";
 import { cn } from "@/lib/utils";
 import { UserMenu } from "./user-menu";
+import type { WorkspaceOption } from "./workspace-switcher";
 
 /** Who's signed in, for the account menu: the layout reads it once per request. */
 export type AccountSummary = {
@@ -11,6 +12,9 @@ export type AccountSummary = {
   /** Display name and picture; either may be missing. */
   name: string | null;
   image: string | null;
+  /** Their workspaces and the current one — the menu is where they switch. */
+  workspaces: WorkspaceOption[];
+  currentWorkspaceId: string;
 };
 
 const AccountContext = createContext<AccountSummary | null>(null);
@@ -56,7 +60,7 @@ export function AccountControls({
   return (
     <div className={cn("flex shrink-0 items-center gap-1 print:hidden", className)}>
       <ThemeToggle />
-      <UserMenu email={account.email} name={account.name} image={account.image} />
+      <UserMenu account={account} />
     </div>
   );
 }
@@ -125,7 +129,7 @@ export function AccountCorner() {
   return (
     <div className="fixed right-4 top-3.5 z-20 hidden items-center gap-1 rounded-full bg-background/80 backdrop-blur-sm md:flex print:hidden">
       <ThemeToggle />
-      <UserMenu email={account.email} name={account.name} image={account.image} />
+      <UserMenu account={account} />
     </div>
   );
 }

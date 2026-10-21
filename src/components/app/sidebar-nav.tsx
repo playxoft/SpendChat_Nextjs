@@ -31,6 +31,7 @@ import { setSidebarNav } from "@/actions/settings";
 import { requestAskFocus } from "./ask/ask-paths";
 import { Kbd } from "@/components/ui/kbd";
 import { Popover, PopoverAnchor, PopoverContent } from "@/components/ui/popover";
+import { navTourTarget } from "@/lib/product-tour";
 import { MORE_ID, type SidebarNavEntry, type SidebarNavId, type SidebarNavLayout } from "@/lib/sidebar-nav";
 import { cn } from "@/lib/utils";
 import { hrefWithProfile, isActive, navItems, splitNavItem } from "./nav-items";
@@ -275,7 +276,8 @@ export function SidebarNav({
       onDragEnd={onDragEnd}
       onDragCancel={onDragCancel}
     >
-      <nav aria-label="Sections" className="shrink-0 space-y-1 px-3 py-2">
+      {/* The product tour's "other pages" stop (the bottom bar on a phone). */}
+      <nav aria-label="Sections" data-tour="nav" className="shrink-0 space-y-1 px-3 py-2">
         <SortableContext items={layout.main} strategy={verticalListSortingStrategy}>
           {layout.main.map((id) =>
             id === MORE_ID ? (
@@ -405,8 +407,9 @@ function NavRow({
         href={href}
         aria-current={active ? "page" : undefined}
         onClick={id === "ask" ? requestAskFocus : undefined}
-        // The product tour's last stop (the bottom bar's slot on a phone).
-        data-tour={id === "ask" ? "nav-ask" : undefined}
+        // Product-tour anchors (the bottom bar's slots on a phone). A section
+        // under More has no row here, which is how the tour knows it's there.
+        data-tour={navTourTarget(id)}
         className={rowClass(active)}
       >
         <section.icon className="size-4" />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
@@ -9,13 +9,17 @@ import { hasOpenOverlay } from "@/hooks/use-shortcut";
 import { useReducedMotion } from "@/hooks/use-reduced-motion";
 import {
   isOnScreen,
+  pagesNote,
   placeCard,
   spotlightBox,
+  tourModeFor,
   tourStepsFor,
   type TourBox,
+  type TourMode,
   type TourStep,
   type TourTarget,
 } from "@/lib/product-tour";
+import { showEntryMode } from "./entry-mode-store";
 import { usePlan } from "./upgrade-dialog";
 import {
   onProductTourRequest,
@@ -32,8 +36,16 @@ import {
 const AUTO_START_MS = 700;
 /** A replay waits for the account menu that asked for it to close and hand its focus back. */
 const REPLAY_START_MS = 150;
+/** How long after the card first shows that focus is held inside it (see the placement loop). */
+const FOCUS_HOLD_MS = 600;
 /** An overlay already open when the tour is due (a dialog, a menu): try again after this long. */
 const RETRY_MS = 1000;
+/**
+ * The most a step that switches the composer's mode waits for the composer to
+ * show it before placing its card anyway. A switch renders in a frame; this
+ * only stops a composer that can't switch from holding the tour up for good.
+ */
+const MODE_WAIT_MS = 1000;
 
 /**
  * The window's size without its scrollbar. The card and the hole are `fixed`,
@@ -55,20 +67,50 @@ function isShown(el: Element): boolean {
   return el.getClientRects().length > 0 && getComputedStyle(el).visibility === "visible";
 }
 
+/**
+ * There for a step to point at once the step is up: shown, or laid out in the
+ * composer's hidden pane — AI's mic, under Manual — which the step that needs
+ * it switches the composer to first (`TourStep.mode`). A pane taken out of
+ * layout altogether (AI's, while it holds a review list) has no mic in it.
+ */
+function isPresent(el: Element): boolean {
+  if (isShown(el)) return true;
+  const composer = el.closest('[data-tour="composer"]');
+  return composer !== null && composer !== el && isShown(composer) && el.getClientRects().length > 0;
+}
+
 /** The first shown element carrying one of the anchors, in the step's order. */
-function findTarget(targets: readonly TourTarget[]): HTMLElement | null {
+function findTarget(
+  targets: readonly TourTarget[],
+  usable: (el: Element) => boolean = isShown,
+): HTMLElement | null {
   for (const target of targets) {
     for (const el of document.querySelectorAll<HTMLElement>(`[data-tour="${target}"]`)) {
-      if (isShown(el)) return el;
+      if (usable(el)) return el;
     }
   }
   return null;
+}
+
+/**
+ * The composer is drawn in `mode`: its visible Manual/AI switch is the one in
+ * that mode's pane (each pane renders its own, only one is shown), with that
+ * side checked. What a mode step waits for before it places its card, so the
+ * spotlight never frames the pane that's on its way out.
+ */
+function composerShows(mode: TourMode): boolean {
+  const toggle = findTarget(["entry-mode"]);
+  if (toggle?.dataset.pane !== mode) return false;
+  const checked = toggle.querySelector<HTMLElement>('[role="radio"][aria-checked="true"]');
+  return checked?.dataset.mode === mode;
 }
 
 type Run = {
   steps: TourStep[];
   /** A first-visit run marks the tour done when it ends; a replay writes nothing. */
   persist: boolean;
+  /** "Files is under More." for a step whose pages lack a row of their own, by step id. */
+  notes: Record<string, string>;
 };
 
 /**
@@ -85,6 +127,11 @@ type Run = {
  * dialog: it neither dismisses the tour nor reaches the page underneath (the
  * tracker's swipe-to-switch-profile included, which stands down inside any
  * `role="dialog"`).
+ *
+ * A step can show the composer in Manual or AI mode (`TourStep.mode`). It
+ * switches through the composer's own store, as shown-not-saved
+ * (`showEntryMode`), so the real Manual/AI switch reads as checked, and the end
+ * of the tour — however it ends — leaves the person's own choice in place.
  *
  * Positioning is imperative. Each frame re-finds the target and writes the
  * card's and the hole's positions straight to the DOM, only when they moved:
@@ -111,13 +158,18 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
       // phone breakpoint) re-anchors to its fallback or centres its card.
       const steps = tourStepsFor({
         voice: voiceAllowed,
-        hasTarget: (target) => findTarget([target]) !== null,
+        hasTarget: (target) => findTarget([target], isPresent) !== null,
       });
       if (steps.length === 0) return;
+      const notes: Record<string, string> = {};
+      for (const step of steps) {
+        const note = pagesNote(step, (target) => findTarget([target]) !== null);
+        if (note) notes[step.id] = note;
+      }
       const active = document.activeElement;
       returnFocus.current = active instanceof HTMLElement && active !== document.body ? active : null;
       setIndex(0);
-      setRun({ steps, persist });
+      setRun({ steps, persist, notes });
     },
     [voiceAllowed],
   );
@@ -170,12 +222,27 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
       persisted.current = true;
       void finishProductTour().catch(() => {});
     }
+    // The composer goes back to the person's own mode in the same render the
+    // tour closes in, so focus returning to a field of that mode finds it shown.
+    showEntryMode(null);
     setRun(null);
   }, [run]);
 
   const step = run?.steps[index] ?? null;
   const total = run?.steps.length ?? 0;
   const isLast = index === total - 1;
+  const note = step ? run?.notes[step.id] : undefined;
+
+  // The composer's mode for this step: shown, not saved (see the store), so
+  // ending the tour — or the tab closing mid-tour — leaves the person's choice
+  // as it was. A layout effect, so the switch is drawn before the step's first
+  // paint rather than a frame after it.
+  const tourMode = run ? tourModeFor(run.steps, index) : null;
+  useLayoutEffect(() => {
+    showEntryMode(tourMode);
+  }, [tourMode]);
+  // Leaving the tracker with the tour up (the browser's Back) ends it too.
+  useEffect(() => () => showEntryMode(null), []);
 
   function next() {
     if (isLast) finish();
@@ -204,15 +271,36 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
     if (!step) return;
     let frame = 0;
     let last = "";
+    const since = performance.now();
+    // When the card was first shown, if this step is the one that showed it.
+    let placedAt: number | null = null;
     const tick = () => {
       frame = requestAnimationFrame(tick);
       const card = cardRef.current;
       const hole = holeRef.current;
       if (!card || !hole) return;
+      // Focus follows the card being shown: while it was `invisible` it couldn't
+      // take focus, so the dialog's own move to Next on open found nothing. For
+      // a moment after, focus is held in: a replay from the account menu races
+      // the menu's closing animation, which hands focus back to its button —
+      // and the arrow keys, heard on the card, would have nowhere to land.
+      if (
+        placedAt !== null &&
+        performance.now() - placedAt < FOCUS_HOLD_MS &&
+        !card.contains(document.activeElement)
+      ) {
+        nextRef.current?.focus({ preventScroll: true });
+      }
       const viewport = viewportSize();
       // Re-found every frame, not kept: crossing the phone breakpoint swaps the
-      // sidebar for the top bar's button, and the composer swaps toggle twins.
-      const rect = findTarget(step.targets)?.getBoundingClientRect();
+      // sidebar for the top bar's button and the sidebar's list for the bottom bar.
+      const el = findTarget(step.targets);
+      // A step that switches the composer's mode holds its card and spotlight
+      // where they were until the composer is drawn in that mode.
+      if (el && step.mode && !composerShows(step.mode) && performance.now() - since < MODE_WAIT_MS) {
+        return;
+      }
+      const rect = el?.getBoundingClientRect();
       const target: TourBox | null =
         rect && isOnScreen(rect, viewport)
           ? { top: rect.top, left: rect.left, width: rect.width, height: rect.height }
@@ -239,7 +327,10 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
       }
       last = key;
       card.style.transform = `translate(${Math.round(place.left)}px, ${Math.round(place.top)}px)`;
-      if (!("placed" in card.dataset)) card.dataset.placed = "";
+      if (!("placed" in card.dataset)) {
+        card.dataset.placed = "";
+        placedAt = performance.now();
+      }
       hole.style.top = `${box.top}px`;
       hole.style.left = `${box.left}px`;
       hole.style.width = `${box.width}px`;
@@ -318,6 +409,16 @@ export function ProductTour({ autoStart }: { autoStart: boolean }) {
                 <DialogPrimitive.Description className="mt-1 text-sm text-muted-foreground">
                   {step.body}
                 </DialogPrimitive.Description>
+                {step.pages && (
+                  <ul className="mt-2 space-y-1 text-sm">
+                    {step.pages.map((page) => (
+                      <li key={page.label} className="text-muted-foreground">
+                        <span className="font-medium text-foreground">{page.label}</span> — {page.text}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {note && <p className="mt-2 text-xs text-muted-foreground">{note}</p>}
               </div>
               {step.hint && (
                 // Shortcuts are for keyboards; a phone gets the words alone.

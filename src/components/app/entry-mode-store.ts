@@ -15,11 +15,19 @@ const KEY = "spendchat.entry-mode";
 const listeners = new Set<() => void>();
 
 /**
- * The stored mode, read live. For code that must not act on the hydration
- * snapshot (which is always "manual") — e.g. an effect that runs in the same
- * commit as hydration, before `useSyncExternalStore` has re-read the store.
+ * A mode on show without being saved: the product tour's, while it walks
+ * through Manual and AI (`showEntryMode`). Null the rest of the time.
+ */
+let shown: EntryMode | null = null;
+
+/**
+ * The mode on screen, read live — the tour's while it's showing one, else the
+ * stored one. For code that must not act on the hydration snapshot (which is
+ * always "manual") — e.g. an effect that runs in the same commit as
+ * hydration, before `useSyncExternalStore` has re-read the store.
  */
 export function readEntryMode(): EntryMode {
+  if (shown) return shown;
   try {
     return localStorage.getItem(KEY) === "ai" ? "ai" : "manual";
   } catch {
@@ -27,12 +35,27 @@ export function readEntryMode(): EntryMode {
   }
 }
 
-function setEntryMode(mode: EntryMode) {
+/** The person's own choice: saved, and it ends anything the tour was showing. */
+export function setEntryMode(mode: EntryMode) {
+  shown = null;
   try {
     localStorage.setItem(KEY, mode);
   } catch {
     /* storage unavailable (private mode / quota) — the toggle still works */
   }
+  listeners.forEach((l) => l());
+}
+
+/**
+ * Show the composer in `mode` without saving it, or — with null — go back to
+ * the saved mode. The product tour switches modes through this, so it never
+ * touches the person's choice: nothing to restore when it ends (or the tab
+ * reloads mid-tour), no other tab flips with it, and a choice they make
+ * meanwhile (another tab, the toggle) is what they get back.
+ */
+export function showEntryMode(mode: EntryMode | null) {
+  if (shown === mode) return;
+  shown = mode;
   listeners.forEach((l) => l());
 }
 

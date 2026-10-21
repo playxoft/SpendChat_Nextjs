@@ -36,9 +36,15 @@ export function Kbd({
     <>
       {/* `data-slot="kbd"` is what `TooltipContent` styles against when a hint
           carries a shortcut chip (it tightens its right padding to suit). */}
-      <span
+      {/* One chip for the whole combo — "⇧1", not "⇧" and "1" side by side:
+          half the width in the sidebar's tight rows, and it reads as one
+          shortcut rather than two keys. */}
+      <kbd
         data-slot="kbd"
-        className={cn("inline-flex items-center gap-0.5", className)}
+        className={cn(
+          "inline-flex h-[22px] min-w-[22px] items-center justify-center gap-0.5 rounded border border-foreground/30 bg-muted px-1.5 leading-none font-semibold text-foreground shadow-[0_1px_0_var(--border)]",
+          className,
+        )}
         aria-hidden="true"
       >
         {keys.map((k, i) => {
@@ -46,18 +52,12 @@ export function Kbd({
           // give them a noticeably larger font than alphanumeric keys.
           const isSymbol = /^[^A-Za-z0-9]$/.test(k);
           return (
-            <kbd
-              key={`${k}-${i}`}
-              className={cn(
-                "inline-flex h-[22px] min-w-[22px] items-center justify-center rounded border border-foreground/30 bg-muted px-1.5 leading-none font-semibold text-foreground shadow-[0_1px_0_var(--border)]",
-                isSymbol ? "text-base" : "text-xs",
-              )}
-            >
+            <span key={`${k}-${i}`} className={isSymbol ? "text-base" : "text-xs"}>
               {k}
-            </kbd>
+            </span>
           );
         })}
-      </span>
+      </kbd>
       {describe ? <span className="sr-only">{describeShortcut(combo, isMac)}</span> : null}
     </>
   );
