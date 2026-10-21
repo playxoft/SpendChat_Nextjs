@@ -7,25 +7,34 @@
  *
  * Kept apart from the tour component so the menu, which every page loads,
  * doesn't pull the tour in with it.
+ *
+ * A request expires: if the navigation it rode on was cut short (another
+ * click), the tour mustn't spring open on some later visit to the tracker.
  */
-let requested = false;
+const REQUEST_TTL_MS = 15_000;
+let requestedAt: number | null = null;
+
+function live(): boolean {
+  return requestedAt !== null && Date.now() - requestedAt < REQUEST_TTL_MS;
+}
+
 const listeners = new Set<() => void>();
 
 /** Ask the tracker to replay the tour, now if it's mounted or as soon as it is. */
 export function requestProductTour(): void {
-  requested = true;
+  requestedAt = Date.now();
   listeners.forEach((listener) => listener());
 }
 
 /** Whether a replay is waiting, without taking it. */
 export function productTourRequested(): boolean {
-  return requested;
+  return live();
 }
 
 /** Take a waiting replay: true once per request. */
 export function takeProductTourRequest(): boolean {
-  const was = requested;
-  requested = false;
+  const was = live();
+  requestedAt = null;
   return was;
 }
 

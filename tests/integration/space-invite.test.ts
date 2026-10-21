@@ -1,11 +1,18 @@
 import { describe, it, expect } from "vitest";
 import { and, eq } from "drizzle-orm";
-import { spaceMembers, spaces, workspaceInvites, workspaceMembers } from "@/db/schema";
+import { profileAccess, spaceMembers, spaces, workspaceInvites, workspaceMembers } from "@/db/schema";
 import { inviteToSpace } from "@/services/spaces";
 import * as ws from "@/services/workspaces";
 import { uid } from "./helpers/session";
 import { getTestDb } from "./helpers/test-db";
-import { bootstrapUser, defaultSpaceIdOf, registerUser, workspaceIdOf } from "./helpers/seed";
+import {
+  bootstrapUser,
+  defaultSpaceIdOf,
+  firstProfileId,
+  registerUser,
+  setWorkspacePlan,
+  workspaceIdOf,
+} from "./helpers/seed";
 
 /**
  * "Invite someone" in a space's Members & access dialog. The point of a
@@ -95,6 +102,52 @@ describe("inviteToSpace", () => {
     });
     await expect(
       inviteToSpace(uid("a"), B, { email: "newcomer@example.com", role: "viewer" }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("refuses someone on single-profile grants only, and leaves the grants alone", async () => {
+    const { W, B } = await setup();
+    await setWorkspacePlan(W, "plus");
+    await registerUser("g");
+    const personal = await firstProfileId("a");
+    await ws.addMember(uid("a"), W, {
+      email: "g@example.com",
+      access: { mode: "profiles", entries: [{ profileId: personal, role: "editor" }] },
+    });
+    await expect(
+      inviteToSpace(uid("a"), B, { email: "g@example.com", role: "viewer" }),
+    ).rejects.toMatchObject({ status: 409 });
+    const grants = await db().select().from(profileAccess).where(eq(profileAccess.userId, uid("g")));
+    expect(grants).toHaveLength(1);
+    expect(await spaceRole(B, "g")).toBeNull();
+  });
+
+  it("an add-only addMember refuses, under the invite lock, an invite that's already there", async () => {
+    const { W, main, B } = await setup();
+    const grant = (spaceId: string) => ({
+      email: "newcomer@example.com",
+      access: { mode: "all" as const, role: "viewer" as const, spaceIds: [spaceId] },
+    });
+    await ws.addMember(uid("a"), W, grant(main), { addOnly: true });
+    await expect(ws.addMember(uid("a"), W, grant(B), { addOnly: true })).rejects.toMatchObject({
+      status: 409,
+    });
+    const [invite] = await db()
+      .select({ spaceIds: workspaceInvites.spaceIds })
+      .from(workspaceInvites)
+      .where(and(eq(workspaceInvites.workspaceId, W), eq(workspaceInvites.email, "newcomer@example.com")));
+    expect(invite?.spaceIds).toEqual([main]);
+  });
+
+  it("an add-only addMember refuses someone who already has access", async () => {
+    const { W, B } = await setup();
+    await expect(
+      ws.addMember(
+        uid("a"),
+        W,
+        { email: "m@example.com", access: { mode: "all", role: "viewer", spaceIds: [B] } },
+        { addOnly: true },
+      ),
     ).rejects.toMatchObject({ status: 409 });
   });
 

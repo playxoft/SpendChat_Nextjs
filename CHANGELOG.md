@@ -33,8 +33,9 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   as they are.
 - **People in Split bills no longer need an email.** Add someone by name only
   and keep track of their share yourself. They're on every expense and balance
-  like anyone else, but nobody gets an invite. To invite them later, add them
-  again with their email.
+  like anyone else, but nobody gets an invite. An email can't be added to them
+  later: adding them again with one makes a second person, and what's recorded
+  stays with the name-only one.
 
 ### Changed
 - **Split is now called Split bills**, in the app and on the website, so the

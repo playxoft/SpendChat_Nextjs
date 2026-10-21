@@ -121,9 +121,9 @@ lays out its fields when you add a transaction."). A 3-option radio group:
 
 | Value | Label | Description | Preview |
 |---|---|---|---|
-| `amount_title` *(default)* | **Amount, then title** | "The original layout. Type the amount first, then a title beside it." | `[$ 100] [fruits]` |
+| `amount_title` | **Amount, then title** | "The original layout. Type the amount first, then a title beside it." | `[$ 100] [fruits]` |
 | `title_amount` | **Title, then amount** | "Flip it around — type the title first, with the amount beside it." | `[fruits] [$ 100]` |
-| `combined` | **One field (amount + title)** | "One field, two zones: a currency chip for the amount and the title beside it. Space jumps from the chip to the title — fastest for quick entries." | `[[$ 100] fruits]` |
+| `combined` *(new accounts, since 6.14.0)* | **One field (amount + title)** | "One field, two zones: a currency chip for the amount and the title beside it. Space jumps from the chip to the title — fastest for quick entries." | `[[$ 100] fruits]` |
 
 - **Dirty-state save:** Save changes / Cancel (both disabled unless changed) →
   `PATCH /settings { inputMode }`, toast "Input layout saved".

@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -27,7 +28,7 @@ import { profileAccessLock } from "@/lib/add-limits";
 import { cn } from "@/lib/utils";
 import { accessLevelForRole } from "@/lib/rbac";
 import { UpgradeHint, usePlan } from "./upgrade-dialog";
-import { LimitLock, LockedButton, useAddLock } from "./limit-lock";
+import { LimitLock, LockGlyph, useAddLock } from "./limit-lock";
 
 /**
  * A space's "Members & access" dialog (workspace admins). Two layers, matching
@@ -95,7 +96,7 @@ export function SpaceAccessDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { plan, reportFailure, showUpgrade } = usePlan();
+  const { plan, reportFailure } = usePlan();
   const memberLock = useAddLock("members");
   const [data, setData] = React.useState<SpaceAccessData | null>(null);
   const [inviteEmail, setInviteEmail] = React.useState("");
@@ -154,7 +155,6 @@ export function SpaceAccessDialog({
 
   function invite(e: React.FormEvent) {
     e.preventDefault();
-    if (memberLock) return showUpgrade(memberLock.info);
     const email = inviteEmail.trim();
     if (!email) {
       toast.error("Enter an email address");
@@ -242,13 +242,24 @@ export function SpaceAccessDialog({
                     <SelectItem value="editor">{SPACE_ROLE_LABEL.editor}</SelectItem>
                   </SelectContent>
                 </Select>
-                <LockedButton type="submit" size="sm" lock={memberLock} disabled={pending} className="h-8">
-                  {!memberLock && <UserPlus className="size-4" />}
+                {/* Never disabled by the member cap: putting someone already in
+                    the workspace into this space adds nobody. A new address at
+                    the cap gets the server's `plan_limit`, which opens the
+                    upgrade dialog. */}
+                <Button type="submit" size="sm" disabled={pending} className="h-8">
+                  <UserPlus className="size-4" />
                   Invite
-                </LockedButton>
+                </Button>
                 <p className="basis-full text-xs text-muted-foreground">
                   They join the workspace with access to this space. No account yet? They get an
                   email to sign up.
+                  {memberLock && (
+                    <span className="mt-1 flex items-center gap-1">
+                      <LockGlyph className="size-3" />
+                      Your plan&apos;s member limit is reached — you can still add people already in
+                      this workspace.
+                    </span>
+                  )}
                 </p>
               </form>
               <ul className="divide-y rounded-lg border">

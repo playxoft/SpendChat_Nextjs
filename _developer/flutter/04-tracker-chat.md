@@ -171,9 +171,9 @@ The order/shape of the amount+title inputs is driven by the user's
 
 | Mode | Layout |
 |---|---|
-| **`amount_title`** *(default)* | amount field, then title field |
+| **`amount_title`** | amount field, then title field |
 | **`title_amount`** | title field, then amount field |
-| **`combined`** | one field holding **two zones** — an amount chip and the title beside it |
+| **`combined`** *(new accounts, since 6.14.0)* | one field holding **two zones** — an amount chip and the title beside it |
 
 **Amount field:** a currency **symbol prefix** (from the currency), numeric
 keyboard (`decimal`), placeholder `"0.00"`, tabular. Sanitize input to digits +

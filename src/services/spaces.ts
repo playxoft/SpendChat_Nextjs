@@ -487,6 +487,9 @@ export async function setSpaceMember(userId: string, spaceId: string, input: unk
  */
 export type InviteToSpaceStatus = "space" | "unchanged" | "added" | "invited";
 
+const ALREADY_INVITED =
+  "They're already invited to this workspace. Change what the invite opens in Workspace settings.";
+
 /**
  * "Invite someone" in a space's Members & access dialog (workspace admin):
  * give one email this space, and never narrow anything it already has.
@@ -528,6 +531,18 @@ export async function inviteToSpace(
       await setSpaceMember(userId, spaceId, { userId: account.id, role: data.role });
       return { status: "space" };
     }
+    // Not a member, but maybe on legacy single-profile grants here: `addMember`
+    // would replace those with this one space, so they're Workspace settings'.
+    const [grant] = await db
+      .select({ profileId: profileAccess.profileId })
+      .from(profileAccess)
+      // trash: grants on trashed profiles too — `addMember` would delete those as well.
+      .innerJoin(profiles, eq(profileAccess.profileId, profiles.id))
+      .where(and(eq(profileAccess.userId, account.id), eq(profiles.workspaceId, space.workspaceId)))
+      .limit(1);
+    if (grant) {
+      throw conflict("They already have access to single profiles here. Change their access in Workspace settings.");
+    }
   }
 
   const [pending] = await db
@@ -535,14 +550,17 @@ export async function inviteToSpace(
     .from(workspaceInvites)
     .where(and(eq(workspaceInvites.workspaceId, space.workspaceId), eq(workspaceInvites.email, data.email)))
     .limit(1);
-  if (pending) {
-    throw conflict("They're already invited to this workspace. Change what the invite opens in Workspace settings.");
-  }
+  if (pending) throw conflict(ALREADY_INVITED);
 
-  const result = await addMember(userId, space.workspaceId, {
-    email: data.email,
-    access: { mode: "all", role: data.role, spaceIds: [space.id] },
-  });
+  // `addOnly`: the checks above ran outside any lock, so `addMember` repeats
+  // them where it writes and refuses rather than re-scoping — a second admin
+  // inviting the same address from another space can't replace this grant.
+  const result = await addMember(
+    userId,
+    space.workspaceId,
+    { email: data.email, access: { mode: "all", role: data.role, spaceIds: [space.id] } },
+    { addOnly: true },
+  );
   return { status: result.status };
 }
 

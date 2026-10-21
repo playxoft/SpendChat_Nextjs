@@ -654,8 +654,10 @@ or in a split), payments and balances exactly like an invitee who hasn't joined
 `inviteLink: null` for every viewer. Nobody is emailed or sees an invitation;
 they count toward the 50-person cap and the 100-people-a-day adds like anyone,
 and can be removed once settled up. Each one is a new person (two may share a
-name); there's no way yet to add an email to them later — add them again with
-one instead. Show them as "Not invited — no email" rather than "Invited".
+name); there's no way yet to add an email to them later. Adding them again
+with an email adds a *second* person — the name-only one keeps their shares and
+balance, so settle it up and remove it if that's the intent. Show them as
+"Not invited — no email" rather than "Invited".
 
 ### Trash models (6.7.0)
 ```jsonc

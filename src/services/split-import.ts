@@ -12,7 +12,7 @@ import { logger } from "@/lib/logger";
 import { mapImportExpense, SPLIT_IMPORT_REPEAT_WINDOW_MS } from "@/lib/split-import";
 import { splitExpenseSchema, splitImportSchema, SPLIT_MEMBER_NAME_MAX } from "@/lib/validation";
 import { emailNewInvitees } from "@/services/split-invites";
-import { groupMembers, insertPeople, type AddedPerson, type JoinedContext } from "@/services/split";
+import { countAdded, groupMembers, insertPeople, type AddedPerson, type JoinedContext } from "@/services/split";
 import { payerRows, planExpense, percentFor } from "@/services/split-ledger";
 import { actorEventsToday, lockActor, logActorEvents, SPLIT_GROUPS_PER_DAY } from "@/services/split-rate";
 
@@ -175,12 +175,14 @@ export async function importSplitDraft(
     });
 
   await emailNewInvitees(user.id, result.groupId, result.pendingIds);
+  const { invited, nameOnly } = countAdded(result.added);
   logger.info(
-    `Split group brought in from the free calculator with ${result.added.length} people invited and ${result.expenses} expenses`,
+    `Split group brought in from the free calculator with ${invited} people invited, ${nameOnly} added by name only and ${result.expenses} expenses`,
     {
       event: "split.draft_imported",
       groupId: result.groupId,
-      invited: result.added.length,
+      invited,
+      nameOnly,
       expenses: result.expenses,
     },
   );

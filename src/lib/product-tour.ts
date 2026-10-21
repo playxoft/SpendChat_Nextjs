@@ -46,7 +46,9 @@ export const TOUR_STEPS: readonly TourStep[] = [
   {
     id: "composer",
     title: "Add a transaction",
-    body: "Type the amount, then what it was for — like 250 lunch — and send it. It lands in the feed above.",
+    // Layout-neutral: a replay can come from any input layout (amount first,
+    // title first, or one field).
+    body: "Type how much and what it was for, then send it. It lands in the feed above.",
     targets: ["composer"],
     sides: ["top", "bottom"],
     hint: { text: "Send with", combo: "enter" },

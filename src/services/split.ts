@@ -868,12 +868,22 @@ export async function createGroup(
     })
     .catch(rethrowAlreadyMember);
   await deliverInvites(user.id, result.id, result.pendingIds);
-  logger.info(`Split group created with ${result.added.length} people invited`, {
+  const { invited, nameOnly } = countAdded(result.added);
+  logger.info(`Split group created with ${invited} people invited and ${nameOnly} added by name only`, {
     event: "split.group_created",
     groupId: result.id,
-    invited: result.added.length,
+    invited,
+    nameOnly,
   });
   return { id: result.id, added: result.added };
+}
+
+/** For the logs: people newly invited, and people added by name only (nobody invited). */
+export function countAdded(added: AddedPerson[]): { invited: number; nameOnly: number } {
+  return {
+    invited: added.filter((a) => a.status === "invited").length,
+    nameOnly: added.filter((a) => a.status === "added").length,
+  };
 }
 
 /** Add people to a group (creator only). The cap is checked under the group's row lock. */
@@ -893,11 +903,12 @@ export async function addMembers(
     })
     .catch(rethrowAlreadyMember);
   await deliverInvites(userId, result.groupId, result.pendingIds);
-  const fresh = result.added.filter((a) => a.status === "invited").length;
-  logger.info(`Split group gained ${fresh} people`, {
+  const { invited, nameOnly } = countAdded(result.added);
+  logger.info(`Split group gained ${invited + nameOnly} people, ${nameOnly} of them by name only`, {
     event: "split.members_added",
     groupId: result.groupId,
-    added: fresh,
+    added: invited + nameOnly,
+    nameOnly,
   });
   return { groupId: result.groupId, added: result.added };
 }
