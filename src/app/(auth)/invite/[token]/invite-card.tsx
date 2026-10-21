@@ -156,7 +156,8 @@ export function InviteGone({ signedIn }: { signedIn: boolean }) {
         <h1 className="text-2xl font-semibold tracking-tight">This invite is no longer active</h1>
         <p className="text-sm text-muted-foreground">
           It has already been accepted or was withdrawn. If it was yours, the workspace is
-          already in your account — open {siteConfig.name} and pick it from the workspace menu.
+          already in your account — open {siteConfig.name} and pick it from the account menu (your
+          picture, top right).
         </p>
       </div>
       <Link

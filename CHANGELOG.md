@@ -26,7 +26,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   so each mode is shown working, and puts your own mode back at the end. It also
   covers voice entry (on plans that have it), spaces and profiles, SpendChat AI,
   and the other pages (Transactions, Analytics, Budgets and Files). It ends on
-  the account menu, where Settings, your workspaces and "Take the tour" live.
+  the account menu, where your workspaces, Settings and "Take the tour" live.
   Each step highlights the real control, works on phones, and can be skipped at
   any time.
 - **Invite people from a space's Members & access.** The dialog now has an
@@ -38,8 +38,8 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   payment that settles the group, phrased from your side: "You pay Ravi ₹500",
   "Asha pays you ₹200", "Ravi pays Asha ₹100". Your own payments come first.
   Everyone in the group sees the same full list, so anyone can check it.
-  "Mark as paid" on a line records it at that amount, and the strip says "All
-  settled up" once everyone is square.
+  "Mark as paid" on a line opens the payment at that amount, and the strip says
+  "All settled up" once everyone is square.
 - **People in Split bills no longer need an email.** Add someone by name only
   and keep track of their share yourself. They're on every expense and balance
   like anyone else, but nobody gets an invite. An email can't be added to them
@@ -53,7 +53,7 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   accounts keep the layout they have.
 - **Clearer plan cards.** Each plan lists what it includes as short ticked
   points instead of long sentences: AI actions, spaces and profiles, budgets,
-  storage, insights, invoices, Split bills and more. All of it is drawn from
+  storage, insights, invoices, Split bills and more. Every number comes from
   the plan limits, so the cards can't promise more than the app gives.
 - **Switch workspace from the account menu.** Your workspaces are listed in the
   menu behind your picture, top right, with Workspace settings and New

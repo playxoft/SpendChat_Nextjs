@@ -148,7 +148,8 @@ export function WhoPaysWhom({
 
   const lines = transferLines(detail, viewer, locale);
   const first = lines[0];
-  const row = "mx-auto flex max-w-3xl items-center gap-2 px-4 py-1.5 text-sm";
+  // The header row's padding above, so the icon lines up with its back button.
+  const row = "mx-auto flex max-w-3xl items-center gap-2 px-2 py-1.5 text-sm sm:px-4";
   if (!first) {
     return (
       <div className="border-t">

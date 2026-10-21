@@ -103,6 +103,7 @@ export default async function AppLayout({
         navLayout={sidebarPrefs.nav}
         budgetAlerts={budgetAlerts}
         splitInvitations={splitInvitations}
+        workspaceName={workspaces.length > 1 ? workspace.name : null}
       />
       <div className="flex min-w-0 flex-1 flex-col">
         <AccountCorner />
@@ -115,6 +116,7 @@ export default async function AppLayout({
           locale={workspace.locale}
           today={todayISO(timeZone)}
           canWrite={canWrite}
+          workspaceName={workspaces.length > 1 ? workspace.name : null}
         />
         <main className="flex-1 pb-16 md:pb-0">{children}</main>
         <BottomNav budgetAlerts={budgetAlerts} splitInvitations={splitInvitations} />

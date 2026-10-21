@@ -17,6 +17,7 @@ export function AppSidebar({
   navLayout,
   budgetAlerts,
   splitInvitations = 0,
+  workspaceName = null,
 }: {
   profiles: SidebarProfile[];
   spaces: SidebarSpace[];
@@ -27,6 +28,8 @@ export function AppSidebar({
   budgetAlerts?: Promise<BudgetAlertCount>;
   /** Split invitations waiting for an answer — the badge on Split. */
   splitInvitations?: number;
+  /** Shown beside the Spaces heading for someone with several workspaces (see `ProfileList`). */
+  workspaceName?: string | null;
 }) {
   const profile = useSearchParams().get("profile");
 
@@ -47,6 +50,7 @@ export function AppSidebar({
           spaces={spaces}
           collapsedSpaces={collapsedSpaces}
           enableShortcuts
+          workspaceName={workspaceName}
         />
       </div>
 

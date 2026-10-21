@@ -33,8 +33,8 @@ import type { WorkspaceOption } from "./workspace-switcher";
  * already suppresses single keys while typing and while another overlay is open,
  * so it can't fire mid-sentence.
  *
- * Mounted app-wide from the layout; the sidebar's workspace menu shows the same
- * `g` hint so the shortcut is discoverable rather than folklore.
+ * Mounted app-wide from the layout; the account menu's workspace list shows the
+ * same `g` hint so the shortcut is discoverable rather than folklore.
  */
 
 /** Grant-only access (no workspace-wide role) reads as "shared". */

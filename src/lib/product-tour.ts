@@ -127,7 +127,7 @@ export const TOUR_STEPS: readonly TourStep[] = [
     // they all are; a page folded under More is said to be there.
     id: "pages",
     title: "Your other pages",
-    body: "Each one is a click away:",
+    body: "Each has its own page:",
     targets: ["nav"],
     sides: ["right", "top"],
     pages: [
@@ -145,8 +145,8 @@ export const TOUR_STEPS: readonly TourStep[] = [
     // Settings has no row in the nav — it's in this menu (`nav-items.ts`) — so
     // it's introduced here rather than as a second stop on the same button.
     id: "help",
-    title: "Help is here",
-    body: "Your workspaces live in this menu — switch between them or start a new one — and so do Settings: members, input layout, voice, categories and tags. Pick “Take the tour” there to see this again.",
+    title: "Your account menu",
+    body: "Switch between your workspaces here, and find Settings: members, input layout, voice, categories and tags. Pick “Take the tour” in this menu to see this again.",
     targets: ["account-menu"],
     sides: ["bottom", "left"],
     hint: { text: "See every shortcut with", combo: comboFor("global.shortcuts") },

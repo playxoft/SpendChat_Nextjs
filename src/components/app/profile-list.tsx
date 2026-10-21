@@ -163,9 +163,14 @@ export function ProfileList({
   collapsedSpaces,
   onNavigate,
   enableShortcuts = false,
+  workspaceName = null,
 }: {
   profiles: P[];
   spaces: SidebarSpace[];
+  /** The current workspace's name, shown beside the heading — passed only to
+   *  someone with more than one workspace, since the switcher lives in the
+   *  account menu and nothing else on screen says which one this is. */
+  workspaceName?: string | null;
   /** `ui_prefs.sidebar.collapsedSpaces` — folded spaces, across every workspace. */
   collapsedSpaces: string[];
   onNavigate?: () => void;
@@ -416,8 +421,13 @@ export function ProfileList({
       <div className="flex min-h-9 items-center justify-between gap-2 px-3 pt-2 pb-1">
         {/* "Spaces", not "Profiles": the tree's top level is the spaces (with
             their profiles inside), and spaces are what the plans count. */}
-        <span className="shrink-0 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-          Spaces
+        <span className="flex min-w-0 items-baseline gap-1 text-xs text-muted-foreground">
+          <span className="shrink-0 font-medium tracking-wide uppercase">Spaces</span>
+          {workspaceName && (
+            <span className="truncate" title={workspaceName}>
+              · {workspaceName}
+            </span>
+          )}
         </span>
         <div className="flex min-w-0 items-center gap-0.5">
           {/* Touch has no Shift: "Select" turns taps into toggles instead. */}
