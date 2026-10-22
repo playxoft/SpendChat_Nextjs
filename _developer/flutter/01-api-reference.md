@@ -586,13 +586,17 @@ negative when they **owe**.
 // SplitGroup — GET /split/groups
 { "id": "uuid", "name": "Goa trip", "icon": "🏖️" | null, "currency": "INR",
   "isCreator": true, "peopleCount": 4,          // invited + joined, you included (max 50)
-  "myBalanceMinor": -3333, "myBalance": "-33.33", "createdAt": "…" }
+  "myBalanceMinor": -3333, "myBalance": "-33.33",
+  "myOpenPayments": 1,                          // 6.14.0: your lines in `suggestions` — can be > 0 at a
+                                                // zero balance; "settled up" means this is 0 too
+  "createdAt": "…" }
 
 // SplitGroupDetail — GET /split/groups/{id}
 { "id": "uuid", "name": "Goa trip", "icon": null, "currency": "INR",
   "createdAt": "…", "updatedAt": "…",
   "me": { "memberId": "uuid", "isCreator": false },
-  "members": [                                  // active people, then former members who still have a balance
+  "members": [                                  // active people, then former members who still have a
+                                                // balance or a `suggestions` line
     { "id": "uuid", "name": "Ravi",
       "email": "ravi@x.com" | null,             // only for the creator, and on your own row
       "status": "invited" | "joined" | "left",

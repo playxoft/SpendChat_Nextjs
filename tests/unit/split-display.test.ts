@@ -11,6 +11,7 @@ import {
   initialsOf,
   myPart,
   myPartText,
+  openPaymentsOf,
   payersLabel,
   SETTLED_UP,
   transferRole,
@@ -146,6 +147,9 @@ describe("balanceStatus", () => {
     expect(balanceStatus(100)).toBe("owed");
     expect(balanceStatus(-1)).toBe("owe");
     expect(balanceStatus(0)).toBe("settled");
+    // Square overall, but owing one person what another owes you: not settled.
+    expect(balanceStatus(0, 2)).toBe("open");
+    expect(balanceStatus(-1, 2)).toBe("owe");
     expect(SETTLED_UP).toBe("Settled Up");
   });
 });
@@ -175,6 +179,9 @@ describe("balanceChipText", () => {
     expect(balanceChipText(120000, "₹1,200")).toEqual({ full: "You're owed ₹1,200", short: "+₹1,200" });
     expect(balanceChipText(-30000, "₹300")).toEqual({ full: "You owe ₹300", short: "−₹300" });
     expect(balanceChipText(0, "₹0")).toEqual({ full: "Settled Up", short: "Settled Up" });
+    expect(balanceChipText(0, "₹0", 2)).toEqual({ full: "Even overall, 2 payments to settle", short: "2 to settle" });
+    expect(balanceChipText(0, "₹0", 1)).toEqual({ full: "Even overall, 1 payment to settle", short: "1 to settle" });
+    expect(balanceChipText(-30000, "₹300", 2)).toEqual({ full: "You owe ₹300", short: "−₹300" });
   });
 });
 
@@ -271,5 +278,19 @@ describe("who pays whom, as the viewer reads it", () => {
     expect(transferSentence("pay", "You", "Ravi")).toBe("You pay Ravi");
     expect(transferSentence("receive", "Asha", "You")).toBe("Asha pays you");
     expect(transferSentence("other", "Ravi", "Asha")).toBe("Ravi pays Asha");
+  });
+});
+
+describe("openPaymentsOf", () => {
+  it("counts the lines someone pays or receives", () => {
+    const plan = [
+      { fromMemberId: "a", toMemberId: "b" },
+      { fromMemberId: "c", toMemberId: "a" },
+      { fromMemberId: "c", toMemberId: "b" },
+    ];
+    expect(openPaymentsOf(plan, "a")).toBe(2);
+    expect(openPaymentsOf(plan, "c")).toBe(2);
+    expect(openPaymentsOf(plan, "z")).toBe(0);
+    expect(openPaymentsOf([], "a")).toBe(0);
   });
 });

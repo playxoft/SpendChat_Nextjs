@@ -103,8 +103,16 @@ export function ExpenseBubble({
           <span className="shrink-0 text-base font-semibold tabular-nums">{fmt(expense.amountMinor)}</span>
         </div>
         <p className="mt-0.5 truncate text-xs text-muted-foreground">
-          {/* The main payer's colour, as their avatar has it. */}
-          <span className={cn("font-semibold", authorColorClass(expense.paidBy.memberId))}>{payer}</span> paid ·{" "}
+          {/* One payer: their colour, as their avatar has it. Several: plain bold — one colour would claim them all. */}
+          <span
+            className={cn(
+              "font-semibold",
+              expense.payers.length > 1 ? "text-foreground" : authorColorClass(expense.paidBy.memberId),
+            )}
+          >
+            {payer}
+          </span>{" "}
+          paid ·{" "}
           {SPLIT_LABEL[expense.splitType]}
           {people > 1 ? ` · ${people} people` : ""}
         </p>

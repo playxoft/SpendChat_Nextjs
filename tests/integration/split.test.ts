@@ -72,7 +72,7 @@ describe("split groups", () => {
     expect(detail.maxPeople).toBe(SPLIT_GROUP_MAX_PEOPLE);
 
     const groups = await split.listGroups(uid("o"));
-    expect(groups).toEqual([expect.objectContaining({ id, isCreator: true, peopleCount: 1, myNetMinor: 0 })]);
+    expect(groups).toEqual([expect.objectContaining({ id, isCreator: true, peopleCount: 1, myNetMinor: 0, myOpenPayments: 0 })]);
   });
 
   it("an account holder gets an in-app invitation and no email; they can join", async () => {
@@ -897,6 +897,10 @@ describe("settle-up plan, person to person", () => {
     expect(detail.suggestions).toEqual(
       expect.arrayContaining([line(ids.asha!, ids.o!, 10_000), line(ids.ravi!, ids.asha!, 10_000)]),
     );
+    // The groups list doesn't call that settled either.
+    expect(await split.listGroups(uid("asha"))).toEqual([
+      expect.objectContaining({ id, myNetMinor: 0, myOpenPayments: 2 }),
+    ]);
 
     signInAs("asha");
     expect(await actions.leaveSplitGroup(id)).toMatchObject({ ok: false, code: "settle_first" });
@@ -907,6 +911,9 @@ describe("settle-up plan, person to person", () => {
     ok(await actions.recordSplitSettlement(id, { fromMemberId: ids.asha!, toMemberId: ids.o!, amount: 100, settledOn: today }));
     expect(await actions.leaveSplitGroup(id)).toMatchObject({ ok: false, code: "settle_first" });
     ok(await actions.recordSplitSettlement(id, { fromMemberId: ids.ravi!, toMemberId: ids.asha!, amount: 100, settledOn: today }));
+    expect(await split.listGroups(uid("asha"))).toEqual([
+      expect.objectContaining({ id, myNetMinor: 0, myOpenPayments: 0 }),
+    ]);
     ok(await actions.leaveSplitGroup(id));
     expect((await split.getGroupDetail(uid("o"), id)).suggestions).toEqual([]);
   });

@@ -85,7 +85,8 @@ function TransferRow({
         <ArrowRight className="mx-0.5 size-3 text-muted-foreground" />
         <MemberAvatar id={line.to.id} name={line.to.name} size="sm" />
       </span>
-      <span className={cn("min-w-0 flex-1 truncate text-sm", mine ? "text-foreground" : "text-muted-foreground")}>
+      {/* Two lines rather than a cut-off name on a phone — the faces beside it are hidden from screen readers. */}
+      <span className={cn("line-clamp-2 min-w-0 flex-1 text-sm", mine ? "text-foreground" : "text-muted-foreground")}>
         <Sentence line={line} />
       </span>
       <span
@@ -135,7 +136,7 @@ export function TransferList({
   if (lines.length === 0) {
     return (
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
-        <CircleCheck aria-hidden className="size-4 text-emerald-600 dark:text-emerald-400" />
+        <CircleCheck aria-hidden className="size-4" />
         {detail.hasActivity ? "All settled up — nobody owes anyone." : "Nothing to settle yet."}
       </p>
     );
@@ -216,7 +217,7 @@ export function WhoPaysWhom({
     return (
       <div className={frame}>
         <p className="flex items-center gap-2 rounded-xl border bg-card px-3 py-2.5 text-sm shadow-xs">
-          <CircleCheck aria-hidden className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+          <CircleCheck aria-hidden className="size-4 shrink-0 text-muted-foreground" />
           <span className="font-medium">All settled up</span>
           <span className="text-muted-foreground">— nobody owes anyone</span>
         </p>
@@ -228,6 +229,9 @@ export function WhoPaysWhom({
   // A phone folds to two rows, so it may need "Show all" where a wider screen doesn't.
   const moreOnPhone = lines.length > Math.min(folded.length, FOLDED_ROWS - 1);
   const moreOnWide = lines.length > folded.length;
+  // Unfolded only while there's more to show — after a payment or a resize the
+  // list can shrink under the toggle, and the card shouldn't stay open without one.
+  const expanded = open && moreOnPhone;
   return (
     <div className={frame}>
       <section aria-labelledby={`${panelId}-title`} className="overflow-hidden rounded-xl border bg-card shadow-xs">
@@ -238,27 +242,28 @@ export function WhoPaysWhom({
           <h2 id={`${panelId}-title`} className="text-sm font-semibold">
             Who pays whom
           </h2>
-          <span className="truncate text-xs text-muted-foreground">
-            {lines.length === 1 ? "1 payment settles everyone" : `${lines.length} payments settle everyone`}
+          <span className="min-w-0 truncate text-xs text-muted-foreground">
+            {lines.length === 1 ? "1 payment" : `${lines.length} payments`}
+            <span className="max-sm:hidden"> settle everyone</span>
           </span>
           {moreOnPhone && (
             <button
               type="button"
-              aria-expanded={open}
+              aria-expanded={expanded}
               aria-controls={panelId}
-              onClick={() => setOpen((o) => !o)}
+              onClick={() => setOpen(!expanded)}
               className={cn(
                 "ml-auto flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground",
-                !moreOnWide && "sm:hidden",
+                !moreOnWide && !expanded && "sm:hidden",
               )}
             >
-              {open ? "Show less" : "Show all"}
-              <ChevronDown aria-hidden className={cn("size-3.5 transition-transform", open && "rotate-180")} />
+              {expanded ? "Show less" : "Show all"}
+              <ChevronDown aria-hidden className={cn("size-3.5 transition-transform", expanded && "rotate-180")} />
             </button>
           )}
         </div>
         <div id={panelId}>
-          {open ? (
+          {expanded ? (
             <div className="max-h-[45vh] space-y-2 overflow-y-auto px-3 pt-1 pb-3">
               <TransferGroups lines={lines} onSettle={onSettle} />
               <p className="text-xs text-muted-foreground">{FOOTNOTE}</p>
@@ -271,7 +276,7 @@ export function WhoPaysWhom({
             </ul>
           ) : (
             <p className="flex items-center gap-2 px-3 pt-0.5 pb-2.5 text-sm text-muted-foreground">
-              <CircleCheck aria-hidden className="size-4 shrink-0 text-emerald-600 dark:text-emerald-400" />
+              <CircleCheck aria-hidden className="size-4 shrink-0 text-muted-foreground" />
               You&apos;re settled up — the rest is between others.
             </p>
           )}

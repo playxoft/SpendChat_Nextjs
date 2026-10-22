@@ -8,6 +8,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import type { SplitViewer } from "@/lib/split-access";
+import { openPaymentsOf } from "@/lib/split-display";
 import type { SplitGroupDetail } from "@/services/split";
 import { BalanceChip, BalanceText } from "./balance-text";
 import { MemberAvatar } from "./member-avatar";
@@ -47,7 +48,12 @@ export function BalancesSheet({
           <SheetTitle>Balances</SheetTitle>
           <SheetDescription asChild>
             <div>
-              <BalanceChip netMinor={me?.netMinor ?? 0} currency={currency} locale={locale} />
+              <BalanceChip
+                netMinor={me?.netMinor ?? 0}
+                currency={currency}
+                locale={locale}
+                openPayments={openPaymentsOf(detail.suggestions, detail.me.memberId)}
+              />
             </div>
           </SheetDescription>
         </SheetHeader>
@@ -75,7 +81,14 @@ export function BalancesSheet({
                     )}
                     {m.status === "left" && <span className="text-muted-foreground"> · left</span>}
                   </span>
-                  <BalanceText netMinor={m.netMinor} currency={currency} locale={locale} you={m.isYou} className="shrink-0" />
+                  <BalanceText
+                    netMinor={m.netMinor}
+                    currency={currency}
+                    locale={locale}
+                    you={m.isYou}
+                    openPayments={openPaymentsOf(detail.suggestions, m.id)}
+                    className="shrink-0"
+                  />
                 </li>
               ))}
             </ul>

@@ -199,7 +199,12 @@ export function SplitHome({
                       <p className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
                         {activityLine(g.lastActivity, g.currency, locale)}
                       </p>
-                      <BalanceChip netMinor={g.myNetMinor} currency={g.currency} locale={locale} />
+                      <BalanceChip
+                        netMinor={g.myNetMinor}
+                        currency={g.currency}
+                        locale={locale}
+                        openPayments={g.myOpenPayments}
+                      />
                     </div>
                   </div>
                 </Link>

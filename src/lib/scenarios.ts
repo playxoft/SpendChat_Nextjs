@@ -335,7 +335,7 @@ export const FEATURE_SCENARIOS: Record<string, Scenario[]> = {
       icon: "Split",
       label: "Eight friends, one trip",
       place: "Goa",
-      body: "Cabs, a villa, a dozen dinners, paid by whoever had a card out. Everyone adds what they paid as it happens, and on the last day the group shows the four payments that settle it — not the twenty that a spreadsheet would suggest.",
+      body: "Cabs, a villa, a dozen dinners, paid by whoever had a card out. Everyone adds what they paid as it happens, and on the last day each of them sees exactly whom to pay back, with what two friends owe each other already cancelled out — no spreadsheet, no arguing over who covered which dinner.",
     },
     {
       id: "split-flat",

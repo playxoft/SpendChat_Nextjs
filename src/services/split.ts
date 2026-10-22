@@ -42,6 +42,7 @@ import {
 } from "@/services/split-rate";
 import { logger } from "@/lib/logger";
 import { SPLIT_GROUP_MAX_PEOPLE } from "@/lib/plans";
+import { openPaymentsOf } from "@/lib/split-display";
 import {
   canManageGroup,
   canSeeEmail,
@@ -55,6 +56,7 @@ import {
   pairwiseSettlements,
   type MemberBalance,
   type SettlementSuggestion,
+  type ShareAmount,
 } from "@/lib/split-math";
 import {
   addSplitMembersSchema,
@@ -279,26 +281,32 @@ async function ledgerTotals(memberIds: string[], db: DbOrTx) {
 }
 
 /**
- * A group's settle-up plan (`pairwiseSettlements`): who pays whom, person to
- * person. Still a few `GROUP BY`s rather than a load of every expense: an
- * expense with one payer — nearly all of them — is every other participant
- * owing that payer their share, summed per pair in SQL. Only expenses several
- * people paid are read row by row and matched inside the expense in JS
- * (`expenseDebts`). Recorded payments count against what each pair owes.
+ * Groups' settle-up plans (`pairwiseSettlements`): who pays whom, person to
+ * person, by group id — four queries however many groups. Still `GROUP BY`s
+ * rather than a load of every expense: an expense with one payer — nearly all
+ * of them — is every other participant owing that payer their share, summed
+ * per pair in SQL. Only expenses several people paid are read row by row and
+ * matched inside the expense in JS (`expenseDebts`). Recorded payments count
+ * against what each pair owes. A group with nothing owed has no entry.
  */
-export async function groupDebts(groupId: string, db: DbOrTx = getDb()): Promise<SettlementSuggestion[]> {
+export async function groupsDebts(
+  groupIds: string[],
+  db: DbOrTx = getDb(),
+): Promise<Map<string, SettlementSuggestion[]>> {
+  if (groupIds.length === 0) return new Map();
   const payers = effectivePayers(db);
   // Expenses several people paid. (A join, so every column is qualified.)
   const multiPayer = db
     .select({ expenseId: splitExpensePayers.expenseId })
     .from(splitExpensePayers)
     .innerJoin(splitExpenses, eq(splitExpenses.id, splitExpensePayers.expenseId))
-    .where(eq(splitExpenses.groupId, groupId))
+    .where(inArray(splitExpenses.groupId, groupIds))
     .groupBy(splitExpensePayers.expenseId)
     .having(gt(count(), 1));
   const [onePayer, multiShares, multiPayers, paidBack] = await Promise.all([
     db
       .select({
+        groupId: splitExpenses.groupId,
         fromMemberId: splitShares.memberId,
         toMemberId: payers.memberId,
         amountMinor: sumMinor(splitShares.amountMinor),
@@ -308,43 +316,72 @@ export async function groupDebts(groupId: string, db: DbOrTx = getDb()): Promise
       .innerJoin(payers, eq(payers.expenseId, splitShares.expenseId))
       .where(
         and(
-          eq(splitExpenses.groupId, groupId),
+          inArray(splitExpenses.groupId, groupIds),
           // 0 rows (kept for a workspace link) owe nothing; the payer's own share is no debt.
           gt(splitShares.amountMinor, 0),
           ne(splitShares.memberId, payers.memberId),
           notInArray(splitShares.expenseId, multiPayer),
         ),
       )
-      .groupBy(splitShares.memberId, payers.memberId),
+      .groupBy(splitExpenses.groupId, splitShares.memberId, payers.memberId),
     db
       .select({ expenseId: splitShares.expenseId, memberId: splitShares.memberId, amountMinor: splitShares.amountMinor })
       .from(splitShares)
       .where(and(inArray(splitShares.expenseId, multiPayer), gt(splitShares.amountMinor, 0))),
     db
       .select({
+        groupId: splitExpenses.groupId,
         expenseId: splitExpensePayers.expenseId,
         memberId: splitExpensePayers.memberId,
         amountMinor: splitExpensePayers.amountMinor,
       })
       .from(splitExpensePayers)
+      .innerJoin(splitExpenses, eq(splitExpenses.id, splitExpensePayers.expenseId))
       .where(inArray(splitExpensePayers.expenseId, multiPayer)),
     db
       .select({
+        groupId: splitSettlements.groupId,
         fromMemberId: splitSettlements.fromMemberId,
         toMemberId: splitSettlements.toMemberId,
         amountMinor: sumMinor(splitSettlements.amountMinor),
       })
       .from(splitSettlements)
-      .where(eq(splitSettlements.groupId, groupId))
-      .groupBy(splitSettlements.fromMemberId, splitSettlements.toMemberId),
+      .where(inArray(splitSettlements.groupId, groupIds))
+      .groupBy(splitSettlements.groupId, splitSettlements.fromMemberId, splitSettlements.toMemberId),
   ]);
-  const shared = [...new Set(multiPayers.map((p) => p.expenseId))].flatMap((id) =>
-    expenseDebts(
-      multiPayers.filter((p) => p.expenseId === id),
-      multiShares.filter((s) => s.expenseId === id),
-    ),
-  );
-  return pairwiseSettlements([...onePayer, ...shared], paidBack);
+
+  const byGroup = <T extends { groupId: string }>(rows: T[]) => {
+    const out = new Map<string, T[]>();
+    for (const r of rows) out.set(r.groupId, [...(out.get(r.groupId) ?? []), r]);
+    return out;
+  };
+  // Expenses several people paid, each matched inside itself.
+  const sharesOf = new Map<string, ShareAmount[]>();
+  for (const sh of multiShares) sharesOf.set(sh.expenseId, [...(sharesOf.get(sh.expenseId) ?? []), sh]);
+  const paidOf = new Map<string, { groupId: string; payers: ShareAmount[] }>();
+  for (const p of multiPayers) {
+    const e = paidOf.get(p.expenseId) ?? { groupId: p.groupId, payers: [] };
+    e.payers.push(p);
+    paidOf.set(p.expenseId, e);
+  }
+  const shared: (SettlementSuggestion & { groupId: string })[] = [];
+  for (const [expenseId, e] of paidOf) {
+    for (const d of expenseDebts(e.payers, sharesOf.get(expenseId) ?? [])) shared.push({ ...d, groupId: e.groupId });
+  }
+
+  const debts = byGroup([...onePayer, ...shared]);
+  const payments = byGroup(paidBack);
+  const out = new Map<string, SettlementSuggestion[]>();
+  for (const groupId of new Set([...debts.keys(), ...payments.keys()])) {
+    const plan = pairwiseSettlements(debts.get(groupId) ?? [], payments.get(groupId) ?? []);
+    if (plan.length > 0) out.set(groupId, plan);
+  }
+  return out;
+}
+
+/** One group's settle-up plan (`groupsDebts`). */
+export async function groupDebts(groupId: string, db: DbOrTx = getDb()): Promise<SettlementSuggestion[]> {
+  return (await groupsDebts([groupId], db)).get(groupId) ?? [];
 }
 
 /** Whether someone still owes, or is owed by, anyone in the group — leaving needs neither. */
@@ -352,7 +389,7 @@ async function hasOpenDebts(groupId: string, memberId: string, db: DbOrTx): Prom
   const [balance] = await memberBalances([memberId], db);
   if (balance!.netMinor !== 0) return true;
   // Even at zero overall, they can owe one person what another owes them.
-  return (await groupDebts(groupId, db)).some((d) => d.fromMemberId === memberId || d.toMemberId === memberId);
+  return openPaymentsOf(await groupDebts(groupId, db), memberId) > 0;
 }
 
 /** Net balance of every given member (positive = is owed). */
@@ -399,6 +436,12 @@ export type SplitGroupSummary = {
   peopleCount: number;
   /** The caller's balance in this group (positive = is owed). */
   myNetMinor: number;
+  /**
+   * Lines of the group's settle-up plan the caller pays or receives. Can be
+   * above 0 at a zero balance — owing one person what another owes you — so
+   * "Settled Up" means this is 0, not just the balance.
+   */
+  myOpenPayments: number;
   createdAt: Date;
   /** The newest expense or payment — the chat list's preview line. Web only. */
   lastActivity: SplitActivity | null;
@@ -537,13 +580,14 @@ export async function listGroups(userId: string): Promise<SplitGroupSummary[]> {
   if (rows.length === 0) return [];
 
   const groupIds = rows.map((r) => r.group.id);
-  const [counts, balances, activity] = await Promise.all([
+  const [counts, balances, debts, activity] = await Promise.all([
     db
       .select({ groupId: splitMembers.groupId, n: count() })
       .from(splitMembers)
       .where(and(inArray(splitMembers.groupId, groupIds), inArray(splitMembers.status, ACTIVE)))
       .groupBy(splitMembers.groupId),
     memberBalances(rows.map((r) => r.memberId), db),
+    groupsDebts(groupIds, db),
     lastActivities(groupIds, new Set(rows.map((r) => r.memberId)), db),
   ]);
   const people = new Map(counts.map((c) => [c.groupId, c.n]));
@@ -556,6 +600,7 @@ export async function listGroups(userId: string): Promise<SplitGroupSummary[]> {
     isCreator: group.createdBy === userId,
     peopleCount: people.get(group.id) ?? 0,
     myNetMinor: net.get(memberId) ?? 0,
+    myOpenPayments: openPaymentsOf(debts.get(group.id) ?? [], memberId),
     createdAt: group.createdAt,
     lastActivity: activity.get(group.id) ?? null,
   }));
@@ -593,7 +638,7 @@ export type SplitGroupDetail = {
     updatedAt: Date;
   };
   me: { memberId: string; isCreator: boolean };
-  /** Active people first (join order), then former members who still have a balance or a payment due. */
+  /** Active people first (join order), then former members who still have a balance or a payment to make or receive. */
   members: SplitMemberView[];
   /**
    * Who pays whom to settle up, person to person (`groupDebts`): each pair's
@@ -1116,7 +1161,7 @@ export async function removeMember(
     if (!row || row.status === "left") throw notFound("That person isn't in this group");
     if (await hasOpenDebts(group.id, row.id, tx)) {
       // Neutral on purpose: this message lands in log lines, and names don't.
-      throw settleFirst("That person still has a balance — settle up first");
+      throw settleFirst("That person still owes or is owed someone here — settle up first");
     }
     await retireMember(tx, row.id, false);
   });
@@ -1129,7 +1174,7 @@ export async function leaveGroup(userId: string, rawGroupId: unknown): Promise<v
   const groupId = await db.transaction(async (tx) => {
     const { group, me, viewer } = await requireJoined(userId, rawGroupId, tx, "update");
     if (viewer.isCreator) throw badRequest("You created this group — delete it instead of leaving");
-    if (await hasOpenDebts(group.id, me.id, tx)) throw settleFirst("You still have a balance here — settle up first");
+    if (await hasOpenDebts(group.id, me.id, tx)) throw settleFirst("You still owe or are owed someone here — settle up first");
     await retireMember(tx, me.id, true);
     return group.id;
   });

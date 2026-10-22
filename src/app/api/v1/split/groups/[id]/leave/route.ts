@@ -9,7 +9,8 @@ type Ctx = { params: Promise<{ id: string }> };
 
 /**
  * POST /api/v1/split/groups/:id/leave — leave a group. Not for its creator
- * (400 — delete it instead); 409 `settle_first` while you still have a balance.
+ * (400 — delete it instead); 409 `settle_first` while you still owe or are owed
+ * anyone (any settle-up line names you), even at a zero balance.
  */
 export async function POST(request: NextRequest, ctx: Ctx) {
   return handle(async () => {

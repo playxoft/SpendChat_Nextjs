@@ -54,9 +54,13 @@ recorded between them: biggest first, at most one line per pair, and each
 member's lines add up to their `balanceMinor`. A group can show more lines than
 before. Leaving (`POST /split/groups/{id}/leave`) and removing someone now
 answer **409 `settle_first`** while any line names them, even at a zero balance
-overall. **Flutter impact:** none required — same fields; show the list as
-sent (don't re-derive it from balances), and expect `settle_first` at a zero
-balance.
+overall. A former member stays in `members` while a line names them.
+`SplitGroup` (in `GET /split/groups`) gains **`myOpenPayments`**: your lines in
+the plan, which can be above 0 at a zero balance — "settled up" means both are 0.
+**Flutter impact:** none required — show the list as sent (don't re-derive it
+from balances), and expect `settle_first` at a zero balance. To match the web,
+show a zero balance with `myOpenPayments > 0` as "Even overall, N payments to
+settle" rather than "Settled up".
 
 Also in this release, with no contract change: a **new account** now starts with
 `Settings.inputMode: "combined"` (it was `amount_title`). Existing accounts keep

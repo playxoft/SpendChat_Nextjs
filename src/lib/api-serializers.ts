@@ -460,6 +460,8 @@ export type ApiSplitGroup = {
   /** The caller's balance: positive = is owed, negative = owes. */
   myBalanceMinor: number;
   myBalance: string;
+  /** Payments the caller still makes or receives — can be above 0 at a zero balance. */
+  myOpenPayments: number;
   createdAt: string;
 };
 
@@ -473,6 +475,7 @@ export function serializeSplitGroup(g: SplitGroupSummary): ApiSplitGroup {
     peopleCount: g.peopleCount,
     myBalanceMinor: g.myNetMinor,
     myBalance: majorString(g.myNetMinor, g.currency),
+    myOpenPayments: g.myOpenPayments,
     createdAt: toIso(g.createdAt),
   };
 }

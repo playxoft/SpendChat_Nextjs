@@ -515,7 +515,13 @@ function ImportFlow({
                     b.netMinor === 0 && "text-muted-foreground",
                   )}
                 >
-                  {b.netMinor === 0 ? SETTLED_UP : b.netMinor > 0 ? `is owed ${fmt(b.netMinor)}` : `owes ${fmt(-b.netMinor)}`}
+                  {b.netMinor === 0
+                    ? ledger.payments.some((p) => p.from === b.id || p.to === b.id)
+                      ? "even overall"
+                      : SETTLED_UP
+                    : b.netMinor > 0
+                      ? `is owed ${fmt(b.netMinor)}`
+                      : `owes ${fmt(-b.netMinor)}`}
                 </span>
               </li>
             ))}

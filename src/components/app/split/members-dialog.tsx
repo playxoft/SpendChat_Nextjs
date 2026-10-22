@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/dialog";
 import { addSplitMembers, removeSplitMember } from "@/actions/split";
 import { splitInvitePath } from "@/lib/invite-links";
+import { openPaymentsOf } from "@/lib/split-display";
+import type { SettlementSuggestion } from "@/lib/split-math";
 import type { SplitMemberView } from "@/services/split";
 import { BalanceText } from "./balance-text";
 import { EMPTY_PERSON, filledPeople, PeopleFields, type PersonDraft } from "./people-fields";
@@ -31,6 +33,7 @@ export function MembersDialog({
   onOpenChange,
   groupId,
   members,
+  suggestions,
   isCreator,
   peopleCount,
   maxPeople,
@@ -41,6 +44,8 @@ export function MembersDialog({
   onOpenChange: (open: boolean) => void;
   groupId: string;
   members: SplitMemberView[];
+  /** The settle-up plan: someone in it isn't settled, whatever their balance. */
+  suggestions: SettlementSuggestion[];
   isCreator: boolean;
   peopleCount: number;
   maxPeople: number;
@@ -51,6 +56,8 @@ export function MembersDialog({
   const [people, setPeople] = React.useState<PersonDraft[]>([EMPTY_PERSON]);
   const [pending, setPending] = React.useState(false);
   const room = maxPeople - peopleCount;
+  // Removing needs no balance and no payment left to or from them (the server checks the same).
+  const settled = (m: SplitMemberView) => m.netMinor === 0 && openPaymentsOf(suggestions, m.id) === 0;
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
@@ -126,16 +133,22 @@ export function MembersDialog({
                     Copy invite link
                   </button>
                 )}
-                {isCreator && !m.isYou && m.status !== "left" && m.netMinor !== 0 && (
+                {isCreator && !m.isYou && m.status !== "left" && !settled(m) && (
                   <p className="mt-1 text-xs text-muted-foreground">Settle up first to remove them</p>
                 )}
               </div>
-              <BalanceText netMinor={m.netMinor} currency={currency} locale={locale} className="text-xs" />
+              <BalanceText
+                netMinor={m.netMinor}
+                currency={currency}
+                locale={locale}
+                openPayments={openPaymentsOf(suggestions, m.id)}
+                className="text-xs"
+              />
               {isCreator && !m.isYou && m.status !== "left" && (
                 <Button
                   size="sm"
                   variant="ghost"
-                  disabled={pending || m.netMinor !== 0}
+                  disabled={pending || !settled(m)}
                   onClick={() => remove(m)}
                 >
                   Remove

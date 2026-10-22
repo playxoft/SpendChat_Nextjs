@@ -85,9 +85,11 @@ separately in [`_developer/flutter/_changelog.md`](./_developer/flutter/_changel
   you owe someone for the bills they paid is set against what they owe you, and
   a recorded payment counts against it. In that example: you pay Senthil ₹250,
   Nantha and Muthumani each pay you ₹250 and Senthil ₹500. Everyone's payments
-  still add up to their balance. You can leave a group, or be removed, only once
-  no payment is left to you or from you. The free split calculator works the
-  same way.
+  still add up to their balance. If you owe one person exactly what another
+  owes you, your balance is zero but you're not done: it reads "Even overall,
+  2 payments to settle" instead of "Settled Up". You can leave a group, or be
+  removed, only once no payment is left to you or from you. The free split
+  calculator works the same way.
 - **Input settings no longer squeeze.** The input layout and density choices
   are one per row, so each composer preview shows in full.
 

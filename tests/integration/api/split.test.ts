@@ -99,7 +99,7 @@ describe("/api/v1/split", () => {
     const list = await json<{ id: string; myBalanceMinor: number; myBalance: string }[]>(
       await listGroups(apiReq("/api/v1/split/groups")),
     );
-    expect(list.body.data).toEqual([expect.objectContaining({ id: group.id, myBalanceMinor: 0, myBalance: "0" })]);
+    expect(list.body.data).toEqual([expect.objectContaining({ id: group.id, myBalanceMinor: 0, myBalance: "0", myOpenPayments: 0 })]);
 
     const patched = await json<Detail>(
       await patchGroup(

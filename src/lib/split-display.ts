@@ -103,23 +103,48 @@ export function payersLabel(payers: readonly { name: string; isYou: boolean }[])
   return `${you ? "You" : others[0]} and ${payers.length - 1} others`;
 }
 
-/** A balance as a status: "You're owed ₹X", "You owe ₹Y" or "Settled Up" (Title Case on purpose). */
-export function balanceStatus(netMinor: number): "owed" | "owe" | "settled" {
-  return netMinor > 0 ? "owed" : netMinor < 0 ? "owe" : "settled";
+/**
+ * A balance as a status: owed, owe, or settled — and "open" at a zero balance
+ * that still has payments to make or receive (owing one person what another
+ * owes you), which isn't settled at all.
+ */
+export function balanceStatus(netMinor: number, openPayments = 0): "owed" | "owe" | "open" | "settled" {
+  if (netMinor > 0) return "owed";
+  if (netMinor < 0) return "owe";
+  return openPayments > 0 ? "open" : "settled";
 }
 
 /** The status label for a settled balance — Title Case, as a chip. */
 export const SETTLED_UP = "Settled Up";
 
+/** How many lines of a settle-up plan are someone's to pay or receive. */
+export function openPaymentsOf(
+  plan: readonly { fromMemberId: string; toMemberId: string }[],
+  memberId: string,
+): number {
+  return plan.filter((d) => d.fromMemberId === memberId || d.toMemberId === memberId).length;
+}
+
+/** "1 payment" / "3 payments" — to settle at a zero balance. */
+function paymentsToSettle(n: number): string {
+  return `${n} ${n === 1 ? "payment" : "payments"} to settle`;
+}
+
 /**
  * The balance chip's words — full ("You're owed ₹1,200") for its accessible
  * name and wide screens, short ("+₹1,200", "−₹300") where a phone has room for
- * little else. `amount` is the formatted absolute amount.
+ * little else. `amount` is the formatted absolute amount; `openPayments` the
+ * viewer's lines in the settle-up plan, which a zero balance can still have.
  */
-export function balanceChipText(netMinor: number, amount: string): { full: string; short: string } {
-  const status = balanceStatus(netMinor);
+export function balanceChipText(
+  netMinor: number,
+  amount: string,
+  openPayments = 0,
+): { full: string; short: string } {
+  const status = balanceStatus(netMinor, openPayments);
   if (status === "owed") return { full: `You're owed ${amount}`, short: `+${amount}` };
   if (status === "owe") return { full: `You owe ${amount}`, short: `−${amount}` };
+  if (status === "open") return { full: `Even overall, ${paymentsToSettle(openPayments)}`, short: `${openPayments} to settle` };
   return { full: SETTLED_UP, short: SETTLED_UP };
 }
 

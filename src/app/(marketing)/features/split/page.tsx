@@ -103,7 +103,7 @@ export default function SplitPage() {
           },
           {
             title: "Settle up",
-            body: "SpendChat lists who pays whom — at most one payment fewer than there are people. When one happens, Mark as paid — and everyone's balance moves.",
+            body: "SpendChat lists who pays whom, person to person — each pair's bills netted, so it's one payment per pair at most. When one happens, Mark as paid — and everyone's balance moves.",
           },
         ]}
       />
@@ -141,19 +141,20 @@ export default function SplitPage() {
         </p>
       </FeatureSection>
 
-      <FeatureSection title="Settle up from one short list">
+      <FeatureSection title="Settle up person to person">
         <p>
           Four people and a dozen expenses could mean a dozen transfers. They
-          don&apos;t have to: SpendChat matches the biggest debt with the
-          biggest credit, then the next, so a group of n people never needs more
-          than n − 1 payments. It&apos;s a short list rather than a
-          guaranteed shortest one, and it&apos;s the same for everyone, every
-          time they open it.
+          don&apos;t have to: what you owe a friend for the bills they paid is
+          set against what they owe you for the bills you paid, and only the
+          difference changes hands — one payment per pair at most. Nobody is
+          told to pay someone they never shared a bill with, everyone&apos;s
+          payments add up to their balance, and the list is the same for
+          everyone, every time they open it.
         </p>
         <p>
           SpendChat doesn&apos;t move money. When someone pays — cash, UPI, a
           bank transfer — they press Mark as paid and the balances update for
-          the whole group. A group where every balance is zero reads Settled Up.
+          the whole group. When nobody owes anybody, the group reads Settled Up.
           People can leave, or be removed, once they&apos;re settled up, so a
           debt can&apos;t walk out of the group.
         </p>

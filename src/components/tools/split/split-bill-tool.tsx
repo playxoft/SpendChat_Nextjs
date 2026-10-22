@@ -311,7 +311,11 @@ export function SplitBillTool() {
                           Paid {fmt(b.paidMinor)} · share {fmt(b.shareMinor)}
                         </span>
                       </span>
-                      <BalanceWords netMinor={b.netMinor} fmt={fmt} />
+                      <BalanceWords
+                        netMinor={b.netMinor}
+                        open={ledger.payments.filter((p) => p.from === b.id || p.to === b.id).length}
+                        fmt={fmt}
+                      />
                     </li>
                   ))}
                 </ul>
@@ -419,7 +423,9 @@ function ActionButton({
   );
 }
 
-function BalanceWords({ netMinor, fmt }: { netMinor: number; fmt: (minor: number) => string }) {
+/** `open`: their payments to make or receive — a zero balance can still have some, and isn't settled then. */
+function BalanceWords({ netMinor, open, fmt }: { netMinor: number; open: number; fmt: (minor: number) => string }) {
+  if (netMinor === 0 && open > 0) return <span className="shrink-0">even overall</span>;
   if (netMinor === 0) return <span className="shrink-0 text-muted-foreground">{SETTLED_UP}</span>;
   if (netMinor > 0) {
     return (

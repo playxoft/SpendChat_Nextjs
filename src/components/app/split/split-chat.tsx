@@ -32,7 +32,14 @@ import {
   updateSplitWorkspaceEntry,
 } from "@/actions/split";
 import type { SplitViewer } from "@/lib/split-access";
-import { balanceChipText, compareFeed, feedCursor, keepThroughRefresh, mergeFeed } from "@/lib/split-display";
+import {
+  balanceChipText,
+  compareFeed,
+  feedCursor,
+  keepThroughRefresh,
+  mergeFeed,
+  openPaymentsOf,
+} from "@/lib/split-display";
 import { formatDateLabel, formatDateShort } from "@/lib/dates";
 import { formatMoney } from "@/lib/money";
 import { SPLIT_FEED_PAGE } from "@/lib/validation";
@@ -94,6 +101,7 @@ export function SplitChat({
   const names = new Map(detail.members.map((m) => [m.id, m.name]));
   const active = detail.members.filter((m) => m.status !== "left");
   const myNet = detail.members.find((m) => m.isYou)?.netMinor ?? 0;
+  const myOpen = openPaymentsOf(detail.suggestions, me.memberId);
   const people = active.map((m) => ({ id: m.id, name: m.name }));
 
   // The feed: the server's newest page, under whatever "Show earlier" loaded
@@ -295,9 +303,9 @@ export function SplitChat({
                 onClick={() => setBalancesOpen(true)}
                 className="flex min-w-0 rounded-full"
                 // The chip's words lead, so the balance is what's announced.
-                aria-label={`${balanceChipText(myNet, formatMoney(Math.abs(myNet), currency, locale)).full} — balances and settling up`}
+                aria-label={`${balanceChipText(myNet, formatMoney(Math.abs(myNet), currency, locale), myOpen).full} — balances and settling up`}
               >
-                <BalanceChip netMinor={myNet} currency={currency} locale={locale} compact />
+                <BalanceChip netMinor={myNet} currency={currency} locale={locale} openPayments={myOpen} compact />
               </button>
             </div>
           </div>
@@ -460,6 +468,7 @@ export function SplitChat({
         onOpenChange={setPeopleOpen}
         groupId={group.id}
         members={detail.members}
+        suggestions={detail.suggestions}
         isCreator={me.isCreator}
         peopleCount={detail.peopleCount}
         maxPeople={detail.maxPeople}
